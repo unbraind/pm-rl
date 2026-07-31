@@ -1,0 +1,118 @@
+{
+  "name": "pm-rl",
+  "version": "2026.7.31",
+  "description": "Reinforcement-learning programme management on the pm SDK: environments and reward specifications that version, runs whose metric series live in pm's append-only history so concurrent sweeps merge losslessly, benchmarks and eval results with full provenance, and sim-to-real transfer gaps as tracked data. Refuses to rank across incompatible environment versions or contaminated benchmarks instead of reporting a flattering number.",
+  "type": "module",
+  "main": "dist/index.js",
+  "files": [
+    "dist/",
+    "manifest.json",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "build": "tsc",
+    "build:test": "tsc -p tsconfig.test.json",
+    "test": "npm run build && npm run build:test && node --test test/*.test.ts",
+    "prepack": "npm run build",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck",
+    "audit:prod": "node --input-type=module -e \"import { spawnSync } from 'node:child_process'; import { devNull } from 'node:os'; const env = { ...process.env, npm_config_userconfig: devNull, NPM_CONFIG_USERCONFIG: devNull }; for (const key of Object.keys(env)) if (key.toLowerCase() === 'npm_config_allow_scripts') delete env[key]; const win = process.platform === 'win32'; const r = spawnSync(win ? 'npm.cmd' : 'npm', ['audit', '--omit=dev', '--ignore-scripts'], { stdio: 'inherit', env, shell: win }); process.exit(r.status ?? 1);\"",
+    "pack:dry-run": "npm pack --dry-run",
+    "changelog": "pm-changelog --pm-root .agents/pm --mode prepend --output CHANGELOG.md --release-version-from-package --since-previous-tag --until-release-tag --item-url-base https://github.com/unbraind/pm-rl/blob/main/.agents/pm --respect-item-release",
+    "changelog:full": "pm-changelog --pm-root .agents/pm --mode replace --output CHANGELOG.md --all-release-tags --release-version-from-package --item-url-base https://github.com/unbraind/pm-rl/blob/main/.agents/pm --respect-item-release",
+    "changelog:check": "pm-changelog --pm-root .agents/pm --mode prepend --output CHANGELOG.md --release-version-from-package --since-previous-tag --until-release-tag --item-url-base https://github.com/unbraind/pm-rl/blob/main/.agents/pm --respect-item-release --check",
+    "release:check": "npm run typecheck && npm run build && npm run coverage && npm run audit:prod && npm run pack:dry-run && npm run changelog:check",
+    "prepublishOnly": "npm run release:check",
+    "release:notes": "pm-changelog --pm-root .agents/pm --stdout --since-previous-tag --until-release-tag --release-version-from-package --item-url-base https://github.com/unbraind/pm-rl/blob/main/.agents/pm --respect-item-release --pm-bin ./node_modules/.bin/pm --github-step-summary",
+    "prepare": "node scripts/prepare-merge-driver.mjs",
+    "merge:install": "pm merge install",
+    "coverage": "npm run build && npm run build:test && node scripts/coverage-gate.ts"
+  },
+  "coverageGate": {
+    "sources": [
+      "."
+    ],
+    "tests": [
+      "test/units.test.ts",
+      "test/series.test.ts",
+      "test/environments.test.ts",
+      "test/runs.test.ts",
+      "test/rl-commands.test.ts"
+    ],
+    "thresholds": {
+      "lines": 100,
+      "branches": 100,
+      "functions": 100
+    }
+  },
+  "keywords": [
+    "pm-cli",
+    "pm-extension",
+    "pm-package",
+    "reinforcement-learning",
+    "rl",
+    "evals",
+    "benchmarks",
+    "experiment-tracking",
+    "sim-to-real",
+    "reward-specification",
+    "provenance",
+    "multi-agent"
+  ],
+  "author": "@unbraind",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/unbraind/pm-rl.git"
+  },
+  "bugs": {
+    "url": "https://github.com/unbraind/pm-rl/issues"
+  },
+  "homepage": "https://github.com/unbraind/pm-rl#readme",
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "@unbrained/pm-cli": "^2026.7.29",
+    "pm-changelog": "^2026.7.26",
+    "typescript": "^7.0.2"
+  },
+  "peerDependencies": {
+    "@unbrained/pm-cli": ">=2026.7.29"
+  },
+  "pm": {
+    "aliases": [
+      "rl"
+    ],
+    "extensions": [
+      "."
+    ],
+    "catalog": {
+      "display_name": "Reinforcement Learning Programme",
+      "category": "workflow",
+      "summary": "Track an RL programme as project data: versioned environments and reward specs, runs whose metric series merge losslessly across branches, benchmarks and eval results with full provenance, and sim-to-real transfer gaps. Refuses to rank the incomparable.",
+      "tags": [
+        "reinforcement-learning",
+        "evals",
+        "benchmarks",
+        "experiment-tracking",
+        "sim-to-real"
+      ],
+      "links": {
+        "docs": "https://github.com/unbraind/pm-rl#readme",
+        "npm": "https://www.npmjs.com/package/pm-rl",
+        "repository": "https://github.com/unbraind/pm-rl",
+        "report": "https://github.com/unbraind/pm-rl/issues"
+      }
+    },
+    "docs": [
+      "README.md",
+      "CHANGELOG.md"
+    ],
+    "examples": [
+      "README.md"
+    ]
+  }
+}

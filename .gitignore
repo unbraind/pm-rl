@@ -1,0 +1,28 @@
+node_modules/
+dist/
+*.local
+.env
+*.tgz
+RELEASE_NOTES.md
+
+dist-test/
+
+# A pm-vcs repository, if this checkout is ever versioned with pm-vcs alongside
+# git. Local state only: an accidental `pm vcs add` here would otherwise stage a
+# second copy of the whole tree.
+.pmvcs/
+
+.agents/pm/locks/
+.agents/pm/runtime/
+.agents/pm/search/
+.agents/pm/extensions/
+coverage/
+
+# pm-cli:runtime-cache:start
+.agents/pm/runtime/
+.agents/pm/search/*
+.agents/pm/locks/
+.agents/pm/transactions/
+.agents/pm/checkpoints/
+!.agents/pm/search/eval-queries.json
+# pm-cli:runtime-cache:end

@@ -1,0 +1,16 @@
+id: pm-rl-mpd9
+title: "Metric series live in item history, never in an item body"
+description: "A run emits a monotonically growing series of metric events. Written to an item body, which is a scalar field, two concurrent writers produce a genuine conflict on every write, and a conflicted body is unparseable. Written to the append-only history stream, both sides' events survive a merge as their union, which pm-vcs proved empirically against a real git merge rather than by assumption. This single rule is what makes concurrent sweeps merge cleanly, so it is a constraint on every command that records a metric, not a convention."
+type: Decision
+status: open
+priority: 2
+tags: []
+created_at: "2026-07-31T06:38:29.315Z"
+updated_at: "2026-07-31T06:43:13.658Z"
+author: "harness:claude-code"
+acceptance_criteria: No command writes a metric value to an item body or any scalar field; a test merges two branches that both logged to one run and asserts the union of events with zero conflicts and zero loss
+dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
+  pm-rl-e20d,parent,"2026-07-31T06:38:29.676Z","harness:claude-code","cli:update:dep",detected
+notes[1]{created_at,author,text}:
+  "2026-07-31T06:43:13.658Z","harness:claude-code","Decision reconfirmed against the shipped host rather than against the earlier spec note: pm append targets the body, so any command that used it for metrics would conflict on every concurrent write. The rule holds and now has a named counterexample attached to it."
+body: ""
