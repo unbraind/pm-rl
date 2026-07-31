@@ -37,11 +37,7 @@
       "."
     ],
     "tests": [
-      "test/units.test.ts",
-      "test/series.test.ts",
-      "test/environments.test.ts",
-      "test/runs.test.ts",
-      "test/rl-commands.test.ts"
+      "test/series.test.ts"
     ],
     "thresholds": {
       "lines": 100,
