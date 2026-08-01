@@ -1,7 +1,7 @@
 {
   "name": "pm-rl",
   "version": "2026.7.31",
-  "description": "Reinforcement-learning programme management on the pm SDK: content-addressed environments, attributable run lifecycles, and bounded compressed metric segments that merge losslessly across Git branches.",
+  "description": "Reinforcement-learning programme management on the pm SDK: content-addressed environments, attributable runs, and bounded compressed metric segments that preserve accepted branch occurrences.",
   "type": "module",
   "main": "dist/index.js",
   "files": [
@@ -92,7 +92,7 @@
     "catalog": {
       "display_name": "Reinforcement Learning Programme",
       "category": "workflow",
-      "summary": "Track content-addressed RL environments and attributable runs whose bounded compressed metric segments merge losslessly across Git branches.",
+      "summary": "Track content-addressed RL environments and attributable runs whose bounded compressed metric segments preserve accepted branch occurrences.",
       "tags": [
         "reinforcement-learning",
         "evals",

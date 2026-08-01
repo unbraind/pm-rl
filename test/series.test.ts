@@ -15,6 +15,8 @@ import {
   decodeEventSegment,
   encodeEvent,
   encodeEventSegment,
+  encodeEventSegments,
+  MAX_SEGMENT_ENCODED_BYTES,
   MAX_SEGMENT_UNCOMPRESSED_BYTES,
   MetricEventError,
   type MetricEvent,
@@ -61,6 +63,7 @@ test("a compressed segment is canonical, bounded, and backward-compatible with e
   const segments = segmentEvents(events);
   assert.ok(segments.length > 1);
   const notes = segments.map((segment) => encodeEventSegment(segment));
+  assert.deepEqual(encodeEventSegments(events), notes);
   assert.ok(notes.every((note) => note.startsWith("pm-rl/2 ")));
   assert.deepEqual(notes.map((note) => decodeEventSegment(note)), segments);
   assert.deepEqual(readSeries([encodeEvent(EVENT), ...notes]).events, [EVENT, ...events].sort((left, right) => left.step - right.step));
@@ -74,6 +77,12 @@ test("segment decoding rejects empty, oversized, corrupt, and non-canonical payl
   const many = Array.from({ length: 2_000 }, (_value, step): MetricEvent => ({ step, metric: "uncompressible-enough", value: step }));
   assert.throws(() => encodeEventSegment(many), (error: unknown) => error instanceof MetricEventError && error.code === "segment_too_large");
   assert.throws(() => decodeEventSegment("pm-rl/2 not-base64"), (error: unknown) => error instanceof MetricEventError && error.code === "malformed_segment");
+  assert.throws(
+    () => decodeEventSegment(`pm-rl/2 ${"a".repeat(MAX_SEGMENT_ENCODED_BYTES)}`),
+    (error: unknown) => error instanceof MetricEventError && error.code === "encoded_segment_too_large",
+  );
+  const malformedLine = `pm-rl/2 ${deflateRawSync("not json", { level: 9 }).toString("base64url")}`;
+  assert.throws(() => decodeEventSegment(malformedLine), (error: unknown) => error instanceof MetricEventError && error.code === "malformed_line");
   for (const payload of ["", '{ "step": 1, "metric": "loss", "value": 2 }']) {
     const note = `pm-rl/2 ${deflateRawSync(payload, { level: 9 }).toString("base64url")}`;
     assert.throws(() => decodeEventSegment(note), (error: unknown) => error instanceof MetricEventError && error.code === "noncanonical_segment");

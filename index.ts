@@ -20,7 +20,7 @@ import {
 import { PmClient, type GetResult } from "@unbrained/pm-cli/sdk/core";
 import { createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 
-import { encodeEventSegment, parseNdjsonStream, readSeries, segmentEvents } from "./series.ts";
+import { encodeEventSegments, parseNdjsonStream, readSeries } from "./series.ts";
 
 /** JSON values accepted in environment and run configuration files. */
 export type JsonValue = null | boolean | number | string | JsonValue[] | { readonly [key: string]: JsonValue };
@@ -305,7 +305,7 @@ async function logRun(context: CommandHandlerContext): Promise<RlCommandResult> 
   const client = clientFor(context);
   const run = await getTypedItem(client, id, "Run");
   if (run.item.status !== "in_progress") fail(`Run ${id} is ${String(run.item.status)}; only an in-progress run accepts metrics.`, "run_not_active", EXIT_CODE.CONFLICT);
-  const notes = segmentEvents(events).map((segment) => encodeEventSegment(segment));
+  const notes = encodeEventSegments(events);
   await client.update(id, {
     note: notes,
     message: `Append ${events.length} RL metric event(s) in ${notes.length} bounded segment(s) atomically`,

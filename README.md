@@ -34,11 +34,18 @@ Two properties do the real work, and neither is incidental.
 
 **Metric logging is append-only, and so are pm notes.** A training run emits a monotonically
 growing series of events. `pm rl run log` validates the complete input, packs canonical NDJSON
-into compressed segments of at most 48 KiB decoded data, and appends the segments
-as one atomic mutation. pm's field-aware merge drivers preserve their union when branches merge.
+into compressed segments of at most 48 KiB decoded data and 65 KiB serialized note text, and
+appends the segments as one atomic mutation. pm's field-aware merge drivers preserve every
+accepted branch occurrence when branches merge.
 The reader remains compatible with the original one-event `pm-rl/1` notes. The package test
-suite creates two real Git branches, appends a different measurement on each, merges them, and
-reads both measurements back through the public command.
+suite creates two real Git branches, appends the same measurement on each, merges them, and
+reads both occurrences back through the public command.
+
+Event identity is the accepted note occurrence, not the metric payload. Two identical
+measurements may be legitimate and remain distinct; `run log` therefore has at-least-once
+semantics and never guesses that equal payloads are retries. A producer that cannot tolerate a
+duplicate must resume from its own acknowledged input boundary rather than replay an uncertain
+batch.
 
 The corollary is a hard design rule: **metrics go to history, never to an item's body.** A body
 is a scalar field, and two sides changing a scalar is a real conflict. A series written to the
@@ -90,9 +97,10 @@ registered until those graph-derived checks are implemented and accepted.
 - **No orchestration.** pm-rl does not schedule GPUs, launch jobs, or wrap a trainer. `run log`
   accepts NDJSON on stdin, so any trainer in any language pipes into it.
 - **No separate metric store.** The history stream *is* the store. Retained evidence necessarily
-  grows with retained measurements, but canonical-payload segments bound each decoded note to 48 KiB
-  and sharply bound storage amplification: the sustained integration case retains 10,000 events
-  across 40 mutations in 99,526 history bytes for 736,650 input bytes (13.51%).
+  grows with retained measurements. Each segment is capped at 48 KiB decoded and 65 KiB
+  serialized. In the representative sustained integration workload—not as a universal
+  compression ratio—10,000 events across 40 mutations occupy 99,526 history bytes for 736,650
+  input bytes (13.51%).
 - **No relationship to `pm eval`.** That core command measures pm's own search relevance
   (nDCG/MRR/precision/recall over a golden-query set). It shares a word and nothing else.
 

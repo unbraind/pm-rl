@@ -203,7 +203,9 @@ test("two real Git branches merge independently appended run metrics without los
   const agentBFile = join(root, "agent-b.ndjson");
   writeFileSync(environmentFile, JSON.stringify(SPEC));
   writeFileSync(agentAFile, '{"step":1,"metric":"reward","value":3}');
-  writeFileSync(agentBFile, '{"step":2,"metric":"reward","value":5}');
+  // Equal payloads are distinct accepted log occurrences. Note metadata gives
+  // each branch occurrence identity; payload-level deduplication would lose one.
+  writeFileSync(agentBFile, '{"step":1,"metric":"reward","value":3}');
 
   execFileSync("git", ["init", "-b", "main"], { cwd: root });
   execFileSync("git", ["config", "user.name", "pm-rl-test"], { cwd: root });
@@ -237,7 +239,7 @@ test("two real Git branches merge independently appended run metrics without los
   const shown = resultOf(await harness.runCommand({ command: "rl run show", pmRoot, args: [run.id!] }));
   assert.deepEqual(shown.details?.events, [
     { step: 1, metric: "reward", value: 3 },
-    { step: 2, metric: "reward", value: 5 },
+    { step: 1, metric: "reward", value: 3 },
   ]);
 });
 
