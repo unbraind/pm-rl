@@ -1,12 +1,12 @@
 id: pm-rl-et5b
 title: "Environment registration and versioning, immutable once referenced"
-description: "An Environment holds the task suite, action and observation space, reward specification, and seed policy. Once a Run references a version, that version is immutable: a change produces a new version. Without that rule a result cannot be attributed, because the environment it was measured in no longer exists. The rule is enforced at write time rather than documented, since the failure it prevents is silent."
+description: "An Environment holds the task suite, reward specification, and version as content-addressed project context. Registration is idempotent by canonical content, changed content receives a new id, and every pm-rl command revalidates the stored hash before use. Arbitrary direct core mutations cannot yet be intercepted at write time; host-level mutation guards remain pending pm-cli#854, so this feature stays in progress until the SDK exposes that capability."
 type: Feature
 status: in_progress
 priority: 2
 tags: []
 created_at: "2026-07-31T06:38:30.856Z"
-updated_at: "2026-08-01T12:08:31.959Z"
+updated_at: "2026-08-01T12:27:46.188Z"
 author: "harness:claude-code"
 estimated_minutes: 480
 acceptance_criteria: Registering a changed reward specification against a referenced version is refused and produces a new version instead; every Run records the exact environment version id it ran against; show reports the reward specification that was in force

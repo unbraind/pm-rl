@@ -69,20 +69,19 @@ query the host can already answer, not a feature to build.
 The remaining types and commands in the roadmap table above are intentionally not registered
 until their acceptance criteria and refusal paths are implemented and tested.
 
-## The two refusals
+## Implemented refusals
 
-Most experiment trackers will happily show you a number. pm-rl refuses to, in two cases, and
-both refusals are the point of the package:
+The first slice fails closed when context would otherwise become misleading:
 
-1. **Ranking across incompatible versions.** Two checkpoints evaluated under two environment
-   versions are not comparable, and a leaderboard that silently mixes them is worse than no
-   leaderboard — it launders a version change into an apparent improvement.
-2. **Ranking on a contaminated benchmark.** If a benchmark's tasks overlap the training
-   environment's task suite, the score is flattering and meaningless. The overlap is declared
-   as a typed dependency, so the refusal is derived from the graph rather than from a human
-   remembering.
+1. **A mutated environment cannot start a run.** The command re-hashes the stored specification
+   and requires its full hash and content-addressed id to agree, directing the caller to register
+   changed behavior as a new version.
+2. **An empty run cannot finish.** A terminal Run must contain at least one validated finite
+   metric event, so “completed” cannot silently mean that the trainer produced no evidence.
 
-Both exit non-zero. A warning would be ignored.
+Both exit non-zero. The roadmap keeps two further hard refusals—ranking across incompatible
+environment versions and ranking a contaminated benchmark—but no leaderboard command is
+registered until those graph-derived checks are implemented and accepted.
 
 ## Not in scope
 

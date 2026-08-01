@@ -129,6 +129,10 @@ test("the shipped extension activates all commands, item types, fields, and leas
 test("an environment registers idempotently by canonical content and can be listed and shown", async () => {
   const { root, pmRoot, harness } = await workspace();
   const file = join(root, "grid.json");
+  await assert.rejects(
+    harness.runCommand({ command: "rl env register", pmRoot, options: { file: join(root, "absent.json") } }),
+    /Environment file could not be read/,
+  );
   writeFileSync(file, JSON.stringify(SPEC));
   const first = resultOf(await harness.runCommand({ command: "rl env register", pmRoot, options: { file } }));
   assert.equal(first.created, true);
@@ -173,6 +177,7 @@ test("a real run links exact provenance, appends NDJSON metrics, reads them in s
   assert.equal(started.details?.environment_id, environment.id);
 
   const logged = resultOf(await harness.runCommand({ command: "rl run log", pmRoot, args: [started.id!], options: { file: metricFile } }));
+  // These bounds describe stream arrival order; `show` separately sorts by numeric step.
   assert.deepEqual(logged.details, { appended: 3, first_step: 2, last_step: 1 });
   const shown = resultOf(await harness.runCommand({ command: "rl run show", pmRoot, args: [started.id!] }));
   const events = shown.details?.events as Array<{ step: number }>;
@@ -211,13 +216,15 @@ test("two real Git branches merge independently appended run metrics without los
   execFileSync("git", ["commit", "-m", "Seed shared run"], { cwd: root });
 
   execFileSync("git", ["switch", "-c", "agent-a"], { cwd: root });
-  await harness.runCommand({ command: "rl run log", pmRoot, args: [run.id!], options: { file: agentAFile } });
+  const agentA = resultOf(await harness.runCommand({ command: "rl run log", pmRoot, args: [run.id!], options: { file: agentAFile } }));
+  assert.equal(agentA.details?.appended, 1);
   execFileSync("git", ["add", ".agents"], { cwd: root });
   execFileSync("git", ["commit", "-m", "Agent A metric"], { cwd: root });
 
   execFileSync("git", ["switch", "main"], { cwd: root });
   execFileSync("git", ["switch", "-c", "agent-b"], { cwd: root });
-  await harness.runCommand({ command: "rl run log", pmRoot, args: [run.id!], options: { file: agentBFile } });
+  const agentB = resultOf(await harness.runCommand({ command: "rl run log", pmRoot, args: [run.id!], options: { file: agentBFile } }));
+  assert.equal(agentB.details?.appended, 1);
   execFileSync("git", ["add", ".agents"], { cwd: root });
   execFileSync("git", ["commit", "-m", "Agent B metric"], { cwd: root });
 
@@ -263,6 +270,17 @@ test("a run can use an empty configuration while malformed or missing inputs fai
     harness.runCommand({ command: "rl run log", pmRoot, args: [started.id!], options: { file: join(root, "absent.ndjson") } }),
     /could not be read/,
   );
+  const stdinDescriptor = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+  Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: true });
+  try {
+    await assert.rejects(
+      harness.runCommand({ command: "rl run log", pmRoot, args: [started.id!] }),
+      /requires --file or piped NDJSON/,
+    );
+  } finally {
+    if (stdinDescriptor === undefined) delete (process.stdin as { isTTY?: boolean }).isTTY;
+    else Object.defineProperty(process.stdin, "isTTY", stdinDescriptor);
+  }
   await assert.rejects(
     harness.runCommand({ command: "rl run log", pmRoot, args: [started.id!] }),
     /Metric input could not be read|contains no events/,

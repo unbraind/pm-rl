@@ -6,7 +6,7 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-07-31T06:38:28.906Z"
-updated_at: "2026-08-01T12:08:34.914Z"
+updated_at: "2026-08-01T12:28:07.604Z"
 author: "harness:claude-code"
 estimated_minutes: 4800
 acceptance_criteria: "Every item type registers with typed fields under the host schema; a run's metric series is only ever written to history; two concurrent runs on two branches merge to the union of both series against real git branches; leaderboard and invalidate answer from the dependency graph; 100 percent line, branch, function and docstring coverage"
@@ -14,4 +14,6 @@ notes[1]{created_at,author,text}:
   "2026-08-01T12:08:34.914Z",codex,"First production tranche completed: content-addressed Environment registration/show/list plus attributable Run start/log/show/finish, real installed-host acceptance, exact 100/100/100 coverage, 100% docstring coverage, and real Git two-agent union proof. pm-rl-dyho, pm-rl-fpon, and pm-rl-mpd9 are closed with evidence. pm-rl-et5b remains active only for host-level write interception (pm-cli#854); current commands already detect tampering before use and preserve exact snapshots."
 files[1]{path,scope,note}:
   LICENSE,project,Public package licensing boundary
+docs[1]{path,scope,note}:
+  CHANGELOG.md,project,Generated release evidence from package PM history
 body: ""

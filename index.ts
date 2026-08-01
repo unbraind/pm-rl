@@ -194,14 +194,18 @@ async function ensurePersistentTypes(client: PmClient): Promise<void> {
   }
 }
 
-/** Read a JSON file and validate its value without guessing an external schema. */
-function readJsonFile(path: string, label: string): JsonValue {
-  let text: string;
+/** Read a UTF-8 input file and convert filesystem failures into expected CLI errors. */
+function readTextFile(path: string, label: string): string {
   try {
-    text = readFileSync(path, "utf8");
+    return readFileSync(path, "utf8");
   } catch (error) {
     fail(`${label} could not be read from ${path}: ${String(error)}`, "file_read_failed");
   }
+}
+
+/** Read a JSON file and validate its value without guessing an external schema. */
+function readJsonFile(path: string, label: string): JsonValue {
+  const text = readTextFile(path, label);
   try {
     return JSON.parse(text) as JsonValue;
   } catch {
@@ -212,7 +216,7 @@ function readJsonFile(path: string, label: string): JsonValue {
 /** Register one immutable environment spec, idempotently by content identity. */
 async function registerEnvironment(context: CommandHandlerContext): Promise<RlCommandResult> {
   const path = stringOption(context, "file")!;
-  const spec = parseEnvironmentSpec(readFileSync(path, "utf8"), `Environment file ${path}`);
+  const spec = parseEnvironmentSpec(readTextFile(path, "Environment file"), `Environment file ${path}`);
   const specHash = hashJson(spec);
   const requestedId = `env-${idSegment(spec.name)}-${idSegment(spec.version)}-${specHash.slice(0, 12)}`;
   const client = clientFor(context);
@@ -287,6 +291,9 @@ async function startRun(context: CommandHandlerContext): Promise<RlCommandResult
 async function logRun(context: CommandHandlerContext): Promise<RlCommandResult> {
   const id = requiredArgument(context, "a run id");
   const path = stringOption(context, "file", false);
+  if (path === undefined && process.stdin.isTTY === true) {
+    fail("pm rl run log requires --file or piped NDJSON on stdin.", "missing_metric_input");
+  }
   let input: string;
   try {
     input = readFileSync(path ?? 0, "utf8");
