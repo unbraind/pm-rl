@@ -1,7 +1,7 @@
 {
   "name": "pm-rl",
   "version": "2026.7.31",
-  "description": "Reinforcement-learning programme management on the pm SDK. Content-addressed environment and reward specifications keep runs attributable; validated metric events append to merge-safe notes that union losslessly when separate Git branches merge. Commands: `pm rl env register/list/show` and `pm rl run start/log/show/finish`.",
+  "description": "Reinforcement-learning programme management on the pm SDK. Content-addressed environments keep runs attributable; validated metric events append as bounded compressed segments that union losslessly when separate Git branches merge. Commands: `pm rl env register/list/show` and `pm rl run start/log/show/finish`.",
   "author": "@unbraind",
   "entry": "./dist/index.js",
   "priority": 50,

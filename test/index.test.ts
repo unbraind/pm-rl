@@ -2,7 +2,7 @@
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
@@ -178,7 +178,11 @@ test("a real run links exact provenance, appends NDJSON metrics, reads them in s
 
   const logged = resultOf(await harness.runCommand({ command: "rl run log", pmRoot, args: [started.id!], options: { file: metricFile } }));
   // These bounds describe stream arrival order; `show` separately sorts by numeric step.
-  assert.deepEqual(logged.details, { appended: 3, first_step: 2, last_step: 1 });
+  assert.equal(logged.details?.appended, 3);
+  assert.equal(logged.details?.segments, 1);
+  assert.ok(Number(logged.details?.stored_bytes) > 0);
+  assert.equal(logged.details?.first_step, 2);
+  assert.equal(logged.details?.last_step, 1);
   const shown = resultOf(await harness.runCommand({ command: "rl run show", pmRoot, args: [started.id!] }));
   const events = shown.details?.events as Array<{ step: number }>;
   assert.deepEqual(events.map((event) => event.step), [0, 1, 2]);
@@ -286,13 +290,6 @@ test("a run can use an empty configuration while malformed or missing inputs fai
     /Metric input could not be read|contains no events/,
   );
 
-  const sustainedMetrics = join(root, "sustained.ndjson");
-  writeFileSync(sustainedMetrics, Array.from({ length: 256 }, (_value, step) => JSON.stringify({ step, metric: "loss", value: 256 - step })).join("\n"));
-  const sustained = resultOf(await harness.runCommand({ command: "rl run log", pmRoot, args: [started.id!], options: { file: sustainedMetrics } }));
-  assert.equal(sustained.details?.appended, 256);
-  const sustainedShow = resultOf(await harness.runCommand({ command: "rl run show", pmRoot, args: [started.id!] }));
-  assert.equal((sustainedShow.details?.events as unknown[]).length, 256);
-
   const client = new PmClient({ pmRoot, author: "pm-rl-test" });
   const incomplete = await client.create({
     id: "incomplete-environment",
@@ -329,6 +326,39 @@ test("a run can use an empty configuration while malformed or missing inputs fai
     harness.runCommand({ command: "rl run start", pmRoot, args: ["mutated-source"], options: { environment: environment.id, algorithm: "DQN" } }),
     /no longer matches its content-addressed identity/,
   );
+});
+
+test("repeated realistic metric batches retain every event with measured bounded history amplification", async (context) => {
+  const { root, pmRoot, harness } = await workspace();
+  const environmentFile = join(root, "environment.json");
+  const metricFile = join(root, "metrics.ndjson");
+  writeFileSync(environmentFile, JSON.stringify(SPEC));
+  const environment = resultOf(await harness.runCommand({ command: "rl env register", pmRoot, options: { file: environmentFile } }));
+  const run = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["sustained-rate"], options: { environment: environment.id, algorithm: "PPO" } }));
+  let canonicalInputBytes = 0;
+  let storedSegmentBytes = 0;
+  const batches = 40;
+  const eventsPerBatch = 250;
+  for (let batch = 0; batch < batches; batch += 1) {
+    const input = Array.from({ length: eventsPerBatch }, (_value, offset) => JSON.stringify({
+      step: batch * eventsPerBatch + offset,
+      metric: offset % 10 === 0 ? "episode_return" : "loss",
+      value: (batch * eventsPerBatch + offset) / 100,
+      tags: { worker: `worker-${batch % 4}` },
+    })).join("\n");
+    canonicalInputBytes += Buffer.byteLength(input);
+    writeFileSync(metricFile, input);
+    const logged = resultOf(await harness.runCommand({ command: "rl run log", pmRoot, args: [run.id!], options: { file: metricFile } }));
+    assert.equal(logged.details?.appended, eventsPerBatch);
+    assert.equal(logged.details?.segments, 1);
+    storedSegmentBytes += Number(logged.details?.stored_bytes);
+  }
+  const shown = resultOf(await harness.runCommand({ command: "rl run show", pmRoot, args: [run.id!] }));
+  assert.equal((shown.details?.events as unknown[]).length, batches * eventsPerBatch);
+  const historyBytes = statSync(join(pmRoot, "history", `${run.id!}.jsonl`)).size;
+  assert.ok(storedSegmentBytes < canonicalInputBytes * 0.2, `${storedSegmentBytes} compressed bytes for ${canonicalInputBytes} input bytes`);
+  assert.ok(historyBytes < canonicalInputBytes * 0.7, `${historyBytes} history bytes for ${canonicalInputBytes} input bytes`);
+  context.diagnostic(`${batches * eventsPerBatch} events: ${canonicalInputBytes} input bytes, ${storedSegmentBytes} segment bytes, ${historyBytes} total history bytes`);
 });
 
 test("domain commands reject missing arguments, options, wrong item types, and absent SDK injection", async () => {

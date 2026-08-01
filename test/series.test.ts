@@ -7,15 +7,20 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { deflateRawSync } from "node:zlib";
 
 import {
   assertMetricEvent,
   decodeEvent,
+  decodeEventSegment,
   encodeEvent,
+  encodeEventSegment,
+  MAX_SEGMENT_UNCOMPRESSED_BYTES,
   MetricEventError,
   type MetricEvent,
   parseNdjsonStream,
   readSeries,
+  segmentEvents,
 } from "../series.ts";
 
 /** A valid event, so each test varies only the field it is about. */
@@ -44,6 +49,36 @@ test("the encoding is canonical, so one logical event has exactly one text", () 
   assert.equal(encodeEvent(EVENT), 'pm-rl/1 {"step":100,"metric":"episode_return","value":12.5}');
   // An empty tag map encodes as no tags at all, for the same reason.
   assert.equal(encodeEvent({ ...EVENT, tags: {} }), encodeEvent(EVENT));
+});
+
+test("a compressed segment is canonical, bounded, and backward-compatible with event notes", () => {
+  const events = Array.from({ length: 1_000 }, (_value, step): MetricEvent => ({
+    step,
+    metric: step % 2 === 0 ? "loss" : "episode_return",
+    value: step / 10,
+    tags: { arm: "a", seed: "7" },
+  }));
+  const segments = segmentEvents(events);
+  assert.ok(segments.length > 1);
+  const notes = segments.map((segment) => encodeEventSegment(segment));
+  assert.ok(notes.every((note) => note.startsWith("pm-rl/2 ")));
+  assert.deepEqual(notes.map((note) => decodeEventSegment(note)), segments);
+  assert.deepEqual(readSeries([encodeEvent(EVENT), ...notes]).events, [EVENT, ...events].sort((left, right) => left.step - right.step));
+  assert.equal(encodeEventSegment(events.slice(0, 10)), encodeEventSegment(events.slice(0, 10)));
+});
+
+test("segment decoding rejects empty, oversized, corrupt, and non-canonical payloads", () => {
+  assert.throws(() => encodeEventSegment([]), (error: unknown) => error instanceof MetricEventError && error.code === "empty_segment");
+  const oversized = { ...EVENT, metric: "x".repeat(MAX_SEGMENT_UNCOMPRESSED_BYTES) };
+  assert.throws(() => segmentEvents([oversized]), (error: unknown) => error instanceof MetricEventError && error.code === "event_too_large");
+  const many = Array.from({ length: 2_000 }, (_value, step): MetricEvent => ({ step, metric: "uncompressible-enough", value: step }));
+  assert.throws(() => encodeEventSegment(many), (error: unknown) => error instanceof MetricEventError && error.code === "segment_too_large");
+  assert.throws(() => decodeEventSegment("pm-rl/2 not-base64"), (error: unknown) => error instanceof MetricEventError && error.code === "malformed_segment");
+  for (const payload of ["", '{ "step": 1, "metric": "loss", "value": 2 }']) {
+    const note = `pm-rl/2 ${deflateRawSync(payload, { level: 9 }).toString("base64url")}`;
+    assert.throws(() => decodeEventSegment(note), (error: unknown) => error instanceof MetricEventError && error.code === "noncanonical_segment");
+  }
+  assert.equal(decodeEventSegment("ordinary comment"), null);
 });
 
 test("an event that cannot be ordered or compared is refused before it is stored", () => {

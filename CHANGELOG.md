@@ -2,6 +2,10 @@
 
 ## 2026.7.31 - 2026-08-01
 
+### Added
+
+- Run lifecycle with NDJSON metric ingestion into append-only history ([pm-rl-dyho](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-dyho.toon))
+
 ### Other
 
 - Metric series live in item history, never in an item body ([pm-rl-mpd9](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/decisions/pm-rl-mpd9.toon))
