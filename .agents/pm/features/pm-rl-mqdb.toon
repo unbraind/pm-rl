@@ -6,8 +6,9 @@ status: open
 priority: 2
 tags: []
 created_at: "2026-07-31T06:38:33.402Z"
-updated_at: "2026-07-31T06:38:33.942Z"
+updated_at: "2026-08-01T12:08:33.925Z"
 author: "harness:claude-code"
+estimated_minutes: 480
 acceptance_criteria: plan expands a declared space into one child Run per arm with the arm's hyperparameters recorded; two arms advanced on two branches merge with no conflict; status reports per-arm progress and never invents a winner the selection rule does not support
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rl-e20d,parent,"2026-07-31T06:38:33.921Z","harness:claude-code","cli:update:dep",detected
