@@ -20,7 +20,7 @@ import {
 import { PmClient, type GetResult } from "@unbrained/pm-cli/sdk/core";
 import { createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 
-import { encodeEvent, parseNdjsonStream, readSeries } from "./series.ts";
+import { encodeEventSegments, parseNdjsonStream, readSeries } from "./series.ts";
 
 /** JSON values accepted in environment and run configuration files. */
 export type JsonValue = null | boolean | number | string | JsonValue[] | { readonly [key: string]: JsonValue };
@@ -287,7 +287,7 @@ async function startRun(context: CommandHandlerContext): Promise<RlCommandResult
   return { action: "rl-run-start", id: result.item.id, created: true, details: { environment_id: environment.item.id, spec_hash: specHash, config_hash: configHash } };
 }
 
-/** Append every parsed measurement through the typed SDK notes mutation. */
+/** Append parsed measurements as bounded compressed segments through the typed SDK. */
 async function logRun(context: CommandHandlerContext): Promise<RlCommandResult> {
   const id = requiredArgument(context, "a run id");
   const path = stringOption(context, "file", false);
@@ -305,11 +305,12 @@ async function logRun(context: CommandHandlerContext): Promise<RlCommandResult> 
   const client = clientFor(context);
   const run = await getTypedItem(client, id, "Run");
   if (run.item.status !== "in_progress") fail(`Run ${id} is ${String(run.item.status)}; only an in-progress run accepts metrics.`, "run_not_active", EXIT_CODE.CONFLICT);
+  const notes = encodeEventSegments(events);
   await client.update(id, {
-    note: events.map((event) => encodeEvent(event)),
-    message: `Append ${events.length} RL metric event(s) atomically`,
+    note: notes,
+    message: `Append ${events.length} RL metric event(s) in ${notes.length} bounded segment(s) atomically`,
   });
-  return { action: "rl-run-log", id: String(run.item.id), details: { appended: events.length, first_step: events[0]!.step, last_step: events.at(-1)!.step } };
+  return { action: "rl-run-log", id: String(run.item.id), details: { appended: events.length, segments: notes.length, stored_bytes: notes.reduce((total, note) => total + Buffer.byteLength(note), 0), first_step: events[0]!.step, last_step: events.at(-1)!.step } };
 }
 
 /** Read one run and decode only pm-rl event notes into an ordered series. */

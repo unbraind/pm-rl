@@ -19,13 +19,24 @@ Two properties of pm do the load-bearing work. Neither is decoration.
 
 A training run emits a monotonically growing series of metric events. That is precisely the
 shape of pm's history stream: JSONL, append-only, with a field-aware merge driver that unions
-concurrent appends rather than conflicting on them.
+concurrent appends rather than conflicting on them. pm-rl stores validated measurements as
+deflate-raw segments whose decoded NDJSON is canonical. Each segment represents no more than 48 KiB of canonical
+NDJSON and no more than 65 KiB of serialized note text, so compressed-buffer allocation,
+decompression output and individual-note growth all have explicit limits while the complete
+series remains attributable and replayable. Legacy one-event `pm-rl/1` notes remain readable.
 
 The consequence is the property no other experiment tracker gives you from a plain merge: **two
-agents running two arms of one sweep on two branches can both log, and the merge is the union
-of both series.** No lock. No server. No lost rows. No coordination.
+agents running two arms of one sweep on two branches can both log, and the merge retains every
+accepted occurrence from both series.** It needs no lock, server, or coordination, and it drops
+no branch occurrence.
 
-This is verified rather than assumed. pm-vcs's suite merges two real git branches that both
+An event's identity is its accepted note occurrence, including pm's repeatable-note metadata;
+the metric payload is not an idempotency key. Equal payloads can be legitimate repeated
+measurements, so payload deduplication would itself lose data. `run log` consequently provides
+at-least-once semantics: replaying an uncertain batch records another occurrence. The real-branch
+test deliberately logs byte-equal payloads on both branches and requires both after merge.
+
+This is verified rather than assumed. pm-rl's suite merges two real git branches that both
 appended to one item's history and asserts both sides' appends survive — while a genuinely
 conflicting *scalar* on the same item is still flagged. That second half is why the rule below
 is a hard constraint and not a style preference.
@@ -117,8 +128,13 @@ transfer is reported as stale rather than plotted.
 - **No orchestration.** `run log` reads newline-delimited JSON on stdin, so any trainer in any
   language pipes into it with no client library and no integration. Scheduling GPUs is somebody
   else's job and always will be.
-- **No metric store.** The history stream *is* the store. Growth is bounded by the host's
-  `pm history-compact`, not by a retention policy in this package.
+- **No separate metric store.** The history stream *is* the store. Keeping every measurement
+  means total storage must grow with evidence; pm-rl bounds individual decoded and serialized
+  segments instead of making an impossible constant-space or universal compression-ratio claim.
+  In the representative sustained integration workload, 10,000 events in 40 realistic batches
+  produce 70,442 compressed segment bytes and 99,526 total history bytes from 736,650 input bytes
+  (an observed 13.51%), with all events read back. Each segment is capped at 48 KiB decoded and
+  65 KiB serialized; oversized or corrupt segments fail closed.
 - **No overlap with `pm eval`.** That core command measures pm's *own search relevance*
   (nDCG@k / MRR@k / precision@k / recall@k over a golden-query set). It is a retrieval
   regression gate for the tracker's index and shares nothing with this package but a word. The
@@ -157,5 +173,6 @@ real extension loader (`createExtensionTestHarness`). No api doubles: asserting 
 double of the host asserts against this package's assumptions about the host.
 
 The concurrency claim in §1.1 is tested against **real git branches** with a real merge, not
-simulated. If that test ever fails, the package's central premise is false and the failure must
-be loud.
+simulated. The storage claim is likewise measured across repeated real SDK mutations and the
+actual history file, not estimated from encoded payloads. If either test fails, the package's
+central premise is false and the failure must be loud.

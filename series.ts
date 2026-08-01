@@ -11,11 +11,12 @@
 // conflict on every write, and a conflicted body is unparseable — one concurrent
 // log would take the whole item with it.
 //
-// A note holds text, so an event is canonically encoded on the way in and decoded
-// on the way out. Canonical means one logical event has exactly one encoding: keys
-// in a fixed order, no insignificant whitespace, one representation per number.
-// Without that, re-encoding an unchanged event would present as a change, and the
-// merge driver would see two members where there is one.
+// A note holds text. Legacy `pm-rl/1` notes contain one canonical event; current
+// `pm-rl/2` notes contain a deflate-raw segment of canonical NDJSON.
+// Segments cap their uncompressed payload, so sustained logging adds a bounded
+// number of bounded notes rather than one history member per measurement.
+
+import { deflateRawSync, inflateRawSync } from "node:zlib";
 
 /** Optional labels attached to one measurement, ordered canonically on encode. */
 export type EventTags = Readonly<Record<string, string>>;
@@ -57,7 +58,24 @@ export class MetricEventError extends Error {
 }
 
 /** Marker distinguishing an encoded event from any other note text. */
-const ENVELOPE = "pm-rl/1";
+const EVENT_ENVELOPE = "pm-rl/1";
+
+/** Marker distinguishing a compressed event segment from every other note. */
+const SEGMENT_ENVELOPE = "pm-rl/2";
+
+/** Maximum canonical NDJSON bytes represented by one merge-safe history note. */
+export const MAX_SEGMENT_UNCOMPRESSED_BYTES = 48 * 1024;
+
+/** Maximum ASCII bytes accepted for one complete `pm-rl/2` note. */
+export const MAX_SEGMENT_ENCODED_BYTES = 65 * 1024;
+
+/** One validated event and the canonical payload used for sizing and compression. */
+interface PreparedMetricEvent {
+  /** Original event retained for the public segmentation result. */
+  readonly event: MetricEvent;
+  /** Canonical JSON without the legacy envelope. */
+  readonly payload: string;
+}
 
 /**
  * Rejects an event that cannot be stored, ordered or compared.
@@ -136,7 +154,143 @@ export function encodeEvent(event: MetricEvent): string {
       body.tags = tags;
     }
   }
-  return `${ENVELOPE} ${JSON.stringify(body)}`;
+  return `${EVENT_ENVELOPE} ${JSON.stringify(body)}`;
+}
+
+/**
+ * Split measurements into canonical, bounded history segments.
+ *
+ * The byte limit is applied to the canonical NDJSON before compression. This
+ * caps decompression memory and makes the storage contract independent of how
+ * compressible a particular trainer's metric names and tags happen to be.
+ *
+ * @param events - Validated measurements in trainer arrival order.
+ * @returns Non-empty segments whose canonical payloads fit the byte limit.
+ * @throws MetricEventError When one event alone exceeds the segment bound.
+ */
+function partitionEvents(events: readonly MetricEvent[]): readonly (readonly PreparedMetricEvent[])[] {
+  const segments: PreparedMetricEvent[][] = [];
+  let segment: PreparedMetricEvent[] = [];
+  let bytes = 0;
+  for (const event of events) {
+    const payload = encodeEvent(event).slice(EVENT_ENVELOPE.length + 1);
+    const eventBytes = Buffer.byteLength(payload);
+    if (eventBytes > MAX_SEGMENT_UNCOMPRESSED_BYTES) {
+      throw new MetricEventError(
+        "event_too_large",
+        `One canonical metric event occupies ${eventBytes} bytes; the maximum is ${MAX_SEGMENT_UNCOMPRESSED_BYTES}. Shorten metric names or tags.`,
+      );
+    }
+    const separatorBytes = segment.length === 0 ? 0 : 1;
+    if (bytes + separatorBytes + eventBytes > MAX_SEGMENT_UNCOMPRESSED_BYTES) {
+      segments.push(segment);
+      segment = [];
+      bytes = 0;
+    }
+    segment.push({ event, payload });
+    bytes += (segment.length === 1 ? 0 : 1) + eventBytes;
+  }
+  if (segment.length > 0) segments.push(segment);
+  return segments;
+}
+
+/**
+ * Split measurements into deterministic, bounded event groups.
+ *
+ * @param events - Validated measurements in trainer arrival order.
+ * @returns Non-empty event groups whose canonical payloads fit the byte limit.
+ * @throws MetricEventError When one event alone exceeds the segment bound.
+ */
+export function segmentEvents(events: readonly MetricEvent[]): readonly (readonly MetricEvent[])[] {
+  return partitionEvents(events).map((segment) => segment.map((entry) => entry.event));
+}
+
+/** Reject a serialized segment before decoding can allocate its compressed buffer. */
+function assertEncodedSegmentSize(note: string): void {
+  const bytes = Buffer.byteLength(note);
+  if (bytes > MAX_SEGMENT_ENCODED_BYTES) {
+    throw new MetricEventError(
+      "encoded_segment_too_large",
+      `A serialized metric segment occupies ${bytes} bytes; the maximum is ${MAX_SEGMENT_ENCODED_BYTES}.`,
+    );
+  }
+}
+
+/** Compress one prepared segment after its events have each been encoded exactly once. */
+function encodePreparedSegment(events: readonly PreparedMetricEvent[]): string {
+  const payload = events.map((event) => event.payload).join("\n");
+  const note = `${SEGMENT_ENVELOPE} ${deflateRawSync(payload, { level: 9 }).toString("base64url")}`;
+  assertEncodedSegmentSize(note);
+  return note;
+}
+
+/**
+ * Encode measurements into bounded compressed notes with one validation pass per event.
+ *
+ * @param events - Measurements in trainer arrival order.
+ * @returns Canonical-payload `pm-rl/2` notes ready for one atomic update.
+ * @throws MetricEventError When an event or serialized segment exceeds its bound.
+ */
+export function encodeEventSegments(events: readonly MetricEvent[]): string[] {
+  return partitionEvents(events).map((segment) => encodePreparedSegment(segment));
+}
+
+/**
+ * Encode one non-empty, already bounded segment as a canonical note.
+ *
+ * @param events - Measurements in trainer arrival order.
+ * @returns A `pm-rl/2` note with a canonical payload, suitable for repeatable-note merging.
+ * @throws MetricEventError When the segment is empty or exceeds the byte bound.
+ */
+export function encodeEventSegment(events: readonly MetricEvent[]): string {
+  if (events.length === 0) {
+    throw new MetricEventError("empty_segment", "A metric segment must contain at least one event.");
+  }
+  const segments = partitionEvents(events);
+  if (segments.length !== 1 || segments[0]!.length !== events.length) {
+    throw new MetricEventError(
+      "segment_too_large",
+      `A metric segment exceeds the ${MAX_SEGMENT_UNCOMPRESSED_BYTES}-byte canonical payload limit. Split it with segmentEvents first.`,
+    );
+  }
+  return encodePreparedSegment(segments[0]!);
+}
+
+/**
+ * Decode one compressed segment, or report that a note uses another format.
+ *
+ * The inflate operation enforces the same byte ceiling as the writer, preventing
+ * an externally written note from turning a small payload into unbounded memory.
+ * Rebuilding the canonical NDJSON must reproduce the decoded payload byte-for-byte,
+ * which rejects malformed or non-canonical producers without depending on one
+ * zlib version choosing the same valid compressed representation as another.
+ *
+ * @param text - One note's text.
+ * @returns Segment events in arrival order, or null for a non-segment note.
+ * @throws MetricEventError When a `pm-rl/2` note is corrupt or non-canonical.
+ */
+export function decodeEventSegment(text: string): readonly MetricEvent[] | null {
+  if (!/^\s*pm-rl\/2 /.test(text)) return null;
+  assertEncodedSegmentSize(text);
+  const trimmed = text.trim();
+  try {
+    const payload = inflateRawSync(
+      Buffer.from(trimmed.slice(SEGMENT_ENVELOPE.length + 1), "base64url"),
+      { maxOutputLength: MAX_SEGMENT_UNCOMPRESSED_BYTES },
+    ).toString("utf8");
+    const events = parseNdjsonStream(payload);
+    const canonicalPayload = events.map((event) => encodeEvent(event).slice(EVENT_ENVELOPE.length + 1)).join("\n");
+    if (events.length === 0 || canonicalPayload !== payload) {
+      throw new MetricEventError("noncanonical_segment", "A metric segment is empty or not canonically encoded.");
+    }
+    return events;
+  } catch (error) {
+    if (error instanceof MetricEventError) throw error;
+    throw new MetricEventError(
+      "malformed_segment",
+      `A compressed metric segment is corrupt or exceeds the ${MAX_SEGMENT_UNCOMPRESSED_BYTES}-byte decoded bound.`,
+    );
+  }
 }
 
 /**
@@ -155,8 +309,8 @@ export function encodeEvent(event: MetricEvent): string {
  */
 export function decodeEvent(text: string): MetricEvent | null {
   const trimmed = text.trim();
-  if (!trimmed.startsWith(`${ENVELOPE} `)) return null;
-  const payload = trimmed.slice(ENVELOPE.length + 1);
+  if (!trimmed.startsWith(`${EVENT_ENVELOPE} `)) return null;
+  const payload = trimmed.slice(EVENT_ENVELOPE.length + 1);
   let parsed: unknown;
   try {
     parsed = JSON.parse(payload);
@@ -281,12 +435,14 @@ export function readSeries(notes: readonly string[]): SeriesReadResult {
   const decoded: Array<{ event: MetricEvent; arrival: number }> = [];
   let comments = 0;
   for (const text of notes) {
-    const event = decodeEvent(text);
-    if (event === null) {
-      comments += 1;
+    const segment = decodeEventSegment(text);
+    if (segment !== null) {
+      for (const event of segment) decoded.push({ event, arrival: decoded.length });
       continue;
     }
-    decoded.push({ event, arrival: decoded.length });
+    const event = decodeEvent(text);
+    if (event !== null) decoded.push({ event, arrival: decoded.length });
+    else comments += 1;
   }
   decoded.sort((left, right) => (
     left.event.step === right.event.step ? left.arrival - right.arrival : left.event.step - right.event.step
