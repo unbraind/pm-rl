@@ -12,7 +12,7 @@ const isWindows = process.platform === 'win32';
 /** A PATH candidate counts only if it is a regular, executable file — mirroring how a
  *  shell resolves a bare command name. Rejects directories and (on POSIX) non-executable
  *  files, so a stray `pm` dir/data file never makes `execSync` fail the whole install. */
-function isExecutableFile(p) {
+function isExecutableFile(p: string): boolean {
   try {
     if (!statSync(p).isFile()) return false;
   } catch {
@@ -33,7 +33,7 @@ function isExecutableFile(p) {
  *  `node_modules/.bin` to PATH for lifecycle scripts, so a devDep-installed pm is found.
  *  PATH parsing mirrors shell semantics: an empty POSIX entry means the current
  *  directory, and Windows entries may be wrapped in double quotes. */
-function pmOnPath() {
+function pmOnPath(): boolean {
   const dirs = (process.env.PATH || '')
     .split(delimiter)
     .map((dir) => {

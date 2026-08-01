@@ -1,0 +1,6 @@
+{
+  "learning_rate": 0.0003,
+  "batch_size": 64,
+  "gamma": 0.99,
+  "seed": 7
+}

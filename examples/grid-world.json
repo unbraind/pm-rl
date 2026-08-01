@@ -1,0 +1,27 @@
+{
+  "name": "Grid World",
+  "version": "3",
+  "task_suite": [
+    "reach-goal",
+    "avoid-trap"
+  ],
+  "action_space": [
+    "up",
+    "down",
+    "left",
+    "right"
+  ],
+  "observation_space": {
+    "agent_position": "integer_pair",
+    "goal_position": "integer_pair"
+  },
+  "reward_specification": {
+    "goal": 10,
+    "step": -0.01,
+    "trap": -5
+  },
+  "seed_policy": {
+    "kind": "explicit",
+    "required": true
+  }
+}

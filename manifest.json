@@ -1,11 +1,11 @@
 {
   "name": "pm-rl",
   "version": "2026.7.31",
-  "description": "Reinforcement-learning programme management on the pm SDK. Environments and reward specifications version rather than mutate, so a result stays attributable; a run's metric series is appended to pm's history stream, which unions losslessly under concurrent writers on separate branches; benchmarks, eval results and sim-to-real transfer gaps carry full provenance through the pm dependency graph. Commands: `pm rl env register/list/show`, `pm rl run start/log/finish/verify`, `pm rl sweep plan/status`, `pm rl bench run/report`, `pm rl transfer measure/gap`, `pm rl compare`, `pm rl leaderboard`, `pm rl invalidate`.",
+  "description": "Reinforcement-learning programme management on the pm SDK. Content-addressed environment and reward specifications keep runs attributable; validated metric events append to merge-safe notes that union losslessly when separate Git branches merge. Commands: `pm rl env register/list/show` and `pm rl run start/log/show/finish`.",
   "author": "@unbraind",
   "entry": "./dist/index.js",
   "priority": 50,
-  "pm_min_version": "2026.7.29",
+  "pm_min_version": "2026.8.1",
   "capabilities": [
     "commands",
     "schema"

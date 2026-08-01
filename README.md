@@ -1,10 +1,10 @@
 # pm-rl
 
-**Reinforcement-learning programme management, on the pm SDK.** Environments and reward
-specifications that version instead of mutating. Runs whose metric series live in an
-append-only history that unions losslessly when two agents sweep on two branches. Benchmarks,
-eval results and sim-to-real transfer gaps that carry provenance back to every environment
-version that contributed to them.
+**Reinforcement-learning programme management, on the pm SDK.** The first production slice
+provides content-addressed environment specifications and attributable run lifecycles. Run
+metrics live in merge-safe notes and are proven to union losslessly when two real Git branches
+append independently. Benchmarks, sweeps, eval results and sim-to-real transfer are the next
+planned slices, not hidden or partial commands.
 
 ```bash
 npm install --save-dev pm-rl     # or: bun add -d pm-rl
@@ -32,13 +32,11 @@ pm-rl makes the programme itself a tracker.
 
 Two properties do the real work, and neither is incidental.
 
-**Metric logging is append-only, and so is pm's history stream.** A training run emits a
-monotonically growing series of events. That is exactly the shape pm's history JSONL and its
-field-aware merge driver handle losslessly under concurrent writers on different branches. Two
-agents running two arms of one sweep on two branches both append, then merge to the **union**
-of both series — no lock, no server, no lost rows. This is verified against real git merges,
-not assumed: pm-vcs's suite proves the union property on the same stream, and both agents'
-appends survive while a genuinely conflicting scalar is still flagged.
+**Metric logging is append-only, and so are pm notes.** A training run emits a monotonically
+growing series of events. `pm rl run log` encodes each event as one append-only note, and pm's
+field-aware merge drivers preserve their union when branches merge. The package test suite
+creates two real Git branches, appends a different measurement on each, merges them, and reads
+both measurements back through the public command.
 
 The corollary is a hard design rule: **metrics go to history, never to an item's body.** A body
 is a scalar field, and two sides changing a scalar is a real conflict. A series written to the
@@ -54,41 +52,36 @@ query the host can already answer, not a feature to build.
 
 | type | holds | key constraint |
 | --- | --- | --- |
-| **Environment** | task suite, action/observation space, reward specification, version, seed policy | Immutable once a run references it. A change is a **new version**, enforced — so a result stays attributable |
+| **Environment** | task suite, action/observation space, reward specification and version | Content-addressed; registration is idempotent and every use verifies that the stored body still matches its identity |
 | **Run** | algorithm, hyperparameters, base checkpoint, environment reference, determinism receipt | Metric series lives in the item's **history**, never its body |
 | **Sweep** | search space, selection rule; children are runs | Arms are independent items, so two agents can run two arms on two branches |
 | **Benchmark** | tasks, scoring function, pass criteria, version | May declare a contamination edge to an environment whose task suite it overlaps |
 | **EvalResult** | one checkpoint scored against one benchmark version | Depends on both, so provenance is complete |
 | **Transfer** | the measured per-metric gap between a source environment and a target one for one checkpoint | Depends on **both** environments — the sim-to-real gap becomes tracked data, not folklore |
 
-## Commands
+## Available commands
 
 | command | what it does |
 | --- | --- |
 | `pm rl env register` / `list` / `show` | Declare and version environments and their reward specifications |
-| `pm rl run start` / `log` / `finish` | `log` reads newline-delimited JSON on stdin and appends metric events to the run's history — the merge-safe path |
-| `pm rl run verify` | Re-derive the determinism receipt, so an unreproducible run is detectable when it is claimed rather than months later |
-| `pm rl sweep plan` / `status` | Expand a search space into child run items; report progress across arms |
-| `pm rl bench run` / `report` | Score a checkpoint against a benchmark version, recording an EvalResult linked to both |
-| `pm rl transfer measure` / `gap` | Record and report the sim-to-real gap per metric across a run's checkpoints |
-| `pm rl compare <a> <b>` | Metric-level diff of two runs, with the config delta that explains it |
-| `pm rl leaderboard --benchmark <id>` | Rank checkpoints — and **refuse** rather than mix incompatible environment versions or a contaminated benchmark |
-| `pm rl invalidate <id>` | Every result transitively invalidated by a change to an environment or benchmark |
+| `pm rl run start` / `log` / `show` / `finish` | Snapshot exact environment and configuration provenance, append validated NDJSON metrics from a file or stdin, order the series by step, and refuse to finish an empty run |
 
-## The two refusals
+The remaining types and commands in the roadmap table above are intentionally not registered
+until their acceptance criteria and refusal paths are implemented and tested.
 
-Most experiment trackers will happily show you a number. pm-rl refuses to, in two cases, and
-both refusals are the point of the package:
+## Implemented refusals
 
-1. **Ranking across incompatible versions.** Two checkpoints evaluated under two environment
-   versions are not comparable, and a leaderboard that silently mixes them is worse than no
-   leaderboard — it launders a version change into an apparent improvement.
-2. **Ranking on a contaminated benchmark.** If a benchmark's tasks overlap the training
-   environment's task suite, the score is flattering and meaningless. The overlap is declared
-   as a typed dependency, so the refusal is derived from the graph rather than from a human
-   remembering.
+The first slice fails closed when context would otherwise become misleading:
 
-Both exit non-zero. A warning would be ignored.
+1. **A mutated environment cannot start a run.** The command re-hashes the stored specification
+   and requires its full hash and content-addressed id to agree, directing the caller to register
+   changed behavior as a new version.
+2. **An empty run cannot finish.** A terminal Run must contain at least one validated finite
+   metric event, so “completed” cannot silently mean that the trainer produced no evidence.
+
+Both exit non-zero. The roadmap keeps two further hard refusals—ranking across incompatible
+environment versions and ranking a contaminated benchmark—but no leaderboard command is
+registered until those graph-derived checks are implemented and accepted.
 
 ## Not in scope
 
@@ -102,7 +95,7 @@ Both exit non-zero. A warning would be ignored.
 ## Requirements
 
 - Node.js ≥ 22.18, tested on 22 and 26
-- `@unbrained/pm-cli` ≥ 2026.7.29 (peer dependency)
+- `@unbrained/pm-cli` ≥ 2026.8.1 (peer dependency)
 - Works under `npm`/`npx` and `bun`/`bunx`
 - No runtime dependencies beyond the Node standard library
 
@@ -111,6 +104,7 @@ Both exit non-zero. A warning would be ignored.
 ```bash
 npm ci
 npm run typecheck
+npm run docstring       # hard 100% documented declarations
 npm run coverage        # hard 100% lines / branches / functions, no suppressions
 npm run changelog:check
 ```

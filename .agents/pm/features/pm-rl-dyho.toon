@@ -1,17 +1,28 @@
 id: pm-rl-dyho
 title: Run lifecycle with NDJSON metric ingestion into append-only history
-description: "run start opens a Run item carrying algorithm, hyperparameters, base checkpoint and environment version. run log reads newline-delimited JSON on stdin and appends each event to the item's history, so any trainer in any language pipes into it with no library. run finish records terminal metrics and closes the item. Ingestion must sustain a realistic trainer emission rate without unbounded item growth, which the host's history compaction bounds."
+description: "run start opens a Run with exact algorithm, configuration, and environment provenance; run log atomically validates and appends NDJSON events as merge-safe notes; run show orders them by step; run finish refuses empty runs and records terminal evidence. The lifecycle is implemented, but realistic sustained-rate retention and a measured storage bound remain open because retained notes currently grow with retained events."
 type: Feature
 status: in_progress
 priority: 2
 tags: []
 created_at: "2026-07-31T06:38:31.825Z"
-updated_at: "2026-07-31T07:46:21.087Z"
+updated_at: "2026-08-01T12:28:02.176Z"
 author: "harness:claude-code"
+estimated_minutes: 480
 acceptance_criteria: A trainer emitting NDJSON on stdin has every event appended in order with no loss; a malformed line fails loudly naming the line rather than being skipped silently; finish refuses a run that never logged; sustained ingestion at a realistic rate stays bounded
+release: 2026.7.31
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rl-e20d,parent,"2026-07-31T06:38:32.206Z","harness:claude-code","cli:update:dep",detected
-notes[2]{created_at,author,text}:
+notes[4]{created_at,author,text}:
   "2026-07-31T06:43:13.261Z","harness:claude-code","Ingestion mechanism settled empirically rather than assumed, in a throwaway git repo with the real pm binary and the real merge drivers installed. pm append writes to the item BODY, which is exactly the scalar field the design rule forbids, so it is not the path. The verified path is the repeatable notes collection: one item, two branches off a common base, arm A appending two metric events and arm B appending two more, merged with a real git merge. Result was notes[4] with all four events present, zero conflicts, and the history jsonl at 5 lines. Each note carries created_at and author, so events from two agents interleave in a deterministic timestamp order and the writer is attributable without extra fields. Metric events are therefore canonically JSON-encoded into note text and decoded on read. The encode-decode step is the cost of using a verified-union collection instead of an unverified one, and it is worth paying."
   "2026-07-31T07:46:21.087Z","harness:claude-code","series.ts landed with a 100/100/100 gate: the metric event type, canonical encode and decode, NDJSON stream parsing and series reading. Four decisions worth keeping. The encoding carries an envelope marker (pm-rl/1) so a note that is not an event is recognisable without parsing it, which is what lets a human comment on a run item without corrupting the series - decode returns null for such a note and throws only for text that CLAIMS to be an event and is malformed, since that is a producer bug and silence would lose a measurement. Encoding is canonical with tags sorted and absent optionals omitted, because the merge driver unions notes by content and two encodings of one event would merge as two events. A malformed NDJSON line fails the WHOLE parse naming its one-based line number, because skipping it records the run as complete while missing measurements nobody can enumerate afterwards. readSeries orders by step with ties on arrival, because two agents appending concurrently produce interleaved notes after a merge, so storage order is not the run order."
+  "2026-08-01T12:07:55.035Z",codex,"Acceptance verified with the real 2026.8.1 host and SDK. The test suite ingests 256 events in one atomic update, rejects malformed/empty input without partial writes, refuses finishing a zero-event run, and proves ordered reads. A fresh tracker installed pm-rl through `pm package install`, registered an environment, started a run, ingested examples/metrics.ndjson through stdin, showed all events, closed it, and then refused a second empty run with structured code run_has_no_metrics and exit 4. `pm package doctor --detail deep --isolated` and `pm validate --counts` both returned ok with zero warnings."
+  "2026-08-01T12:27:47.404Z",codex,"CodeRabbit correctly identified that an atomic 256-event batch proves lossless bounded-request ingestion, not bounded long-run tracker growth. The current note-backed series grows with retained events, and no measured `pm history-compact` acceptance test yet proves the stated sustained-rate storage bound. The feature is reopened; implemented lifecycle and refusal behavior remain verified, while retention/compaction must be designed and measured before closure."
+files[2]{path,scope,note}:
+  index.ts,project,Environment and run command implementation
+  series.ts,project,Canonical metric event encoding and ordered series reader
+tests[1]{command,path,scope,timeout_seconds,pm_context_mode}:
+  npm run coverage,test/index.test.ts,project,30,tracker
+docs[1]{path,scope,note}:
+  README.md,project,Installed command and concurrency contract
 body: ""

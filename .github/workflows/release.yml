@@ -15,6 +15,10 @@ concurrency:
 
 jobs:
   release:
+    # New packages remain non-publishing until a maintainer explicitly enables
+    # the repository variable. The daily trigger is ready without turning a
+    # merge into implicit approval to publish a new npm package.
+    if: vars.PM_RELEASE_APPROVED == 'true' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     env:
       RELEASE_TIMEZONE: Europe/Vienna
