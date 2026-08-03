@@ -2,11 +2,17 @@ id: pm-rl-yxhe
 title: "The changelog heading records the day it was generated, so the gate fails every following day"
 description: "Two clock dependencies in the release gate. The lockfile pinned a pm-changelog older than 2026.8.2, which derived release dates in local time, so a host at a positive UTC offset and a UTC runner disagreed about the date. The one that actually bit this package: it is release-gated and therefore has no tags, and without a tag pm-changelog falls back to the current date for the release heading. The committed heading recorded the day it happened to be generated rather than the date the version encodes, so changelog:check compared against a freshly generated heading and failed on every subsequent day. The check was already failing when this was found, with no change to the tracker or the code. Every released package in this fleet pairs a CalVer version with its matching date, so the generated heading was inconsistent with that convention as well as unstable."
 type: Chore
-status: open
+status: closed
 priority: 1
 tags[3]: "area:release",dependencies,pm-changelog
 created_at: "2026-08-03T07:13:46.369Z"
-updated_at: "2026-08-03T07:13:46.369Z"
+updated_at: "2026-08-03T07:38:54.128Z"
+closed_at: "2026-08-03T07:38:54.115Z"
+completed_at: "2026-08-03T07:38:54.115Z"
 author: "harness:claude-code"
 acceptance_criteria: "The lockfile resolves pm-changelog to 2026.8.2 or newer; the three changelog scripts pass an explicit release date rather than relying on the fallback; the committed heading pairs the version with the date that version encodes; changelog:check passes today and passes again under a timezone a day behind this host, so its result does not depend on when it runs"
+resolution: "Pinned --date 2026-07-31 across changelog, changelog:full and changelog:check, corrected the committed heading to 2026.7.31 - 2026-07-31, and refreshed the lockfile onto pm-changelog 2026.8.3."
+expected_result: "changelog:check produces the same verdict on any day and in any timezone, rather than agreeing only on the day the file was generated."
+actual_result: "changelog:check passes, and passes again under TZ=Etc/GMT+12 which is a day behind this host. Before the fix the check was already failing, having been generated on a previous day."
+close_reason: "The three changelog scripts now pass an explicit release date instead of relying on the untagged fallback, the committed heading pairs the version with the date that version encodes, and the lockfile resolves pm-changelog 2026.8.3. changelog:check passes, and passes again under TZ=Etc/GMT+12, so its result no longer depends on when or where it runs."
 body: ""
