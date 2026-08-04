@@ -1,0 +1,15 @@
+id: pm-rl-gyrj
+title: Promotion refuses on contamination rather than warning about it
+description: "The single failure that makes a self-improvement loop produce rising numbers and no capability is the held-out set becoming training data. It happens by ordinary means: a sweep reuses seeds, a collection run samples the eval environment, a generation trains on a replay buffer that already contains eval episodes. Every one of those is visible in the graph before the score is computed. pm-rl therefore treats it as a refusal and not a warning, matching the decision already taken for ranking the incomparable. Promotion of a candidate generation is refused when the evaluation set is reachable from the candidate's training data, and the refusal names the specific path that connects them so it is actionable rather than merely blocking. A warning here would be worse than nothing, because the number it accompanies is the number the whole programme is steering on."
+type: Decision
+status: open
+priority: 1
+tags: []
+created_at: "2026-08-04T20:49:37.764Z"
+updated_at: "2026-08-04T20:49:37.764Z"
+author: claude
+estimated_minutes: 240
+acceptance_criteria: Promotion exits non-zero and names the connecting path when the evaluation set is reachable from the candidate's training data; an uncontaminated candidate promotes; the check runs before any score is computed or written so a contaminated score never reaches history; there is no flag that downgrades the refusal to a warning
+dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
+  pm-rl-yi7j,parent,"2026-08-04T20:49:37.764Z",claude,"cli:create:dep",detected
+body: ""

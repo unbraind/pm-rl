@@ -1,0 +1,15 @@
+id: pm-rl-0cqg
+title: The fleet's own mandatory gates as the first sim-to-RL environment
+description: "The honest version of recursive self-improvement for this ecosystem is not a claim about general capability, it is a measurable loop the fleet already runs by hand. An agent proposes a change to a pm package; the package's own mandatory gates decide whether it passed. Those gates are unusually well suited to being a reward because they were built to be uncheatable for a different reason: exact coverage thresholds, docstring coverage, acceptance scripts that run the built artifact, and bot review rounds that must be resolved rather than dismissed. The environment is the repository at a pinned commit, the action is a diff, and the reward is the gate verdict, which is already deterministic and already recorded. Registering that as a pm-rl environment turns the fleet's own review history into training and evaluation data with complete provenance, and it makes the sim-to-real gap concrete: gate-pass rate in the sandboxed environment against merge rate on real pull requests."
+type: Feature
+status: open
+priority: 2
+tags: []
+created_at: "2026-08-04T20:50:26.905Z"
+updated_at: "2026-08-04T20:50:26.905Z"
+author: claude
+estimated_minutes: 900
+acceptance_criteria: "The environment specification pins the repository commit, the gate command set, and the verdict extraction, and is content-addressed like every other environment; a recorded episode replays to the same verdict on the same commit; the sim-to-real report contrasts sandbox gate-pass rate with real pull-request merge rate over the same period; no episode captures repository credentials or hosted service data"
+dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
+  pm-rl-yi7j,parent,"2026-08-04T20:50:26.905Z",claude,"cli:create:dep",detected
+body: ""

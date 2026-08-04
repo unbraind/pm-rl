@@ -67,6 +67,7 @@ query the host can already answer, not a feature to build.
 | **Benchmark** | tasks, scoring function, pass criteria, version | May declare a contamination edge to an environment whose task suite it overlaps |
 | **EvalResult** | one checkpoint scored against one benchmark version | Depends on both, so provenance is complete |
 | **Transfer** | the measured per-metric gap between a source environment and a target one for one checkpoint | Depends on **both** environments — the sim-to-real gap becomes tracked data, not folklore |
+| **Generation** | base checkpoint, the policy that collected the training data, those collection runs, and the training configuration | Its parent is the generation whose policy did the collecting, so lineage is an edge rather than a filename convention |
 
 ## Available commands
 
@@ -91,6 +92,43 @@ The first slice fails closed when context would otherwise become misleading:
 Both exit non-zero. The roadmap keeps two further hard refusals—ranking across incompatible
 environment versions and ranking a contaminated benchmark—but no leaderboard command is
 registered until those graph-derived checks are implemented and accepted.
+
+## Recursive self-improvement, and the four properties that make it honest
+
+pm-rl exists to support a loop that improves itself: a generation collects trajectories, trains a
+successor, and the successor collects the next generation's trajectories. That loop is easy to run
+and almost impossible to trust, because every property that makes its results meaningful degrades
+*silently* as it turns.
+
+None of the four failures below is a training problem. Each one is a provenance problem — which is
+to say a context problem — and each is already answerable from the graph pm stores and merges.
+
+| what quietly breaks | why the score still rises | what pm-rl does about it |
+| --- | --- | --- |
+| The generating policy is not recorded | Trajectories are indistinguishable, so a regression cannot be attributed to the generation that caused it | A **Generation** names its base checkpoint, its collecting policy and its collection runs, and its parent edge points at the generation that produced its training data ([`pm-rl-81oc`](.agents/pm/features/pm-rl-81oc.toon)) |
+| The held-out set becomes training data | The evaluation number improves while capability does not | Promotion is **refused**, not warned about, when the evaluation set is reachable from the candidate's training data, and the refusal names the connecting path ([`pm-rl-gyrj`](.agents/pm/decisions/pm-rl-gyrj.toon)) |
+| The proxy and the real objective drift apart | The loop keeps improving *the number being optimized* | Every generation records both a proxy and a held-out score; the gap and its trend across promotions are reported as the reward-hacking signal they are ([`pm-rl-zav1`](.agents/pm/features/pm-rl-zav1.toon)) |
+| The loop has no stopping point | Nothing distinguishes generation four from generation forty | Advancing past an **approved generation budget** is refused, and the refusal names the approval item to extend — a tracked decision, never an environment variable ([`pm-rl-qix7`](.agents/pm/features/pm-rl-qix7.toon)) |
+
+Two consequences fall out of modelling it this way rather than bolting on a dashboard. An
+environment or reward-spec edit invalidates every downstream generation *transitively*, because
+descendants are reachable over edges that already exist. And [`pm rl lineage`](.agents/pm/features/pm-rl-32a9.toon)
+can render the chain from seed to head with each hop's promotion evidence **and** its invalidation
+state — the column that actually decides what to train next, and the one that is invisible today.
+
+The first environment this targets is deliberately unglamorous: [the fleet's own mandatory
+gates](.agents/pm/features/pm-rl-0cqg.toon). An agent proposes a diff to a pm package, and the
+package's exact coverage thresholds, docstring coverage, acceptance scripts and review rounds
+decide whether it passed. Those gates make an unusually good reward because they were built to be
+uncheatable for an entirely different reason, and the sim-to-real gap is directly measurable:
+sandbox gate-pass rate against merge rate on real pull requests.
+
+**What this is not.** None of the above is a claim of unbounded self-improvement, and pm-rl does
+not train anything — it has no orchestration and never will (see *Not in scope*). It tracks the
+loop, and it refuses to let the loop's results look valid when their provenance says otherwise.
+The programme is specified under [`pm-rl-yi7j`](.agents/pm/epics/pm-rl-yi7j.toon); as with every
+other roadmap slice, no command is registered until its acceptance criteria and refusal paths are
+implemented and tested.
 
 ## Not in scope
 
