@@ -1,0 +1,15 @@
+id: pm-rl-yi7j
+title: "Recursive self-improvement: a training loop whose every generation is tracked, gated, and invalidatable"
+description: "pm-rl must be able to TRACK AND GATE a loop in which a policy improves itself: a generation collects trajectories, a trainer outside pm-rl produces a successor, and the successor collects the next generation's trajectories. pm-rl never runs the trainer, never schedules compute, and never orchestrates a job; it records what happened, refuses to let a result look valid when its provenance says otherwise, and answers the questions the loop cannot answer about itself. That boundary is deliberate and matches the package's existing no-orchestration scope. The loop is easy to run and almost impossible to trust, because every property that makes a result meaningful degrades silently as it turns. The generating policy is not recorded, so nobody can say which model produced a trajectory. The held-out set quietly becomes training data, so the score rises while capability does not. The proxy objective and the objective the programme actually cares about drift apart, and only the proxy is measured. An environment or reward edit invalidates every downstream generation, and nothing says so. None of these are training problems. They are all provenance problems, which is to say context problems, and pm already models the graph that answers them - but only if the graph carries the right edges. Reachability is not free: a parent edge from a generation to its predecessor does not connect an environment revision to the generations that used it. This epic therefore requires an explicit graph contract as its foundation, not as a later refinement."
+type: Epic
+status: open
+priority: 1
+tags: []
+created_at: "2026-08-04T20:48:53.609Z"
+updated_at: "2026-08-04T21:33:39.310Z"
+author: claude
+estimated_minutes: 5400
+acceptance_criteria: "Every artifact a verdict depends on carries an immutable content-addressed identity: environment version, reward specification version, base checkpoint, candidate tree, collection run, and each recorded score; a generation declares explicit typed edges to its parent generation, its collection runs, and the exact environment and reward-spec versions those runs used, so reverse reachability from an environment edit reaches every downstream generation; promotion refuses when the evaluation set is reachable from the candidate's training data over the declared edge types, and the refusal prints a stable path; the proxy and held-out scores are attributed identically and compared by a defined direction-aware formula; advancing past the approved promotion budget is refused and names the approval item required; pm-rl runs no trainer and registers no command until its acceptance criteria and refusal paths are implemented and tested; 100 percent line, branch, function and docstring coverage"
+dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
+  pm-rl-e20d,parent,"2026-08-04T20:48:53.609Z",claude,"cli:create:dep",detected
+body: ""

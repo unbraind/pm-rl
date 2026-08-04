@@ -1,0 +1,15 @@
+id: pm-rl-qix7
+title: An approved generation budget the loop cannot advance past on its own
+description: "A loop that promotes its own successors has no natural stopping point, and the useful stopping rule is not a compute limit but a human decision recorded where the loop can read it. pm-rl binds a self-improvement programme to an approval item that states how many generations are authorized and on what evidence. Advancing beyond that count is refused, and the refusal names the approval item that must be extended, so the operator is told exactly what to write rather than which flag to add. The counting boundary is part of the contract and not an implementation detail, because two readings of the same approval item would otherwise permit different numbers of successors. The approved number is a count of PERMITTED PROMOTIONS, not a maximum generation ordinal. The seed generation consumes no budget: it is not promoted, it is registered, and a programme that has only a seed has spent nothing. Each promotion of a candidate consumes exactly one unit at the moment it succeeds, so a refused promotion costs nothing and a retried candidate that then succeeds costs one. This is the same shape as the release approval already governing which packages may publish: the gate is a tracked decision, not an environment variable, so it survives a fresh checkout, is reviewable in a diff, and cannot be satisfied by a process that merely sets something."
+type: Feature
+status: open
+priority: 1
+tags: []
+created_at: "2026-08-04T20:50:26.171Z"
+updated_at: "2026-08-04T21:34:11.011Z"
+author: claude
+estimated_minutes: 480
+acceptance_criteria: The approved number is interpreted as permitted promotions and never as a generation ordinal; the seed generation consumes no budget unit; a refused promotion consumes no unit and a subsequent successful promotion of the same candidate consumes exactly one; advancing past the approved count exits non-zero and names the approval item to extend; extending the approval item permits exactly the additional promotions it states; a programme with no approval item refuses at the first promotion rather than at the last; the budget is read from tracked project data and never from an environment variable
+dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
+  pm-rl-yi7j,parent,"2026-08-04T20:50:26.171Z",claude,"cli:create:dep",detected
+body: ""

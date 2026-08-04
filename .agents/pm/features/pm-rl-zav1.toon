@@ -1,0 +1,15 @@
+id: pm-rl-zav1
+title: "The proxy-to-held-out gap is the reward-hacking signal, measured per generation and trended across the chain"
+description: "A self-improving loop rarely stops improving. It keeps improving on the objective being optimized while the objective the programme actually cares about goes flat or falls, and a programme that measures only the first cannot tell the two apart. Each generation therefore records both a proxy score, the quantity training optimized, and a held-out score on the pinned evaluation set. Recording two numbers is not enough to compare them, which was the gap in the first draft: the two scores must be attributed to the same standard and combined by a stated formula, or identical records produce different findings in different implementations. Both scores carry full provenance - the objective identifier, its version, and the evaluation context that produced them - so the proxy is identified as precisely as the held-out score rather than being a bare float. Each objective declares its direction, whether a higher value is better or a lower one is, and the gap is computed direction-aware so that a positive gap always means the proxy is ahead of held-out capability regardless of which way the underlying metric points. Scores from objectives with different units are normalized to their declared scales before subtraction, and objectives with no declared scale are refused rather than silently compared. The widening rule is a comparison of the gap across a window of consecutive promotions along one explicitly selected ancestry, never across a mixture of branches."
+type: Feature
+status: open
+priority: 1
+tags: []
+created_at: "2026-08-04T20:49:38.108Z"
+updated_at: "2026-08-04T21:34:36.837Z"
+author: claude
+estimated_minutes: 600
+acceptance_criteria: "A generation without both a proxy and a held-out score cannot be promoted; both scores carry objective id, objective version and evaluation context, attributed to the same standard; every objective declares a direction and the gap is computed direction-aware so a positive gap always means proxy ahead of held-out; scores whose objectives declare no comparable scale are refused rather than compared; the gap, its per-generation delta and the window comparison are computed over one explicitly selected ancestry; a widening gap over the configured window is surfaced as a named finding rather than left for a reader to notice; the held-out score is always attributed to the pinned environment version and seed set that produced it"
+dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
+  pm-rl-yi7j,parent,"2026-08-04T20:49:38.108Z",claude,"cli:create:dep",detected
+body: ""
