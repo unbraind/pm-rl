@@ -1,15 +1,15 @@
 id: pm-rl-32a9
 title: "pm rl lineage: the generation chain with each hop's promotion evidence and the invalidation frontier"
-description: "The chain is the artifact an operator and an agent both need, and reconstructing it from individual item reads costs more context than the answer is worth. One view walks the generation chain and prints, per hop, the base checkpoint, the collection runs, the proxy and held-out scores with their gap, the approval that authorized the hop, and whether anything upstream has since invalidated it. The last column is the one that decides what to do next: a chain that is green to generation four and invalidated from generation two onward means the last two promotions rest on a result that no longer holds, which is exactly the state that is invisible today and expensive to discover by hand."
+description: "The chain is the artifact an operator and an agent both need, and reconstructing it from individual item reads costs more context than the answer is worth. One view walks the generation chain and prints, per hop, the base checkpoint, the collection runs, the proxy and held-out scores with their gap, the approval that authorized the hop, and whether anything upstream has since invalidated it. A generation may have more than one promoted successor - an operator exploring two training configurations from the same parent produces exactly that - so seed to head is not a unique path and the first draft was wrong to assume it was. The view therefore requires an explicit head, and renders the single ancestry from the seed to that head. Invoked without a head it enumerates every head and renders each ancestry separately rather than interleaving them, because a merged view would compute reward-gap deltas across generations that never followed one another. The last column is the one that decides what to do next: a chain that is green to generation four and invalidated from generation two onward means the last two promotions rest on a result that no longer holds, which is exactly the state that is invisible today and expensive to discover by hand."
 type: Feature
 status: open
 priority: 2
 tags: []
 created_at: "2026-08-04T20:50:26.547Z"
-updated_at: "2026-08-04T20:50:26.547Z"
+updated_at: "2026-08-04T21:34:37.260Z"
 author: claude
 estimated_minutes: 600
-acceptance_criteria: The view renders the full chain from seed to head with one row per generation; each row names the promotion evidence and its approval item; invalidated generations are marked with the upstream edit that invalidated them; the view answers from the graph and never recomputes a score; output is available in both a human table and a machine-readable form
+acceptance_criteria: "The view requires an explicit head or, given none, enumerates every head and renders each ancestry separately; a rendered chain is one ancestry from the seed to the selected head with one row per generation; reward-gap deltas and trends are computed only along the selected ancestry and never across branches; each row names the promotion evidence and its approval item; invalidated generations are marked with the upstream edit that invalidated them; the view answers from the graph and never recomputes a score; output is available in both a human table and a machine-readable form"
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rl-yi7j,parent,"2026-08-04T20:50:26.547Z",claude,"cli:create:dep",detected
 body: ""
