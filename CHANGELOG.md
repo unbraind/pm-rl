@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Make fallback-author coverage assert actual PM client wiring ([pm-rl-q7xw](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-q7xw.toon))
 - Gate durable PM project health in CI on pm CLI 2026.8.6 ([pm-rl-e0vc](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-e0vc.toon))
 - changelog:full and changelog:check use different projections ([pm-rl-mxe0](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-mxe0.toon))
 - pm CLI 2026.8.6 exposes untested fallback-author branches under the exact coverage gate ([pm-rl-tqym](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-tqym.toon))

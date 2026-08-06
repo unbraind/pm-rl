@@ -361,7 +361,7 @@ test("repeated realistic metric batches retain every event with measured bounded
   context.diagnostic(`${batches * eventsPerBatch} events: ${canonicalInputBytes} input bytes, ${storedSegmentBytes} segment bytes, ${historyBytes} total history bytes`);
 });
 
-test("domain commands reject missing arguments, options, wrong item types, and absent SDK injection", async () => {
+test("domain commands reject missing arguments, options, wrong item types, and absent SDK injection", async (testContext) => {
   const { pmRoot, harness } = await workspace();
   await assert.rejects(harness.runCommand({ command: "rl env show", pmRoot }), /requires an environment id/);
   await assert.rejects(harness.runCommand({ command: "rl run finish", pmRoot, args: ["unknown"] }), /requires --reason/);
@@ -376,12 +376,19 @@ test("domain commands reject missing arguments, options, wrong item types, and a
   assert.equal(listed.details?.count, 0, "the public real-client fallback must work while the harness omits sdk");
   const command = RL_COMMANDS.find((candidate) => candidate.name === "rl env list");
   assert.ok(command?.run !== undefined);
+  const observedAuthors: string[] = [];
+  const originalFactory = PmClient.forActiveExtensionHost;
+  testContext.mock.method(PmClient, "forActiveExtensionHost", (...args: Parameters<typeof PmClient.forActiveExtensionHost>) => {
+    observedAuthors.push(args[0].author ?? "");
+    return originalFactory(...args);
+  });
   const direct = await command.run({ command: "rl env list", args: [], options: {}, global: {}, pm_root: pmRoot }) as RlCommandResult;
   assert.equal(direct.details?.count, 0);
   const blankAuthor = await command.run({ command: "rl env list", args: [], options: {}, global: { author: "   " }, pm_root: pmRoot }) as RlCommandResult;
   assert.equal(blankAuthor.details?.count, 0);
   const explicitAuthor = await command.run({ command: "rl env list", args: [], options: {}, global: { author: "direct-test" }, pm_root: pmRoot }) as RlCommandResult;
   assert.equal(explicitAuthor.details?.count, 0);
+  assert.deepEqual(observedAuthors, ["pm-rl", "pm-rl", "direct-test"]);
   const client = new PmClient({ pmRoot, author: "injected-test" });
   const injectedSdk = { client } as NonNullable<CommandHandlerContext["sdk"]>;
   const injected = await command.run({ command: "rl env list", args: [], options: {}, global: {}, pm_root: pmRoot, sdk: injectedSdk }) as RlCommandResult;
