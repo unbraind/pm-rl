@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Fixed
+
+- Gate durable PM project health in CI on pm CLI 2026.8.6 ([pm-rl-e0vc](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-e0vc.toon))
+- changelog:full and changelog:check use different projections ([pm-rl-mxe0](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-mxe0.toon))
+- pm CLI 2026.8.6 exposes untested fallback-author branches under the exact coverage gate ([pm-rl-tqym](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-tqym.toon))
+
 ### Other
 
 - Mark stale in_progress items as blocked to clear stale_in_progress health warning ([pm-rl-d3ve](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-d3ve.toon))

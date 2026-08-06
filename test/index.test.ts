@@ -39,10 +39,8 @@ async function workspace(): Promise<{
   const root = mkdtempSync(join(tmpdir(), "pm-rl-test-"));
   roots.push(root);
   const initialized = await init("rl", { defaults: true, author: "pm-rl-test", agentGuidance: "skip" }, { cwd: root });
-  // The 2026.8.1 testing harness activates schema registrations in memory but
-  // omits the command SDK (#853), so its real-client fallback cannot see those
-  // registrations. Materialize the same public schema in this temporary tracker;
-  // this is real host state, not a command/API double.
+  // Materialize the public schema in this temporary tracker so direct command
+  // invocations exercise the same real persisted state as the host-injected SDK.
   const client = new PmClient({ pmRoot: initialized.path, author: "pm-rl-test" });
   for (const itemType of RL_ITEM_TYPES) {
     await client.schemaAddType(itemType.name, {
@@ -380,6 +378,10 @@ test("domain commands reject missing arguments, options, wrong item types, and a
   assert.ok(command?.run !== undefined);
   const direct = await command.run({ command: "rl env list", args: [], options: {}, global: {}, pm_root: pmRoot }) as RlCommandResult;
   assert.equal(direct.details?.count, 0);
+  const blankAuthor = await command.run({ command: "rl env list", args: [], options: {}, global: { author: "   " }, pm_root: pmRoot }) as RlCommandResult;
+  assert.equal(blankAuthor.details?.count, 0);
+  const explicitAuthor = await command.run({ command: "rl env list", args: [], options: {}, global: { author: "direct-test" }, pm_root: pmRoot }) as RlCommandResult;
+  assert.equal(explicitAuthor.details?.count, 0);
   const client = new PmClient({ pmRoot, author: "injected-test" });
   const injectedSdk = { client } as NonNullable<CommandHandlerContext["sdk"]>;
   const injected = await command.run({ command: "rl env list", args: [], options: {}, global: {}, pm_root: pmRoot, sdk: injectedSdk }) as RlCommandResult;

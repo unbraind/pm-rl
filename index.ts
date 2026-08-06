@@ -95,9 +95,9 @@ function requiredArgument(context: CommandHandlerContext, label: string): string
 /**
  * Resolve a real tracker-bound client.
  *
- * Installed commands receive the host-injected client. The public testing
- * harness in pm-cli 2026.8.1 omits `context.sdk` (upstream #853), so the fallback
- * constructs the same public host client rather than replacing it with a double.
+ * Current hosts inject the client. Direct command consumers and older hosts may
+ * omit `context.sdk`, so the fallback constructs the same public host client
+ * rather than replacing it with a test double.
  */
 function clientFor(context: CommandHandlerContext): PmClient {
   if (context.sdk !== undefined) return context.sdk.client;
