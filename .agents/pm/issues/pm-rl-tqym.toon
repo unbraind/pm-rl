@@ -1,0 +1,29 @@
+id: pm-rl-tqym
+title: pm CLI 2026.8.6 exposes untested fallback-author branches under the exact coverage gate
+description: "Updating the package lock from pm CLI 2026.8.1 to 2026.8.6 makes the testing harness inject context.sdk. The real fallback remains required for direct and legacy host contexts, but the previous harness-based assertion no longer executes its author normalization branches; the full release gate falls from 100% to 99.07% branch coverage. Add direct behavioral cases for missing, blank, and explicit authors and update the now-stale harness documentation."
+type: Issue
+status: closed
+priority: 1
+tags: []
+created_at: "2026-08-06T22:56:17.946Z"
+updated_at: "2026-08-06T22:57:04.587Z"
+closed_at: "2026-08-06T22:57:04.168Z"
+completed_at: "2026-08-06T22:57:04.168Z"
+author: codex
+acceptance_criteria: "Direct command execution with missing, blank, and explicit authors succeeds against a real tracker; the injected SDK path remains covered; npm run release:check passes exact 100/100/100; no ignore directives or source exclusions are introduced"
+severity: medium
+environment: "Node 26.5.0, pm CLI 2026.8.6"
+repro_steps: "Resolve @unbrained/pm-cli 2026.8.6, run npm run release:check, and inspect coverage/lcov.info lines 104-105."
+expected_result: The exact 100/100/100 gate remains green while behaviorally exercising every supported client resolution path.
+actual_result: "The release gate reports index.ts at 98.10% branch coverage and 99.07% overall, with uncovered branches on author normalization."
+affected_version: 2026.7.31
+notes[1]{created_at,author,text}:
+  "2026-08-06T22:57:03.754Z",codex,"Reproduced before the test change on pm CLI 2026.8.6: 99.07% overall branches, with both uncovered branches mapped by LCOV to the fallback author normalization. Added real direct-command executions with absent, blank, and explicit authors; coverage now reports index.ts and series.ts at exact 100/100/100 without ignores or exclusions."
+files[3]{path,scope,note}:
+  index.ts,project,accurate injected and fallback client contract
+  package-lock.json,project,pm CLI and pm-changelog 2026.8.6 resolution
+  test/index.test.ts,project,behavioral fallback coverage
+tests[1]{command,scope,timeout_seconds,pm_context_mode}:
+  "npm run release:check",project,900,tracker
+close_reason: Restored exact coverage with real fallback-author behavior tests and corrected stale harness documentation.
+body: ""

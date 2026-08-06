@@ -1,0 +1,19 @@
+id: pm-rl-d3ve
+title: Mark stale in_progress items as blocked to clear stale_in_progress health warning
+description: ""
+type: Chore
+status: closed
+priority: 2
+tags: []
+created_at: "2026-08-06T20:43:41.654Z"
+updated_at: "2026-08-06T20:54:13.974Z"
+closed_at: "2026-08-06T20:43:48.590Z"
+completed_at: "2026-08-06T20:43:48.590Z"
+author: pi-agent
+acceptance_criteria: pm health --strict-exit exits 0; pm-rl-et5b and pm-rl-e20d are blocked with upstream pm-cli#854 as the blocked reason
+notes[1]{created_at,author,text}:
+  "2026-08-06T20:43:45.801Z",pi-agent,"Evidence and justification:\n\npm-rl-et5b (Feature, 'Environment registration and versioning, immutable once referenced'): Its own description states it 'stays in progress until the SDK exposes that capability', blocked on upstream pm-cli#854 (host-level pre-commit mutation guard). The 2026.8.1 extension SDK has no pre-commit mutation guard, so arbitrary direct core mutations cannot be intercepted at write time. This is genuinely externally blocked work, not stale work. Marked blocked with --blocked-reason naming pm-cli#854.\n\npm-rl-e20d (Epic, 'pm-rl: an RL programme as tracked project data'): The epic has 13 children. 3 are closed (pm-rl-mpd9, pm-rl-fpon, pm-rl-dyho). 1 is in_progress (pm-rl-et5b, now blocked on pm-cli#854). 9 are open (not started, not active work). The only active child is externally blocked, so the epic is blocked too. There is no other genuinely active work under the epic. Marked blocked with --blocked-reason naming pm-cli#854 via the blocked child.\n\nNeither item was flipped to open or refreshed with pm claim. Both were honestly transitioned to blocked with recorded reasons."
+tests[1]{command,scope,timeout_seconds}:
+  pm health --strict-exit,project,120
+close_reason: Both stale in_progress items honestly transitioned to blocked with upstream pm-cli#854 as the reason; pm health --strict-exit exits 0
+body: ""

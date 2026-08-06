@@ -2,15 +2,16 @@ id: pm-rl-et5b
 title: "Environment registration and versioning, immutable once referenced"
 description: "An Environment holds the task suite, reward specification, and version as content-addressed project context. Registration is idempotent by canonical content, changed content receives a new id, and every pm-rl command revalidates the stored hash before use. Arbitrary direct core mutations cannot yet be intercepted at write time; host-level mutation guards remain pending pm-cli#854, so this feature stays in progress until the SDK exposes that capability."
 type: Feature
-status: in_progress
+status: blocked
 priority: 2
 tags: []
 created_at: "2026-07-31T06:38:30.856Z"
-updated_at: "2026-08-01T12:27:46.188Z"
+updated_at: "2026-08-06T20:40:48.781Z"
 author: "harness:claude-code"
 estimated_minutes: 480
 acceptance_criteria: Registering a changed reward specification against a referenced version is refused and produces a new version instead; every Run records the exact environment version id it ran against; show reports the reward specification that was in force
 release: 2026.7.31
+blocked_reason: "Externally blocked on pm-cli#854: the 2026.8.1 extension SDK has no pre-commit mutation guard, so arbitrary direct core mutations cannot be intercepted at write time. The feature stays blocked until the SDK exposes that capability."
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rl-e20d,parent,"2026-07-31T06:38:31.227Z","harness:claude-code","cli:update:dep",detected
 notes[1]{created_at,author,text}:

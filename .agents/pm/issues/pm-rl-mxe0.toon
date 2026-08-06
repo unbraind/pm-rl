@@ -1,0 +1,30 @@
+id: pm-rl-mxe0
+title: "changelog:full and changelog:check use different projections"
+description: "The regeneration command uses mode replace with all release tags, while the mandatory check uses mode prepend from the previous tag. After closing any new PM item, npm run changelog:full succeeds but npm run changelog:check immediately rejects the generated file and proposes an incompatible projection. Align the check with the package-owned full regeneration contract."
+type: Issue
+status: closed
+priority: 1
+tags: []
+created_at: "2026-08-06T22:57:42.945Z"
+updated_at: "2026-08-06T22:58:02.219Z"
+closed_at: "2026-08-06T22:58:01.789Z"
+completed_at: "2026-08-06T22:58:01.789Z"
+author: codex
+acceptance_criteria: "changelog:full and changelog:check use identical mode, release-tag, version, date, URL, and release-respect inputs except for --check; regeneration followed by check passes; the full release gate passes"
+severity: high
+environment: pm-changelog 2026.8.6
+repro_steps: "Run npm run changelog:full followed by npm run changelog:check on the current tracker."
+resolution: "Made changelog:check use the same replace and all-release-tags projection as changelog:full, retaining the version, fixed date, item URL, and release filtering inputs."
+expected_result: A freshly generated package changelog passes its mandatory check byte-for-byte.
+actual_result: "The check adds entries that changelog:full omitted and fails the release gate."
+affected_version: 2026.7.31
+notes[1]{created_at,author,text}:
+  "2026-08-06T22:58:01.379Z",codex,"Before fix, changelog:full exited 0 and the immediately following changelog:check exited 1 with an incompatible prepend diff. The commands now differ only by --check."
+files[2]{path,scope,note}:
+  package.json,project,canonical changelog command contract
+  CHANGELOG.md,project,regenerated canonical projection
+tests[2]{command,scope,timeout_seconds,pm_context_mode}:
+  "npm run changelog:full && npm run changelog:check",project,180,tracker
+  "npm run release:check",project,900,tracker
+close_reason: Aligned the generation and verification projections so a canonical regeneration is check-stable.
+body: ""

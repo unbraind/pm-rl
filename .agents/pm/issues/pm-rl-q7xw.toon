@@ -1,0 +1,29 @@
+id: pm-rl-q7xw
+title: Make fallback-author coverage assert actual PM client wiring
+description: "CodeRabbit found that blank and explicit author branch tests only assert an empty list, so they pass even if the author is ignored. Observe the public PmClient factory arguments while retaining real client behavior."
+type: Issue
+status: closed
+priority: 1
+tags: []
+created_at: "2026-08-06T23:17:32.678Z"
+updated_at: "2026-08-06T23:28:58.350Z"
+closed_at: "2026-08-06T23:28:57.829Z"
+completed_at: "2026-08-06T23:28:57.829Z"
+author: codex
+estimated_minutes: 20
+acceptance_criteria: tests distinguish absent and blank fallback author pm-rl from explicit direct-test author; real client list behavior remains exercised; exact 100/100/100 and release checks pass
+severity: medium
+environment: direct command invocation without host SDK injection
+resolution: Observed the public PmClient factory arguments while preserving real client execution.
+expected_result: Absent and blank author inputs resolve to pm-rl while an explicit author remains direct-test.
+actual_result: "The test asserts the exact author sequence pm-rl, pm-rl, direct-test and the full exact-coverage release gate passes."
+dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
+  pm-rl-tqym,related,"2026-08-06T23:17:32.678Z",codex,"cli:create:dep",detected
+files[1]{path,scope}:
+  test/index.test.ts,project
+tests[1]{command,scope,timeout_seconds,pm_context_mode}:
+  "npm run release:check",project,900,tracker
+docs[1]{path,scope}:
+  "https://github.com/unbraind/pm-rl/pull/5",project
+close_reason: Made fallback-author wiring observable without replacing the real PM client; exact release gate passes.
+body: ""
