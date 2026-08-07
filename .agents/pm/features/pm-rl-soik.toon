@@ -1,0 +1,53 @@
+id: pm-rl-soik
+title: Absorb pm 2026.8.7 merge and SDK contracts
+description: "Advance pm-rl's PM CLI, changelog, and pm-ops development toolchain to the latest published 2026.8.7 contracts, install the extension-asset merge fence, and re-prove the package against a fresh dependency tree without publishing."
+type: Feature
+status: closed
+priority: 0
+tags[7]: compatibility,merge-safety,multi-agent,pm-cli,pm-ops,sdk,toolchain
+created_at: "2026-08-07T13:26:06.951Z"
+updated_at: "2026-08-07T13:27:55.376Z"
+closed_at: "2026-08-07T13:27:55.361Z"
+completed_at: "2026-08-07T13:27:55.361Z"
+claim_principal: codex
+author: codex
+estimated_minutes: 300
+acceptance_criteria: "Fresh npm ci resolves @unbrained/pm-cli, pm-changelog, and pm-ops 2026.8.7; .gitattributes contains extensions/** no-merge and .managed-extensions.json pm-json; pm validate and strict read-only pm health pass; all package tests, exact configured coverage, docstring, dependency, package, changelog, and real installed-CLI gates pass; any privacy or all-source quality gap is tracked explicitly; no publication occurs"
+definition_of_ready: Canonical checkout is clean on main; no open package PR or GitHub issue duplicates the work; npm latest is verified for all three PM development tools
+value: RL experiment and metric-history work remains compatible with the current multi-agent PM storage and operations contracts
+impact: Prevents generated extension assets from corrupting branch merges and removes stale PM SDK behavior from RL workflows
+outcome: pm-rl is reproducibly verified with the published 2026.8.7 PM toolchain
+why_now: The fleet audit found pm-rl missing the 2026.8.7 extension fence while its lock resolves PM tools between 2026.8.1 and 2026.8.6
+parent: pm-rl-e20d
+reviewer: maintainer
+risk: high
+confidence: high
+sprint: 2026-08-compatibility
+release: Unreleased
+resolution: Advanced all three PM development tools to 2026.8.7 and installed the canonical extension-asset merge fence.
+expected_result: pm-rl uses the latest published PM contracts while its configured compatibility gates pass and independent privacy/quality blockers remain fail-closed.
+actual_result: "Fresh install and release:check passed with 23 tests and exact configured two-source 100/100/100 coverage; strict PM health passed; all-source, lint, duplication, and raw-history identity work remains explicitly open as pm-rl-zcqf and no publication occurred."
+dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
+  pm-rl-zcqf,related_to,"2026-08-07T13:27:54.998Z",codex,compatibility-audit,asserted
+notes[1]{created_at,author,text}:
+  "2026-08-07T13:27:54.998Z","harness:codex","Fresh npm ci resolved @unbrained/pm-cli, pm-changelog, and pm-ops 2026.8.7 with zero install vulnerabilities. Full release:check passed: typecheck/build, five-file 38-declaration docstrings, 23 behavioral tests, exact configured 100/100/100 for index.ts and series.ts, real two-branch metric merge, 10,000-event bounded-history evidence, production audit, package dry-run, and changelog. pm validate passed with only two pre-existing closed-item resolution warnings; strict read-only pm health passed with no warnings. Audit boundaries are explicit: scripts/coverage-gate.ts, docstring-gate.ts, and prepare-merge-driver.ts are outside instrumentation; no lint/duplication or raw-object identity gate exists; reachable history contains two non-noreply identities. pm-rl-zcqf tracks these release blockers, so no publication is attempted."
+files[3]{path,scope,note}:
+  .gitattributes,project,Canonical pm 2026.8.7 extension merge fence
+  package.json,project,Published PM development-tool ranges
+  package-lock.json,project,Reproducible PM toolchain resolution
+tests[3]:
+  - command: node_modules/.bin/pm health --check-only --require-merge-drivers --strict-exit
+    scope: project
+    timeout_seconds: 300
+    pm_context_mode: tracker
+  - command: node_modules/.bin/pm validate
+    scope: project
+    timeout_seconds: 300
+    pm_context_mode: tracker
+  - command: "npm run release:check"
+    scope: project
+    timeout_seconds: 900
+docs[1]{path,scope,note}:
+  "https://github.com/unbraind/pm-cli/releases/tag/v2026.8.7",global,Canonical published PM CLI contract
+close_reason: pm 2026.8.7 compatibility implemented and verified without publication
+body: "Characterize with installed pm 2026.8.7, update only the published development contracts and canonical merge fence, run every existing quality gate, and keep release/privacy approval independent."
