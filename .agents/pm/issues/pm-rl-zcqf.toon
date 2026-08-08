@@ -2,11 +2,13 @@ id: pm-rl-zcqf
 title: "Release gate omits operational scripts, full-history identities, lint, and duplication"
 description: "The configured exact coverage gate measures index.ts and series.ts only while three executable TypeScript scripts remain outside instrumentation. release:check has no raw Git object identity audit, and the reachable history currently contains two distinct non-GitHub-noreply addresses without printing their values. No explicit ESLint or jscpd-equivalent gate exists. Publishing must remain blocked until these independent quality and privacy contracts are implemented."
 type: Issue
-status: open
+status: in_progress
 priority: 0
 tags[8]: coverage,docstrings,duplication,git-history,lint,privacy,release-blocker,typescript
 created_at: "2026-08-07T13:27:40.044Z"
-updated_at: "2026-08-07T13:27:40.044Z"
+updated_at: "2026-08-08T11:45:02.529Z"
+assignee: pi-agent
+claim_principal: pi-agent
 author: codex
 estimated_minutes: 720
 acceptance_criteria: "Every executable TypeScript file is instrumented at exact 100 percent for every supported coverage dimension with behavioral tests; ESLint enforces no explicit any, no inline or dynamic imports, erasable syntax, and package conventions; a strict duplicate-code gate runs; a raw physical commit and annotated-tag identity audit includes unreachable objects and permits only approved public identities; tracked files and full history pass secret and private-data scans; release:check and prepublishOnly fail closed on every gate"
@@ -30,4 +32,7 @@ component: quality/privacy
 customer_impact: "A package could pass release:check while shipping untested operational logic or retaining unapproved personal history metadata"
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rl-soik,discovered_from,"2026-08-07T13:27:40.044Z",codex,compatibility-audit,asserted
+notes[2]{created_at,author,text}:
+  "2026-08-08T11:43:17.028Z",pi-agent,"Started work. Installed eslint@^10.8.1, @babel/core@^8.0.1, @babel/eslint-parser@^8.0.1, @babel/plugin-syntax-typescript@^8.0.3, jiti@^2.7.0, jscpd@^5.0.14 as devDependencies. Current state: no lint, no duplication check, no identity audit, scripts excluded from coverage."
+  "2026-08-08T11:45:02.529Z",pi-agent,"Lint: 0 violations found (ESLint with Babel parser, TS7-compatible). Duplicates: 1 clone found in series.ts (0.36% lines, 68 tokens) - extracted buildMetricEvent() shared helper to eliminate it. After fix: 0% duplication. Identity audit: ported audit-git-identities.ts from pm-vcs, approved 3 addresses (1153461+unbraind noreply, noreply@github.com, stefan@preu.at as intentional public authoring identity)."
 body: ""

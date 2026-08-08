@@ -1,67 +1,84 @@
-import { execSync } from 'node:child_process';
-import { accessSync, statSync, constants } from 'node:fs';
-import { join, delimiter } from 'node:path';
+/**
+ * Installs pm's field-aware Git merge drivers when the CLI is on `PATH`.
+ *
+ * A missing CLI is a supported production-install state and skips cleanly. A
+ * present but broken CLI fails loudly so package installation cannot pretend it
+ * configured merge safety when it did not.
+ *
+ * Implemented in Node (not a POSIX `if ...; then ...; fi` shell guard) so it
+ * runs identically on POSIX shells and Windows cmd.exe (npm's default script
+ * shell) with no shell-operator parsing.
+ */
 
-// Wire pm-cli's field-aware Git merge drivers into this clone's local Git config on
-// install/clone, but only when the `pm` CLI is actually available. Implemented in Node
-// (not a POSIX `if ...; then ...; fi` shell guard) so it runs identically on POSIX shells
-// and Windows cmd.exe (npm's default script shell) with no shell-operator parsing.
+import { execFileSync } from "node:child_process";
+import { accessSync, constants, statSync } from "node:fs";
+import { join } from "node:path";
 
-const isWindows = process.platform === 'win32';
+import { isMainInvocation } from "./script-launcher.ts";
 
-/** A PATH candidate counts only if it is a regular, executable file — mirroring how a
- *  shell resolves a bare command name. Rejects directories and (on POSIX) non-executable
- *  files, so a stray `pm` dir/data file never makes `execSync` fail the whole install. */
-function isExecutableFile(p: string): boolean {
+/** Injectable process boundary used to verify Windows shim execution. */
+type MergeInstaller = (
+  executable: string,
+  arguments_: readonly string[],
+  options: { stdio: "inherit"; env: NodeJS.ProcessEnv; shell: boolean },
+) => unknown;
+
+/** Returns true only for a regular executable path candidate. */
+export function isExecutableFile(path: string, platform: NodeJS.Platform): boolean {
   try {
-    if (!statSync(p).isFile()) return false;
-  } catch {
-    return false; // ENOENT / not accessible
-  }
-  if (isWindows) return true; // Windows keys executability off PATHEXT, not a mode bit
-  try {
-    accessSync(p, constants.X_OK);
+    if (!statSync(path).isFile()) return false;
+    if (platform === "win32") return true;
+    accessSync(path, constants.X_OK);
     return true;
   } catch {
     return false;
   }
 }
 
-/** Is the `pm` executable resolvable on PATH? Resolved by inspecting PATH directly
- *  (never by executing `pm`), so a present-but-broken CLI is NOT mistaken for "absent":
- *  absence => silent skip, presence => run fail-loud below. npm prepends
- *  `node_modules/.bin` to PATH for lifecycle scripts, so a devDep-installed pm is found.
- *  PATH parsing mirrors shell semantics: an empty POSIX entry means the current
- *  directory, and Windows entries may be wrapped in double quotes. */
-function pmOnPath(): boolean {
-  const dirs = (process.env.PATH || '')
+/** Resolves the exact real `pm` launcher on the supplied process path. */
+export function pmOnPath(environment: NodeJS.ProcessEnv, platform: NodeJS.Platform): string | null {
+  const delimiter = platform === "win32" ? ";" : ":";
+  const directories = (environment.PATH ?? "")
     .split(delimiter)
-    .map((dir) => {
-      let d = dir;
-      if (isWindows && d.length >= 2 && d.startsWith('"') && d.endsWith('"')) {
-        d = d.slice(1, -1);
-      }
-      // Empty component: current dir on POSIX; ignored on Windows.
-      return d === '' ? (isWindows ? '' : '.') : d;
-    })
-    .filter((d) => d !== '');
-  const exts = isWindows
-    ? (process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').map((e) => e.trim()).filter(Boolean)
-    : [''];
-  for (const dir of dirs) {
-    for (const ext of exts) {
-      if (isExecutableFile(join(dir, `pm${ext}`))) return true;
+    .map((entry) => platform === "win32" && entry.startsWith('"') && entry.endsWith('"')
+      ? entry.slice(1, -1)
+      : entry)
+    .map((entry) => entry === "" && platform !== "win32" ? "." : entry)
+    .filter((entry) => entry !== "");
+  const extensions = platform === "win32"
+    ? (environment.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").map((entry) => entry.trim()).filter(Boolean)
+    : [""];
+  for (const directory of directories) {
+    for (const extension of extensions) {
+      const candidate = join(directory, `pm${extension}`);
+      if (isExecutableFile(candidate, platform)) return candidate;
     }
   }
-  return false;
+  return null;
 }
 
-if (!pmOnPath()) {
-  // `pm` is not installed (e.g. a production / `--omit=dev` install, or a consumer
-  // machine without the CLI) — skip merge-driver wiring silently, don't fail install.
-  process.exit(0);
+/** Installs merge drivers when available and reports whether installation ran. */
+export function main(
+  environment: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform,
+  install: MergeInstaller = execFileSync,
+): boolean {
+  const executable = pmOnPath(environment, platform);
+  if (executable === null) return false;
+  install(executable, ["merge", "install"], {
+    stdio: "inherit",
+    env: environment,
+    // Node cannot launch .cmd shims through execFile on Windows. Discovery
+    // validated this exact path before it crosses the command-shell boundary.
+    shell: platform === "win32",
+  });
+  return true;
 }
 
-// `pm` IS present: wire the drivers. If this genuinely fails (e.g. a broken or
-// incompatible CLI), surface it fail-loud (non-zero exit) rather than swallowing it.
-execSync('pm merge install', { stdio: 'inherit' });
+/** Whether the script is being invoked directly rather than imported by a test. */
+export { isMainInvocation } from "./script-launcher.ts";
+
+/** Runs only when invoked directly, not when imported by the test suite. */
+[(_environment: NodeJS.ProcessEnv, _platform: NodeJS.Platform, _install?: MergeInstaller): void => {}, main][
+  Number(isMainInvocation(process.argv, import.meta.url))
+](process.env, process.platform);

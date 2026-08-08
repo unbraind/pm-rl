@@ -294,6 +294,36 @@ export function decodeEventSegment(text: string): readonly MetricEvent[] | null 
 }
 
 /**
+ * Build a metric event from validated record fields, carrying optional fields when present.
+ *
+ * Both {@link decodeEvent} and {@link parseNdjsonStream} validate the required
+ * `step`, `metric`, and `value` fields before construction, then assemble the
+ * event with the same optional `wallClockMs` and `tags` spread. Extracting the
+ * assembly keeps the two paths in literal lockstep rather than diverging by
+ * drift on one copy.
+ *
+ * @param step - Validated numeric step from the parsed record.
+ * @param metric - Validated string metric from the parsed record.
+ * @param value - Validated numeric value from the parsed record.
+ * @param record - The raw parsed record, read for optional `wall_clock_ms` and `tags`.
+ * @returns A metric event with optional fields attached when present.
+ */
+function buildMetricEvent(
+  step: number,
+  metric: string,
+  value: number,
+  record: Record<string, unknown>,
+): MetricEvent {
+  return {
+    step,
+    metric,
+    value,
+    ...(record.wall_clock_ms === undefined ? {} : { wallClockMs: record.wall_clock_ms as number }),
+    ...(record.tags === undefined ? {} : { tags: record.tags as EventTags }),
+  };
+}
+
+/**
  * Decodes note text back into an event, or reports that it is not one.
  *
  * Returns null rather than throwing for text that is not an encoded event, because
@@ -330,13 +360,7 @@ export function decodeEvent(text: string): MetricEvent | null {
       "An event payload must carry a numeric step, a string metric and a numeric value.",
     );
   }
-  const event: MetricEvent = {
-    step: record.step,
-    metric: record.metric,
-    value: record.value,
-    ...(record.wall_clock_ms === undefined ? {} : { wallClockMs: record.wall_clock_ms as number }),
-    ...(record.tags === undefined ? {} : { tags: record.tags as EventTags }),
-  };
+  const event = buildMetricEvent(record.step, record.metric, record.value, record);
   assertMetricEvent(event);
   return event;
 }
@@ -387,13 +411,7 @@ export function parseNdjsonStream(text: string): MetricEvent[] {
         `Line ${index + 1} is missing a numeric step, a string metric or a numeric value.`,
       );
     }
-    const candidate: MetricEvent = {
-      step: record.step,
-      metric: record.metric,
-      value: record.value,
-      ...(record.wall_clock_ms === undefined ? {} : { wallClockMs: record.wall_clock_ms as number }),
-      ...(record.tags === undefined ? {} : { tags: record.tags as EventTags }),
-    };
+    const candidate = buildMetricEvent(record.step, record.metric, record.value, record);
     try {
       assertMetricEvent(candidate);
     } catch (error) {
