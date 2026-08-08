@@ -138,7 +138,7 @@ const DEFAULT_SKIP_DIRS: readonly string[] = [
 ];
 
 /** Default spawn implementation, overridden in tests. */
-const defaultSpawn: SpawnFn = (command, arguments_, options) =>
+export const defaultSpawn: SpawnFn = (command, arguments_, options) =>
   spawnSync(command, [...arguments_], { ...options, encoding: "utf8" }) as SpawnResult;
 
 /** Output of a `tsc --showConfig` invocation, normalized so a test can inject it. */
@@ -161,7 +161,7 @@ const defaultShowConfig: ShowConfigFn = (repoRoot) => {
     encoding: "utf8",
     shell: process.platform === "win32",
   });
-  return { status: result.status, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
+  return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 };
 
 /**

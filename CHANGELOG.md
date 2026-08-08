@@ -8,6 +8,7 @@
 
 ### Fixed
 
+- Release gate omits operational scripts, full-history identities, lint, and duplication ([pm-rl-zcqf](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-zcqf.toon))
 - Make fallback-author coverage assert actual PM client wiring ([pm-rl-q7xw](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-q7xw.toon))
 - Gate durable PM project health in CI on pm CLI 2026.8.6 ([pm-rl-e0vc](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-e0vc.toon))
 - changelog:full and changelog:check use different projections ([pm-rl-mxe0](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-mxe0.toon))

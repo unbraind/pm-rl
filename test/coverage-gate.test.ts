@@ -18,6 +18,7 @@ import { pathToFileURL } from "node:url";
 import {
   collectSources,
   computeRequired,
+  defaultSpawn,
   isMainInvocation,
   main,
   parseLcov,
@@ -130,6 +131,19 @@ test("parseLcov throws when the report file does not exist", () => {
 
 test("resolveEmitPaths returns outDir and rootDir from the real tsconfig", () => {
   const result = resolveEmitPaths(repoRoot);
+  assert.equal(result.outDir, "dist");
+  assert.equal(result.rootDir, ".");
+});
+
+test("resolveEmitPaths defaults outDir and rootDir when the config omits them", () => {
+  // A resolved config with no `compilerOptions` (or none naming the paths)
+  // exercises the documented defaults rather than guessing an emit layout.
+  const partial = (): { status: number; stdout: string; stderr: string } => ({
+    status: 0,
+    stdout: JSON.stringify({}),
+    stderr: "",
+  });
+  const result = resolveEmitPaths(repoRoot, partial);
   assert.equal(result.outDir, "dist");
   assert.equal(result.rootDir, ".");
 });
@@ -334,6 +348,22 @@ test("runGate fails when the test runner exits non-zero", () => {
   assert.equal(result.stderr, "");
 });
 
+test("runGate reports exit code 1 when the runner is killed with a null status", () => {
+  // A null status with no spawn error (a signal kill, for instance) is neither a
+  // spawn failure nor a clean exit: the gate fails closed on exit code 1.
+  dir = makeTempDir();
+  writeFileSync(join(dir.root, "a.ts"), "export const a = 1;\n");
+  const config = {
+    sources: ["."],
+    tests: ["test/a.test.ts"],
+    thresholds: { lines: 100, branches: 100, functions: 100 },
+  };
+  const nullStatus = (): { status: number | null; error?: Error } => ({ status: null });
+  const result = runGate(config, dir.root, nullStatus);
+  assert.equal(result.exitCode, 1);
+  assert.equal(result.stderr, "");
+});
+
 test("runGate fails when the test runner cannot be spawned", () => {
   dir = makeTempDir();
   writeFileSync(join(dir.root, "a.ts"), "export const a = 1;\n");
@@ -396,21 +426,33 @@ test("runGate fails when a source directory does not exist", () => {
   assert.match(result.stderr, /does not exist/);
 });
 
-test("runGate fails when an ignore entry is not under sources", () => {
-  dir = makeTempDir();
-  const root = dir.root;
-  writeFileSync(join(root, "a.ts"), "export const a = 1;\n");
+test("runGate surfaces a computeRequired failure through its own catch", () => {
+  // Uses the real repo root so resolveEmitPaths succeeds and computeRequired
+  // reaches the "not under sources" check; that throw propagates through
+  // runGate's catch (after the source walk already succeeded), not the
+  // source-walk try block. The mock spawn is never reached.
   const config = {
     sources: ["."],
-    tests: ["test/a.test.ts"],
+    tests: [],
     thresholds: { lines: 100, branches: 100, functions: 100 },
     ignore: ["nonexistent.ts"],
   };
-  // collectSources succeeds (finds a.ts), so the failure surfaces from
-  // computeRequired and is caught by runGate, not the source-walk try block.
-  const result = runGate(config, root, () => ({ status: 0 }));
+  const result = runGate(config, repoRoot, () => ({ status: 0 }));
   assert.equal(result.exitCode, 1);
   assert.match(result.stderr, /not under `sources`/);
+});
+
+test("defaultSpawn forwards the command and returns the real exit status", () => {
+  // The default spawn is the one `npm run coverage` relies on. Covering it with
+  // a trivial command verifies the wrapper forwards argv and reports status;
+  // a full in-process gate run is unverifiable here because a test runner
+  // spawned from inside another test runner does not flush its lcov reporter.
+  const result = defaultSpawn(process.execPath, ["-e", "process.exit(0)"], {
+    cwd: repoRoot,
+    stdio: "inherit",
+    env: process.env,
+  });
+  assert.equal(result.status, 0);
 });
 
 test("main reads package.json, runs the gate, and writes its result", () => {
