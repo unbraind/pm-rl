@@ -24,7 +24,8 @@
     ]
   },
   "include": [
-    "*.ts"
+    "*.ts",
+    "scripts/**/*.ts"
   ],
   "exclude": [
     "node_modules",

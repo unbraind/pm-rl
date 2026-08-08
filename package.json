@@ -5,7 +5,8 @@
   "type": "module",
   "main": "dist/index.js",
   "files": [
-    "dist/",
+    "dist/index.*",
+    "dist/series.*",
     "manifest.json",
     "README.md",
     "CHANGELOG.md",
@@ -20,14 +21,17 @@
     "test": "npm run build && npm run build:test && node --test test/*.test.ts",
     "prepack": "npm run build",
     "typecheck": "tsc --noEmit",
-    "check": "npm run typecheck",
+    "check": "npm run typecheck && npm run lint && npm run duplicates",
+    "lint": "eslint --config scripts/eslint.config.ts --max-warnings=0 .",
+    "duplicates": "jscpd --config .jscpd.json",
     "docstring": "node scripts/docstring-gate.ts",
+    "audit:identities": "node scripts/audit-git-identities.ts",
     "audit:prod": "node --input-type=module -e \"import { spawnSync } from 'node:child_process'; import { devNull } from 'node:os'; const env = { ...process.env, npm_config_userconfig: devNull, NPM_CONFIG_USERCONFIG: devNull }; for (const key of Object.keys(env)) if (key.toLowerCase() === 'npm_config_allow_scripts') delete env[key]; const win = process.platform === 'win32'; const r = spawnSync(win ? 'npm.cmd' : 'npm', ['audit', '--omit=dev', '--ignore-scripts'], { stdio: 'inherit', env, shell: win }); process.exit(r.status ?? 1);\"",
     "pack:dry-run": "npm pack --dry-run",
     "changelog": "pm-changelog --pm-root .agents/pm --mode prepend --output CHANGELOG.md --release-version-from-package --date 2026-07-31 --since-previous-tag --until-release-tag --item-url-base https://github.com/unbraind/pm-rl/blob/main/.agents/pm --respect-item-release",
     "changelog:full": "pm-changelog --pm-root .agents/pm --mode replace --output CHANGELOG.md --all-release-tags --release-version-from-package --date 2026-07-31 --item-url-base https://github.com/unbraind/pm-rl/blob/main/.agents/pm --respect-item-release",
     "changelog:check": "pm-changelog --pm-root .agents/pm --mode replace --output CHANGELOG.md --all-release-tags --release-version-from-package --date 2026-07-31 --item-url-base https://github.com/unbraind/pm-rl/blob/main/.agents/pm --respect-item-release --check",
-    "release:check": "npm run typecheck && npm run build && npm run docstring && npm run coverage && npm run audit:prod && npm run pack:dry-run && npm run changelog:check",
+    "release:check": "npm run typecheck && npm run build && npm run lint && npm run duplicates && npm run docstring && npm run coverage && npm run audit:identities && npm run audit:prod && npm run pack:dry-run && npm run changelog:check",
     "prepublishOnly": "npm run release:check",
     "release:notes": "pm-changelog --pm-root .agents/pm --stdout --since-previous-tag --until-release-tag --release-version-from-package --date 2026-07-31 --item-url-base https://github.com/unbraind/pm-rl/blob/main/.agents/pm --respect-item-release --pm-bin ./node_modules/.bin/pm --github-step-summary",
     "prepare": "node scripts/prepare-merge-driver.ts",
@@ -40,7 +44,10 @@
     ],
     "tests": [
       "test/series.test.ts",
-      "test/index.test.ts"
+      "test/index.test.ts",
+      "test/audit-git-identities.test.ts",
+      "test/quality-scripts.test.ts",
+      "test/coverage-gate.test.ts"
     ],
     "thresholds": {
       "lines": 100,
@@ -73,8 +80,14 @@
   },
   "homepage": "https://github.com/unbraind/pm-rl#readme",
   "devDependencies": {
+    "@babel/core": "^8.0.1",
+    "@babel/eslint-parser": "^8.0.1",
+    "@babel/plugin-syntax-typescript": "^8.0.3",
     "@types/node": "^26.1.2",
     "@unbrained/pm-cli": "^2026.8.7",
+    "eslint": "^10.8.1",
+    "jiti": "^2.7.0",
+    "jscpd": "^5.0.14",
     "pm-changelog": "^2026.8.7",
     "pm-ops": "^2026.8.7",
     "typescript": "^7.0.2"

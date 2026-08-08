@@ -1,0 +1,17 @@
+id: pm-rl-rgt4
+title: "Release bot identity was absent from the allowlist, so the first release would break the audit permanently"
+description: "The release workflow configures the GitHub Actions bot as the author of the release commit, but that address was not in the approved identity list. The first release would therefore write a commit that the identity audit rejects on every subsequent run, leaving the gate permanently red with no way forward that does not involve rewriting a release commit or weakening the gate. The same hazard was found in pm-vcs and is being fixed there separately."
+type: Issue
+status: closed
+priority: 1
+tags[1]: gate-integrity
+created_at: "2026-08-08T12:57:19.645Z"
+updated_at: "2026-08-08T12:57:30.042Z"
+closed_at: "2026-08-08T12:57:30.029Z"
+completed_at: "2026-08-08T12:57:30.029Z"
+author: pi-agent
+acceptance_criteria: "The GitHub Actions bot identity used by the release workflow is present in the approved list with a comment recording why removing it would break the gate, and release:check passes with the widened list while the audit still fails closed on unapproved identities."
+notes[1]{created_at,author,text}:
+  "2026-08-08T12:57:19.645Z",pi-agent,Found on unbraind/pm-rust pull request 6 by CodeRabbit and swept across the fleet
+close_reason: "Allowlisted the GitHub Actions bot identity with the reason recorded inline so a later tidy-up does not remove it. release:check exits 0 with three approved addresses and the audit still fails closed on unapproved identities, which its own test asserts."
+body: ""

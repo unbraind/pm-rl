@@ -1,0 +1,24 @@
+# Approved identity addresses for the physical Git object audit.
+#
+# Each entry is a public, intentionally-published authoring identity for this
+# fleet — never a leaked personal address. The audit fails closed on any
+# address absent from this file, so adding an address here is an explicit
+# maintainer decision that it is public and safe to ship in metadata.
+#
+# The maintainer's public authoring address (stefan@preu.at) is an intentional
+# public identity used across the unbraind/pm-* fleet; it is approved here as a
+# deliberate public authoring identity, not as a blanket allowlist of personal
+# addresses. A different work address (a previously purged work address) was purged from history
+# in 2026-07 and must never be re-added.
+# The maintainer's GitHub noreply address.
+1153461+unbraind@users.noreply.github.com
+# GitHub's committer for merges made through the web UI.
+noreply@github.com
+# The maintainer's intentional public authoring identity for the unbraind fleet.
+stefan@preu.at
+
+# The GitHub Actions bot, which authors the release commit created by
+# .github/workflows/release.yml. It must be listed here: the first release would
+# otherwise write a commit that this very audit rejects on every subsequent run,
+# leaving the gate permanently red. Found on unbraind/pm-rust#6 and applied here.
+41898282+github-actions[bot]@users.noreply.github.com
