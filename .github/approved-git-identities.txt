@@ -16,3 +16,9 @@
 noreply@github.com
 # The maintainer's intentional public authoring identity for the unbraind fleet.
 stefan@preu.at
+
+# The GitHub Actions bot, which authors the release commit created by
+# .github/workflows/release.yml. It must be listed here: the first release would
+# otherwise write a commit that this very audit rejects on every subsequent run,
+# leaving the gate permanently red. Found on unbraind/pm-rust#6 and applied here.
+41898282+github-actions[bot]@users.noreply.github.com
