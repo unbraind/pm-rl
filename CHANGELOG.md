@@ -8,6 +8,7 @@
 
 ### Fixed
 
+- Resolve CodeRabbit PR 7 review findings across the release gates ([pm-rl-3tdy](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-3tdy.toon))
 - Release bot identity was absent from the allowlist, so the first release would break the audit permanently ([pm-rl-rgt4](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-rgt4.toon))
 - Release gate omits operational scripts, full-history identities, lint, and duplication ([pm-rl-zcqf](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-zcqf.toon))
 - Make fallback-author coverage assert actual PM client wiring ([pm-rl-q7xw](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-q7xw.toon))

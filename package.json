@@ -5,7 +5,8 @@
   "type": "module",
   "main": "dist/index.js",
   "files": [
-    "dist/",
+    "dist/index.*",
+    "dist/series.*",
     "manifest.json",
     "README.md",
     "CHANGELOG.md",

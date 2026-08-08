@@ -39,6 +39,8 @@ export interface StreamProcessOptions {
   readonly env?: NodeJS.ProcessEnv;
   readonly input?: string;
   readonly timeoutMs: number;
+  /** Grace period after SIGTERM before escalating to SIGKILL; defaults to 5s. */
+  readonly escalationMs?: number;
 }
 
 /** Runs a bounded subprocess while its stdout is consumed incrementally. */
@@ -56,16 +58,31 @@ export async function streamProcess(
     });
     let settled = false;
     let stderr = "";
+    const escalationMs = options.escalationMs ?? 5_000;
     /** Cancel the timer, terminate the child, and reject with actionable context. */
     const fail = (error: Error): void => {
       settled = true;
       clearTimeout(timer);
       child.kill();
+      // SIGTERM is advisory: a child that ignores it, or a descendant holding
+      // the stdio pipes open, keeps the Node event loop referenced after the
+      // promise has rejected, so the release gate can hang after the very
+      // timeout that was meant to bound it. Escalate to SIGKILL on a short
+      // bounded timer, and unreference both timers so neither keeps the loop
+      // alive on its own — the child's stdio does that while it runs.
+      const escalation = setTimeout(() => {
+        child.kill("SIGKILL");
+      }, escalationMs);
+      escalation.unref();
+      child.once("close", () => {
+        clearTimeout(escalation);
+      });
       reject(error);
     };
     const timer = setTimeout(() => {
       fail(new Error(`${command} ${arguments_.join(" ")} timed out after ${options.timeoutMs}ms.`));
     }, options.timeoutMs);
+    timer.unref();
     child.on("error", (error) => {
       fail(new Error(`${command} ${arguments_.join(" ")} failed: ${error.message}`));
     });
@@ -274,7 +291,29 @@ export class IdentityBatchParser {
 }
 
 /**
+ * Masks the local part of an address so a rejection is identifiable, not printed.
+ *
+ * The audit refuses to publish a full rejected address in its own diagnostics,
+ * but a count alone gives a maintainer no way to see which address failed. The
+ * masked form keeps the first character and the domain and elides the rest.
+ *
+ * @param address - The rejected address to mask.
+ * @returns A masked form such as `s***@example.test`, or `***` for malformed input.
+ */
+export function maskAddress(address: string): string {
+  const at = address.lastIndexOf("@");
+  if (at <= 0) return "***";
+  return `${address[0]}***@${address.slice(at + 1)}`;
+}
+
+/**
  * Refuses identities absent from a public-address allowlist.
+ *
+ * Both the allowlist and the collected addresses are compared case-insensitively:
+ * an identity that differs only in case from an approved entry would otherwise
+ * fail the release for a reason the count-only message could not explain. A
+ * rejection reports each address through {@link maskAddress} so the failure is
+ * actionable without publishing the full value in the diagnostics.
  *
  * @param root - Git repository to audit.
  * @param allowlistPath - Text file containing one approved address per line.
@@ -284,11 +323,16 @@ export async function auditGitIdentities(root: string, allowlistPath: string): P
     readFileSync(allowlistPath, "utf8")
       .split("\n")
       .map((line) => line.trim())
-      .filter((line) => line.length > 0 && !line.startsWith("#")),
+      .filter((line) => line.length > 0 && !line.startsWith("#"))
+      .map((line) => line.toLowerCase()),
   );
   const addresses = await collectGitIdentities(root);
-  const rejected = [...addresses].filter((address) => !approved.has(address));
-  if (rejected.length > 0) throw new Error(`git identity audit rejected ${rejected.length} non-public address(es).`);
+  const rejected = [...addresses].filter((address) => !approved.has(address.toLowerCase()));
+  if (rejected.length > 0) {
+    throw new Error(
+      `git identity audit rejected ${rejected.length} non-public address(es): ${rejected.map(maskAddress).join(", ")}.`,
+    );
+  }
   console.log(`git identity audit approved ${addresses.size} unique address(es).`);
 }
 

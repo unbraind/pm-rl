@@ -14,7 +14,7 @@ import { execFileSync } from "node:child_process";
 import { accessSync, constants, statSync } from "node:fs";
 import { join } from "node:path";
 
-import { isMainInvocation } from "./script-launcher.ts";
+import { isMainInvocation, runIfMain } from "./script-launcher.ts";
 
 /** Injectable process boundary used to verify Windows shim execution. */
 type MergeInstaller = (
@@ -65,12 +65,18 @@ export function main(
 ): boolean {
   const executable = pmOnPath(environment, platform);
   if (executable === null) return false;
-  install(executable, ["merge", "install"], {
+  // With `shell: true` on Windows, execFileSync hands cmd.exe a single command
+  // line and Node does not quote the executable path itself, so a shim under a
+  // directory whose name contains a space (e.g. `C:\Program Files\...\.CMD`)
+  // is split at the space and the merge-driver install fails during npm
+  // install. Discovery already validated this exact path, so quoting it before
+  // it crosses the command-shell boundary is safe and keeps the POSIX path
+  // (no shell) untouched.
+  const shell = platform === "win32";
+  install(shell ? `"${executable}"` : executable, ["merge", "install"], {
     stdio: "inherit",
     env: environment,
-    // Node cannot launch .cmd shims through execFile on Windows. Discovery
-    // validated this exact path before it crosses the command-shell boundary.
-    shell: platform === "win32",
+    shell,
   });
   return true;
 }
@@ -78,7 +84,4 @@ export function main(
 /** Whether the script is being invoked directly rather than imported by a test. */
 export { isMainInvocation } from "./script-launcher.ts";
 
-/** Runs only when invoked directly, not when imported by the test suite. */
-[(_environment: NodeJS.ProcessEnv, _platform: NodeJS.Platform, _install?: MergeInstaller): void => {}, main][
-  Number(isMainInvocation(process.argv, import.meta.url))
-](process.env, process.platform);
+runIfMain(process.argv, import.meta.url, main, process.env, process.platform);

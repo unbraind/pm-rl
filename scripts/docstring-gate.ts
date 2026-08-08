@@ -13,19 +13,9 @@ import { join } from "node:path";
 
 import { analyzeDocstringCoverage } from "pm-ops/docstrings";
 
-import { isMainInvocation } from "./script-launcher.ts";
+import { type GateResult, isMainInvocation, runIfMain } from "./script-launcher.ts";
 
 const repoRoot = join(import.meta.dirname, "..");
-
-/** Outcome of one gate run, held as plain strings so a test can inspect it. */
-interface GateResult {
-  /** Process exit code the run would produce: 0 on a complete surface, 1 otherwise. */
-  readonly exitCode: number;
-  /** Bytes the run would write to stdout, empty on every failure path. */
-  readonly stdout: string;
-  /** Bytes the run would write to stderr, empty on a passing run. */
-  readonly stderr: string;
-}
 
 /**
  * Run the docstring gate against a repository root and return what it would write.
@@ -56,21 +46,24 @@ export function runGate(root: string): GateResult {
 /**
  * CLI entry point: run the gate and emit its result.
  *
- * Writes the exact stdout/stderr bytes {@link runGate} produced and sets
- * `process.exitCode` rather than calling `process.exit`, so a test can invoke
- * this in-process, observe the streams, and restore the exit code.
+ * Writes the exact stdout/stderr bytes {@link runGate} produced and appends a
+ * trailing newline to each non-empty stream so the next `release:check` step
+ * starts on its own line rather than butting against this gate's output.
+ * {@link runGate}'s returned strings stay newline-free so a test can assert on
+ * them exactly. Sets `process.exitCode` rather than calling `process.exit`, so
+ * a test can invoke this in-process, observe the streams, and restore the exit
+ * code.
  *
  * @param root - Absolute repository root to scan.
  */
 export function main(root: string): void {
   const result = runGate(root);
-  process.stdout.write(result.stdout);
-  process.stderr.write(result.stderr);
+  if (result.stdout) process.stdout.write(`${result.stdout}\n`);
+  if (result.stderr) process.stderr.write(`${result.stderr}\n`);
   process.exitCode = result.exitCode;
 }
 
 /** Whether the script is being invoked directly rather than imported by a test. */
 export { isMainInvocation } from "./script-launcher.ts";
 
-/** Runs only when invoked directly, not when imported by the test suite. */
-[(_root: string): void => {}, main][Number(isMainInvocation(process.argv, import.meta.url))](repoRoot);
+runIfMain(process.argv, import.meta.url, main, repoRoot);

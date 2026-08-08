@@ -18,6 +18,7 @@ import { pathToFileURL } from "node:url";
 import {
   collectSources,
   computeRequired,
+  DEFAULT_SKIP_DIRS,
   defaultSpawn,
   isMainInvocation,
   main,
@@ -35,10 +36,7 @@ afterEach(() => {
 });
 
 const repoRoot = resolve(import.meta.dirname, "..");
-const defaultSkipDirs = new Set([
-  "node_modules", "dist", "dist-test", "coverage", "test", "tests",
-  "public", ".agents", ".git", ".github",
-]);
+const defaultSkipDirs = new Set(DEFAULT_SKIP_DIRS);
 
 test("collectSources walks a directory and returns TypeScript files as repo-relative paths", () => {
   dir = makeTempDir();
@@ -169,6 +167,23 @@ test("resolveEmitPaths throws when tsc --showConfig fails or writes nothing", ()
   assert.throws(
     () => resolveEmitPaths(repoRoot, empty),
     /could not resolve the effective tsconfig/,
+  );
+});
+
+test("resolveEmitPaths refuses to guess when tsc --showConfig exits 0 with non-JSON output", () => {
+  // `npx tsc --showConfig` can exit 0 and still write a non-JSON notice to
+  // stdout. A bare JSON.parse would surface that as a SyntaxError stripped of
+  // any `tsc --showConfig` context, contradicting the "Refusing to guess"
+  // diagnostic this function exists to emit; the guard restates it so the
+  // failure stays actionable regardless of what stdout carried.
+  const nonJson = (): { status: number; stdout: string; stderr: string } => ({
+    status: 0,
+    stdout: "npx notice: this is not json",
+    stderr: "",
+  });
+  assert.throws(
+    () => resolveEmitPaths(repoRoot, nonJson),
+    /did not return JSON/,
   );
 });
 
@@ -333,6 +348,35 @@ test("runGate succeeds when the mock spawn reports all required files", () => {
   const result = runGate(config, dir.root, mockSpawnSuccess(["a.ts"], lcovPath));
   assert.equal(result.exitCode, 0, result.stderr);
   assert.match(result.stdout, /1 source file\(s\) reported/);
+});
+
+test("runGate threads the injectable showConfig runner through ignore validation", () => {
+  // runGate accepts an injectable spawn but must also forward the injectable
+  // `tsc --showConfig` runner to computeRequired; otherwise any runGate test
+  // with a non-empty `coverageGate.ignore` would fall back to the real
+  // defaultShowConfig and reach the installed toolchain. A type-only ignore
+  // entry exercised through the injected runner proves the threading works.
+  dir = makeTempDir();
+  const root = dir.root;
+  writeFileSync(join(root, "a.ts"), "export const a = 1;\n");
+  writeFileSync(join(root, "types.ts"), "export type X = number;\n");
+  mkdirSync(join(root, "dist"), { recursive: true });
+  writeFileSync(join(root, "dist", "types.js"), "export {};\n");
+  const config = {
+    sources: ["."],
+    tests: ["test/a.test.ts"],
+    thresholds: { lines: 100, branches: 100, functions: 100 },
+    ignore: ["types.ts"],
+  };
+  let showConfigCalls = 0;
+  const showConfig = (): { status: number; stdout: string; stderr: string } => {
+    showConfigCalls += 1;
+    return { status: 0, stdout: JSON.stringify({ compilerOptions: { outDir: "dist", rootDir: "." } }), stderr: "" };
+  };
+  const lcovPath = join(root, "coverage", "lcov.info");
+  const result = runGate(config, root, mockSpawnSuccess(["a.ts"], lcovPath), showConfig);
+  assert.equal(result.exitCode, 0, result.stderr);
+  assert.ok(showConfigCalls > 0, "the injected showConfig runner must be used for ignore validation");
 });
 
 test("runGate fails when the test runner exits non-zero", () => {

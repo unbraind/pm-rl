@@ -22,6 +22,7 @@ import {
   IdentityBatchParser,
   isMainInvocation,
   main,
+  maskAddress,
   streamProcess,
   type GitObject,
 } from "../scripts/audit-git-identities.ts";
@@ -84,7 +85,7 @@ test("identity audit fails closed on an unapproved identity even when an approve
   git(root, ["commit", "-qam", "second"]);
   await assert.rejects(
     auditGitIdentities(root, allowlist),
-    /rejected 1 non-public address/,
+    /rejected 1 non-public address\(es\): u\*\*\*@example\.test\./,
   );
 });
 
@@ -332,6 +333,35 @@ test("stream transport reports a real broken stdin pipe", async () => {
     ),
     /stdin failed/,
   );
+});
+
+test("stream transport escalates a SIGTERM-ignoring child to SIGKILL after the timeout", async () => {
+  // A child that swallows SIGTERM and keeps running survives the timeout's
+  // SIGTERM and holds the stdio pipes open, which would hang the release gate
+  // after the very timeout meant to bound it. A short escalation window fires
+  // SIGKILL and terminates the child for real, so the promise rejects and the
+  // process can drain. timeoutMs is large enough that the child has installed
+  // its SIGTERM handler before the timeout fires.
+  dir = makeTempDir();
+  await assert.rejects(
+    streamProcess(
+      process.execPath,
+      ["-e", "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);"],
+      { cwd: dir.root, timeoutMs: 200, escalationMs: 100 },
+      () => {},
+    ),
+    /timed out after 200ms/,
+  );
+});
+
+test("maskAddress elides the local part and masks malformed input", () => {
+  // The audit never publishes a full rejected address; masking keeps the first
+  // character and domain so a rejection is identifiable, and falls back to
+  // `***` for input without a usable local part.
+  assert.equal(maskAddress("stefan@preu.at"), "s***@preu.at");
+  assert.equal(maskAddress("ab@host.test"), "a***@host.test");
+  assert.equal(maskAddress("@host.test"), "***");
+  assert.equal(maskAddress("no-at-sign"), "***");
 });
 
 test("main invocation detection resolves matching, different, and absent scripts", () => {

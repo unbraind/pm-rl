@@ -31,7 +31,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
-import { isMainInvocation } from "./script-launcher.ts";
+import { type GateResult, isMainInvocation, runIfMain } from "./script-launcher.ts";
 
 /**
  * Minimum acceptable percentage for each coverage dimension Node reports.
@@ -103,16 +103,6 @@ type SpawnFn = (
   options: { cwd: string; stdio: "inherit"; env: NodeJS.ProcessEnv },
 ) => SpawnResult;
 
-/** Outcome of one gate run, held as plain strings so a test can inspect it. */
-export interface GateResult {
-  /** Process exit code the run would produce: 0 on success, 1 on failure. */
-  readonly exitCode: number;
-  /** Bytes the run would write to stdout. */
-  readonly stdout: string;
-  /** Bytes the run would write to stderr. */
-  readonly stderr: string;
-}
-
 /**
  * Directories never treated as source, so that `sources: ["."]` works for a
  * package whose entrypoint sits at the repository root.
@@ -124,7 +114,7 @@ export interface GateResult {
  * `scripts` is deliberately absent: operational scripts can corrupt a release,
  * so they must be inside the coverage gate.
  */
-const DEFAULT_SKIP_DIRS: readonly string[] = [
+export const DEFAULT_SKIP_DIRS: readonly string[] = [
   "node_modules",
   "dist",
   "dist-test",
@@ -156,9 +146,10 @@ type ShowConfigFn = (repoRoot: string) => ShowConfigResult;
 
 /** Default show-config implementation, overridden in tests. */
 const defaultShowConfig: ShowConfigFn = (repoRoot) => {
-  const result = spawnSync("npx", ["tsc", "--showConfig", "-p", "tsconfig.json"], {
+  const result = spawnSync("npx", ["--no-install", "tsc", "--showConfig", "-p", "tsconfig.json"], {
     cwd: repoRoot,
     encoding: "utf8",
+    timeout: 60_000,
     shell: process.platform === "win32",
   });
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
@@ -192,7 +183,24 @@ export function resolveEmitPaths(
       ].join("\n"),
     );
   }
-  const parsed = JSON.parse(shown.stdout) as TsConfig;
+  let parsed: TsConfig;
+  try {
+    parsed = JSON.parse(shown.stdout) as TsConfig;
+  } catch (error) {
+    // `npx tsc --showConfig` can exit 0 and still write non-JSON to stdout (an
+    // npx notice, for instance). A bare `JSON.parse` would surface that as a
+    // `SyntaxError` from `runGate`'s catch, which strips the `Error: ` prefix
+    // and never names `tsc --showConfig` — contradicting the "Refusing to
+    // guess" message this function exists to emit. Re-state the diagnostic so
+    // the failure stays actionable regardless of what stdout carried.
+    throw new Error(
+      [
+        "coverage-gate: `tsc --showConfig` did not return JSON, so the emit layout is unknown",
+        "and `coverageGate.ignore` entries cannot be verified as type-only. Refusing to guess.",
+        String(error),
+      ].join("\n"),
+    );
+  }
   // `tsc --showConfig` echoes the config's literal spelling, so a `tsconfig.json`
   // that writes `"outDir": "./dist"` reports `./dist` back. Clean the leading
   // `./` and any trailing separator so callers see a stable, join-friendly
@@ -327,16 +335,19 @@ export function computeRequired(
  */
 export function parseLcov(lcovPath: string, repoRoot: string): Set<string> {
   const reported = new Set<string>();
-  try {
-    statSync(lcovPath);
-    for (const line of readFileSync(lcovPath, "utf8").split("\n")) {
-      if (!line.startsWith("SF:")) continue;
-      const raw = line.slice(3).trim();
-      const abs = isAbsolute(raw) ? raw : join(repoRoot, raw);
-      reported.add(relative(repoRoot, abs).split(sep).join("/"));
-    }
-  } catch {
+  // Narrow the guard to the existence check alone. The previous `try` wrapped the
+  // read and parse loop too, so an existing but unreadable report (permissions,
+  // encoding) reported "no coverage report was written" — a different problem
+  // than the docstring promises. Letting read/parse errors propagate keeps the
+  // diagnostic honest while preserving the documented missing-file failure.
+  if (!existsSync(lcovPath)) {
     throw new Error(`coverage-gate: no coverage report was written to ${relative(repoRoot, lcovPath)}.`);
+  }
+  for (const line of readFileSync(lcovPath, "utf8").split("\n")) {
+    if (!line.startsWith("SF:")) continue;
+    const raw = line.slice(3).trim();
+    const abs = isAbsolute(raw) ? raw : join(repoRoot, raw);
+    reported.add(relative(repoRoot, abs).split(sep).join("/"));
   }
   return reported;
 }
@@ -353,12 +364,14 @@ export function parseLcov(lcovPath: string, repoRoot: string): Set<string> {
  * @param config - The `coverageGate` block from `package.json`.
  * @param repoRoot - Absolute repository root.
  * @param spawn - Injectable spawn function; defaults to the real `spawnSync`.
+ * @param showConfig - Injectable `tsc --showConfig` runner; defaults to the real `spawnSync`.
  * @returns The exit code and stdout/stderr the gate would emit.
  */
 export function runGate(
   config: CoverageGateConfig | null,
   repoRoot: string,
   spawn: SpawnFn = defaultSpawn,
+  showConfig: ShowConfigFn = defaultShowConfig,
 ): GateResult {
   if (!config) {
     return { exitCode: 1, stdout: "", stderr: "coverage-gate: package.json has no `coverageGate` block." };
@@ -374,7 +387,7 @@ export function runGate(
 
   let required: string[];
   try {
-    required = computeRequired(config, expected, repoRoot);
+    required = computeRequired(config, expected, repoRoot, showConfig);
   } catch (error) {
     return { exitCode: 1, stdout: "", stderr: String(error).replace(/^Error: /, "") };
   }
@@ -480,19 +493,17 @@ export function runGate(
  *
  * @param repoRoot - Absolute repository root.
  * @param spawn - Injectable spawn function; defaults to the real `spawnSync`.
+ * @param showConfig - Injectable `tsc --showConfig` runner; defaults to the real `spawnSync`.
  */
-export function main(repoRoot: string, spawn: SpawnFn = defaultSpawn): void {
+export function main(repoRoot: string, spawn: SpawnFn = defaultSpawn, showConfig: ShowConfigFn = defaultShowConfig): void {
   const manifest = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8")) as PackageManifest;
-  const result = runGate(manifest.coverageGate ?? null, repoRoot, spawn);
+  const result = runGate(manifest.coverageGate ?? null, repoRoot, spawn, showConfig);
   process.stdout.write(result.stdout);
   process.stderr.write(result.stderr);
   process.exitCode = result.exitCode;
 }
 
-/** Whether the script is being invoked directly rather than imported by a test. */
-export { isMainInvocation } from "./script-launcher.ts";
+/** Shared gate-run contract and whether the script is direct-invoked. */
+export { type GateResult, isMainInvocation } from "./script-launcher.ts";
 
-/** Runs only when invoked directly, not when imported by the test suite. */
-[(_repoRoot: string, _spawn?: SpawnFn): void => {}, main][
-  Number(isMainInvocation(process.argv, import.meta.url))
-](resolve(import.meta.dirname, ".."));
+runIfMain(process.argv, import.meta.url, main, resolve(import.meta.dirname, ".."));

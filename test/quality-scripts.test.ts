@@ -12,6 +12,7 @@ import test from "node:test";
 import eslintConfig from "../scripts/eslint.config.ts";
 import { isMainInvocation as docstringIsMain, main as docstringMain, runGate as docstringRunGate } from "../scripts/docstring-gate.ts";
 import { isExecutableFile, isMainInvocation as prepareIsMain, main as prepareMain, pmOnPath } from "../scripts/prepare-merge-driver.ts";
+import { runIfMain } from "../scripts/script-launcher.ts";
 
 /** Creates an executable Node fixture and returns its path. */
 function executableFixture(root: string, body: string, name = "fixture.ts"): string {
@@ -86,11 +87,36 @@ require("node:fs").writeFileSync(${JSON.stringify(marker)}, "yes");`, "pm");
     );
     let windowsShell = false;
     assert.equal(prepareMain(windowsEnvironment, "win32", (executable, arguments_, options) => {
-      assert.equal(executable, windowsShim);
+      // With shell:true on Windows the executable path is quoted before it
+      // crosses the cmd.exe boundary, so a directory name containing a space
+      // is not split into arguments.
+      assert.equal(executable, `"${windowsShim}"`);
       assert.deepEqual(arguments_, ["merge", "install"]);
       windowsShell = options.shell;
     }), true);
     assert.equal(windowsShell, true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("prepare-merge-driver quotes a Windows shim resolved from a directory whose name contains a space", () => {
+  // execFileSync with shell:true hands cmd.exe a single command line and does
+  // not quote the executable path itself, so a shim under a directory such as
+  // `Program Files` would be split at the space. Discovery resolves the real
+  // path; main must then quote it before invoking the shell.
+  const root = mkdtempSync(join(tmpdir(), "pm-rl-prepare-space-"));
+  try {
+    const spaced = join(root, "Program Files");
+    mkdirSync(spaced, { recursive: true });
+    const shim = executableFixture(spaced, "process.exit(0);", "pm.CMD");
+    const environment = { PATH: `"${spaced}"`, PATHEXT: ".CMD;.EXE" };
+    assert.equal(pmOnPath(environment, "win32"), shim);
+    let received: string | null = null;
+    assert.equal(prepareMain(environment, "win32", (executable) => {
+      received = executable;
+    }), true);
+    assert.equal(received, `"${shim}"`);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -184,4 +210,50 @@ test("docstring gate isMainInvocation resolves matching and non-matching scripts
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("runIfMain forwards arguments only when the module is invoked directly", () => {
+  // runIfMain replaces the per-script array-index dispatch. The main branch
+  // invokes run with the forwarded arguments; the import branch does not, so
+  // `run` is covered by the tests that call it directly.
+  const root = mkdtempSync(join(tmpdir(), "pm-rl-runifmain-"));
+  try {
+    const script = join(root, "launcher.ts");
+    const other = join(root, "other.ts");
+    writeFileSync(script, "");
+    writeFileSync(other, "");
+    const url = pathToFileURL(script).href;
+    const received: number[] = [];
+    runIfMain([process.execPath, script], url, (value: number) => { received.push(value); }, 7);
+    assert.deepEqual(received, [7]);
+    runIfMain([process.execPath, other], url, (value: number) => { received.push(value); }, 9);
+    assert.deepEqual(received, [7]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("docstring gate main writes a success line to stdout and exits 0", () => {
+  // The real repository is fully documented, so main() takes the success path:
+  // non-empty stdout is terminated with a newline and exitCode stays 0. This
+  // covers the stdout-newline branch the violation-only main test cannot.
+  const root = resolve(import.meta.dirname, "..");
+  const originalExitCode = process.exitCode;
+  const originalStdoutWrite = process.stdout.write.bind(process.stdout);
+  let stdout = "";
+  process.stdout.write = ((chunk: string | Uint8Array): boolean => {
+    stdout += chunk.toString();
+    return true;
+  }) as typeof process.stdout.write;
+  process.exitCode = undefined;
+  let observedExitCode: number | string | undefined;
+  try {
+    docstringMain(root);
+  } finally {
+    observedExitCode = process.exitCode;
+    process.stdout.write = originalStdoutWrite;
+    process.exitCode = originalExitCode;
+  }
+  assert.equal(observedExitCode, 0);
+  assert.match(stdout, /docstring-gate:.*documented\.\n$/);
 });
