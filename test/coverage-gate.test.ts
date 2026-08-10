@@ -560,7 +560,7 @@ test("main fails closed when package.json has no coverageGate block", () => {
   }
 });
 
-test("isMainInvocation resolves matching, different, absent, and non-existent scripts", () => {
+test("isMainInvocation resolves matching, different and absent scripts", () => {
   dir = makeTempDir();
   const root = dir.root;
   const script = join(root, "coverage-gate.ts");
@@ -570,6 +570,22 @@ test("isMainInvocation resolves matching, different, absent, and non-existent sc
   const url = pathToFileURL(script).href;
   assert.equal(isMainInvocation([process.execPath, script], url), true);
   assert.equal(isMainInvocation([process.execPath, other], url), false);
-  assert.equal(isMainInvocation([process.execPath, join(root, "missing.ts")], url), false);
   assert.equal(isMainInvocation([process.execPath], url), false);
+});
+
+test("isMainInvocation throws rather than skipping the gate when the entry cannot be resolved", () => {
+  dir = makeTempDir();
+  const root = dir.root;
+  const script = join(root, "coverage-gate.ts");
+  writeFileSync(script, "");
+  const url = pathToFileURL(script).href;
+  // This assertion previously expected `false`. That made the caller treat the
+  // script as a library import and skip `main`, so the coverage gate exited 0
+  // having measured nothing - a required release check reporting success
+  // without doing its job. Crashing is the safe outcome, so assert it happens.
+  assert.throws(
+    () => isMainInvocation([process.execPath, join(root, "missing.ts")], url),
+    /ENOENT/,
+    "an unresolvable entry must propagate, not silently decline to run the gate",
+  );
 });
