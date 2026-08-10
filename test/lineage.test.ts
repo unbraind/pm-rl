@@ -303,6 +303,45 @@ test("isGapWidening requires strictly increasing gaps over the full window", () 
   assert.equal(isGapWidening([1, 3, 2], 3), false);
 });
 
+/**
+ * Adversarial: try to walk a contaminated candidate PAST the refusal by padding
+ * its environment identity with whitespace.
+ *
+ * This is deliberately shaped as an attempt to defeat the gate rather than as a
+ * proof that the gate fires. `findContaminationPath` decides overlap by strict
+ * string equality, so before `asString` returned its trimmed value, a spec
+ * declaring `" env-eval "` parsed happily and then never matched `"env-eval"` —
+ * the contamination refusal passed for a candidate whose training data does
+ * reach the evaluation set. A space defeated the gate.
+ *
+ * The spec is built by PARSING a document rather than by constructing the object
+ * literal, because normalization happens at parse time and a hand-built literal
+ * would bypass the very code path under test.
+ */
+test("a padded environment identity cannot slip past the contamination refusal", () => {
+  const padded = parseGenerationSpec(
+    JSON.stringify(
+      spec({
+        environment_version: "  env-eval\t",
+        reward_spec_version: "reward-1",
+        collection_runs: ["run-1"],
+        policy: "p1",
+        seed: false,
+        parent: "gen-0",
+      }),
+    ),
+    "padded",
+  );
+  assert.equal(padded.environment_version, "env-eval", "parse must normalize the identity");
+
+  const found = findContaminationPath(
+    [{ id: "gen-c1", spec: padded, runEnvironments: new Map() }],
+    "env-eval",
+  );
+  assert.ok(found, "a padded identity must still be caught by the contamination refusal");
+  assert.equal(found.overlap, "env-eval");
+});
+
 test("findContaminationPath follows environment and collection-run edges and is decided on identity", () => {
   const runEnvs = (entries: Array<[string, string]>) => new Map(entries);
   const envVersion = (environmentVersion: string, runs: Array<[string, string]> = []): AncestryEntry => ({

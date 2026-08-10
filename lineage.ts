@@ -181,15 +181,36 @@ function asObject(value: unknown, source: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-/** Require a string field to be present and, when checked, non-empty. */
+/**
+ * Require a string field to be present and, when checked, non-empty, and return
+ * it **trimmed**.
+ *
+ * Returning the trimmed value is a correctness requirement, not a convenience.
+ * The fields read through this helper are identities — environment ids,
+ * evaluation contexts, seed sets — and every consumer compares them by strict
+ * equality. {@link findContaminationPath} in particular decides whether a
+ * candidate's training data reaches the held-out environment by comparing those
+ * strings directly. Returning the raw value let `" env-eval "` parse and then
+ * never match `"env-eval"`, so the contamination refusal passed for a candidate
+ * it was supposed to stop. An identity comparison must not depend on
+ * surrounding whitespace.
+ *
+ * @param record - The parsed JSON object to read from.
+ * @param key - Field name to read.
+ * @param source - Human-readable label naming the document, used in errors.
+ * @param required - When true, a missing or blank value is refused.
+ * @returns The trimmed value, or `""` when absent and not required.
+ * @throws When the field is required and is absent, non-string, or blank.
+ */
 function asString(record: Record<string, unknown>, key: string, source: string, required = true): string {
   const value = record[key];
   if (typeof value !== "string") {
     if (required) lineageFail(`${source} requires a string ${key}.`, `missing_${key}`);
     return "";
   }
-  if (required && value.trim().length === 0) lineageFail(`${source} requires a non-empty ${key}.`, `empty_${key}`);
-  return value;
+  const normalized = value.trim();
+  if (required && normalized.length === 0) lineageFail(`${source} requires a non-empty ${key}.`, `empty_${key}`);
+  return normalized;
 }
 
 /**

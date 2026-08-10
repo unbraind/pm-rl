@@ -12,6 +12,7 @@
 
 ### Fixed
 
+- asString returns the untrimmed value, so a padded identity bypasses the contamination gate ([pm-rl-k5xd](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-k5xd.toon))
 - Fix release publish-before-protected-main-push ordering ([pm-rl-wlj0](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-wlj0.toon))
 - The shared script launcher skipped every gate it guarded when a path could not be resolved ([pm-rl-swa0](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-swa0.toon))
 - Converge changelog generation and verification on replace mode ([pm-rl-yjqx](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-yjqx.toon))
