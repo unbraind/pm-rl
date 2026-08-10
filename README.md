@@ -75,6 +75,9 @@ query the host can already answer, not a feature to build.
 | --- | --- |
 | `pm rl env register` / `list` / `show` | Declare and version environments and their reward specifications |
 | `pm rl run start` / `log` / `show` / `finish` | Snapshot exact environment and configuration provenance, append validated NDJSON metrics from a file or stdin, order the series by step, and refuse to finish an empty run |
+| `pm rl generation register` / `show` | Record one policy generation of a recursive self-improvement lineage, parented to the generation it was trained from, carrying its base checkpoint, collection runs and scored evaluations |
+| `pm rl generation promote` | Promote a candidate generation, but only after the contamination and approved-budget refusals below both pass |
+| `pm rl lineage` | Print the generation chain with each hop's promotion evidence, its direction-aware proxy-to-held-out gap, and any invalidation |
 
 The remaining types and commands in the roadmap table above are intentionally not registered
 until their acceptance criteria and refusal paths are implemented and tested.
@@ -88,10 +91,18 @@ The first slice fails closed when context would otherwise become misleading:
    changed behavior as a new version.
 2. **An empty run cannot finish.** A terminal Run must contain at least one validated finite
    metric event, so “completed” cannot silently mean that the trainer produced no evidence.
+3. **A contaminated candidate cannot be promoted.** Promotion walks provenance edges and refuses
+   when the evaluation set is reachable from the candidate's training data, naming the exact path.
+   It refuses rather than warns, because a warning on a self-improving loop is a warning nobody
+   reads on the tenth generation.
+4. **The loop cannot advance past its approved budget.** Promotion counts the generations already
+   promoted under an approval item and refuses beyond the permitted count, directing the caller to
+   extend the approval. This is the property that keeps a recursive loop from running unattended
+   further than a human authorized.
 
-Both exit non-zero. The roadmap keeps two further hard refusals—ranking across incompatible
-environment versions and ranking a contaminated benchmark—but no leaderboard command is
-registered until those graph-derived checks are implemented and accepted.
+All exit non-zero. The roadmap keeps a further hard refusal—ranking across incompatible
+environment versions—but no leaderboard command is registered until that graph-derived check is
+implemented and accepted.
 
 ## Recursive self-improvement, and the four properties that make it honest
 
