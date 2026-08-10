@@ -413,7 +413,7 @@ async function verifyEnvironmentForGeneration(client: PmClient, envId: string): 
 }
 
 /** Check whether an environment's content hash still matches its recorded identity. */
-async function isEnvironmentInvalidated(client: PmClient, envId: string): Promise<boolean> {
+export async function isEnvironmentInvalidated(client: PmClient, envId: string): Promise<boolean> {
   if (envId.length === 0) return false;
   try {
     const environment = await getTypedItem(client, envId, "Environment");

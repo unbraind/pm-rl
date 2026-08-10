@@ -4,6 +4,10 @@
 
 ### Added
 
+- pm rl lineage: the generation chain with each hop's promotion evidence and the invalidation frontier ([pm-rl-32a9](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-32a9.toon))
+- The proxy-to-held-out gap is the reward-hacking signal, measured per generation and trended across the chain ([pm-rl-zav1](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-zav1.toon))
+- An approved generation budget the loop cannot advance past on its own ([pm-rl-qix7](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-qix7.toon))
+- Generation lineage: a policy generation is an item whose parent is the generation that produced its training data ([pm-rl-81oc](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-81oc.toon))
 - Absorb pm 2026.8.7 merge and SDK contracts ([pm-rl-soik](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-soik.toon))
 
 ### Fixed
@@ -20,6 +24,7 @@
 
 ### Other
 
+- Promotion refuses on contamination rather than warning about it ([pm-rl-gyrj](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/decisions/pm-rl-gyrj.toon))
 - Mark stale in_progress items as blocked to clear stale_in_progress health warning ([pm-rl-d3ve](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-d3ve.toon))
 - The changelog heading records the day it was generated, so the gate fails every following day ([pm-rl-yxhe](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-yxhe.toon))
 

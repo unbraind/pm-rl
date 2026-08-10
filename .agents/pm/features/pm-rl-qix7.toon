@@ -2,14 +2,23 @@ id: pm-rl-qix7
 title: An approved generation budget the loop cannot advance past on its own
 description: "A loop that promotes its own successors has no natural stopping point, and the useful stopping rule is not a compute limit but a human decision recorded where the loop can read it. pm-rl binds a self-improvement programme to an approval item that states how many generations are authorized and on what evidence. Advancing beyond that count is refused, and the refusal names the approval item that must be extended, so the operator is told exactly what to write rather than which flag to add. The counting boundary is part of the contract and not an implementation detail, because two readings of the same approval item would otherwise permit different numbers of successors. The approved number is a count of PERMITTED PROMOTIONS, not a maximum generation ordinal. The seed generation consumes no budget: it is not promoted, it is registered, and a programme that has only a seed has spent nothing. Each promotion of a candidate consumes exactly one unit at the moment it succeeds, so a refused promotion costs nothing and a retried candidate that then succeeds costs one. This is the same shape as the release approval already governing which packages may publish: the gate is a tracked decision, not an environment variable, so it survives a fresh checkout, is reviewable in a diff, and cannot be satisfied by a process that merely sets something."
 type: Feature
-status: open
+status: closed
 priority: 1
 tags: []
 created_at: "2026-08-04T20:50:26.171Z"
-updated_at: "2026-08-04T21:34:11.011Z"
+updated_at: "2026-08-10T23:05:16.567Z"
+closed_at: "2026-08-10T23:05:16.548Z"
+completed_at: "2026-08-10T23:05:16.548Z"
+claim_principal: pi-agent
 author: claude
 estimated_minutes: 480
 acceptance_criteria: The approved number is interpreted as permitted promotions and never as a generation ordinal; the seed generation consumes no budget unit; a refused promotion consumes no unit and a subsequent successful promotion of the same candidate consumes exactly one; advancing past the approved count exits non-zero and names the approval item to extend; extending the approval item permits exactly the additional promotions it states; a programme with no approval item refuses at the first promotion rather than at the last; the budget is read from tracked project data and never from an environment variable
+resolution: Added test/lineage.test.ts exercising the approved promotion budget and its refusal.
+expected_result: Advancing past the approved count exits non-zero and names the approval item; the seed consumes no unit; each promotion consumes exactly one.
+actual_result: test/lineage.test.ts passes; index.ts and lineage.ts at 100/100/100 lines/branches/functions.
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rl-yi7j,parent,"2026-08-04T20:50:26.171Z",claude,"cli:create:dep",detected
+comments[1]{created_at,author,text}:
+  "2026-08-10T23:05:15.992Z",pi-agent,"Test coverage added in test/lineage.test.ts: the approved-budget refusal verified revert-proof (commenting out the refusal makes the assertion fail with 'Missing expected rejection'), countPromotedUnderApproval counting promotions under one approval and skipping unparseable generations, the seed consuming no budget, and a permitted-promotions budget consumed one unit at a time."
+close_reason: Approved generation budget test coverage complete
 body: ""
