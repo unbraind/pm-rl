@@ -22,6 +22,24 @@ import { createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError } from "@unbr
 
 import { encodeEventSegments, parseNdjsonStream, readSeries } from "./series.ts";
 
+import {
+  buildLineageAncestry,
+  directionAwareGap,
+  findContaminationPath,
+  GENERATION_EDGE_TYPES,
+  parseApprovalSpec,
+  parseGenerationSpec,
+  parseScoreRecord,
+  renderContaminationPath,
+  renderLineageTable,
+  DEFAULT_GAP_WINDOW,
+  type AncestryEntry,
+  type GenerationSpec,
+  type LineageAncestry,
+  type LineageView,
+  type ScoreRecord,
+} from "./lineage.ts";
+
 /** JSON values accepted in environment and run configuration files. */
 export type JsonValue = null | boolean | number | string | JsonValue[] | { readonly [key: string]: JsonValue };
 
@@ -68,6 +86,14 @@ export const RL_ITEM_TYPES = [
     description: "One RL run whose metric series is appended to pm history through repeatable notes.",
     default_status: "in_progress",
     required_create_fields: ["environment", "affected_version", "component", "fixed_version"],
+  }),
+  defineItemType({
+    name: "Generation",
+    folder: "generations",
+    aliases: ["rl-generation", "rl-gen"],
+    description: "One policy generation in a recursive self-improvement lineage, gated by an approved promotion budget.",
+    default_status: "open",
+    required_create_fields: ["affected_version", "fixed_version", "component"],
   }),
 ] as const;
 
@@ -168,7 +194,7 @@ export function idSegment(value: string): string {
 }
 
 /** Validate that an existing item has the expected domain type. */
-async function getTypedItem(client: PmClient, id: string, type: "Environment" | "Run"): Promise<GetResult> {
+async function getTypedItem(client: PmClient, id: string, type: "Environment" | "Run" | "Generation"): Promise<GetResult> {
   const result = await client.get(id, { depth: "deep" });
   if (result.item.type !== type) fail(`pm rl expected ${type} ${id}, not ${String(result.item.type)}.`, "wrong_item_type", EXIT_CODE.CONFLICT);
   return result;
@@ -358,6 +384,358 @@ async function showEnvironment(context: CommandHandlerContext): Promise<RlComman
   return { action: "rl-env-show", id: String(result.item.id), details: { title: result.item.title, version: result.item.fixed_version, spec_hash: result.item.affected_version, body: result.item.body } };
 }
 
+/** Extract and parse a generation spec from an item body's JSON fence. */
+function extractGenerationSpec(body: string, source: string): GenerationSpec {
+  const fenced = /```json\n([\s\S]+?)\n```/.exec(body);
+  if (fenced?.[1] === undefined) {
+    fail(`${source} has no JSON specification fence.`, "generation_missing_spec", EXIT_CODE.CONFLICT);
+  }
+  return parseGenerationSpec(fenced[1], source);
+}
+
+/** Verify an environment is content-addressed and return its id and reward-spec hash. */
+async function verifyEnvironmentForGeneration(client: PmClient, envId: string): Promise<{ id: string; rewardSpecHash: string }> {
+  const environment = await getTypedItem(client, envId, "Environment");
+  const specHash = environment.item.affected_version;
+  if (typeof specHash !== "string" || specHash.length === 0) {
+    fail(`Environment ${envId} has no specification affected_version and cannot support attributable generations.`, "environment_missing_hash", EXIT_CODE.CONFLICT);
+  }
+  const fenced = /```json\n([\s\S]+?)\n```/.exec(String(environment.item.body));
+  if (fenced?.[1] === undefined) {
+    fail(`Environment ${envId} has no JSON specification fence.`, "environment_missing_spec", EXIT_CODE.CONFLICT);
+  }
+  const storedSpec = parseEnvironmentSpec(fenced[1], `Environment ${envId} specification`);
+  const observedHash = hashJson(storedSpec);
+  if (observedHash !== specHash || !String(environment.item.id).endsWith(specHash.slice(0, 12))) {
+    fail(`Environment ${envId} no longer matches its content-addressed identity. Register the changed specification as a new version.`, "environment_was_mutated", EXIT_CODE.CONFLICT);
+  }
+  return { id: String(environment.item.id), rewardSpecHash: hashJson(storedSpec.reward_specification) };
+}
+
+/** Check whether an environment's content hash still matches its recorded identity. */
+async function isEnvironmentInvalidated(client: PmClient, envId: string): Promise<boolean> {
+  if (envId.length === 0) return false;
+  try {
+    const environment = await getTypedItem(client, envId, "Environment");
+    const specHash = environment.item.affected_version;
+    if (typeof specHash !== "string" || specHash.length === 0) return true;
+    const fenced = /```json\n([\s\S]+?)\n```/.exec(String(environment.item.body));
+    const envJson = fenced?.[1];
+    if (envJson === undefined) return true;
+    const storedSpec = parseEnvironmentSpec(envJson, `Environment ${envId}`);
+    return hashJson(storedSpec) !== specHash;
+  } catch {
+    return true;
+  }
+}
+
+/** Build the ancestry from a head generation back to the seed, resolving run environments. */
+async function buildAncestry(client: PmClient, headId: string): Promise<AncestryEntry[]> {
+  const ancestry: AncestryEntry[] = [];
+  const visited = new Set<string>();
+  let currentId: string | null = headId;
+  while (currentId !== null && !visited.has(currentId)) {
+    visited.add(currentId);
+    const item = await getTypedItem(client, currentId, "Generation");
+    const spec = extractGenerationSpec(String(item.item.body), `Generation ${currentId}`);
+    const runEnvironments = new Map<string, string>();
+    for (const runId of spec.collection_runs) {
+      try {
+        const run = await getTypedItem(client, runId, "Run");
+        const env = run.item.environment;
+        if (typeof env === "string") runEnvironments.set(runId, env);
+      } catch {
+        // A missing run contributes no environment to the contamination check.
+      }
+    }
+    ancestry.push({ id: currentId, spec, runEnvironments });
+    currentId = spec.parent;
+  }
+  return ancestry;
+}
+
+/** Count promoted generations that recorded a given approval item as their authorization. */
+async function countPromotedUnderApproval(client: PmClient, approvalId: string): Promise<number> {
+  const result = await client.list({ type: "Generation", status: "all", noTruncate: true });
+  let count = 0;
+  for (const item of result.items) {
+    // The SDK types a listed item's `id` as optional, so a record without one
+    // cannot be fetched and is skipped rather than counted.
+    if (item.id === undefined) continue;
+    try {
+      const full = await client.get(item.id, { fields: "body" });
+      const fenced = /```json\n([\s\S]+?)\n```/.exec(String(full.item.body));
+      const json = fenced?.[1];
+      if (json === undefined) continue;
+      const spec = parseGenerationSpec(json, `Generation ${item.id}`);
+      if (spec.promoted && spec.approval === approvalId) count += 1;
+    } catch {
+      continue;
+    }
+  }
+  return count;
+}
+
+/** Find generation item ids that are not a parent of any other generation. */
+async function findGenerationHeads(client: PmClient): Promise<string[]> {
+  const result = await client.list({ type: "Generation", status: "all", noTruncate: true });
+  const parentIds = new Set<string>();
+  const allIds: string[] = [];
+  for (const item of result.items) {
+    // A listed item's `id` is optional in the SDK types; one without an id can
+    // be neither a head nor a parent, so it takes no part in the lineage graph.
+    if (item.id === undefined) continue;
+    allIds.push(item.id);
+    const parent = item.parent;
+    if (typeof parent === "string" && parent.length > 0) parentIds.add(parent);
+  }
+  return allIds.filter((id) => !parentIds.has(id)).sort();
+}
+
+/** Parse a positive integer gap-window option. */
+function parseGapWindow(raw: string): number {
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 1) {
+    fail(`pm rl lineage --gap-window must be a positive integer, got "${raw}".`, "invalid_gap_window");
+  }
+  return value;
+}
+
+/** Register one policy generation (seed or candidate) with its full provenance. */
+async function registerGeneration(context: CommandHandlerContext): Promise<RlCommandResult> {
+  const requestedId = requiredArgument(context, "a generation id");
+  const baseCheckpoint = stringOption(context, "base_checkpoint")!;
+  const parentInput = stringOption(context, "parent", false);
+  const configPath = stringOption(context, "config_file", false);
+  const config = configPath === undefined ? {} : readJsonFile(configPath, "Generation configuration");
+  const client = clientFor(context);
+  await ensurePersistentTypes(client);
+  const isSeed = parentInput === undefined || parentInput.trim().length === 0;
+  let policy = "";
+  let collectionRuns: string[] = [];
+  let environmentId = "";
+  let rewardSpecVersion = "";
+  let deps: string[] = [];
+  if (!isSeed) {
+    const parent = await getTypedItem(client, parentInput!, "Generation");
+    const parentSpec = extractGenerationSpec(String(parent.item.body), `Parent generation ${parentInput}`);
+    if (!parentSpec.promoted && !parentSpec.seed) {
+      fail(`Parent generation ${parentInput} is not promoted. Only a promoted generation (or the seed) may parent a candidate.`, "parent_not_promoted", EXIT_CODE.CONFLICT);
+    }
+    policy = stringOption(context, "policy")!;
+    const collectionRunsRaw = stringOption(context, "collection_runs")!;
+    collectionRuns = collectionRunsRaw.split(",").map((run) => run.trim()).filter((run) => run.length > 0);
+    if (collectionRuns.length === 0) {
+      fail("pm rl generation register requires --collection-runs for a non-seed generation.", "missing_collection_runs");
+    }
+    for (const runId of collectionRuns) {
+      const run = await getTypedItem(client, runId, "Run");
+      if (String(run.item.component) !== parentSpec.policy) {
+        fail(`Collection run ${runId} references policy ${String(run.item.component)}, not the parent generation's policy ${parentSpec.policy}.`, "run_policy_mismatch", EXIT_CODE.CONFLICT);
+      }
+    }
+    const envInput = stringOption(context, "environment")!;
+    const envResult = await verifyEnvironmentForGeneration(client, envInput);
+    environmentId = envResult.id;
+    rewardSpecVersion = envResult.rewardSpecHash;
+    deps = [environmentId, ...collectionRuns];
+  }
+  const spec: GenerationSpec = {
+    base_checkpoint: baseCheckpoint,
+    policy,
+    collection_runs: collectionRuns,
+    training_config: config,
+    environment_version: environmentId,
+    reward_spec_version: rewardSpecVersion,
+    parent: isSeed ? null : parentInput!,
+    seed: isSeed,
+    promoted: false,
+    approval: null,
+    proxy_score: null,
+    held_out_score: null,
+    gap: null,
+    promotion_evidence: null,
+  };
+  const specHash = hashJson(spec as unknown as JsonValue);
+  const createOptions = {
+    id: requestedId,
+    title: requestedId,
+    type: "Generation" as const,
+    status: "open" as const,
+    acceptanceCriteria: "The generation retains its exact provenance identities and is promoted only after contamination and budget checks pass.",
+    estimatedMinutes: "1",
+    body: `# ${requestedId}\n\n\`\`\`json\n${JSON.stringify(spec, null, 2)}\n\`\`\``,
+    affectedVersion: specHash,
+    fixedVersion: baseCheckpoint,
+    component: policy.length > 0 ? policy : baseCheckpoint,
+    message: isSeed ? "Register seed RL generation" : "Register candidate RL generation",
+    ...(isSeed ? {} : { parent: parentInput, dep: deps, environment: environmentId }),
+  };
+  const result = await client.create(createOptions);
+  return {
+    action: "rl-generation-register",
+    id: result.item.id,
+    created: true,
+    details: {
+      seed: isSeed,
+      parent: isSeed ? null : parentInput,
+      spec_hash: specHash,
+      base_checkpoint: baseCheckpoint,
+      policy,
+      collection_runs: collectionRuns,
+      environment: environmentId,
+      reward_spec_version: rewardSpecVersion,
+      edge_types: [...GENERATION_EDGE_TYPES],
+    },
+  };
+}
+
+/** Promote a candidate generation after contamination and budget checks pass. */
+async function promoteGeneration(context: CommandHandlerContext): Promise<RlCommandResult> {
+  const id = requiredArgument(context, "a generation id");
+  const approvalId = stringOption(context, "approval")!;
+  const scoresPath = stringOption(context, "scores")!;
+  const evidence = stringOption(context, "evidence")!;
+  const client = clientFor(context);
+  await ensurePersistentTypes(client);
+  const generation = await getTypedItem(client, id, "Generation");
+  const spec = extractGenerationSpec(String(generation.item.body), `Generation ${id}`);
+  if (spec.promoted) {
+    fail(`Generation ${id} is already promoted.`, "already_promoted", EXIT_CODE.CONFLICT);
+  }
+  if (spec.seed) {
+    fail(`The seed generation ${id} is registered, not promoted. Promote a candidate generation instead.`, "seed_not_promoted", EXIT_CODE.CONFLICT);
+  }
+  const scoresRaw = readJsonFile(scoresPath, "Promotion scores");
+  const scoresRecord = jsonObject(scoresRaw, "Promotion scores");
+  const proxyScoreRaw = scoresRecord["proxy_score"];
+  if (proxyScoreRaw === undefined || proxyScoreRaw === null) {
+    fail("Promotion scores require a proxy_score. A generation without both a proxy and a held-out score cannot be promoted.", "missing_proxy_score");
+  }
+  const proxyScore = parseScoreRecord(proxyScoreRaw, "proxy_score");
+  const heldOutScoreRaw = scoresRecord["held_out_score"];
+  if (heldOutScoreRaw === undefined || heldOutScoreRaw === null) {
+    fail("Promotion scores require a held_out_score. A generation without both a proxy and a held-out score cannot be promoted.", "missing_held_out_score");
+  }
+  const heldOutScore = parseScoreRecord(heldOutScoreRaw, "held_out_score");
+  const ancestry = await buildAncestry(client, id);
+  const contamination = findContaminationPath(ancestry, heldOutScore.evaluation_context);
+  if (contamination !== null) {
+    fail(`Promotion refused: the evaluation set is reachable from the candidate's training data over provenance edges. Path: ${renderContaminationPath(contamination)}`, "contamination_refused", EXIT_CODE.CONFLICT);
+  }
+  const gap = directionAwareGap(proxyScore, heldOutScore);
+  const approval = await client.get(approvalId, { depth: "deep" });
+  if (String(approval.item.type) !== "Decision") {
+    fail(`pm rl expected a Decision ${approvalId} as the approval item, not ${String(approval.item.type)}.`, "wrong_approval_type", EXIT_CODE.CONFLICT);
+  }
+  const approvalFenced = /```json\n([\s\S]+?)\n```/.exec(String(approval.item.body));
+  if (approvalFenced?.[1] === undefined) {
+    fail(`Approval item ${approvalId} has no JSON specification fence.`, "approval_missing_spec", EXIT_CODE.CONFLICT);
+  }
+  const approvalSpec = parseApprovalSpec(approvalFenced[1], `Approval ${approvalId}`);
+  const promotedCount = await countPromotedUnderApproval(client, approvalId);
+  if (promotedCount >= approvalSpec.permitted_promotions) {
+    fail(`Advancing past the approved promotion budget is refused. ${promotedCount} promotion(s) consumed; approval ${approvalId} permits ${approvalSpec.permitted_promotions}. Extend approval item ${approvalId} to authorize more promotions.`, "budget_exceeded", EXIT_CODE.CONFLICT);
+  }
+  const promotedSpec: GenerationSpec = {
+    ...spec,
+    promoted: true,
+    approval: approvalId,
+    proxy_score: proxyScore,
+    held_out_score: heldOutScore,
+    gap,
+    promotion_evidence: evidence,
+  };
+  const newBody = `# ${id}\n\n\`\`\`json\n${JSON.stringify(promotedSpec, null, 2)}\n\`\`\``;
+  await client.update(id, {
+    body: newBody,
+    message: `Promote generation: gap=${gap.toFixed(4)}, evidence=${evidence}`,
+  });
+  const result = await client.close(id, "promoted", {
+    message: "Promote RL generation",
+    resolution: evidence,
+    expectedResult: "The generation reaches a promoted state with both scores and the direction-aware gap recorded.",
+    actualResult: `Promoted with proxy=${proxyScore.value}, held_out=${heldOutScore.value}, gap=${gap.toFixed(4)}. Budget consumed: ${promotedCount + 1} of ${approvalSpec.permitted_promotions}.`,
+  });
+  return {
+    action: "rl-generation-promote",
+    id: String(result.item.id),
+    details: {
+      status: result.item.status,
+      gap,
+      proxy_score: proxyScore.value,
+      held_out_score: heldOutScore.value,
+      approval: approvalId,
+      budget_consumed: promotedCount + 1,
+      budget_permitted: approvalSpec.permitted_promotions,
+      evidence,
+    },
+  };
+}
+
+/** Show one generation and its lineage details. */
+async function showGeneration(context: CommandHandlerContext): Promise<RlCommandResult> {
+  const id = requiredArgument(context, "a generation id");
+  const result = await getTypedItem(clientFor(context), id, "Generation");
+  const spec = extractGenerationSpec(String(result.item.body), `Generation ${id}`);
+  return {
+    action: "rl-generation-show",
+    id: String(result.item.id),
+    details: {
+      seed: spec.seed,
+      promoted: spec.promoted,
+      parent: spec.parent,
+      base_checkpoint: spec.base_checkpoint,
+      policy: spec.policy,
+      collection_runs: spec.collection_runs,
+      environment: spec.environment_version,
+      reward_spec_version: spec.reward_spec_version,
+      approval: spec.approval,
+      proxy_score: spec.proxy_score,
+      held_out_score: spec.held_out_score,
+      gap: spec.gap,
+      promotion_evidence: spec.promotion_evidence,
+    },
+  };
+}
+
+/** Render the generation chain from seed to head(s) with promotion evidence. */
+async function renderLineageCommand(context: CommandHandlerContext): Promise<RlCommandResult> {
+  const headInput = context.args.find((arg) => !arg.startsWith("-"));
+  const formatRaw = stringOption(context, "format", false) ?? "table";
+  if (formatRaw !== "table" && formatRaw !== "json") {
+    fail(`pm rl lineage --format must be "table" or "json", got "${formatRaw}".`, "invalid_format");
+  }
+  const gapWindowRaw = stringOption(context, "gap_window", false);
+  const gapWindow = gapWindowRaw === undefined ? DEFAULT_GAP_WINDOW : parseGapWindow(gapWindowRaw);
+  const client = clientFor(context);
+  await ensurePersistentTypes(client);
+  let heads: string[];
+  if (headInput !== undefined && headInput.trim().length > 0) {
+    heads = [headInput.trim()];
+  } else {
+    heads = await findGenerationHeads(client);
+  }
+  const ancestries: LineageAncestry[] = [];
+  for (const head of heads) {
+    const ancestry = await buildAncestry(client, head);
+    const seedToHead = [...ancestry].reverse();
+    const invalidated = new Set<string>();
+    for (const entry of seedToHead) {
+      if (entry.spec.environment_version.length > 0) {
+        const isInvalid = await isEnvironmentInvalidated(client, entry.spec.environment_version);
+        if (isInvalid) invalidated.add(entry.id);
+      }
+    }
+    ancestries.push(buildLineageAncestry(seedToHead, invalidated, gapWindow));
+  }
+  const view: LineageView = { ancestries };
+  if (formatRaw === "json") {
+    return { action: "rl-lineage", details: { format: "json", view } };
+  }
+  return { action: "rl-lineage", details: { format: "table", output: renderLineageTable(view), view } };
+}
+
 /** Commands authored separately so activation and tests share one exact contract. */
 export const RL_COMMANDS = [
   defineCommand({ name: "rl env register", description: "Register an immutable, content-addressed environment JSON specification.", flags: [{ long: "--file", value_name: "path", value_type: "string", required: true, description: "Environment JSON file." }], run: registerEnvironment }),
@@ -371,6 +749,24 @@ export const RL_COMMANDS = [
   defineCommand({ name: "rl run log", description: "Append NDJSON metric events from --file or stdin to merge-safe run notes.", arguments: [{ name: "id", required: true, description: "Run item id." }], flags: [{ long: "--file", value_name: "path", value_type: "string", description: "NDJSON file; omit to read stdin." }], run: logRun }),
   defineCommand({ name: "rl run show", description: "Read and order a run's metric series from append-only notes.", arguments: [{ name: "id", required: true, description: "Run item id." }], run: showRun }),
   defineCommand({ name: "rl run finish", description: "Finish a run without rewriting its metric history.", arguments: [{ name: "id", required: true, description: "Run item id." }], flags: [{ long: "--reason", value_name: "text", value_type: "string", required: true, description: "Why the run ended." }], run: finishRun }),
+  defineCommand({ name: "rl generation register", description: "Register a policy generation (seed or candidate) with content-addressed provenance.", arguments: [{ name: "id", required: true, description: "Generation item id." }], flags: [
+    { long: "--base-checkpoint", value_name: "hash", value_type: "string", required: true, description: "Content-addressed base checkpoint identity." },
+    { long: "--parent", value_name: "id", value_type: "string", description: "Parent generation id; omit for the seed generation." },
+    { long: "--policy", value_name: "hash", value_type: "string", description: "Content-addressed policy that collected the training data (required for non-seed)." },
+    { long: "--collection-runs", value_name: "ids", value_type: "string", description: "Comma-separated collection run ids (required for non-seed)." },
+    { long: "--environment", value_name: "id", value_type: "string", description: "Environment item id used by the collection runs (required for non-seed)." },
+    { long: "--config-file", value_name: "path", value_type: "string", description: "Optional JSON training configuration." },
+  ], run: registerGeneration }),
+  defineCommand({ name: "rl generation promote", description: "Promote a candidate generation after contamination and budget checks pass.", arguments: [{ name: "id", required: true, description: "Generation item id." }], flags: [
+    { long: "--approval", value_name: "id", value_type: "string", required: true, description: "Approval Decision item id stating the permitted promotion count." },
+    { long: "--scores", value_name: "path", value_type: "string", required: true, description: "JSON file with proxy_score and held_out_score records." },
+    { long: "--evidence", value_name: "text", value_type: "string", required: true, description: "Human-readable promotion evidence." },
+  ], run: promoteGeneration }),
+  defineCommand({ name: "rl generation show", description: "Show one generation and its lineage details.", arguments: [{ name: "id", required: true, description: "Generation item id." }], run: showGeneration }),
+  defineCommand({ name: "rl lineage", description: "Render the generation chain from seed to head(s) with promotion evidence and invalidation state.", arguments: [{ name: "head", required: false, description: "Head generation id; omit to enumerate every head." }], flags: [
+    { long: "--format", value_name: "table|json", value_type: "string", description: "Output format; defaults to table." },
+    { long: "--gap-window", value_name: "n", value_type: "string", description: "Number of consecutive gaps for the widening check; defaults to 3." },
+  ], run: renderLineageCommand }),
 ] as const;
 
 /** Install pm-rl's typed schema and command surface into the active host. */
