@@ -8,6 +8,7 @@
 
 ### Fixed
 
+- The shared script launcher skipped every gate it guarded when a path could not be resolved ([pm-rl-swa0](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-swa0.toon))
 - Converge changelog generation and verification on replace mode ([pm-rl-yjqx](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-yjqx.toon))
 - Resolve CodeRabbit PR 7 review findings across the release gates ([pm-rl-3tdy](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-3tdy.toon))
 - Release bot identity was absent from the allowlist, so the first release would break the audit permanently ([pm-rl-rgt4](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-rgt4.toon))
