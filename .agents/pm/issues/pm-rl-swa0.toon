@@ -1,0 +1,14 @@
+id: pm-rl-swa0
+title: The shared script launcher skipped every gate it guarded when a path could not be resolved
+description: "isMainInvocation caught a realpathSync failure and returned false, which makes runIfMain treat a direct invocation as a library import and skip main, so the docstring and coverage gates exit zero having done nothing."
+type: Issue
+status: open
+priority: 1
+tags[3]: coverage,gate,release
+created_at: "2026-08-10T06:07:39.802Z"
+updated_at: "2026-08-10T06:08:03.263Z"
+author: claude
+notes[2]{created_at,author,text}:
+  "2026-08-10T06:08:02.837Z",claude,"Three separate tests asserted the old behaviour, in docstring-gate, quality-scripts and coverage-gate. The coverage-gate one is the clearest statement of the cost: it expected false for an unresolvable entry, which is precisely the path where the coverage gate would exit zero having measured nothing."
+  "2026-08-10T06:08:03.263Z",claude,"This repository and pm-linear both hid the defect behind a shared script-launcher.ts that the gate only re-exports, which is why a fleet survey of scripts/docstring-gate.ts reported them clean. Factoring a defect out of the file people search makes it invisible to the search."
+body: ""
