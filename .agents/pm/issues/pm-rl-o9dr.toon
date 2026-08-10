@@ -1,0 +1,13 @@
+id: pm-rl-o9dr
+title: "isEnvironmentInvalidated reports an edit for an environment that is absent, and the fence regex is duplicated five times"
+description: "CodeRabbit review of pm-rl#12, Minor plus Trivial.\n\nisEnvironmentInvalidated returns a boolean true for four distinct conditions - missing affected_version, missing fence, hash mismatch, and any thrown error from getTypedItem - and buildLineageAncestry renders one fixed reason, environment was edited, for all four. A test registers a generation whose environment_version resolves to nothing and asserts the row reads environment was edited. The environment was never edited; it is absent. The operator is given a wrong diagnosis of a provenance failure. LineageRow.invalidated is already typed string-or-null, so return the reason rather than a boolean.\n\nSeparately the specification fence regex is written out five times in index.ts, so every copy must change together. Define it once.\n\nConfirmed while reviewing: the OpenGrep command-injection.exec-js findings on those lines are FALSE POSITIVES - each call is RegExp.prototype.exec, not child_process.exec."
+type: Issue
+status: open
+priority: 3
+tags: []
+created_at: "2026-08-10T23:30:51.145Z"
+updated_at: "2026-08-10T23:31:12.545Z"
+author: "harness:claude-code"
+dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
+  pm-rl-yi7j,parent,"2026-08-10T23:31:12.522Z","harness:claude-code","cli:update:dep",detected
+body: ""

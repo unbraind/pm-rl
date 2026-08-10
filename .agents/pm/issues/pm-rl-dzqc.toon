@@ -1,0 +1,13 @@
+id: pm-rl-dzqc
+title: Three parse and arithmetic checks accept records the module is supposed to refuse
+description: "CodeRabbit review of pm-rl#12, three Major-to-Minor findings sharing one root: a value is accepted without validating the relation that gives it meaning.\n\ndirectionAwareGap subtracts two scores without checking they share objective, objective version and direction. A file naming one objective for the proxy and another for the held-out score yields a number that is not a gap; declaring maximize for one and minimize for the other ADDS two capabilities instead of subtracting them. Both pass every current check and are persisted as promotion evidence.\n\nparseGenerationSpec does not enforce the documented invariant that approval, proxy_score, held_out_score and gap are non-null exactly when promoted is true. A body declaring promoted true with approval null parses, after which countPromotedUnderApproval counts it as consuming no budget while renderLineageTable renders it as a candidate - two consumers disagreeing about one record.\n\nisGapWidening returns true whenever the window is 1, because the comparison loop never runs, so any ancestry with a single promoted generation always reports gap widening. A trend needs at least two points."
+type: Issue
+status: open
+priority: 2
+tags: []
+created_at: "2026-08-10T23:30:50.828Z"
+updated_at: "2026-08-10T23:31:12.093Z"
+author: "harness:claude-code"
+dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
+  pm-rl-yi7j,parent,"2026-08-10T23:31:12.065Z","harness:claude-code","cli:update:dep",detected
+body: ""

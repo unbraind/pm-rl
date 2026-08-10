@@ -1,0 +1,13 @@
+id: pm-rl-6fb5
+title: "Invalidation does not propagate to descendants, and the test asserting that it does has no descendant"
+description: "CodeRabbit review of pm-rl#12, Major. The loop marks a generation only when that generation's own environment_version is invalid. A descendant that recorded a different environment is never marked, even though its training data derives from the ancestor whose environment was edited.\n\nThe lineage module header claims reverse reachability from an environment edit reaches every downstream generation. The test titled an edited environment marks every downstream generation invalidated does NOT exercise that: its fixture holds one candidate recording the edited environment directly, plus a seed that is skipped. NO DESCENDANT EXISTS IN THE FIXTURE, so the propagation claim is simultaneously untested and unimplemented while reading as covered.\n\nPropagate forward over the seed-to-head ordering, and memoize the environment check, which currently re-fetches and re-hashes the same environment per generation and per head."
+type: Issue
+status: open
+priority: 2
+tags: []
+created_at: "2026-08-10T23:30:50.506Z"
+updated_at: "2026-08-10T23:31:11.733Z"
+author: "harness:claude-code"
+dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
+  pm-rl-yi7j,parent,"2026-08-10T23:31:11.711Z","harness:claude-code","cli:update:dep",detected
+body: ""
