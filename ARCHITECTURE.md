@@ -62,6 +62,18 @@ question that actually costs programmes weeks —
 — is reachability over edges the host already stores. pm-rl does not implement a graph; it
 declares the right edges and asks.
 
+The same edges make an environment edit invalidate a generation **transitively**: the lineage
+view propagates invalidation forward along the seed-to-head ordering, so a descendant that
+recorded a different environment is still marked when an ancestor's environment was edited,
+because its training data derives from that ancestor. The reason names the ancestor it inherited
+from, distinct from the reason a generation invalidated on its own environment receives.
+
+The approved promotion budget is enforced with an atomic `claim` on the approval item, so the
+count of promoted generations and the promotion write are one critical section: concurrent
+promotions cannot both read the same count and both advance past what a human authorized. A seed
+may declare a `--policy` its children's collection runs must match; a seed with no declared policy
+skips that check, and `rl lineage --gap-window` requires at least two consecutive gaps.
+
 ---
 
 ## 2. Item types
