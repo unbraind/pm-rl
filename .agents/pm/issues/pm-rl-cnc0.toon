@@ -2,12 +2,27 @@ id: pm-rl-cnc0
 title: "Promotion budget reservation is a read-then-write race, so concurrent promotions can exceed the approved budget"
 description: "CodeRabbit review of pm-rl#12, Critical. promoteGeneration counts promotions already made under an approval item and then writes its own promotion. Two concurrent promotions both read the count, both observe headroom, and both proceed.\n\nWhy this is the most serious defect in the module: the approved budget exists so a RECURSIVE loop cannot advance past the point a human authorized, and a recursive loop is precisely the caller that promotes programmatically rather than by hand. The guarantee fails in its own primary scenario.\n\nNeeds an atomic reservation, and an adversarial test that issues concurrent promotions and asserts the permitted count is never exceeded."
 type: Issue
-status: open
+status: closed
 priority: 1
 tags: []
 created_at: "2026-08-10T23:30:25.553Z"
-updated_at: "2026-08-10T23:31:10.314Z"
+updated_at: "2026-08-11T05:03:53.137Z"
+closed_at: "2026-08-11T05:03:53.124Z"
+completed_at: "2026-08-11T05:03:53.124Z"
 author: "harness:claude-code"
+resolution: Promotion budget reserved by an atomic claim on the approval item; concurrent promotions never exceed the approved count.
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rl-yi7j,parent,"2026-08-10T23:31:10.286Z","harness:claude-code","cli:update:dep",detected
+comments[1]{created_at,author,text}:
+  "2026-08-11T05:03:50.753Z",pi-agent,"promoteGeneration now wraps countPromotedUnderApproval + the promotion write in client.claim(approvalId), released in a finally. A lost test-and-set race -> budget_contended (CONFLICT) naming the approval item, telling the caller to retry, never falling through. Non-race claim failures (e.g. terminal approval) rethrow as-is. isAlreadyClaimedError is not a public SDK export in this version; the race is detected structurally via context.code === 'already_claimed_by' (the exact predicate the SDK helper applies). Empirical scratch-script observation on a real Decision item: claim sets assignee to the author WITHOUT changing status (open->open); release restores assignee to undefined and leaves status unchanged, so release fully restores the prior state and no explicit restore is needed. Adversarial test: Promise.allSettled over 6 real PmClients (distinct authors) promoting 6 distinct candidates against a budget of 1 asserts exactly one succeeds. Revert-proof: reverting the claim wrapper lets 4 succeed (>1) and is restored."
+learnings[1]{created_at,author,text}:
+  "2026-08-11T05:03:52.795Z",pi-agent,A read-then-write budget check is racy exactly when the caller promotes programmatically (a recursive loop); an atomic claim on the authorization item serializes the count and the write. The pm SDK's isAlreadyClaimedError was not a public export in this version; the stable already_claimed_by context code is the equivalent structural predicate.
+files[3]{path,scope,note}:
+  index.ts,project,claim/release mutex + isClaimRaceLost
+  README.md,project,budget_contended atomic reservation
+  test/lineage.test.ts,project,adversarial concurrent promotion + non-race claim tests
+tests[2]{command,scope}:
+  "name=concurrent promotions against a budget never let more than the permitted count succeed,result=pass",project
+  "name=promotion rethrows a non-race claim failure on the approval item,result=pass",project
+close_reason: Promotion budget reserved by an atomic claim on the approval item; concurrent promotions never exceed the approved count.
 body: ""
