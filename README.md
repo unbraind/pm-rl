@@ -103,9 +103,10 @@ The first slice fails closed when context would otherwise become misleading:
    promoted under an approval item and refuses beyond the permitted count, directing the caller to
    extend the approval. The count and the promotion write run inside one workspace writer lock
    (`commitWorkspaceTransaction`), so two concurrent promotions cannot both read the same count and
-   both promote past the budget. They **serialize** rather than one being rejected for contention:
-   the second caller re-reads the count the winner just changed and refuses with the accurate
-   `budget_exceeded`, which is a terminal condition a recursive loop must respect, instead of a
+   both promote past the budget. Callers that **acquire** the lock serialize rather than one being
+   rejected for contention: the second caller re-reads the count the winner just changed and
+   refuses with the accurate `budget_exceeded`, which is a terminal condition a recursive loop
+   must respect, instead of a
    retryable contention error it would retry forever. A Generation whose body is uncountable (no JSON fence or an
    unparseable spec) makes the budget undecidable and is refused (`budget_undecidable`) rather than
    skipped, because treating unreadable provenance as absent provenance inverts the contract. This
@@ -113,6 +114,10 @@ The first slice fails closed when context would otherwise become misleading:
    authorized. The same lock makes **one generation promote at most once**: the already-promoted
    check is re-run inside the critical section, because the pre-lock check reads state every
    concurrent caller sees before any of them holds the lock, so all of them would pass it.
+   The lock wait is **bounded**, not unlimited: a caller that cannot acquire it within 30 seconds
+   fails with `lock_conflict` (exit 4), naming the current owner and how long it waited. That is a
+   retryable outcome, so contention is bounded rather than eliminated — but it is reported as
+   contention, never as a promotion that did not happen.
 5. **Incomparable scores cannot form a gap.** The proxy and held-out scores must share the same
    objective, objective version, and optimization direction. Subtracting scores that name different
    objectives yields a number that is not a gap, and a `maximize` proxy against a `minimize` held-out
