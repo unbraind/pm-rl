@@ -357,8 +357,15 @@ test("findContaminationPath follows environment and collection-run edges and is 
   const viaRun = findContaminationPath([envVersion("env-train", [["run-b", "env-eval"]])], "env-eval");
   assert.equal(viaRun?.overlap, "env-eval");
   assert.equal(renderContaminationPath(viaRun!), "gen-c1 →[collection_run]→ run-b →[environment_version]→ env-eval");
-  const viaRunHop = findContaminationPath([envVersion("env-train", [["run-b", "env-eval"], ["run-a", "env-other"]])], "env-eval");
-  assert.ok(renderContaminationPath(viaRunHop!).includes("→[collection_run]→ run-b"));
+  // Both runs reach the evaluation set, so only the SORT decides which is
+  // reported. With just one matching run the assertion would hold under
+  // insertion order too, and removing the sort() in findContaminationPath
+  // would fail nothing.
+  const viaRunHop = findContaminationPath([envVersion("env-train", [["run-b", "env-eval"], ["run-a", "env-eval"]])], "env-eval");
+  assert.ok(
+    renderContaminationPath(viaRunHop!).includes("→[collection_run]→ run-a"),
+    "the lexicographically first matching run id must be the one reported",
+  );
   // No overlap returns null.
   assert.equal(findContaminationPath([envVersion("env-train", [["run-a", "env-other"]])], "env-eval"), null);
   // A match deeper in the ancestry reaches it over a parent hop, exercising the non-start via.
@@ -618,6 +625,33 @@ test("promotion refuses to advance past the approved budget and names the item t
   await assert.rejects(
     harness.runCommand({ command: "rl generation promote", pmRoot, args: ["gen-c2"], options: { approval: twoApproval.item.id, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "retry" } }),
     /already promoted/,
+  );
+
+  // Exhaust the budget across DISTINCT candidates.
+  //
+  // Neither case above proves the counting walk works. The zero-permission
+  // approval refuses at a count of 0, so the refusal fires whatever
+  // countPromotedUnderApproval returns; and the repeat promotion of gen-c2 is
+  // stopped by the already-promoted guard before the budget check is reached.
+  // Only promoting distinct candidates up to the limit exercises a correct
+  // non-zero count, which is the part of the guarantee that actually bounds a
+  // recursive loop.
+  const run3 = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-3"], options: { environment: env, algorithm: "ckpt-seed" } }));
+  await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-c3"], options: { baseCheckpoint: "ckpt-c3", parent: seed, policy: "ckpt-c3", collectionRuns: run3.id, environment: env } });
+  await harness.runCommand({ command: "rl generation promote", pmRoot, args: ["gen-c3"], options: { approval: twoApproval.item.id, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "two" } });
+
+  // Two promotions now consume the two permitted; a third distinct candidate
+  // must be refused, and the refusal must name the approval item to extend.
+  const run4 = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-4"], options: { environment: env, algorithm: "ckpt-seed" } }));
+  await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-c4"], options: { baseCheckpoint: "ckpt-c4", parent: seed, policy: "ckpt-c4", collectionRuns: run4.id, environment: env } });
+  await assert.rejects(
+    harness.runCommand({ command: "rl generation promote", pmRoot, args: ["gen-c4"], options: { approval: twoApproval.item.id, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "three" } }),
+    (error: Error) => {
+      assert.match(error.message, /Advancing past the approved promotion budget is refused/);
+      assert.match(error.message, /2 promotion\(s\) consumed/, "the refusal must report the real count, not merely fire");
+      assert.match(error.message, new RegExp(twoApproval.item.id), "the refusal must name the approval item to extend");
+      return true;
+    },
   );
 });
 

@@ -1,0 +1,16 @@
+id: pm-rl-82qw
+title: The budget-exhaustion path and the sorted-run traversal were both asserted vacuously
+description: "CodeRabbit review of pm-rl#12, one Major and one Trivial, sharing a root: an assertion that holds whether or not the behaviour it names is present.\n\nBUDGET EXHAUSTION was never proven. The test used a zero-permission approval, and the refusal fires at a count of zero whatever countPromotedUnderApproval returns, so the counting walk was never exercised. Its second case promoted the same generation twice and expected already promoted - a guard that runs BEFORE the budget check is reached, so that attempt never touched the budget path either. No case promoted DISTINCT candidates up to the limit.\n\nThis compounds the mutation-testing lesson from this same review. I had reported the budget refusal proven revert-proof by mutation at 31 of 32 passing. It fired because the zero-permission case trips it regardless. The count that actually bounds a recursive loop was untested.\n\nSORTED RUN TRAVERSAL was likewise undiscriminating: only one run in the fixture mapped to the evaluation environment, so the match was found under insertion order too, and removing the sort would fail nothing."
+type: Issue
+status: closed
+priority: 2
+tags: []
+created_at: "2026-08-11T00:04:53.212Z"
+updated_at: "2026-08-11T00:05:12.682Z"
+closed_at: "2026-08-11T00:05:12.666Z"
+completed_at: "2026-08-11T00:05:12.666Z"
+author: "harness:claude-code"
+dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
+  pm-rl-yi7j,parent,"2026-08-11T00:05:12.167Z","harness:claude-code","cli:update:dep",detected
+close_reason: "Both assertions now discriminate, each verified by mutation.\n\nBudget exhaustion: the test promotes distinct candidates gen-c2 and gen-c3 against a two-permission approval, then registers gen-c4 and asserts the third promotion is refused, that the message reports 2 promotion(s) consumed rather than merely firing, and that it names the approval item to extend. Proof it exercises the counter: suppressing the increment inside countPromotedUnderApproval turns the suite red at 23 of 24. Before this case, that mutation passed.\n\nSorted traversal: both runs in the fixture now reach the evaluation environment, so only the sort decides which is reported, and the assertion names the lexicographically first id. Proof: removing the sort() turns the suite red at 23 of 24.\n\nrelease:check green, coverage still an exact 100/100/100 across 9 files."
+body: ""
