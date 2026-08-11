@@ -2,11 +2,11 @@ id: pm-rl-qdxu
 title: "A registered seed cannot parent any candidate, and the tests hide it by writing outside the command surface"
 description: "CodeRabbit review of pm-rl#12, Major. registerGeneration sets a seed's policy to the empty string, and every candidate's collection runs must carry component equal to the parent's policy. rl run start always sets a non-empty algorithm as the component, so EVERY candidate parented to a freshly registered seed is refused with run_policy_mismatch, and no command ever sets the seed's policy afterward.\n\nThe reviewer found why the suite is nonetheless green: the test helper giveSeedPolicy rewrites the seed body through a raw client.update, STEPPING OUTSIDE THE COMMAND SURFACE. The tests prove the internals work while the product does not - a green suite over an unusable end-to-end path.\n\nFix by accepting a policy for the seed registration, or by skipping the run-policy check when the parent is a seed with no recorded policy. The regression test must parent a candidate to a seed using ONLY published commands, with no raw client writes."
 type: Issue
-status: open
+status: in_progress
 priority: 1
 tags: []
 created_at: "2026-08-10T23:30:50.162Z"
-updated_at: "2026-08-10T23:31:11.386Z"
+updated_at: "2026-08-11T04:51:45.620Z"
 author: "harness:claude-code"
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rl-yi7j,parent,"2026-08-10T23:31:11.361Z","harness:claude-code","cli:update:dep",detected

@@ -581,7 +581,16 @@ function parseGapWindow(raw: string): number {
   return value;
 }
 
-/** Register one policy generation (seed or candidate) with its full provenance. */
+/**
+ * Register one policy generation (seed or candidate) with its full provenance.
+ *
+ * A seed may optionally declare a `--policy` (the content-addressed identity of
+ * the policy that collected its data); a seed without one records an empty
+ * policy, and a candidate parented to such a seed skips the run-policy check,
+ * because there is no declared policy to violate. A seed that DOES declare a
+ * policy still enforces the check, so a run collected by a different policy is
+ * refused (`run_policy_mismatch`). Every candidate requires its own `--policy`.
+ */
 async function registerGeneration(context: CommandHandlerContext): Promise<RlCommandResult> {
   const requestedId = requiredArgument(context, "a generation id");
   const baseCheckpoint = stringOption(context, "base_checkpoint")!;
@@ -596,7 +605,11 @@ async function registerGeneration(context: CommandHandlerContext): Promise<RlCom
   let environmentId = "";
   let rewardSpecVersion = "";
   let deps: string[] = [];
-  if (!isSeed) {
+  if (isSeed) {
+    // A seed may declare the policy that collected its data; without one the
+    // recorded policy is empty and candidates parented to it skip the check.
+    policy = stringOption(context, "policy", false) ?? "";
+  } else {
     const parent = await getTypedItem(client, parentInput!, "Generation");
     const parentSpec = extractGenerationSpec(String(parent.item.body), `Parent generation ${parentInput}`);
     if (!parentSpec.promoted && !parentSpec.seed) {
@@ -610,7 +623,7 @@ async function registerGeneration(context: CommandHandlerContext): Promise<RlCom
     }
     for (const runId of collectionRuns) {
       const run = await getTypedItem(client, runId, "Run");
-      if (String(run.item.component) !== parentSpec.policy) {
+      if (parentSpec.policy.length > 0 && String(run.item.component) !== parentSpec.policy) {
         fail(`Collection run ${runId} references policy ${String(run.item.component)}, not the parent generation's policy ${parentSpec.policy}.`, "run_policy_mismatch", EXIT_CODE.CONFLICT);
       }
     }
@@ -838,7 +851,7 @@ export const RL_COMMANDS = [
   defineCommand({ name: "rl generation register", description: "Register a policy generation (seed or candidate) with content-addressed provenance.", arguments: [{ name: "id", required: true, description: "Generation item id." }], flags: [
     { long: "--base-checkpoint", value_name: "hash", value_type: "string", required: true, description: "Content-addressed base checkpoint identity." },
     { long: "--parent", value_name: "id", value_type: "string", description: "Parent generation id; omit for the seed generation." },
-    { long: "--policy", value_name: "hash", value_type: "string", description: "Content-addressed policy that collected the training data (required for non-seed)." },
+    { long: "--policy", value_name: "hash", value_type: "string", description: "Content-addressed policy that collected the training data; required for a non-seed, optional for a seed (an empty seed policy skips the run-policy check for its candidates)." },
     { long: "--collection-runs", value_name: "ids", value_type: "string", description: "Comma-separated collection run ids (required for non-seed)." },
     { long: "--environment", value_name: "id", value_type: "string", description: "Environment item id used by the collection runs (required for non-seed)." },
     { long: "--config-file", value_name: "path", value_type: "string", description: "Optional JSON training configuration." },

@@ -145,15 +145,13 @@ async function registerEnv(
   return resultOf(await harness.runCommand({ command: "rl env register", pmRoot, options: { file } })).id!;
 }
 
-/** Register the seed generation and return its id. */
-async function registerSeed(harness: ExtensionTestHarness, pmRoot: string, id: string, baseCheckpoint: string): Promise<string> {
-  return resultOf(await harness.runCommand({ command: "rl generation register", pmRoot, args: [id], options: { baseCheckpoint } })).id!;
-}
-
-/** Give the seed a real policy identity so its children's collection runs can reference it. */
-async function giveSeedPolicy(client: PmClient, seedId: string, baseCheckpoint: string, policy: string): Promise<void> {
-  const spec = seedSpec(baseCheckpoint, policy);
-  await client.update(seedId, { body: generationBody(spec).body, affectedVersion: generationBody(spec).hash });
+/**
+ * Register the seed generation and return its id. An optional policy is passed
+ * through the published `--policy` flag rather than written behind the command
+ * surface, so the seed's children's collection runs can reference it.
+ */
+async function registerSeed(harness: ExtensionTestHarness, pmRoot: string, id: string, baseCheckpoint: string, policy?: string): Promise<string> {
+  return resultOf(await harness.runCommand({ command: "rl generation register", pmRoot, args: [id], options: policy === undefined ? { baseCheckpoint } : { baseCheckpoint, policy } })).id!;
 }
 
 /** Write a promotion scores file with proxy and held-out records. */
@@ -500,11 +498,11 @@ test("buildLineageAncestry propagates invalidation forward to descendants naming
 test("a seed generation registers with empty provenance and its children's runs reference its policy", async () => {
   const { root, pmRoot, client, harness } = await workspace();
   const env = await registerEnv(harness, pmRoot, root, "Grid");
-  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed");
+  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed", "ckpt-seed");
   const seedDetails = resultOf(await harness.runCommand({ command: "rl generation show", pmRoot, args: [seed] })).details;
   assert.equal(seedDetails?.seed, true);
   assert.equal(seedDetails?.parent, null);
-  await giveSeedPolicy(client, seed, "ckpt-seed", "ckpt-seed");
+  assert.equal(seedDetails?.policy, "ckpt-seed");
   const run = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-1"], options: { environment: env, algorithm: "ckpt-seed" } }));
   const configFile = join(root, "train.json");
   writeFileSync(configFile, JSON.stringify({ learning_rate: 0.3 }));
@@ -522,11 +520,32 @@ test("a seed generation registers with empty provenance and its children's runs 
   assert.deepEqual(candidate.details?.edge_types, [...GENERATION_EDGE_TYPES]);
 });
 
+test("a candidate parented to a seed with no declared policy skips the run-policy check using only commands", async () => {
+  const { root, pmRoot, harness } = await workspace();
+  const env = await registerEnv(harness, pmRoot, root, "Grid");
+  // The seed is registered with NO --policy, so its recorded policy is empty.
+  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed");
+  const seedDetails = resultOf(await harness.runCommand({ command: "rl generation show", pmRoot, args: [seed] })).details;
+  assert.equal(seedDetails?.policy, "", "the seed records an empty policy when none is declared");
+  // A run collected by ANY algorithm would mismatch a declared policy, but the
+  // seed declared none, so there is no policy to violate. The candidate registers
+  // through published commands alone — no raw client.write behind the surface.
+  const run = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-1"], options: { environment: env, algorithm: "some-other-policy" } }));
+  const candidate = resultOf(await harness.runCommand({
+    command: "rl generation register",
+    pmRoot,
+    args: ["gen-c1"],
+    options: { baseCheckpoint: "ckpt-c1", parent: seed, policy: "ckpt-c1", collectionRuns: run.id, environment: env },
+  }));
+  assert.equal(candidate.details?.parent, seed);
+  assert.equal(candidate.details?.policy, "ckpt-c1");
+  assert.equal(candidate.details?.seed, false);
+});
+
 test("registering a candidate refuses an unpromoted parent, a policy-mismatched run, and bad provenance", async () => {
   const { root, pmRoot, client, harness } = await workspace();
   const env = await registerEnv(harness, pmRoot, root, "Train");
-  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed");
-  await giveSeedPolicy(client, seed, "ckpt-seed", "ckpt-seed");
+  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed", "ckpt-seed");
   const goodRun = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-good"], options: { environment: env, algorithm: "ckpt-seed" } }));
   // An unpromoted, non-seed candidate cannot parent another candidate.
   const unpromoted = resultOf(await harness.runCommand({
@@ -575,8 +594,7 @@ test("a clean candidate promotes with a direction-aware gap and consumes one bud
   const { root, pmRoot, client, harness } = await workspace();
   const env = await registerEnv(harness, pmRoot, root, "Grid");
   const approval = await client.create({ id: "approval-2", title: "Approval", type: "Decision", status: "open", body: "# approval\n\n```json\n" + JSON.stringify({ permitted_promotions: 2 }) + "\n```" });
-  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed");
-  await giveSeedPolicy(client, seed, "ckpt-seed", "ckpt-seed");
+  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed", "ckpt-seed");
   const run = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-1"], options: { environment: env, algorithm: "ckpt-seed" } }));
   await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-c1"], options: { baseCheckpoint: "ckpt-c1", parent: seed, policy: "ckpt-c1", collectionRuns: run.id, environment: env } });
   const scores = writeScores(root, 12, "held-out-ctx", 9);
@@ -591,8 +609,7 @@ test("promotion refuses a seed, an already-promoted generation, and incomplete o
   const { root, pmRoot, client, harness } = await workspace();
   const env = await registerEnv(harness, pmRoot, root, "Grid");
   const approval = await client.create({ id: "approval-2", title: "Approval", type: "Decision", status: "open", body: "# approval\n\n```json\n" + JSON.stringify({ permitted_promotions: 2 }) + "\n```" });
-  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed");
-  await giveSeedPolicy(client, seed, "ckpt-seed", "ckpt-seed");
+  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed", "ckpt-seed");
   const run = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-1"], options: { environment: env, algorithm: "ckpt-seed" } }));
   const candidate = resultOf(await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-c1"], options: { baseCheckpoint: "ckpt-c1", parent: seed, policy: "ckpt-c1", collectionRuns: run.id, environment: env } }));
   // The seed is registered, not promoted.
@@ -645,8 +662,7 @@ test("promotion refuses when the evaluation set is reachable from the candidate'
   const { root, pmRoot, client, harness } = await workspace();
   const trainEnv = await registerEnv(harness, pmRoot, root, "Train");
   const approval = await client.create({ id: "approval-2", title: "Approval", type: "Decision", status: "open", body: "# approval\n\n```json\n" + JSON.stringify({ permitted_promotions: 2 }) + "\n```" });
-  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed");
-  await giveSeedPolicy(client, seed, "ckpt-seed", "ckpt-seed");
+  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed", "ckpt-seed");
   const run = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-1"], options: { environment: trainEnv, algorithm: "ckpt-seed" } }));
   await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-c1"], options: { baseCheckpoint: "ckpt-c1", parent: seed, policy: "ckpt-c1", collectionRuns: run.id, environment: trainEnv } });
   // The held-out evaluation context equals the training environment: direct environment-version overlap.
@@ -669,8 +685,7 @@ test("promotion refuses incomparable proxy and held-out scores naming the differ
   const { root, pmRoot, client, harness } = await workspace();
   const env = await registerEnv(harness, pmRoot, root, "Grid");
   const approval = await client.create({ id: "approval-2", title: "Approval", type: "Decision", status: "open", body: "# approval\n\n```json\n" + JSON.stringify({ permitted_promotions: 2 }) + "\n```" });
-  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed");
-  await giveSeedPolicy(client, seed, "ckpt-seed", "ckpt-seed");
+  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed", "ckpt-seed");
   const run = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-1"], options: { environment: env, algorithm: "ckpt-seed" } }));
   const candidate = resultOf(await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-c1"], options: { baseCheckpoint: "ckpt-c1", parent: seed, policy: "ckpt-c1", collectionRuns: run.id, environment: env } }));
   // The proxy names a different objective than the held-out score: not a gap.
@@ -694,8 +709,7 @@ test("promotion refuses to advance past the approved budget and names the item t
   const { root, pmRoot, client, harness } = await workspace();
   const env = await registerEnv(harness, pmRoot, root, "Grid");
   const zeroApproval = await client.create({ id: "approval-zero", title: "Zero", type: "Decision", status: "open", body: "# approval\n\n```json\n" + JSON.stringify({ permitted_promotions: 0 }) + "\n```" });
-  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed");
-  await giveSeedPolicy(client, seed, "ckpt-seed", "ckpt-seed");
+  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed", "ckpt-seed");
   const run = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-1"], options: { environment: env, algorithm: "ckpt-seed" } }));
   await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-c1"], options: { baseCheckpoint: "ckpt-c1", parent: seed, policy: "ckpt-c1", collectionRuns: run.id, environment: env } });
   await assert.rejects(
@@ -746,8 +760,7 @@ test("promotion refuses an unreadable collection run while lineage still renders
   const { root, pmRoot, client, harness } = await workspace();
   const env = await registerEnv(harness, pmRoot, root, "Grid");
   const approval = await client.create({ id: "approval-2", title: "Approval", type: "Decision", status: "open", body: "# approval\n\n```json\n" + JSON.stringify({ permitted_promotions: 2 }) + "\n```" });
-  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed");
-  await giveSeedPolicy(client, seed, "ckpt-seed", "ckpt-seed");
+  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed", "ckpt-seed");
   // A candidate whose collection run does not resolve. It is created through a
   // raw client because the command surface refuses a bogus run at registration;
   // the strict provenance check is what catches it at promotion time.
@@ -775,8 +788,7 @@ test("promotion refuses an uncountable generation while lineage still renders", 
   const { root, pmRoot, client, harness } = await workspace();
   const env = await registerEnv(harness, pmRoot, root, "Grid");
   const approval = await client.create({ id: "approval-2", title: "Approval", type: "Decision", status: "open", body: "# approval\n\n```json\n" + JSON.stringify({ permitted_promotions: 2 }) + "\n```" });
-  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed");
-  await giveSeedPolicy(client, seed, "ckpt-seed", "ckpt-seed");
+  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed", "ckpt-seed");
   const run = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-1"], options: { environment: env, algorithm: "ckpt-seed" } }));
   const candidate = resultOf(await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-c1"], options: { baseCheckpoint: "ckpt-c1", parent: seed, policy: "ckpt-c1", collectionRuns: run.id, environment: env } }));
   // A Generation with no JSON fence makes the approved budget undecidable.
@@ -793,8 +805,7 @@ test("promotion refuses an uncountable generation while lineage still renders", 
   const { root: root2, pmRoot: pmRoot2, client: client2, harness: harness2 } = await workspace();
   const env2 = await registerEnv(harness2, pmRoot2, root2, "Grid");
   const approval2 = await client2.create({ id: "approval-2", title: "Approval", type: "Decision", status: "open", body: "# approval\n\n```json\n" + JSON.stringify({ permitted_promotions: 2 }) + "\n```" });
-  const seed2 = await registerSeed(harness2, pmRoot2, "gen-seed", "ckpt-seed");
-  await giveSeedPolicy(client2, seed2, "ckpt-seed", "ckpt-seed");
+  const seed2 = await registerSeed(harness2, pmRoot2, "gen-seed", "ckpt-seed", "ckpt-seed");
   const run2 = resultOf(await harness2.runCommand({ command: "rl run start", pmRoot: pmRoot2, args: ["run-1"], options: { environment: env2, algorithm: "ckpt-seed" } }));
   const candidate2 = resultOf(await harness2.runCommand({ command: "rl generation register", pmRoot: pmRoot2, args: ["gen-c1"], options: { baseCheckpoint: "ckpt-c1", parent: seed2, policy: "ckpt-c1", collectionRuns: run2.id, environment: env2 } }));
   await client2.create({ id: "gen-badfence", title: "BadFence", type: "Generation", status: "open", body: "# x\n\n```json\n{not json}\n```" });
@@ -824,8 +835,7 @@ test("the lineage view renders a single ancestry as a table or as machine-readab
   const { root, pmRoot, client, harness } = await workspace();
   const env = await registerEnv(harness, pmRoot, root, "Grid");
   const approval = await client.create({ id: "approval-2", title: "Approval", type: "Decision", status: "open", body: "# approval\n\n```json\n" + JSON.stringify({ permitted_promotions: 2 }) + "\n```" });
-  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed");
-  await giveSeedPolicy(client, seed, "ckpt-seed", "ckpt-seed");
+  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed", "ckpt-seed");
   const run = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-1"], options: { environment: env, algorithm: "ckpt-seed" } }));
   const candidate = resultOf(await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-c1"], options: { baseCheckpoint: "ckpt-c1", parent: seed, policy: "ckpt-c1", collectionRuns: run.id, environment: env } }));
   await harness.runCommand({ command: "rl generation promote", pmRoot, args: [candidate.id!], options: { approval: approval.item.id, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "ok" } });
@@ -843,8 +853,7 @@ test("the lineage view renders a single ancestry as a table or as machine-readab
 test("without a head the view enumerates every head, and invalid format or gap-window options are refused", async () => {
   const { root, pmRoot, client, harness } = await workspace();
   const env = await registerEnv(harness, pmRoot, root, "Grid");
-  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed");
-  await giveSeedPolicy(client, seed, "ckpt-seed", "ckpt-seed");
+  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed", "ckpt-seed");
   const run = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-1"], options: { environment: env, algorithm: "ckpt-seed" } }));
   // Two candidates that share the seed as a parent are both heads.
   await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-c1"], options: { baseCheckpoint: "ckpt-c1", parent: seed, policy: "ckpt-c1", collectionRuns: run.id, environment: env } });
@@ -878,8 +887,7 @@ test("an edited environment marks every downstream generation invalidated in the
   const envA = await registerEnv(harness, pmRoot, root, "EnvA");
   const envB = await registerEnv(harness, pmRoot, root, "EnvB", "2");
   const approval = await client.create({ id: "approval-2", title: "Approval", type: "Decision", status: "open", body: "# approval\n\n```json\n" + JSON.stringify({ permitted_promotions: 2 }) + "\n```" });
-  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed");
-  await giveSeedPolicy(client, seed, "ckpt-seed", "ckpt-seed");
+  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed", "ckpt-seed");
   const runA = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-a"], options: { environment: envA, algorithm: "ckpt-seed" } }));
   const genA = resultOf(await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-a"], options: { baseCheckpoint: "ckpt-a", parent: seed, policy: "ckpt-a", collectionRuns: runA.id, environment: envA } }));
   await harness.runCommand({ command: "rl generation promote", pmRoot, args: [genA.id!], options: { approval: approval.item.id, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "ok" } });
@@ -921,8 +929,7 @@ test("a lineage whose promotions strictly widen the gap surfaces the finding ove
   const { root, pmRoot, client, harness } = await workspace();
   const env = await registerEnv(harness, pmRoot, root, "Grid");
   const approval = await client.create({ id: "approval-3", title: "Approval", type: "Decision", status: "open", body: "# approval\n\n```json\n" + JSON.stringify({ permitted_promotions: 3 }) + "\n```" });
-  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed");
-  await giveSeedPolicy(client, seed, "ckpt-seed", "ckpt-seed");
+  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed", "ckpt-seed");
   let parentId: string | undefined = seed;
   let parentPolicy = "ckpt-seed";
   for (const [index, gap] of [1, 2, 3].entries()) {
@@ -942,8 +949,7 @@ test("the budget counter and the head enumerator skip a listed generation row th
   const wrapped = clientWithIdlessGenerationRow(realClient);
   const sdk = sdkWith(wrapped);
   const env = await registerEnv(harness, pmRoot, root, "Grid");
-  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed");
-  await giveSeedPolicy(client, seed, "ckpt-seed", "ckpt-seed");
+  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed", "ckpt-seed");
   const run = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-1"], options: { environment: env, algorithm: "ckpt-seed" } }));
   await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-c1"], options: { baseCheckpoint: "ckpt-c1", parent: seed, policy: "ckpt-c1", collectionRuns: run.id, environment: env } });
   // findGenerationHeads lists Generations including the id-less row; the row is skipped and the real head still resolves.
