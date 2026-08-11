@@ -309,6 +309,18 @@ test("parseGenerationSpec accepts the seed and a full candidate and refuses ever
   // contamination gate bypass fixed earlier in this PR.
   const paddedParent = { ...candidate, parent: "  gen-0  " };
   assert.equal(parseGenerationSpec(JSON.stringify(paddedParent), "g").parent, "gen-0");
+  // A seed body legitimately omits the parent key. Before `parent` collapsed
+  // `undefined` to null like every other optional field, that body was refused
+  // as invalid_parent with a message saying parent must be a string or null -
+  // reporting a type error for a field whose absence IS null.
+  const seedNoParentKey: Record<string, unknown> = { ...spec({ seed: true, parent: null, policy: "", collection_runs: [], environment_version: "", reward_spec_version: "" }) };
+  delete seedNoParentKey["parent"];
+  assert.equal(parseGenerationSpec(JSON.stringify(seedNoParentKey), "g").parent, null);
+  // A NON-seed body missing the key must still be refused - but for the reason
+  // that is true of it (no parent) rather than for a type it never violated.
+  const candidateNoParentKey: Record<string, unknown> = { ...candidate };
+  delete candidateNoParentKey["parent"];
+  assert.throws(() => parseGenerationSpec(JSON.stringify(candidateNoParentKey), "g"), /requires a non-empty parent for a non-seed/);
   // The approval is the other stored identity compared by strict equality, and
   // the comparison is the one bounding the recursive promotion budget. A
   // promoted record storing "  a  " matches no approval id, so it consumes none
@@ -810,6 +822,26 @@ test("promotion refuses to advance past the approved budget and names the item t
   );
 });
 
+test("a padded --parent never reaches storage, because the option boundary normalizes it", async () => {
+  // A regression guard on the OPTION boundary, exercised through the real
+  // command. `stringOption` returns `value.trim()`, which is precisely why
+  // `rl generation register` does not re-trim before storing. If that ever
+  // stops being true, a padded `--parent " gen-seed "` lands in both the
+  // specification JSON and the pm parent field, matching nothing until
+  // `parseGenerationSpec` trims it again on the way back out — and this fails,
+  // naming the assumption the command depends on.
+  const { root, pmRoot, client, harness } = await workspace();
+  const env = await registerEnv(harness, pmRoot, root, "Grid");
+  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed", "ckpt-seed");
+  const run = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-1"], options: { environment: env, algorithm: "ckpt-seed" } }));
+  const registered = resultOf(await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-padded-parent"], options: { baseCheckpoint: "ckpt-c1", parent: `  ${seed}  `, policy: "ckpt-c1", collectionRuns: run.id, environment: env } }));
+  const stored = await client.get(registered.id!, { depth: "deep" });
+  const fenced = /```json\n([\s\S]+?)\n```/.exec(String(stored.item.body));
+  const spec = JSON.parse(String(fenced?.[1])) as { parent: string };
+  assert.equal(spec.parent, seed, "the specification stores the trimmed parent identity");
+  assert.equal(String(stored.item.parent), seed, "the pm parent field stores the same trimmed identity");
+});
+
 test("a promoted generation whose stored approval is padded still consumes that approval's budget", async () => {
   // The budget is counted by comparing each promoted generation's stored
   // approval to the approval id with strict equality. Generations are pm items,
@@ -1042,11 +1074,16 @@ test("an edited environment marks every downstream generation invalidated in the
   // through it, so refusing here would make a single unreadable item anywhere in
   // the workspace fail the whole command - the opposite of the tolerance the
   // lineage view promises.
-  await client.create({ id: "gen-broken", title: "Broken", type: "Generation", status: "open", body: "# broken\n\n```json\n{ not json\n```" });
+  const broken = await client.create({ id: "gen-broken", title: "Broken", type: "Generation", status: "open", body: "# broken\n\n```json\n{ not json\n```" });
+  const brokenId = String(broken.item.id);
   const afterBroken = resultOf(await harness.runCommand({ command: "rl lineage", pmRoot }));
   assert.match(String(afterBroken.details?.output), /head: /);
   const brokenHeads = (afterBroken.details?.view as LineageView).ancestries.map((ancestry) => ancestry.head);
-  assert.ok(!brokenHeads.includes("rl-gen-broken"), `an unreadable generation contributes no ancestry, got: ${brokenHeads.join(", ")}`);
+  // Assert against the id the tracker returned, not a literal rebuilt from the
+  // requested id and an assumed prefix. A prefix change would make the literal
+  // match nothing, and the assertion would then pass for a workspace where the
+  // broken generation IS enumerated as a head.
+  assert.ok(!brokenHeads.includes(brokenId), `an unreadable generation contributes no ancestry, got: ${brokenHeads.join(", ")}`);
 });
 
 test("a generation whose environment lacks a hash or a specification fence reports a distinct reason", async () => {

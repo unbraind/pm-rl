@@ -614,7 +614,7 @@ async function countPromotedUnderApproval(client: PmClient, approvalId: string):
 
 /** Find generation item ids that are not a parent of any other generation. */
 async function findGenerationHeads(client: PmClient): Promise<string[]> {
-  const result = await client.list({ type: "Generation", status: "all", noTruncate: true, fields: "id,body,parent" });
+  const result = await client.list({ type: "Generation", status: "all", noTruncate: true, fields: "id,body" });
   const parentIds = new Set<string>();
   const allIds: string[] = [];
   for (const item of result.items) {
@@ -678,7 +678,11 @@ async function registerGeneration(context: CommandHandlerContext): Promise<RlCom
   const config = configPath === undefined ? {} : readJsonFile(configPath, "Generation configuration");
   const client = clientFor(context);
   await ensurePersistentTypes(client);
-  const isSeed = parentInput === undefined || parentInput.trim().length === 0;
+  // `stringOption` returns `value.trim()` and maps a blank to `undefined`, so
+  // `parentInput` is already normalized and already non-empty when defined.
+  // Re-trimming here would state a normalization this boundary does not
+  // perform, which is worse than not restating it at all.
+  const isSeed = parentInput === undefined;
   let policy = "";
   let collectionRuns: string[] = [];
   let environmentId = "";
@@ -719,7 +723,7 @@ async function registerGeneration(context: CommandHandlerContext): Promise<RlCom
     training_config: config,
     environment_version: environmentId,
     reward_spec_version: rewardSpecVersion,
-    parent: isSeed ? null : parentInput!,
+    parent: isSeed ? null : parentInput,
     seed: isSeed,
     promoted: false,
     approval: null,
@@ -765,12 +769,10 @@ async function registerGeneration(context: CommandHandlerContext): Promise<RlCom
 /** Promote a candidate generation after contamination and budget checks pass. */
 async function promoteGeneration(context: CommandHandlerContext): Promise<RlCommandResult> {
   const id = requiredArgument(context, "a generation id");
-  // Trimmed here as well as at the parse boundary: this value is both the id
-  // looked up on the Decision item and the identity written into the promoted
-  // generation, and countPromotedUnderApproval compares the two by strict
-  // equality. Normalizing only one side would let `--approval " a "` fail the
-  // lookup it should satisfy.
-  const approvalId = stringOption(context, "approval")!.trim();
+  // Already trimmed: `stringOption` returns `value.trim()`. The normalization
+  // that matters for the budget is at the PARSE boundary, because a generation
+  // body can be authored without ever passing through this flag.
+  const approvalId = stringOption(context, "approval")!;
   const scoresPath = stringOption(context, "scores")!;
   const evidence = stringOption(context, "evidence")!;
   const client = clientFor(context);

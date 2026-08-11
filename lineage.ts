@@ -283,7 +283,15 @@ export function parseGenerationSpec(text: string, source: string): GenerationSpe
   const trainingConfig = record["training_config"] ?? {};
   const environmentVersion = asString(record, "environment_version", source, false);
   const rewardSpecVersion = asString(record, "reward_spec_version", source, false);
-  const parent = record["parent"];
+  // An absent key collapses to null before validation, as `gap`,
+  // `promotion_evidence` and `approval` already do. Without this, a seed body
+  // that declares `seed: true` and simply omits the key it has no use for was
+  // refused as `invalid_parent` with a message saying parent must be a string
+  // or null — for a body whose parent is, in every sense that matters, null.
+  // Hand-authored bodies are the reachable path for this parser, so the
+  // normalization has to run before the check that reports the reason, not
+  // only before the value is stored.
+  const parent = record["parent"] ?? null;
   if (parent !== null && typeof parent !== "string") {
     lineageFail(`${source} requires parent to be a string or null.`, "invalid_parent");
   }
