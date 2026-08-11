@@ -12,6 +12,12 @@
 
 ### Fixed
 
+- Promotion budget reservation is a read-then-write race, so concurrent promotions can exceed the approved budget ([pm-rl-cnc0](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-cnc0.toon))
+- A registered seed cannot parent any candidate, and the tests hide it by writing outside the command surface ([pm-rl-qdxu](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-qdxu.toon))
+- Two promotion-path checks fail open on unreadable provenance ([pm-rl-izu1](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-izu1.toon))
+- Three parse and arithmetic checks accept records the module is supposed to refuse ([pm-rl-dzqc](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-dzqc.toon))
+- Invalidation does not propagate to descendants, and the test asserting that it does has no descendant ([pm-rl-6fb5](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-6fb5.toon))
+- isEnvironmentInvalidated reports an edit for an environment that is absent, and the fence regex is duplicated five times ([pm-rl-o9dr](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-o9dr.toon))
 - The budget-exhaustion path and the sorted-run traversal were both asserted vacuously ([pm-rl-82qw](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-82qw.toon))
 - asString returns the untrimmed value, so a padded identity bypasses the contamination gate ([pm-rl-k5xd](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-k5xd.toon))
 - Fix release publish-before-protected-main-push ordering ([pm-rl-wlj0](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-wlj0.toon))
