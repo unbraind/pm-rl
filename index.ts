@@ -148,6 +148,19 @@ function isItemNotFound(error: unknown): boolean {
   return isPmCliExpectedError(error) && error.exitCode === EXIT_CODE.NOT_FOUND;
 }
 
+/**
+ * Detect that a `client.claim` lost the atomic test-and-set race.
+ *
+ * The pm SDK's `isAlreadyClaimedError` is not part of the package's public
+ * export surface in this version, so the race is detected structurally: a pm
+ * expected error carrying the stable `already_claimed_by` code. This is the
+ * exact predicate the SDK helper applies, kept here so the mutex behaviour does
+ * not depend on an internal import path.
+ */
+function isClaimRaceLost(error: unknown): boolean {
+  return isPmCliExpectedError(error) && error.context?.code === "already_claimed_by";
+}
+
 /** Narrow a parsed value to a JSON object. */
 function jsonObject(value: unknown, source: string): Record<string, JsonValue> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -726,7 +739,19 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
     fail(`Approval item ${approvalId} has no JSON specification fence.`, "approval_missing_spec", EXIT_CODE.CONFLICT);
   }
   const approvalSpec = parseApprovalSpec(approvalFenced[1], `Approval ${approvalId}`);
-  const promotedCount = await countPromotedUnderApproval(client, approvalId);
+  // Atomically reserve the approval item so two concurrent promotions cannot
+  // both read the same count and both promote past the approved budget — the
+  // race a recursive loop that promotes programmatically would otherwise win.
+  try {
+    await client.claim(approvalId, { message: "Reserve pm-rl promotion budget" });
+  } catch (error) {
+    if (isClaimRaceLost(error)) {
+      fail(`Promotion refused: the approval item ${approvalId} is being promoted against by another caller, so this promotion lost the budget reservation. Retry the promotion.`, "budget_contended", EXIT_CODE.CONFLICT);
+    }
+    throw error;
+  }
+  try {
+    const promotedCount = await countPromotedUnderApproval(client, approvalId);
   if (promotedCount >= approvalSpec.permitted_promotions) {
     fail(`Advancing past the approved promotion budget is refused. ${promotedCount} promotion(s) consumed; approval ${approvalId} permits ${approvalSpec.permitted_promotions}. Extend approval item ${approvalId} to authorize more promotions.`, "budget_exceeded", EXIT_CODE.CONFLICT);
   }
@@ -764,6 +789,9 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
       evidence,
     },
   };
+  } finally {
+    await client.release(approvalId, { message: "Release pm-rl promotion budget reservation" });
+  }
 }
 
 /** Show one generation and its lineage details. */

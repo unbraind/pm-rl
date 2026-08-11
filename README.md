@@ -101,10 +101,14 @@ The first slice fails closed when context would otherwise become misleading:
    still useful; only a promotion decided on a degraded graph is refused.
 4. **The loop cannot advance past its approved budget.** Promotion counts the generations already
    promoted under an approval item and refuses beyond the permitted count, directing the caller to
-   extend the approval. A Generation whose body is uncountable (no JSON fence or an unparseable
-   spec) makes the budget undecidable and is refused (`budget_undecidable`) rather than skipped,
-   because treating unreadable provenance as absent provenance inverts the contract. This is the
-   property that keeps a recursive loop from running unattended further than a human authorized.
+   extend the approval. The count and the promotion write are wrapped in an atomic `claim` on the
+   approval item, so two concurrent promotions cannot both read the same count and both promote past
+   the budget — a loser that lost the test-and-set race is refused (`budget_contended`) and told to
+   retry rather than falling through. A Generation whose body is uncountable (no JSON fence or an
+   unparseable spec) makes the budget undecidable and is refused (`budget_undecidable`) rather than
+   skipped, because treating unreadable provenance as absent provenance inverts the contract. This
+   is the property that keeps a recursive loop from running unattended further than a human
+   authorized.
 5. **Incomparable scores cannot form a gap.** The proxy and held-out scores must share the same
    objective, objective version, and optimization direction. Subtracting scores that name different
    objectives yields a number that is not a gap, and a `maximize` proxy against a `minimize` held-out

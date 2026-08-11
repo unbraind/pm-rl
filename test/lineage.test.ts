@@ -961,3 +961,48 @@ test("the budget counter and the head enumerator skip a listed generation row th
   const promoted = resultOf(await harness.runCommand({ command: "rl generation promote", pmRoot, args: ["gen-c1"], options: { approval: approval.item.id, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "ok" }, sdk }));
   assert.equal(promoted.details?.budget_consumed, 1);
 });
+
+test("concurrent promotions against a budget never let more than the permitted count succeed", async () => {
+  const { root, pmRoot, client, harness } = await workspace();
+  const env = await registerEnv(harness, pmRoot, root, "Grid");
+  // A budget of 1: at most one promotion may succeed.
+  const approval = await client.create({ id: "approval-1", title: "Approval", type: "Decision", status: "open", body: "# approval\n\n```json\n" + JSON.stringify({ permitted_promotions: 1 }) + "\n```" });
+  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed", "ckpt-seed");
+  const scores = writeScores(root, 12, "held-out-ctx", 9);
+  // Six distinct candidates, each collected by a run matching the seed's policy.
+  const candidateIds: string[] = [];
+  for (let index = 0; index < 6; index += 1) {
+    const run = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: [`run-${index}`], options: { environment: env, algorithm: "ckpt-seed" } }));
+    const candidate = resultOf(await harness.runCommand({ command: "rl generation register", pmRoot, args: [`gen-c${index}`], options: { baseCheckpoint: `ckpt-c${index}`, parent: seed, policy: `ckpt-c${index}`, collectionRuns: run.id, environment: env } }));
+    candidateIds.push(candidate.id!);
+  }
+  // Six real clients with distinct authors compete to promote against one budget.
+  const clients = candidateIds.map((_, index) => new PmClient({ pmRoot, author: `agent-${index}` }));
+  const sdks = clients.map((c) => sdkWith(c));
+  const settled = await Promise.allSettled(candidateIds.map((id, index) => harness.runCommand({ command: "rl generation promote", pmRoot, args: [id], options: { approval: approval.item.id, scores, evidence: `agent-${index}` }, sdk: sdks[index] })));
+  const successes = settled.filter((r) => r.status === "fulfilled").length;
+  assert.ok(successes <= 1, `concurrent promotions must never exceed the budget of 1, but ${successes} succeeded`);
+  assert.ok(successes === 1, `exactly one promotion should win the budget reservation, but ${successes} succeeded`);
+  // The losers lost the atomic claim race, not some other failure.
+  const reasons = settled.filter((r) => r.status === "rejected").map((r) => (r as PromiseRejectedResult).reason as Error);
+  for (const reason of reasons) {
+    assert.match(reason.message, /lost the budget reservation|Advancing past the approved promotion budget is refused/, `unexpected refusal reason: ${reason.message}`);
+  }
+});
+
+test("promotion rethrows a non-race claim failure on the approval item", async () => {
+  const { root, pmRoot, client, harness } = await workspace();
+  const env = await registerEnv(harness, pmRoot, root, "Grid");
+  // A terminal (closed) approval cannot be claimed without --force, which is a
+  // claim failure that is NOT the atomic test-and-set race; it must surface as-is
+  // rather than be swallowed or misreported as budget contention.
+  const closedApproval = await client.create({ id: "approval-closed", title: "Closed", type: "Decision", status: "open", body: "# approval\n\n```json\n" + JSON.stringify({ permitted_promotions: 2 }) + "\n```" });
+  await client.close(closedApproval.item.id, "approval closed");
+  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed", "ckpt-seed");
+  const run = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-1"], options: { environment: env, algorithm: "ckpt-seed" } }));
+  const candidate = resultOf(await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-c1"], options: { baseCheckpoint: "ckpt-c1", parent: seed, policy: "ckpt-c1", collectionRuns: run.id, environment: env } }));
+  await assert.rejects(
+    harness.runCommand({ command: "rl generation promote", pmRoot, args: [candidate.id!], options: { approval: closedApproval.item.id, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "x" } }),
+    /Cannot claim terminal item/,
+  );
+});
