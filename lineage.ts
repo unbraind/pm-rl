@@ -542,18 +542,21 @@ export function renderLineageTable(view: LineageView): string {
  *
  * Reward-gap deltas and trends are computed only along the selected ancestry and
  * never across branches. Each row names the promotion evidence and its approval
- * item. Invalidated generations are marked with the upstream edit that
- * invalidated them — an environment whose current content hash no longer matches
- * the recorded identity.
+ * item. A generation whose own recorded environment is invalid is marked with the
+ * reason returned by {@link environmentInvalidationReason} — a distinct wording
+ * per condition rather than one fixed phrase, so an operator is told "edited",
+ * "unreadable", "no recorded identity" or "could not be resolved" as appropriate.
  *
  * @param ancestry - Generations from seed to head, with run environments resolved.
- * @param invalidated - Set of generation ids whose environment has been edited.
+ * @param ownInvalidated - Map from generation id to the invalidation reason for
+ *   that generation's OWN recorded environment. Descendants of an invalidated
+ *   ancestor are not yet added here; forward propagation is a separate concern.
  * @param gapWindow - Number of consecutive gaps for the widening check.
  * @returns One ancestry with rows, findings, and the head id.
  */
 export function buildLineageAncestry(
   ancestry: readonly AncestryEntry[],
-  invalidated: ReadonlySet<string>,
+  ownInvalidated: ReadonlyMap<string, string>,
   gapWindow: number,
 ): LineageAncestry {
   const gaps = ancestry.map((entry) => entry.spec.gap);
@@ -569,7 +572,7 @@ export function buildLineageAncestry(
     gap_delta: deltas[index]!,
     approval: entry.spec.approval,
     promotion_evidence: entry.spec.promotion_evidence,
-    invalidated: invalidated.has(entry.id) ? "environment was edited" : null,
+    invalidated: ownInvalidated.get(entry.id) ?? null,
   }));
   const findings: string[] = [];
   if (isGapWidening(gaps, gapWindow)) {

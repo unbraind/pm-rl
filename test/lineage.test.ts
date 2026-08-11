@@ -11,8 +11,8 @@ import { init } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness, type ExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 
 import extension, {
+  environmentInvalidationReason,
   hashJson,
-  isEnvironmentInvalidated,
   RL_ITEM_TYPES,
   type JsonValue,
   type RlCommandResult,
@@ -418,14 +418,16 @@ test("buildLineageAncestry computes deltas, surfaces widening, and marks invalid
     { id: "gen-c2", spec: spec({ base_checkpoint: "ckpt-2", environment_version: "env-1", gap: 2, promoted: true, approval: "a", promotion_evidence: "second" }), runEnvironments: new Map() },
     { id: "gen-c3", spec: spec({ base_checkpoint: "ckpt-3", environment_version: "env-edited", gap: 3, promoted: true, approval: "a", promotion_evidence: "third" }), runEnvironments: new Map() },
   ];
-  const ancestry = buildLineageAncestry(entries, new Set(["gen-c3"]), 3);
+  const ancestry = buildLineageAncestry(entries, new Map([[
+    "gen-c3", "environment was edited",
+  ]]), 3);
   assert.equal(ancestry.head, "gen-c3");
   assert.equal(ancestry.rows[0]!.invalidated, null);
   assert.equal(ancestry.rows[3]!.invalidated, "environment was edited");
   assert.deepEqual(ancestry.rows.map((row) => row.gap_delta), [null, null, 1, 1]);
   assert.deepEqual(ancestry.findings, ["gap widening over last 3 promotions"]);
   // A shorter window that the gaps do not strictly span reports no finding.
-  const flat = buildLineageAncestry(entries, new Set(), 4);
+  const flat = buildLineageAncestry(entries, new Map(), 4);
   assert.deepEqual(flat.findings, []);
   assert.equal(DEFAULT_GAP_WINDOW, 3);
   assert.deepEqual([...GENERATION_EDGE_TYPES], ["parent", "collection_run", "environment_version", "reward_spec_version", "base_checkpoint"]);
@@ -720,14 +722,14 @@ test("an edited environment marks every downstream generation invalidated in the
   await client.update(env, { body: "# changed\n\n```json\n" + JSON.stringify({ name: "Grid", version: "1", task_suite: ["reach-goal"], reward_specification: { goal: 999 } }, null, 2) + "\n```", message: "edit env" });
   const after = resultOf(await harness.runCommand({ command: "rl lineage", pmRoot, args: [candidate.id!] }));
   assert.match(String(after.details?.output), /gen-c1 .* environment was edited/);
-  // A generation whose environment no longer resolves is also invalidated.
+  // A generation whose environment does not resolve is reported as ABSENT, not as edited.
   const ghostSpec = { ...seedSpec("ckpt-g", ""), environment_version: "ghost-env-v1", parent: "rl-gen-seed", seed: false, policy: "g", collection_runs: ["ghost-run"], reward_spec_version: "r" };
   await client.create({ id: "gen-ghost", title: "Ghost", type: "Generation", status: "open", ...generationBody(ghostSpec) });
   const ghostLineage = resultOf(await harness.runCommand({ command: "rl lineage", pmRoot, args: ["gen-ghost"] }));
-  assert.match(String(ghostLineage.details?.output), /gen-ghost .* environment was edited/);
+  assert.match(String(ghostLineage.details?.output), /gen-ghost .* environment could not be resolved/);
 });
 
-test("a generation whose environment lacks a hash or a specification fence is invalidated", async () => {
+test("a generation whose environment lacks a hash or a specification fence reports a distinct reason", async () => {
   const { pmRoot, client, harness } = await workspace();
   // An environment registered without a specification hash cannot be content-addressed.
   const noHashEnv = await client.create({ id: "env-nohash", title: "NoHash", type: "Environment", status: "open" });
@@ -736,16 +738,16 @@ test("a generation whose environment lacks a hash or a specification fence is in
   const noHashSpec = spec({ base_checkpoint: "ckpt-a", environment_version: noHashEnv.item.id });
   await client.create({ id: "gen-nohash", title: "NoHash", type: "Generation", status: "open", ...generationBody(noHashSpec) });
   const noHashLineage = resultOf(await harness.runCommand({ command: "rl lineage", pmRoot, args: ["gen-nohash"] }));
-  assert.match(String(noHashLineage.details?.output), /gen-nohash .* environment was edited/);
+  assert.match(String(noHashLineage.details?.output), /gen-nohash .* environment has no recorded specification identity/);
   const noFenceSpec = spec({ base_checkpoint: "ckpt-b", environment_version: noFenceEnv.item.id });
   await client.create({ id: "gen-nofence", title: "NoFence", type: "Generation", status: "open", ...generationBody(noFenceSpec) });
   const noFenceLineage = resultOf(await harness.runCommand({ command: "rl lineage", pmRoot, args: ["gen-nofence"] }));
-  assert.match(String(noFenceLineage.details?.output), /gen-nofence .* environment was edited/);
+  assert.match(String(noFenceLineage.details?.output), /gen-nofence .* environment specification is unreadable/);
 });
 
-test("isEnvironmentInvalidated treats an empty environment id as not invalidated", async () => {
+test("environmentInvalidationReason treats an empty environment id as not invalidated", async () => {
   const { client } = await workspace();
-  assert.equal(await isEnvironmentInvalidated(client, ""), false);
+  assert.equal(await environmentInvalidationReason(client, ""), null);
 });
 
 test("a lineage whose promotions strictly widen the gap surfaces the finding over the configured window", async () => {

@@ -77,7 +77,7 @@ query the host can already answer, not a feature to build.
 | `pm rl run start` / `log` / `show` / `finish` | Snapshot exact environment and configuration provenance, append validated NDJSON metrics from a file or stdin, order the series by step, and refuse to finish an empty run |
 | `pm rl generation register` / `show` | Record one policy generation of a recursive self-improvement lineage, parented to the generation it was trained from, carrying its base checkpoint, collection runs and scored evaluations |
 | `pm rl generation promote` | Promote a candidate generation, but only after the contamination and approved-budget refusals below both pass |
-| `pm rl lineage` | Print the generation chain with each hop's promotion evidence, its direction-aware proxy-to-held-out gap, and any invalidation |
+| `pm rl lineage` | Print the generation chain with each hop's promotion evidence, its direction-aware proxy-to-held-out gap, and any invalidation, reported with a distinct reason per condition (edited, unreadable, no recorded identity, or absent) |
 
 The remaining types and commands in the roadmap table above are intentionally not registered
 until their acceptance criteria and refusal paths are implemented and tested.

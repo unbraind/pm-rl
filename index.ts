@@ -22,6 +22,16 @@ import { createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError } from "@unbr
 
 import { encodeEventSegments, parseNdjsonStream, readSeries } from "./series.ts";
 
+/**
+ * The fenced JSON block regex shared by every pm-rl spec reader.
+ *
+ * A module-level const keeps one shape for the ```` ```json ```` envelope every
+ * item body stores its specification in, so a change to the fence contract
+ * touches one place. It has no `g` flag: a shared global regex carries
+ * `lastIndex` state across calls and would silently skip matches.
+ */
+const JSON_SPEC_FENCE = /```json\n([\s\S]+?)\n```/;
+
 import {
   buildLineageAncestry,
   directionAwareGap,
@@ -285,7 +295,7 @@ async function startRun(context: CommandHandlerContext): Promise<RlCommandResult
   if (typeof specHash !== "string" || specHash.length === 0) {
     fail(`Environment ${environmentId} has no specification affected_version and cannot support attributable runs.`, "environment_missing_hash", EXIT_CODE.CONFLICT);
   }
-  const fenced = /```json\n([\s\S]+?)\n```/.exec(String(environment.item.body));
+  const fenced = JSON_SPEC_FENCE.exec(String(environment.item.body));
   if (fenced?.[1] === undefined) {
     fail(`Environment ${environmentId} has no JSON specification fence.`, "environment_missing_spec", EXIT_CODE.CONFLICT);
   }
@@ -386,7 +396,7 @@ async function showEnvironment(context: CommandHandlerContext): Promise<RlComman
 
 /** Extract and parse a generation spec from an item body's JSON fence. */
 function extractGenerationSpec(body: string, source: string): GenerationSpec {
-  const fenced = /```json\n([\s\S]+?)\n```/.exec(body);
+  const fenced = JSON_SPEC_FENCE.exec(body);
   if (fenced?.[1] === undefined) {
     fail(`${source} has no JSON specification fence.`, "generation_missing_spec", EXIT_CODE.CONFLICT);
   }
@@ -400,7 +410,7 @@ async function verifyEnvironmentForGeneration(client: PmClient, envId: string): 
   if (typeof specHash !== "string" || specHash.length === 0) {
     fail(`Environment ${envId} has no specification affected_version and cannot support attributable generations.`, "environment_missing_hash", EXIT_CODE.CONFLICT);
   }
-  const fenced = /```json\n([\s\S]+?)\n```/.exec(String(environment.item.body));
+  const fenced = JSON_SPEC_FENCE.exec(String(environment.item.body));
   if (fenced?.[1] === undefined) {
     fail(`Environment ${envId} has no JSON specification fence.`, "environment_missing_spec", EXIT_CODE.CONFLICT);
   }
@@ -412,20 +422,48 @@ async function verifyEnvironmentForGeneration(client: PmClient, envId: string): 
   return { id: String(environment.item.id), rewardSpecHash: hashJson(storedSpec.reward_specification) };
 }
 
-/** Check whether an environment's content hash still matches its recorded identity. */
-export async function isEnvironmentInvalidated(client: PmClient, envId: string): Promise<boolean> {
-  if (envId.length === 0) return false;
+/**
+ * Return the reason an environment a generation recorded is no longer valid, or
+ * null when it is still content-addressed.
+ *
+ * Replacing the prior boolean with a reason string lets the lineage view report
+ * DISTINCT diagnoses instead of one fixed "environment was edited" for every
+ * failure. An environment that never resolves (absent, wrong type, or any read
+ * failure) is reported as absent, not as edited — an operator who sees "edited"
+ * for an environment that was never touched receives a wrong diagnosis of a
+ * provenance failure. The four conditions a generation's environment can be in
+ * each carry their own wording:
+ *
+ * - the item does not resolve (absent, wrong type, or any read failure) →
+ *   `environment could not be resolved`;
+ * - it resolves but carries no recorded specification identity
+ *   (`affected_version`) → `environment has no recorded specification identity`;
+ * - it has an identity but no parseable JSON fence → `environment specification is unreadable`;
+ * - the stored body no longer hashes to the recorded identity → `environment was edited`.
+ *
+ * An empty `envId` (the seed records none) returns null: the seed has no
+ * environment to invalidate, which is distinct from an environment that is
+ * present but invalid.
+ *
+ * @param client - The tracker client used to resolve the environment item.
+ * @param envId - Content-addressed Environment item id, or `""` for the seed.
+ * @returns The invalidation reason, or null when the environment is still valid.
+ */
+export async function environmentInvalidationReason(client: PmClient, envId: string): Promise<string | null> {
+  if (envId.length === 0) return null;
   try {
     const environment = await getTypedItem(client, envId, "Environment");
     const specHash = environment.item.affected_version;
-    if (typeof specHash !== "string" || specHash.length === 0) return true;
-    const fenced = /```json\n([\s\S]+?)\n```/.exec(String(environment.item.body));
+    if (typeof specHash !== "string" || specHash.length === 0) {
+      return "environment has no recorded specification identity";
+    }
+    const fenced = JSON_SPEC_FENCE.exec(String(environment.item.body));
     const envJson = fenced?.[1];
-    if (envJson === undefined) return true;
+    if (envJson === undefined) return "environment specification is unreadable";
     const storedSpec = parseEnvironmentSpec(envJson, `Environment ${envId}`);
-    return hashJson(storedSpec) !== specHash;
+    return hashJson(storedSpec) !== specHash ? "environment was edited" : null;
   } catch {
-    return true;
+    return "environment could not be resolved";
   }
 }
 
@@ -464,7 +502,7 @@ async function countPromotedUnderApproval(client: PmClient, approvalId: string):
     if (item.id === undefined) continue;
     try {
       const full = await client.get(item.id, { fields: "body" });
-      const fenced = /```json\n([\s\S]+?)\n```/.exec(String(full.item.body));
+      const fenced = JSON_SPEC_FENCE.exec(String(full.item.body));
       const json = fenced?.[1];
       if (json === undefined) continue;
       const spec = parseGenerationSpec(json, `Generation ${item.id}`);
@@ -628,7 +666,7 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
   if (String(approval.item.type) !== "Decision") {
     fail(`pm rl expected a Decision ${approvalId} as the approval item, not ${String(approval.item.type)}.`, "wrong_approval_type", EXIT_CODE.CONFLICT);
   }
-  const approvalFenced = /```json\n([\s\S]+?)\n```/.exec(String(approval.item.body));
+  const approvalFenced = JSON_SPEC_FENCE.exec(String(approval.item.body));
   if (approvalFenced?.[1] === undefined) {
     fail(`Approval item ${approvalId} has no JSON specification fence.`, "approval_missing_spec", EXIT_CODE.CONFLICT);
   }
@@ -720,14 +758,12 @@ async function renderLineageCommand(context: CommandHandlerContext): Promise<RlC
   for (const head of heads) {
     const ancestry = await buildAncestry(client, head);
     const seedToHead = [...ancestry].reverse();
-    const invalidated = new Set<string>();
+    const ownInvalidated = new Map<string, string>();
     for (const entry of seedToHead) {
-      if (entry.spec.environment_version.length > 0) {
-        const isInvalid = await isEnvironmentInvalidated(client, entry.spec.environment_version);
-        if (isInvalid) invalidated.add(entry.id);
-      }
+      const reason = await environmentInvalidationReason(client, entry.spec.environment_version);
+      if (reason !== null) ownInvalidated.set(entry.id, reason);
     }
-    ancestries.push(buildLineageAncestry(seedToHead, invalidated, gapWindow));
+    ancestries.push(buildLineageAncestry(seedToHead, ownInvalidated, gapWindow));
   }
   const view: LineageView = { ancestries };
   if (formatRaw === "json") {
