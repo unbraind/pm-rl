@@ -6,15 +6,16 @@ status: closed
 priority: 2
 tags: []
 created_at: "2026-08-10T23:30:50.506Z"
-updated_at: "2026-08-11T04:38:34.006Z"
+updated_at: "2026-08-11T11:24:48.476Z"
 closed_at: "2026-08-11T04:38:33.993Z"
 completed_at: "2026-08-11T04:38:33.993Z"
 author: "harness:claude-code"
 resolution: Invalidation now propagates forward to descendants naming the ancestor; env check memoized across heads.
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rl-yi7j,parent,"2026-08-10T23:31:11.711Z","harness:claude-code","cli:update:dep",detected
-comments[1]{created_at,author,text}:
+comments[2]{created_at,author,text}:
   "2026-08-11T04:38:32.117Z",pi-agent,"buildLineageAncestry propagates invalidation forward: a descendant of an invalidated ancestor inherits 'invalidated by ancestor <id>' naming the nearest invalidated ancestor. The lineage command memoizes environmentInvalidationReason in a Map<string,string|null> keyed by env id, shared across heads. The existing test fixture now has seed->A->B (different envs); editing A's env marks A 'environment was edited' and B 'invalidated by ancestor <genA>'. Added a pure test covering propagation and own-over-inheritance."
+  "2026-08-11T11:24:48.476Z","harness:claude-code","Completion note, bringing this record up to date with what finally shipped. The propagation description above is still accurate, but the lineage command changed twice after it was written, and the replayed history should describe the shipped implementation rather than the state at the time the item closed.\n\nWhat shipped, in full:\nForward propagation over the seed-to-head ordering is unchanged: a descendant of an invalidated ancestor inherits the reason invalidated by ancestor followed by the nearest invalidated ancestor id, and a generation invalidated on its own environment gets its own distinct reason. environmentInvalidationReason is memoized in a map keyed by environment id and shared across heads, so an environment is fetched and hashed once rather than once per generation per head.\n\nChanged since: head enumeration now derives the lineage edge from the SPECIFICATION parent rather than the pm dependency field, because the two can disagree and a generation could otherwise be reported as a head at the same time as it appeared inside another generation's ancestry. Head enumeration is deliberately TOLERANT of an unreadable body, unlike the promotion path: an unreadable generation is skipped before it joins the id list, so it is neither a head nor a parent, and one malformed item cannot fail the view for every other ancestry. The stored parent is also trimmed at parse time, because a padded value would fail ancestry lookup and simultaneously fail to exclude the unpadded id from the head set.\n\nTest state: the fixture is seed to A to B with A and B on DIFFERENT environments, so editing A's environment exercises real propagation rather than two generations independently recording the edited environment. A divergent-parent case covers the head-enumeration edge and is verified against the revert, and a malformed-generation case covers the tolerance."
 files[3]{path,scope,note}:
   index.ts,project,memoized env reason cache
   lineage.ts,project,forward propagation in buildLineageAncestry
