@@ -6,11 +6,11 @@ status: closed
 priority: 1
 tags: []
 created_at: "2026-08-10T23:30:25.553Z"
-updated_at: "2026-08-11T18:41:22.740Z"
+updated_at: "2026-08-11T20:29:51.247Z"
 closed_at: "2026-08-11T05:03:53.124Z"
 completed_at: "2026-08-11T05:03:53.124Z"
 author: "harness:claude-code"
-resolution: "Budget count and promotion write held in one workspace writer lock via commitWorkspaceTransaction; concurrent promotions serialize and a loser reports the terminal budget_exceeded, and an in-lock re-check keeps one generation promoting at most once."
+resolution: "Budget count and promotion write held in one workspace writer lock via commitWorkspaceTransaction. A caller that acquires the lock re-reads the count and receives the terminal budget_exceeded; a caller that exceeds the bounded PROMOTION_LOCK_WAIT_MS receives lock_conflict instead, so contention is bounded rather than eliminated. An in-lock re-check keeps one generation promoting at most once."
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rl-yi7j,parent,"2026-08-10T23:31:10.286Z","harness:claude-code","cli:update:dep",detected
 comments[2]:
@@ -34,5 +34,5 @@ tests[3]{command,scope}:
   "name=a promotion whose close fails reverts its own body write rather than leaving budget consumed,result=pass",project
   "name=concurrent promotions against a budget never let more than the permitted count succeed,result=pass",project
   "name=promotion rethrows a non-race claim failure on the approval item,result=pass",project
-close_reason: "Budget count and promotion write held in one workspace writer lock via commitWorkspaceTransaction; concurrent promotions serialize, a loser reports the terminal budget_exceeded, and an in-lock re-check keeps one generation promoting at most once."
+close_reason: "Budget count and promotion write held in one workspace writer lock via commitWorkspaceTransaction. A caller that acquires the lock re-reads the count and receives the terminal budget_exceeded; a caller that exceeds the bounded PROMOTION_LOCK_WAIT_MS receives lock_conflict instead, so contention is bounded rather than eliminated. An in-lock re-check keeps one generation promoting at most once."
 body: ""

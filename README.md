@@ -98,7 +98,16 @@ The first slice fails closed when context would otherwise become misleading:
    unreadable — a collection run that does not resolve leaves the contamination check unable to
    decide overlap, so the promotion is refused (`provenance_unreadable`) rather than treated as
    clean. The lineage view stays tolerant of an unresolvable run, because a degraded view is
-   still useful; only a promotion decided on a degraded graph is refused.
+   still useful; only a promotion decided on a degraded graph is refused. A parent chain that
+   loops is refused the same way (`lineage_cycle`): the ancestry walk can never reach a seed, so it
+   would return a TRUNCATED lineage and the contamination check would compare only the part it
+   reached — an environment reachable past the repeat point would never be compared, and a
+   contaminated candidate would pass a gate that reported nothing wrong. The view again stays
+   tolerant and simply stops walking.
+   A promotion is also refused (`generation_changed_under_lock`) when a peer edits a field the
+   contamination and gap analysis consumed while this caller waited for the writer lock, because
+   promoting would record a verdict about provenance the record no longer has. An edit to a field
+   the decision did not consume is preserved by the promoting write instead.
 4. **The loop cannot advance past its approved budget.** Promotion counts the generations already
    promoted under an approval item and refuses beyond the permitted count, directing the caller to
    extend the approval. The count and the promotion write run inside one workspace writer lock

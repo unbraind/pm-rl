@@ -847,16 +847,25 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
   // the count a winner just changed and gets the accurate `budget_exceeded`,
   // which is a terminal condition a loop must respect, instead of a contention
   // error it would retry forever.
-  const promotedSpec: GenerationSpec = {
-    ...spec,
-    promoted: true,
-    approval: approvalId,
-    proxy_score: proxyScore,
-    held_out_score: heldOutScore,
-    gap,
-    promotion_evidence: evidence,
+  // Renders the promoted body from a spec read INSIDE the lock. Building it
+  // from the pre-lock `spec` would spread a snapshot taken before any peer
+  // could be excluded, so a peer edit that does not set `promoted` — a changed
+  // `training_config`, a corrected `collection_runs` — survives the
+  // already-promoted guard and is then overwritten by this write, discarded on
+  // the SUCCESS path with no receipt. The revert path had the same defect and
+  // was fixed a round earlier; this is its other half.
+  const renderPromotedBody = (base: GenerationSpec): string => {
+    const promotedSpec: GenerationSpec = {
+      ...base,
+      promoted: true,
+      approval: approvalId,
+      proxy_score: proxyScore,
+      held_out_score: heldOutScore,
+      gap,
+      promotion_evidence: evidence,
+    };
+    return `# ${id}\n\n\`\`\`json\n${JSON.stringify(promotedSpec, null, 2)}\n\`\`\``;
   };
-  const promotedBody = `# ${id}\n\n\`\`\`json\n${JSON.stringify(promotedSpec, null, 2)}\n\`\`\``;
   // Seeded from the pre-lock read and REPLACED by the in-lock re-read below.
   // Restoring the pre-lock body would discard an edit another writer landed
   // between that read and the lock: this value is written back on a failed
@@ -908,12 +917,25 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
         if (currentSpec.promoted) {
           fail(`Generation ${id} is already promoted.`, "already_promoted", EXIT_CODE.CONFLICT);
         }
+        // The contamination walk and the gap were computed from the PRE-LOCK
+        // read. If a peer changed any field that decision consumed, promoting
+        // now would record a verdict about provenance the record no longer has,
+        // so it is refused rather than silently promoted on stale analysis.
+        // Fields the decision did not consume are not compared, which is what
+        // lets a peer's unrelated edit survive instead of being overwritten.
+        const decisionFields: readonly (keyof GenerationSpec)[] = ["base_checkpoint", "policy", "collection_runs", "environment_version", "reward_spec_version", "parent", "seed"];
+        const changed = decisionFields.filter((field) => JSON.stringify(currentSpec[field]) !== JSON.stringify(spec[field]));
+        if (changed.length > 0) {
+          fail(`Promotion refused: generation ${id} changed under the writer lock (${changed.join(", ")}), so the contamination and gap analysis that authorized this promotion no longer describes it. Re-run the promotion against the current record.`, "generation_changed_under_lock", EXIT_CODE.CONFLICT);
+        }
         promotedCount = await countPromotedUnderApproval(client, approvalId);
         if (promotedCount >= approvalSpec.permitted_promotions) {
           fail(`Advancing past the approved promotion budget is refused. ${promotedCount} promotion(s) consumed; approval ${approvalId} permits ${approvalSpec.permitted_promotions}. Extend approval item ${approvalId} to authorize more promotions.`, "budget_exceeded", EXIT_CODE.CONFLICT);
         }
         await client.update(id, {
-          body: promotedBody,
+          // Rendered from the IN-LOCK spec, so a peer edit to a field the
+          // promotion decision did not consume survives this write.
+          body: renderPromotedBody(currentSpec),
           message: `Promote generation: gap=${gap.toFixed(4)}, evidence=${evidence}`,
         });
         try {
