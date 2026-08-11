@@ -702,9 +702,9 @@ test("promotion refuses to advance past the approved budget and names the item t
     harness.runCommand({ command: "rl generation promote", pmRoot, args: ["gen-c1"], options: { approval: zeroApproval.item.id, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "first" } }),
     /Advancing past the approved promotion budget is refused/,
   );
-  // The counting walk tolerates generations whose body is unparseable without counting them.
-  await client.create({ id: "gen-nofence", title: "NoFence", type: "Generation", status: "open", body: "no fence here" });
-  await client.create({ id: "gen-badfence", title: "BadFence", type: "Generation", status: "open", body: "# x\n\n```json\n{not json}\n```" });
+  // Unparseable generations now REFUSE the budget (see the dedicated test below),
+  // so they are kept out of this workspace; the budget is exhausted only across
+  // clean, distinct candidates.
   const twoApproval = await client.create({ id: "approval-two", title: "Two", type: "Decision", status: "open", body: "# approval\n\n```json\n" + JSON.stringify({ permitted_promotions: 2 }) + "\n```" });
   const run2 = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-2"], options: { environment: env, algorithm: "ckpt-seed" } }));
   await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-c2"], options: { baseCheckpoint: "ckpt-c2", parent: seed, policy: "ckpt-c2", collectionRuns: run2.id, environment: env } });
@@ -740,6 +740,75 @@ test("promotion refuses to advance past the approved budget and names the item t
       return true;
     },
   );
+});
+
+test("promotion refuses an unreadable collection run while lineage still renders", async () => {
+  const { root, pmRoot, client, harness } = await workspace();
+  const env = await registerEnv(harness, pmRoot, root, "Grid");
+  const approval = await client.create({ id: "approval-2", title: "Approval", type: "Decision", status: "open", body: "# approval\n\n```json\n" + JSON.stringify({ permitted_promotions: 2 }) + "\n```" });
+  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed");
+  await giveSeedPolicy(client, seed, "ckpt-seed", "ckpt-seed");
+  // A candidate whose collection run does not resolve. It is created through a
+  // raw client because the command surface refuses a bogus run at registration;
+  // the strict provenance check is what catches it at promotion time.
+  const candSpec = {
+    base_checkpoint: "ckpt-c1", policy: "ckpt-c1", collection_runs: ["missing-run"],
+    training_config: {}, environment_version: env, reward_spec_version: hashJson({ goal: 10 }),
+    parent: seed, seed: false, promoted: false, approval: null, proxy_score: null, held_out_score: null, gap: null, promotion_evidence: null,
+  };
+  const { body, hash } = generationBody(candSpec);
+  const candidate = await client.create({ id: "gen-strict", title: "Strict", type: "Generation", status: "open", body, affectedVersion: hash, parent: seed, environment: env });
+  await assert.rejects(
+    harness.runCommand({ command: "rl generation promote", pmRoot, args: [candidate.item.id], options: { approval: approval.item.id, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "x" } }),
+    (error: Error) => {
+      assert.match(error.message, /collection run missing-run of generation/);
+      assert.match(error.message, /could not be resolved/);
+      return true;
+    },
+  );
+  // rl lineage over the same workspace still renders: the unresolvable run is tolerated.
+  const lineage = resultOf(await harness.runCommand({ command: "rl lineage", pmRoot, args: [candidate.item.id] }));
+  assert.match(String(lineage.details?.output), /head: /);
+});
+
+test("promotion refuses an uncountable generation while lineage still renders", async () => {
+  const { root, pmRoot, client, harness } = await workspace();
+  const env = await registerEnv(harness, pmRoot, root, "Grid");
+  const approval = await client.create({ id: "approval-2", title: "Approval", type: "Decision", status: "open", body: "# approval\n\n```json\n" + JSON.stringify({ permitted_promotions: 2 }) + "\n```" });
+  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed");
+  await giveSeedPolicy(client, seed, "ckpt-seed", "ckpt-seed");
+  const run = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-1"], options: { environment: env, algorithm: "ckpt-seed" } }));
+  const candidate = resultOf(await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-c1"], options: { baseCheckpoint: "ckpt-c1", parent: seed, policy: "ckpt-c1", collectionRuns: run.id, environment: env } }));
+  // A Generation with no JSON fence makes the approved budget undecidable.
+  await client.create({ id: "gen-nofence", title: "NoFence", type: "Generation", status: "open", body: "no fence here" });
+  await assert.rejects(
+    harness.runCommand({ command: "rl generation promote", pmRoot, args: [candidate.id!], options: { approval: approval.item.id, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "x" } }),
+    (error: Error) => {
+      assert.match(error.message, /gen-nofence/);
+      assert.match(error.message, /no JSON specification fence/);
+      return true;
+    },
+  );
+  // An unparseable spec is likewise refused.
+  const { root: root2, pmRoot: pmRoot2, client: client2, harness: harness2 } = await workspace();
+  const env2 = await registerEnv(harness2, pmRoot2, root2, "Grid");
+  const approval2 = await client2.create({ id: "approval-2", title: "Approval", type: "Decision", status: "open", body: "# approval\n\n```json\n" + JSON.stringify({ permitted_promotions: 2 }) + "\n```" });
+  const seed2 = await registerSeed(harness2, pmRoot2, "gen-seed", "ckpt-seed");
+  await giveSeedPolicy(client2, seed2, "ckpt-seed", "ckpt-seed");
+  const run2 = resultOf(await harness2.runCommand({ command: "rl run start", pmRoot: pmRoot2, args: ["run-1"], options: { environment: env2, algorithm: "ckpt-seed" } }));
+  const candidate2 = resultOf(await harness2.runCommand({ command: "rl generation register", pmRoot: pmRoot2, args: ["gen-c1"], options: { baseCheckpoint: "ckpt-c1", parent: seed2, policy: "ckpt-c1", collectionRuns: run2.id, environment: env2 } }));
+  await client2.create({ id: "gen-badfence", title: "BadFence", type: "Generation", status: "open", body: "# x\n\n```json\n{not json}\n```" });
+  await assert.rejects(
+    harness2.runCommand({ command: "rl generation promote", pmRoot: pmRoot2, args: [candidate2.id!], options: { approval: approval2.item.id, scores: writeScores(root2, 12, "held-out-ctx", 9), evidence: "x" } }),
+    (error: Error) => {
+      assert.match(error.message, /gen-badfence/);
+      assert.match(error.message, /unparseable specification/);
+      return true;
+    },
+  );
+  // rl lineage over the clean candidate still renders.
+  const lineage = resultOf(await harness.runCommand({ command: "rl lineage", pmRoot, args: [candidate.id!] }));
+  assert.match(String(lineage.details?.output), /head: /);
 });
 
 test("showing a generation without a specification fence is refused", async () => {

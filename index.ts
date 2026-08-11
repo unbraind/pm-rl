@@ -467,8 +467,26 @@ export async function environmentInvalidationReason(client: PmClient, envId: str
   }
 }
 
-/** Build the ancestry from a head generation back to the seed, resolving run environments. */
-async function buildAncestry(client: PmClient, headId: string): Promise<AncestryEntry[]> {
+/**
+ * Build the ancestry from a head generation back to the seed, resolving the
+ * environment each collection run used.
+ *
+ * Unreadable provenance is treated differently by caller: a PROMOTION decided on
+ * a degraded graph is refused, while a lineage VIEW stays tolerant because a
+ * degraded view is still useful. When `strict` is true, a collection run that
+ * does not resolve (it is absent, the wrong type, or otherwise unreadable) is a
+ * hard refusal — the contamination check cannot decide overlap for a run whose
+ * environment is unknown, and treating it as clean inverts the contract. The
+ * refusal names the run id and the generation that declared it. When `strict`
+ * is false the prior tolerant behaviour is kept: a missing run contributes no
+ * environment to the contamination check, so a lineage still renders.
+ *
+ * @param client - The tracker client used to resolve items.
+ * @param headId - The head generation id to walk back from.
+ * @param strict - When true, an unresolvable collection run fails the call.
+ * @returns The ancestry from the head back to the seed.
+ */
+async function buildAncestry(client: PmClient, headId: string, strict: boolean): Promise<AncestryEntry[]> {
   const ancestry: AncestryEntry[] = [];
   const visited = new Set<string>();
   let currentId: string | null = headId;
@@ -482,7 +500,10 @@ async function buildAncestry(client: PmClient, headId: string): Promise<Ancestry
         const run = await getTypedItem(client, runId, "Run");
         const env = run.item.environment;
         if (typeof env === "string") runEnvironments.set(runId, env);
-      } catch {
+      } catch (error) {
+        if (strict) {
+          fail(`Promotion refused: collection run ${runId} of generation ${currentId} could not be resolved, so the contamination graph is unreadable. ${String(error)}`, "provenance_unreadable", EXIT_CODE.CONFLICT);
+        }
         // A missing run contributes no environment to the contamination check.
       }
     }
@@ -492,7 +513,20 @@ async function buildAncestry(client: PmClient, headId: string): Promise<Ancestry
   return ancestry;
 }
 
-/** Count promoted generations that recorded a given approval item as their authorization. */
+/**
+ * Count promoted generations that recorded a given approval item as their
+ * authorization.
+ *
+ * This is only called on the promotion path, where the approved budget cannot be
+ * established while any Generation is uncountable. A Generation whose body has
+ * no JSON fence or whose spec fails to parse is therefore refused rather than
+ * skipped: treating unreadable provenance as absent provenance inverts the
+ * contract, since the budget exists to bound a recursive loop that promotes
+ * programmatically. The refusal names the offending generation id and why.
+ *
+ * A listed item the SDK types without an `id` cannot be fetched and is skipped,
+ * not refused: it carries no identity to report and no consumer can act on it.
+ */
 async function countPromotedUnderApproval(client: PmClient, approvalId: string): Promise<number> {
   const result = await client.list({ type: "Generation", status: "all", noTruncate: true });
   let count = 0;
@@ -500,16 +534,19 @@ async function countPromotedUnderApproval(client: PmClient, approvalId: string):
     // The SDK types a listed item's `id` as optional, so a record without one
     // cannot be fetched and is skipped rather than counted.
     if (item.id === undefined) continue;
-    try {
-      const full = await client.get(item.id, { fields: "body" });
-      const fenced = JSON_SPEC_FENCE.exec(String(full.item.body));
-      const json = fenced?.[1];
-      if (json === undefined) continue;
-      const spec = parseGenerationSpec(json, `Generation ${item.id}`);
-      if (spec.promoted && spec.approval === approvalId) count += 1;
-    } catch {
-      continue;
+    const full = await client.get(item.id, { fields: "body" });
+    const fenced = JSON_SPEC_FENCE.exec(String(full.item.body));
+    const json = fenced?.[1];
+    if (json === undefined) {
+      fail(`Promotion refused: generation ${item.id} has no JSON specification fence, so the approved budget cannot be established.`, "budget_undecidable", EXIT_CODE.CONFLICT);
     }
+    let spec: GenerationSpec;
+    try {
+      spec = parseGenerationSpec(json, `Generation ${item.id}`);
+    } catch (error) {
+      fail(`Promotion refused: generation ${item.id} has an unparseable specification (${String(error)}), so the approved budget cannot be established.`, "budget_undecidable", EXIT_CODE.CONFLICT);
+    }
+    if (spec.promoted && spec.approval === approvalId) count += 1;
   }
   return count;
 }
@@ -661,7 +698,7 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
     fail("Promotion scores require a held_out_score. A generation without both a proxy and a held-out score cannot be promoted.", "missing_held_out_score");
   }
   const heldOutScore = parseScoreRecord(heldOutScoreRaw, "held_out_score");
-  const ancestry = await buildAncestry(client, id);
+  const ancestry = await buildAncestry(client, id, true);
   const contamination = findContaminationPath(ancestry, heldOutScore.evaluation_context);
   if (contamination !== null) {
     fail(`Promotion refused: the evaluation set is reachable from the candidate's training data over provenance edges. Path: ${renderContaminationPath(contamination)}`, "contamination_refused", EXIT_CODE.CONFLICT);
@@ -765,7 +802,7 @@ async function renderLineageCommand(context: CommandHandlerContext): Promise<RlC
   // fetched and hashed once rather than once per generation per head.
   const envReasonCache = new Map<string, string | null>();
   for (const head of heads) {
-    const ancestry = await buildAncestry(client, head);
+    const ancestry = await buildAncestry(client, head, false);
     const seedToHead = [...ancestry].reverse();
     const ownInvalidated = new Map<string, string>();
     for (const entry of seedToHead) {

@@ -2,11 +2,11 @@ id: pm-rl-izu1
 title: Two promotion-path checks fail open on unreadable provenance
 description: "CodeRabbit review of pm-rl#12, Major, Security. Both sites catch an error on data they cannot read and continue as if it were clean.\n\nA Generation whose body has no fence or fails to parse is SKIPPED rather than refused, so the approved budget cannot be established while any Generation is uncountable. A collection run that does not resolve is DROPPED, so findContaminationPath cannot decide overlap for a run whose environment is unknown.\n\nTreating unreadable provenance as absent provenance inverts the module contract, which is to refuse a result when its provenance says otherwise - and unreadable provenance says otherwise.\n\nAdopt the reviewer's framing exactly: keep rl lineage tolerant because a degraded view is useful, but refuse a promotion decided on a degraded graph."
 type: Issue
-status: open
+status: in_progress
 priority: 1
 tags: []
 created_at: "2026-08-10T23:30:26.378Z"
-updated_at: "2026-08-10T23:31:11.015Z"
+updated_at: "2026-08-11T04:44:12.404Z"
 author: "harness:claude-code"
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rl-yi7j,parent,"2026-08-10T23:31:10.992Z","harness:claude-code","cli:update:dep",detected

@@ -94,11 +94,17 @@ The first slice fails closed when context would otherwise become misleading:
 3. **A contaminated candidate cannot be promoted.** Promotion walks provenance edges and refuses
    when the evaluation set is reachable from the candidate's training data, naming the exact path.
    It refuses rather than warns, because a warning on a self-improving loop is a warning nobody
-   reads on the tenth generation.
+   reads on the tenth generation. A promotion is also refused when the provenance graph is
+   unreadable — a collection run that does not resolve leaves the contamination check unable to
+   decide overlap, so the promotion is refused (`provenance_unreadable`) rather than treated as
+   clean. The lineage view stays tolerant of an unresolvable run, because a degraded view is
+   still useful; only a promotion decided on a degraded graph is refused.
 4. **The loop cannot advance past its approved budget.** Promotion counts the generations already
    promoted under an approval item and refuses beyond the permitted count, directing the caller to
-   extend the approval. This is the property that keeps a recursive loop from running unattended
-   further than a human authorized.
+   extend the approval. A Generation whose body is uncountable (no JSON fence or an unparseable
+   spec) makes the budget undecidable and is refused (`budget_undecidable`) rather than skipped,
+   because treating unreadable provenance as absent provenance inverts the contract. This is the
+   property that keeps a recursive loop from running unattended further than a human authorized.
 5. **Incomparable scores cannot form a gap.** The proxy and held-out scores must share the same
    objective, objective version, and optimization direction. Subtracting scores that name different
    objectives yields a number that is not a gap, and a `maximize` proxy against a `minimize` held-out
