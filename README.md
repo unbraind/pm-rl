@@ -113,13 +113,15 @@ The first slice fails closed when context would otherwise become misleading:
    does not depend on survives the promotion rather than being silently overwritten.
 4. **The loop cannot advance past its approved budget.** Promotion counts the generations already
    promoted under an approval item and refuses beyond the permitted count, directing the caller to
-   extend the approval. The count and the promotion write run inside one workspace writer lock
-   (`commitWorkspaceTransaction`), so two concurrent promotions cannot both read the same count and
-   both promote past the budget. Callers that **acquire** the lock serialize rather than one being
-   rejected for contention: the second caller re-reads the count the winner just changed and
-   refuses with the accurate `budget_exceeded`, which is a terminal condition a recursive loop
-   must respect, instead of a
-   retryable contention error it would retry forever. A Generation whose body is uncountable (no JSON fence or an
+   extend the approval. The count, **the approval's permitted count**, and the promotion write all
+   run inside one workspace writer lock (`commitWorkspaceTransaction`). Both sides of the budget
+   comparison are re-read there, not just the count: an approval narrowed while a caller waits
+   would otherwise be compared against the capacity it had before, and the promotion would exceed
+   the approval that actually governs it. Callers that **acquire** the lock serialize rather than
+   one being rejected for contention. Acquiring the lock does not itself refuse: the holder
+   re-reads both values and reports `budget_exceeded` only when that re-read finds no remaining
+   capacity, which is a terminal condition a recursive loop must respect. A caller that exceeds the
+   bounded acquisition wait reports `lock_conflict` instead, without ever re-reading. A Generation whose body is uncountable (no JSON fence or an
    unparseable spec) makes the budget undecidable and is refused (`budget_undecidable`) rather than
    skipped, because treating unreadable provenance as absent provenance inverts the contract. This
    is the property that keeps a recursive loop from running unattended further than a human

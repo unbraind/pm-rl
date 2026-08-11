@@ -72,8 +72,11 @@ The approved promotion budget is enforced inside one workspace writer lock, via 
 `commitWorkspaceTransaction`, so the count of promoted generations and the promotion write are one
 critical section: concurrent promotions cannot both read the same count and both advance past what
 a human authorized. Callers that acquire the lock serialize rather than the loser being refused
-for contention, so a second caller reports the accurate `budget_exceeded` — a terminal condition a
-loop must respect — instead of a retryable error. The transaction id is **unique per invocation**, never
+for contention. Acquiring the lock does not itself produce `budget_exceeded`: the holder re-reads
+both the consumed count AND the approval's permitted count, and refuses only when that re-read
+finds no remaining capacity — with headroom it promotes. A caller that exceeds the bounded
+acquisition wait reports `lock_conflict` without ever re-reading. `budget_exceeded` is terminal and
+a loop must respect it; `lock_conflict` is contention and bounded. The transaction id is **unique per invocation**, never
 keyed on the generation: the transaction is used here for mutual exclusion, not idempotent
 replay, and keying it on the generation would make concurrent callers promoting the same
 generation look like replays of one committed transaction, so the journal would skip `apply` and

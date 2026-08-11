@@ -29,6 +29,7 @@ import {
   findContaminationPath,
   GENERATION_EDGE_TYPES,
   parseApprovalSpec,
+  type ApprovalSpec,
   parseGenerationSpec,
   parseScoreRecord,
   renderContaminationPath,
@@ -830,15 +831,24 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
     fail(`Promotion refused: the evaluation set is reachable from the candidate's training data over provenance edges. Path: ${renderContaminationPath(contamination)}`, "contamination_refused", EXIT_CODE.CONFLICT);
   }
   const gap = directionAwareGap(proxyScore, heldOutScore);
-  const approval = await client.get(approvalId, { depth: "deep" });
-  if (String(approval.item.type) !== "Decision") {
-    fail(`pm rl expected a Decision ${approvalId} as the approval item, not ${String(approval.item.type)}.`, "wrong_approval_type", EXIT_CODE.CONFLICT);
-  }
-  const approvalFenced = JSON_SPEC_FENCE.exec(String(approval.item.body));
-  if (approvalFenced?.[1] === undefined) {
-    fail(`Approval item ${approvalId} has no JSON specification fence.`, "approval_missing_spec", EXIT_CODE.CONFLICT);
-  }
-  const approvalSpec = parseApprovalSpec(approvalFenced[1], `Approval ${approvalId}`);
+  // Read and validated through one function so the pre-lock fast refusal and
+  // the in-lock decision cannot drift apart. The budget the promotion is
+  // checked against must come from a read taken INSIDE the lock: an approval
+  // whose permitted count is lowered while this caller waits would otherwise be
+  // compared against the capacity it had before, and the promotion would exceed
+  // the approval that actually governs it.
+  const readApprovalSpec = async (): Promise<ApprovalSpec> => {
+    const approval = await client.get(approvalId, { depth: "deep" });
+    if (String(approval.item.type) !== "Decision") {
+      fail(`pm rl expected a Decision ${approvalId} as the approval item, not ${String(approval.item.type)}.`, "wrong_approval_type", EXIT_CODE.CONFLICT);
+    }
+    const approvalFenced = JSON_SPEC_FENCE.exec(String(approval.item.body));
+    if (approvalFenced?.[1] === undefined) {
+      fail(`Approval item ${approvalId} has no JSON specification fence.`, "approval_missing_spec", EXIT_CODE.CONFLICT);
+    }
+    return parseApprovalSpec(approvalFenced[1], `Approval ${approvalId}`);
+  };
+  const approvalSpec = await readApprovalSpec();
   // Count the consumed budget and write the promotion inside one workspace
   // writer lock. Two concurrent promotions would otherwise both read the same
   // count, both observe headroom, and both promote — the race a recursive loop
@@ -883,6 +893,7 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
     await client.update(id, { body: bodyBeforePromotion, message: "Revert interrupted pm-rl promotion" });
   };
   let promotedCount = 0;
+  let permittedPromotions = approvalSpec.permitted_promotions;
   let closedStatus = "";
   await commitWorkspaceTransaction({
     pmRoot: context.pm_root,
@@ -937,9 +948,14 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
         if (lockedContamination !== null) {
           fail(`Promotion refused: the evaluation set is reachable from the candidate's training data over provenance edges. Path: ${renderContaminationPath(lockedContamination)}`, "contamination_refused", EXIT_CODE.CONFLICT);
         }
+        // Re-read inside the lock for the same reason the count is: the budget
+        // is a comparison between two values, and re-reading only one of them
+        // leaves the comparison stale in the other direction.
+        const lockedApprovalSpec = await readApprovalSpec();
         promotedCount = await countPromotedUnderApproval(client, approvalId);
-        if (promotedCount >= approvalSpec.permitted_promotions) {
-          fail(`Advancing past the approved promotion budget is refused. ${promotedCount} promotion(s) consumed; approval ${approvalId} permits ${approvalSpec.permitted_promotions}. Extend approval item ${approvalId} to authorize more promotions.`, "budget_exceeded", EXIT_CODE.CONFLICT);
+        permittedPromotions = lockedApprovalSpec.permitted_promotions;
+        if (promotedCount >= permittedPromotions) {
+          fail(`Advancing past the approved promotion budget is refused. ${promotedCount} promotion(s) consumed; approval ${approvalId} permits ${permittedPromotions}. Extend approval item ${approvalId} to authorize more promotions.`, "budget_exceeded", EXIT_CODE.CONFLICT);
         }
         await client.update(id, {
           // Rendered from the IN-LOCK spec, so a peer edit to a field the
@@ -952,7 +968,7 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
             message: "Promote RL generation",
             resolution: evidence,
             expectedResult: "The generation reaches a promoted state with both scores and the direction-aware gap recorded.",
-            actualResult: `Promoted with proxy=${proxyScore.value}, held_out=${heldOutScore.value}, gap=${gap.toFixed(4)}. Budget consumed: ${promotedCount + 1} of ${approvalSpec.permitted_promotions}.`,
+            actualResult: `Promoted with proxy=${proxyScore.value}, held_out=${heldOutScore.value}, gap=${gap.toFixed(4)}. Budget consumed: ${promotedCount + 1} of ${permittedPromotions}.`,
           });
           closedStatus = String(result.item.status);
         } catch (error) {

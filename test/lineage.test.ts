@@ -1326,6 +1326,37 @@ test("a peer edit under the lock survives the promoting write, and one that chan
   assert.match(finalBody, /"peer": "kept"/, "the peer edit to a field the decision does not consume must survive the promoting write");
 });
 
+test("an approval whose budget is lowered under the lock is honoured, not the capacity read before it", async () => {
+  // The budget check compares two values: the count of promotions already made,
+  // and the capacity the approval permits. Re-reading only the count leaves the
+  // comparison stale in the other direction — an approval narrowed while this
+  // caller waited for the lock would be compared against the capacity it had
+  // before, and the promotion would exceed the approval that governs it.
+  const { root, pmRoot, client, harness } = await workspace();
+  const env = await registerEnv(harness, pmRoot, root, "Grid");
+  const approval = await client.create({ id: "approval-1", title: "Approval", type: "Decision", status: "open", body: "# approval\n\n```json\n" + JSON.stringify({ permitted_promotions: 1 }) + "\n```" });
+  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed", "ckpt-seed");
+  const run = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-1"], options: { environment: env, algorithm: "ckpt-seed" } }));
+  const candidate = resultOf(await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-c1"], options: { baseCheckpoint: "ckpt-c1", parent: seed, policy: "ckpt-c1", collectionRuns: run.id, environment: env } }));
+  // A peer revokes the remaining capacity between the two approval reads. The
+  // helper edits AFTER the triggering get returns, so triggering on the
+  // approval itself means the pre-lock parse sees 1 and only an in-lock re-read
+  // sees 0 — which is precisely the window under test. Triggering on the
+  // candidate read instead lands the edit before the pre-lock parse, and the
+  // test then passes with the in-lock re-read removed. Verified by removing it.
+  const revoked = "# approval\n\n```json\n" + JSON.stringify({ permitted_promotions: 0 }) + "\n```";
+  const sdk = sdkWith(clientWithConcurrentEditThenFailingClose(new PmClient({ pmRoot, author: "pm-rl-test" }), candidate.id!, revoked, { failClose: false, editId: String(approval.item.id), triggerId: String(approval.item.id) }));
+  await assert.rejects(
+    harness.runCommand({ command: "rl generation promote", pmRoot, args: [candidate.id!], options: { approval: approval.item.id, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "revoked" }, sdk }),
+    (error: Error) => {
+      assert.match(error.message, /Advancing past the approved promotion budget is refused/, "the refusal must be the budget one");
+      assert.match(error.message, /permits 0/, `and must report the CURRENT capacity, not the one read before the lock, got: ${error.message}`);
+      return true;
+    },
+  );
+  assert.doesNotMatch(String((await client.get(candidate.id!, { fields: "body" })).item.body), /"promoted": true/, "a refused promotion must leave the record unpromoted");
+});
+
 test("a peer contaminating an ANCESTOR under the lock is caught, because the verdict is re-decided over the whole ancestry", async () => {
   // The contamination verdict is computed by walking every ancestor and reading
   // each one's environment version. Comparing only the candidate's own fields
