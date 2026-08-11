@@ -317,20 +317,9 @@ async function startRun(context: CommandHandlerContext): Promise<RlCommandResult
   const config = configPath === undefined ? {} : readJsonFile(configPath, "Run configuration");
   const client = clientFor(context);
   await ensurePersistentTypes(client);
-  const environment = await getTypedItem(client, environmentId, "Environment");
-  const specHash = environment.item.affected_version;
-  if (typeof specHash !== "string" || specHash.length === 0) {
-    fail(`Environment ${environmentId} has no specification affected_version and cannot support attributable runs.`, "environment_missing_hash", EXIT_CODE.CONFLICT);
-  }
-  const fenced = JSON_SPEC_FENCE.exec(String(environment.item.body));
-  if (fenced?.[1] === undefined) {
-    fail(`Environment ${environmentId} has no JSON specification fence.`, "environment_missing_spec", EXIT_CODE.CONFLICT);
-  }
-  const storedSpec = parseEnvironmentSpec(fenced[1], `Environment ${environmentId} specification`);
-  const observedHash = hashJson(storedSpec);
-  if (observedHash !== specHash || !String(environment.item.id).endsWith(specHash.slice(0, 12))) {
-    fail(`Environment ${environmentId} no longer matches its content-addressed identity. Register the changed specification as a new version.`, "environment_was_mutated", EXIT_CODE.CONFLICT);
-  }
+  const verifiedEnvironment = await verifyEnvironmentIdentity(client, environmentId, "runs");
+  const storedSpec = verifiedEnvironment.spec;
+  const specHash = hashJson(storedSpec);
   const configHash = hashJson(config);
   const result = await client.create({
     id: requestedId,
@@ -341,13 +330,13 @@ async function startRun(context: CommandHandlerContext): Promise<RlCommandResult
     estimatedMinutes: "1",
     body: `# ${requestedId}\n\nAlgorithm: ${algorithm}\n\nEnvironment snapshot:\n\n\`\`\`json\n${JSON.stringify(storedSpec, null, 2)}\n\`\`\`\n\nRun configuration:\n\n\`\`\`json\n${JSON.stringify(config, null, 2)}\n\`\`\``,
     dep: [environmentId],
-    environment: String(environment.item.id),
+    environment: verifiedEnvironment.id,
     affectedVersion: specHash,
     component: algorithm,
     fixedVersion: configHash,
     message: "Start attributable RL run",
   });
-  return { action: "rl-run-start", id: result.item.id, created: true, details: { environment_id: environment.item.id, spec_hash: specHash, config_hash: configHash } };
+  return { action: "rl-run-start", id: result.item.id, created: true, details: { environment_id: verifiedEnvironment.id, spec_hash: specHash, config_hash: configHash } };
 }
 
 /** Append parsed measurements as bounded compressed segments through the typed SDK. */
@@ -431,22 +420,44 @@ function extractGenerationSpec(body: string, source: string): GenerationSpec {
 }
 
 /** Verify an environment is content-addressed and return its id and reward-spec hash. */
-async function verifyEnvironmentForGeneration(client: PmClient, envId: string): Promise<{ id: string; rewardSpecHash: string }> {
-  const environment = await getTypedItem(client, envId, "Environment");
+/**
+ * Re-verify an Environment still matches its content-addressed identity.
+ *
+ * Both the run and the generation paths depend on the same four conditions: a
+ * recorded `affected_version`, a readable specification fence, a re-hash that
+ * still agrees, and an item id that carries the hash prefix. The
+ * `specHash.slice(0, 12)` identity rule in particular must never diverge
+ * between the two, so it is written once here rather than duplicated per
+ * caller with only the noun in the message changed.
+ *
+ * @param client - Client bound to the workspace holding the environment.
+ * @param environmentId - Environment item id to re-verify.
+ * @param dependents - Plural noun naming what the caller is attributing, used
+ *   only in the missing-hash message (e.g. `runs`, `generations`).
+ * @returns The resolved id and the re-parsed specification.
+ * @throws When the environment lacks a hash or fence, or no longer matches its
+ *   content-addressed identity.
+ */
+async function verifyEnvironmentIdentity(client: PmClient, environmentId: string, dependents: string): Promise<{ id: string; spec: EnvironmentSpec }> {
+  const environment = await getTypedItem(client, environmentId, "Environment");
   const specHash = environment.item.affected_version;
   if (typeof specHash !== "string" || specHash.length === 0) {
-    fail(`Environment ${envId} has no specification affected_version and cannot support attributable generations.`, "environment_missing_hash", EXIT_CODE.CONFLICT);
+    fail(`Environment ${environmentId} has no specification affected_version and cannot support attributable ${dependents}.`, "environment_missing_hash", EXIT_CODE.CONFLICT);
   }
   const fenced = JSON_SPEC_FENCE.exec(String(environment.item.body));
   if (fenced?.[1] === undefined) {
-    fail(`Environment ${envId} has no JSON specification fence.`, "environment_missing_spec", EXIT_CODE.CONFLICT);
+    fail(`Environment ${environmentId} has no JSON specification fence.`, "environment_missing_spec", EXIT_CODE.CONFLICT);
   }
-  const storedSpec = parseEnvironmentSpec(fenced[1], `Environment ${envId} specification`);
-  const observedHash = hashJson(storedSpec);
-  if (observedHash !== specHash || !String(environment.item.id).endsWith(specHash.slice(0, 12))) {
-    fail(`Environment ${envId} no longer matches its content-addressed identity. Register the changed specification as a new version.`, "environment_was_mutated", EXIT_CODE.CONFLICT);
+  const storedSpec = parseEnvironmentSpec(fenced[1], `Environment ${environmentId} specification`);
+  if (hashJson(storedSpec) !== specHash || !String(environment.item.id).endsWith(specHash.slice(0, 12))) {
+    fail(`Environment ${environmentId} no longer matches its content-addressed identity. Register the changed specification as a new version.`, "environment_was_mutated", EXIT_CODE.CONFLICT);
   }
-  return { id: String(environment.item.id), rewardSpecHash: hashJson(storedSpec.reward_specification) };
+  return { id: String(environment.item.id), spec: storedSpec };
+}
+
+async function verifyEnvironmentForGeneration(client: PmClient, envId: string): Promise<{ id: string; rewardSpecHash: string }> {
+  const verified = await verifyEnvironmentIdentity(client, envId, "generations");
+  return { id: verified.id, rewardSpecHash: hashJson(verified.spec.reward_specification) };
 }
 
 /**
