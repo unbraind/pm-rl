@@ -3,7 +3,7 @@
  */
 
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -275,4 +275,35 @@ test("docstring gate isMainInvocation throws rather than skipping the gate when 
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("every relative import the built entry point makes is inside the published files list", () => {
+  // `pack:dry-run` lists file NAMES; it never resolves an import. That is how a
+  // package whose entry point imports a module the `files` array omits passes
+  // `release:check` and then fails at import time for anyone who installs it.
+  // This resolves the graph instead: from dist/index.js, every relative import
+  // it reaches must be matched by a `files` pattern.
+  const packageJson = JSON.parse(readFileSync(resolve(import.meta.dirname, "../package.json"), "utf8")) as { files: string[] };
+  const distRoot = resolve(import.meta.dirname, "../dist");
+  const seen = new Set<string>();
+  const pending = ["index.js"];
+  while (pending.length > 0) {
+    const relative = pending.pop()!;
+    if (seen.has(relative)) continue;
+    seen.add(relative);
+    const source = readFileSync(join(distRoot, relative), "utf8");
+    for (const match of source.matchAll(/from\s*"(\.\/[^"]+\.js)"/g)) {
+      pending.push(match[1]!.slice(2));
+    }
+  }
+  // A `files` entry like `dist/index.*` covers `dist/index.js`; compare on the
+  // basename stem so the glob shape does not have to be reimplemented here.
+  const publishedStems = new Set(packageJson.files
+    .filter((entry) => entry.startsWith("dist/"))
+    .map((entry) => entry.slice("dist/".length).replace(/\.\*$/, "")));
+  for (const relative of seen) {
+    const stem = relative.replace(/\.js$/, "");
+    assert.ok(publishedStems.has(stem), `dist/${relative} is imported from the built entry point but no "files" pattern publishes it; add "dist/${stem}.*" to package.json files`);
+  }
+  assert.ok(seen.has("lineage.js"), "the entry point must reach lineage.js, or this test is not exercising the import graph");
 });

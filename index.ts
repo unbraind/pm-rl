@@ -610,15 +610,26 @@ async function findGenerationHeads(client: PmClient): Promise<string[]> {
     // A listed item's `id` is optional in the SDK types; one without an id can
     // be neither a head nor a parent, so it takes no part in the lineage graph.
     if (item.id === undefined) continue;
-    allIds.push(item.id);
-    // The SPECIFICATION parent is the lineage edge, read through the same
-    // extractGenerationSpec the ancestry walk uses. `item.parent` is the pm
+    // The SPECIFICATION parent is the lineage edge. `item.parent` is the pm
     // dependency field and the two can disagree, which would report a
-    // generation as a head at the same time as it appears inside another's
-    // ancestry. Sharing one source — and one parse contract — makes that
-    // impossible: an unparseable body fails here exactly as it already fails
-    // the walk, rather than being silently assigned a different parent.
-    const parent = extractGenerationSpec(String(item.body), `Generation ${item.id}`).parent;
+    // generation as a head at the same time as it appears inside another
+    // generation's ancestry. Reading the spec keeps one source for both.
+    //
+    // Enumeration stays TOLERANT of an unreadable body, unlike the promotion
+    // path: `rl lineage` with no head argument comes through here, so refusing
+    // would let one malformed Generation anywhere in the workspace break the
+    // view for every ancestry, including clean ones. An unreadable generation
+    // contributes no parent edge and remains eligible to be its own head.
+    let parent: string | null = null;
+    try {
+      parent = extractGenerationSpec(String(item.body), `Generation ${item.id}`).parent;
+    } catch {
+      // Skipped BEFORE it joins the id list: a generation whose ancestry cannot
+      // be walked must not be enumerated as a head either, or the command fails
+      // on the very row that could not be read.
+      continue;
+    }
+    allIds.push(item.id);
     if (typeof parent === "string" && parent.length > 0) parentIds.add(parent);
   }
   return allIds.filter((id) => !parentIds.has(id)).sort();

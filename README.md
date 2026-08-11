@@ -110,7 +110,9 @@ The first slice fails closed when context would otherwise become misleading:
    unparseable spec) makes the budget undecidable and is refused (`budget_undecidable`) rather than
    skipped, because treating unreadable provenance as absent provenance inverts the contract. This
    is the property that keeps a recursive loop from running unattended further than a human
-   authorized.
+   authorized. The same lock makes **one generation promote at most once**: the already-promoted
+   check is re-run inside the critical section, because the pre-lock check reads state every
+   concurrent caller sees before any of them holds the lock, so all of them would pass it.
 5. **Incomparable scores cannot form a gap.** The proxy and held-out scores must share the same
    objective, objective version, and optimization direction. Subtracting scores that name different
    objectives yields a number that is not a gap, and a `maximize` proxy against a `minimize` held-out
@@ -151,11 +153,10 @@ runs, and the exact environment and reward-spec versions those runs used.
 Two consequences fall out of modelling it this way rather than bolting on a dashboard. An
 environment or reward-spec edit invalidates every downstream generation *transitively*, by reverse
 traversal of the environment and reward-spec edges the graph contract requires. And
-[`pm rl lineage`](.agents/pm/features/pm-rl-32a9.toon) **will** render one ancestry from the seed to
+[`pm rl lineage`](.agents/pm/features/pm-rl-32a9.toon) renders one ancestry from the seed to
 a named head with each hop's promotion evidence **and** its invalidation state — the column that
-actually decides what to train next, and the one that is invisible today. A generation can have more
-than one promoted successor, so the head is named explicitly and trends are never computed across
-branches. *(Not registered yet — see the closing paragraph.)*
+actually decides what to train next. A generation can have more than one promoted successor, so
+the head is named explicitly and trends are never computed across branches.
 
 The first environment this targets is deliberately unglamorous: [the fleet's own mandatory
 gates](.agents/pm/features/pm-rl-0cqg.toon). An agent proposes a diff to a pm package, and the

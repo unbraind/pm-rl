@@ -73,9 +73,13 @@ The approved promotion budget is enforced inside one workspace writer lock, via 
 critical section: concurrent promotions cannot both read the same count and both advance past what
 a human authorized. They serialize on the lock rather than the loser being refused for contention,
 so a second caller reports the accurate `budget_exceeded` — a terminal condition a loop must
-respect — instead of a retryable error. The transaction is keyed on the generation id, which
-promotes at most once, so a retry resumes rather than double-counting. The count excludes the
-generation being promoted, which is what keeps it correct if its own write is already present.
+respect — instead of a retryable error. The transaction id is **unique per invocation**, never
+keyed on the generation: the transaction is used here for mutual exclusion, not idempotent
+replay, and keying it on the generation would make concurrent callers promoting the same
+generation look like replays of one committed transaction, so the journal would skip `apply` and
+every caller would report success for a promotion only one of them performed. Correctness under
+concurrency comes instead from re-checking `already_promoted` **inside** the lock, because the
+pre-lock check runs on a read every concurrent caller performs before any of them holds it.
 A promotion whose close fails reverts its own body write rather than leaving budget consumed by a
 promotion that never completed. A seed
 may declare a `--policy` its children's collection runs must match; a seed with no declared policy

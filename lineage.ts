@@ -132,6 +132,8 @@ export interface LineageRow {
   readonly id: string;
   /** Whether this is the seed generation. */
   readonly seed: boolean;
+  /** Whether this generation is promoted, carried rather than inferred from its evidence string. */
+  readonly promoted: boolean;
   /** Base checkpoint identity. */
   readonly base_checkpoint: string;
   /** Collection run ids. */
@@ -316,8 +318,12 @@ export function parseGenerationSpec(text: string, source: string): GenerationSpe
   if (gap !== null && typeof gap !== "number") {
     lineageFail(`${source} requires gap to be a number or null.`, "invalid_gap");
   }
-  const promotionEvidence = record["promotion_evidence"];
-  if (promotionEvidence !== null && promotionEvidence !== undefined && typeof promotionEvidence !== "string") {
+  // Normalized for the same reason as `gap` above: this is the last optional
+  // field that was left as `undefined`, and the lineage renderer used it as a
+  // boolean promotion state, so an absent key rendered an unpromoted generation
+  // as promoted.
+  const promotionEvidence = record["promotion_evidence"] ?? null;
+  if (promotionEvidence !== null && typeof promotionEvidence !== "string") {
     lineageFail(`${source} requires promotion_evidence to be a string or null.`, "invalid_promotion_evidence");
   }
   // The promotion invariant: approval, proxy_score, held_out_score and gap are
@@ -587,7 +593,7 @@ export function renderLineageTable(view: LineageView): string {
       const delta = row.gap_delta === null ? "-" : (row.gap_delta >= 0 ? `+${row.gap_delta.toFixed(4)}` : row.gap_delta.toFixed(4));
       const approval = row.approval ?? "-";
       const evidence = row.promotion_evidence ?? "-";
-      const status = row.invalidated ?? (row.promotion_evidence !== null ? "promoted" : "candidate");
+      const status = row.invalidated ?? (row.promoted ? "promoted" : "candidate");
       blocks.push(`${row.id} | ${kind} | base=${row.base_checkpoint} | proxy=${proxy} | held_out=${heldOut} | gap=${gap} | delta=${delta} | approval=${approval} | evidence=${evidence} | ${status}`);
     }
     if (ancestry.findings.length > 0) {
@@ -647,6 +653,7 @@ export function buildLineageAncestry(
     rows.push({
       id: entry.id,
       seed: entry.spec.seed,
+      promoted: entry.spec.promoted,
       base_checkpoint: entry.spec.base_checkpoint,
       collection_runs: entry.spec.collection_runs,
       proxy_score: entry.spec.proxy_score?.value ?? null,

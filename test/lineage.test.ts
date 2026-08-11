@@ -302,6 +302,11 @@ test("parseGenerationSpec accepts the seed and a full candidate and refuses ever
   assert.throws(() => parseGenerationSpec(JSON.stringify(promotedNoGapKey), "g"), /promoted but is missing promotion evidence/);
   const candidateNoGapKey: Record<string, unknown> = { ...promotedBase, promoted: false, approval: null, proxy_score: null, held_out_score: null };
   delete candidateNoGapKey["gap"];
+  // promotion_evidence is the other optional field the renderer reads as a
+  // boolean promotion state, so an absent key must normalize to null too.
+  const candidateNoEvidenceKey: Record<string, unknown> = { ...candidateNoGapKey };
+  delete candidateNoEvidenceKey["promotion_evidence"];
+  assert.equal(parseGenerationSpec(JSON.stringify(candidateNoEvidenceKey), "g").promotion_evidence, null);
   // An unpromoted record with no gap key carries no evidence and must be accepted,
   // not refused for a field it does not have.
   assert.equal(parseGenerationSpec(JSON.stringify(candidateNoGapKey), "g").gap, null);
@@ -447,16 +452,16 @@ test("renderLineageTable renders one row per generation, with deltas, evidence, 
       {
         head: "gen-c1",
         rows: [
-          { id: "gen-seed", seed: true, base_checkpoint: "ckpt-0", collection_runs: [], proxy_score: null, held_out_score: null, gap: null, gap_delta: null, approval: null, promotion_evidence: null, invalidated: null },
-          { id: "gen-c1", seed: false, base_checkpoint: "ckpt-1", collection_runs: ["run-1"], proxy_score: 10, held_out_score: 8, gap: 2, gap_delta: 2, approval: "approval-1", promotion_evidence: "rose on held-out", invalidated: null },
+          { id: "gen-seed", seed: true, promoted: false, base_checkpoint: "ckpt-0", collection_runs: [], proxy_score: null, held_out_score: null, gap: null, gap_delta: null, approval: null, promotion_evidence: null, invalidated: null },
+          { id: "gen-c1", seed: false, promoted: true, base_checkpoint: "ckpt-1", collection_runs: ["run-1"], proxy_score: 10, held_out_score: 8, gap: 2, gap_delta: 2, approval: "approval-1", promotion_evidence: "rose on held-out", invalidated: null },
         ],
         findings: ["gap widening over last 3 promotions"],
       },
       {
         head: "gen-d1",
         rows: [
-          { id: "gen-dseed", seed: true, base_checkpoint: "ckpt-0", collection_runs: [], proxy_score: null, held_out_score: null, gap: null, gap_delta: null, approval: null, promotion_evidence: null, invalidated: null },
-          { id: "gen-d1", seed: false, base_checkpoint: "ckpt-9", collection_runs: [], proxy_score: 5, held_out_score: 7, gap: -2, gap_delta: -2, approval: "approval-d", promotion_evidence: "fell back", invalidated: "environment was edited" },
+          { id: "gen-dseed", seed: true, promoted: false, base_checkpoint: "ckpt-0", collection_runs: [], proxy_score: null, held_out_score: null, gap: null, gap_delta: null, approval: null, promotion_evidence: null, invalidated: null },
+          { id: "gen-d1", seed: false, promoted: true, base_checkpoint: "ckpt-9", collection_runs: [], proxy_score: 5, held_out_score: 7, gap: -2, gap_delta: -2, approval: "approval-d", promotion_evidence: "fell back", invalidated: "environment was edited" },
         ],
         findings: [],
       },
@@ -966,6 +971,16 @@ test("an edited environment marks every downstream generation invalidated in the
   const afterDivergent = resultOf(await harness.runCommand({ command: "rl lineage", pmRoot }));
   const divergentHeads = (afterDivergent.details?.view as LineageView).ancestries.map((ancestry) => ancestry.head);
   assert.ok(!divergentHeads.includes(genB.id!), `${genB.id!} is named as a spec parent and must not also be a head, got: ${divergentHeads.join(", ")}`);
+  // One malformed Generation must not break the view for every OTHER ancestry.
+  // Head enumeration parses each body, and `rl lineage` with no argument comes
+  // through it, so refusing here would make a single unreadable item anywhere in
+  // the workspace fail the whole command - the opposite of the tolerance the
+  // lineage view promises.
+  await client.create({ id: "gen-broken", title: "Broken", type: "Generation", status: "open", body: "# broken\n\n```json\n{ not json\n```" });
+  const afterBroken = resultOf(await harness.runCommand({ command: "rl lineage", pmRoot }));
+  assert.match(String(afterBroken.details?.output), /head: /);
+  const brokenHeads = (afterBroken.details?.view as LineageView).ancestries.map((ancestry) => ancestry.head);
+  assert.ok(!brokenHeads.includes("rl-gen-broken"), `an unreadable generation contributes no ancestry, got: ${brokenHeads.join(", ")}`);
 });
 
 test("a generation whose environment lacks a hash or a specification fence reports a distinct reason", async () => {
@@ -1045,7 +1060,6 @@ test("concurrent promotions against a budget never let more than the permitted c
   const sdks = clients.map((c) => sdkWith(c));
   const settled = await Promise.allSettled(candidateIds.map((id, index) => harness.runCommand({ command: "rl generation promote", pmRoot, args: [id], options: { approval: approval.item.id, scores, evidence: `agent-${index}` }, sdk: sdks[index] })));
   const successes = settled.filter((r) => r.status === "fulfilled").length;
-  assert.ok(successes <= 1, `concurrent promotions must never exceed the budget of 1, but ${successes} succeeded`);
   assert.ok(successes === 1, `exactly one promotion should win the budget reservation, but ${successes} succeeded`);
   // Every loser must report the ACCURATE terminal condition. Because promotions
   // serialize on the workspace writer lock rather than racing, a loser re-reads

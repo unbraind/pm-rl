@@ -6,6 +6,7 @@
   "main": "dist/index.js",
   "files": [
     "dist/index.*",
+    "dist/lineage.*",
     "dist/series.*",
     "manifest.json",
     "README.md",
