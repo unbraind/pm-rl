@@ -600,9 +600,10 @@ async function countPromotedUnderApproval(client: PmClient, approvalId: string):
   return count;
 }
 
+
 /** Find generation item ids that are not a parent of any other generation. */
 async function findGenerationHeads(client: PmClient): Promise<string[]> {
-  const result = await client.list({ type: "Generation", status: "all", noTruncate: true });
+  const result = await client.list({ type: "Generation", status: "all", noTruncate: true, fields: "id,body,parent" });
   const parentIds = new Set<string>();
   const allIds: string[] = [];
   for (const item of result.items) {
@@ -610,7 +611,14 @@ async function findGenerationHeads(client: PmClient): Promise<string[]> {
     // be neither a head nor a parent, so it takes no part in the lineage graph.
     if (item.id === undefined) continue;
     allIds.push(item.id);
-    const parent = item.parent;
+    // The SPECIFICATION parent is the lineage edge, read through the same
+    // extractGenerationSpec the ancestry walk uses. `item.parent` is the pm
+    // dependency field and the two can disagree, which would report a
+    // generation as a head at the same time as it appears inside another's
+    // ancestry. Sharing one source — and one parse contract — makes that
+    // impossible: an unparseable body fails here exactly as it already fails
+    // the walk, rather than being silently assigned a different parent.
+    const parent = extractGenerationSpec(String(item.body), `Generation ${item.id}`).parent;
     if (typeof parent === "string" && parent.length > 0) parentIds.add(parent);
   }
   return allIds.filter((id) => !parentIds.has(id)).sort();

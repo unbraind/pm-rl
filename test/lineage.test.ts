@@ -950,6 +950,22 @@ test("an edited environment marks every downstream generation invalidated in the
   await client.create({ id: "gen-ghost", title: "Ghost", type: "Generation", status: "open", ...generationBody(ghostSpec) });
   const ghostLineage = resultOf(await harness.runCommand({ command: "rl lineage", pmRoot, args: ["gen-ghost"] }));
   assert.match(String(ghostLineage.details?.output), /gen-ghost .* environment could not be resolved/);
+  // gen-ghost carries its parent ONLY in the specification, not in the pm
+  // dependency field. Head enumeration must read the same lineage edge that
+  // buildAncestry walks, or the no-argument lineage reports gen-ghost as its own
+  // head while its ancestry runs back to the seed — one graph, two answers.
+  const everyHead = resultOf(await harness.runCommand({ command: "rl lineage", pmRoot }));
+  const heads = (everyHead.details?.view as LineageView).ancestries.map((ancestry) => ancestry.head);
+  // A generation whose SPEC parent names genB while its pm dependency field is
+  // absent. buildAncestry walks spec.parent, so if head enumeration reads
+  // item.parent instead, genB is reported as a head at the same time as it
+  // appears inside this child's ancestry — one graph answering two ways.
+  const divergentSpec = { ...seedSpec("ckpt-d", ""), environment_version: envB, parent: genB.id!, seed: false, policy: "d", collection_runs: [runB.id!], reward_spec_version: hashJson({ goal: 10 }) };
+  const divergentBody = generationBody(divergentSpec);
+  await client.create({ id: "gen-divergent", title: "Divergent", type: "Generation", status: "open", body: divergentBody.body, affectedVersion: divergentBody.hash });
+  const afterDivergent = resultOf(await harness.runCommand({ command: "rl lineage", pmRoot }));
+  const divergentHeads = (afterDivergent.details?.view as LineageView).ancestries.map((ancestry) => ancestry.head);
+  assert.ok(!divergentHeads.includes(genB.id!), `${genB.id!} is named as a spec parent and must not also be a head, got: ${divergentHeads.join(", ")}`);
 });
 
 test("a generation whose environment lacks a hash or a specification fence reports a distinct reason", async () => {
