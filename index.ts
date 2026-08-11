@@ -120,6 +120,31 @@ export const RL_ITEM_TYPES = [
   }),
 ] as const;
 
+/**
+ * The provenance subset of a generation specification, in a stable shape.
+ *
+ * `affected_version` is a content identity for what a generation was trained
+ * FROM, so it must not move when the generation is promoted. Promotion rewrites
+ * the outcome fields — `promoted`, `approval`, both scores, `gap` and
+ * `promotion_evidence` — and those are excluded here so the identity survives
+ * it and stays checkable by a re-hash of the stored body.
+ *
+ * @param spec - The generation specification to reduce to its provenance.
+ * @returns The provenance fields, ordered by the caller's key order for hashing.
+ */
+function generationProvenance(spec: GenerationSpec): JsonValue {
+  return {
+    base_checkpoint: spec.base_checkpoint,
+    policy: spec.policy,
+    collection_runs: [...spec.collection_runs],
+    training_config: spec.training_config,
+    environment_version: spec.environment_version,
+    reward_spec_version: spec.reward_spec_version,
+    parent: spec.parent,
+    seed: spec.seed,
+  } as JsonValue;
+}
+
 /** Throw an expected command error with stable machine context. */
 function fail(message: string, code: string, exitCode: number = EXIT_CODE.USAGE): never {
   throw createPmCliExpectedError(message, { exitCode, context: { code } });
@@ -330,7 +355,12 @@ async function startRun(context: CommandHandlerContext): Promise<RlCommandResult
     acceptanceCriteria: "The run retains its exact environment and configuration identities, metric input is complete, and finish records the terminal outcome.",
     estimatedMinutes: "1",
     body: `# ${requestedId}\n\nAlgorithm: ${algorithm}\n\nEnvironment snapshot:\n\n\`\`\`json\n${JSON.stringify(storedSpec, null, 2)}\n\`\`\`\n\nRun configuration:\n\n\`\`\`json\n${JSON.stringify(config, null, 2)}\n\`\`\``,
-    dep: [environmentId],
+    // Both edges name the RESOLVED id. `environmentId` is the raw --environment
+    // input, which may be an alias; recording it on one edge and the resolved id
+    // on the other would make a single create call describe two different
+    // environments, and the dependency graph would then disagree with the typed
+    // field the contamination walk reads.
+    dep: [verifiedEnvironment.id],
     environment: verifiedEnvironment.id,
     affectedVersion: specHash,
     component: algorithm,
@@ -575,7 +605,23 @@ async function buildAncestry(client: PmClient, headId: string, strict: boolean):
       // Deliberately outside the try: `fail` throws, and inside the block above
       // its own catch would swallow it and re-report the unresolvable-run reason
       // for a run that resolved perfectly well.
-      const environment = run.item.environment;
+      // Defence in depth, not a fix for a reachable bypass. The pm SDK already
+      // normalizes typed item fields: a Run whose `.toon` literally stores
+      // `environment: "  env-padded  "` reads back as `env-padded`, verified
+      // directly. So a padded run identity cannot reach findContaminationPath
+      // today, and the strict-equality comparison there is safe.
+      //
+      // The trim stays anyway because this feeds a SECURITY gate and the
+      // normalization it relies on belongs to another package. The dependency
+      // is pinned by a test asserting the SDK boundary trims, so if that ever
+      // stops being true this package finds out from its own suite rather than
+      // from a contaminated promotion passing.
+      //
+      // Note the asymmetry with `collection_runs`: those live inside the JSON
+      // fence, which pm treats as opaque body text and does NOT normalize, so
+      // padding there IS reachable and is trimmed at the parse boundary.
+      const environmentRaw = run.item.environment;
+      const environment = typeof environmentRaw === "string" ? environmentRaw.trim() : environmentRaw;
       if (typeof environment === "string" && environment.length > 0) {
         runEnvironments.set(runId, environment);
         continue;
@@ -760,7 +806,18 @@ async function registerGeneration(context: CommandHandlerContext): Promise<RlCom
     gap: null,
     promotion_evidence: null,
   };
-  const specHash = hashJson(spec as unknown as JsonValue);
+  // Hashed over the PROVENANCE only, deliberately excluding the promotion
+  // outcome fields. Promotion legitimately rewrites `promoted`, `approval`,
+  // both scores, `gap` and `promotion_evidence`; hashing the whole spec would
+  // make `affected_version` disagree with the stored body the moment a
+  // generation is promoted, so any integrity check applying the
+  // re-hash-and-compare rule that `verifyEnvironmentIdentity` applies to
+  // Environments would report every promoted generation as mutated.
+  //
+  // The provenance is what the identity is for: what the generation was trained
+  // from. The outcome is what it earned, and it is recorded separately in the
+  // body. So the field pins provenance and stays verifiable across a promotion.
+  const specHash = hashJson(generationProvenance(spec));
   const createOptions = {
     id: requestedId,
     title: requestedId,
@@ -980,7 +1037,7 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
           try {
             await revertPromotingWrite();
           } catch (revertError) {
-            throw new Error(`${String(error)} — and the revert of the promoting write also failed (${String(revertError)}), so generation ${id} still reads as promoted while it was never closed. Its body must be restored before the approved budget can be counted correctly.`);
+            fail(`${String(error)} — and the revert of the promoting write also failed (${String(revertError)}), so generation ${id} still reads as promoted while it was never closed. Its body must be restored before the approved budget can be counted correctly.`, "revert_failed_after_close_failure", EXIT_CODE.CONFLICT);
           }
           throw error;
         }
@@ -999,7 +1056,12 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
       held_out_score: heldOutScore.value,
       approval: approvalId,
       budget_consumed: promotedCount + 1,
-      budget_permitted: approvalSpec.permitted_promotions,
+      // The IN-LOCK value. `approvalSpec` is the pre-lock read, and reporting
+      // it here would tell the caller a capacity that was already superseded by
+      // the one the promotion was actually checked against and recorded in the
+      // item. This was the site my own pre-lock audit missed: the value was
+      // re-read for the DECISION and not for the RECEIPT.
+      budget_permitted: permittedPromotions,
       evidence,
     },
   };

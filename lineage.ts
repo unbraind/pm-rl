@@ -276,9 +276,18 @@ export function parseGenerationSpec(text: string, source: string): GenerationSpe
   const record = asObject(parsed, source);
   const baseCheckpoint = asString(record, "base_checkpoint", source);
   const policy = asString(record, "policy", source, false);
-  const collectionRuns = record["collection_runs"];
-  if (!Array.isArray(collectionRuns) || !collectionRuns.every((run) => typeof run === "string")) {
+  const collectionRunsRaw = record["collection_runs"];
+  if (!Array.isArray(collectionRunsRaw) || !collectionRunsRaw.every((run) => typeof run === "string")) {
     lineageFail(`${source} requires a collection_runs array of strings.`, "invalid_collection_runs");
+  }
+  // The last stored identity list that was not normalized here. Each entry is
+  // resolved by strict id lookup during the ancestry walk, so a padded entry
+  // resolves nothing and degrades the contamination graph rather than failing
+  // loudly. A blank entry names no run at all and is refused outright, matching
+  // how a blank approval is treated.
+  const collectionRuns = collectionRunsRaw.map((run) => run.trim());
+  if (collectionRuns.some((run) => run.length === 0)) {
+    lineageFail(`${source} requires every collection run id to be a non-empty identity.`, "empty_collection_run");
   }
   const trainingConfig = record["training_config"] ?? {};
   const environmentVersion = asString(record, "environment_version", source, false);
@@ -373,7 +382,7 @@ export function parseGenerationSpec(text: string, source: string): GenerationSpe
   return {
     base_checkpoint: baseCheckpoint,
     policy,
-    collection_runs: collectionRuns as string[],
+    collection_runs: collectionRuns,
     training_config: trainingConfig as JsonValue,
     environment_version: environmentVersion,
     reward_spec_version: rewardSpecVersion,

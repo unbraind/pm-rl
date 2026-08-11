@@ -381,6 +381,14 @@ test("parseGenerationSpec accepts the seed and a full candidate and refuses ever
   // promoted record storing "  a  " matches no approval id, so it consumes none
   // of a's budget while still counting as promoted everywhere else.
   assert.equal(parseGenerationSpec(JSON.stringify({ ...promotedBase, approval: "  a  " }), "g").approval, "a");
+  // collection_runs was the last stored identity list left un-normalized. It
+  // lives inside the JSON fence, which pm treats as opaque body text and does
+  // NOT normalize, so unlike the Run's typed `environment` field a padded entry
+  // here IS reachable — and each entry is resolved by strict id lookup during
+  // the ancestry walk, so it would resolve nothing and quietly degrade the
+  // contamination graph.
+  assert.deepEqual(parseGenerationSpec(JSON.stringify({ ...promotedBase, collection_runs: ["  run-a  ", "run-b"] }), "g").collection_runs, ["run-a", "run-b"]);
+  assert.throws(() => parseGenerationSpec(JSON.stringify({ ...promotedBase, collection_runs: ["run-a", "   "] }), "g"), /collection run id to be a non-empty identity/);
   // A blank approval is the same bypass without the padding: it is non-null, so
   // it satisfies the promotion-evidence invariant above, and it equals no
   // approval id. Storing an identity that names nothing is refused outright.
@@ -1326,6 +1334,51 @@ test("a peer edit under the lock survives the promoting write, and one that chan
   assert.match(finalBody, /"peer": "kept"/, "the peer edit to a field the decision does not consume must survive the promoting write");
 });
 
+test("a generation's affected_version survives promotion, because it pins provenance and not outcome", async () => {
+  // affected_version is a content identity for what a generation was trained
+  // FROM. Promotion legitimately rewrites the outcome fields, so hashing the
+  // whole specification would make the recorded identity disagree with the
+  // stored body the moment a generation is promoted — and any integrity check
+  // applying the re-hash rule that verifyEnvironmentIdentity applies to
+  // Environments would then report every promoted generation as mutated.
+  const { root, pmRoot, client, harness } = await workspace();
+  const env = await registerEnv(harness, pmRoot, root, "Grid");
+  const approval = await client.create({ id: "approval-1", title: "Approval", type: "Decision", status: "open", body: "# approval\n\n```json\n" + JSON.stringify({ permitted_promotions: 1 }) + "\n```" });
+  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed", "ckpt-seed");
+  const run = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-1"], options: { environment: env, algorithm: "ckpt-seed" } }));
+  const candidate = resultOf(await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-c1"], options: { baseCheckpoint: "ckpt-c1", parent: seed, policy: "ckpt-c1", collectionRuns: run.id, environment: env } }));
+  const before = String((await client.get(candidate.id!, { fields: "affected_version" })).item.affected_version);
+  await harness.runCommand({ command: "rl generation promote", pmRoot, args: [candidate.id!], options: { approval: approval.item.id, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "identity" } });
+  const after = await client.get(candidate.id!, { fields: "affected_version,body" });
+  assert.equal(String(after.item.affected_version), before, "the recorded identity must not move when the outcome is written");
+  // And it must still describe the stored body: re-deriving the provenance from
+  // the promoted spec reproduces the same hash.
+  const fenced = /```json\n([\s\S]+?)\n```/.exec(String(after.item.body));
+  const promotedSpec = JSON.parse(String(fenced?.[1])) as Record<string, unknown>;
+  assert.equal(promotedSpec["promoted"], true, "the body must actually be the promoted one");
+  assert.equal(hashJson({ base_checkpoint: promotedSpec["base_checkpoint"], policy: promotedSpec["policy"], collection_runs: promotedSpec["collection_runs"], training_config: promotedSpec["training_config"], environment_version: promotedSpec["environment_version"], reward_spec_version: promotedSpec["reward_spec_version"], parent: promotedSpec["parent"], seed: promotedSpec["seed"] } as never), before, "re-hashing the provenance of the promoted body must reproduce the recorded identity");
+});
+
+test("the SDK normalizes a Run's environment identity, which is what makes the strict-equality contamination compare safe", async () => {
+  // findContaminationPath compares environment identities by strict equality,
+  // so a Run recording `"  env  "` would match nothing and the evaluation set
+  // would become unreachable from the training data — the gate passing a
+  // candidate it exists to refuse.
+  //
+  // That is NOT reachable today: the pm SDK normalizes typed item fields, so
+  // even a hand-written padded value in the `.toon` reads back trimmed. This
+  // package depends on that, and the dependency belongs to another package, so
+  // it is asserted here rather than assumed. If the SDK ever stops trimming,
+  // this fails in pm-rl's own suite instead of showing up as a contaminated
+  // promotion that passed.
+  const { root, pmRoot, client, harness } = await workspace();
+  const env = await registerEnv(harness, pmRoot, root, "Grid");
+  const run = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-1"], options: { environment: env, algorithm: "ckpt-seed" } }));
+  await client.update(String(run.id), { environment: `  ${env}  `, message: "Attempt to store a padded environment identity" });
+  const readBack = await client.get(String(run.id), { fields: "environment" });
+  assert.equal(String(readBack.item.environment), env, "the SDK must normalize the stored environment identity; pm-rl's contamination compare relies on it");
+});
+
 test("an approval whose budget is lowered under the lock is honoured, not the capacity read before it", async () => {
   // The budget check compares two values: the count of promotions already made,
   // and the capacity the approval permits. Re-reading only the count leaves the
@@ -1400,11 +1453,20 @@ test("a revert that also fails reports both causes instead of hiding the close e
   const run = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-1"], options: { environment: env, algorithm: "ckpt-seed" } }));
   const candidate = resultOf(await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-c1"], options: { baseCheckpoint: "ckpt-c1", parent: seed, policy: "ckpt-c1", collectionRuns: run.id, environment: env } }));
   const failing = sdkWith(clientWithFailingCloseAndFailingRevert(new PmClient({ pmRoot, author: "pm-rl-test" })));
-  const failed = await harness.runCommand({ command: "rl generation promote", pmRoot, args: [candidate.id!], options: { approval: approval.item.id, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "x" }, sdk: failing });
-  assert.equal(failed.handled, false);
-  assert.match(String(failed.errorMessage), /close failed after the promoting write/, "the original close error must survive");
-  assert.match(String(failed.errorMessage), /revert of the promoting write also failed/, "and the revert failure must be reported alongside it");
-  assert.match(String(failed.errorMessage), /still reads as promoted while it was never closed/, "naming the state an operator has to repair");
+  // Reported through `fail`, so it is an EXPECTED command error with a stable
+  // code and exit status rather than a plain Error — this is the path an
+  // automated caller most needs to classify. The harness rejects on pm expected
+  // errors and captures anything else into errorMessage, so the rejection here
+  // is itself part of what is being asserted.
+  await assert.rejects(
+    harness.runCommand({ command: "rl generation promote", pmRoot, args: [candidate.id!], options: { approval: approval.item.id, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "x" }, sdk: failing }),
+    (error: Error) => {
+      assert.match(error.message, /close failed after the promoting write/, "the original close error must survive");
+      assert.match(error.message, /revert of the promoting write also failed/, "and the revert failure must be reported alongside it");
+      assert.match(error.message, /still reads as promoted while it was never closed/, "naming the state an operator has to repair");
+      return true;
+    },
+  );
 });
 
 test("a failed close restores the body that was current when the lock was taken, not the one read before it", async () => {
