@@ -255,13 +255,27 @@ test("parseGenerationSpec accepts the seed and a full candidate and refuses ever
   ] as Array<[string, RegExp]>) {
     assert.throws(() => parseGenerationSpec(text, "g"), message);
   }
-  // Absent promotion fields default to null; provided scores parse.
-  const withScores = JSON.stringify(spec({ base_checkpoint: "b", collection_runs: ["r"], parent: "p", policy: "x", environment_version: "e", reward_spec_version: "rw", proxy_score: score(2), held_out_score: null, seed: false }));
-  const parsedScores = parseGenerationSpec(withScores, "g");
-  assert.equal(parsedScores.proxy_score?.value, 2);
-  assert.equal(parsedScores.held_out_score, null);
-  assert.equal(parsedScores.gap, null);
-  assert.equal(parsedScores.promotion_evidence, null);
+  // The promotion invariant: approval, proxy_score, held_out_score and gap are
+  // non-null EXACTLY when promoted is true. A promoted record carrying all four
+  // parses; one missing any of them is refused.
+  const promotedBase = { base_checkpoint: "b", policy: "x", collection_runs: ["r"], training_config: {}, environment_version: "e", reward_spec_version: "rw", parent: "p", seed: false, promoted: true, approval: "a", proxy_score: score(2), held_out_score: score(3), gap: 1, promotion_evidence: "ev" };
+  const promoted = parseGenerationSpec(JSON.stringify(promotedBase), "g");
+  assert.equal(promoted.promoted, true);
+  assert.equal(promoted.proxy_score?.value, 2);
+  assert.equal(promoted.held_out_score?.value, 3);
+  assert.equal(promoted.gap, 1);
+  assert.equal(promoted.approval, "a");
+  // A promoted record missing any evidence field is refused.
+  for (const field of ["approval", "proxy_score", "held_out_score", "gap"] as const) {
+    const breaking = { ...promotedBase, [field]: null };
+    assert.throws(() => parseGenerationSpec(JSON.stringify(breaking), "g"), /promoted but is missing promotion evidence/);
+  }
+  // An unpromoted record carrying stale evidence is refused — it would let two
+  // consumers disagree about whether the record counts as promoted.
+  for (const field of ["approval", "proxy_score", "held_out_score", "gap"] as const) {
+    const breaking = { ...promotedBase, promoted: false, [field]: field === "approval" ? "a" : field === "gap" ? 1 : score(2), approval: field === "approval" ? "a" : null, proxy_score: field === "proxy_score" ? score(2) : null, held_out_score: field === "held_out_score" ? score(2) : null, gap: field === "gap" ? 1 : null };
+    assert.throws(() => parseGenerationSpec(JSON.stringify(breaking), "g"), /not promoted but carries promotion evidence/);
+  }
 });
 
 test("parseApprovalSpec treats the count as permitted promotions and refuses non-counts", () => {
@@ -287,6 +301,16 @@ test("the direction-aware gap is positive when the proxy leads, regardless of op
   assert.equal(directionAwareGap(minimizeProxy, minimizeHeldOut), (-2) - (-8));
   // Scores normalize to their declared scales before subtraction.
   assert.equal(directionAwareGap(score(10, "maximize", 5), score(8, "maximize", 2)), 2 - 4);
+  // Incomparable scores are refused: differing objective, version, or direction
+  // would yield a number that is not a gap (or add capabilities instead of subtracting).
+  assert.throws(() => directionAwareGap({ ...score(10), objective: "loss" }, score(8)), /not comparable.*objective.*episode_return/);
+  assert.throws(() => directionAwareGap({ ...score(10), objective_version: "obj-v2" }, score(8)), /not comparable.*objective_version/);
+  assert.throws(() => directionAwareGap(score(10, "maximize"), score(8, "minimize")), /not comparable.*direction/);
+  // A combined difference names every differing field.
+  assert.throws(
+    () => directionAwareGap({ ...score(10, "minimize"), objective: "loss", objective_version: "obj-v2" }, score(8)),
+    /not comparable.*objective.*objective_version.*direction/,
+  );
 });
 
 test("gap deltas align with their gaps and start null for the first promotion", () => {
@@ -301,6 +325,13 @@ test("isGapWidening requires strictly increasing gaps over the full window", () 
   assert.equal(isGapWidening([1, 2], 3), false);
   assert.equal(isGapWidening([1, 2, 2], 3), false);
   assert.equal(isGapWidening([1, 3, 2], 3), false);
+  // A trend needs at least two points: a window below 2 never reports widening.
+  assert.equal(isGapWidening([1], 1), false);
+  assert.equal(isGapWidening([1, 2], 1), false);
+  assert.equal(isGapWidening([1, 2], 0), false);
+  // Two points over a window of 2 is a real comparison and can widen.
+  assert.equal(isGapWidening([1, 2], 2), true);
+  assert.equal(isGapWidening([2, 1], 2), false);
 });
 
 /**
@@ -634,6 +665,31 @@ test("promotion refuses when the evaluation set is reachable from the candidate'
   );
 });
 
+test("promotion refuses incomparable proxy and held-out scores naming the differing fields", async () => {
+  const { root, pmRoot, client, harness } = await workspace();
+  const env = await registerEnv(harness, pmRoot, root, "Grid");
+  const approval = await client.create({ id: "approval-2", title: "Approval", type: "Decision", status: "open", body: "# approval\n\n```json\n" + JSON.stringify({ permitted_promotions: 2 }) + "\n```" });
+  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed");
+  await giveSeedPolicy(client, seed, "ckpt-seed", "ckpt-seed");
+  const run = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-1"], options: { environment: env, algorithm: "ckpt-seed" } }));
+  const candidate = resultOf(await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-c1"], options: { baseCheckpoint: "ckpt-c1", parent: seed, policy: "ckpt-c1", collectionRuns: run.id, environment: env } }));
+  // The proxy names a different objective than the held-out score: not a gap.
+  const incomparable = join(root, "incomparable.json");
+  writeFileSync(incomparable, JSON.stringify({
+    proxy_score: { objective: "loss", objective_version: "obj-v1", evaluation_context: "proxy-ctx", seed_set: "seed-set-1", direction: "minimize", scale: 1, value: 2 },
+    held_out_score: { objective: "episode_return", objective_version: "obj-v1", evaluation_context: "held-out-ctx", seed_set: "seed-set-1", direction: "maximize", scale: 1, value: 9 },
+  }));
+  await assert.rejects(
+    harness.runCommand({ command: "rl generation promote", pmRoot, args: [candidate.id!], options: { approval: approval.item.id, scores: incomparable, evidence: "x" } }),
+    (error: Error) => {
+      assert.match(error.message, /not comparable/);
+      assert.match(error.message, /objective.*loss.*episode_return/);
+      assert.match(error.message, /direction.*minimize.*maximize/);
+      return true;
+    },
+  );
+});
+
 test("promotion refuses to advance past the approved budget and names the item to extend", async () => {
   const { root, pmRoot, client, harness } = await workspace();
   const env = await registerEnv(harness, pmRoot, root, "Grid");
@@ -733,7 +789,12 @@ test("without a head the view enumerates every head, and invalid format or gap-w
   );
   await assert.rejects(
     harness.runCommand({ command: "rl lineage", pmRoot, args: [seed], options: { gapWindow: "0" } }),
-    /--gap-window must be a positive integer/,
+    /--gap-window must be an integer of at least 2/,
+  );
+  // A window of 1 is now refused: a trend needs at least two points.
+  await assert.rejects(
+    harness.runCommand({ command: "rl lineage", pmRoot, args: [seed], options: { gapWindow: "1" } }),
+    /--gap-window must be an integer of at least 2/,
   );
   const custom = resultOf(await harness.runCommand({ command: "rl lineage", pmRoot, args: [seed], options: { gapWindow: "2" } }));
   assert.ok(String(custom.details?.output).includes("head: "));

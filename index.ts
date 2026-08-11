@@ -530,11 +530,16 @@ async function findGenerationHeads(client: PmClient): Promise<string[]> {
   return allIds.filter((id) => !parentIds.has(id)).sort();
 }
 
-/** Parse a positive integer gap-window option. */
+/**
+ * Parse the gap-window option, requiring at least two consecutive gaps.
+ *
+ * A widening trend needs at least two points to compare, so a window below 2
+ * is refused rather than reported as widening for any single promotion.
+ */
 function parseGapWindow(raw: string): number {
   const value = Number(raw);
-  if (!Number.isInteger(value) || value < 1) {
-    fail(`pm rl lineage --gap-window must be a positive integer, got "${raw}".`, "invalid_gap_window");
+  if (!Number.isInteger(value) || value < 2) {
+    fail(`pm rl lineage --gap-window must be an integer of at least 2, got "${raw}".`, "invalid_gap_window");
   }
   return value;
 }
@@ -809,7 +814,7 @@ export const RL_COMMANDS = [
   defineCommand({ name: "rl generation show", description: "Show one generation and its lineage details.", arguments: [{ name: "id", required: true, description: "Generation item id." }], run: showGeneration }),
   defineCommand({ name: "rl lineage", description: "Render the generation chain from seed to head(s) with promotion evidence and invalidation state.", arguments: [{ name: "head", required: false, description: "Head generation id; omit to enumerate every head." }], flags: [
     { long: "--format", value_name: "table|json", value_type: "string", description: "Output format; defaults to table." },
-    { long: "--gap-window", value_name: "n", value_type: "string", description: "Number of consecutive gaps for the widening check; defaults to 3." },
+    { long: "--gap-window", value_name: "n", value_type: "string", description: "Number of consecutive gaps for the widening check (at least 2); defaults to 3." },
   ], run: renderLineageCommand }),
 ] as const;
 

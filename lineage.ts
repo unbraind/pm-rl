@@ -313,6 +313,29 @@ export function parseGenerationSpec(text: string, source: string): GenerationSpe
   if (promotionEvidence !== null && promotionEvidence !== undefined && typeof promotionEvidence !== "string") {
     lineageFail(`${source} requires promotion_evidence to be a string or null.`, "invalid_promotion_evidence");
   }
+  // The promotion invariant: approval, proxy_score, held_out_score and gap are
+  // non-null EXACTLY when promoted is true. A promoted record missing any of
+  // them lets countPromotedUnderApproval count it against no approval while
+  // renderLineageTable renders it as a candidate — two consumers disagreeing
+  // about one record. An unpromoted record carrying stale evidence is the same
+  // disagreement in reverse. Enforce both directions so the record is unambiguous.
+  const evidenceFields = [
+    { name: "approval", value: approval as string | null },
+    { name: "proxy_score", value: proxyScore },
+    { name: "held_out_score", value: heldOutScore },
+    { name: "gap", value: gap as number | null },
+  ];
+  if (promoted) {
+    const missing = evidenceFields.filter((field) => field.value === null).map((field) => field.name);
+    if (missing.length > 0) {
+      lineageFail(`${source} is promoted but is missing promotion evidence: ${missing.join(", ")}. A promoted generation must carry its approval, both scores, and its gap.`, "promoted_missing_evidence");
+    }
+  } else {
+    const present = evidenceFields.filter((field) => field.value !== null).map((field) => field.name);
+    if (present.length > 0) {
+      lineageFail(`${source} is not promoted but carries promotion evidence: ${present.join(", ")}. An unpromoted generation must not carry approval, scores, or a gap.`, "unpromoted_with_evidence");
+    }
+  }
   return {
     base_checkpoint: baseCheckpoint,
     policy,
@@ -369,11 +392,37 @@ export function parseApprovalSpec(text: string, source: string): ApprovalSpec {
  * `minimize` objective's capability is its negation, so lower is better maps to
  * higher capability.
  *
+ * The two scores must be comparable: they must share the same objective,
+ * objective version, and optimization direction. Subtracting scores that name
+ * different objectives yields a number that is not a gap, and a `maximize`
+ * proxy subtracted from a `minimize` held-out score adds two capabilities
+ * instead of measuring drift. Such a pair is refused rather than persisted as
+ * promotion evidence.
+ *
  * @param proxy - The proxy score (the quantity training optimized).
  * @param heldOut - The held-out score on the pinned evaluation set.
  * @returns The direction-aware gap, positive when the proxy is ahead.
+ * @throws {incomparable_scores} When the two scores differ in objective,
+ *   objective version, or direction, naming both differing values.
  */
 export function directionAwareGap(proxy: ScoreRecord, heldOut: ScoreRecord): number {
+  const differences: string[] = [];
+  if (proxy.objective !== heldOut.objective) {
+    differences.push(`objective (proxy "${proxy.objective}" vs held-out "${heldOut.objective}")`);
+  }
+  if (proxy.objective_version !== heldOut.objective_version) {
+    differences.push(`objective_version (proxy "${proxy.objective_version}" vs held-out "${heldOut.objective_version}")`);
+  }
+  if (proxy.direction !== heldOut.direction) {
+    differences.push(`direction (proxy "${proxy.direction}" vs held-out "${heldOut.direction}")`);
+  }
+  if (differences.length > 0) {
+    lineageFail(
+      `Promotion refused: the proxy and held-out scores are not comparable. ${differences.join("; ")}. Both scores must share the same objective, objective version, and direction.`,
+      "incomparable_scores",
+      EXIT_CODE.CONFLICT,
+    );
+  }
   const proxyCapability = proxy.direction === "maximize" ? proxy.value / proxy.scale : -(proxy.value / proxy.scale);
   const heldOutCapability = heldOut.direction === "maximize" ? heldOut.value / heldOut.scale : -(heldOut.value / heldOut.scale);
   return proxyCapability - heldOutCapability;
@@ -410,14 +459,18 @@ export function gapDeltas(gaps: readonly (number | null)[]): (number | null)[] {
  * The widening rule is a comparison of the gap across a window of consecutive
  * promotions along one explicitly selected ancestry, never across a mixture of
  * branches. A gap is widening when the last `window` promoted generations' gaps
- * are strictly increasing. If fewer than `window` gaps exist, there is not yet
- * enough data to call the trend, and the function returns false.
+ * are strictly increasing. A trend needs at least two points: a window below 2
+ * has no comparison to make, so the function returns false rather than reporting
+ * widening for any single promoted generation. If fewer than `window` gaps
+ * exist, there is not yet enough data to call the trend, and the function returns
+ * false.
  *
  * @param gaps - One gap per promoted generation, in ancestry order (seed to head).
- * @param window - Number of consecutive gaps to compare.
+ * @param window - Number of consecutive gaps to compare; must be at least 2.
  * @returns True when the last `window` gaps are strictly increasing.
  */
 export function isGapWidening(gaps: readonly (number | null)[], window: number): boolean {
+  if (window < 2) return false;
   const promoted = gaps.filter((gap): gap is number => gap !== null);
   if (promoted.length < window) return false;
   const recent = promoted.slice(-window);

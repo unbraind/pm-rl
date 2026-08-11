@@ -99,10 +99,19 @@ The first slice fails closed when context would otherwise become misleading:
    promoted under an approval item and refuses beyond the permitted count, directing the caller to
    extend the approval. This is the property that keeps a recursive loop from running unattended
    further than a human authorized.
+5. **Incomparable scores cannot form a gap.** The proxy and held-out scores must share the same
+   objective, objective version, and optimization direction. Subtracting scores that name different
+   objectives yields a number that is not a gap, and a `maximize` proxy against a `minimize` held-out
+   score adds capabilities instead of measuring drift; both are refused (`incomparable_scores`),
+   naming the differing fields. A generation spec is also refused when its promotion evidence is
+   inconsistent — promoted records must carry their approval, both scores, and their gap, and
+   unpromoted records must carry none of them (`promoted_missing_evidence` / `unpromoted_with_evidence`),
+   so two consumers never disagree about whether a record counts as promoted.
 
 All exit non-zero. The roadmap keeps a further hard refusal—ranking across incompatible
 environment versions—but no leaderboard command is registered until that graph-derived check is
-implemented and accepted.
+implemented and accepted. The gap-widening check needs at least two consecutive gaps, so
+`rl lineage --gap-window` requires an integer of at least 2.
 
 ## Recursive self-improvement, and the four properties that make it honest
 
