@@ -356,7 +356,12 @@ export function parseGenerationSpec(text: string, source: string): GenerationSpe
     training_config: trainingConfig as JsonValue,
     environment_version: environmentVersion,
     reward_spec_version: rewardSpecVersion,
-    parent: parent as string | null,
+    // Trimmed before storing, not only before validating. The stored value is
+    // compared by strict equality for ancestry lookup and head exclusion, so a
+    // padded `" gen-a "` would fail to resolve its parent AND fail to exclude
+    // `gen-a` from the head set — the same padded-identity class as the
+    // contamination gate bypass.
+    parent: typeof parent === "string" ? parent.trim() : null,
     seed,
     promoted,
     approval: approval as string | null,

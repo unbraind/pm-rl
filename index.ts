@@ -419,7 +419,6 @@ function extractGenerationSpec(body: string, source: string): GenerationSpec {
   return parseGenerationSpec(fenced[1], source);
 }
 
-/** Verify an environment is content-addressed and return its id and reward-spec hash. */
 /**
  * Re-verify an Environment still matches its content-addressed identity.
  *
@@ -455,6 +454,7 @@ async function verifyEnvironmentIdentity(client: PmClient, environmentId: string
   return { id: String(environment.item.id), spec: storedSpec };
 }
 
+/** Verify an environment is content-addressed and return its id and reward-spec hash. */
 async function verifyEnvironmentForGeneration(client: PmClient, envId: string): Promise<{ id: string; rewardSpecHash: string }> {
   const verified = await verifyEnvironmentIdentity(client, envId, "generations");
   return { id: verified.id, rewardSpecHash: hashJson(verified.spec.reward_specification) };
