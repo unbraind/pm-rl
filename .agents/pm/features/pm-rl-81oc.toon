@@ -6,16 +6,16 @@ status: closed
 priority: 1
 tags: []
 created_at: "2026-08-04T20:49:37.421Z"
-updated_at: "2026-08-10T23:05:14.615Z"
+updated_at: "2026-08-11T19:35:12.132Z"
 closed_at: "2026-08-10T23:05:14.598Z"
 completed_at: "2026-08-10T23:05:14.598Z"
 claim_principal: pi-agent
 author: claude
 estimated_minutes: 720
-acceptance_criteria: "A generation with no parent is accepted as the seed generation and reports itself as such; every later generation requires a parent that exists and is itself promoted; the collection runs named by a generation must reference the parent's policy and are refused when they do not; the recorded base checkpoint, environment version and reward-spec version identities are content-addressed so a silently swapped artifact fails to resolve; an edit to an environment or reward specification is reachable in reverse to every generation whose collection runs used it, transitively through the parent chain; the declared edge types are enumerated in the specification rather than inferred"
+acceptance_criteria: "A generation with no parent is accepted as the seed generation and reports itself as such; every later generation requires a parent that exists and is either the registered seed or itself promoted, so a seed may parent a candidate without being promoted while any non-seed parent must be; the collection runs named by a generation must reference the parent's policy and are refused when they do not; the recorded base checkpoint, environment version and reward-spec version identities are content-addressed so a silently swapped artifact fails to resolve; an edit to an environment or reward specification is reachable in reverse to every generation whose collection runs used it, transitively through the parent chain; the declared edge types are enumerated in the specification rather than inferred"
 resolution: Added test/lineage.test.ts exercising generation registration and ancestry building.
-expected_result: A generation with no parent is the seed; later generations require a promoted parent; collection runs reference the parent policy; provenance identities are content-addressed.
-actual_result: test/lineage.test.ts passes; index.ts and lineage.ts at 100/100/100 lines/branches/functions.
+expected_result: "A generation with no parent is the seed; a later generation requires a parent that is the seed or a promoted generation, refused as parent_not_promoted otherwise; collection runs reference the parent policy; provenance identities are content-addressed."
+actual_result: "test/lineage.test.ts passes, including the registered-seed exception and the parent_not_promoted refusal for a non-seed parent; index.ts and lineage.ts at 100/100/100 lines/branches/functions."
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rl-yi7j,parent,"2026-08-04T20:49:37.421Z",claude,"cli:create:dep",detected
 comments[1]{created_at,author,text}:

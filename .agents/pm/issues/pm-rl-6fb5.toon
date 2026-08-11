@@ -6,11 +6,12 @@ status: closed
 priority: 2
 tags: []
 created_at: "2026-08-10T23:30:50.506Z"
-updated_at: "2026-08-11T11:24:48.476Z"
+updated_at: "2026-08-11T19:35:27.113Z"
 closed_at: "2026-08-11T04:38:33.993Z"
 completed_at: "2026-08-11T04:38:33.993Z"
 author: "harness:claude-code"
-resolution: Invalidation now propagates forward to descendants naming the ancestor; env check memoized across heads.
+resolution: "Invalidation propagates forward to descendants naming the nearest invalidated ancestor, and the environment check is memoized across heads. Head enumeration derives the lineage edge from the specification parent rather than the pm parent field, skips an unreadable generation before it joins the id list so one malformed body cannot fail the view for every ancestry, and reads a parent identity that parseGenerationSpec has already trimmed."
+actual_result: "test/lineage.test.ts covers forward propagation, the divergent-parent case where the specification and pm parent disagree, and the malformed-generation case where one unreadable body must not remove other ancestries from the view."
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rl-yi7j,parent,"2026-08-10T23:31:11.711Z","harness:claude-code","cli:update:dep",detected
 comments[2]{created_at,author,text}:
@@ -22,5 +23,5 @@ files[3]{path,scope,note}:
   test/lineage.test.ts,project,descendant fixture + pure propagation test
 tests[1]{command,scope}:
   "name=buildLineageAncestry propagates invalidation forward to descendants naming the ancestor,result=pass",project
-close_reason: Invalidation now propagates forward to descendants naming the ancestor; env check memoized across heads.
+close_reason: "Invalidation propagates forward to descendants naming the nearest invalidated ancestor, and the environment check is memoized across heads. Head enumeration derives the lineage edge from the specification parent rather than the pm parent field, skips an unreadable generation before it joins the id list so one malformed body cannot fail the view for every ancestry, and reads a parent identity that parseGenerationSpec has already trimmed."
 body: ""

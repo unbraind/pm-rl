@@ -540,7 +540,22 @@ async function buildAncestry(client: PmClient, headId: string, strict: boolean):
   const ancestry: AncestryEntry[] = [];
   const visited = new Set<string>();
   let currentId: string | null = headId;
-  while (currentId !== null && !visited.has(currentId)) {
+  while (currentId !== null) {
+    if (visited.has(currentId)) {
+      // A repeat means the parent chain loops, so the walk can never reach a
+      // seed. Truncating silently is safe for the VIEW, which stays tolerant of
+      // degraded provenance, but not for the strict path: findContaminationPath
+      // compares only the generations this walk returned, so an environment
+      // reachable only past the repeat point is never compared and a
+      // contaminated candidate passes a gate that reported nothing wrong. Two
+      // hand-authored generation bodies are enough to construct the cycle, and
+      // hand-authored bodies are the reachable path for every other refusal in
+      // this module.
+      if (strict) {
+        fail(`Promotion refused: generation ${currentId} appears twice in its own parent chain, so the ancestry cannot be walked back to a seed and the contamination graph is incomplete.`, "lineage_cycle", EXIT_CODE.CONFLICT);
+      }
+      break;
+    }
     visited.add(currentId);
     const item = await getTypedItem(client, currentId, "Generation");
     const spec = extractGenerationSpec(String(item.item.body), `Generation ${currentId}`);
@@ -842,7 +857,12 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
     promotion_evidence: evidence,
   };
   const promotedBody = `# ${id}\n\n\`\`\`json\n${JSON.stringify(promotedSpec, null, 2)}\n\`\`\``;
-  const originalBody = String(generation.item.body);
+  // Seeded from the pre-lock read and REPLACED by the in-lock re-read below.
+  // Restoring the pre-lock body would discard an edit another writer landed
+  // between that read and the lock: this value is written back on a failed
+  // close, so it must be the body that was current when the promoting write
+  // overwrote it, not the one this caller happened to see first.
+  let bodyBeforePromotion = String(generation.item.body);
   // Revert the promoting write. The coordinator compensates steps it has already
   // recorded as applied, and a single-step plan has none — verified empirically:
   // a step whose `apply` throws runs inspect, apply, then propagates, never
@@ -851,7 +871,7 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
   // generation never legitimately spent. It is also wired as the step's
   // `compensate` so a future multi-step plan reverts through the same path.
   const revertPromotingWrite = async (): Promise<void> => {
-    await client.update(id, { body: originalBody, message: "Revert interrupted pm-rl promotion" });
+    await client.update(id, { body: bodyBeforePromotion, message: "Revert interrupted pm-rl promotion" });
   };
   let promotedCount = 0;
   let closedStatus = "";
@@ -883,7 +903,8 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
         // generation. Only a re-check inside the critical section makes "a
         // generation promotes at most once" true under concurrency.
         const current = await getTypedItem(client, id, "Generation");
-        const currentSpec = extractGenerationSpec(String(current.item.body), `Generation ${id}`);
+        bodyBeforePromotion = String(current.item.body);
+        const currentSpec = extractGenerationSpec(bodyBeforePromotion, `Generation ${id}`);
         if (currentSpec.promoted) {
           fail(`Generation ${id} is already promoted.`, "already_promoted", EXIT_CODE.CONFLICT);
         }

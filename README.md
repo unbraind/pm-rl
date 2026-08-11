@@ -134,7 +134,7 @@ The first slice fails closed when context would otherwise become misleading:
 All exit non-zero. The roadmap keeps a further hard refusal—ranking across incompatible
 environment versions—but no leaderboard command is registered until that graph-derived check is
 implemented and accepted. The gap-widening check needs at least two consecutive gaps, so
-`rl lineage --gap-window` requires an integer of at least 2.
+`pm rl lineage --gap-window` requires an integer of at least 2.
 
 ## Recursive self-improvement, and the four properties that make it honest
 
@@ -165,7 +165,9 @@ traversal of the environment and reward-spec edges the graph contract requires. 
 [`pm rl lineage`](.agents/pm/features/pm-rl-32a9.toon) renders one ancestry from the seed to
 a named head with each hop's promotion evidence **and** its invalidation state — the column that
 actually decides what to train next. A generation can have more than one promoted successor, so
-the head is named explicitly and trends are never computed across branches.
+gap trends are computed within a single ancestry and never across branches. Both selections are
+supported: `pm rl lineage <id>` renders the one ancestry ending at that head, and `pm rl lineage`
+with no id enumerates every head and renders each ancestry separately.
 
 The first environment this targets is deliberately unglamorous: [the fleet's own mandatory
 gates](.agents/pm/features/pm-rl-0cqg.toon). An agent proposes a diff to a pm package, and the

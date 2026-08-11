@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
 
-import { PmClient } from "@unbrained/pm-cli/sdk/core";
+import { PmClient, type GetResult } from "@unbrained/pm-cli/sdk/core";
 import { init } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness, type ExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 
@@ -199,6 +199,37 @@ function clientWithIdlessGenerationRow(real: PmClient): PmClient {
  * already reads as promoted while the item is still open. Every other call is
  * delegated to the real client, so the workspace and its history stay real.
  */
+/**
+ * A client whose `close` fails, and which lands ONE concurrent body edit on the
+ * first `getTypedItem`-style read of the target — standing in for a peer writer
+ * that commits between this caller's pre-lock read and its acquisition of the
+ * writer lock.
+ */
+function clientWithConcurrentEditThenFailingClose(real: PmClient, targetId: string, concurrentBody: string): PmClient {
+  let edited = false;
+  return new Proxy(real, {
+    get(target, property, receiver) {
+      if (property === "close") {
+        return async () => {
+          throw new Error("close failed after the promoting write");
+        };
+      }
+      if (property === "get") {
+        return async (...arguments_: unknown[]) => {
+          const result = await (Reflect.get(target, "get", receiver) as (...a: unknown[]) => Promise<GetResult>).apply(target, arguments_);
+          if (!edited && arguments_[0] === targetId) {
+            edited = true;
+            await real.update(targetId, { body: concurrentBody, message: "Concurrent peer edit" });
+          }
+          return result;
+        };
+      }
+      const value = Reflect.get(target, property, receiver);
+      return typeof value === "function" ? (value as (...arguments_: unknown[]) => unknown).bind(target) : value;
+    },
+  }) as PmClient;
+}
+
 function clientWithFailingClose(real: PmClient): PmClient {
   return new Proxy(real, {
     get(target, property, receiver) {
@@ -1055,7 +1086,7 @@ test("an edited environment marks every downstream generation invalidated in the
   assert.match(String(after.details?.output), new RegExp(`${escapeId(genA.id!)} .* environment was edited`));
   assert.match(String(after.details?.output), new RegExp(`${escapeId(genB.id!)} .* invalidated by ancestor ${escapeId(genA.id!)}`));
   // A generation whose environment does not resolve is reported as ABSENT, not as edited.
-  const ghostSpec = { ...seedSpec("ckpt-g", ""), environment_version: "ghost-env-v1", parent: "rl-gen-seed", seed: false, policy: "g", collection_runs: ["ghost-run"], reward_spec_version: "r" };
+  const ghostSpec = { ...seedSpec("ckpt-g", ""), environment_version: "ghost-env-v1", parent: seed, seed: false, policy: "g", collection_runs: ["ghost-run"], reward_spec_version: "r" };
   await client.create({ id: "gen-ghost", title: "Ghost", type: "Generation", status: "open", ...generationBody(ghostSpec) });
   const ghostLineage = resultOf(await harness.runCommand({ command: "rl lineage", pmRoot, args: ["gen-ghost"] }));
   assert.match(String(ghostLineage.details?.output), /gen-ghost .* environment could not be resolved/);
@@ -1194,6 +1225,69 @@ test("concurrent promotions against a budget never let more than the permitted c
   }
 });
 
+test("a cyclic parent chain is refused on the strict path instead of truncating the contamination walk", async () => {
+  // buildAncestry stopped at the first repeat and returned a TRUNCATED ancestry
+  // with no error. On the strict path findContaminationPath then compares only
+  // the generations the walk reached, so an environment reachable only past the
+  // repeat point is never compared and a contaminated candidate passes a gate
+  // that reported nothing wrong. Two generation bodies build the cycle, and
+  // hand-authored bodies are the reachable path for every refusal in this
+  // module — `parent_not_promoted` is enforced at register time, not here.
+  const { root, pmRoot, client, harness } = await workspace();
+  const env = await registerEnv(harness, pmRoot, root, "Grid");
+  const approval = await client.create({ id: "approval-1", title: "Approval", type: "Decision", status: "open", body: "# approval\n\n```json\n" + JSON.stringify({ permitted_promotions: 5 }) + "\n```" });
+  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed", "ckpt-seed");
+  const run = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-1"], options: { environment: env, algorithm: "ckpt-seed" } }));
+  const candidate = resultOf(await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-c1"], options: { baseCheckpoint: "ckpt-c1", parent: seed, policy: "ckpt-c1", collectionRuns: run.id, environment: env } }));
+  // A second generation whose spec is a valid non-seed record, parented to the
+  // candidate; then repoint the candidate at it. Both bodies stay parseable, so
+  // the walk reaches the repeat rather than failing earlier on a malformed one.
+  const c1Body = String((await client.get(candidate.id!, { fields: "body" })).item.body);
+  const partner = await client.create({ id: "gen-c2", title: "Partner", type: "Generation", status: "open", body: c1Body.replace('"base_checkpoint": "ckpt-c1"', '"base_checkpoint": "ckpt-c2"').replace(new RegExp(`"parent": ${JSON.stringify(seed)}`), `"parent": ${JSON.stringify(candidate.id!)}`) });
+  await client.update(candidate.id!, { body: c1Body.replace(new RegExp(`"parent": ${JSON.stringify(seed)}`), `"parent": ${JSON.stringify(String(partner.item.id))}`), message: "Author a parent cycle" });
+  await assert.rejects(
+    harness.runCommand({ command: "rl generation promote", pmRoot, args: [candidate.id!], options: { approval: approval.item.id, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "cyclic" } }),
+    (error: Error) => {
+      assert.match(error.message, /appears twice in its own parent chain/, "the refusal must name the cycle, not a downstream symptom");
+      return true;
+    },
+  );
+  // The tolerant VIEW still renders: a degraded lineage is still useful, and
+  // only the gate that decides a promotion may refuse on it. A third
+  // generation hanging off the cycle is what makes the tolerant path
+  // reachable — neither cycle member is a head, since each is the other's
+  // parent, so head enumeration would never walk into the loop without it.
+  const descendant = await client.create({ id: "gen-c3", title: "Descendant", type: "Generation", status: "open", body: c1Body.replace('"base_checkpoint": "ckpt-c1"', '"base_checkpoint": "ckpt-c3"').replace(new RegExp(`"parent": ${JSON.stringify(seed)}`), `"parent": ${JSON.stringify(candidate.id!)}`) });
+  const view = resultOf(await harness.runCommand({ command: "rl lineage", pmRoot }));
+  assert.match(String(view.details?.output), new RegExp(`head: ${String(descendant.item.id)}`), "the head whose chain enters the cycle still renders");
+  assert.doesNotMatch(String(view.details?.output), /appears twice in its own parent chain/, "the view must not surface the promotion refusal");
+});
+
+test("a failed close restores the body that was current when the lock was taken, not the one read before it", async () => {
+  // `revertPromotingWrite` writes a captured body back over the promoting write.
+  // Capturing it from the PRE-LOCK read discards any edit a peer landed between
+  // that read and the lock: the revert would resurrect a body the peer had
+  // already replaced, and the peer's write would be gone with no receipt. The
+  // in-lock re-read is the only body that was actually overwritten.
+  const { root, pmRoot, client, harness } = await workspace();
+  const env = await registerEnv(harness, pmRoot, root, "Grid");
+  const approval = await client.create({ id: "approval-1", title: "Approval", type: "Decision", status: "open", body: "# approval\n\n```json\n" + JSON.stringify({ permitted_promotions: 1 }) + "\n```" });
+  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed", "ckpt-seed");
+  const run = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-1"], options: { environment: env, algorithm: "ckpt-seed" } }));
+  const candidate = resultOf(await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-c1"], options: { baseCheckpoint: "ckpt-c1", parent: seed, policy: "ckpt-c1", collectionRuns: run.id, environment: env } }));
+  // The peer's edit keeps the record a valid unpromoted generation, so the
+  // in-lock re-read parses and the promotion proceeds to the failing close.
+  const original = await client.get(candidate.id!, { fields: "body" });
+  const peerBody = String(original.item.body).replace(/"base_checkpoint": "[^"]*"/, '"base_checkpoint": "ckpt-peer-edited"');
+  assert.notEqual(peerBody, String(original.item.body), "the peer edit must actually differ, or this test proves nothing");
+  const sdk = sdkWith(clientWithConcurrentEditThenFailingClose(new PmClient({ pmRoot, author: "pm-rl-test" }), candidate.id!, peerBody));
+  const failed = await harness.runCommand({ command: "rl generation promote", pmRoot, args: [candidate.id!], options: { approval: approval.item.id, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "x" }, sdk });
+  assert.equal(failed.handled, false);
+  const reread = await client.get(candidate.id!, { fields: "body" });
+  assert.doesNotMatch(String(reread.item.body), /"promoted": true/, "the promoting write must still be reverted");
+  assert.match(String(reread.item.body), /ckpt-peer-edited/, "the revert must restore the peer's body, not the pre-lock one it never saw");
+});
+
 test("a promotion whose close fails reverts its own body write rather than leaving budget consumed", async () => {
   const { root, pmRoot, client, harness } = await workspace();
   const failing = sdkWith(clientWithFailingClose(new PmClient({ pmRoot, author: "pm-rl-test" })));
@@ -1234,7 +1328,15 @@ test("concurrent promotions of the SAME generation promote it exactly once", asy
   const successes = settled.filter((r) => r.status === "fulfilled").length;
   assert.equal(successes, 1, `one generation must promote exactly once, but ${successes} promotions succeeded`);
   for (const rejected of settled.filter((r) => r.status === "rejected")) {
-    assert.match(String((rejected as PromiseRejectedResult).reason), /is already promoted/);
+    // Two outcomes are correct for a loser, exactly as in the budget race
+    // above. `is already promoted` is reported by a caller that ACQUIRES the
+    // lock and re-reads the state; a caller that exceeds the bounded
+    // PROMOTION_LOCK_WAIT_MS never gets to re-read and reports the lock owner
+    // instead. Demanding only the first asserts a stronger property than the
+    // system provides, and would fail intermittently on a slower machine for a
+    // reason unrelated to the guarantee under test. What must never appear is a
+    // second promotion, which the successes assertion above already pins.
+    assert.match(String((rejected as PromiseRejectedResult).reason), /is already promoted|is locked \(owner /, `unexpected refusal reason: ${String((rejected as PromiseRejectedResult).reason)}`);
   }
   // And it consumed exactly one unit of the budget, not one per caller. The
   // next candidate needs its own run, collected under the promoted parent's policy.
