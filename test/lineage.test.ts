@@ -1100,6 +1100,17 @@ test("a generation whose environment lacks a hash or a specification fence repor
   await client.create({ id: "gen-nofence", title: "NoFence", type: "Generation", status: "open", ...generationBody(noFenceSpec) });
   const noFenceLineage = resultOf(await harness.runCommand({ command: "rl lineage", pmRoot, args: ["gen-nofence"] }));
   assert.match(String(noFenceLineage.details?.output), /gen-nofence .* environment specification is unreadable/);
+  // A fence that is PRESENT but does not parse is unreadable too, not
+  // unresolvable. Before the parse was given its own catch, the failure fell
+  // through to the outer one and reported "environment could not be resolved" -
+  // which tells an operator the item is absent when it exists and its body is
+  // the problem. The two reasons send them to different places.
+  const badFenceEnv = await client.create({ id: "env-badfence", title: "BadFence", type: "Environment", status: "open", affectedVersion: hashJson({ x: 1 }), body: "# env\n\n```json\n{ not valid json\n```" });
+  const badFenceSpec = spec({ base_checkpoint: "ckpt-c", environment_version: badFenceEnv.item.id });
+  await client.create({ id: "gen-badfence", title: "BadFence", type: "Generation", status: "open", ...generationBody(badFenceSpec) });
+  const badFenceLineage = resultOf(await harness.runCommand({ command: "rl lineage", pmRoot, args: ["gen-badfence"] }));
+  assert.match(String(badFenceLineage.details?.output), /gen-badfence .* environment specification is unreadable/);
+  assert.doesNotMatch(String(badFenceLineage.details?.output), /gen-badfence .* environment could not be resolved/, "a present but unparseable body must not be reported as an absent environment");
 });
 
 test("environmentInvalidationReason treats an empty environment id as not invalidated", async () => {

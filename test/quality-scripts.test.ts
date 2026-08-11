@@ -3,7 +3,8 @@
  */
 
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -277,33 +278,44 @@ test("docstring gate isMainInvocation throws rather than skipping the gate when 
   }
 });
 
-test("every relative import the built entry point makes is inside the published files list", () => {
+test("the packed tarball can actually be imported, so no reachable module is left unpublished", () => {
   // `pack:dry-run` lists file NAMES; it never resolves an import. That is how a
   // package whose entry point imports a module the `files` array omits passes
-  // `release:check` and then fails at import time for anyone who installs it.
-  // This resolves the graph instead: from dist/index.js, every relative import
-  // it reaches must be matched by a `files` pattern.
-  const packageJson = JSON.parse(readFileSync(resolve(import.meta.dirname, "../package.json"), "utf8")) as { files: string[] };
-  const distRoot = resolve(import.meta.dirname, "../dist");
-  const seen = new Set<string>();
-  const pending = ["index.js"];
-  while (pending.length > 0) {
-    const relative = pending.pop()!;
-    if (seen.has(relative)) continue;
-    seen.add(relative);
-    const source = readFileSync(join(distRoot, relative), "utf8");
-    for (const match of source.matchAll(/from\s*"(\.\/[^"]+\.js)"/g)) {
-      pending.push(match[1]!.slice(2));
-    }
+  // `release:check` and then fails at import time for anyone who installs it —
+  // which happened here once, with `dist/lineage.js` absent from the tarball.
+  //
+  // This deliberately does NOT parse imports. The previous form walked the graph
+  // with a regex matching only double-quoted `from "./x.js"`, so `../` paths,
+  // single quotes, side-effect imports and dynamic `import()` all evaded it, and
+  // a module reachable through any of those could stay unpublished with the gate
+  // green. Regex is not a parser, and the repo pins a TypeScript whose compiler
+  // API is unavailable at runtime, so there is no parser to reach for either.
+  //
+  // Enumerating emitted modules instead does not work: the build also emits
+  // `dist/scripts/**`, which is release tooling that is correctly unpublished.
+  //
+  // So this asserts the property directly rather than approximating it. The real
+  // tarball is packed, extracted, and imported. Node resolves the graph, so
+  // every import form is covered by construction, and a missing module fails as
+  // ERR_MODULE_NOT_FOUND. Extraction happens INSIDE the repo so that the
+  // extracted entry point resolves `@unbrained/pm-cli` up the directory chain
+  // through the repo's own node_modules, exactly as an installed copy would.
+  const repoRoot = resolve(import.meta.dirname, "..");
+  const scratch = mkdtempSync(join(repoRoot, ".pack-import-"));
+  try {
+    const packed = execFileSync(process.platform === "win32" ? "npm.cmd" : "npm", ["pack", "--silent", "--pack-destination", scratch], { cwd: repoRoot, encoding: "utf8", shell: process.platform === "win32" }).trim().split("\n").pop()!;
+    execFileSync("tar", ["-xzf", join(scratch, packed), "-C", scratch]);
+    const entry = join(scratch, "package", "dist", "index.js");
+    // Imported in a CHILD process, not this one. A dynamic import is the only
+    // way to load a path computed at runtime, and this repo forbids them; a
+    // child also keeps a second copy of the extension - which registers item
+    // types on load - out of the test process. Importing IS the assertion: a
+    // `files` array omitting any reachable module makes it exit non-zero with
+    // ERR_MODULE_NOT_FOUND. The marker confirms the entry produced the
+    // extension definition, so a silently empty module cannot pass as success.
+    const probe = execFileSync(process.execPath, ["--input-type=module", "-e", `const m = await import(${JSON.stringify(pathToFileURL(entry).href)}); if (m.default === undefined) { console.error("no default export"); process.exit(2); } console.log("packed-entry-imported");`], { cwd: scratch, encoding: "utf8" });
+    assert.match(probe, /packed-entry-imported/, "the packed entry point must import and export the extension definition");
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
   }
-  // A `files` entry like `dist/index.*` covers `dist/index.js`; compare on the
-  // basename stem so the glob shape does not have to be reimplemented here.
-  const publishedStems = new Set(packageJson.files
-    .filter((entry) => entry.startsWith("dist/"))
-    .map((entry) => entry.slice("dist/".length).replace(/\.\*$/, "")));
-  for (const relative of seen) {
-    const stem = relative.replace(/\.js$/, "");
-    assert.ok(publishedStems.has(stem), `dist/${relative} is imported from the built entry point but no "files" pattern publishes it; add "dist/${stem}.*" to package.json files`);
-  }
-  assert.ok(seen.has("lineage.js"), "the entry point must reach lineage.js, or this test is not exercising the import graph");
 });

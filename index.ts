@@ -476,7 +476,8 @@ async function verifyEnvironmentForGeneration(client: PmClient, envId: string): 
  *   `environment could not be resolved`;
  * - it resolves but carries no recorded specification identity
  *   (`affected_version`) → `environment has no recorded specification identity`;
- * - it has an identity but no parseable JSON fence → `environment specification is unreadable`;
+ * - it has an identity but its JSON fence is absent or does not parse →
+ *   `environment specification is unreadable`;
  * - the stored body no longer hashes to the recorded identity → `environment was edited`.
  *
  * An empty `envId` (the seed records none) returns null: the seed has no
@@ -498,7 +499,18 @@ export async function environmentInvalidationReason(client: PmClient, envId: str
     const fenced = JSON_SPEC_FENCE.exec(String(environment.item.body));
     const envJson = fenced?.[1];
     if (envJson === undefined) return "environment specification is unreadable";
-    const storedSpec = parseEnvironmentSpec(envJson, `Environment ${envId}`);
+    // Parsed inside its own try so an invalid fence is reported as unreadable
+    // rather than falling through to the outer catch, which reports the
+    // environment as unresolvable. Those say different things to an operator:
+    // unresolvable reads as the item being absent, when in fact it exists and
+    // its body cannot be parsed. Only the resolution itself belongs to the
+    // outer catch.
+    let storedSpec: EnvironmentSpec;
+    try {
+      storedSpec = parseEnvironmentSpec(envJson, `Environment ${envId}`);
+    } catch {
+      return "environment specification is unreadable";
+    }
     return hashJson(storedSpec) !== specHash ? "environment was edited" : null;
   } catch {
     return "environment could not be resolved";

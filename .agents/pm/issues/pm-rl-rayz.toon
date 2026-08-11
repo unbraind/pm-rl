@@ -6,11 +6,11 @@ status: closed
 priority: 1
 tags[3]: budget,identity,refusal
 created_at: "2026-08-11T14:44:11.221Z"
-updated_at: "2026-08-11T17:11:33.752Z"
+updated_at: "2026-08-11T18:38:42.213Z"
 closed_at: "2026-08-11T14:46:16.913Z"
 completed_at: "2026-08-11T14:46:16.913Z"
 author: "harness:claude-code"
-resolution: "approval is trimmed where parent is trimmed, a blank approval is refused as empty_approval, and the promote command trims its --approval flag so the looked-up id and the stored identity are one string."
+resolution: "approval is trimmed where parent is trimmed, and a blank approval is refused as empty_approval rather than normalized to null. The normalization lives only at the parse boundary: a generation body can be hand-authored and never passes through a command flag, and stringOption already trims every option value, so no flag-side trim exists."
 expected_result: "A promoted generation whose stored approval is padded consumes the budget of the approval it names, and a blank approval cannot be stored at all."
 actual_result: "The padded record is counted (promotion refused with 1 promotion(s) consumed), the blank record makes the budget undecidable and stops the promotion, and all three assertions fail against the reverted implementation."
 dependencies[3]{id,kind,created_at,author,source_kind,author_source}:
@@ -43,5 +43,5 @@ tests[2]:
     scope: project
     assert_stdout_contains[1]: a promoted generation whose stored approval is padded still consumes that approval's budget
     note: Padded approval still consumes its budget
-close_reason: "approval is trimmed where parent is trimmed, a blank approval is refused as empty_approval, and the promote command trims its --approval flag so the looked-up id and the stored identity are one string."
+close_reason: "approval is trimmed where parent is trimmed, and a blank approval is refused as empty_approval rather than normalized to null. The normalization lives only at the parse boundary: a generation body can be hand-authored and never passes through a command flag, and stringOption already trims every option value, so no flag-side trim exists."
 body: ""
