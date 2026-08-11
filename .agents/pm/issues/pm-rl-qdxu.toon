@@ -2,12 +2,26 @@ id: pm-rl-qdxu
 title: "A registered seed cannot parent any candidate, and the tests hide it by writing outside the command surface"
 description: "CodeRabbit review of pm-rl#12, Major. registerGeneration sets a seed's policy to the empty string, and every candidate's collection runs must carry component equal to the parent's policy. rl run start always sets a non-empty algorithm as the component, so EVERY candidate parented to a freshly registered seed is refused with run_policy_mismatch, and no command ever sets the seed's policy afterward.\n\nThe reviewer found why the suite is nonetheless green: the test helper giveSeedPolicy rewrites the seed body through a raw client.update, STEPPING OUTSIDE THE COMMAND SURFACE. The tests prove the internals work while the product does not - a green suite over an unusable end-to-end path.\n\nFix by accepting a policy for the seed registration, or by skipping the run-policy check when the parent is a seed with no recorded policy. The regression test must parent a candidate to a seed using ONLY published commands, with no raw client writes."
 type: Issue
-status: in_progress
+status: closed
 priority: 1
 tags: []
 created_at: "2026-08-10T23:30:50.162Z"
-updated_at: "2026-08-11T04:51:45.620Z"
+updated_at: "2026-08-11T04:55:34.090Z"
+closed_at: "2026-08-11T04:55:34.078Z"
+completed_at: "2026-08-11T04:55:34.078Z"
 author: "harness:claude-code"
+resolution: Seed accepts --policy; empty-policy seed skips the run-policy check; giveSeedPolicy deleted; regression uses commands only.
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rl-yi7j,parent,"2026-08-10T23:31:11.361Z","harness:claude-code","cli:update:dep",detected
+comments[1]{created_at,author,text}:
+  "2026-08-11T04:55:31.784Z",pi-agent,"registerGeneration accepts an optional --policy on seed registration (stored in the seed spec). When the parent is a seed whose recorded policy is empty, the run-policy check is skipped (no declared policy to violate); a seed WITH a policy still enforces run_policy_mismatch. Deleted the giveSeedPolicy helper (raw client.update) — grep confirms 0 giveSeedPolicy occurrences. Regression test parents a candidate to an empty-policy seed whose run uses a different algorithm, using only published commands. Revert-proof: reverting the skip fails the empty-policy test with run_policy_mismatch."
+learnings[1]{created_at,author,text}:
+  "2026-08-11T04:55:33.706Z",pi-agent,"A green suite can hide an unusable end-to-end path when a test helper fabricates state through a raw client.update outside the command surface; assert the command surface itself, not the internals."
+files[3]{path,scope,note}:
+  index.ts,project,seed --policy + run-policy skip
+  README.md,project,seed --policy flag
+  test/lineage.test.ts,project,"deleted giveSeedPolicy,command-only regression"
+tests[1]{command,scope}:
+  "name=a candidate parented to a seed with no declared policy skips the run-policy check using only commands,result=pass",project
+close_reason: Seed accepts --policy; empty-policy seed skips the run-policy check; giveSeedPolicy deleted; regression uses commands only.
 body: ""
