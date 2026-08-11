@@ -695,6 +695,14 @@ export function buildLineageAncestry(
   if (isGapWidening(gaps, gapWindow)) {
     findings.push(`gap widening over last ${gapWindow} promotions`);
   }
-  const head = ancestry[ancestry.length - 1]!.id;
-  return { head, rows, findings };
+  // Refused rather than asserted. The command path cannot reach this today,
+  // because buildAncestry always returns at least the head it was asked to
+  // walk from — but this is an exported function, and a non-null assertion on
+  // an empty array turns a caller's mistake into a TypeError from inside the
+  // renderer instead of an expected error naming what was wrong.
+  const last = ancestry[ancestry.length - 1];
+  if (last === undefined) {
+    lineageFail("A lineage ancestry must contain at least the head generation; an empty ancestry has no head to render.", "empty_ancestry");
+  }
+  return { head: last.id, rows, findings };
 }

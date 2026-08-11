@@ -205,7 +205,7 @@ function clientWithIdlessGenerationRow(real: PmClient): PmClient {
  * that commits between this caller's pre-lock read and its acquisition of the
  * writer lock.
  */
-function clientWithConcurrentEditThenFailingClose(real: PmClient, targetId: string, concurrentBody: string, options: { failClose?: boolean } = {}): PmClient {
+function clientWithConcurrentEditThenFailingClose(real: PmClient, targetId: string, concurrentBody: string, options: { failClose?: boolean; editId?: string; triggerId?: string } = {}): PmClient {
   const failClose = options.failClose ?? true;
   let edited = false;
   return new Proxy(real, {
@@ -218,11 +218,34 @@ function clientWithConcurrentEditThenFailingClose(real: PmClient, targetId: stri
       if (property === "get") {
         return async (...arguments_: unknown[]) => {
           const result = await (Reflect.get(target, "get", receiver) as (...a: unknown[]) => Promise<GetResult>).apply(target, arguments_);
-          if (!edited && arguments_[0] === targetId) {
+          if (!edited && arguments_[0] === (options.triggerId ?? targetId)) {
             edited = true;
-            await real.update(targetId, { body: concurrentBody, message: "Concurrent peer edit" });
+            await real.update(options.editId ?? targetId, { body: concurrentBody, message: "Concurrent peer edit" });
           }
           return result;
+        };
+      }
+      const value = Reflect.get(target, property, receiver);
+      return typeof value === "function" ? (value as (...arguments_: unknown[]) => unknown).bind(target) : value;
+    },
+  }) as PmClient;
+}
+
+/** A client whose `close` fails and whose subsequent revert `update` also fails. */
+function clientWithFailingCloseAndFailingRevert(real: PmClient): PmClient {
+  let promotingWriteDone = false;
+  return new Proxy(real, {
+    get(target, property, receiver) {
+      if (property === "close") {
+        return async () => {
+          throw new Error("close failed after the promoting write");
+        };
+      }
+      if (property === "update") {
+        return async (...arguments_: unknown[]) => {
+          if (promotingWriteDone) throw new Error("revert update failed too");
+          promotingWriteDone = true;
+          return (Reflect.get(target, "update", receiver) as (...a: unknown[]) => Promise<unknown>).apply(target, arguments_);
         };
       }
       const value = Reflect.get(target, property, receiver);
@@ -536,6 +559,15 @@ test("renderLineageTable renders one row per generation, with deltas, evidence, 
   assert.match(table, /findings: gap widening over last 3 promotions/);
   assert.match(table, /gen-d1 .* delta=-2\.0000 .* environment was edited/);
   assert.match(table, /head: gen-d1/);
+});
+
+test("buildLineageAncestry refuses an empty ancestry rather than dereferencing undefined", () => {
+  // Unreachable from the command path, because buildAncestry always returns at
+  // least the head it was asked to walk from — but this function is exported,
+  // so it is tested at its own boundary. A non-null assertion here would turn a
+  // caller's mistake into a TypeError from inside the renderer instead of an
+  // expected error naming what was wrong.
+  assert.throws(() => buildLineageAncestry([], new Map(), DEFAULT_GAP_WINDOW), /at least the head generation/);
 });
 
 test("buildLineageAncestry computes deltas, surfaces widening, and marks invalidated generations", () => {
@@ -1294,28 +1326,54 @@ test("a peer edit under the lock survives the promoting write, and one that chan
   assert.match(finalBody, /"peer": "kept"/, "the peer edit to a field the decision does not consume must survive the promoting write");
 });
 
-test("a peer edit under the lock that changes the promotion decision is refused rather than promoted on stale analysis", async () => {
-  // The contamination walk and the gap were computed from the pre-lock read. If
-  // a peer changes a field that decision consumed, promoting would record a
-  // verdict about provenance the record no longer has.
+test("a peer contaminating an ANCESTOR under the lock is caught, because the verdict is re-decided over the whole ancestry", async () => {
+  // The contamination verdict is computed by walking every ancestor and reading
+  // each one's environment version. Comparing only the candidate's own fields
+  // under the lock was not enough: a peer editing an ANCESTOR leaves the leaf
+  // byte-identical and the verdict stale, so the promotion would record a clean
+  // verdict about provenance that is no longer clean.
+  //
+  // The fixture has to keep the candidate itself clean, or contamination is
+  // found pre-lock and the test proves nothing. `holdout` is a second
+  // environment that nothing references until the peer edit points the SEED at
+  // it, and the edit is triggered on the APPROVAL read — after the pre-lock
+  // walk and verdict, before the transaction opens.
   const { root, pmRoot, client, harness } = await workspace();
   const env = await registerEnv(harness, pmRoot, root, "Grid");
+  const holdout = await registerEnv(harness, pmRoot, root, "Holdout");
+  assert.notEqual(holdout, env, "the held-out environment must be distinct, or the candidate is contaminated before the peer edit");
   const approval = await client.create({ id: "approval-1", title: "Approval", type: "Decision", status: "open", body: "# approval\n\n```json\n" + JSON.stringify({ permitted_promotions: 5 }) + "\n```" });
   const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed", "ckpt-seed");
   const run = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-1"], options: { environment: env, algorithm: "ckpt-seed" } }));
   const candidate = resultOf(await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-c1"], options: { baseCheckpoint: "ckpt-c1", parent: seed, policy: "ckpt-c1", collectionRuns: run.id, environment: env } }));
-  const withDecisionEdit = String((await client.get(candidate.id!, { fields: "body" })).item.body).replace('"base_checkpoint": "ckpt-c1"', '"base_checkpoint": "ckpt-swapped"');
-  const sdk = sdkWith(clientWithConcurrentEditThenFailingClose(new PmClient({ pmRoot, author: "pm-rl-test" }), candidate.id!, withDecisionEdit, { failClose: false }));
-  await assert.rejects(
-    harness.runCommand({ command: "rl generation promote", pmRoot, args: [candidate.id!], options: { approval: approval.item.id, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "stale" }, sdk }),
-    (error: Error) => {
-      assert.match(error.message, /changed under the writer lock \(base_checkpoint\)/, "the refusal must name the field that changed");
-      return true;
-    },
-  );
-  const finalBody = String((await client.get(candidate.id!, { fields: "body" })).item.body);
-  assert.doesNotMatch(finalBody, /"promoted": true/, "a refused promotion must leave the record unpromoted");
-  assert.match(finalBody, /ckpt-swapped/, "and must leave the peer's edit intact");
+  const seedBody = String((await client.get(seed, { fields: "body" })).item.body);
+  const contaminatedSeed = seedBody.replace(/"environment_version": "[^"]*"/, `"environment_version": ${JSON.stringify(holdout)}`);
+  assert.notEqual(contaminatedSeed, seedBody, "the peer edit must change the seed, or nothing is injected");
+  const sdk = sdkWith(clientWithConcurrentEditThenFailingClose(new PmClient({ pmRoot, author: "pm-rl-test" }), candidate.id!, contaminatedSeed, { failClose: false, editId: seed, triggerId: String(approval.item.id) }));
+  const settled = await harness.runCommand({ command: "rl generation promote", pmRoot, args: [candidate.id!], options: { approval: approval.item.id, scores: writeScores(root, 12, holdout, 9), evidence: "ancestor" }, sdk }).then(() => "promoted").catch((error: Error) => error.message);
+  assert.notEqual(settled, "promoted", "a promotion whose ancestry became contaminated under the lock must not succeed");
+  assert.match(String(settled), /reachable from the candidate's training data/, `the refusal must be the contamination verdict itself, got: ${String(settled)}`);
+  assert.match(String(settled), new RegExp(String(seed).replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)), "and the path must implicate the ANCESTOR the peer edited, not the candidate");
+  assert.doesNotMatch(String((await client.get(candidate.id!, { fields: "body" })).item.body), /"promoted": true/, "a refused promotion must leave the record unpromoted");
+});
+
+test("a revert that also fails reports both causes instead of hiding the close error", async () => {
+  // The close error explains what happened; a revert failure must not replace
+  // it. When both fail the situation is worse than either alone — the body
+  // reads as promoted while the item was never closed — so both are reported,
+  // original cause first.
+  const { root, pmRoot, client, harness } = await workspace();
+  const env = await registerEnv(harness, pmRoot, root, "Grid");
+  const approval = await client.create({ id: "approval-1", title: "Approval", type: "Decision", status: "open", body: "# approval\n\n```json\n" + JSON.stringify({ permitted_promotions: 1 }) + "\n```" });
+  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed", "ckpt-seed");
+  const run = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-1"], options: { environment: env, algorithm: "ckpt-seed" } }));
+  const candidate = resultOf(await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-c1"], options: { baseCheckpoint: "ckpt-c1", parent: seed, policy: "ckpt-c1", collectionRuns: run.id, environment: env } }));
+  const failing = sdkWith(clientWithFailingCloseAndFailingRevert(new PmClient({ pmRoot, author: "pm-rl-test" })));
+  const failed = await harness.runCommand({ command: "rl generation promote", pmRoot, args: [candidate.id!], options: { approval: approval.item.id, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "x" }, sdk: failing });
+  assert.equal(failed.handled, false);
+  assert.match(String(failed.errorMessage), /close failed after the promoting write/, "the original close error must survive");
+  assert.match(String(failed.errorMessage), /revert of the promoting write also failed/, "and the revert failure must be reported alongside it");
+  assert.match(String(failed.errorMessage), /still reads as promoted while it was never closed/, "naming the state an operator has to repair");
 });
 
 test("a failed close restores the body that was current when the lock was taken, not the one read before it", async () => {

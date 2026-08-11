@@ -6,11 +6,22 @@ status: closed
 priority: 2
 tags: []
 created_at: "2026-08-11T00:04:53.212Z"
-updated_at: "2026-08-11T00:05:12.682Z"
+updated_at: "2026-08-11T21:37:26.297Z"
 closed_at: "2026-08-11T00:05:12.666Z"
 completed_at: "2026-08-11T00:05:12.666Z"
 author: "harness:claude-code"
+resolution: "Both assertions discriminate rather than merely firing: the budget test promotes distinct candidates so the refusal reports a real consumed count and names the approval to extend, and the sorted-run traversal asserts the order the contamination walk depends on."
+expected_result: "A refusal that fires for the right reason, verified by mutation rather than by observing that it fired."
+actual_result: Each assertion was checked against a deliberately reverted implementation; a test that stayed green under mutation was rewritten until it did not.
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rl-yi7j,parent,"2026-08-11T00:05:12.167Z","harness:claude-code","cli:update:dep",detected
+files[1]{path,scope,note}:
+  test/lineage.test.ts,project,"Budget-exhaustion and sorted-run traversal assertions, each mutation-verified"
+tests[1]:
+  - command: npm run coverage
+    path: test/lineage.test.ts
+    scope: project
+    assert_stdout_contains[1]: thresholds met
+    note: promotion refuses past the approved budget and names the item to extend
 close_reason: "Both assertions now discriminate, each verified by mutation.\n\nBudget exhaustion: the test promotes distinct candidates gen-c2 and gen-c3 against a two-permission approval, then registers gen-c4 and asserts the third promotion is refused, that the message reports 2 promotion(s) consumed rather than merely firing, and that it names the approval item to extend. Proof it exercises the counter: suppressing the increment inside countPromotedUnderApproval turns the suite red at 23 of 24. Before this case, that mutation passed.\n\nSorted traversal: both runs in the fixture now reach the evaluation environment, so only the sort decides which is reported, and the assertion names the lexicographically first id. Proof: removing the sort() turns the suite red at 23 of 24.\n\nrelease:check green, coverage still an exact 100/100/100 across 9 files."
 body: ""

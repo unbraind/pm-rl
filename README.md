@@ -104,10 +104,13 @@ The first slice fails closed when context would otherwise become misleading:
    reached — an environment reachable past the repeat point would never be compared, and a
    contaminated candidate would pass a gate that reported nothing wrong. The view again stays
    tolerant and simply stops walking.
-   A promotion is also refused (`generation_changed_under_lock`) when a peer edits a field the
-   contamination and gap analysis consumed while this caller waited for the writer lock, because
-   promoting would record a verdict about provenance the record no longer has. An edit to a field
-   the decision did not consume is preserved by the promoting write instead.
+   The contamination verdict is decided **inside** the writer lock, over a fresh walk of the whole
+   ancestry, so a peer that contaminates an ANCESTOR while this caller waits for the lock cannot
+   leave a stale clean verdict behind — the leaf would be byte-identical, and comparing only the
+   candidate would miss it. The pre-lock walk is kept as a fast refusal so an obviously
+   contaminated candidate never takes the lock; the in-lock walk is the one that decides. The
+   promoting write is rendered from the body read inside the lock, so a peer edit that the verdict
+   does not depend on survives the promotion rather than being silently overwritten.
 4. **The loop cannot advance past its approved budget.** Promotion counts the generations already
    promoted under an approval item and refuses beyond the permitted count, directing the caller to
    extend the approval. The count and the promotion write run inside one workspace writer lock

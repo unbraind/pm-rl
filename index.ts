@@ -917,16 +917,25 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
         if (currentSpec.promoted) {
           fail(`Generation ${id} is already promoted.`, "already_promoted", EXIT_CODE.CONFLICT);
         }
-        // The contamination walk and the gap were computed from the PRE-LOCK
-        // read. If a peer changed any field that decision consumed, promoting
-        // now would record a verdict about provenance the record no longer has,
-        // so it is refused rather than silently promoted on stale analysis.
-        // Fields the decision did not consume are not compared, which is what
-        // lets a peer's unrelated edit survive instead of being overwritten.
-        const decisionFields: readonly (keyof GenerationSpec)[] = ["base_checkpoint", "policy", "collection_runs", "environment_version", "reward_spec_version", "parent", "seed"];
-        const changed = decisionFields.filter((field) => JSON.stringify(currentSpec[field]) !== JSON.stringify(spec[field]));
-        if (changed.length > 0) {
-          fail(`Promotion refused: generation ${id} changed under the writer lock (${changed.join(", ")}), so the contamination and gap analysis that authorized this promotion no longer describes it. Re-run the promotion against the current record.`, "generation_changed_under_lock", EXIT_CODE.CONFLICT);
+        // THE authoritative contamination decision, taken inside the lock over
+        // the ancestry the verdict actually depends on.
+        //
+        // Comparing only the candidate's own fields was not enough: the verdict
+        // is computed by walking every ancestor and reading each one's
+        // collection_runs and environment_version, so a peer editing an
+        // ANCESTOR leaves the leaf identical and the verdict stale. Re-walking
+        // here also subsumes the leaf comparison, because the candidate is the
+        // walk's first entry.
+        //
+        // The pre-lock check above is kept as a fast refusal so an obviously
+        // contaminated candidate never takes the lock at all; this one decides.
+        // The cost is one extra ancestry walk per successful promotion, inside
+        // the critical section — the price of the analysis and the write being
+        // atomic, which is what makes the refusal a gate rather than a hint.
+        const lockedAncestry = await buildAncestry(client, id, true);
+        const lockedContamination = findContaminationPath(lockedAncestry, heldOutScore.evaluation_context);
+        if (lockedContamination !== null) {
+          fail(`Promotion refused: the evaluation set is reachable from the candidate's training data over provenance edges. Path: ${renderContaminationPath(lockedContamination)}`, "contamination_refused", EXIT_CODE.CONFLICT);
         }
         promotedCount = await countPromotedUnderApproval(client, approvalId);
         if (promotedCount >= approvalSpec.permitted_promotions) {
@@ -947,7 +956,16 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
           });
           closedStatus = String(result.item.status);
         } catch (error) {
-          await revertPromotingWrite();
+          // The close error is the one that explains what happened; a revert
+          // failure must not replace it. If the revert ALSO fails the situation
+          // is worse than either alone — the body still reads as promoted while
+          // the item was never closed — so both are reported, with the original
+          // cause first, rather than the second error hiding the first.
+          try {
+            await revertPromotingWrite();
+          } catch (revertError) {
+            throw new Error(`${String(error)} — and the revert of the promoting write also failed (${String(revertError)}), so generation ${id} still reads as promoted while it was never closed. Its body must be restored before the approved budget can be counted correctly.`);
+          }
           throw error;
         }
         return { status: closedStatus };
