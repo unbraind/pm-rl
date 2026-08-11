@@ -755,12 +755,20 @@ async function renderLineageCommand(context: CommandHandlerContext): Promise<RlC
     heads = await findGenerationHeads(client);
   }
   const ancestries: LineageAncestry[] = [];
+  // Cache the environment check keyed by environment id so an environment shared
+  // across several generations — and across several heads in one view — is
+  // fetched and hashed once rather than once per generation per head.
+  const envReasonCache = new Map<string, string | null>();
   for (const head of heads) {
     const ancestry = await buildAncestry(client, head);
     const seedToHead = [...ancestry].reverse();
     const ownInvalidated = new Map<string, string>();
     for (const entry of seedToHead) {
-      const reason = await environmentInvalidationReason(client, entry.spec.environment_version);
+      let reason = envReasonCache.get(entry.spec.environment_version);
+      if (reason === undefined) {
+        reason = await environmentInvalidationReason(client, entry.spec.environment_version);
+        envReasonCache.set(entry.spec.environment_version, reason);
+      }
       if (reason !== null) ownInvalidated.set(entry.id, reason);
     }
     ancestries.push(buildLineageAncestry(seedToHead, ownInvalidated, gapWindow));

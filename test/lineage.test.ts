@@ -433,6 +433,35 @@ test("buildLineageAncestry computes deltas, surfaces widening, and marks invalid
   assert.deepEqual([...GENERATION_EDGE_TYPES], ["parent", "collection_run", "environment_version", "reward_spec_version", "base_checkpoint"]);
 });
 
+test("buildLineageAncestry propagates invalidation forward to descendants naming the ancestor", () => {
+  // seed -> A -> B -> C: only A's own environment was edited. B and C recorded
+  // different, still-valid environments, but their training data derives from A,
+  // so they inherit an invalidation reason naming the nearest invalidated ancestor.
+  const entries: AncestryEntry[] = [
+    { id: "gen-seed", spec: spec({ base_checkpoint: "ckpt-0", gap: null }), runEnvironments: new Map() },
+    { id: "gen-a", spec: spec({ base_checkpoint: "ckpt-a", environment_version: "env-edited", gap: 1, promoted: true, approval: "a", promotion_evidence: "first", parent: "gen-seed", seed: false, policy: "pa", collection_runs: ["run-a"], reward_spec_version: "r" }), runEnvironments: new Map() },
+    { id: "gen-b", spec: spec({ base_checkpoint: "ckpt-b", environment_version: "env-other", gap: 2, promoted: true, approval: "a", promotion_evidence: "second", parent: "gen-a", seed: false, policy: "pb", collection_runs: ["run-b"], reward_spec_version: "r" }), runEnvironments: new Map() },
+    { id: "gen-c", spec: spec({ base_checkpoint: "ckpt-c", environment_version: "env-third", gap: 3, promoted: true, approval: "a", promotion_evidence: "third", parent: "gen-b", seed: false, policy: "pc", collection_runs: ["run-c"], reward_spec_version: "r" }), runEnvironments: new Map() },
+  ];
+  const ancestry = buildLineageAncestry(entries, new Map([["gen-a", "environment was edited"]]), 3);
+  assert.equal(ancestry.rows[1]!.invalidated, "environment was edited");
+  assert.equal(ancestry.rows[2]!.invalidated, "invalidated by ancestor gen-a");
+  assert.equal(ancestry.rows[3]!.invalidated, "invalidated by ancestor gen-b");
+  assert.equal(ancestry.head, "gen-c");
+  // A generation whose own environment is also edited overrides inheritance and
+  // becomes the new propagation source for its own descendants.
+  const withOwn: AncestryEntry[] = [
+    { id: "gen-seed", spec: spec({ base_checkpoint: "ckpt-0" }), runEnvironments: new Map() },
+    { id: "gen-a", spec: spec({ base_checkpoint: "ckpt-a", environment_version: "env-edited", gap: 1, promoted: true, approval: "a", promotion_evidence: "first", parent: "gen-seed", seed: false, policy: "pa", collection_runs: ["run-a"], reward_spec_version: "r" }), runEnvironments: new Map() },
+    { id: "gen-b", spec: spec({ base_checkpoint: "ckpt-b", environment_version: "env-also-edited", gap: 2, promoted: true, approval: "a", promotion_evidence: "second", parent: "gen-a", seed: false, policy: "pb", collection_runs: ["run-b"], reward_spec_version: "r" }), runEnvironments: new Map() },
+    { id: "gen-c", spec: spec({ base_checkpoint: "ckpt-c", environment_version: "env-clean", gap: 3, promoted: true, approval: "a", promotion_evidence: "third", parent: "gen-b", seed: false, policy: "pc", collection_runs: ["run-c"], reward_spec_version: "r" }), runEnvironments: new Map() },
+  ];
+  const mixed = buildLineageAncestry(withOwn, new Map([["gen-a", "environment was edited"], ["gen-b", "environment was edited"]]), 3);
+  assert.equal(mixed.rows[1]!.invalidated, "environment was edited");
+  assert.equal(mixed.rows[2]!.invalidated, "environment was edited");
+  assert.equal(mixed.rows[3]!.invalidated, "invalidated by ancestor gen-b");
+});
+
 // -------------------------------------------------------------------------------------------------
 // Generation and lineage commands through the real host.
 // -------------------------------------------------------------------------------------------------
@@ -712,16 +741,24 @@ test("without a head the view enumerates every head, and invalid format or gap-w
 
 test("an edited environment marks every downstream generation invalidated in the lineage", async () => {
   const { root, pmRoot, client, harness } = await workspace();
-  const env = await registerEnv(harness, pmRoot, root, "Grid");
+  // seed -> A -> B where A and B recorded DIFFERENT environments. Editing A's
+  // environment must mark A on its own environment and B as a descendant that
+  // inherited the invalidation, naming A — the propagation the prior fixture
+  // (one candidate on the edited env, no descendant) never exercised.
+  const envA = await registerEnv(harness, pmRoot, root, "EnvA");
+  const envB = await registerEnv(harness, pmRoot, root, "EnvB", "2");
   const approval = await client.create({ id: "approval-2", title: "Approval", type: "Decision", status: "open", body: "# approval\n\n```json\n" + JSON.stringify({ permitted_promotions: 2 }) + "\n```" });
   const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed");
   await giveSeedPolicy(client, seed, "ckpt-seed", "ckpt-seed");
-  const run = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-1"], options: { environment: env, algorithm: "ckpt-seed" } }));
-  const candidate = resultOf(await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-c1"], options: { baseCheckpoint: "ckpt-c1", parent: seed, policy: "ckpt-c1", collectionRuns: run.id, environment: env } }));
-  await harness.runCommand({ command: "rl generation promote", pmRoot, args: [candidate.id!], options: { approval: approval.item.id, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "ok" } });
-  await client.update(env, { body: "# changed\n\n```json\n" + JSON.stringify({ name: "Grid", version: "1", task_suite: ["reach-goal"], reward_specification: { goal: 999 } }, null, 2) + "\n```", message: "edit env" });
-  const after = resultOf(await harness.runCommand({ command: "rl lineage", pmRoot, args: [candidate.id!] }));
-  assert.match(String(after.details?.output), /gen-c1 .* environment was edited/);
+  const runA = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-a"], options: { environment: envA, algorithm: "ckpt-seed" } }));
+  const genA = resultOf(await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-a"], options: { baseCheckpoint: "ckpt-a", parent: seed, policy: "ckpt-a", collectionRuns: runA.id, environment: envA } }));
+  await harness.runCommand({ command: "rl generation promote", pmRoot, args: [genA.id!], options: { approval: approval.item.id, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "ok" } });
+  const runB = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-b"], options: { environment: envB, algorithm: "ckpt-a" } }));
+  const genB = resultOf(await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-b"], options: { baseCheckpoint: "ckpt-b", parent: genA.id, policy: "ckpt-b", collectionRuns: runB.id, environment: envB } }));
+  await client.update(envA, { body: "# changed\n\n```json\n" + JSON.stringify({ name: "EnvA", version: "1", task_suite: ["reach-goal"], reward_specification: { goal: 999 } }, null, 2) + "\n```", message: "edit envA" });
+  const after = resultOf(await harness.runCommand({ command: "rl lineage", pmRoot, args: [genB.id!] }));
+  assert.match(String(after.details?.output), new RegExp(`${genA.id!} .* environment was edited`));
+  assert.match(String(after.details?.output), new RegExp(`${genB.id!} .* invalidated by ancestor ${genA.id!}`));
   // A generation whose environment does not resolve is reported as ABSENT, not as edited.
   const ghostSpec = { ...seedSpec("ckpt-g", ""), environment_version: "ghost-env-v1", parent: "rl-gen-seed", seed: false, policy: "g", collection_runs: ["ghost-run"], reward_spec_version: "r" };
   await client.create({ id: "gen-ghost", title: "Ghost", type: "Generation", status: "open", ...generationBody(ghostSpec) });

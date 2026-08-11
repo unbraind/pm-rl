@@ -547,10 +547,18 @@ export function renderLineageTable(view: LineageView): string {
  * per condition rather than one fixed phrase, so an operator is told "edited",
  * "unreadable", "no recorded identity" or "could not be resolved" as appropriate.
  *
+ * Invalidation also propagates FORWARD along the seed-to-head ordering: once an
+ * ancestor is invalidated, every downstream descendant is invalidated too, even
+ * if it recorded a different environment, because its training data derives from
+ * the ancestor whose environment was edited. A descendant inherits a reason that
+ * names the nearest invalidated ancestor it descends from, distinct from the
+ * reason a generation invalidated on its own environment receives — so the row
+ * reads "invalidated by ancestor gen-A" rather than another copy of "edited".
+ *
  * @param ancestry - Generations from seed to head, with run environments resolved.
  * @param ownInvalidated - Map from generation id to the invalidation reason for
- *   that generation's OWN recorded environment. Descendants of an invalidated
- *   ancestor are not yet added here; forward propagation is a separate concern.
+ *   that generation's OWN recorded environment. Forward propagation to
+ *   descendants is computed here, not by the caller.
  * @param gapWindow - Number of consecutive gaps for the widening check.
  * @returns One ancestry with rows, findings, and the head id.
  */
@@ -561,19 +569,35 @@ export function buildLineageAncestry(
 ): LineageAncestry {
   const gaps = ancestry.map((entry) => entry.spec.gap);
   const deltas = gapDeltas(gaps);
-  const rows: LineageRow[] = ancestry.map((entry, index) => ({
-    id: entry.id,
-    seed: entry.spec.seed,
-    base_checkpoint: entry.spec.base_checkpoint,
-    collection_runs: entry.spec.collection_runs,
-    proxy_score: entry.spec.proxy_score?.value ?? null,
-    held_out_score: entry.spec.held_out_score?.value ?? null,
-    gap: entry.spec.gap,
-    gap_delta: deltas[index]!,
-    approval: entry.spec.approval,
-    promotion_evidence: entry.spec.promotion_evidence,
-    invalidated: ownInvalidated.get(entry.id) ?? null,
-  }));
+  const rows: LineageRow[] = [];
+  let lastInvalidatedAncestor: string | null = null;
+  for (let index = 0; index < ancestry.length; index += 1) {
+    const entry = ancestry[index]!;
+    const ownReason = ownInvalidated.get(entry.id);
+    let invalidated: string | null;
+    if (ownReason !== undefined) {
+      invalidated = ownReason;
+      lastInvalidatedAncestor = entry.id;
+    } else if (lastInvalidatedAncestor !== null) {
+      invalidated = `invalidated by ancestor ${lastInvalidatedAncestor}`;
+      lastInvalidatedAncestor = entry.id;
+    } else {
+      invalidated = null;
+    }
+    rows.push({
+      id: entry.id,
+      seed: entry.spec.seed,
+      base_checkpoint: entry.spec.base_checkpoint,
+      collection_runs: entry.spec.collection_runs,
+      proxy_score: entry.spec.proxy_score?.value ?? null,
+      held_out_score: entry.spec.held_out_score?.value ?? null,
+      gap: entry.spec.gap,
+      gap_delta: deltas[index]!,
+      approval: entry.spec.approval,
+      promotion_evidence: entry.spec.promotion_evidence,
+      invalidated,
+    });
+  }
   const findings: string[] = [];
   if (isGapWidening(gaps, gapWindow)) {
     findings.push(`gap widening over last ${gapWindow} promotions`);
