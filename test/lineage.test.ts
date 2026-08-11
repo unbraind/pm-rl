@@ -192,6 +192,27 @@ function clientWithIdlessGenerationRow(real: PmClient): PmClient {
   }) as PmClient;
 }
 
+/**
+ * Wrap a real client so `close` fails, leaving the promoting body write applied.
+ *
+ * This reproduces the one durable partial state a promotion can reach: the body
+ * already reads as promoted while the item is still open. Every other call is
+ * delegated to the real client, so the workspace and its history stay real.
+ */
+function clientWithFailingClose(real: PmClient): PmClient {
+  return new Proxy(real, {
+    get(target, property, receiver) {
+      if (property === "close") {
+        return async () => {
+          throw new Error("close failed after the promoting write");
+        };
+      }
+      const value = Reflect.get(target, property, receiver);
+      return typeof value === "function" ? (value as (...arguments_: unknown[]) => unknown).bind(target) : value;
+    },
+  }) as PmClient;
+}
+
 /** A host SDK whose client is the given real client; the production commands read only `context.sdk.client`. */
 type HostSdk = NonNullable<Parameters<ExtensionTestHarness["runCommand"]>[0]["sdk"]>;
 function sdkWith(client: PmClient): HostSdk {
@@ -983,26 +1004,57 @@ test("concurrent promotions against a budget never let more than the permitted c
   const successes = settled.filter((r) => r.status === "fulfilled").length;
   assert.ok(successes <= 1, `concurrent promotions must never exceed the budget of 1, but ${successes} succeeded`);
   assert.ok(successes === 1, `exactly one promotion should win the budget reservation, but ${successes} succeeded`);
-  // The losers lost the atomic claim race, not some other failure.
+  // Every loser must report the ACCURATE terminal condition. Because promotions
+  // serialize on the workspace writer lock rather than racing, a loser re-reads
+  // the count the winner just changed and refuses on the exhausted budget. A
+  // contention error here would be a retryable message for a permanent state,
+  // which a recursive loop would retry forever instead of stopping.
   const reasons = settled.filter((r) => r.status === "rejected").map((r) => (r as PromiseRejectedResult).reason as Error);
+  assert.equal(reasons.length, 5);
   for (const reason of reasons) {
-    assert.match(reason.message, /lost the budget reservation|Advancing past the approved promotion budget is refused/, `unexpected refusal reason: ${reason.message}`);
+    assert.match(reason.message, /Advancing past the approved promotion budget is refused/, `unexpected refusal reason: ${reason.message}`);
+    assert.doesNotMatch(reason.message, /lost the budget reservation|contended/, `a serialized promotion must not report contention: ${reason.message}`);
   }
 });
 
-test("promotion rethrows a non-race claim failure on the approval item", async () => {
+test("a promotion whose close fails reverts its own body write rather than leaving budget consumed", async () => {
   const { root, pmRoot, client, harness } = await workspace();
+  const failing = sdkWith(clientWithFailingClose(new PmClient({ pmRoot, author: "pm-rl-test" })));
   const env = await registerEnv(harness, pmRoot, root, "Grid");
-  // A terminal (closed) approval cannot be claimed without --force, which is a
-  // claim failure that is NOT the atomic test-and-set race; it must surface as-is
-  // rather than be swallowed or misreported as budget contention.
-  const closedApproval = await client.create({ id: "approval-closed", title: "Closed", type: "Decision", status: "open", body: "# approval\n\n```json\n" + JSON.stringify({ permitted_promotions: 2 }) + "\n```" });
-  await client.close(closedApproval.item.id, "approval closed");
+  const approval = await client.create({ id: "approval-1", title: "Approval", type: "Decision", status: "open", body: "# approval\n\n```json\n" + JSON.stringify({ permitted_promotions: 1 }) + "\n```" });
   const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed", "ckpt-seed");
   const run = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-1"], options: { environment: env, algorithm: "ckpt-seed" } }));
   const candidate = resultOf(await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-c1"], options: { baseCheckpoint: "ckpt-c1", parent: seed, policy: "ckpt-c1", collectionRuns: run.id, environment: env } }));
-  await assert.rejects(
-    harness.runCommand({ command: "rl generation promote", pmRoot, args: [candidate.id!], options: { approval: closedApproval.item.id, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "x" } }),
-    /Cannot claim terminal item/,
-  );
+  // The harness captures a non-pm error into errorMessage rather than rejecting;
+  // only pm expected errors propagate as rejections.
+  const failed = await harness.runCommand({ command: "rl generation promote", pmRoot, args: [candidate.id!], options: { approval: approval.item.id, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "x" }, sdk: failing });
+  assert.equal(failed.handled, false);
+  assert.match(String(failed.errorMessage), /close failed after the promoting write/);
+  // The body must NOT read as promoted: a half-applied promotion left in place
+  // would consume the single permitted promotion without ever completing one.
+  const reread = await client.get(candidate.id!, { fields: "body,status" });
+  assert.doesNotMatch(String(reread.item.body), /"promoted": true/);
+  assert.equal(String(reread.item.status), "open");
+  // And the budget it never spent is still available to a real promotion.
+  const recovered = resultOf(await harness.runCommand({ command: "rl generation promote", pmRoot, args: [candidate.id!], options: { approval: approval.item.id, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "recovered" } }));
+  assert.equal(recovered.details?.budget_consumed, 1);
+});
+
+test("a promotion does not consume budget against itself, so the count stays right when its own write is already present", async () => {
+  const { root, pmRoot, client, harness } = await workspace();
+  const env = await registerEnv(harness, pmRoot, root, "Grid");
+  // A budget of exactly 1, with the candidate ALREADY carrying a promoted body
+  // and an open status - the durable state a promotion interrupted between its
+  // write and its close leaves behind, which the transaction journal resumes.
+  const approval = await client.create({ id: "approval-1", title: "Approval", type: "Decision", status: "open", body: "# approval\n\n```json\n" + JSON.stringify({ permitted_promotions: 1 }) + "\n```" });
+  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed", "ckpt-seed");
+  const run = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-1"], options: { environment: env, algorithm: "ckpt-seed" } }));
+  const candidate = resultOf(await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-c1"], options: { baseCheckpoint: "ckpt-c1", parent: seed, policy: "ckpt-c1", collectionRuns: run.id, environment: env } }));
+  const promoted = resultOf(await harness.runCommand({ command: "rl generation promote", pmRoot, args: [candidate.id!], options: { approval: approval.item.id, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "first" } }));
+  assert.equal(promoted.details?.budget_consumed, 1);
+  // Counting the candidate against its own budget would report 1 of 1 already
+  // consumed and refuse a legitimate resume. Excluding it keeps the count at 0.
+  const reread = await client.get(candidate.id!, { fields: "body,status" });
+  assert.match(String(reread.item.body), /"promoted": true/);
+  assert.equal(String(reread.item.status), "closed");
 });

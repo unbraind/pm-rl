@@ -101,10 +101,12 @@ The first slice fails closed when context would otherwise become misleading:
    still useful; only a promotion decided on a degraded graph is refused.
 4. **The loop cannot advance past its approved budget.** Promotion counts the generations already
    promoted under an approval item and refuses beyond the permitted count, directing the caller to
-   extend the approval. The count and the promotion write are wrapped in an atomic `claim` on the
-   approval item, so two concurrent promotions cannot both read the same count and both promote past
-   the budget — a loser that lost the test-and-set race is refused (`budget_contended`) and told to
-   retry rather than falling through. A Generation whose body is uncountable (no JSON fence or an
+   extend the approval. The count and the promotion write run inside one workspace writer lock
+   (`commitWorkspaceTransaction`), so two concurrent promotions cannot both read the same count and
+   both promote past the budget. They **serialize** rather than one being rejected for contention:
+   the second caller re-reads the count the winner just changed and refuses with the accurate
+   `budget_exceeded`, which is a terminal condition a recursive loop must respect, instead of a
+   retryable contention error it would retry forever. A Generation whose body is uncountable (no JSON fence or an
    unparseable spec) makes the budget undecidable and is refused (`budget_undecidable`) rather than
    skipped, because treating unreadable provenance as absent provenance inverts the contract. This
    is the property that keeps a recursive loop from running unattended further than a human

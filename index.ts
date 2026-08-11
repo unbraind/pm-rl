@@ -17,20 +17,11 @@ import {
   type CommandHandlerContext,
   type ExtensionApi,
 } from "@unbrained/pm-cli/sdk/authoring";
+import { commitWorkspaceTransaction } from "@unbrained/pm-cli/sdk";
 import { PmClient, type GetResult } from "@unbrained/pm-cli/sdk/core";
 import { createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 
 import { encodeEventSegments, parseNdjsonStream, readSeries } from "./series.ts";
-
-/**
- * The fenced JSON block regex shared by every pm-rl spec reader.
- *
- * A module-level const keeps one shape for the ```` ```json ```` envelope every
- * item body stores its specification in, so a change to the fence contract
- * touches one place. It has no `g` flag: a shared global regex carries
- * `lastIndex` state across calls and would silently skip matches.
- */
-const JSON_SPEC_FENCE = /```json\n([\s\S]+?)\n```/;
 
 import {
   buildLineageAncestry,
@@ -49,6 +40,27 @@ import {
   type LineageView,
   type ScoreRecord,
 } from "./lineage.ts";
+
+/**
+ * The fenced JSON block regex shared by every pm-rl spec reader.
+ *
+ * A module-level const keeps one shape for the ```` ```json ```` envelope every
+ * item body stores its specification in, so a change to the fence contract
+ * touches one place. It has no `g` flag: a shared global regex carries
+ * `lastIndex` state across calls and would silently skip matches.
+ */
+const JSON_SPEC_FENCE = /```json\n([\s\S]+?)\n```/;
+
+/**
+ * How long a promotion waits for the workspace writer lock before giving up.
+ *
+ * Concurrent promotions serialize on this lock rather than racing, so the wait
+ * has to cover a peer's whole critical section: a full generation count plus
+ * the promoting write. Thirty seconds is far above the observed cost of both
+ * and still bounded, so a stuck peer surfaces as a timeout rather than hanging
+ * a recursive loop indefinitely.
+ */
+const PROMOTION_LOCK_WAIT_MS = 30_000;
 
 /** JSON values accepted in environment and run configuration files. */
 export type JsonValue = null | boolean | number | string | JsonValue[] | { readonly [key: string]: JsonValue };
@@ -137,10 +149,24 @@ function requiredArgument(context: CommandHandlerContext, label: string): string
  */
 function clientFor(context: CommandHandlerContext): PmClient {
   if (context.sdk !== undefined) return context.sdk.client;
-  const author = typeof context.global.author === "string" && context.global.author.trim().length > 0
+  return PmClient.forActiveExtensionHost({ pmRoot: context.pm_root, author: authorFor(context) });
+}
+
+/**
+ * Resolve the attributable actor for a command invocation.
+ *
+ * The host supplies `--author` on `context.global`, not `context.options`. It
+ * attributes both the client's item mutations and the durable transaction
+ * journal, so both read back to the same actor rather than one of them
+ * recording an anonymous default.
+ *
+ * @param context - The invoking command's handler context.
+ * @returns The trimmed caller author, or `pm-rl` when none was supplied.
+ */
+function authorFor(context: CommandHandlerContext): string {
+  return typeof context.global.author === "string" && context.global.author.trim().length > 0
     ? context.global.author.trim()
     : "pm-rl";
-  return PmClient.forActiveExtensionHost({ pmRoot: context.pm_root, author });
 }
 
 /** Classify a missing item through the injected SDK or its structural public contract. */
@@ -148,18 +174,6 @@ function isItemNotFound(error: unknown): boolean {
   return isPmCliExpectedError(error) && error.exitCode === EXIT_CODE.NOT_FOUND;
 }
 
-/**
- * Detect that a `client.claim` lost the atomic test-and-set race.
- *
- * The pm SDK's `isAlreadyClaimedError` is not part of the package's public
- * export surface in this version, so the race is detected structurally: a pm
- * expected error carrying the stable `already_claimed_by` code. This is the
- * exact predicate the SDK helper applies, kept here so the mutex behaviour does
- * not depend on an internal import path.
- */
-function isClaimRaceLost(error: unknown): boolean {
-  return isPmCliExpectedError(error) && error.context?.code === "already_claimed_by";
-}
 
 /** Narrow a parsed value to a JSON object. */
 function jsonObject(value: unknown, source: string): Record<string, JsonValue> {
@@ -539,14 +553,26 @@ async function buildAncestry(client: PmClient, headId: string, strict: boolean):
  *
  * A listed item the SDK types without an `id` cannot be fetched and is skipped,
  * not refused: it carries no identity to report and no consumer can act on it.
+ *
+ * @param client - Client bound to the workspace holding the generations.
+ * @param approvalId - Approval Decision item whose consumed budget is counted.
+ * @param excludeId - The generation being promoted, which never consumes budget
+ *   against itself. Excluding it is what makes the count idempotent under
+ *   transaction replay, where the candidate may already carry its own write.
+ * @returns The number of other generations promoted under this approval.
+ * @throws When any generation's specification cannot be read or parsed.
  */
-async function countPromotedUnderApproval(client: PmClient, approvalId: string): Promise<number> {
+async function countPromotedUnderApproval(client: PmClient, approvalId: string, excludeId: string): Promise<number> {
   const result = await client.list({ type: "Generation", status: "all", noTruncate: true });
   let count = 0;
   for (const item of result.items) {
     // The SDK types a listed item's `id` as optional, so a record without one
     // cannot be fetched and is skipped rather than counted.
     if (item.id === undefined) continue;
+    // The generation being promoted never consumes budget against itself. This
+    // is what makes the count idempotent under transaction replay: a promotion
+    // interrupted after its write resumes and recounts without inflating by one.
+    if (item.id === excludeId) continue;
     const full = await client.get(item.id, { fields: "body" });
     const fenced = JSON_SPEC_FENCE.exec(String(full.item.body));
     const json = fenced?.[1];
@@ -739,22 +765,14 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
     fail(`Approval item ${approvalId} has no JSON specification fence.`, "approval_missing_spec", EXIT_CODE.CONFLICT);
   }
   const approvalSpec = parseApprovalSpec(approvalFenced[1], `Approval ${approvalId}`);
-  // Atomically reserve the approval item so two concurrent promotions cannot
-  // both read the same count and both promote past the approved budget — the
-  // race a recursive loop that promotes programmatically would otherwise win.
-  try {
-    await client.claim(approvalId, { message: "Reserve pm-rl promotion budget" });
-  } catch (error) {
-    if (isClaimRaceLost(error)) {
-      fail(`Promotion refused: the approval item ${approvalId} is being promoted against by another caller, so this promotion lost the budget reservation. Retry the promotion.`, "budget_contended", EXIT_CODE.CONFLICT);
-    }
-    throw error;
-  }
-  try {
-    const promotedCount = await countPromotedUnderApproval(client, approvalId);
-  if (promotedCount >= approvalSpec.permitted_promotions) {
-    fail(`Advancing past the approved promotion budget is refused. ${promotedCount} promotion(s) consumed; approval ${approvalId} permits ${approvalSpec.permitted_promotions}. Extend approval item ${approvalId} to authorize more promotions.`, "budget_exceeded", EXIT_CODE.CONFLICT);
-  }
+  // Count the consumed budget and write the promotion inside one workspace
+  // writer lock. Two concurrent promotions would otherwise both read the same
+  // count, both observe headroom, and both promote — the race a recursive loop
+  // that promotes programmatically is precisely the caller to win. Serializing
+  // (rather than refusing the loser outright) means the second caller re-reads
+  // the count a winner just changed and gets the accurate `budget_exceeded`,
+  // which is a terminal condition a loop must respect, instead of a contention
+  // error it would retry forever.
   const promotedSpec: GenerationSpec = {
     ...spec,
     promoted: true,
@@ -764,22 +782,68 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
     gap,
     promotion_evidence: evidence,
   };
-  const newBody = `# ${id}\n\n\`\`\`json\n${JSON.stringify(promotedSpec, null, 2)}\n\`\`\``;
-  await client.update(id, {
-    body: newBody,
-    message: `Promote generation: gap=${gap.toFixed(4)}, evidence=${evidence}`,
-  });
-  const result = await client.close(id, "promoted", {
-    message: "Promote RL generation",
-    resolution: evidence,
-    expectedResult: "The generation reaches a promoted state with both scores and the direction-aware gap recorded.",
-    actualResult: `Promoted with proxy=${proxyScore.value}, held_out=${heldOutScore.value}, gap=${gap.toFixed(4)}. Budget consumed: ${promotedCount + 1} of ${approvalSpec.permitted_promotions}.`,
+  const promotedBody = `# ${id}\n\n\`\`\`json\n${JSON.stringify(promotedSpec, null, 2)}\n\`\`\``;
+  const originalBody = String(generation.item.body);
+  // Revert the promoting write. The coordinator compensates steps it has already
+  // recorded as applied, and a single-step plan has none — verified empirically:
+  // a step whose `apply` throws runs inspect, apply, then propagates, never
+  // compensate. So `apply` invokes this itself on a failed close rather than
+  // leaving a body that reads as promoted, which would consume budget the
+  // generation never legitimately spent. It is also wired as the step's
+  // `compensate` so a future multi-step plan reverts through the same path.
+  const revertPromotingWrite = async (): Promise<void> => {
+    await client.update(id, { body: originalBody, message: "Revert interrupted pm-rl promotion" });
+  };
+  let promotedCount = 0;
+  let closedStatus = "";
+  await commitWorkspaceTransaction({
+    pmRoot: context.pm_root,
+    // Keyed on the generation, which promotes at most once: a retried promotion
+    // of this generation resumes, while a different generation gets its own key
+    // rather than being skipped as already applied.
+    transactionId: `pm-rl-generation-promote-${id}`,
+    author: authorFor(context),
+    lockWaitMs: PROMOTION_LOCK_WAIT_MS,
+    steps: [{
+      id: "promote-generation",
+      // The durable journal, not this inspection, is what makes a completed
+      // promotion idempotent: replaying a recorded transactionId skips `apply`
+      // regardless of what `inspect` reports (verified empirically). Reporting
+      // a durable "applied" here would also be unreachable, because a generation
+      // that already carries a promoted body is refused by the `already_promoted`
+      // guard long before the transaction opens.
+      inspect: async () => ({ state: "pending" }),
+      apply: async () => {
+        promotedCount = await countPromotedUnderApproval(client, approvalId, id);
+        if (promotedCount >= approvalSpec.permitted_promotions) {
+          fail(`Advancing past the approved promotion budget is refused. ${promotedCount} promotion(s) consumed; approval ${approvalId} permits ${approvalSpec.permitted_promotions}. Extend approval item ${approvalId} to authorize more promotions.`, "budget_exceeded", EXIT_CODE.CONFLICT);
+        }
+        await client.update(id, {
+          body: promotedBody,
+          message: `Promote generation: gap=${gap.toFixed(4)}, evidence=${evidence}`,
+        });
+        try {
+          const result = await client.close(id, "promoted", {
+            message: "Promote RL generation",
+            resolution: evidence,
+            expectedResult: "The generation reaches a promoted state with both scores and the direction-aware gap recorded.",
+            actualResult: `Promoted with proxy=${proxyScore.value}, held_out=${heldOutScore.value}, gap=${gap.toFixed(4)}. Budget consumed: ${promotedCount + 1} of ${approvalSpec.permitted_promotions}.`,
+          });
+          closedStatus = String(result.item.status);
+        } catch (error) {
+          await revertPromotingWrite();
+          throw error;
+        }
+        return { status: closedStatus };
+      },
+      compensate: revertPromotingWrite,
+    }],
   });
   return {
     action: "rl-generation-promote",
-    id: String(result.item.id),
+    id,
     details: {
-      status: result.item.status,
+      status: closedStatus,
       gap,
       proxy_score: proxyScore.value,
       held_out_score: heldOutScore.value,
@@ -789,9 +853,6 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
       evidence,
     },
   };
-  } finally {
-    await client.release(approvalId, { message: "Release pm-rl promotion budget reservation" });
-  }
 }
 
 /** Show one generation and its lineage details. */

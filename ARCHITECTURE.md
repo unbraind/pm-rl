@@ -68,9 +68,16 @@ recorded a different environment is still marked when an ancestor's environment 
 because its training data derives from that ancestor. The reason names the ancestor it inherited
 from, distinct from the reason a generation invalidated on its own environment receives.
 
-The approved promotion budget is enforced with an atomic `claim` on the approval item, so the
-count of promoted generations and the promotion write are one critical section: concurrent
-promotions cannot both read the same count and both advance past what a human authorized. A seed
+The approved promotion budget is enforced inside one workspace writer lock, via the SDK's
+`commitWorkspaceTransaction`, so the count of promoted generations and the promotion write are one
+critical section: concurrent promotions cannot both read the same count and both advance past what
+a human authorized. They serialize on the lock rather than the loser being refused for contention,
+so a second caller reports the accurate `budget_exceeded` — a terminal condition a loop must
+respect — instead of a retryable error. The transaction is keyed on the generation id, which
+promotes at most once, so a retry resumes rather than double-counting. The count excludes the
+generation being promoted, which is what keeps it correct if its own write is already present.
+A promotion whose close fails reverts its own body write rather than leaving budget consumed by a
+promotion that never completed. A seed
 may declare a `--policy` its children's collection runs must match; a seed with no declared policy
 skips that check, and `rl lineage --gap-window` requires at least two consecutive gaps.
 
