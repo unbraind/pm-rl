@@ -295,6 +295,16 @@ test("parseGenerationSpec accepts the seed and a full candidate and refuses ever
     const breaking = { ...promotedBase, promoted: false, [field]: field === "approval" ? "a" : field === "gap" ? 1 : score(2), approval: field === "approval" ? "a" : null, proxy_score: field === "proxy_score" ? score(2) : null, held_out_score: field === "held_out_score" ? score(2) : null, gap: field === "gap" ? 1 : null };
     assert.throws(() => parseGenerationSpec(JSON.stringify(breaking), "g"), /not promoted but carries promotion evidence/);
   }
+  // An ABSENT gap key is not the same as an explicit null to `===` , and the
+  // invariant compares with `=== null`. Both directions must treat them alike.
+  const promotedNoGapKey: Record<string, unknown> = { ...promotedBase };
+  delete promotedNoGapKey["gap"];
+  assert.throws(() => parseGenerationSpec(JSON.stringify(promotedNoGapKey), "g"), /promoted but is missing promotion evidence/);
+  const candidateNoGapKey: Record<string, unknown> = { ...promotedBase, promoted: false, approval: null, proxy_score: null, held_out_score: null };
+  delete candidateNoGapKey["gap"];
+  // An unpromoted record with no gap key carries no evidence and must be accepted,
+  // not refused for a field it does not have.
+  assert.equal(parseGenerationSpec(JSON.stringify(candidateNoGapKey), "g").gap, null);
 });
 
 test("parseApprovalSpec treats the count as permitted promotions and refuses non-counts", () => {
@@ -803,6 +813,23 @@ test("promotion refuses an unreadable collection run while lineage still renders
   // rl lineage over the same workspace still renders: the unresolvable run is tolerated.
   const lineage = resultOf(await harness.runCommand({ command: "rl lineage", pmRoot, args: [candidate.item.id] }));
   assert.match(String(lineage.details?.output), /head: /);
+  // A run that RESOLVES but records no environment is equally undecidable: the
+  // contamination check would read undefined and treat the run as clean.
+  await client.create({ id: "run-noenv", title: "No env", type: "Run", status: "in_progress", component: "ckpt-seed", affectedVersion: "1", fixedVersion: "1" });
+  const noEnvSpec = { ...candSpec, collection_runs: ["run-noenv"] };
+  const noEnvBody = generationBody(noEnvSpec);
+  const noEnvCandidate = await client.create({ id: "gen-noenv", title: "No env run", type: "Generation", status: "open", body: noEnvBody.body, affectedVersion: noEnvBody.hash, parent: seed, environment: env });
+  await assert.rejects(
+    harness.runCommand({ command: "rl generation promote", pmRoot, args: [noEnvCandidate.item.id], options: { approval: approval.item.id, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "x" } }),
+    (error: Error) => {
+      assert.match(error.message, /collection run run-noenv of generation/);
+      assert.match(error.message, /records no environment/);
+      return true;
+    },
+  );
+  // And lineage still tolerates it.
+  const noEnvLineage = resultOf(await harness.runCommand({ command: "rl lineage", pmRoot, args: [noEnvCandidate.item.id] }));
+  assert.match(String(noEnvLineage.details?.output), /head: /);
 });
 
 test("promotion refuses an uncountable generation while lineage still renders", async () => {
@@ -1040,21 +1067,30 @@ test("a promotion whose close fails reverts its own body write rather than leavi
   assert.equal(recovered.details?.budget_consumed, 1);
 });
 
-test("a promotion does not consume budget against itself, so the count stays right when its own write is already present", async () => {
+test("concurrent promotions of the SAME generation promote it exactly once", async () => {
   const { root, pmRoot, client, harness } = await workspace();
   const env = await registerEnv(harness, pmRoot, root, "Grid");
-  // A budget of exactly 1, with the candidate ALREADY carrying a promoted body
-  // and an open status - the durable state a promotion interrupted between its
-  // write and its close leaves behind, which the transaction journal resumes.
-  const approval = await client.create({ id: "approval-1", title: "Approval", type: "Decision", status: "open", body: "# approval\n\n```json\n" + JSON.stringify({ permitted_promotions: 1 }) + "\n```" });
+  // A budget of 3, so the budget itself cannot be what stops the second caller —
+  // only the already-promoted check can, and it has to hold under concurrency.
+  const approval = await client.create({ id: "approval-1", title: "Approval", type: "Decision", status: "open", body: "# approval\n\n```json\n" + JSON.stringify({ permitted_promotions: 3 }) + "\n```" });
   const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed", "ckpt-seed");
   const run = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-1"], options: { environment: env, algorithm: "ckpt-seed" } }));
   const candidate = resultOf(await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-c1"], options: { baseCheckpoint: "ckpt-c1", parent: seed, policy: "ckpt-c1", collectionRuns: run.id, environment: env } }));
-  const promoted = resultOf(await harness.runCommand({ command: "rl generation promote", pmRoot, args: [candidate.id!], options: { approval: approval.item.id, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "first" } }));
-  assert.equal(promoted.details?.budget_consumed, 1);
-  // Counting the candidate against its own budget would report 1 of 1 already
-  // consumed and refuse a legitimate resume. Excluding it keeps the count at 0.
-  const reread = await client.get(candidate.id!, { fields: "body,status" });
-  assert.match(String(reread.item.body), /"promoted": true/);
-  assert.equal(String(reread.item.status), "closed");
+  const scores = writeScores(root, 12, "held-out-ctx", 9);
+  // Three callers read the candidate as unpromoted before any of them takes the
+  // lock, so the pre-lock check passes for all three.
+  const sdks = [0, 1, 2].map((index) => sdkWith(new PmClient({ pmRoot, author: `agent-${index}` })));
+  const settled = await Promise.allSettled(sdks.map((sdk, index) => harness.runCommand({ command: "rl generation promote", pmRoot, args: [candidate.id!], options: { approval: approval.item.id, scores, evidence: `agent-${index}` }, sdk })));
+  const successes = settled.filter((r) => r.status === "fulfilled").length;
+  assert.equal(successes, 1, `one generation must promote exactly once, but ${successes} promotions succeeded`);
+  for (const rejected of settled.filter((r) => r.status === "rejected")) {
+    assert.match(String((rejected as PromiseRejectedResult).reason), /is already promoted/);
+  }
+  // And it consumed exactly one unit of the budget, not one per caller. The
+  // next candidate needs its own run, collected under the promoted parent's policy.
+  const run2 = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-2"], options: { environment: env, algorithm: "ckpt-c1" } }));
+  const second = resultOf(await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-c2"], options: { baseCheckpoint: "ckpt-c2", parent: candidate.id, policy: "ckpt-c2", collectionRuns: run2.id, environment: env } }));
+  const next = resultOf(await harness.runCommand({ command: "rl generation promote", pmRoot, args: [second.id!], options: { approval: approval.item.id, scores, evidence: "second" } }));
+  assert.equal(next.details?.budget_consumed, 2);
 });
+

@@ -7,7 +7,7 @@
  * concurrent branches, unlike a scalar item body.
  */
 
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 
 import {
@@ -523,15 +523,29 @@ async function buildAncestry(client: PmClient, headId: string, strict: boolean):
     const spec = extractGenerationSpec(String(item.item.body), `Generation ${currentId}`);
     const runEnvironments = new Map<string, string>();
     for (const runId of spec.collection_runs) {
+      let run: GetResult;
       try {
-        const run = await getTypedItem(client, runId, "Run");
-        const env = run.item.environment;
-        if (typeof env === "string") runEnvironments.set(runId, env);
+        run = await getTypedItem(client, runId, "Run");
       } catch (error) {
         if (strict) {
           fail(`Promotion refused: collection run ${runId} of generation ${currentId} could not be resolved, so the contamination graph is unreadable. ${String(error)}`, "provenance_unreadable", EXIT_CODE.CONFLICT);
         }
         // A missing run contributes no environment to the contamination check.
+        continue;
+      }
+      // Deliberately outside the try: `fail` throws, and inside the block above
+      // its own catch would swallow it and re-report the unresolvable-run reason
+      // for a run that resolved perfectly well.
+      const environment = run.item.environment;
+      if (typeof environment === "string" && environment.length > 0) {
+        runEnvironments.set(runId, environment);
+        continue;
+      }
+      if (strict) {
+        // A run that resolves but records no environment is as undecidable as one
+        // that does not resolve: findContaminationPath would read `undefined`,
+        // compare it against the held-out environment, and treat the run as clean.
+        fail(`Promotion refused: collection run ${runId} of generation ${currentId} records no environment, so the contamination graph is unreadable.`, "provenance_unreadable", EXIT_CODE.CONFLICT);
       }
     }
     ancestry.push({ id: currentId, spec, runEnvironments });
@@ -556,25 +570,21 @@ async function buildAncestry(client: PmClient, headId: string, strict: boolean):
  *
  * @param client - Client bound to the workspace holding the generations.
  * @param approvalId - Approval Decision item whose consumed budget is counted.
- * @param excludeId - The generation being promoted, which never consumes budget
- *   against itself. Excluding it is what makes the count idempotent under
- *   transaction replay, where the candidate may already carry its own write.
- * @returns The number of other generations promoted under this approval.
+ * @returns The number of generations promoted under this approval.
  * @throws When any generation's specification cannot be read or parsed.
  */
-async function countPromotedUnderApproval(client: PmClient, approvalId: string, excludeId: string): Promise<number> {
-  const result = await client.list({ type: "Generation", status: "all", noTruncate: true });
+async function countPromotedUnderApproval(client: PmClient, approvalId: string): Promise<number> {
+  // Bodies come back with the listing. This runs inside the promotion's writer
+  // lock, so a per-record `client.get` would make the critical section grow one
+  // read per historical generation, and a large enough lineage would turn a
+  // correct refusal into a lock-wait timeout for every concurrent promoter.
+  const result = await client.list({ type: "Generation", status: "all", noTruncate: true, fields: "id,body" });
   let count = 0;
   for (const item of result.items) {
-    // The SDK types a listed item's `id` as optional, so a record without one
-    // cannot be fetched and is skipped rather than counted.
+    // The SDK types a listed item's `id` as optional; a record without one
+    // carries no identity to report, so it is skipped rather than counted.
     if (item.id === undefined) continue;
-    // The generation being promoted never consumes budget against itself. This
-    // is what makes the count idempotent under transaction replay: a promotion
-    // interrupted after its write resumes and recounts without inflating by one.
-    if (item.id === excludeId) continue;
-    const full = await client.get(item.id, { fields: "body" });
-    const fenced = JSON_SPEC_FENCE.exec(String(full.item.body));
+    const fenced = JSON_SPEC_FENCE.exec(String(item.body));
     const json = fenced?.[1];
     if (json === undefined) {
       fail(`Promotion refused: generation ${item.id} has no JSON specification fence, so the approved budget cannot be established.`, "budget_undecidable", EXIT_CODE.CONFLICT);
@@ -798,10 +808,14 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
   let closedStatus = "";
   await commitWorkspaceTransaction({
     pmRoot: context.pm_root,
-    // Keyed on the generation, which promotes at most once: a retried promotion
-    // of this generation resumes, while a different generation gets its own key
-    // rather than being skipped as already applied.
-    transactionId: `pm-rl-generation-promote-${id}`,
+    // Unique per invocation. The transaction is used here for MUTUAL EXCLUSION,
+    // not for idempotent replay, and the two must not share a key: keying on the
+    // generation makes concurrent callers promoting the SAME generation look
+    // like replays of one committed transaction, so the journal skips `apply`
+    // and every caller reports success for a promotion only one of them
+    // performed. Correctness under concurrency comes from the re-check inside
+    // the lock instead.
+    transactionId: `pm-rl-generation-promote-${id}-${randomUUID()}`,
     author: authorFor(context),
     lockWaitMs: PROMOTION_LOCK_WAIT_MS,
     steps: [{
@@ -814,7 +828,17 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
       // guard long before the transaction opens.
       inspect: async () => ({ state: "pending" }),
       apply: async () => {
-        promotedCount = await countPromotedUnderApproval(client, approvalId, id);
+        // Re-read inside the lock. The pre-lock `already_promoted` check runs on
+        // a read every concurrent caller performs before any of them holds the
+        // lock, so all of them pass it and would each promote the same
+        // generation. Only a re-check inside the critical section makes "a
+        // generation promotes at most once" true under concurrency.
+        const current = await getTypedItem(client, id, "Generation");
+        const currentSpec = extractGenerationSpec(String(current.item.body), `Generation ${id}`);
+        if (currentSpec.promoted) {
+          fail(`Generation ${id} is already promoted.`, "already_promoted", EXIT_CODE.CONFLICT);
+        }
+        promotedCount = await countPromotedUnderApproval(client, approvalId);
         if (promotedCount >= approvalSpec.permitted_promotions) {
           fail(`Advancing past the approved promotion budget is refused. ${promotedCount} promotion(s) consumed; approval ${approvalId} permits ${approvalSpec.permitted_promotions}. Extend approval item ${approvalId} to authorize more promotions.`, "budget_exceeded", EXIT_CODE.CONFLICT);
         }

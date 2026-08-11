@@ -305,8 +305,15 @@ export function parseGenerationSpec(text: string, source: string): GenerationSpe
   }
   const proxyScore = record["proxy_score"] === null || record["proxy_score"] === undefined ? null : parseScoreRecord(record["proxy_score"], `${source} proxy_score`);
   const heldOutScore = record["held_out_score"] === null || record["held_out_score"] === undefined ? null : parseScoreRecord(record["held_out_score"], `${source} held_out_score`);
-  const gap = record["gap"];
-  if (gap !== null && gap !== undefined && typeof gap !== "number") {
+  // Normalize an absent gap to null BEFORE the invariant check below. The
+  // invariant compares with `=== null`, so leaving `undefined` here breaks it in
+  // both directions: a promoted record with no `gap` key would pass as complete
+  // (and then flow on as `gap: undefined` through a `number | null` cast, where
+  // `isGapWidening` keeps it past its non-null filter and reports a widening
+  // trend from a value that is not a number), while an unpromoted record with no
+  // `gap` key would be refused for carrying evidence it does not have.
+  const gap = record["gap"] ?? null;
+  if (gap !== null && typeof gap !== "number") {
     lineageFail(`${source} requires gap to be a number or null.`, "invalid_gap");
   }
   const promotionEvidence = record["promotion_evidence"];
