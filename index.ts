@@ -765,7 +765,12 @@ async function registerGeneration(context: CommandHandlerContext): Promise<RlCom
 /** Promote a candidate generation after contamination and budget checks pass. */
 async function promoteGeneration(context: CommandHandlerContext): Promise<RlCommandResult> {
   const id = requiredArgument(context, "a generation id");
-  const approvalId = stringOption(context, "approval")!;
+  // Trimmed here as well as at the parse boundary: this value is both the id
+  // looked up on the Decision item and the identity written into the promoted
+  // generation, and countPromotedUnderApproval compares the two by strict
+  // equality. Normalizing only one side would let `--approval " a "` fail the
+  // lookup it should satisfy.
+  const approvalId = stringOption(context, "approval")!.trim();
   const scoresPath = stringOption(context, "scores")!;
   const evidence = stringOption(context, "evidence")!;
   const client = clientFor(context);

@@ -125,7 +125,11 @@ The first slice fails closed when context would otherwise become misleading:
    naming the differing fields. A generation spec is also refused when its promotion evidence is
    inconsistent — promoted records must carry their approval, both scores, and their gap, and
    unpromoted records must carry none of them (`promoted_missing_evidence` / `unpromoted_with_evidence`),
-   so two consumers never disagree about whether a record counts as promoted.
+   so two consumers never disagree about whether a record counts as promoted. The stored identities —
+   `parent` and `approval` — are trimmed at the parse boundary and a blank `approval` is refused
+   (`empty_approval`), because both are compared by strict equality: a promoted record storing
+   `"  approval-a  "` or `""` would satisfy the evidence invariant while matching no approval id, and
+   so consume none of the budget it was promoted under.
 
 All exit non-zero. The roadmap keeps a further hard refusal—ranking across incompatible
 environment versions—but no leaderboard command is registered until that graph-derived check is

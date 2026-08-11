@@ -309,6 +309,17 @@ test("parseGenerationSpec accepts the seed and a full candidate and refuses ever
   // contamination gate bypass fixed earlier in this PR.
   const paddedParent = { ...candidate, parent: "  gen-0  " };
   assert.equal(parseGenerationSpec(JSON.stringify(paddedParent), "g").parent, "gen-0");
+  // The approval is the other stored identity compared by strict equality, and
+  // the comparison is the one bounding the recursive promotion budget. A
+  // promoted record storing "  a  " matches no approval id, so it consumes none
+  // of a's budget while still counting as promoted everywhere else.
+  assert.equal(parseGenerationSpec(JSON.stringify({ ...promotedBase, approval: "  a  " }), "g").approval, "a");
+  // A blank approval is the same bypass without the padding: it is non-null, so
+  // it satisfies the promotion-evidence invariant above, and it equals no
+  // approval id. Storing an identity that names nothing is refused outright.
+  for (const blank of ["", "   "]) {
+    assert.throws(() => parseGenerationSpec(JSON.stringify({ ...promotedBase, approval: blank }), "g"), /approval to be a non-empty identity/);
+  }
   // promotion_evidence is the other optional field the renderer reads as a
   // boolean promotion state, so an absent key must normalize to null too.
   const candidateNoEvidenceKey: Record<string, unknown> = { ...candidateNoGapKey };
@@ -796,6 +807,55 @@ test("promotion refuses to advance past the approved budget and names the item t
       assert.ok(error.message.includes(String(twoApproval.item.id)), "the refusal must name the approval item to extend");
       return true;
     },
+  );
+});
+
+test("a promoted generation whose stored approval is padded still consumes that approval's budget", async () => {
+  // The budget is counted by comparing each promoted generation's stored
+  // approval to the approval id with strict equality. Generations are pm items,
+  // so a body can be authored by hand or by another tool; if a padded approval
+  // were stored verbatim it would match no id, and the record would be promoted
+  // while consuming none of the budget it was promoted under. That is a bypass
+  // of the one bound on a recursive promotion loop, reachable without touching
+  // the promote command at all.
+  const { root, pmRoot, client, harness } = await workspace();
+  const env = await registerEnv(harness, pmRoot, root, "Grid");
+  const oneApproval = await client.create({ id: "approval-pad", title: "One", type: "Decision", status: "open", body: "# approval\n\n```json\n" + JSON.stringify({ permitted_promotions: 1 }) + "\n```" });
+  const approvalId = String(oneApproval.item.id);
+  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed", "ckpt-seed");
+  // A hand-authored promoted generation that spends the single permitted
+  // promotion, recording the approval with surrounding whitespace.
+  const paddedSpec = { base_checkpoint: "ckpt-p", policy: "ckpt-p", collection_runs: ["run-p"], training_config: {}, environment_version: "env-1", reward_spec_version: "reward-1", parent: seed, seed: false, promoted: true, approval: `  ${approvalId}  `, proxy_score: score(12), held_out_score: score(9, "maximize", 1, "held-out-ctx"), gap: 3, promotion_evidence: "hand-authored" };
+  await client.create({ id: "gen-padded", title: "Padded", type: "Generation", status: "open", body: "# gen-padded\n\n```json\n" + JSON.stringify(paddedSpec, null, 2) + "\n```" });
+  const run = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-next"], options: { environment: env, algorithm: "ckpt-seed" } }));
+  await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-next"], options: { baseCheckpoint: "ckpt-next", parent: seed, policy: "ckpt-next", collectionRuns: run.id, environment: env } });
+  await assert.rejects(
+    harness.runCommand({ command: "rl generation promote", pmRoot, args: ["gen-next"], options: { approval: approvalId, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "second" } }),
+    (error: Error) => {
+      assert.match(error.message, /Advancing past the approved promotion budget is refused/);
+      assert.match(error.message, /1 promotion\(s\) consumed/, "the padded record must be counted, not merely make the count non-zero by accident");
+      return true;
+    },
+  );
+});
+
+test("a promoted generation whose stored approval is blank makes the budget undecidable rather than free", async () => {
+  // The blank case cannot be normalized into a real identity, so it is refused
+  // at the parse boundary. Reaching that refusal through the budget walk is the
+  // point: an unparseable promoted record must make the budget UNDECIDABLE, so
+  // the promotion stops. Ignoring the record instead would hand a recursive
+  // loop an unbounded budget, which is the failure the walk exists to prevent.
+  const { root, pmRoot, client, harness } = await workspace();
+  const env = await registerEnv(harness, pmRoot, root, "Grid");
+  const approval = await client.create({ id: "approval-blank", title: "One", type: "Decision", status: "open", body: "# approval\n\n```json\n" + JSON.stringify({ permitted_promotions: 5 }) + "\n```" });
+  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed", "ckpt-seed");
+  const blankSpec = { base_checkpoint: "ckpt-b", policy: "ckpt-b", collection_runs: ["run-b"], training_config: {}, environment_version: "env-1", reward_spec_version: "reward-1", parent: seed, seed: false, promoted: true, approval: "   ", proxy_score: score(12), held_out_score: score(9, "maximize", 1, "held-out-ctx"), gap: 3, promotion_evidence: "hand-authored" };
+  await client.create({ id: "gen-blank", title: "Blank", type: "Generation", status: "open", body: "# gen-blank\n\n```json\n" + JSON.stringify(blankSpec, null, 2) + "\n```" });
+  const run = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-next"], options: { environment: env, algorithm: "ckpt-seed" } }));
+  await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-next"], options: { baseCheckpoint: "ckpt-next", parent: seed, policy: "ckpt-next", collectionRuns: run.id, environment: env } });
+  await assert.rejects(
+    harness.runCommand({ command: "rl generation promote", pmRoot, args: ["gen-next"], options: { approval: String(approval.item.id), scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "second" } }),
+    /gen-blank has an unparseable specification/,
   );
 });
 

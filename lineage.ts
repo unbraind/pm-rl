@@ -301,9 +301,22 @@ export function parseGenerationSpec(text: string, source: string): GenerationSpe
     if (collectionRuns.length === 0) lineageFail(`${source} requires at least one collection run for a non-seed generation.`, "missing_collection_runs");
   }
   const promoted = record["promoted"] === true;
-  const approval = record["approval"];
-  if (approval !== null && typeof approval !== "string") {
+  const approvalRaw = record["approval"];
+  if (approvalRaw !== null && typeof approvalRaw !== "string") {
     lineageFail(`${source} requires approval to be a string or null.`, "invalid_approval");
+  }
+  // Normalized at the parse boundary for the same reason as `parent` below: the
+  // approval is an identity compared by strict equality in
+  // countPromotedUnderApproval, which is what bounds the recursive promotion
+  // budget. A promoted record storing `" approval-a "` matches no approval id,
+  // so it consumes none of approval-a's budget while still being promoted — the
+  // budget is bypassed by padding alone. An empty approval is the same bypass
+  // without the padding: it is non-null, so it satisfies the promotion-evidence
+  // invariant below, and it equals no approval id. Reject it rather than store
+  // an identity that names nothing.
+  const approval = approvalRaw === null ? null : approvalRaw.trim();
+  if (approval !== null && approval.length === 0) {
+    lineageFail(`${source} requires approval to be a non-empty identity or null.`, "empty_approval");
   }
   const proxyScore = record["proxy_score"] === null || record["proxy_score"] === undefined ? null : parseScoreRecord(record["proxy_score"], `${source} proxy_score`);
   const heldOutScore = record["held_out_score"] === null || record["held_out_score"] === undefined ? null : parseScoreRecord(record["held_out_score"], `${source} held_out_score`);
@@ -333,7 +346,7 @@ export function parseGenerationSpec(text: string, source: string): GenerationSpe
   // about one record. An unpromoted record carrying stale evidence is the same
   // disagreement in reverse. Enforce both directions so the record is unambiguous.
   const evidenceFields = [
-    { name: "approval", value: approval as string | null },
+    { name: "approval", value: approval },
     { name: "proxy_score", value: proxyScore },
     { name: "held_out_score", value: heldOutScore },
     { name: "gap", value: gap as number | null },
@@ -364,7 +377,7 @@ export function parseGenerationSpec(text: string, source: string): GenerationSpe
     parent: typeof parent === "string" ? parent.trim() : null,
     seed,
     promoted,
-    approval: approval as string | null,
+    approval,
     proxy_score: proxyScore,
     held_out_score: heldOutScore,
     gap: gap as number | null,
