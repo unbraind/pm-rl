@@ -89,7 +89,7 @@ always reported as contention rather than as a promotion that silently did not h
 A promotion whose close fails reverts its own body write rather than leaving budget consumed by a
 promotion that never completed. A seed
 may declare a `--policy` its children's collection runs must match; a seed with no declared policy
-skips that check, and `rl lineage --gap-window` requires at least two consecutive gaps.
+skips that check, and `pm rl lineage --gap-window` requires at least two consecutive gaps.
 
 ---
 

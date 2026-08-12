@@ -136,7 +136,10 @@ The first slice fails closed when context would otherwise become misleading:
    objective, objective version, and optimization direction. Subtracting scores that name different
    objectives yields a number that is not a gap, and a `maximize` proxy against a `minimize` held-out
    score adds capabilities instead of measuring drift; both are refused (`incomparable_scores`),
-   naming the differing fields. A generation spec is also refused when its promotion evidence is
+   naming the differing fields. An objective that declares no comparable scale is refused the same
+   way rather than compared: the gap is computed over normalized scales, so a missing scale means
+   there is nothing to normalize against and the subtraction would produce a number whose units are
+   undefined. A generation spec is also refused when its promotion evidence is
    inconsistent — promoted records must carry their approval, both scores, and their gap, and
    unpromoted records must carry none of them (`promoted_missing_evidence` / `unpromoted_with_evidence`),
    so two consumers never disagree about whether a record counts as promoted. The stored identities —

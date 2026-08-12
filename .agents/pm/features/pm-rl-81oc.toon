@@ -6,7 +6,7 @@ status: closed
 priority: 1
 tags: []
 created_at: "2026-08-04T20:49:37.421Z"
-updated_at: "2026-08-11T23:49:06.484Z"
+updated_at: "2026-08-12T00:46:06.532Z"
 closed_at: "2026-08-10T23:05:14.598Z"
 completed_at: "2026-08-10T23:05:14.598Z"
 claim_principal: pi-agent
@@ -20,7 +20,9 @@ dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rl-yi7j,parent,"2026-08-04T20:49:37.421Z",claude,"cli:create:dep",detected
 comments[1]{created_at,author,text}:
   "2026-08-10T23:05:14.007Z",pi-agent,"Test coverage added in test/lineage.test.ts: generation registration (seed with empty provenance, candidate with content-addressed parent/run/environment provenance), the parent-must-be-promoted gate, the collection-run policy-mismatch refusal, environment content-addressing verification, and buildAncestry including the missing-collection-run catch."
-tests[1]:
+tests[2]:
+  - command: "name=an environment edit invalidates every descendant generation transitively through the parent chain,result=pass"
+    scope: project
   - command: npm run coverage
     path: test/lineage.test.ts
     scope: project

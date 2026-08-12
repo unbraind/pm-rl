@@ -6,7 +6,7 @@ status: closed
 priority: 2
 tags: []
 created_at: "2026-08-10T23:30:50.506Z"
-updated_at: "2026-08-11T21:37:13.240Z"
+updated_at: "2026-08-12T00:46:06.160Z"
 closed_at: "2026-08-11T04:38:33.993Z"
 completed_at: "2026-08-11T04:38:33.993Z"
 author: "harness:claude-code"
@@ -20,9 +20,13 @@ comments[2]{created_at,author,text}:
 files[3]{path,scope,note}:
   index.ts,project,Head enumeration derives the lineage edge from the specification parent and skips an unreadable generation before its id joins the head list
   lineage.ts,project,Forward propagation names the nearest invalidated ancestor; the parent identity arrives already trimmed by parseGenerationSpec
-  test/lineage.test.ts,project,descendant fixture + pure propagation test
-tests[2]:
+  test/lineage.test.ts,project,"Forward propagation with a descendant fixture, the divergent-parent case where the specification and pm parent disagree, and the malformed-generation case where one unreadable body must not remove other ancestries"
+tests[4]:
+  - command: "name=a generation whose environment lacks a hash or a specification fence reports a distinct reason,result=pass"
+    scope: project
   - command: "name=buildLineageAncestry propagates invalidation forward to descendants naming the ancestor,result=pass"
+    scope: project
+  - command: "name=one malformed generation body must not remove other ancestries from the lineage view,result=pass"
     scope: project
   - command: npm run coverage
     path: test/lineage.test.ts

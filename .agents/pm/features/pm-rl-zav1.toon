@@ -6,7 +6,7 @@ status: closed
 priority: 1
 tags: []
 created_at: "2026-08-04T20:49:38.108Z"
-updated_at: "2026-08-10T23:05:18.798Z"
+updated_at: "2026-08-12T00:49:05.689Z"
 closed_at: "2026-08-10T23:05:18.774Z"
 completed_at: "2026-08-10T23:05:18.774Z"
 claim_principal: pi-agent
@@ -20,5 +20,11 @@ dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rl-yi7j,parent,"2026-08-04T20:49:38.108Z",claude,"cli:create:dep",detected
 comments[1]{created_at,author,text}:
   "2026-08-10T23:05:18.304Z",pi-agent,"Test coverage added in test/lineage.test.ts: directionAwareGap (maximize and minimize via negation, scale normalization), gapDeltas, isGapWidening (strictly increasing over the window), buildLineageAncestry (per-generation deltas, the widening finding, invalidation marks), and promotion recording the direction-aware gap with budget consumed."
+files[2]{path,scope,note}:
+  lineage.ts,project,directionAwareGap computes the gap per generation; buildLineageAncestry trends per-ancestry deltas and reports the widening finding
+  test/lineage.test.ts,project,"Direction-aware gap, per-ancestry deltas, and the widening finding over the configured window"
+tests[2]{command,scope}:
+  "name=buildLineageAncestry computes deltas surfaces widening and marks invalidated generations,result=pass",project
+  "name=directionAwareGap is direction aware and refuses incomparable scores,result=pass",project
 close_reason: Proxy-to-held-out gap test coverage complete
 body: ""
