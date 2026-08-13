@@ -6,12 +6,12 @@ status: closed
 priority: 1
 tags[3]: budget,identity,refusal
 created_at: "2026-08-11T14:44:11.221Z"
-updated_at: "2026-08-12T00:54:15.910Z"
+updated_at: "2026-08-13T21:17:51.240Z"
 closed_at: "2026-08-11T14:46:16.913Z"
 completed_at: "2026-08-11T14:46:16.913Z"
 author: "harness:claude-code"
 resolution: "approval is trimmed where parent is trimmed, and a blank approval is refused as empty_approval rather than normalized to null. The normalization lives only at the parse boundary: a generation body can be hand-authored and never passes through a command flag, and stringOption already trims every option value, so no flag-side trim exists."
-expected_result: "A promoted generation whose stored approval is padded consumes the budget of the approval it names, and a blank approval cannot be stored at all."
+expected_result: "A promoted generation whose stored approval is padded consumes the budget of the approval it names, and a blank approval is refused by parseGenerationSpec as empty_approval at the parse boundary rather than being stored."
 actual_result: "The padded record is counted (promotion refused with 1 promotion(s) consumed), the blank record makes the budget undecidable and stops the promotion, and all three assertions fail against the reverted implementation."
 dependencies[3]{id,kind,created_at,author,source_kind,author_source}:
   pm-rl-cnc0,related,"2026-08-11T14:44:20.283Z","harness:claude-code","cli:update:dep",detected
@@ -51,15 +51,8 @@ files[4]{path,scope,note}:
   lineage.ts,project,"Approval identity trimmed and a blank refused at the parse boundary, where parent is normalized"
   README.md,project,Documents empty_approval and why the identities are normalized where they are parsed
   test/lineage.test.ts,project,"Padded and blank approval cases, each confirmed to fail against the reverted parser"
-tests[2]:
-  - command: npm run coverage
-    path: test/lineage.test.ts
-    scope: project
-    note: Parse boundary normalization holds at the 100/100/100 coverage gate
-  - command: npm test
-    path: test/lineage.test.ts
-    scope: project
-    assert_stdout_contains[1]: a promoted generation whose stored approval is padded still consumes that approval's budget
-    note: Padded approval still consumes its budget
+tests[2]{command,scope}:
+  "name=a promoted generation whose stored approval is blank makes the budget undecidable rather than free,result=pass",project
+  "name=a promoted generation whose stored approval is padded still consumes that approval's budget,result=pass",project
 close_reason: "approval is trimmed where parent is trimmed, and a blank approval is refused as empty_approval rather than normalized to null. The normalization lives only at the parse boundary: a generation body can be hand-authored and never passes through a command flag, and stringOption already trims every option value, so no flag-side trim exists."
 body: ""

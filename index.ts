@@ -561,6 +561,26 @@ export async function environmentInvalidationReason(client: PmClient, envId: str
  * refusal names the run id and the generation that declared it. When `strict`
  * is false the prior tolerant behaviour is kept: a missing run contributes no
  * environment to the contamination check, so a lineage still renders.
+ */
+
+/** Normalize a Run's environment identity for strict-equality comparison.
+ *
+ * The pm SDK already trims typed item fields, so padding is not reachable for
+ * a metadata field — a Run whose `.toon` literally stores `environment: "  e  "`
+ * reads back trimmed. The trim is purely defensive: it pins the security gate
+ * (contamination compare) against a future SDK change, and the dependency is
+ * asserted by a dedicated test. Both `buildAncestry` and the register command's
+ * run-environment check compare this field, so they must normalise it the same
+ * way.
+ *
+ * @param value - The raw `run.item.environment` value.
+ * @returns The trimmed string, or the original non-string value unchanged.
+ */
+function normalizeRunEnvironment(value: string | undefined): string | undefined {
+  return typeof value === "string" ? value.trim() : value;
+}
+
+/** Walk the ancestry of a generation from the head back to the seed.
  *
  * @param client - The tracker client used to resolve items.
  * @param headId - The head generation id to walk back from.
@@ -637,8 +657,7 @@ async function buildAncestry(client: PmClient, headId: string, strict: boolean):
       // Note the asymmetry with `collection_runs`: those live inside the JSON
       // fence, which pm treats as opaque body text and does NOT normalize, so
       // padding there IS reachable and is trimmed at the parse boundary.
-      const environmentRaw = run.item.environment;
-      const environment = typeof environmentRaw === "string" ? environmentRaw.trim() : environmentRaw;
+      const environment = normalizeRunEnvironment(run.item.environment);
       if (typeof environment === "string" && environment.length > 0) {
         runEnvironments.set(runId, environment);
         continue;
@@ -811,8 +830,9 @@ async function registerGeneration(context: CommandHandlerContext): Promise<RlCom
       if (parentSpec.policy.length > 0 && String(run.item.component) !== parentSpec.policy) {
         fail(`Collection run ${runId} references policy ${String(run.item.component)}, not the parent generation's policy ${parentSpec.policy}.`, "run_policy_mismatch", EXIT_CODE.CONFLICT);
       }
-      if (String(run.item.environment) !== environmentId) {
-        fail(`Collection run ${runId} records environment ${String(run.item.environment)}, not the declared environment ${environmentId}.`, "run_environment_mismatch", EXIT_CODE.CONFLICT);
+      const runEnv = normalizeRunEnvironment(run.item.environment);
+      if (String(runEnv) !== environmentId) {
+        fail(`Collection run ${runId} records environment ${String(runEnv)}, not the declared environment ${environmentId}.`, "run_environment_mismatch", EXIT_CODE.CONFLICT);
       }
     }
     deps = [environmentId, ...collectionRuns];

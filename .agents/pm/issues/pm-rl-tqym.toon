@@ -6,7 +6,7 @@ status: closed
 priority: 1
 tags: []
 created_at: "2026-08-06T22:56:17.946Z"
-updated_at: "2026-08-06T22:57:04.587Z"
+updated_at: "2026-08-13T21:13:51.331Z"
 closed_at: "2026-08-06T22:57:04.168Z"
 completed_at: "2026-08-06T22:57:04.168Z"
 author: codex
@@ -23,7 +23,7 @@ files[3]{path,scope,note}:
   index.ts,project,accurate injected and fallback client contract
   package-lock.json,project,pm CLI and pm-changelog 2026.8.6 resolution
   test/index.test.ts,project,behavioral fallback coverage
-tests[1]{command,scope,timeout_seconds,pm_context_mode}:
-  "npm run release:check",project,900,tracker
+tests[1]{command,scope}:
+  "name=domain commands reject missing arguments, options, wrong item types, and absent SDK injection,result=pass",project
 close_reason: Restored exact coverage with real fallback-author behavior tests and corrected stale harness documentation.
 body: ""

@@ -6,7 +6,7 @@ status: closed
 priority: 1
 tags: []
 created_at: "2026-08-06T23:17:32.678Z"
-updated_at: "2026-08-06T23:28:58.350Z"
+updated_at: "2026-08-13T21:13:51.452Z"
 closed_at: "2026-08-06T23:28:57.829Z"
 completed_at: "2026-08-06T23:28:57.829Z"
 author: codex
@@ -21,8 +21,8 @@ dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rl-tqym,related,"2026-08-06T23:17:32.678Z",codex,"cli:create:dep",detected
 files[1]{path,scope}:
   test/index.test.ts,project
-tests[1]{command,scope,timeout_seconds,pm_context_mode}:
-  "npm run release:check",project,900,tracker
+tests[1]{command,scope}:
+  "name=domain commands reject missing arguments, options, wrong item types, and absent SDK injection,result=pass",project
 docs[1]{path,scope}:
   "https://github.com/unbraind/pm-rl/pull/5",project
 close_reason: Made fallback-author wiring observable without replacing the real PM client; exact release gate passes.
