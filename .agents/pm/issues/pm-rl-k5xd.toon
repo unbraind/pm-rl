@@ -6,7 +6,7 @@ status: closed
 priority: 1
 tags: []
 created_at: "2026-08-10T23:30:25.979Z"
-updated_at: "2026-08-11T20:30:18.406Z"
+updated_at: "2026-08-13T18:29:44.491Z"
 closed_at: "2026-08-10T23:50:55.086Z"
 completed_at: "2026-08-10T23:50:55.086Z"
 author: "harness:claude-code"
@@ -18,11 +18,7 @@ dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
 files[2]{path,scope,note}:
   lineage.ts,project,asString trims every identity at the parse boundary before any strict-equality comparison
   test/lineage.test.ts,project,Adversarial padded-identity test that parses through the real code path
-tests[1]:
-  - command: npm run coverage
-    path: test/lineage.test.ts
-    scope: project
-    assert_stdout_contains[1]: thresholds met
-    note: a padded environment identity cannot slip past the contamination refusal
+tests[1]{command,scope}:
+  "name=a padded environment identity cannot slip past the contamination refusal,result=pass",project
 close_reason: "asString now returns the trimmed value, so every identity read through it - environment ids, evaluation contexts, seed sets - is normalized at parse time before any strict-equality comparison. Docstring records why this is a correctness requirement rather than a convenience.\n\nVerified with an ADVERSARIAL test rather than a mutation test: it builds a spec declaring environment_version as two spaces, env-eval, tab, parses it through parseGenerationSpec so normalization happens on the real code path rather than in a hand-built literal, then asserts findContaminationPath still catches it against the held-out id env-eval. Reverting asString to return the raw value turns that test red, 23 of 24 passing; with the fix, 24 of 24.\n\nrelease:check green, coverage still an exact 100/100/100 across 9 files."
 body: ""

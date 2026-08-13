@@ -6,7 +6,7 @@ status: closed
 priority: 1
 tags: []
 created_at: "2026-08-04T20:49:37.421Z"
-updated_at: "2026-08-12T00:46:06.532Z"
+updated_at: "2026-08-13T18:29:56.574Z"
 closed_at: "2026-08-10T23:05:14.598Z"
 completed_at: "2026-08-10T23:05:14.598Z"
 claim_principal: pi-agent
@@ -20,13 +20,13 @@ dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rl-yi7j,parent,"2026-08-04T20:49:37.421Z",claude,"cli:create:dep",detected
 comments[1]{created_at,author,text}:
   "2026-08-10T23:05:14.007Z",pi-agent,"Test coverage added in test/lineage.test.ts: generation registration (seed with empty provenance, candidate with content-addressed parent/run/environment provenance), the parent-must-be-promoted gate, the collection-run policy-mismatch refusal, environment content-addressing verification, and buildAncestry including the missing-collection-run catch."
-tests[2]:
-  - command: "name=an environment edit invalidates every descendant generation transitively through the parent chain,result=pass"
-    scope: project
-  - command: npm run coverage
-    path: test/lineage.test.ts
-    scope: project
-    assert_stdout_contains[1]: thresholds met
-    note: reward-spec provenance is recorded and content-addressed at registration
+files[3]{path,scope,note}:
+  index.ts,project,"rl generation register and show and the rl lineage command: seed registration, parent validation, content-addressed provenance, and the invalidation view route through here"
+  lineage.ts,project,parseGenerationSpec records content-addressed reward_spec_version and environment_version; buildAncestry propagates invalidation forward to descendants naming the nearest invalidated ancestor
+  test/lineage.test.ts,project,"seed registration with content-addressed reward_spec_version and edge_types, the parent_not_promoted and content-addressed-environment refusals, and environment-edit descendant invalidation"
+tests[3]{command,scope}:
+  "name=a seed generation registers with empty provenance and its children's runs reference its policy,result=pass",project
+  "name=an edited environment marks every downstream generation invalidated in the lineage,result=pass",project
+  "name=registering a candidate refuses an unpromoted parent, a policy-mismatched run, and bad provenance,result=pass",project
 close_reason: Generation lineage test coverage complete
 body: ""

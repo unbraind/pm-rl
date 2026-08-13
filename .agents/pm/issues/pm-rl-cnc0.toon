@@ -6,7 +6,7 @@ status: closed
 priority: 1
 tags: []
 created_at: "2026-08-10T23:30:25.553Z"
-updated_at: "2026-08-11T21:37:04.915Z"
+updated_at: "2026-08-13T18:30:03.397Z"
 closed_at: "2026-08-11T05:03:53.124Z"
 completed_at: "2026-08-11T05:03:53.124Z"
 author: "harness:claude-code"
@@ -33,6 +33,6 @@ files[3]{path,scope,note}:
 tests[3]{command,scope}:
   "name=a promotion whose close fails reverts its own body write rather than leaving budget consumed,result=pass",project
   "name=concurrent promotions against a budget never let more than the permitted count succeed,result=pass",project
-  "name=promotion rethrows a non-race claim failure on the approval item,result=pass",project
+  "name=concurrent promotions of the SAME generation promote it exactly once,result=pass",project
 close_reason: "Budget count and promotion write held in one workspace writer lock via commitWorkspaceTransaction. A caller that acquires the lock re-reads the count and receives the terminal budget_exceeded only when that reread finds the budget exhausted; with headroom remaining it promotes. A caller that exceeds the bounded PROMOTION_LOCK_WAIT_MS receives lock_conflict without ever rereading, so contention is bounded rather than eliminated. An in-lock re-check keeps one generation promoting at most once."
 body: ""

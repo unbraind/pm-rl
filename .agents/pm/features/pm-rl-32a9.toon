@@ -6,7 +6,7 @@ status: closed
 priority: 2
 tags: []
 created_at: "2026-08-04T20:50:26.547Z"
-updated_at: "2026-08-13T18:16:08.813Z"
+updated_at: "2026-08-13T18:29:02.649Z"
 closed_at: "2026-08-10T23:05:20.384Z"
 completed_at: "2026-08-10T23:05:20.384Z"
 claim_principal: pi-agent
@@ -20,9 +20,13 @@ dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rl-yi7j,parent,"2026-08-04T20:50:26.547Z",claude,"cli:create:dep",detected
 comments[1]{created_at,author,text}:
   "2026-08-10T23:05:19.970Z",pi-agent,"Test coverage added in test/lineage.test.ts: rl lineage rendering as table and json, an explicit head, head enumeration via findGenerationHeads when no head is given, format and gap-window option validation, the gap-widening finding over a configured window, and invalidation marking for edited, missing, and malformed environments."
-files[1]{path,scope,note}:
+files[3]{path,scope,note}:
+  index.ts,project,"the rl lineage command wires the view: head enumeration, ancestry selection, and the table and machine-readable output forms all route through here"
   lineage.ts,project,renderLineageTable now emits the runs column the item description documents
-tests[1]{command,scope}:
-  "name=lineage table renders the collection runs the description already promised,result=pass",project
+  test/lineage.test.ts,project,"renderLineageTable one-row-per-generation, single-ancestry table/json, and head-enumeration tests"
+tests[3]{command,scope}:
+  "name=renderLineageTable renders one row per generation, with deltas, evidence, and findings,result=pass",project
+  "name=the lineage view renders a single ancestry as a table or as machine-readable json,result=pass",project
+  "name=without a head the view enumerates every head, and invalid format or gap-window options are refused,result=pass",project
 close_reason: pm rl lineage command test coverage complete
 body: ""
