@@ -6,21 +6,25 @@ status: closed
 priority: 1
 tags[2]: correctness,review
 created_at: "2026-08-13T18:16:09.196Z"
-updated_at: "2026-08-13T18:16:48.503Z"
+updated_at: "2026-08-13T18:38:09.742Z"
 closed_at: "2026-08-13T18:16:48.491Z"
 completed_at: "2026-08-13T18:16:48.491Z"
 author: "harness:claude-code"
 resolution: permittedPromotions initializes to 0 like its neighbours and is assigned only from the in-lock read; the pre-lock readApprovalSpec call is kept for its fast refusals and its value discarded; buildAncestry truncates the tolerant walk and re-throws under strict; registerGeneration resolves the environment before the run loop and compares each run against it; renderLineageTable emits the runs column; parseGenerationSpec normalizes a blank parent before the seed check.
 expected_result: Every value the promotion receipt reports is one an in-lock read confirmed; a tolerant lineage walk survives an unreadable ancestor; a collection run recorded against a different environment than the generation declares is refused; the rendered lineage table matches its documented column set; a blank parent is equivalent to an absent one.
 actual_result: "Four of the five are covered by regression tests that fail against the reverted implementation - reverting index.ts and lineage.ts to the pre-fix state fails exactly four tests in test/lineage.test.ts. The fifth, the neutral permittedPromotions initializer, has NO regression test and cannot have one: transactionId embeds randomUUID() so a journal replay that skips apply is unreachable by construction, which is precisely why the value is defensive rather than a live defect."
+notes[1]{created_at,author,text}:
+  "2026-08-13T18:38:09.742Z","harness:claude-code","Correction: two entries in this record's tests list are DESCRIPTIONS of assertions, not test titles - 'a blank or whitespace-only parent normalizes to null before the seed check' and 'lineage table renders the collection runs the description already promised'. Both assertions are real and passing, but they live inside existing tests rather than tests of their own: the blank-parent assertions are in 'parseGenerationSpec accepts the seed and a full candidate and refuses every malformed provenance' (test/lineage.test.ts:379-380) and the runs-column assertion is in 'renderLineageTable renders one row per generation, with deltas, evidence, and findings' (test/lineage.test.ts:574). The two real titles are now recorded. The mis-named pair could not be removed: pm test --remove is a silent no-op for any command value containing a comma or equals sign, which the cohort's own name=<title>,result=pass convention always contains. Both the CSV form and the documented stdin form returned ok:true and removed nothing. That is upstream unbraind/pm-cli#982."
 files[3]{path,scope,note}:
   index.ts,project,"neutral budget initializer,tolerant-walk truncation,environment resolved before the run loop"
   lineage.ts,project,runs column in the rendered table and blank-parent normalization
   test/lineage.test.ts,project,"four regression tests,each verified to fail against the reverted implementation"
-tests[4]{command,scope}:
+tests[6]{command,scope}:
   "name=a blank or whitespace-only parent normalizes to null before the seed check,result=pass",project
   "name=a readable descendant of a malformed ancestor still enumerates in the tolerant lineage walk,result=pass",project
   "name=lineage table renders the collection runs the description already promised,result=pass",project
+  "name=parseGenerationSpec accepts the seed and a full candidate and refuses every malformed provenance,result=pass",project
   "name=registering a candidate refuses a collection run whose environment differs from the declared one,result=pass",project
+  "name=renderLineageTable renders one row per generation, with deltas, evidence, and findings,result=pass",project
 close_reason: "All five code findings applied and verified; release:check exit 0 with coverage at 100/100/100 and pm health ok:true. The three record-projection findings F6 to F8 remain open and are tracked separately."
 body: ""
