@@ -1222,6 +1222,34 @@ test("a readable descendant of a malformed ancestor still enumerates in the tole
   );
 });
 
+test("a descendant of an ancestor that is no longer a Generation still enumerates in the tolerant lineage walk", async () => {
+  // An ancestry is unreadable two ways, and they fail in different places. The
+  // test above corrupts the parent's BODY, so `extractGenerationSpec` throws.
+  // Here the parent stops resolving as a Generation at all, so `getTypedItem`
+  // throws one line earlier — the case that escaped the tolerant walk while the
+  // lookup sat outside the try. Both must degrade the view rather than destroy
+  // it, and both must still refuse under strict.
+  const { root, pmRoot, client, harness } = await workspace();
+  const env = await registerEnv(harness, pmRoot, root, "Grid");
+  const approval = await client.create({ id: "approval-3", title: "Approval", type: "Decision", status: "open", body: "# approval\n\n```json\n" + JSON.stringify({ permitted_promotions: 2 }) + "\n```" });
+  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed", "ckpt-seed");
+  const run = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-1"], options: { environment: env, algorithm: "ckpt-seed" } }));
+  const candidate = resultOf(await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-c1"], options: { baseCheckpoint: "ckpt-c1", parent: seed, policy: "ckpt-c1", collectionRuns: run.id, environment: env } }));
+
+  // Registration validated the parent, so the only way to reach this state is a
+  // later edit — exactly what a peer retyping an item produces.
+  await client.update(seed, { type: "Task", message: "Retype the seed away from Generation" });
+
+  const lineage = resultOf(await harness.runCommand({ command: "rl lineage", pmRoot, args: [candidate.id!] }));
+  assert.match(String(lineage.details?.output), /head: /);
+  assert.match(String(lineage.details?.output), /gen-c1/, "the readable descendant must survive an ancestor that no longer resolves as a Generation");
+
+  await assert.rejects(
+    harness.runCommand({ command: "rl generation promote", pmRoot, args: [candidate.id!], options: { approval: approval.item.id, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "x" } }),
+    /Generation|type/,
+  );
+});
+
 test("a generation whose environment lacks a hash or a specification fence reports a distinct reason", async () => {
   const { pmRoot, client, harness } = await workspace();
   // An environment registered without a specification hash cannot be content-addressed.

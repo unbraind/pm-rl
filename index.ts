@@ -588,13 +588,20 @@ async function buildAncestry(client: PmClient, headId: string, strict: boolean):
       break;
     }
     visited.add(currentId);
-    const item = await getTypedItem(client, currentId, "Generation");
-    // An unreadable ancestor body (no JSON fence, unparseable JSON) truncates
-    // the TOLERANT walk the same way a cycle does: the view stays useful with a
-    // degraded chain, and only the strict promotion gate may refuse on it. The
-    // strict path re-throws so the promotion refusal message is unchanged.
+    // An unreadable ancestor truncates the TOLERANT walk the same way a cycle
+    // does: the view stays useful with a degraded chain, and only the strict
+    // promotion gate may refuse on it. The strict path re-throws so the
+    // promotion refusal message is unchanged.
+    //
+    // `getTypedItem` is INSIDE the try, not just the body parse. An ancestry
+    // can be unreadable two ways — a parent id that resolves to a missing item
+    // or to something that is not a Generation, and a parent that resolves
+    // fine but carries no usable JSON fence. Only the second was tolerated
+    // before, so a chain pointing at a deleted parent still threw out of the
+    // tolerant walk and took the readable descendants with it.
     let spec: GenerationSpec;
     try {
+      const item = await getTypedItem(client, currentId, "Generation");
       spec = extractGenerationSpec(String(item.item.body), `Generation ${currentId}`);
     } catch (error) {
       if (strict) throw error;
