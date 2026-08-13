@@ -1197,6 +1197,39 @@ test("an edited environment marks every downstream generation invalidated in the
   assert.ok(!brokenHeads.includes(brokenId), `an unreadable generation contributes no ancestry, got: ${brokenHeads.join(", ")}`);
 });
 
+test("an edited reward specification marks every downstream generation invalidated in the lineage", async () => {
+  const { root, pmRoot, client, harness } = await workspace();
+  // seed -> A -> B where A and B recorded DIFFERENT environments. Reading A's
+  // stored environment body and changing ONLY reward_specification — leaving
+  // every other spec field byte-identical — must mark A with "environment was
+  // edited" and propagate to B as "invalidated by ancestor <A-id>". The general
+  // environment-edit test above reconstructs the body by hand; this one reads
+  // the stored spec and mutates a single field, pinning the reward-specification
+  // edit the acceptance criterion names specifically.
+  const envA = await registerEnv(harness, pmRoot, root, "EnvRwd", "1", { goal: 10 });
+  const envB = await registerEnv(harness, pmRoot, root, "EnvRwd2", "1", { goal: 10 });
+  const approval = await client.create({ id: "approval-rr", title: "Approval", type: "Decision", status: "open", body: "# approval\n\n```json\n" + JSON.stringify({ permitted_promotions: 2 }) + "\n```" });
+  const seed = await registerSeed(harness, pmRoot, "gen-seed-rr", "ckpt-seed", "ckpt-seed");
+  const runA = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-a-rr"], options: { environment: envA, algorithm: "ckpt-seed" } }));
+  const genA = resultOf(await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-a-rr"], options: { baseCheckpoint: "ckpt-a", parent: seed, policy: "ckpt-a", collectionRuns: runA.id, environment: envA } }));
+  await harness.runCommand({ command: "rl generation promote", pmRoot, args: [genA.id!], options: { approval: approval.item.id, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "ok" } });
+  const runB = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-b-rr"], options: { environment: envB, algorithm: "ckpt-a" } }));
+  const genB = resultOf(await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-b-rr"], options: { baseCheckpoint: "ckpt-b", parent: genA.id, policy: "ckpt-b", collectionRuns: runB.id, environment: envB } }));
+  // Read the stored environment body and change ONLY reward_specification,
+  // leaving every other spec field byte-identical. This proves the
+  // invalidation fires for a reward-specification edit specifically, not
+  // merely for a general body rewrite.
+  const stored = await client.get(envA, { depth: "deep" });
+  const fenced = /```json\n([\s\S]+?)\n```/.exec(String(stored.item.body));
+  const storedSpec = JSON.parse(fenced![1]!) as Record<string, unknown>;
+  const editedSpec = { ...storedSpec, reward_specification: { goal: 999 } };
+  await client.update(envA, { body: "# changed\n\n```json\n" + JSON.stringify(editedSpec, null, 2) + "\n```", message: "edit only reward_specification" });
+  const after = resultOf(await harness.runCommand({ command: "rl lineage", pmRoot, args: [genB.id!] }));
+  const escapeId = (value: string): string => value.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
+  assert.match(String(after.details?.output), new RegExp(`${escapeId(genA.id!)} .* environment was edited`));
+  assert.match(String(after.details?.output), new RegExp(`${escapeId(genB.id!)} .* invalidated by ancestor ${escapeId(genA.id!)}`));
+});
+
 test("a readable descendant of a malformed ancestor still enumerates in the tolerant lineage walk", async () => {
   // F2 regression: when extractGenerationSpec hits an unreadable ancestor body
   // during the TOLERANT walk, the walk truncates (like cycle handling) instead

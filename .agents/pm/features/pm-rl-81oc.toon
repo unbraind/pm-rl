@@ -6,7 +6,7 @@ status: closed
 priority: 1
 tags: []
 created_at: "2026-08-04T20:49:37.421Z"
-updated_at: "2026-08-13T18:29:56.574Z"
+updated_at: "2026-08-13T21:03:06.216Z"
 closed_at: "2026-08-10T23:05:14.598Z"
 completed_at: "2026-08-10T23:05:14.598Z"
 claim_principal: pi-agent
@@ -24,9 +24,10 @@ files[3]{path,scope,note}:
   index.ts,project,"rl generation register and show and the rl lineage command: seed registration, parent validation, content-addressed provenance, and the invalidation view route through here"
   lineage.ts,project,parseGenerationSpec records content-addressed reward_spec_version and environment_version; buildAncestry propagates invalidation forward to descendants naming the nearest invalidated ancestor
   test/lineage.test.ts,project,"seed registration with content-addressed reward_spec_version and edge_types, the parent_not_promoted and content-addressed-environment refusals, and environment-edit descendant invalidation"
-tests[3]{command,scope}:
+tests[4]{command,scope}:
   "name=a seed generation registers with empty provenance and its children's runs reference its policy,result=pass",project
   "name=an edited environment marks every downstream generation invalidated in the lineage,result=pass",project
   "name=registering a candidate refuses an unpromoted parent, a policy-mismatched run, and bad provenance,result=pass",project
+  "name=an edited reward specification marks every downstream generation invalidated in the lineage,result=pass",project
 close_reason: Generation lineage test coverage complete
 body: ""

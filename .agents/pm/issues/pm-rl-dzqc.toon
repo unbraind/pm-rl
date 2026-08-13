@@ -6,7 +6,7 @@ status: closed
 priority: 2
 tags: []
 created_at: "2026-08-10T23:30:50.828Z"
-updated_at: "2026-08-13T18:29:13.809Z"
+updated_at: "2026-08-13T21:03:16.018Z"
 closed_at: "2026-08-11T04:43:42.027Z"
 completed_at: "2026-08-11T04:43:42.027Z"
 author: "harness:claude-code"
@@ -20,10 +20,11 @@ files[4]{path,scope,note}:
   lineage.ts,project,directionAwareGap comparability + promoted invariant + isGapWidening window
   README.md,project,new refusal codes and gap-window minimum
   test/lineage.test.ts,project,incomparability + invariant + window tests
-tests[4]{command,scope}:
+tests[5]{command,scope}:
   "name=isGapWidening requires strictly increasing gaps over the full window,result=pass",project
   "name=parseGenerationSpec accepts the seed and a full candidate and refuses every malformed provenance,result=pass",project
   "name=promotion refuses incomparable proxy and held-out scores naming the differing fields,result=pass",project
   "name=the direction-aware gap is positive when the proxy leads, regardless of optimization direction,result=pass",project
+  "name=without a head the view enumerates every head, and invalid format or gap-window options are refused,result=pass",project
 close_reason: "Enforced score comparability, promoted evidence invariant, and gap-window minimum of 2."
 body: ""
