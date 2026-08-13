@@ -6,7 +6,7 @@ status: closed
 priority: 3
 tags: []
 created_at: "2026-08-10T23:30:51.145Z"
-updated_at: "2026-08-13T21:13:51.395Z"
+updated_at: "2026-08-13T23:48:04.266Z"
 closed_at: "2026-08-11T04:34:51.172Z"
 completed_at: "2026-08-11T04:34:51.172Z"
 author: "harness:claude-code"
@@ -19,7 +19,8 @@ files[3]{path,scope,note}:
   index.ts,project,environmentInvalidationReason + JSON_SPEC_FENCE
   lineage.ts,project,buildLineageAncestry reason map
   test/lineage.test.ts,project,distinct reason assertions
-tests[2]{command,scope}:
+tests[3]{command,scope}:
+  "name=a generation whose environment does not resolve reports absent rather than edited,result=pass",project
   "name=a generation whose environment lacks a hash or a specification fence reports a distinct reason,result=pass",project
   "name=an edited environment marks every downstream generation invalidated in the lineage,result=pass",project
 close_reason: Extracted shared fence regex; environmentInvalidationReason returns distinct per-condition reasons instead of one boolean.

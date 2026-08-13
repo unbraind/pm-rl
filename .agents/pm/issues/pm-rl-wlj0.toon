@@ -6,7 +6,7 @@ status: closed
 priority: 2
 tags: []
 created_at: "2026-08-10T15:30:44.446Z"
-updated_at: "2026-08-12T00:49:04.253Z"
+updated_at: "2026-08-13T23:45:21.783Z"
 closed_at: "2026-08-10T23:22:06.717Z"
 completed_at: "2026-08-10T23:22:06.717Z"
 author: pi-agent
@@ -22,7 +22,5 @@ notes[8]{created_at,author,text}:
   "2026-08-10T16:57:41.680Z",claude,"Round six follow up. CodeRabbit noted the parked run detection reads only the first page of the workflow runs endpoint, whose default page size is thirty, so a parked run past that page would go undetected. The query now requests one hundred per page. This is a diagnostic path rather than a safety one, since an undetected parked run simply means the release is not approved and times out without publishing, but the larger page costs nothing. Thread level pagination was declined separately because unfetched threads are never resolved and therefore keep blocking, which is the safe direction."
 files[1]{path,scope,note}:
   .github/workflows/release.yml,project,Publication and tagging happen only after the protected release PR merges
-tests[1]{command,scope}:
-  "name=release workflow publishes only after the protected release pull request merges,result=pass",project
 close_reason: "The fix is present and verified on origin/main: release.yml gates npm publication and tagging behind the merge of the protected release PR, so a GH006 rejection can no longer leave the package published with no matching tag. Confirmed by locating the guard text in the workflow. The item tracked work that had already shipped fleet-wide and was simply never closed."
 body: ""

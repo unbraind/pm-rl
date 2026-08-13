@@ -6,16 +6,16 @@ status: closed
 priority: 1
 tags: []
 created_at: "2026-08-04T20:49:37.421Z"
-updated_at: "2026-08-13T21:03:06.216Z"
+updated_at: "2026-08-13T23:45:41.049Z"
 closed_at: "2026-08-10T23:05:14.598Z"
 completed_at: "2026-08-10T23:05:14.598Z"
 claim_principal: pi-agent
 author: claude
 estimated_minutes: 720
 acceptance_criteria: "A generation with no parent is accepted as the seed generation and reports itself as such; every later generation requires a parent that exists and is either the registered seed or itself promoted, so a seed may parent a candidate without being promoted while any non-seed parent must be promoted; the collection runs named by a generation must reference the parent's policy and are refused when they do not; the recorded base checkpoint, environment version and reward-spec version identities are content-addressed so a silently swapped artifact fails to resolve; an edit to an environment or reward specification is reachable in reverse to every generation whose collection runs used it, transitively through the parent chain; the declared edge types are enumerated in the specification rather than inferred"
-resolution: Added test/lineage.test.ts exercising generation registration and ancestry building.
+resolution: "Added test/lineage.test.ts exercising generation registration, ancestry building, and reverse invalidation from environment and reward-specification edits to every downstream generation."
 expected_result: "A generation with no parent is the seed; a later generation requires a parent that is the seed or a promoted generation, refused as parent_not_promoted otherwise; collection runs reference the parent policy; provenance identities are content-addressed."
-actual_result: "test/lineage.test.ts passes, including the registered-seed exception and the parent_not_promoted refusal for a non-seed parent; index.ts and lineage.ts at 100/100/100 lines/branches/functions."
+actual_result: "test/lineage.test.ts passes, including the registered-seed exception, the parent_not_promoted refusal for a non-seed parent, environment-edit descendant invalidation, and reward-specification descendant invalidation; index.ts and lineage.ts at 100/100/100 lines/branches/functions."
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rl-yi7j,parent,"2026-08-04T20:49:37.421Z",claude,"cli:create:dep",detected
 comments[1]{created_at,author,text}:
@@ -27,7 +27,7 @@ files[3]{path,scope,note}:
 tests[4]{command,scope}:
   "name=a seed generation registers with empty provenance and its children's runs reference its policy,result=pass",project
   "name=an edited environment marks every downstream generation invalidated in the lineage,result=pass",project
-  "name=registering a candidate refuses an unpromoted parent, a policy-mismatched run, and bad provenance,result=pass",project
   "name=an edited reward specification marks every downstream generation invalidated in the lineage,result=pass",project
+  "name=registering a candidate refuses an unpromoted parent, a policy-mismatched run, and bad provenance,result=pass",project
 close_reason: Generation lineage test coverage complete
 body: ""

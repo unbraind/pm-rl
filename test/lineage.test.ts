@@ -1310,6 +1310,16 @@ test("a generation whose environment lacks a hash or a specification fence repor
   assert.doesNotMatch(String(badFenceLineage.details?.output), /gen-badfence .* environment could not be resolved/, "a present but unparseable body must not be reported as an absent environment");
 });
 
+test("a generation whose environment does not resolve reports absent rather than edited", async () => {
+  const { pmRoot, client, harness } = await workspace();
+  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed");
+  const ghostSpec = { ...seedSpec("ckpt-g", ""), environment_version: "ghost-env-v1", parent: seed, seed: false, policy: "g", collection_runs: ["ghost-run"], reward_spec_version: "r" };
+  await client.create({ id: "gen-ghost", title: "Ghost", type: "Generation", status: "open", ...generationBody(ghostSpec) });
+  const lineage = resultOf(await harness.runCommand({ command: "rl lineage", pmRoot, args: ["gen-ghost"] }));
+  assert.match(String(lineage.details?.output), /gen-ghost .* environment could not be resolved/);
+  assert.doesNotMatch(String(lineage.details?.output), /gen-ghost .* environment was edited/, "an absent environment must not be reported as edited");
+});
+
 test("environmentInvalidationReason treats an empty environment id as not invalidated", async () => {
   const { client } = await workspace();
   assert.equal(await environmentInvalidationReason(client, ""), null);
