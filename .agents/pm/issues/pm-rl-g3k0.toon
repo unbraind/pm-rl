@@ -1,0 +1,26 @@
+id: pm-rl-g3k0
+title: "Review round 15: a pre-lock budget seeded the receipt, and four traversal and parsing defects"
+description: "CodeRabbit round fifteen raised eight findings. Five were code. permittedPromotions was initialized from the pre-lock approval read while its two neighbours promotedCount and closedStatus use neutral initializers, so a transaction body that never runs would leave a plausible stale budget in the receipt where the others show visibly empty values. buildAncestry did not truncate the tolerant walk when an ancestor body was unreadable. registerGeneration resolved the declared environment after iterating collection runs, so a run recorded against a different environment was never compared. renderLineageTable omitted the collection runs column that the feature record had documented all along. parseGenerationSpec did not normalize a blank parent to null before the seed check."
+type: Issue
+status: closed
+priority: 1
+tags[2]: correctness,review
+created_at: "2026-08-13T18:16:09.196Z"
+updated_at: "2026-08-13T18:16:48.503Z"
+closed_at: "2026-08-13T18:16:48.491Z"
+completed_at: "2026-08-13T18:16:48.491Z"
+author: "harness:claude-code"
+resolution: permittedPromotions initializes to 0 like its neighbours and is assigned only from the in-lock read; the pre-lock readApprovalSpec call is kept for its fast refusals and its value discarded; buildAncestry truncates the tolerant walk and re-throws under strict; registerGeneration resolves the environment before the run loop and compares each run against it; renderLineageTable emits the runs column; parseGenerationSpec normalizes a blank parent before the seed check.
+expected_result: Every value the promotion receipt reports is one an in-lock read confirmed; a tolerant lineage walk survives an unreadable ancestor; a collection run recorded against a different environment than the generation declares is refused; the rendered lineage table matches its documented column set; a blank parent is equivalent to an absent one.
+actual_result: "Four of the five are covered by regression tests that fail against the reverted implementation - reverting index.ts and lineage.ts to the pre-fix state fails exactly four tests in test/lineage.test.ts. The fifth, the neutral permittedPromotions initializer, has NO regression test and cannot have one: transactionId embeds randomUUID() so a journal replay that skips apply is unreachable by construction, which is precisely why the value is defensive rather than a live defect."
+files[3]{path,scope,note}:
+  index.ts,project,"neutral budget initializer,tolerant-walk truncation,environment resolved before the run loop"
+  lineage.ts,project,runs column in the rendered table and blank-parent normalization
+  test/lineage.test.ts,project,"four regression tests,each verified to fail against the reverted implementation"
+tests[4]{command,scope}:
+  "name=a blank or whitespace-only parent normalizes to null before the seed check,result=pass",project
+  "name=a readable descendant of a malformed ancestor still enumerates in the tolerant lineage walk,result=pass",project
+  "name=lineage table renders the collection runs the description already promised,result=pass",project
+  "name=registering a candidate refuses a collection run whose environment differs from the declared one,result=pass",project
+close_reason: "All five code findings applied and verified; release:check exit 0 with coverage at 100/100/100 and pm health ok:true. The three record-projection findings F6 to F8 remain open and are tracked separately."
+body: ""

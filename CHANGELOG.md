@@ -12,6 +12,7 @@
 
 ### Fixed
 
+- Review round 15: a pre-lock budget seeded the receipt, and four traversal and parsing defects ([pm-rl-g3k0](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-g3k0.toon))
 - A promoted generation could store a padded or blank approval identity, consuming none of the budget it was promoted under ([pm-rl-rayz](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-rayz.toon))
 - Promotion budget reservation is a read-then-write race, so concurrent promotions can exceed the approved budget ([pm-rl-cnc0](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-cnc0.toon))
 - A registered seed cannot parent any candidate, and the tests hide it by writing outside the command surface ([pm-rl-qdxu](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-qdxu.toon))

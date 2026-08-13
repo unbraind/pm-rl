@@ -371,6 +371,13 @@ test("parseGenerationSpec accepts the seed and a full candidate and refuses ever
   const seedNoParentKey: Record<string, unknown> = { ...spec({ seed: true, parent: null, policy: "", collection_runs: [], environment_version: "", reward_spec_version: "" }) };
   delete seedNoParentKey["parent"];
   assert.equal(parseGenerationSpec(JSON.stringify(seedNoParentKey), "g").parent, null);
+  // F5 regression: a blank or whitespace-only parent string normalizes to null
+  // BEFORE the seed-with-parent check. A seed body carrying `parent: "   "` is
+  // equivalent to one that omits the key — it must NOT be refused as
+  // seed_with_parent. A non-seed body with a blank parent is still refused as
+  // missing_parent, because the normalized null is not a usable parent.
+  assert.equal(parseGenerationSpec(JSON.stringify({ ...spec({ seed: true, parent: null }), parent: "   " }), "g").parent, null);
+  assert.equal(parseGenerationSpec(JSON.stringify({ ...spec({ seed: true, parent: null }), parent: "" }), "g").parent, null);
   // A NON-seed body missing the key must still be refused - but for the reason
   // that is true of it (no parent) rather than for a type it never violated.
   const candidateNoParentKey: Record<string, unknown> = { ...candidate };
@@ -564,6 +571,7 @@ test("renderLineageTable renders one row per generation, with deltas, evidence, 
   assert.match(table, /head: gen-c1/);
   assert.match(table, /gen-seed \| seed \|/);
   assert.match(table, /gen-c1 \| generation \| base=ckpt-1 .* delta=\+2\.0000 .* approval=approval-1 .* evidence=rose on held-out \| promoted/);
+  assert.match(table, /gen-c1 .* runs=run-1/, "the rendered row must include the collection run ids");
   assert.match(table, /findings: gap widening over last 3 promotions/);
   assert.match(table, /gen-d1 .* delta=-2\.0000 .* environment was edited/);
   assert.match(table, /head: gen-d1/);
@@ -728,6 +736,27 @@ test("registering a candidate refuses an unpromoted parent, a policy-mismatched 
   );
 });
 
+test("registering a candidate refuses a collection run whose environment differs from the declared one", async () => {
+  // F3 regression: the declared environment is resolved BEFORE iterating
+  // collection runs, and each run's recorded environment is compared against
+  // the resolved identity. A mismatch is refused at registration so the
+  // generation's environment_version and its runs' environments cannot drift.
+  const { root, pmRoot, harness } = await workspace();
+  const envA = await registerEnv(harness, pmRoot, root, "EnvA");
+  const envB = await registerEnv(harness, pmRoot, root, "EnvB", "2");
+  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed", "ckpt-seed");
+  // Start a run with envB, then try to register a generation declaring envA.
+  const runB = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-b"], options: { environment: envB, algorithm: "ckpt-seed" } }));
+  await assert.rejects(
+    harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-mismatch"], options: { baseCheckpoint: "ckpt-x", parent: seed, policy: "ckpt-seed", collectionRuns: runB.id, environment: envA } }),
+    (error: Error) => {
+      assert.match(error.message, /records environment/);
+      assert.match(error.message, /not the declared environment/);
+      return true;
+    },
+  );
+});
+
 test("a clean candidate promotes with a direction-aware gap and consumes one budget unit", async () => {
   const { root, pmRoot, client, harness } = await workspace();
   const env = await registerEnv(harness, pmRoot, root, "Grid");
@@ -809,10 +838,20 @@ test("promotion refuses when the evaluation set is reachable from the candidate'
     /Promotion refused: the evaluation set is reachable/,
   );
   // Reachability through a collection run whose environment is the held-out set produces a multi-hop path.
+  // The generation is created through a raw client because the command surface
+  // now refuses a run whose recorded environment differs from the declared one
+  // (F3: run_environment_mismatch). The contamination check at promotion time
+  // reads the run's OWN environment, so a hand-authored body that declares a
+  // different environment_version while pointing at a run that used the held-out
+  // set is still caught — and the path goes through collection_run, not
+  // environment_version, because the generation's own environment_version is the
+  // alternate training environment, not the held-out one.
   const altTrainEnv = await registerEnv(harness, pmRoot, root, "AltTrain", "2");
   const heldOutEnv = await registerEnv(harness, pmRoot, root, "HeldOut", "3");
   const heldOutRun = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-heldout"], options: { environment: heldOutEnv, algorithm: "ckpt-seed" } }));
-  await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-c2"], options: { baseCheckpoint: "ckpt-c2", parent: seed, policy: "ckpt-c2", collectionRuns: heldOutRun.id, environment: altTrainEnv } });
+  const c2Spec = spec({ base_checkpoint: "ckpt-c2", policy: "ckpt-c2", collection_runs: [String(heldOutRun.id)], environment_version: altTrainEnv, reward_spec_version: hashJson({ goal: 10 }), parent: seed, seed: false });
+  const c2Body = generationBody(c2Spec);
+  await client.create({ id: "gen-c2", title: "C2", type: "Generation", status: "open", body: c2Body.body, affectedVersion: c2Body.hash, parent: seed, environment: altTrainEnv });
   await assert.rejects(
     harness.runCommand({ command: "rl generation promote", pmRoot, args: ["gen-c2"], options: { approval: approval.item.id, scores: writeScores(root, 12, heldOutEnv, 9), evidence: "contaminated" } }),
     /reachable from the candidate's training data over provenance edges.*collection_run/,
@@ -1156,6 +1195,31 @@ test("an edited environment marks every downstream generation invalidated in the
   // match nothing, and the assertion would then pass for a workspace where the
   // broken generation IS enumerated as a head.
   assert.ok(!brokenHeads.includes(brokenId), `an unreadable generation contributes no ancestry, got: ${brokenHeads.join(", ")}`);
+});
+
+test("a readable descendant of a malformed ancestor still enumerates in the tolerant lineage walk", async () => {
+  // F2 regression: when extractGenerationSpec hits an unreadable ancestor body
+  // during the TOLERANT walk, the walk truncates (like cycle handling) instead
+  // of propagating the error. A readable descendant must still render.
+  const { root, pmRoot, client, harness } = await workspace();
+  const env = await registerEnv(harness, pmRoot, root, "Grid");
+  const approval = await client.create({ id: "approval-2", title: "Approval", type: "Decision", status: "open", body: "# approval\n\n```json\n" + JSON.stringify({ permitted_promotions: 2 }) + "\n```" });
+  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed", "ckpt-seed");
+  const run = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-1"], options: { environment: env, algorithm: "ckpt-seed" } }));
+  const candidate = resultOf(await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-c1"], options: { baseCheckpoint: "ckpt-c1", parent: seed, policy: "ckpt-c1", collectionRuns: run.id, environment: env } }));
+  // Corrupt the SEED's body so it is unparseable. The candidate (readable
+  // descendant) points at the seed as its parent.
+  await client.update(seed, { body: "# broken seed\n\n```json\n{ not valid json\n```", message: "Corrupt seed body" });
+  // The tolerant lineage view must still render the candidate, truncated at
+  // the malformed seed — the walk does not fail the whole command.
+  const lineage = resultOf(await harness.runCommand({ command: "rl lineage", pmRoot, args: [candidate.id!] }));
+  assert.match(String(lineage.details?.output), /head: /);
+  assert.match(String(lineage.details?.output), /gen-c1/, "the readable descendant must appear in the truncated ancestry");
+  // The strict promotion path must still refuse on the malformed ancestor.
+  await assert.rejects(
+    harness.runCommand({ command: "rl generation promote", pmRoot, args: [candidate.id!], options: { approval: approval.item.id, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "x" } }),
+    /not valid JSON|no JSON specification fence|unparseable/,
+  );
 });
 
 test("a generation whose environment lacks a hash or a specification fence reports a distinct reason", async () => {

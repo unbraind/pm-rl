@@ -300,16 +300,22 @@ export function parseGenerationSpec(text: string, source: string): GenerationSpe
   // Hand-authored bodies are the reachable path for this parser, so the
   // normalization has to run before the check that reports the reason, not
   // only before the value is stored.
-  const parent = record["parent"] ?? null;
-  if (parent !== null && typeof parent !== "string") {
+  const parentRaw = record["parent"] ?? null;
+  if (parentRaw !== null && typeof parentRaw !== "string") {
     lineageFail(`${source} requires parent to be a string or null.`, "invalid_parent");
   }
+  // A blank or whitespace-only parent string normalizes to null BEFORE the
+  // seed-with-parent check: a seed body that carries `parent: "   "` is
+  // equivalent to one that omits the key, not one that declares a parent.
+  // Non-string validation is already complete above; only string values reach
+  // here, and a non-blank string is kept as-is for trimming at the return.
+  const parent = typeof parentRaw === "string" && parentRaw.trim().length === 0 ? null : parentRaw;
   const seed = record["seed"] === true;
   if (seed && parent !== null) {
     lineageFail(`${source} declares seed but has a parent.`, "seed_with_parent");
   }
   if (!seed) {
-    if (typeof parent !== "string" || parent.trim().length === 0) {
+    if (typeof parent !== "string") {
       lineageFail(`${source} requires a non-empty parent for a non-seed generation.`, "missing_parent");
     }
     if (policy.trim().length === 0) lineageFail(`${source} requires a non-empty policy for a non-seed generation.`, "missing_policy");
@@ -629,7 +635,7 @@ export function renderLineageTable(view: LineageView): string {
       const approval = row.approval ?? "-";
       const evidence = row.promotion_evidence ?? "-";
       const status = row.invalidated ?? (row.promoted ? "promoted" : "candidate");
-      blocks.push(`${row.id} | ${kind} | base=${row.base_checkpoint} | proxy=${proxy} | held_out=${heldOut} | gap=${gap} | delta=${delta} | approval=${approval} | evidence=${evidence} | ${status}`);
+      blocks.push(`${row.id} | ${kind} | base=${row.base_checkpoint} | runs=${row.collection_runs.join(",")} | proxy=${proxy} | held_out=${heldOut} | gap=${gap} | delta=${delta} | approval=${approval} | evidence=${evidence} | ${status}`);
     }
     if (ancestry.findings.length > 0) {
       blocks.push(`findings: ${ancestry.findings.join("; ")}`);

@@ -589,7 +589,17 @@ async function buildAncestry(client: PmClient, headId: string, strict: boolean):
     }
     visited.add(currentId);
     const item = await getTypedItem(client, currentId, "Generation");
-    const spec = extractGenerationSpec(String(item.item.body), `Generation ${currentId}`);
+    // An unreadable ancestor body (no JSON fence, unparseable JSON) truncates
+    // the TOLERANT walk the same way a cycle does: the view stays useful with a
+    // degraded chain, and only the strict promotion gate may refuse on it. The
+    // strict path re-throws so the promotion refusal message is unchanged.
+    let spec: GenerationSpec;
+    try {
+      spec = extractGenerationSpec(String(item.item.body), `Generation ${currentId}`);
+    } catch (error) {
+      if (strict) throw error;
+      break;
+    }
     const runEnvironments = new Map<string, string>();
     for (const runId of spec.collection_runs) {
       let run: GetResult;
@@ -778,16 +788,26 @@ async function registerGeneration(context: CommandHandlerContext): Promise<RlCom
     if (collectionRuns.length === 0) {
       fail("pm rl generation register requires --collection-runs for a non-seed generation.", "missing_collection_runs");
     }
+    // Resolve the declared environment BEFORE iterating collection runs so each
+    // run's recorded environment can be compared against the resolved identity.
+    // A generation that declares --environment env-a while its runs used env-b
+    // would store env-a in `environment_version` but the contamination walk
+    // reads the run's own environment, so the gate and the provenance field
+    // would disagree — the same class of silent drift the identity checks exist
+    // to prevent.
+    const envInput = stringOption(context, "environment")!;
+    const envResult = await verifyEnvironmentForGeneration(client, envInput);
+    environmentId = envResult.id;
+    rewardSpecVersion = envResult.rewardSpecHash;
     for (const runId of collectionRuns) {
       const run = await getTypedItem(client, runId, "Run");
       if (parentSpec.policy.length > 0 && String(run.item.component) !== parentSpec.policy) {
         fail(`Collection run ${runId} references policy ${String(run.item.component)}, not the parent generation's policy ${parentSpec.policy}.`, "run_policy_mismatch", EXIT_CODE.CONFLICT);
       }
+      if (String(run.item.environment) !== environmentId) {
+        fail(`Collection run ${runId} records environment ${String(run.item.environment)}, not the declared environment ${environmentId}.`, "run_environment_mismatch", EXIT_CODE.CONFLICT);
+      }
     }
-    const envInput = stringOption(context, "environment")!;
-    const envResult = await verifyEnvironmentForGeneration(client, envInput);
-    environmentId = envResult.id;
-    rewardSpecVersion = envResult.rewardSpecHash;
     deps = [environmentId, ...collectionRuns];
   }
   const spec: GenerationSpec = {
@@ -905,7 +925,12 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
     }
     return parseApprovalSpec(approvalFenced[1], `Approval ${approvalId}`);
   };
-  const approvalSpec = await readApprovalSpec();
+  // Called for its refusals, not its value: it rejects a non-Decision approval,
+  // a missing JSON fence, and an unparseable spec BEFORE the writer lock is
+  // taken, so an obviously invalid approval never queues behind a live promotion.
+  // The value is deliberately discarded — every number the decision and the
+  // receipt use is re-read inside the lock.
+  await readApprovalSpec();
   // Count the consumed budget and write the promotion inside one workspace
   // writer lock. Two concurrent promotions would otherwise both read the same
   // count, both observe headroom, and both promote — the race a recursive loop
@@ -950,7 +975,15 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
     await client.update(id, { body: bodyBeforePromotion, message: "Revert interrupted pm-rl promotion" });
   };
   let promotedCount = 0;
-  let permittedPromotions = approvalSpec.permitted_promotions;
+  // Neutral like its two neighbours, NOT seeded from `approvalSpec`. That is the
+  // pre-lock read, and seeding it here makes this the one variable of the three
+  // whose initial value is plausible rather than obviously empty. If the
+  // transaction body never runs — a journal replay does not re-execute `apply` —
+  // `promotedCount` and `closedStatus` stay visibly neutral while a seeded
+  // budget would report a real capacity that no in-lock read ever confirmed.
+  // The assignment at the budget check below is the only source for the decision
+  // and for the receipt.
+  let permittedPromotions = 0;
   let closedStatus = "";
   await commitWorkspaceTransaction({
     pmRoot: context.pm_root,
