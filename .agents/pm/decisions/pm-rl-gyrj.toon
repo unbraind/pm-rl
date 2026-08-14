@@ -6,7 +6,7 @@ status: closed
 priority: 1
 tags: []
 created_at: "2026-08-04T20:49:37.764Z"
-updated_at: "2026-08-10T23:04:52.998Z"
+updated_at: "2026-08-14T04:31:16.446Z"
 closed_at: "2026-08-10T23:04:52.981Z"
 completed_at: "2026-08-10T23:04:52.981Z"
 claim_principal: pi-agent
@@ -20,5 +20,8 @@ dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rl-yi7j,parent,"2026-08-04T20:49:37.764Z",claude,"cli:create:dep",detected
 comments[1]{created_at,author,text}:
   "2026-08-10T23:04:52.604Z",pi-agent,"Test coverage added in test/lineage.test.ts: findContaminationPath (environment-version and collection-run edges, identity-based overlap, empty held-out short-circuit), renderContaminationPath (single- and multi-hop), and the promotion contamination refusal verified revert-proof (commenting out the refusal makes the assertion fail with 'Missing expected rejection')."
+tests[2]{command,scope}:
+  "name=findContaminationPath follows environment and collection-run edges and is decided on identity,result=pass",project
+  "name=promotion refuses when the evaluation set is reachable from the candidate's training data,result=pass",project
 close_reason: Contamination refusal test coverage complete
 body: ""

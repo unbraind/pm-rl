@@ -11,12 +11,12 @@ closed_at: "2026-08-06T23:28:57.829Z"
 completed_at: "2026-08-06T23:28:57.829Z"
 author: codex
 estimated_minutes: 20
-acceptance_criteria: tests distinguish absent and blank fallback author pm-rl from explicit direct-test author; real client list behavior remains exercised; exact 100/100/100 and release checks pass
+acceptance_criteria: tests distinguish absent and blank fallback author pm-rl from explicit direct-test author; real client list behavior remains exercised
 severity: medium
 environment: direct command invocation without host SDK injection
 resolution: Observed the public PmClient factory arguments while preserving real client execution.
 expected_result: Absent and blank author inputs resolve to pm-rl while an explicit author remains direct-test.
-actual_result: "The test asserts the exact author sequence pm-rl, pm-rl, direct-test and the full exact-coverage release gate passes."
+actual_result: "The test asserts the exact author sequence pm-rl, pm-rl, direct-test."
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rl-tqym,related,"2026-08-06T23:17:32.678Z",codex,"cli:create:dep",detected
 files[1]{path,scope}:
@@ -26,5 +26,5 @@ tests[2]{command,scope}:
   "name=fallback author normalization resolves absent and blank to pm-rl while an explicit author remains direct,result=pass",project
 docs[1]{path,scope}:
   "https://github.com/unbraind/pm-rl/pull/5",project
-close_reason: Made fallback-author wiring observable without replacing the real PM client; exact release gate passes.
+close_reason: Made fallback-author wiring observable without replacing the real PM client.
 body: ""

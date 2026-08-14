@@ -6,7 +6,7 @@ status: closed
 priority: 2
 tags: []
 created_at: "2026-07-31T06:38:31.825Z"
-updated_at: "2026-08-13T23:39:25.688Z"
+updated_at: "2026-08-14T04:31:10.855Z"
 closed_at: "2026-08-01T12:57:25.369Z"
 completed_at: "2026-08-01T12:57:25.369Z"
 author: "harness:claude-code"
@@ -26,9 +26,11 @@ notes[4]{created_at,author,text}:
 files[2]{path,scope,note}:
   index.ts,project,Environment and run command implementation
   series.ts,project,Canonical metric event encoding and ordered series reader
-tests[4]{command,scope}:
+tests[6]{command,scope}:
   "name=a compressed segment is canonical, bounded, and backward-compatible with event notes,result=pass",project
+  "name=a malformed stream line fails the whole parse and names the line,result=pass",project
   "name=a real run links exact provenance, appends NDJSON metrics, reads them in step order, and finishes,result=pass",project
+  "name=a run can use an empty configuration while malformed or missing inputs fail closed,result=pass",project
   "name=repeated realistic metric batches retain every event with measured bounded history amplification,result=pass",project
   "name=segment decoding rejects empty, oversized, corrupt, and non-canonical payloads,result=pass",project
 docs[1]{path,scope,note}:

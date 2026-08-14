@@ -24,5 +24,5 @@ tests[4]{command,scope}:
   "name=parseGenerationSpec accepts the seed and a full candidate and refuses every malformed provenance,result=pass",project
   "name=registering a candidate refuses a collection run whose environment differs from the declared one,result=pass",project
   "name=renderLineageTable renders one row per generation, with deltas, evidence, and findings,result=pass",project
-close_reason: "All five code findings applied and verified; release:check exit 0 with coverage at 100/100/100 and pm health ok:true. The three record-projection findings F6 to F8 remain open and are tracked separately."
+close_reason: "All five code findings applied and verified; release:check exit 0 with coverage at 100/100/100 and pm health ok:true. The three record-projection findings F6 to F8 are closed."
 body: ""

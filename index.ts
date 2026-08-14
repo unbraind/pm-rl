@@ -548,21 +548,6 @@ export async function environmentInvalidationReason(client: PmClient, envId: str
   }
 }
 
-/**
- * Build the ancestry from a head generation back to the seed, resolving the
- * environment each collection run used.
- *
- * Unreadable provenance is treated differently by caller: a PROMOTION decided on
- * a degraded graph is refused, while a lineage VIEW stays tolerant because a
- * degraded view is still useful. When `strict` is true, a collection run that
- * does not resolve (it is absent, the wrong type, or otherwise unreadable) is a
- * hard refusal — the contamination check cannot decide overlap for a run whose
- * environment is unknown, and treating it as clean inverts the contract. The
- * refusal names the run id and the generation that declared it. When `strict`
- * is false the prior tolerant behaviour is kept: a missing run contributes no
- * environment to the contamination check, so a lineage still renders.
- */
-
 /** Normalize a Run's environment identity for strict-equality comparison.
  *
  * The pm SDK already trims typed item fields, so padding is not reachable for
@@ -580,7 +565,19 @@ function normalizeRunEnvironment(value: string | undefined): string | undefined 
   return typeof value === "string" ? value.trim() : value;
 }
 
-/** Walk the ancestry of a generation from the head back to the seed.
+/**
+ * Build the ancestry from a head generation back to the seed, resolving the
+ * environment each collection run used.
+ *
+ * Unreadable provenance is treated differently by caller: a PROMOTION decided on
+ * a degraded graph is refused, while a lineage VIEW stays tolerant because a
+ * degraded view is still useful. When `strict` is true, a collection run that
+ * does not resolve (it is absent, the wrong type, or otherwise unreadable) is a
+ * hard refusal — the contamination check cannot decide overlap for a run whose
+ * environment is unknown, and treating it as clean inverts the contract. The
+ * refusal names the run id and the generation that declared it. When `strict`
+ * is false the prior tolerant behaviour is kept: a missing run contributes no
+ * environment to the contamination check, so a lineage still renders.
  *
  * @param client - The tracker client used to resolve items.
  * @param headId - The head generation id to walk back from.
@@ -1166,7 +1163,12 @@ async function renderLineageCommand(context: CommandHandlerContext): Promise<RlC
   await ensurePersistentTypes(client);
   let heads: string[];
   if (headInput !== undefined && headInput.trim().length > 0) {
-    heads = [headInput.trim()];
+    const requestedHead = headInput.trim();
+    // Resolved before the tolerant walk. Tolerance exists for an unreadable
+    // ANCESTOR; the head the caller named is the request itself, so a missing
+    // or wrong-typed head must report that, not an empty ancestry.
+    await getTypedItem(client, requestedHead, "Generation");
+    heads = [requestedHead];
   } else {
     heads = await findGenerationHeads(client);
   }

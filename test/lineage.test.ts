@@ -324,7 +324,8 @@ test("parseGenerationSpec accepts the seed and a full candidate and refuses ever
     [JSON.stringify({ base_checkpoint: "b", collection_runs: [], parent: "p", policy: "x", environment_version: "e", seed: false }), /non-empty reward_spec_version for a non-seed/],
     [JSON.stringify({ base_checkpoint: "b", collection_runs: [], parent: "p", policy: "x", environment_version: "e", reward_spec_version: "r", seed: false }), /at least one collection run/],
     [JSON.stringify({ ...fullBase, approval: 3 }), /approval to be a string or null/],
-    [JSON.stringify({ ...fullBase, gap: "wide" }), /gap to be a number or null/],
+    [JSON.stringify({ ...fullBase, gap: "wide" }), /gap to be a finite number or null/],
+    [JSON.stringify({ ...fullBase }).replace('"gap":null', '"gap":1e999'), /gap to be a finite number or null/],
     [JSON.stringify({ ...fullBase, promotion_evidence: 5 }), /promotion_evidence to be a string or null/],
   ] as Array<[string, RegExp]>) {
     assert.throws(() => parseGenerationSpec(text, "g"), message);
@@ -1139,6 +1140,23 @@ test("without a head the view enumerates every head, and invalid format or gap-w
   );
   const custom = resultOf(await harness.runCommand({ command: "rl lineage", pmRoot, args: [seed], options: { gapWindow: "2" } }));
   assert.ok(String(custom.details?.output).includes("head: "));
+});
+
+test("an explicit head that does not resolve as a Generation is refused rather than returning an empty ancestry", async () => {
+  const { root, pmRoot, client, harness } = await workspace();
+  const env = await registerEnv(harness, pmRoot, root, "Grid");
+  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed", "ckpt-seed");
+  // An id that was never created — the tolerant walk would swallow the missing
+  // item and return an empty ancestry, but the explicit head is the request.
+  await assert.rejects(
+    harness.runCommand({ command: "rl lineage", pmRoot, args: ["gen-nonexistent"] }),
+    /gen-nonexistent/,
+  );
+  // A real item that is not a Generation — wrong_item_type, not empty_ancestry.
+  await assert.rejects(
+    harness.runCommand({ command: "rl lineage", pmRoot, args: [env] }),
+    /expected Generation/,
+  );
 });
 
 test("an edited environment marks every downstream generation invalidated in the lineage", async () => {

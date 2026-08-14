@@ -351,8 +351,8 @@ export function parseGenerationSpec(text: string, source: string): GenerationSpe
   // trend from a value that is not a number), while an unpromoted record with no
   // `gap` key would be refused for carrying evidence it does not have.
   const gap = record["gap"] ?? null;
-  if (gap !== null && typeof gap !== "number") {
-    lineageFail(`${source} requires gap to be a number or null.`, "invalid_gap");
+  if (gap !== null && (typeof gap !== "number" || !Number.isFinite(gap))) {
+    lineageFail(`${source} requires gap to be a finite number or null.`, "invalid_gap");
   }
   // Normalized for the same reason as `gap` above: this is the last optional
   // field that was left as `undefined`, and the lineage renderer used it as a

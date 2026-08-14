@@ -6,7 +6,7 @@ status: closed
 priority: 2
 tags: []
 created_at: "2026-08-10T23:30:50.506Z"
-updated_at: "2026-08-13T21:13:51.483Z"
+updated_at: "2026-08-14T04:32:23.169Z"
 closed_at: "2026-08-11T04:38:33.993Z"
 completed_at: "2026-08-11T04:38:33.993Z"
 author: "harness:claude-code"
@@ -21,10 +21,11 @@ files[3]{path,scope,note}:
   index.ts,project,"Head enumeration derives the lineage edge from the specification parent and skips an unreadable generation before its id joins the head list; the environment-check is memoized across heads, so the same environment is not re-fetched and re-hashed once per generation and per head"
   lineage.ts,project,Forward propagation names the nearest invalidated ancestor; the parent identity arrives already trimmed by parseGenerationSpec
   test/lineage.test.ts,project,"Forward propagation with a descendant fixture, the divergent-parent case where the specification and pm parent disagree, and the malformed-generation case where one unreadable body must not remove other ancestries"
-tests[4]{command,scope}:
+tests[5]{command,scope}:
   "name=a generation whose environment lacks a hash or a specification fence reports a distinct reason,result=pass",project
   "name=an edited environment marks every downstream generation invalidated in the lineage,result=pass",project
   "name=buildLineageAncestry propagates invalidation forward to descendants naming the ancestor,result=pass",project
-  "name=one malformed generation body must not remove other ancestries from the lineage view,result=pass",project
+  "name=a readable descendant of a malformed ancestor still enumerates in the tolerant lineage walk,result=pass",project
+  "name=without a head the view enumerates every head, and invalid format or gap-window options are refused,result=pass",project
 close_reason: "Invalidation propagates forward to descendants naming the nearest invalidated ancestor, and the environment check is memoized across heads. Head enumeration derives the lineage edge from the specification parent rather than the pm parent field, skips an unreadable generation before it joins the id list so one malformed body cannot fail the view for every ancestry, and reads a parent identity that parseGenerationSpec has already trimmed."
 body: ""
