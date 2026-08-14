@@ -319,3 +319,39 @@ test("the packed tarball can actually be imported, so no reachable module is lef
     rmSync(scratch, { recursive: true, force: true });
   }
 });
+
+/**
+ * The daily release must never publish to npm before the release metadata is
+ * merged into the protected default branch.
+ *
+ * This ordering is the whole point of the release-workflow fix tracked as
+ * pm-rl-wlj0. The failure it prevents is not hypothetical: publishing first and
+ * pushing afterwards means a `GH006` rejection on the protected branch leaves
+ * the package published to npm with no matching tag and no commit — a partial
+ * release that cannot be rolled back, because npm versions are immutable.
+ *
+ * Asserted against the workflow file rather than a mock, because the file IS
+ * the artifact that runs. Step *names* are matched instead of positions so
+ * inserting an unrelated step cannot break this, while reordering the three
+ * that matter still does.
+ */
+test("the release workflow publishes to npm only after the protected merge and its verification", () => {
+  const workflow = readFileSync(resolve(import.meta.dirname, "../.github/workflows/release.yml"), "utf-8");
+  const stepIndex = (name: string): number => {
+    const index = workflow.indexOf(`- name: ${name}`);
+    assert.notEqual(index, -1, `release.yml must still contain the step "${name}"`);
+    return index;
+  };
+
+  const merge = stepIndex("Merge release metadata through protected PR");
+  const verify = stepIndex("Verify merged release");
+  const publish = stepIndex("Publish npm package");
+  const tag = stepIndex("Push release tag");
+
+  assert.ok(merge < verify, "the merge must be verified before anything irreversible happens");
+  assert.ok(
+    verify < publish,
+    "npm publish must come after the merge is verified: publishing first leaves an immutable npm version behind when the protected push is rejected",
+  );
+  assert.ok(publish < tag, "the tag follows publication, so a failed publish does not leave a tag pointing at an unpublished version");
+});
