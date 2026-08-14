@@ -62,6 +62,35 @@ question that actually costs programmes weeks —
 — is reachability over edges the host already stores. pm-rl does not implement a graph; it
 declares the right edges and asks.
 
+The same edges make an environment edit invalidate a generation **transitively**: the lineage
+view propagates invalidation forward along the seed-to-head ordering, so a descendant that
+recorded a different environment is still marked when an ancestor's environment was edited,
+because its training data derives from that ancestor. The reason names the ancestor it inherited
+from, distinct from the reason a generation invalidated on its own environment receives.
+
+The approved promotion budget is enforced inside one workspace writer lock, via the SDK's
+`commitWorkspaceTransaction`, so the count of promoted generations and the promotion write are one
+critical section: concurrent promotions cannot both read the same count and both advance past what
+a human authorized. Callers that acquire the lock serialize rather than the loser being refused
+for contention. Acquiring the lock does not itself produce `budget_exceeded`: the holder re-reads
+both the consumed count AND the approval's permitted count, and refuses only when that re-read
+finds no remaining capacity — with headroom it promotes. A caller that exceeds the bounded
+acquisition wait reports `lock_conflict` without ever re-reading. `budget_exceeded` is terminal and
+a loop must respect it; `lock_conflict` is contention and bounded. The transaction id is **unique per invocation**, never
+keyed on the generation: the transaction is used here for mutual exclusion, not idempotent
+replay, and keying it on the generation would make concurrent callers promoting the same
+generation look like replays of one committed transaction, so the journal would skip `apply` and
+every caller would report success for a promotion only one of them performed. Correctness under
+concurrency comes instead from re-checking `already_promoted` **inside** the lock, because the
+pre-lock check runs on a read every concurrent caller performs before any of them holds it.
+The wait is bounded at 30 seconds: a caller that cannot acquire the lock in that window fails with
+`lock_conflict` (exit 4) naming the owner, so contention is bounded rather than eliminated, and is
+always reported as contention rather than as a promotion that silently did not happen.
+A promotion whose close fails reverts its own body write rather than leaving budget consumed by a
+promotion that never completed. A seed
+may declare a `--policy` its children's collection runs must match; a seed with no declared policy
+skips that check, and `pm rl lineage --gap-window` requires at least two consecutive gaps.
+
 ---
 
 ## 2. Item types

@@ -1,0 +1,24 @@
+id: pm-rl-k5xd
+title: "asString returns the untrimmed value, so a padded identity bypasses the contamination gate"
+description: "CodeRabbit review of pm-rl#12, Major, Security. asString validates value.trim().length is non-zero but returns the ORIGINAL string. parseScoreRecord therefore accepts evaluation_context of \" env-eval \" with surrounding spaces.\n\nfindContaminationPath compares heldOutEnvironment against entry.spec.environment_version and against run environment ids by STRICT EQUALITY. A padded identity never matches, so the contamination gate passes for a candidate whose training data does reach the evaluation set. The gate is bypassable with a space.\n\nNormalize identities at parse time. Adversarial test: a padded identity must still be caught by the contamination refusal."
+type: Issue
+status: closed
+priority: 1
+tags: []
+created_at: "2026-08-10T23:30:25.979Z"
+updated_at: "2026-08-13T18:29:44.491Z"
+closed_at: "2026-08-10T23:50:55.086Z"
+completed_at: "2026-08-10T23:50:55.086Z"
+author: "harness:claude-code"
+resolution: "asString returns the trimmed value, so every identity read through it - environment ids, evaluation contexts, seed sets - is normalized at parse time before any strict-equality comparison."
+expected_result: "A padded identity cannot bypass the contamination gate, because the value compared is the value stored and both are trimmed."
+actual_result: "An adversarial test parses a spec declaring environment_version with surrounding whitespace through parseGenerationSpec, so normalization happens on the real code path, then asserts findContaminationPath still catches the overlap. Reverting asString to return the raw value turns it red."
+dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
+  pm-rl-yi7j,parent,"2026-08-10T23:31:10.651Z","harness:claude-code","cli:update:dep",detected
+files[2]{path,scope,note}:
+  lineage.ts,project,asString trims every identity at the parse boundary before any strict-equality comparison
+  test/lineage.test.ts,project,Adversarial padded-identity test that parses through the real code path
+tests[1]{command,scope}:
+  "name=a padded environment identity cannot slip past the contamination refusal,result=pass",project
+close_reason: "asString now returns the trimmed value, so every identity read through it - environment ids, evaluation contexts, seed sets - is normalized at parse time before any strict-equality comparison. Docstring records why this is a correctness requirement rather than a convenience.\n\nVerified with an ADVERSARIAL test rather than a mutation test: it builds a spec declaring environment_version as two spaces, env-eval, tab, parses it through parseGenerationSpec so normalization happens on the real code path rather than in a hand-built literal, then asserts findContaminationPath still catches it against the held-out id env-eval. Reverting asString to return the raw value turns that test red, 23 of 24 passing; with the fix, 24 of 24.\n\nrelease:check green, coverage still an exact 100/100/100 across 9 files."
+body: ""

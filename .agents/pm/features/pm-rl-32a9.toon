@@ -1,15 +1,32 @@
 id: pm-rl-32a9
 title: "pm rl lineage: the generation chain with each hop's promotion evidence and the invalidation frontier"
-description: "The chain is the artifact an operator and an agent both need, and reconstructing it from individual item reads costs more context than the answer is worth. One view walks the generation chain and prints, per hop, the base checkpoint, the collection runs, the proxy and held-out scores with their gap, the approval that authorized the hop, and whether anything upstream has since invalidated it. A generation may have more than one promoted successor - an operator exploring two training configurations from the same parent produces exactly that - so seed to head is not a unique path and the first draft was wrong to assume it was. The view therefore requires an explicit head, and renders the single ancestry from the seed to that head. Invoked without a head it enumerates every head and renders each ancestry separately rather than interleaving them, because a merged view would compute reward-gap deltas across generations that never followed one another. The last column is the one that decides what to do next: a chain that is green to generation four and invalidated from generation two onward means the last two promotions rest on a result that no longer holds, which is exactly the state that is invisible today and expensive to discover by hand."
+description: "The chain is the artifact an operator and an agent both need, and reconstructing it from individual item reads costs more context than the answer is worth. One view walks the generation chain and prints, per hop, the base checkpoint, the collection runs, the proxy and held-out scores with their gap, the approval that authorized the hop, and whether anything upstream has since invalidated it. A generation may have more than one promoted successor - an operator exploring two training configurations from the same parent produces exactly that - so seed to head is not a unique path and the first draft was wrong to assume it was. Given a head the view renders the single ancestry from the seed to that head; invoked without one it enumerates every head and renders each ancestry separately rather than interleaving them, because a merged view would compute reward-gap deltas across generations that never followed one another. The last column is the one that decides what to do next: a chain that is green to generation four and invalidated from generation two onward means the last two promotions rest on a result that no longer holds. pm rl lineage now renders that state per hop with a distinct reason for each condition."
 type: Feature
-status: open
+status: closed
 priority: 2
 tags: []
 created_at: "2026-08-04T20:50:26.547Z"
-updated_at: "2026-08-04T21:34:37.260Z"
+updated_at: "2026-08-13T18:29:02.649Z"
+closed_at: "2026-08-10T23:05:20.384Z"
+completed_at: "2026-08-10T23:05:20.384Z"
+claim_principal: pi-agent
 author: claude
 estimated_minutes: 600
 acceptance_criteria: "The view requires an explicit head or, given none, enumerates every head and renders each ancestry separately; a rendered chain is one ancestry from the seed to the selected head with one row per generation; reward-gap deltas and trends are computed only along the selected ancestry and never across branches; each row names the promotion evidence and its approval item; invalidated generations are marked with the upstream edit that invalidated them; the view answers from the graph and never recomputes a score; output is available in both a human table and a machine-readable form"
+resolution: Added test/lineage.test.ts exercising the rl lineage command view.
+expected_result: "The view renders one ancestry per head with per-hop promotion evidence and invalidation state, in both table and machine-readable form."
+actual_result: test/lineage.test.ts passes; index.ts and lineage.ts at 100/100/100 lines/branches/functions.
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rl-yi7j,parent,"2026-08-04T20:50:26.547Z",claude,"cli:create:dep",detected
+comments[1]{created_at,author,text}:
+  "2026-08-10T23:05:19.970Z",pi-agent,"Test coverage added in test/lineage.test.ts: rl lineage rendering as table and json, an explicit head, head enumeration via findGenerationHeads when no head is given, format and gap-window option validation, the gap-widening finding over a configured window, and invalidation marking for edited, missing, and malformed environments."
+files[3]{path,scope,note}:
+  index.ts,project,"the rl lineage command wires the view: head enumeration, ancestry selection, and the table and machine-readable output forms all route through here"
+  lineage.ts,project,renderLineageTable now emits the runs column the item description documents
+  test/lineage.test.ts,project,"renderLineageTable one-row-per-generation, single-ancestry table/json, and head-enumeration tests"
+tests[3]{command,scope}:
+  "name=renderLineageTable renders one row per generation, with deltas, evidence, and findings,result=pass",project
+  "name=the lineage view renders a single ancestry as a table or as machine-readable json,result=pass",project
+  "name=without a head the view enumerates every head, and invalid format or gap-window options are refused,result=pass",project
+close_reason: pm rl lineage command test coverage complete
 body: ""

@@ -2,14 +2,32 @@ id: pm-rl-81oc
 title: "Generation lineage: a policy generation is an item whose parent is the generation that produced its training data"
 description: "A Generation records the base checkpoint it started from, the policy that collected its training data, the Run ids of those collection episodes, and the training configuration that turned them into a successor. Its parent edge points at the generation whose policy did the collecting. Which generation produced this trajectory then stops being a question answered by a filename convention and becomes a reachability query over edges pm already stores and merges losslessly. The parent edge alone is not sufficient, and assuming otherwise was the gap in the first draft of this specification. A parent edge connects a generation to its predecessor; it does not connect an environment revision or a reward specification to the generations that used it, so reverse reachability from an environment edit reaches nothing. A generation therefore declares typed edges to the exact environment version and reward-spec version each of its collection runs used, in addition to the parent edge and the collection-run edges. Every one of those references is content-addressed, so a silently swapped artifact fails to resolve rather than resolving to something else. Invalidation is then the reverse traversal of those edges and needs no second index."
 type: Feature
-status: open
+status: closed
 priority: 1
 tags: []
 created_at: "2026-08-04T20:49:37.421Z"
-updated_at: "2026-08-04T21:34:10.479Z"
+updated_at: "2026-08-13T23:45:41.049Z"
+closed_at: "2026-08-10T23:05:14.598Z"
+completed_at: "2026-08-10T23:05:14.598Z"
+claim_principal: pi-agent
 author: claude
 estimated_minutes: 720
-acceptance_criteria: "A generation with no parent is accepted as the seed generation and reports itself as such; every later generation requires a parent that exists and is itself promoted; the collection runs named by a generation must reference the parent's policy and are refused when they do not; the recorded base checkpoint, environment version and reward-spec version identities are content-addressed so a silently swapped artifact fails to resolve; an edit to an environment or reward specification is reachable in reverse to every generation whose collection runs used it, transitively through the parent chain; the declared edge types are enumerated in the specification rather than inferred"
+acceptance_criteria: "A generation with no parent is accepted as the seed generation and reports itself as such; every later generation requires a parent that exists and is either the registered seed or itself promoted, so a seed may parent a candidate without being promoted while any non-seed parent must be promoted; the collection runs named by a generation must reference the parent's policy and are refused when they do not; the recorded base checkpoint, environment version and reward-spec version identities are content-addressed so a silently swapped artifact fails to resolve; an edit to an environment or reward specification is reachable in reverse to every generation whose collection runs used it, transitively through the parent chain; the declared edge types are enumerated in the specification rather than inferred"
+resolution: "Added test/lineage.test.ts exercising generation registration, ancestry building, and reverse invalidation from environment and reward-specification edits to every downstream generation."
+expected_result: "A generation with no parent is the seed; a later generation requires a parent that is the seed or a promoted generation, refused as parent_not_promoted otherwise; collection runs reference the parent policy; provenance identities are content-addressed."
+actual_result: "test/lineage.test.ts passes, including the registered-seed exception, the parent_not_promoted refusal for a non-seed parent, environment-edit descendant invalidation, and reward-specification descendant invalidation; index.ts and lineage.ts at 100/100/100 lines/branches/functions."
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rl-yi7j,parent,"2026-08-04T20:49:37.421Z",claude,"cli:create:dep",detected
+comments[1]{created_at,author,text}:
+  "2026-08-10T23:05:14.007Z",pi-agent,"Test coverage added in test/lineage.test.ts: generation registration (seed with empty provenance, candidate with content-addressed parent/run/environment provenance), the parent-must-be-promoted gate, the collection-run policy-mismatch refusal, environment content-addressing verification, and buildAncestry including the missing-collection-run catch."
+files[3]{path,scope,note}:
+  index.ts,project,"rl generation register and show and the rl lineage command: seed registration, parent validation, content-addressed provenance, and the invalidation view route through here"
+  lineage.ts,project,parseGenerationSpec records content-addressed reward_spec_version and environment_version; buildAncestry propagates invalidation forward to descendants naming the nearest invalidated ancestor
+  test/lineage.test.ts,project,"seed registration with content-addressed reward_spec_version and edge_types, the parent_not_promoted and content-addressed-environment refusals, and environment-edit descendant invalidation"
+tests[4]{command,scope}:
+  "name=a seed generation registers with empty provenance and its children's runs reference its policy,result=pass",project
+  "name=an edited environment marks every downstream generation invalidated in the lineage,result=pass",project
+  "name=an edited reward specification marks every downstream generation invalidated in the lineage,result=pass",project
+  "name=registering a candidate refuses an unpromoted parent, a policy-mismatched run, and bad provenance,result=pass",project
+close_reason: Generation lineage test coverage complete
 body: ""

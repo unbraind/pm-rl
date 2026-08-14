@@ -152,6 +152,21 @@ test("an environment registers idempotently by canonical content and can be list
   );
 });
 
+test("a changed reward specification registers as a new version rather than overwriting the referenced one", async () => {
+  const { root, pmRoot, harness } = await workspace();
+  const originalFile = join(root, "original.json");
+  writeFileSync(originalFile, JSON.stringify(SPEC));
+  const first = resultOf(await harness.runCommand({ command: "rl env register", pmRoot, options: { file: originalFile } }));
+  assert.equal(first.created, true);
+  const changedFile = join(root, "changed.json");
+  writeFileSync(changedFile, JSON.stringify({ ...SPEC, reward_specification: { goal: 999 } }));
+  const second = resultOf(await harness.runCommand({ command: "rl env register", pmRoot, options: { file: changedFile } }));
+  assert.equal(second.created, true);
+  assert.notEqual(second.id, first.id);
+  const listed = resultOf(await harness.runCommand({ command: "rl env list", pmRoot }));
+  assert.equal(listed.details?.count, 2);
+});
+
 test("a real run links exact provenance, appends NDJSON metrics, reads them in step order, and finishes", async () => {
   const { root, pmRoot, harness } = await workspace();
   const environmentFile = join(root, "environment.json");
@@ -393,4 +408,23 @@ test("domain commands reject missing arguments, options, wrong item types, and a
   const injectedSdk = { client } as NonNullable<CommandHandlerContext["sdk"]>;
   const injected = await command.run({ command: "rl env list", args: [], options: {}, global: {}, pm_root: pmRoot, sdk: injectedSdk }) as RlCommandResult;
   assert.equal(injected.details?.count, 0);
+});
+
+test("fallback author normalization resolves absent and blank to pm-rl while an explicit author remains direct", async (testContext) => {
+  const { pmRoot } = await workspace();
+  const command = RL_COMMANDS.find((candidate) => candidate.name === "rl env list");
+  assert.ok(command?.run !== undefined);
+  const observedAuthors: string[] = [];
+  const originalFactory = PmClient.forActiveExtensionHost;
+  testContext.mock.method(PmClient, "forActiveExtensionHost", (...args: Parameters<typeof PmClient.forActiveExtensionHost>) => {
+    observedAuthors.push(args[0].author ?? "");
+    return originalFactory(...args);
+  });
+  const direct = await command.run({ command: "rl env list", args: [], options: {}, global: {}, pm_root: pmRoot }) as RlCommandResult;
+  assert.equal(direct.details?.count, 0);
+  const blankAuthor = await command.run({ command: "rl env list", args: [], options: {}, global: { author: "   " }, pm_root: pmRoot }) as RlCommandResult;
+  assert.equal(blankAuthor.details?.count, 0);
+  const explicitAuthor = await command.run({ command: "rl env list", args: [], options: {}, global: { author: "direct-test" }, pm_root: pmRoot }) as RlCommandResult;
+  assert.equal(explicitAuthor.details?.count, 0);
+  assert.deepEqual(observedAuthors, ["pm-rl", "pm-rl", "direct-test"]);
 });

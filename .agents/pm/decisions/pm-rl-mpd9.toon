@@ -6,7 +6,7 @@ status: closed
 priority: 2
 tags: []
 created_at: "2026-07-31T06:38:29.315Z"
-updated_at: "2026-08-01T12:07:57.147Z"
+updated_at: "2026-08-13T21:12:44.481Z"
 closed_at: "2026-08-01T12:07:57.135Z"
 completed_at: "2026-08-01T12:07:57.135Z"
 author: "harness:claude-code"
@@ -21,7 +21,7 @@ notes[1]{created_at,author,text}:
   "2026-07-31T06:43:13.658Z","harness:claude-code","Decision reconfirmed against the shipped host rather than against the earlier spec note: pm append targets the body, so any command that used it for metrics would conflict on every concurrent write. The rule holds and now has a named counterexample attached to it."
 files[1]{path,scope,note}:
   index.ts,project,Metrics append through repeatable note mutations only
-tests[1]{command,path,scope,timeout_seconds,pm_context_mode}:
-  npm run coverage,test/index.test.ts,project,30,tracker
+tests[1]{command,scope}:
+  "name=two real Git branches merge independently appended run metrics without loss,result=pass",project
 close_reason: Decision is enforced by implementation and a real two-branch merge test.
 body: ""

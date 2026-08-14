@@ -7,7 +7,7 @@
  * concurrent branches, unlike a scalar item body.
  */
 
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 
 import {
@@ -17,10 +17,51 @@ import {
   type CommandHandlerContext,
   type ExtensionApi,
 } from "@unbrained/pm-cli/sdk/authoring";
+import { commitWorkspaceTransaction } from "@unbrained/pm-cli/sdk";
 import { PmClient, type GetResult } from "@unbrained/pm-cli/sdk/core";
 import { createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 
 import { encodeEventSegments, parseNdjsonStream, readSeries } from "./series.ts";
+
+import {
+  buildLineageAncestry,
+  directionAwareGap,
+  findContaminationPath,
+  GENERATION_EDGE_TYPES,
+  parseApprovalSpec,
+  type ApprovalSpec,
+  parseGenerationSpec,
+  parseScoreRecord,
+  renderContaminationPath,
+  renderLineageTable,
+  DEFAULT_GAP_WINDOW,
+  type AncestryEntry,
+  type GenerationSpec,
+  type LineageAncestry,
+  type LineageView,
+  type ScoreRecord,
+} from "./lineage.ts";
+
+/**
+ * The fenced JSON block regex shared by every pm-rl spec reader.
+ *
+ * A module-level const keeps one shape for the ```` ```json ```` envelope every
+ * item body stores its specification in, so a change to the fence contract
+ * touches one place. It has no `g` flag: a shared global regex carries
+ * `lastIndex` state across calls and would silently skip matches.
+ */
+const JSON_SPEC_FENCE = /```json\n([\s\S]+?)\n```/;
+
+/**
+ * How long a promotion waits for the workspace writer lock before giving up.
+ *
+ * Concurrent promotions serialize on this lock rather than racing, so the wait
+ * has to cover a peer's whole critical section: a full generation count plus
+ * the promoting write. Thirty seconds is far above the observed cost of both
+ * and still bounded, so a stuck peer surfaces as a timeout rather than hanging
+ * a recursive loop indefinitely.
+ */
+const PROMOTION_LOCK_WAIT_MS = 30_000;
 
 /** JSON values accepted in environment and run configuration files. */
 export type JsonValue = null | boolean | number | string | JsonValue[] | { readonly [key: string]: JsonValue };
@@ -69,7 +110,40 @@ export const RL_ITEM_TYPES = [
     default_status: "in_progress",
     required_create_fields: ["environment", "affected_version", "component", "fixed_version"],
   }),
+  defineItemType({
+    name: "Generation",
+    folder: "generations",
+    aliases: ["rl-generation", "rl-gen"],
+    description: "One policy generation in a recursive self-improvement lineage, gated by an approved promotion budget.",
+    default_status: "open",
+    required_create_fields: ["affected_version", "fixed_version", "component"],
+  }),
 ] as const;
+
+/**
+ * The provenance subset of a generation specification, in a stable shape.
+ *
+ * `affected_version` is a content identity for what a generation was trained
+ * FROM, so it must not move when the generation is promoted. Promotion rewrites
+ * the outcome fields — `promoted`, `approval`, both scores, `gap` and
+ * `promotion_evidence` — and those are excluded here so the identity survives
+ * it and stays checkable by a re-hash of the stored body.
+ *
+ * @param spec - The generation specification to reduce to its provenance.
+ * @returns The provenance fields, ordered by the caller's key order for hashing.
+ */
+function generationProvenance(spec: GenerationSpec): JsonValue {
+  return {
+    base_checkpoint: spec.base_checkpoint,
+    policy: spec.policy,
+    collection_runs: [...spec.collection_runs],
+    training_config: spec.training_config,
+    environment_version: spec.environment_version,
+    reward_spec_version: spec.reward_spec_version,
+    parent: spec.parent,
+    seed: spec.seed,
+  } as JsonValue;
+}
 
 /** Throw an expected command error with stable machine context. */
 function fail(message: string, code: string, exitCode: number = EXIT_CODE.USAGE): never {
@@ -101,16 +175,31 @@ function requiredArgument(context: CommandHandlerContext, label: string): string
  */
 function clientFor(context: CommandHandlerContext): PmClient {
   if (context.sdk !== undefined) return context.sdk.client;
-  const author = typeof context.global.author === "string" && context.global.author.trim().length > 0
+  return PmClient.forActiveExtensionHost({ pmRoot: context.pm_root, author: authorFor(context) });
+}
+
+/**
+ * Resolve the attributable actor for a command invocation.
+ *
+ * The host supplies `--author` on `context.global`, not `context.options`. It
+ * attributes both the client's item mutations and the durable transaction
+ * journal, so both read back to the same actor rather than one of them
+ * recording an anonymous default.
+ *
+ * @param context - The invoking command's handler context.
+ * @returns The trimmed caller author, or `pm-rl` when none was supplied.
+ */
+function authorFor(context: CommandHandlerContext): string {
+  return typeof context.global.author === "string" && context.global.author.trim().length > 0
     ? context.global.author.trim()
     : "pm-rl";
-  return PmClient.forActiveExtensionHost({ pmRoot: context.pm_root, author });
 }
 
 /** Classify a missing item through the injected SDK or its structural public contract. */
 function isItemNotFound(error: unknown): boolean {
   return isPmCliExpectedError(error) && error.exitCode === EXIT_CODE.NOT_FOUND;
 }
+
 
 /** Narrow a parsed value to a JSON object. */
 function jsonObject(value: unknown, source: string): Record<string, JsonValue> {
@@ -168,7 +257,7 @@ export function idSegment(value: string): string {
 }
 
 /** Validate that an existing item has the expected domain type. */
-async function getTypedItem(client: PmClient, id: string, type: "Environment" | "Run"): Promise<GetResult> {
+async function getTypedItem(client: PmClient, id: string, type: "Environment" | "Run" | "Generation"): Promise<GetResult> {
   const result = await client.get(id, { depth: "deep" });
   if (result.item.type !== type) fail(`pm rl expected ${type} ${id}, not ${String(result.item.type)}.`, "wrong_item_type", EXIT_CODE.CONFLICT);
   return result;
@@ -254,20 +343,9 @@ async function startRun(context: CommandHandlerContext): Promise<RlCommandResult
   const config = configPath === undefined ? {} : readJsonFile(configPath, "Run configuration");
   const client = clientFor(context);
   await ensurePersistentTypes(client);
-  const environment = await getTypedItem(client, environmentId, "Environment");
-  const specHash = environment.item.affected_version;
-  if (typeof specHash !== "string" || specHash.length === 0) {
-    fail(`Environment ${environmentId} has no specification affected_version and cannot support attributable runs.`, "environment_missing_hash", EXIT_CODE.CONFLICT);
-  }
-  const fenced = /```json\n([\s\S]+?)\n```/.exec(String(environment.item.body));
-  if (fenced?.[1] === undefined) {
-    fail(`Environment ${environmentId} has no JSON specification fence.`, "environment_missing_spec", EXIT_CODE.CONFLICT);
-  }
-  const storedSpec = parseEnvironmentSpec(fenced[1], `Environment ${environmentId} specification`);
-  const observedHash = hashJson(storedSpec);
-  if (observedHash !== specHash || !String(environment.item.id).endsWith(specHash.slice(0, 12))) {
-    fail(`Environment ${environmentId} no longer matches its content-addressed identity. Register the changed specification as a new version.`, "environment_was_mutated", EXIT_CODE.CONFLICT);
-  }
+  const verifiedEnvironment = await verifyEnvironmentIdentity(client, environmentId, "runs");
+  const storedSpec = verifiedEnvironment.spec;
+  const specHash = hashJson(storedSpec);
   const configHash = hashJson(config);
   const result = await client.create({
     id: requestedId,
@@ -277,14 +355,19 @@ async function startRun(context: CommandHandlerContext): Promise<RlCommandResult
     acceptanceCriteria: "The run retains its exact environment and configuration identities, metric input is complete, and finish records the terminal outcome.",
     estimatedMinutes: "1",
     body: `# ${requestedId}\n\nAlgorithm: ${algorithm}\n\nEnvironment snapshot:\n\n\`\`\`json\n${JSON.stringify(storedSpec, null, 2)}\n\`\`\`\n\nRun configuration:\n\n\`\`\`json\n${JSON.stringify(config, null, 2)}\n\`\`\``,
-    dep: [environmentId],
-    environment: String(environment.item.id),
+    // Both edges name the RESOLVED id. `environmentId` is the raw --environment
+    // input, which may be an alias; recording it on one edge and the resolved id
+    // on the other would make a single create call describe two different
+    // environments, and the dependency graph would then disagree with the typed
+    // field the contamination walk reads.
+    dep: [verifiedEnvironment.id],
+    environment: verifiedEnvironment.id,
     affectedVersion: specHash,
     component: algorithm,
     fixedVersion: configHash,
     message: "Start attributable RL run",
   });
-  return { action: "rl-run-start", id: result.item.id, created: true, details: { environment_id: environment.item.id, spec_hash: specHash, config_hash: configHash } };
+  return { action: "rl-run-start", id: result.item.id, created: true, details: { environment_id: verifiedEnvironment.id, spec_hash: specHash, config_hash: configHash } };
 }
 
 /** Append parsed measurements as bounded compressed segments through the typed SDK. */
@@ -358,6 +441,763 @@ async function showEnvironment(context: CommandHandlerContext): Promise<RlComman
   return { action: "rl-env-show", id: String(result.item.id), details: { title: result.item.title, version: result.item.fixed_version, spec_hash: result.item.affected_version, body: result.item.body } };
 }
 
+/** Extract and parse a generation spec from an item body's JSON fence. */
+function extractGenerationSpec(body: string, source: string): GenerationSpec {
+  const fenced = JSON_SPEC_FENCE.exec(body);
+  if (fenced?.[1] === undefined) {
+    fail(`${source} has no JSON specification fence.`, "generation_missing_spec", EXIT_CODE.CONFLICT);
+  }
+  return parseGenerationSpec(fenced[1], source);
+}
+
+/**
+ * Re-verify an Environment still matches its content-addressed identity.
+ *
+ * Both the run and the generation paths depend on the same four conditions: a
+ * recorded `affected_version`, a readable specification fence, a re-hash that
+ * still agrees, and an item id that carries the hash prefix. The
+ * `specHash.slice(0, 12)` identity rule in particular must never diverge
+ * between the two, so it is written once here rather than duplicated per
+ * caller with only the noun in the message changed.
+ *
+ * @param client - Client bound to the workspace holding the environment.
+ * @param environmentId - Environment item id to re-verify.
+ * @param dependents - Plural noun naming what the caller is attributing, used
+ *   only in the missing-hash message (e.g. `runs`, `generations`).
+ * @returns The resolved id and the re-parsed specification.
+ * @throws When the environment lacks a hash or fence, or no longer matches its
+ *   content-addressed identity.
+ */
+async function verifyEnvironmentIdentity(client: PmClient, environmentId: string, dependents: string): Promise<{ id: string; spec: EnvironmentSpec }> {
+  const environment = await getTypedItem(client, environmentId, "Environment");
+  const specHash = environment.item.affected_version;
+  if (typeof specHash !== "string" || specHash.length === 0) {
+    fail(`Environment ${environmentId} has no specification affected_version and cannot support attributable ${dependents}.`, "environment_missing_hash", EXIT_CODE.CONFLICT);
+  }
+  const fenced = JSON_SPEC_FENCE.exec(String(environment.item.body));
+  if (fenced?.[1] === undefined) {
+    fail(`Environment ${environmentId} has no JSON specification fence.`, "environment_missing_spec", EXIT_CODE.CONFLICT);
+  }
+  const storedSpec = parseEnvironmentSpec(fenced[1], `Environment ${environmentId} specification`);
+  if (hashJson(storedSpec) !== specHash || !String(environment.item.id).endsWith(specHash.slice(0, 12))) {
+    fail(`Environment ${environmentId} no longer matches its content-addressed identity. Register the changed specification as a new version.`, "environment_was_mutated", EXIT_CODE.CONFLICT);
+  }
+  return { id: String(environment.item.id), spec: storedSpec };
+}
+
+/** Verify an environment is content-addressed and return its id and reward-spec hash. */
+async function verifyEnvironmentForGeneration(client: PmClient, envId: string): Promise<{ id: string; rewardSpecHash: string }> {
+  const verified = await verifyEnvironmentIdentity(client, envId, "generations");
+  return { id: verified.id, rewardSpecHash: hashJson(verified.spec.reward_specification) };
+}
+
+/**
+ * Return the reason an environment a generation recorded is no longer valid, or
+ * null when it is still content-addressed.
+ *
+ * Replacing the prior boolean with a reason string lets the lineage view report
+ * DISTINCT diagnoses instead of one fixed "environment was edited" for every
+ * failure. An environment that never resolves (absent, wrong type, or any read
+ * failure) is reported as absent, not as edited — an operator who sees "edited"
+ * for an environment that was never touched receives a wrong diagnosis of a
+ * provenance failure. The four conditions a generation's environment can be in
+ * each carry their own wording:
+ *
+ * - the item does not resolve (absent, wrong type, or any read failure) →
+ *   `environment could not be resolved`;
+ * - it resolves but carries no recorded specification identity
+ *   (`affected_version`) → `environment has no recorded specification identity`;
+ * - it has an identity but its JSON fence is absent or does not parse →
+ *   `environment specification is unreadable`;
+ * - the stored body no longer hashes to the recorded identity → `environment was edited`.
+ *
+ * An empty `envId` (the seed records none) returns null: the seed has no
+ * environment to invalidate, which is distinct from an environment that is
+ * present but invalid.
+ *
+ * @param client - The tracker client used to resolve the environment item.
+ * @param envId - Content-addressed Environment item id, or `""` for the seed.
+ * @returns The invalidation reason, or null when the environment is still valid.
+ */
+export async function environmentInvalidationReason(client: PmClient, envId: string): Promise<string | null> {
+  if (envId.length === 0) return null;
+  try {
+    const environment = await getTypedItem(client, envId, "Environment");
+    const specHash = environment.item.affected_version;
+    if (typeof specHash !== "string" || specHash.length === 0) {
+      return "environment has no recorded specification identity";
+    }
+    const fenced = JSON_SPEC_FENCE.exec(String(environment.item.body));
+    const envJson = fenced?.[1];
+    if (envJson === undefined) return "environment specification is unreadable";
+    // Parsed inside its own try so an invalid fence is reported as unreadable
+    // rather than falling through to the outer catch, which reports the
+    // environment as unresolvable. Those say different things to an operator:
+    // unresolvable reads as the item being absent, when in fact it exists and
+    // its body cannot be parsed. Only the resolution itself belongs to the
+    // outer catch.
+    let storedSpec: EnvironmentSpec;
+    try {
+      storedSpec = parseEnvironmentSpec(envJson, `Environment ${envId}`);
+    } catch {
+      return "environment specification is unreadable";
+    }
+    return hashJson(storedSpec) !== specHash ? "environment was edited" : null;
+  } catch {
+    return "environment could not be resolved";
+  }
+}
+
+/** Normalize a Run's environment identity for strict-equality comparison.
+ *
+ * The pm SDK already trims typed item fields, so padding is not reachable for
+ * a metadata field — a Run whose `.toon` literally stores `environment: "  e  "`
+ * reads back trimmed. The trim is purely defensive: it pins the security gate
+ * (contamination compare) against a future SDK change, and the dependency is
+ * asserted by a dedicated test. Both `buildAncestry` and the register command's
+ * run-environment check compare this field, so they must normalise it the same
+ * way.
+ *
+ * @param value - The raw `run.item.environment` value.
+ * @returns The trimmed string, or the original non-string value unchanged.
+ */
+function normalizeRunEnvironment(value: string | undefined): string | undefined {
+  return typeof value === "string" ? value.trim() : value;
+}
+
+/**
+ * Build the ancestry from a head generation back to the seed, resolving the
+ * environment each collection run used.
+ *
+ * Unreadable provenance is treated differently by caller: a PROMOTION decided on
+ * a degraded graph is refused, while a lineage VIEW stays tolerant because a
+ * degraded view is still useful. When `strict` is true, a collection run that
+ * does not resolve (it is absent, the wrong type, or otherwise unreadable) is a
+ * hard refusal — the contamination check cannot decide overlap for a run whose
+ * environment is unknown, and treating it as clean inverts the contract. The
+ * refusal names the run id and the generation that declared it. When `strict`
+ * is false the prior tolerant behaviour is kept: a missing run contributes no
+ * environment to the contamination check, so a lineage still renders.
+ *
+ * @param client - The tracker client used to resolve items.
+ * @param headId - The head generation id to walk back from.
+ * @param strict - When true, an unresolvable collection run fails the call.
+ * @returns The ancestry from the head back to the seed.
+ */
+async function buildAncestry(client: PmClient, headId: string, strict: boolean): Promise<AncestryEntry[]> {
+  const ancestry: AncestryEntry[] = [];
+  const visited = new Set<string>();
+  let currentId: string | null = headId;
+  while (currentId !== null) {
+    if (visited.has(currentId)) {
+      // A repeat means the parent chain loops, so the walk can never reach a
+      // seed. Truncating silently is safe for the VIEW, which stays tolerant of
+      // degraded provenance, but not for the strict path: findContaminationPath
+      // compares only the generations this walk returned, so an environment
+      // reachable only past the repeat point is never compared and a
+      // contaminated candidate passes a gate that reported nothing wrong. Two
+      // hand-authored generation bodies are enough to construct the cycle, and
+      // hand-authored bodies are the reachable path for every other refusal in
+      // this module.
+      if (strict) {
+        fail(`Promotion refused: generation ${currentId} appears twice in its own parent chain, so the ancestry cannot be walked back to a seed and the contamination graph is incomplete.`, "lineage_cycle", EXIT_CODE.CONFLICT);
+      }
+      break;
+    }
+    visited.add(currentId);
+    // An unreadable ancestor truncates the TOLERANT walk the same way a cycle
+    // does: the view stays useful with a degraded chain, and only the strict
+    // promotion gate may refuse on it. The strict path re-throws so the
+    // promotion refusal message is unchanged.
+    //
+    // `getTypedItem` is INSIDE the try, not just the body parse. An ancestry
+    // can be unreadable two ways — a parent id that resolves to a missing item
+    // or to something that is not a Generation, and a parent that resolves
+    // fine but carries no usable JSON fence. Only the second was tolerated
+    // before, so a chain pointing at a deleted parent still threw out of the
+    // tolerant walk and took the readable descendants with it.
+    let spec: GenerationSpec;
+    try {
+      const item = await getTypedItem(client, currentId, "Generation");
+      spec = extractGenerationSpec(String(item.item.body), `Generation ${currentId}`);
+    } catch (error) {
+      if (strict) throw error;
+      break;
+    }
+    const runEnvironments = new Map<string, string>();
+    for (const runId of spec.collection_runs) {
+      let run: GetResult;
+      try {
+        run = await getTypedItem(client, runId, "Run");
+      } catch (error) {
+        if (strict) {
+          fail(`Promotion refused: collection run ${runId} of generation ${currentId} could not be resolved, so the contamination graph is unreadable. ${String(error)}`, "provenance_unreadable", EXIT_CODE.CONFLICT);
+        }
+        // A missing run contributes no environment to the contamination check.
+        continue;
+      }
+      // Deliberately outside the try: `fail` throws, and inside the block above
+      // its own catch would swallow it and re-report the unresolvable-run reason
+      // for a run that resolved perfectly well.
+      // Defence in depth, not a fix for a reachable bypass. The pm SDK already
+      // normalizes typed item fields: a Run whose `.toon` literally stores
+      // `environment: "  env-padded  "` reads back as `env-padded`, verified
+      // directly. So a padded run identity cannot reach findContaminationPath
+      // today, and the strict-equality comparison there is safe.
+      //
+      // The trim stays anyway because this feeds a SECURITY gate and the
+      // normalization it relies on belongs to another package. The dependency
+      // is pinned by a test asserting the SDK boundary trims, so if that ever
+      // stops being true this package finds out from its own suite rather than
+      // from a contaminated promotion passing.
+      //
+      // Note the asymmetry with `collection_runs`: those live inside the JSON
+      // fence, which pm treats as opaque body text and does NOT normalize, so
+      // padding there IS reachable and is trimmed at the parse boundary.
+      const environment = normalizeRunEnvironment(run.item.environment);
+      if (typeof environment === "string" && environment.length > 0) {
+        runEnvironments.set(runId, environment);
+        continue;
+      }
+      if (strict) {
+        // A run that resolves but records no environment is as undecidable as one
+        // that does not resolve: findContaminationPath would read `undefined`,
+        // compare it against the held-out environment, and treat the run as clean.
+        fail(`Promotion refused: collection run ${runId} of generation ${currentId} records no environment, so the contamination graph is unreadable.`, "provenance_unreadable", EXIT_CODE.CONFLICT);
+      }
+    }
+    ancestry.push({ id: currentId, spec, runEnvironments });
+    currentId = spec.parent;
+  }
+  return ancestry;
+}
+
+/**
+ * Count promoted generations that recorded a given approval item as their
+ * authorization.
+ *
+ * This is only called on the promotion path, where the approved budget cannot be
+ * established while any Generation is uncountable. A Generation whose body has
+ * no JSON fence or whose spec fails to parse is therefore refused rather than
+ * skipped: treating unreadable provenance as absent provenance inverts the
+ * contract, since the budget exists to bound a recursive loop that promotes
+ * programmatically. The refusal names the offending generation id and why.
+ *
+ * A listed item the SDK types without an `id` cannot be fetched and is skipped,
+ * not refused: it carries no identity to report and no consumer can act on it.
+ *
+ * @param client - Client bound to the workspace holding the generations.
+ * @param approvalId - Approval Decision item whose consumed budget is counted.
+ * @returns The number of generations promoted under this approval.
+ * @throws When any generation's specification cannot be read or parsed.
+ */
+async function countPromotedUnderApproval(client: PmClient, approvalId: string): Promise<number> {
+  // Bodies come back with the listing. This runs inside the promotion's writer
+  // lock, so a per-record `client.get` would make the critical section grow one
+  // read per historical generation, and a large enough lineage would turn a
+  // correct refusal into a lock-wait timeout for every concurrent promoter.
+  const result = await client.list({ type: "Generation", status: "all", noTruncate: true, fields: "id,body" });
+  let count = 0;
+  for (const item of result.items) {
+    // The SDK types a listed item's `id` as optional; a record without one
+    // carries no identity to report, so it is skipped rather than counted.
+    if (item.id === undefined) continue;
+    const fenced = JSON_SPEC_FENCE.exec(String(item.body));
+    const json = fenced?.[1];
+    if (json === undefined) {
+      fail(`Promotion refused: generation ${item.id} has no JSON specification fence, so the approved budget cannot be established.`, "budget_undecidable", EXIT_CODE.CONFLICT);
+    }
+    let spec: GenerationSpec;
+    try {
+      spec = parseGenerationSpec(json, `Generation ${item.id}`);
+    } catch (error) {
+      fail(`Promotion refused: generation ${item.id} has an unparseable specification (${String(error)}), so the approved budget cannot be established.`, "budget_undecidable", EXIT_CODE.CONFLICT);
+    }
+    if (spec.promoted && spec.approval === approvalId) count += 1;
+  }
+  return count;
+}
+
+
+/** Find generation item ids that are not a parent of any other generation. */
+async function findGenerationHeads(client: PmClient): Promise<string[]> {
+  const result = await client.list({ type: "Generation", status: "all", noTruncate: true, fields: "id,body" });
+  const parentIds = new Set<string>();
+  const allIds: string[] = [];
+  for (const item of result.items) {
+    // A listed item's `id` is optional in the SDK types; one without an id can
+    // be neither a head nor a parent, so it takes no part in the lineage graph.
+    if (item.id === undefined) continue;
+    // The SPECIFICATION parent is the lineage edge. `item.parent` is the pm
+    // dependency field and the two can disagree, which would report a
+    // generation as a head at the same time as it appears inside another
+    // generation's ancestry. Reading the spec keeps one source for both.
+    //
+    // Enumeration stays TOLERANT of an unreadable body, unlike the promotion
+    // path: `rl lineage` with no head argument comes through here, so refusing
+    // would let one malformed Generation anywhere in the workspace break the
+    // view for every ancestry, including clean ones. An unreadable generation
+    // contributes no parent edge and remains eligible to be its own head.
+    let parent: string | null = null;
+    try {
+      parent = extractGenerationSpec(String(item.body), `Generation ${item.id}`).parent;
+    } catch {
+      // Skipped BEFORE it joins the id list: a generation whose ancestry cannot
+      // be walked must not be enumerated as a head either, or the command fails
+      // on the very row that could not be read.
+      continue;
+    }
+    allIds.push(item.id);
+    if (typeof parent === "string" && parent.length > 0) parentIds.add(parent);
+  }
+  return allIds.filter((id) => !parentIds.has(id)).sort();
+}
+
+/**
+ * Parse the gap-window option, requiring at least two consecutive gaps.
+ *
+ * A widening trend needs at least two points to compare, so a window below 2
+ * is refused rather than reported as widening for any single promotion.
+ */
+function parseGapWindow(raw: string): number {
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 2) {
+    fail(`pm rl lineage --gap-window must be an integer of at least 2, got "${raw}".`, "invalid_gap_window");
+  }
+  return value;
+}
+
+/**
+ * Register one policy generation (seed or candidate) with its full provenance.
+ *
+ * A seed may optionally declare a `--policy` (the content-addressed identity of
+ * the policy that collected its data); a seed without one records an empty
+ * policy, and a candidate parented to such a seed skips the run-policy check,
+ * because there is no declared policy to violate. A seed that DOES declare a
+ * policy still enforces the check, so a run collected by a different policy is
+ * refused (`run_policy_mismatch`). Every candidate requires its own `--policy`.
+ */
+async function registerGeneration(context: CommandHandlerContext): Promise<RlCommandResult> {
+  const requestedId = requiredArgument(context, "a generation id");
+  const baseCheckpoint = stringOption(context, "base_checkpoint")!;
+  const parentInput = stringOption(context, "parent", false);
+  const configPath = stringOption(context, "config_file", false);
+  const config = configPath === undefined ? {} : readJsonFile(configPath, "Generation configuration");
+  const client = clientFor(context);
+  await ensurePersistentTypes(client);
+  // `stringOption` returns `value.trim()` and maps a blank to `undefined`, so
+  // `parentInput` is already normalized and already non-empty when defined.
+  // Re-trimming here would state a normalization this boundary does not
+  // perform, which is worse than not restating it at all.
+  const isSeed = parentInput === undefined;
+  let policy = "";
+  let collectionRuns: string[] = [];
+  let environmentId = "";
+  let rewardSpecVersion = "";
+  let deps: string[] = [];
+  if (isSeed) {
+    // A seed may declare the policy that collected its data; without one the
+    // recorded policy is empty and candidates parented to it skip the check.
+    policy = stringOption(context, "policy", false) ?? "";
+  } else {
+    const parent = await getTypedItem(client, parentInput!, "Generation");
+    const parentSpec = extractGenerationSpec(String(parent.item.body), `Parent generation ${parentInput}`);
+    if (!parentSpec.promoted && !parentSpec.seed) {
+      fail(`Parent generation ${parentInput} is not promoted. Only a promoted generation (or the seed) may parent a candidate.`, "parent_not_promoted", EXIT_CODE.CONFLICT);
+    }
+    policy = stringOption(context, "policy")!;
+    const collectionRunsRaw = stringOption(context, "collection_runs")!;
+    collectionRuns = collectionRunsRaw.split(",").map((run) => run.trim()).filter((run) => run.length > 0);
+    if (collectionRuns.length === 0) {
+      fail("pm rl generation register requires --collection-runs for a non-seed generation.", "missing_collection_runs");
+    }
+    // Resolve the declared environment BEFORE iterating collection runs so each
+    // run's recorded environment can be compared against the resolved identity.
+    // A generation that declares --environment env-a while its runs used env-b
+    // would store env-a in `environment_version` but the contamination walk
+    // reads the run's own environment, so the gate and the provenance field
+    // would disagree — the same class of silent drift the identity checks exist
+    // to prevent.
+    const envInput = stringOption(context, "environment")!;
+    const envResult = await verifyEnvironmentForGeneration(client, envInput);
+    environmentId = envResult.id;
+    rewardSpecVersion = envResult.rewardSpecHash;
+    for (const runId of collectionRuns) {
+      const run = await getTypedItem(client, runId, "Run");
+      if (parentSpec.policy.length > 0 && String(run.item.component) !== parentSpec.policy) {
+        fail(`Collection run ${runId} references policy ${String(run.item.component)}, not the parent generation's policy ${parentSpec.policy}.`, "run_policy_mismatch", EXIT_CODE.CONFLICT);
+      }
+      const runEnv = normalizeRunEnvironment(run.item.environment);
+      if (String(runEnv) !== environmentId) {
+        fail(`Collection run ${runId} records environment ${String(runEnv)}, not the declared environment ${environmentId}.`, "run_environment_mismatch", EXIT_CODE.CONFLICT);
+      }
+    }
+    deps = [environmentId, ...collectionRuns];
+  }
+  const spec: GenerationSpec = {
+    base_checkpoint: baseCheckpoint,
+    policy,
+    collection_runs: collectionRuns,
+    training_config: config,
+    environment_version: environmentId,
+    reward_spec_version: rewardSpecVersion,
+    parent: isSeed ? null : parentInput,
+    seed: isSeed,
+    promoted: false,
+    approval: null,
+    proxy_score: null,
+    held_out_score: null,
+    gap: null,
+    promotion_evidence: null,
+  };
+  // Hashed over the PROVENANCE only, deliberately excluding the promotion
+  // outcome fields. Promotion legitimately rewrites `promoted`, `approval`,
+  // both scores, `gap` and `promotion_evidence`; hashing the whole spec would
+  // make `affected_version` disagree with the stored body the moment a
+  // generation is promoted, so any integrity check applying the
+  // re-hash-and-compare rule that `verifyEnvironmentIdentity` applies to
+  // Environments would report every promoted generation as mutated.
+  //
+  // The provenance is what the identity is for: what the generation was trained
+  // from. The outcome is what it earned, and it is recorded separately in the
+  // body. So the field pins provenance and stays verifiable across a promotion.
+  const specHash = hashJson(generationProvenance(spec));
+  const createOptions = {
+    id: requestedId,
+    title: requestedId,
+    type: "Generation" as const,
+    status: "open" as const,
+    acceptanceCriteria: "The generation retains its exact provenance identities and is promoted only after contamination and budget checks pass.",
+    estimatedMinutes: "1",
+    body: `# ${requestedId}\n\n\`\`\`json\n${JSON.stringify(spec, null, 2)}\n\`\`\``,
+    affectedVersion: specHash,
+    fixedVersion: baseCheckpoint,
+    component: policy.length > 0 ? policy : baseCheckpoint,
+    message: isSeed ? "Register seed RL generation" : "Register candidate RL generation",
+    ...(isSeed ? {} : { parent: parentInput, dep: deps, environment: environmentId }),
+  };
+  const result = await client.create(createOptions);
+  return {
+    action: "rl-generation-register",
+    id: result.item.id,
+    created: true,
+    details: {
+      seed: isSeed,
+      parent: isSeed ? null : parentInput,
+      spec_hash: specHash,
+      base_checkpoint: baseCheckpoint,
+      policy,
+      collection_runs: collectionRuns,
+      environment: environmentId,
+      reward_spec_version: rewardSpecVersion,
+      edge_types: [...GENERATION_EDGE_TYPES],
+    },
+  };
+}
+
+/** Promote a candidate generation after contamination and budget checks pass. */
+async function promoteGeneration(context: CommandHandlerContext): Promise<RlCommandResult> {
+  const id = requiredArgument(context, "a generation id");
+  // Already trimmed: `stringOption` returns `value.trim()`. The normalization
+  // that matters for the budget is at the PARSE boundary, because a generation
+  // body can be authored without ever passing through this flag.
+  const approvalId = stringOption(context, "approval")!;
+  const scoresPath = stringOption(context, "scores")!;
+  const evidence = stringOption(context, "evidence")!;
+  const client = clientFor(context);
+  await ensurePersistentTypes(client);
+  const generation = await getTypedItem(client, id, "Generation");
+  const spec = extractGenerationSpec(String(generation.item.body), `Generation ${id}`);
+  if (spec.promoted) {
+    fail(`Generation ${id} is already promoted.`, "already_promoted", EXIT_CODE.CONFLICT);
+  }
+  if (spec.seed) {
+    fail(`The seed generation ${id} is registered, not promoted. Promote a candidate generation instead.`, "seed_not_promoted", EXIT_CODE.CONFLICT);
+  }
+  const scoresRaw = readJsonFile(scoresPath, "Promotion scores");
+  const scoresRecord = jsonObject(scoresRaw, "Promotion scores");
+  const proxyScoreRaw = scoresRecord["proxy_score"];
+  if (proxyScoreRaw === undefined || proxyScoreRaw === null) {
+    fail("Promotion scores require a proxy_score. A generation without both a proxy and a held-out score cannot be promoted.", "missing_proxy_score");
+  }
+  const proxyScore = parseScoreRecord(proxyScoreRaw, "proxy_score");
+  const heldOutScoreRaw = scoresRecord["held_out_score"];
+  if (heldOutScoreRaw === undefined || heldOutScoreRaw === null) {
+    fail("Promotion scores require a held_out_score. A generation without both a proxy and a held-out score cannot be promoted.", "missing_held_out_score");
+  }
+  const heldOutScore = parseScoreRecord(heldOutScoreRaw, "held_out_score");
+  const ancestry = await buildAncestry(client, id, true);
+  const contamination = findContaminationPath(ancestry, heldOutScore.evaluation_context);
+  if (contamination !== null) {
+    fail(`Promotion refused: the evaluation set is reachable from the candidate's training data over provenance edges. Path: ${renderContaminationPath(contamination)}`, "contamination_refused", EXIT_CODE.CONFLICT);
+  }
+  const gap = directionAwareGap(proxyScore, heldOutScore);
+  // Read and validated through one function so the pre-lock fast refusal and
+  // the in-lock decision cannot drift apart. The budget the promotion is
+  // checked against must come from a read taken INSIDE the lock: an approval
+  // whose permitted count is lowered while this caller waits would otherwise be
+  // compared against the capacity it had before, and the promotion would exceed
+  // the approval that actually governs it.
+  const readApprovalSpec = async (): Promise<ApprovalSpec> => {
+    const approval = await client.get(approvalId, { depth: "deep" });
+    if (String(approval.item.type) !== "Decision") {
+      fail(`pm rl expected a Decision ${approvalId} as the approval item, not ${String(approval.item.type)}.`, "wrong_approval_type", EXIT_CODE.CONFLICT);
+    }
+    const approvalFenced = JSON_SPEC_FENCE.exec(String(approval.item.body));
+    if (approvalFenced?.[1] === undefined) {
+      fail(`Approval item ${approvalId} has no JSON specification fence.`, "approval_missing_spec", EXIT_CODE.CONFLICT);
+    }
+    return parseApprovalSpec(approvalFenced[1], `Approval ${approvalId}`);
+  };
+  // Called for its refusals, not its value: it rejects a non-Decision approval,
+  // a missing JSON fence, and an unparseable spec BEFORE the writer lock is
+  // taken, so an obviously invalid approval never queues behind a live promotion.
+  // The value is deliberately discarded — every number the decision and the
+  // receipt use is re-read inside the lock.
+  await readApprovalSpec();
+  // Count the consumed budget and write the promotion inside one workspace
+  // writer lock. Two concurrent promotions would otherwise both read the same
+  // count, both observe headroom, and both promote — the race a recursive loop
+  // that promotes programmatically is precisely the caller to win. Serializing
+  // (rather than refusing the loser outright) means the second caller re-reads
+  // the count a winner just changed and gets the accurate `budget_exceeded`,
+  // which is a terminal condition a loop must respect, instead of a contention
+  // error it would retry forever.
+  // Renders the promoted body from a spec read INSIDE the lock. Building it
+  // from the pre-lock `spec` would spread a snapshot taken before any peer
+  // could be excluded, so a peer edit that does not set `promoted` — a changed
+  // `training_config`, a corrected `collection_runs` — survives the
+  // already-promoted guard and is then overwritten by this write, discarded on
+  // the SUCCESS path with no receipt. The revert path had the same defect and
+  // was fixed a round earlier; this is its other half.
+  const renderPromotedBody = (base: GenerationSpec): string => {
+    const promotedSpec: GenerationSpec = {
+      ...base,
+      promoted: true,
+      approval: approvalId,
+      proxy_score: proxyScore,
+      held_out_score: heldOutScore,
+      gap,
+      promotion_evidence: evidence,
+    };
+    return `# ${id}\n\n\`\`\`json\n${JSON.stringify(promotedSpec, null, 2)}\n\`\`\``;
+  };
+  // Seeded from the pre-lock read and REPLACED by the in-lock re-read below.
+  // Restoring the pre-lock body would discard an edit another writer landed
+  // between that read and the lock: this value is written back on a failed
+  // close, so it must be the body that was current when the promoting write
+  // overwrote it, not the one this caller happened to see first.
+  let bodyBeforePromotion = String(generation.item.body);
+  // Revert the promoting write. The coordinator compensates steps it has already
+  // recorded as applied, and a single-step plan has none — verified empirically:
+  // a step whose `apply` throws runs inspect, apply, then propagates, never
+  // compensate. So `apply` invokes this itself on a failed close rather than
+  // leaving a body that reads as promoted, which would consume budget the
+  // generation never legitimately spent. It is also wired as the step's
+  // `compensate` so a future multi-step plan reverts through the same path.
+  const revertPromotingWrite = async (): Promise<void> => {
+    await client.update(id, { body: bodyBeforePromotion, message: "Revert interrupted pm-rl promotion" });
+  };
+  let promotedCount = 0;
+  // Neutral like its two neighbours, NOT seeded from `approvalSpec`. That is the
+  // pre-lock read, and seeding it here makes this the one variable of the three
+  // whose initial value is plausible rather than obviously empty. If the
+  // transaction body never runs — a journal replay does not re-execute `apply` —
+  // `promotedCount` and `closedStatus` stay visibly neutral while a seeded
+  // budget would report a real capacity that no in-lock read ever confirmed.
+  // The assignment at the budget check below is the only source for the decision
+  // and for the receipt.
+  let permittedPromotions = 0;
+  let closedStatus = "";
+  await commitWorkspaceTransaction({
+    pmRoot: context.pm_root,
+    // Unique per invocation. The transaction is used here for MUTUAL EXCLUSION,
+    // not for idempotent replay, and the two must not share a key: keying on the
+    // generation makes concurrent callers promoting the SAME generation look
+    // like replays of one committed transaction, so the journal skips `apply`
+    // and every caller reports success for a promotion only one of them
+    // performed. Correctness under concurrency comes from the re-check inside
+    // the lock instead.
+    transactionId: `pm-rl-generation-promote-${id}-${randomUUID()}`,
+    author: authorFor(context),
+    lockWaitMs: PROMOTION_LOCK_WAIT_MS,
+    steps: [{
+      id: "promote-generation",
+      // The durable journal, not this inspection, is what makes a completed
+      // promotion idempotent: replaying a recorded transactionId skips `apply`
+      // regardless of what `inspect` reports (verified empirically). Reporting
+      // a durable "applied" here would also be unreachable, because a generation
+      // that already carries a promoted body is refused by the `already_promoted`
+      // guard long before the transaction opens.
+      inspect: async () => ({ state: "pending" }),
+      apply: async () => {
+        // Re-read inside the lock. The pre-lock `already_promoted` check runs on
+        // a read every concurrent caller performs before any of them holds the
+        // lock, so all of them pass it and would each promote the same
+        // generation. Only a re-check inside the critical section makes "a
+        // generation promotes at most once" true under concurrency.
+        const current = await getTypedItem(client, id, "Generation");
+        bodyBeforePromotion = String(current.item.body);
+        const currentSpec = extractGenerationSpec(bodyBeforePromotion, `Generation ${id}`);
+        if (currentSpec.promoted) {
+          fail(`Generation ${id} is already promoted.`, "already_promoted", EXIT_CODE.CONFLICT);
+        }
+        // THE authoritative contamination decision, taken inside the lock over
+        // the ancestry the verdict actually depends on.
+        //
+        // Comparing only the candidate's own fields was not enough: the verdict
+        // is computed by walking every ancestor and reading each one's
+        // collection_runs and environment_version, so a peer editing an
+        // ANCESTOR leaves the leaf identical and the verdict stale. Re-walking
+        // here also subsumes the leaf comparison, because the candidate is the
+        // walk's first entry.
+        //
+        // The pre-lock check above is kept as a fast refusal so an obviously
+        // contaminated candidate never takes the lock at all; this one decides.
+        // The cost is one extra ancestry walk per successful promotion, inside
+        // the critical section — the price of the analysis and the write being
+        // atomic, which is what makes the refusal a gate rather than a hint.
+        const lockedAncestry = await buildAncestry(client, id, true);
+        const lockedContamination = findContaminationPath(lockedAncestry, heldOutScore.evaluation_context);
+        if (lockedContamination !== null) {
+          fail(`Promotion refused: the evaluation set is reachable from the candidate's training data over provenance edges. Path: ${renderContaminationPath(lockedContamination)}`, "contamination_refused", EXIT_CODE.CONFLICT);
+        }
+        // Re-read inside the lock for the same reason the count is: the budget
+        // is a comparison between two values, and re-reading only one of them
+        // leaves the comparison stale in the other direction.
+        const lockedApprovalSpec = await readApprovalSpec();
+        promotedCount = await countPromotedUnderApproval(client, approvalId);
+        permittedPromotions = lockedApprovalSpec.permitted_promotions;
+        if (promotedCount >= permittedPromotions) {
+          fail(`Advancing past the approved promotion budget is refused. ${promotedCount} promotion(s) consumed; approval ${approvalId} permits ${permittedPromotions}. Extend approval item ${approvalId} to authorize more promotions.`, "budget_exceeded", EXIT_CODE.CONFLICT);
+        }
+        await client.update(id, {
+          // Rendered from the IN-LOCK spec, so a peer edit to a field the
+          // promotion decision did not consume survives this write.
+          body: renderPromotedBody(currentSpec),
+          message: `Promote generation: gap=${gap.toFixed(4)}, evidence=${evidence}`,
+        });
+        try {
+          const result = await client.close(id, "promoted", {
+            message: "Promote RL generation",
+            resolution: evidence,
+            expectedResult: "The generation reaches a promoted state with both scores and the direction-aware gap recorded.",
+            actualResult: `Promoted with proxy=${proxyScore.value}, held_out=${heldOutScore.value}, gap=${gap.toFixed(4)}. Budget consumed: ${promotedCount + 1} of ${permittedPromotions}.`,
+          });
+          closedStatus = String(result.item.status);
+        } catch (error) {
+          // The close error is the one that explains what happened; a revert
+          // failure must not replace it. If the revert ALSO fails the situation
+          // is worse than either alone — the body still reads as promoted while
+          // the item was never closed — so both are reported, with the original
+          // cause first, rather than the second error hiding the first.
+          try {
+            await revertPromotingWrite();
+          } catch (revertError) {
+            fail(`${String(error)} — and the revert of the promoting write also failed (${String(revertError)}), so generation ${id} still reads as promoted while it was never closed. Its body must be restored before the approved budget can be counted correctly.`, "revert_failed_after_close_failure", EXIT_CODE.CONFLICT);
+          }
+          throw error;
+        }
+        return { status: closedStatus };
+      },
+      compensate: revertPromotingWrite,
+    }],
+  });
+  return {
+    action: "rl-generation-promote",
+    id,
+    details: {
+      status: closedStatus,
+      gap,
+      proxy_score: proxyScore.value,
+      held_out_score: heldOutScore.value,
+      approval: approvalId,
+      budget_consumed: promotedCount + 1,
+      // The IN-LOCK value. `approvalSpec` is the pre-lock read, and reporting
+      // it here would tell the caller a capacity that was already superseded by
+      // the one the promotion was actually checked against and recorded in the
+      // item. This was the site my own pre-lock audit missed: the value was
+      // re-read for the DECISION and not for the RECEIPT.
+      budget_permitted: permittedPromotions,
+      evidence,
+    },
+  };
+}
+
+/** Show one generation and its lineage details. */
+async function showGeneration(context: CommandHandlerContext): Promise<RlCommandResult> {
+  const id = requiredArgument(context, "a generation id");
+  const result = await getTypedItem(clientFor(context), id, "Generation");
+  const spec = extractGenerationSpec(String(result.item.body), `Generation ${id}`);
+  return {
+    action: "rl-generation-show",
+    id: String(result.item.id),
+    details: {
+      seed: spec.seed,
+      promoted: spec.promoted,
+      parent: spec.parent,
+      base_checkpoint: spec.base_checkpoint,
+      policy: spec.policy,
+      collection_runs: spec.collection_runs,
+      environment: spec.environment_version,
+      reward_spec_version: spec.reward_spec_version,
+      approval: spec.approval,
+      proxy_score: spec.proxy_score,
+      held_out_score: spec.held_out_score,
+      gap: spec.gap,
+      promotion_evidence: spec.promotion_evidence,
+    },
+  };
+}
+
+/** Render the generation chain from seed to head(s) with promotion evidence. */
+async function renderLineageCommand(context: CommandHandlerContext): Promise<RlCommandResult> {
+  const headInput = context.args.find((arg) => !arg.startsWith("-"));
+  const formatRaw = stringOption(context, "format", false) ?? "table";
+  if (formatRaw !== "table" && formatRaw !== "json") {
+    fail(`pm rl lineage --format must be "table" or "json", got "${formatRaw}".`, "invalid_format");
+  }
+  const gapWindowRaw = stringOption(context, "gap_window", false);
+  const gapWindow = gapWindowRaw === undefined ? DEFAULT_GAP_WINDOW : parseGapWindow(gapWindowRaw);
+  const client = clientFor(context);
+  await ensurePersistentTypes(client);
+  let heads: string[];
+  if (headInput !== undefined && headInput.trim().length > 0) {
+    const requestedHead = headInput.trim();
+    // Resolved before the tolerant walk. Tolerance exists for an unreadable
+    // ANCESTOR; the head the caller named is the request itself, so a missing
+    // or wrong-typed head must report that, not an empty ancestry.
+    await getTypedItem(client, requestedHead, "Generation");
+    heads = [requestedHead];
+  } else {
+    heads = await findGenerationHeads(client);
+  }
+  const ancestries: LineageAncestry[] = [];
+  // Cache the environment check keyed by environment id so an environment shared
+  // across several generations — and across several heads in one view — is
+  // fetched and hashed once rather than once per generation per head.
+  const envReasonCache = new Map<string, string | null>();
+  for (const head of heads) {
+    const ancestry = await buildAncestry(client, head, false);
+    const seedToHead = [...ancestry].reverse();
+    const ownInvalidated = new Map<string, string>();
+    for (const entry of seedToHead) {
+      let reason = envReasonCache.get(entry.spec.environment_version);
+      if (reason === undefined) {
+        reason = await environmentInvalidationReason(client, entry.spec.environment_version);
+        envReasonCache.set(entry.spec.environment_version, reason);
+      }
+      if (reason !== null) ownInvalidated.set(entry.id, reason);
+    }
+    ancestries.push(buildLineageAncestry(seedToHead, ownInvalidated, gapWindow));
+  }
+  const view: LineageView = { ancestries };
+  if (formatRaw === "json") {
+    return { action: "rl-lineage", details: { format: "json", view } };
+  }
+  return { action: "rl-lineage", details: { format: "table", output: renderLineageTable(view), view } };
+}
+
 /** Commands authored separately so activation and tests share one exact contract. */
 export const RL_COMMANDS = [
   defineCommand({ name: "rl env register", description: "Register an immutable, content-addressed environment JSON specification.", flags: [{ long: "--file", value_name: "path", value_type: "string", required: true, description: "Environment JSON file." }], run: registerEnvironment }),
@@ -371,6 +1211,24 @@ export const RL_COMMANDS = [
   defineCommand({ name: "rl run log", description: "Append NDJSON metric events from --file or stdin to merge-safe run notes.", arguments: [{ name: "id", required: true, description: "Run item id." }], flags: [{ long: "--file", value_name: "path", value_type: "string", description: "NDJSON file; omit to read stdin." }], run: logRun }),
   defineCommand({ name: "rl run show", description: "Read and order a run's metric series from append-only notes.", arguments: [{ name: "id", required: true, description: "Run item id." }], run: showRun }),
   defineCommand({ name: "rl run finish", description: "Finish a run without rewriting its metric history.", arguments: [{ name: "id", required: true, description: "Run item id." }], flags: [{ long: "--reason", value_name: "text", value_type: "string", required: true, description: "Why the run ended." }], run: finishRun }),
+  defineCommand({ name: "rl generation register", description: "Register a policy generation (seed or candidate) with content-addressed provenance.", arguments: [{ name: "id", required: true, description: "Generation item id." }], flags: [
+    { long: "--base-checkpoint", value_name: "hash", value_type: "string", required: true, description: "Content-addressed base checkpoint identity." },
+    { long: "--parent", value_name: "id", value_type: "string", description: "Parent generation id; omit for the seed generation." },
+    { long: "--policy", value_name: "hash", value_type: "string", description: "Content-addressed policy that collected the training data; required for a non-seed, optional for a seed (an empty seed policy skips the run-policy check for its candidates)." },
+    { long: "--collection-runs", value_name: "ids", value_type: "string", description: "Comma-separated collection run ids (required for non-seed)." },
+    { long: "--environment", value_name: "id", value_type: "string", description: "Environment item id used by the collection runs (required for non-seed)." },
+    { long: "--config-file", value_name: "path", value_type: "string", description: "Optional JSON training configuration." },
+  ], run: registerGeneration }),
+  defineCommand({ name: "rl generation promote", description: "Promote a candidate generation after contamination and budget checks pass.", arguments: [{ name: "id", required: true, description: "Generation item id." }], flags: [
+    { long: "--approval", value_name: "id", value_type: "string", required: true, description: "Approval Decision item id stating the permitted promotion count." },
+    { long: "--scores", value_name: "path", value_type: "string", required: true, description: "JSON file with proxy_score and held_out_score records." },
+    { long: "--evidence", value_name: "text", value_type: "string", required: true, description: "Human-readable promotion evidence." },
+  ], run: promoteGeneration }),
+  defineCommand({ name: "rl generation show", description: "Show one generation and its lineage details.", arguments: [{ name: "id", required: true, description: "Generation item id." }], run: showGeneration }),
+  defineCommand({ name: "rl lineage", description: "Render the generation chain from seed to head(s) with promotion evidence and invalidation state.", arguments: [{ name: "head", required: false, description: "Head generation id; omit to enumerate every head." }], flags: [
+    { long: "--format", value_name: "table|json", value_type: "string", description: "Output format; defaults to table." },
+    { long: "--gap-window", value_name: "n", value_type: "string", description: "Number of consecutive gaps for the widening check (at least 2); defaults to 3." },
+  ], run: renderLineageCommand }),
 ] as const;
 
 /** Install pm-rl's typed schema and command surface into the active host. */

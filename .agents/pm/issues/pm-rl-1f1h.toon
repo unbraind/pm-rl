@@ -1,0 +1,22 @@
+id: pm-rl-1f1h
+title: The tolerant lineage walk tolerated an unreadable body but not an unresolvable ancestor
+description: "buildAncestry wrapped only extractGenerationSpec in the try that truncates the tolerant walk. getTypedItem sat one line above it, outside the guard, so an ancestry is unreadable in two ways that failed differently: a parent whose body carries no usable JSON fence was tolerated and truncated the chain, while a parent that no longer resolves as a Generation - deleted, or retyped by a peer - threw out of the walk and took every readable descendant with it. The strict promotion path must refuse in both cases and did; only the tolerant view disagreed with itself."
+type: Issue
+status: closed
+priority: 2
+tags[1]: correctness
+created_at: "2026-08-13T18:51:03.325Z"
+updated_at: "2026-08-13T18:51:17.499Z"
+closed_at: "2026-08-13T18:51:17.488Z"
+completed_at: "2026-08-13T18:51:17.488Z"
+author: "harness:claude-code"
+resolution: "getTypedItem moved inside the same try that guards extractGenerationSpec, so an ancestor that is missing or no longer a Generation truncates the tolerant walk exactly like an unparseable body. Strict behaviour is unchanged - the catch re-throws when strict."
+expected_result: "Both ways an ancestry can be unreadable degrade the tolerant view rather than destroy it, and both still refuse under strict promotion."
+actual_result: "Verified non-vacuous: moving getTypedItem back outside the try fails the new test and only that test, 46 pass 1 fail; restored, 47 pass."
+files[2]{path,scope,note}:
+  index.ts,project,getTypedItem moved inside the tolerant-walk try in buildAncestry
+  test/lineage.test.ts,project,regression for an ancestor retyped away from Generation
+tests[1]{command,scope}:
+  "name=a descendant of an ancestor that is no longer a Generation still enumerates in the tolerant lineage walk,result=pass",project
+close_reason: "getTypedItem moved inside the tolerant-walk try; regression added and verified to fail on revert; release:check exit 0 with coverage 100/100/100."
+body: ""

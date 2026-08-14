@@ -1,0 +1,26 @@
+id: pm-rl-izu1
+title: Two promotion-path checks fail open on unreadable provenance
+description: "CodeRabbit review of pm-rl#12, Major, Security. Both sites catch an error on data they cannot read and continue as if it were clean.\n\nA Generation whose body has no fence or fails to parse is SKIPPED rather than refused, so the approved budget cannot be established while any Generation is uncountable. A collection run that does not resolve is DROPPED, so findContaminationPath cannot decide overlap for a run whose environment is unknown.\n\nTreating unreadable provenance as absent provenance inverts the module contract, which is to refuse a result when its provenance says otherwise - and unreadable provenance says otherwise.\n\nAdopt the reviewer's framing exactly: keep rl lineage tolerant because a degraded view is useful, but refuse a promotion decided on a degraded graph."
+type: Issue
+status: closed
+priority: 1
+tags: []
+created_at: "2026-08-10T23:30:26.378Z"
+updated_at: "2026-08-11T04:51:37.178Z"
+closed_at: "2026-08-11T04:51:37.157Z"
+completed_at: "2026-08-11T04:51:37.157Z"
+author: "harness:claude-code"
+resolution: Promotion now refuses unreadable provenance and an undecidable budget; lineage stays tolerant.
+dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
+  pm-rl-yi7j,parent,"2026-08-10T23:31:10.992Z","harness:claude-code","cli:update:dep",detected
+comments[1]{created_at,author,text}:
+  "2026-08-11T04:51:34.734Z",pi-agent,"buildAncestry now takes a strict boolean: promoteGeneration passes true (unresolvable collection run -> provenance_unreadable CONFLICT naming run id + generation); renderLineageCommand passes false (tolerant, degraded view still renders). countPromotedUnderApproval refuses an uncountable Generation (budget_undecidable CONFLICT) naming the id and why (no fence / unparseable spec); id-less listed rows are still skipped. Tests: an unresolvable run refuses promotion while lineage renders; a no-fence and a bad-fence generation each refuse promotion while lineage renders; the prior budget test no longer seeds unparseable generations."
+files[3]{path,scope,note}:
+  index.ts,project,buildAncestry strict + countPromotedUnderApproval refuse
+  README.md,project,provenance_unreadable + budget_undecidable refusals
+  test/lineage.test.ts,project,unreadable run + uncountable generation tests
+tests[2]{command,scope}:
+  "name=promotion refuses an unreadable collection run while lineage still renders,result=pass",project
+  "name=promotion refuses an uncountable generation while lineage still renders,result=pass",project
+close_reason: Promotion now refuses unreadable provenance and an undecidable budget; lineage stays tolerant.
+body: ""

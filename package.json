@@ -6,6 +6,7 @@
   "main": "dist/index.js",
   "files": [
     "dist/index.*",
+    "dist/lineage.*",
     "dist/series.*",
     "manifest.json",
     "README.md",
@@ -45,6 +46,7 @@
       "test/series.test.ts",
       "test/index.test.ts",
       "test/audit-git-identities.test.ts",
+      "test/lineage.test.ts",
       "test/quality-scripts.test.ts",
       "test/coverage-gate.test.ts"
     ],

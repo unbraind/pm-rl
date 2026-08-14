@@ -2,14 +2,26 @@ id: pm-rl-gyrj
 title: Promotion refuses on contamination rather than warning about it
 description: "The single failure that makes a self-improvement loop produce rising numbers and no capability is the held-out set becoming training data. It happens by ordinary means: a sweep reuses seeds, a collection run samples the eval environment, a generation trains on a replay buffer that already contains eval episodes. Every one of those is visible in the graph before the score is computed. pm-rl therefore treats it as a refusal and not a warning, matching the decision already taken for ranking the incomparable. A refusal is only implementable if what it detects is defined, so the contract states the traversal rather than gesturing at reachability. Contamination is a forward traversal from the candidate's training data to the evaluation set, following only the declared provenance edge types - collection run, environment version, reward-spec version, checkpoint, and parent generation - and never the annotation edges that carry no data flow. Overlap is decided on content-addressed identity rather than on labels, so the same episode reached by two different names is one episode, and two distinct episodes with the same label are two. The refusal prints the connecting path as an ordered list of artifact identities and edge types, stable across runs for the same graph, so it is diffable and can be attached to the item that records the refusal. A warning here would be worse than nothing, because the number it accompanies is the number the whole programme is steering on."
 type: Decision
-status: open
+status: closed
 priority: 1
 tags: []
 created_at: "2026-08-04T20:49:37.764Z"
-updated_at: "2026-08-04T21:35:11.712Z"
+updated_at: "2026-08-14T04:31:16.446Z"
+closed_at: "2026-08-10T23:04:52.981Z"
+completed_at: "2026-08-10T23:04:52.981Z"
+claim_principal: pi-agent
 author: claude
 estimated_minutes: 240
 acceptance_criteria: Contamination is defined as forward reachability from the candidate's training data to the evaluation set over an enumerated set of provenance edge types; overlap is decided on content-addressed identity and never on labels; promotion exits non-zero and prints the connecting path as an ordered list of artifact identities and edge types; the printed path is stable across runs for the same graph; the check runs before any score is computed or written so a contaminated score never reaches history; an uncontaminated candidate promotes; there is no flag that downgrades the refusal to a warning
+resolution: Added test/lineage.test.ts exercising contamination traversal and the promotion refusal; refusal verified revert-proof.
+expected_result: Promotion refuses when the eval set is forward-reachable from training data over provenance edges; prints a stable path; uncontaminated candidate promotes.
+actual_result: test/lineage.test.ts passes; index.ts and lineage.ts at 100/100/100 lines/branches/functions.
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rl-yi7j,parent,"2026-08-04T20:49:37.764Z",claude,"cli:create:dep",detected
+comments[1]{created_at,author,text}:
+  "2026-08-10T23:04:52.604Z",pi-agent,"Test coverage added in test/lineage.test.ts: findContaminationPath (environment-version and collection-run edges, identity-based overlap, empty held-out short-circuit), renderContaminationPath (single- and multi-hop), and the promotion contamination refusal verified revert-proof (commenting out the refusal makes the assertion fail with 'Missing expected rejection')."
+tests[2]{command,scope}:
+  "name=findContaminationPath follows environment and collection-run edges and is decided on identity,result=pass",project
+  "name=promotion refuses when the evaluation set is reachable from the candidate's training data,result=pass",project
+close_reason: Contamination refusal test coverage complete
 body: ""

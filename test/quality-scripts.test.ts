@@ -3,7 +3,8 @@
  */
 
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -275,4 +276,82 @@ test("docstring gate isMainInvocation throws rather than skipping the gate when 
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("the packed tarball can actually be imported, so no reachable module is left unpublished", () => {
+  // `pack:dry-run` lists file NAMES; it never resolves an import. That is how a
+  // package whose entry point imports a module the `files` array omits passes
+  // `release:check` and then fails at import time for anyone who installs it —
+  // which happened here once, with `dist/lineage.js` absent from the tarball.
+  //
+  // This deliberately does NOT parse imports. The previous form walked the graph
+  // with a regex matching only double-quoted `from "./x.js"`, so `../` paths,
+  // single quotes, side-effect imports and dynamic `import()` all evaded it, and
+  // a module reachable through any of those could stay unpublished with the gate
+  // green. Regex is not a parser, and the repo pins a TypeScript whose compiler
+  // API is unavailable at runtime, so there is no parser to reach for either.
+  //
+  // Enumerating emitted modules instead does not work: the build also emits
+  // `dist/scripts/**`, which is release tooling that is correctly unpublished.
+  //
+  // So this asserts the property directly rather than approximating it. The real
+  // tarball is packed, extracted, and imported. Node resolves the graph, so
+  // every import form is covered by construction, and a missing module fails as
+  // ERR_MODULE_NOT_FOUND. Extraction happens INSIDE the repo so that the
+  // extracted entry point resolves `@unbrained/pm-cli` up the directory chain
+  // through the repo's own node_modules, exactly as an installed copy would.
+  const repoRoot = resolve(import.meta.dirname, "..");
+  const scratch = mkdtempSync(join(repoRoot, ".pack-import-"));
+  try {
+    const packed = execFileSync(process.platform === "win32" ? "npm.cmd" : "npm", ["pack", "--silent", "--pack-destination", scratch], { cwd: repoRoot, encoding: "utf8", shell: process.platform === "win32" }).trim().split("\n").pop()!;
+    execFileSync("tar", ["-xzf", join(scratch, packed), "-C", scratch]);
+    const entry = join(scratch, "package", "dist", "index.js");
+    // Imported in a CHILD process, not this one. A dynamic import is the only
+    // way to load a path computed at runtime, and this repo forbids them; a
+    // child also keeps a second copy of the extension - which registers item
+    // types on load - out of the test process. Importing IS the assertion: a
+    // `files` array omitting any reachable module makes it exit non-zero with
+    // ERR_MODULE_NOT_FOUND. The marker confirms the entry produced the
+    // extension definition, so a silently empty module cannot pass as success.
+    const probe = execFileSync(process.execPath, ["--input-type=module", "-e", `const m = await import(${JSON.stringify(pathToFileURL(entry).href)}); if (m.default === undefined) { console.error("no default export"); process.exit(2); } console.log("packed-entry-imported");`], { cwd: scratch, encoding: "utf8" });
+    assert.match(probe, /packed-entry-imported/, "the packed entry point must import and export the extension definition");
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+/**
+ * The daily release must never publish to npm before the release metadata is
+ * merged into the protected default branch.
+ *
+ * This ordering is the whole point of the release-workflow fix tracked as
+ * pm-rl-wlj0. The failure it prevents is not hypothetical: publishing first and
+ * pushing afterwards means a `GH006` rejection on the protected branch leaves
+ * the package published to npm with no matching tag and no commit — a partial
+ * release that cannot be rolled back, because npm versions are immutable.
+ *
+ * Asserted against the workflow file rather than a mock, because the file IS
+ * the artifact that runs. Step *names* are matched instead of positions so
+ * inserting an unrelated step cannot break this, while reordering the three
+ * that matter still does.
+ */
+test("the release workflow publishes to npm only after the protected merge and its verification", () => {
+  const workflow = readFileSync(resolve(import.meta.dirname, "../.github/workflows/release.yml"), "utf-8");
+  const stepIndex = (name: string): number => {
+    const index = workflow.indexOf(`- name: ${name}`);
+    assert.notEqual(index, -1, `release.yml must still contain the step "${name}"`);
+    return index;
+  };
+
+  const merge = stepIndex("Merge release metadata through protected PR");
+  const verify = stepIndex("Verify merged release");
+  const publish = stepIndex("Publish npm package");
+  const tag = stepIndex("Push release tag");
+
+  assert.ok(merge < verify, "the merge must be verified before anything irreversible happens");
+  assert.ok(
+    verify < publish,
+    "npm publish must come after the merge is verified: publishing first leaves an immutable npm version behind when the protected push is rejected",
+  );
+  assert.ok(publish < tag, "the tag follows publication, so a failed publish does not leave a tag pointing at an unpublished version");
 });

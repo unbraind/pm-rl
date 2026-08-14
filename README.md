@@ -75,6 +75,9 @@ query the host can already answer, not a feature to build.
 | --- | --- |
 | `pm rl env register` / `list` / `show` | Declare and version environments and their reward specifications |
 | `pm rl run start` / `log` / `show` / `finish` | Snapshot exact environment and configuration provenance, append validated NDJSON metrics from a file or stdin, order the series by step, and refuse to finish an empty run |
+| `pm rl generation register` / `show` | Record one policy generation of a recursive self-improvement lineage, parented to the generation it was trained from, carrying its base checkpoint and collection runs. Registration records provenance only; the scores, gap and promotion evidence stay null until `promote` populates them. A seed may declare a `--policy` that its children's collection runs must match; a seed with no declared policy skips the run-policy check, since there is no declared policy to violate |
+| `pm rl generation promote` | Promote a candidate generation, but only after the contamination and approved-budget refusals below both pass |
+| `pm rl lineage` | Print the generation chain with each hop's promotion evidence, its direction-aware proxy-to-held-out gap, and any invalidation, reported with a distinct reason per condition (edited, unreadable, no recorded identity, or absent) |
 
 The remaining types and commands in the roadmap table above are intentionally not registered
 until their acceptance criteria and refusal paths are implemented and tested.
@@ -88,10 +91,69 @@ The first slice fails closed when context would otherwise become misleading:
    changed behavior as a new version.
 2. **An empty run cannot finish.** A terminal Run must contain at least one validated finite
    metric event, so “completed” cannot silently mean that the trainer produced no evidence.
+3. **A contaminated candidate cannot be promoted.** Promotion walks provenance edges and refuses
+   when the evaluation set is reachable from the candidate's training data, naming the exact path.
+   It refuses rather than warns, because a warning on a self-improving loop is a warning nobody
+   reads on the tenth generation. A promotion is also refused when the provenance graph is
+   unreadable — a collection run that does not resolve leaves the contamination check unable to
+   decide overlap, so the promotion is refused (`provenance_unreadable`) rather than treated as
+   clean. The lineage view stays tolerant of an unresolvable run, because a degraded view is
+   still useful; only a promotion decided on a degraded graph is refused. A parent chain that
+   loops is refused the same way (`lineage_cycle`): the ancestry walk can never reach a seed, so it
+   would return a TRUNCATED lineage and the contamination check would compare only the part it
+   reached — an environment reachable past the repeat point would never be compared, and a
+   contaminated candidate would pass a gate that reported nothing wrong. The view again stays
+   tolerant and simply stops walking.
+   The contamination verdict is decided **inside** the writer lock, over a fresh walk of the whole
+   ancestry, so a peer that contaminates an ANCESTOR while this caller waits for the lock cannot
+   leave a stale clean verdict behind — the leaf would be byte-identical, and comparing only the
+   candidate would miss it. The pre-lock walk is kept as a fast refusal so an obviously
+   contaminated candidate never takes the lock; the in-lock walk is the one that decides. The
+   promoting write is rendered from the body read inside the lock, so a peer edit that the verdict
+   does not depend on survives the promotion rather than being silently overwritten.
+4. **The loop cannot advance past its approved budget.** Promotion counts the generations already
+   promoted under an approval item and refuses beyond the permitted count, directing the caller to
+   extend the approval. The count, **the approval's permitted count**, and the promotion write all
+   run inside one workspace writer lock (`commitWorkspaceTransaction`). Both sides of the budget
+   comparison are re-read there, not just the count: an approval narrowed while a caller waits
+   would otherwise be compared against the capacity it had before, and the promotion would exceed
+   the approval that actually governs it. Callers that **acquire** the lock serialize rather than
+   one being rejected for contention. Acquiring the lock does not itself refuse: the holder
+   re-reads both values and reports `budget_exceeded` only when that re-read finds no remaining
+   capacity, which is a terminal condition a recursive loop must respect. A caller that exceeds the
+   bounded acquisition wait reports `lock_conflict` instead, without ever re-reading. A Generation whose body is uncountable (no JSON fence or an
+   unparseable spec) makes the budget undecidable and is refused (`budget_undecidable`) rather than
+   skipped, because treating unreadable provenance as absent provenance inverts the contract. This
+   is the property that keeps a recursive loop from running unattended further than a human
+   authorized. The same lock makes **one generation promote at most once**: the already-promoted
+   check is re-run inside the critical section, because the pre-lock check reads state every
+   concurrent caller sees before any of them holds the lock, so all of them would pass it.
+   The lock wait is **bounded**, not unlimited: a caller that cannot acquire it within 30 seconds
+   fails with `lock_conflict` (exit 4), naming the current owner and how long it waited. That is a
+   retryable outcome, so contention is bounded rather than eliminated — but it is reported as
+   contention, never as a promotion that did not happen.
+5. **Incomparable scores cannot form a gap.** The proxy and held-out scores must share the same
+   objective, objective version, and optimization direction. Subtracting scores that name different
+   objectives yields a number that is not a gap, and a `maximize` proxy against a `minimize` held-out
+   score adds capabilities instead of measuring drift; both are refused (`incomparable_scores`),
+   naming the differing fields. An objective that declares no positive comparable scale is refused at
+   score parse time (`invalid_scale`) rather than compared: the gap is computed over normalized
+   scales, so a missing scale means there is nothing to normalize against and the subtraction would
+   produce a number whose units are undefined. A generation spec is also refused when its promotion
+   evidence is
+   inconsistent — promoted records must carry their approval, both scores, and their gap, and
+   unpromoted records must carry none of them (`promoted_missing_evidence` / `unpromoted_with_evidence`),
+   so two consumers never disagree about whether a record counts as promoted. The stored identities —
+   `parent`, `approval`, and each `collection_runs` entry — are trimmed at the parse boundary, and a
+   blank `approval` or a blank run id is refused (`empty_approval` / `empty_collection_run`), because
+   all of them are compared by strict equality: a promoted record storing
+   `"  approval-a  "` or `""` would satisfy the evidence invariant while matching no approval id, and
+   so consume none of the budget it was promoted under.
 
-Both exit non-zero. The roadmap keeps two further hard refusals—ranking across incompatible
-environment versions and ranking a contaminated benchmark—but no leaderboard command is
-registered until those graph-derived checks are implemented and accepted.
+All exit non-zero. The roadmap keeps a further hard refusal—ranking across incompatible
+environment versions—but no leaderboard command is registered until that graph-derived check is
+implemented and accepted. The gap-widening check needs at least two consecutive gaps, so
+`pm rl lineage --gap-window` requires an integer of at least 2.
 
 ## Recursive self-improvement, and the four properties that make it honest
 
@@ -119,11 +181,12 @@ runs, and the exact environment and reward-spec versions those runs used.
 Two consequences fall out of modelling it this way rather than bolting on a dashboard. An
 environment or reward-spec edit invalidates every downstream generation *transitively*, by reverse
 traversal of the environment and reward-spec edges the graph contract requires. And
-[`pm rl lineage`](.agents/pm/features/pm-rl-32a9.toon) **will** render one ancestry from the seed to
+[`pm rl lineage`](.agents/pm/features/pm-rl-32a9.toon) renders one ancestry from the seed to
 a named head with each hop's promotion evidence **and** its invalidation state — the column that
-actually decides what to train next, and the one that is invisible today. A generation can have more
-than one promoted successor, so the head is named explicitly and trends are never computed across
-branches. *(Not registered yet — see the closing paragraph.)*
+actually decides what to train next. A generation can have more than one promoted successor, so
+gap trends are computed within a single ancestry and never across branches. Both selections are
+supported: `pm rl lineage <id>` renders the one ancestry ending at that head, and `pm rl lineage`
+with no id enumerates every head and renders each ancestry separately.
 
 The first environment this targets is deliberately unglamorous: [the fleet's own mandatory
 gates](.agents/pm/features/pm-rl-0cqg.toon). An agent proposes a diff to a pm package, and the
