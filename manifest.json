@@ -1,7 +1,7 @@
 {
   "name": "pm-rl",
   "version": "2026.7.31",
-  "description": "Reinforcement-learning programme management on the pm SDK. Content-addressed environments keep runs attributable; bounded compressed metric segments preserve every accepted branch occurrence. Commands: `pm rl env register/list/show` and `pm rl run start/log/show/finish`.",
+  "description": "Reinforcement-learning programme management on the pm SDK. Content-addressed environments keep runs attributable; bounded compressed metric segments preserve every accepted branch occurrence. Commands: `pm rl env register/list/show`, `pm rl run start/log/show/finish`, `pm rl generation register/promote/show`, `pm rl lineage`, `pm rl invalidate`, and `pm rl compare`.",
   "author": "@unbraind",
   "entry": "./dist/index.js",
   "priority": 50,

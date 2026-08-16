@@ -24,6 +24,20 @@ import { createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError } from "@unbr
 import { encodeEventSegments, parseNdjsonStream, readSeries } from "./series.ts";
 
 import {
+  buildCompareView,
+  renderCompareReport,
+  type RunCompareInput,
+} from "./compare.ts";
+
+import {
+  INVALIDATED_RESULT_TYPES,
+  INVALIDATION_ROOT_TYPES,
+  renderInvalidateReport,
+  transitiveInvalidation,
+  type ItemDependencyEdge,
+} from "./invalidate.ts";
+
+import {
   buildLineageAncestry,
   directionAwareGap,
   findContaminationPath,
@@ -1198,6 +1212,156 @@ async function renderLineageCommand(context: CommandHandlerContext): Promise<RlC
   return { action: "rl-lineage", details: { format: "table", output: renderLineageTable(view), view } };
 }
 
+/** Parsed provenance sections of a Run body written by `rl run start`. */
+interface RunBodySections {
+  /** The exact environment specification snapshot the run started under. */
+  readonly environmentSpec: EnvironmentSpec;
+  /** The immutable run configuration the run started with. */
+  readonly config: JsonValue;
+}
+
+/**
+ * Read the environment snapshot and run configuration fences from a Run body.
+ *
+ * `rl run start` writes both sections as headed JSON fences. A Run whose body
+ * lacks either section was not written by pm-rl, and a comparison that
+ * silently treated its configuration as empty would report a fabricated
+ * config delta — an invented explanation for a real metric difference. Both
+ * halves are therefore required and refused when absent or unparseable, naming
+ * the run and the missing section.
+ *
+ * @param body - The Run item body text.
+ * @param id - The Run item id, used in refusal messages.
+ * @returns The parsed environment specification and run configuration.
+ * @throws When either section is missing, or the configuration is not one
+ *   parseable JSON object.
+ */
+function runBodySections(body: string, id: string): RunBodySections {
+  const section = (heading: string): string | null => {
+    const start = body.indexOf(heading);
+    if (start < 0) return null;
+    return JSON_SPEC_FENCE.exec(body.slice(start))?.[1] ?? null;
+  };
+  const environmentJson = section("Environment snapshot:");
+  if (environmentJson === null) {
+    fail(`Run ${id} has no readable environment snapshot section, so its recorded environment version cannot be compared. Restart the run with pm rl run start to record one.`, "run_body_unreadable", EXIT_CODE.CONFLICT);
+  }
+  const configJson = section("Run configuration:");
+  if (configJson === null) {
+    fail(`Run ${id} has no readable run configuration section, so its hyperparameters cannot be compared. Restart the run with pm rl run start to record one.`, "run_body_unreadable", EXIT_CODE.CONFLICT);
+  }
+  let configParsed: unknown;
+  try {
+    configParsed = JSON.parse(configJson);
+  } catch {
+    fail(`Run ${id} stores a run configuration that is not valid JSON.`, "run_body_unreadable", EXIT_CODE.CONFLICT);
+  }
+  return {
+    environmentSpec: parseEnvironmentSpec(environmentJson, `Run ${id} environment snapshot`),
+    config: jsonObject(configParsed, `Run ${id} run configuration`),
+  };
+}
+
+/**
+ * List every result transitively invalidated by changing one root version.
+ *
+ * The query is a genuine reachability question over the dependency edges pm
+ * already stores — Run→Environment, EvalResult→Run and Benchmark, Transfer→both
+ * environments — read once from the inventory and walked directionally toward
+ * the items that depend on the root. The walk stays in pm-rl because the
+ * host's blast-radius query registers the `related` kind `--dep` records as an
+ * undirected relationship: it would cross a Transfer's second environment into
+ * another version's runs and report results whose provenance does not derive
+ * from the changed version at all. Each invalidated result carries the exact
+ * dependency path that reaches it, because "this eval is stale" and "this eval
+ * is stale because its run used the environment you just changed" are
+ * different statements to an operator deciding what to re-run. `--json` is the
+ * host-owned global flag, read from `context.global`.
+ */
+async function invalidateResults(context: CommandHandlerContext): Promise<RlCommandResult> {
+  const id = requiredArgument(context, "an environment or benchmark id");
+  const client = clientFor(context);
+  await ensurePersistentTypes(client);
+  const root = await client.get(id, { depth: "deep" });
+  const rootId = String(root.item.id);
+  const rootType = String(root.item.type);
+  if (rootType !== "Environment" && rootType !== "Benchmark") {
+    fail(`pm rl invalidate starts from an environment or benchmark version (${INVALIDATION_ROOT_TYPES.join(", ")}). ${rootId} is ${rootType}, and changing it invalidates no tracked RL result.`, "wrong_invalidation_root", EXIT_CODE.CONFLICT);
+  }
+  const inventory = await client.list({ status: "all", noTruncate: true, fields: "id,type,dependencies" });
+  const items: ItemDependencyEdge[] = [];
+  for (const item of inventory.items) {
+    // A listed item the SDK types without an id carries no identity to walk
+    // from, so it contributes no edge rather than failing the whole view. The
+    // projected `dependencies` column is typed `unknown` by the SDK's field
+    // projection, so the stored entries are narrowed to the ids the walk reads.
+    if (item.id === undefined) continue;
+    const dependencies = item.dependencies as readonly { readonly id: string }[] | null | undefined;
+    items.push({ id: item.id, type: String(item.type), targets: (dependencies ?? []).map((dependency) => dependency.id.trim()) });
+  }
+  const invalidated = transitiveInvalidation(rootId, items);
+  const details: Record<string, unknown> = {
+    root: rootId,
+    root_type: rootType,
+    result_types: [...INVALIDATED_RESULT_TYPES],
+    count: invalidated.length,
+    invalidated,
+  };
+  if (context.global.json === true) {
+    return { action: "rl-invalidate", id: rootId, details: { format: "json", ...details } };
+  }
+  return { action: "rl-invalidate", id: rootId, details: { format: "table", output: renderInvalidateReport(rootId, rootType, invalidated), ...details } };
+}
+
+/**
+ * Diff two runs' metrics over their common step range with the config delta.
+ *
+ * Comparability is refused, not warned about, in two cases: when either run
+ * records no environment the comparison is undecidable, and when the runs
+ * recorded different environment versions the metric diff would launder the
+ * version change into an apparent improvement. Both refusals name both runs
+ * and both environments explicitly, mirroring the package's other fail-closed
+ * gates. `--json` is the host-owned global flag, read from `context.global`.
+ */
+async function compareRuns(context: CommandHandlerContext): Promise<RlCommandResult> {
+  const positional = context.args.filter((argument) => !argument.startsWith("-")).map((argument) => argument.trim());
+  if (positional.length < 2 || positional.some((argument) => argument.length === 0)) {
+    fail("pm rl compare requires two run ids: the baseline run and the candidate run.", "missing_argument");
+  }
+  const [baselineId, candidateId] = positional;
+  const client = clientFor(context);
+  await ensurePersistentTypes(client);
+  const baseline = await getTypedItem(client, baselineId, "Run");
+  const candidate = await getTypedItem(client, candidateId, "Run");
+  const baselineEnvironment = normalizeRunEnvironment(baseline.item.environment);
+  const candidateEnvironment = normalizeRunEnvironment(candidate.item.environment);
+  if (typeof baselineEnvironment !== "string" || baselineEnvironment.length === 0 || typeof candidateEnvironment !== "string" || candidateEnvironment.length === 0) {
+    fail(`pm rl compare refuses to compare runs whose environment version is not recorded: ${baselineId} records ${String(baselineEnvironment)} and ${candidateId} records ${String(candidateEnvironment)}. Comparability is undecidable without the environment each run measured under; restart both runs with pm rl run start.`, "run_environment_unrecorded", EXIT_CODE.CONFLICT);
+  }
+  if (baselineEnvironment !== candidateEnvironment) {
+    fail(`pm rl compare refuses to compare runs from different environment versions: ${baselineId} ran under ${baselineEnvironment} and ${candidateId} ran under ${candidateEnvironment}. A metric difference across environment versions launders the version change into an apparent improvement; compare runs within one environment version instead.`, "environment_version_mismatch", EXIT_CODE.CONFLICT);
+  }
+  const readRun = async (item: GetResult): Promise<RunCompareInput> => {
+    const runId = String(item.item.id);
+    const sections = runBodySections(String(item.item.body), runId);
+    const notes = await client.notes(runId);
+    const component = item.item.component;
+    return {
+      id: runId,
+      algorithm: typeof component === "string" ? component : "",
+      environment: normalizeRunEnvironment(item.item.environment) as string,
+      events: readSeries(notes.notes.map((note) => note.text)).events,
+      environmentSpec: sections.environmentSpec,
+      config: sections.config,
+    };
+  };
+  const view = buildCompareView(await readRun(baseline), await readRun(candidate));
+  if (context.global.json === true) {
+    return { action: "rl-compare", details: { format: "json", ...view } };
+  }
+  return { action: "rl-compare", details: { format: "table", output: renderCompareReport(view), ...view } };
+}
+
 /** Commands authored separately so activation and tests share one exact contract. */
 export const RL_COMMANDS = [
   defineCommand({ name: "rl env register", description: "Register an immutable, content-addressed environment JSON specification.", flags: [{ long: "--file", value_name: "path", value_type: "string", required: true, description: "Environment JSON file." }], run: registerEnvironment }),
@@ -1229,6 +1393,11 @@ export const RL_COMMANDS = [
     { long: "--format", value_name: "table|json", value_type: "string", description: "Output format; defaults to table." },
     { long: "--gap-window", value_name: "n", value_type: "string", description: "Number of consecutive gaps for the widening check (at least 2); defaults to 3." },
   ], run: renderLineageCommand }),
+  defineCommand({ name: "rl invalidate", description: "List every Run, EvalResult and Transfer transitively invalidated by changing one environment or benchmark version, with the dependency path that reaches each.", arguments: [{ name: "id", required: true, description: "Environment or Benchmark item id whose change invalidates downstream results." }], run: invalidateResults }),
+  defineCommand({ name: "rl compare", description: "Diff two runs' metrics over their common step range with the hyperparameter, environment-version and reward-spec delta; refuses runs from different environment versions.", arguments: [
+    { name: "baseline", required: true, description: "Baseline run item id." },
+    { name: "candidate", required: true, description: "Candidate run item id." },
+  ], run: compareRuns }),
 ] as const;
 
 /** Install pm-rl's typed schema and command surface into the active host. */

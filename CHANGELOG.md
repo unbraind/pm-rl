@@ -4,6 +4,8 @@
 
 ### Added
 
+- pm rl compare: a metric diff with the config delta that explains it ([pm-rl-taj8](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-taj8.toon))
+- pm rl invalidate: transitive result invalidation over the pm graph ([pm-rl-keet](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-keet.toon))
 - pm rl lineage: the generation chain with each hop's promotion evidence and the invalidation frontier ([pm-rl-32a9](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-32a9.toon))
 - The proxy-to-held-out gap is the reward-hacking signal, measured per generation and trended across the chain ([pm-rl-zav1](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-zav1.toon))
 - An approved generation budget the loop cannot advance past on its own ([pm-rl-qix7](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-qix7.toon))

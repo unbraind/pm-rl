@@ -78,6 +78,8 @@ query the host can already answer, not a feature to build.
 | `pm rl generation register` / `show` | Record one policy generation of a recursive self-improvement lineage, parented to the generation it was trained from, carrying its base checkpoint and collection runs. Registration records provenance only; the scores, gap and promotion evidence stay null until `promote` populates them. A seed may declare a `--policy` that its children's collection runs must match; a seed with no declared policy skips the run-policy check, since there is no declared policy to violate |
 | `pm rl generation promote` | Promote a candidate generation, but only after the contamination and approved-budget refusals below both pass |
 | `pm rl lineage` | Print the generation chain with each hop's promotion evidence, its direction-aware proxy-to-held-out gap, and any invalidation, reported with a distinct reason per condition (edited, unreadable, no recorded identity, or absent) |
+| `pm rl invalidate` | Given one environment or benchmark version, list every `Run`, `EvalResult` and `Transfer` transitively invalidated by changing it, each with the exact dependency path (`env-v1 → run-a → eval-a1`) by which the change reaches it. The walk is directional over the `dependencies` edges pm itself stores, so changing an environment version never reports another version's runs |
+| `pm rl compare` | Diff two runs at the metric level over their common step range and report the hyperparameter, environment-version and reward-spec delta alongside, because a metric difference with no configuration difference beside it is not an explanation |
 
 The remaining types and commands in the roadmap table above are intentionally not registered
 until their acceptance criteria and refusal paths are implemented and tested.
@@ -149,6 +151,13 @@ The first slice fails closed when context would otherwise become misleading:
    all of them are compared by strict equality: a promoted record storing
    `"  approval-a  "` or `""` would satisfy the evidence invariant while matching no approval id, and
    so consume none of the budget it was promoted under.
+6. **Runs from different environment versions cannot be compared.** `pm rl compare` refuses
+   (`environment_version_mismatch`) when the two runs recorded different environment versions, naming both runs and
+   both environment ids, because a metric difference across environment versions launders the version change into an
+   apparent improvement. A run that records no environment at all is refused the same way
+   (`run_environment_unrecorded`): comparability is undecidable, and a best-effort diff would answer a question that
+   has exactly one answer. A Run whose body lacks the environment snapshot or configuration sections `rl run start`
+   writes is refused (`run_body_unreadable`) rather than diffed against an invented empty configuration.
 
 All exit non-zero. The roadmap keeps a further hard refusal—ranking across incompatible
 environment versions—but no leaderboard command is registered until that graph-derived check is
