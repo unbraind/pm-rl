@@ -8,6 +8,8 @@
     "dist/index.*",
     "dist/lineage.*",
     "dist/series.*",
+    "dist/invalidate.*",
+    "dist/compare.*",
     "manifest.json",
     "README.md",
     "CHANGELOG.md",
@@ -47,6 +49,8 @@
       "test/index.test.ts",
       "test/audit-git-identities.test.ts",
       "test/lineage.test.ts",
+      "test/invalidate.test.ts",
+      "test/compare.test.ts",
       "test/quality-scripts.test.ts",
       "test/coverage-gate.test.ts"
     ],
