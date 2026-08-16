@@ -1,0 +1,17 @@
+id: pm-rl-87ml
+title: The squash merge of PR 13 left three item history streams drifted and pm health ok false
+description: "After PR 13 was squash-merged and main pulled, pm health reported ok false with history_drift_hash_mismatch on pm-rl-6fb5 and pm-rl-zav1 and history_drift_chain_mismatch on pm-rl-81oc. pm merge report held zero receipts, so this drift did not come from the field-aware merge driver: it is the squash rewriting commits under a tracker whose hash chain was anchored to the pre-squash shape. pm merge reconcile is still the remedy, and a dry run showed the repair reconciles only the tests field on each of the three streams, reverting no field, discarding no event and dropping no author. Applied, and health returns to ok true with the full suite still at 172 of 172."
+type: Issue
+status: closed
+priority: 2
+tags: []
+created_at: "2026-08-16T03:31:55.265Z"
+updated_at: "2026-08-16T03:32:08.986Z"
+closed_at: "2026-08-16T03:32:08.972Z"
+completed_at: "2026-08-16T03:32:08.972Z"
+author: claude-code
+acceptance_criteria: "pm health reports ok true on main with no history_drift warning, and the repair is shown to have reverted no field and discarded no event before being applied"
+comments[1]{created_at,author,text}:
+  "2026-08-16T03:32:08.436Z",claude-code,"Dry run before applying, per stream: pm-rl-6fb5 reconciled tests with 0 entries rehashed; pm-rl-81oc reconciled tests with 3 entries rehashed; pm-rl-zav1 reconciled tests with 0 entries rehashed. Across all three: reverted fields 0, discarded events 0, discarded authors none. This matters because pm history-repair, the command whose name matches the diagnostic string, offers no such per-field accounting, and choosing it here would have left no evidence that nothing was dropped. Upstream unbraind/pm-cli#1036 covers the discoverability half of this: neither pm health nor pm validate names pm merge reconcile as the remedy."
+close_reason: pm merge reconcile applied after a dry run showed it reverts no field and discards no event. pm health is ok true with no history_drift warning and the suite is 172 of 172.
+body: ""
