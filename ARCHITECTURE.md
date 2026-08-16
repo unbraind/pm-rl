@@ -183,8 +183,8 @@ transfer is reported as stale rather than plotted.
 | Benchmarks and eval results | [`pm-rl-tl1x`](.agents/pm/features/pm-rl-tl1x.toon) | planned |
 | Sim-to-real transfer and gap reporting | [`pm-rl-06n6`](.agents/pm/features/pm-rl-06n6.toon) | planned |
 | Leaderboard and its two refusals | [`pm-rl-nzxt`](.agents/pm/features/pm-rl-nzxt.toon) | planned |
-| `invalidate` over the dependency graph | [`pm-rl-keet`](.agents/pm/features/pm-rl-keet.toon) | planned |
-| `compare` with the config delta | [`pm-rl-taj8`](.agents/pm/features/pm-rl-taj8.toon) | planned |
+| `invalidate` over the dependency graph | [`pm-rl-keet`](.agents/pm/features/pm-rl-keet.toon) | **implemented** |
+| `compare` with the config delta | [`pm-rl-taj8`](.agents/pm/features/pm-rl-taj8.toon) | **implemented** |
 | 100/100/100 + docstring coverage | [`pm-rl-fpon`](.agents/pm/tasks/pm-rl-fpon.toon) | continuous gate |
 
 Everything hangs off [`pm-rl-e20d`](.agents/pm/epics/pm-rl-e20d.toon).

@@ -171,6 +171,19 @@ test("a repeated measurement at one step uses the later value in the diff", () =
   assert.deepEqual(loss.common_steps, [1]);
 });
 
+test("the measured step span holds for an out-of-order event stream", () => {
+  // The exported diff takes any decoded event order: the span is computed from
+  // the steps themselves, so a trainer that logged a late low step still
+  // reports the range it actually measured.
+  const diff = diffMetricSeries(
+    [event(5, "loss", 1), event(1, "loss", 2)],
+    [event(4, "loss", 3), event(2, "loss", 4)],
+  );
+  assert.deepEqual(diff.baseline_range, { first: 1, last: 5 });
+  assert.deepEqual(diff.candidate_range, { first: 2, last: 4 });
+  assert.deepEqual(diff.common_range, { first: 2, last: 4 });
+});
+
 // -------------------------------------------------------------------------------------------------
 // Pure JSON diff math: the config delta's leaves.
 // -------------------------------------------------------------------------------------------------
@@ -240,7 +253,10 @@ test("renderCompareReport states the range, every metric, and the full config de
         metric: "episode_return",
         present: "both",
         common_steps: [1, 2, 3],
-        differences: [{ step: 2, baseline: 2, candidate: 3.5, delta: 1.5 }],
+        differences: [
+          { step: 2, baseline: 2, candidate: 3.5, delta: 1.5 },
+          { step: 3, baseline: 4, candidate: 3, delta: -1 },
+        ],
         baseline_only_steps: [1],
         candidate_only_steps: [3],
         max_abs_delta: 1.5,
@@ -254,6 +270,7 @@ test("renderCompareReport states the range, every metric, and the full config de
       hyperparameters: [
         { path: "learning_rate", baseline: 0.1, candidate: 0.01 },
         { path: "", baseline: 1, candidate: 2 },
+        { path: "removed_key", baseline: 5, candidate: undefined },
       ],
       environment_version: { baseline: "3", candidate: "4" },
       reward_specification: [{ path: "goal", baseline: 10, candidate: 20 }],
@@ -264,8 +281,9 @@ test("renderCompareReport states the range, every metric, and the full config de
   assert.equal(lines[0], "compare run-a (baseline) with run-b (candidate)");
   assert.equal(lines[1], "environment: env-1");
   assert.match(rendered, /common step range: 1\.\.3/);
-  assert.match(rendered, /episode_return: 3 common step\(s\), 1 differing, max \|delta\| 1\.5/);
+  assert.match(rendered, /episode_return: 3 common step\(s\), 2 differing, max \|delta\| 1\.5/);
   assert.match(rendered, /  step 2: 2 -> 3\.5 \(\+1\.5\)/);
+  assert.match(rendered, /  step 3: 4 -> 3 \(-1\)/);
   assert.match(rendered, /  only the baseline measured steps: 1/);
   assert.match(rendered, /  only the candidate measured steps: 3/);
   assert.match(rendered, /loss: 3 common step\(s\), 0 differing/);
@@ -274,6 +292,7 @@ test("renderCompareReport states the range, every metric, and the full config de
   assert.match(rendered, /algorithm: PPO -> PPO-LR/);
   assert.match(rendered, /  learning_rate: 0\.1 -> 0\.01/);
   assert.match(rendered, /  \(root\): 1 -> 2/);
+  assert.match(rendered, /  removed_key: 5 -> \(absent\)/);
   assert.match(rendered, /environment version: 3 -> 4/);
   assert.match(rendered, /  goal: 10 -> 20/);
   const emptyRange = renderCompareReport({
