@@ -2,19 +2,23 @@ id: pm-rl-keet
 title: "pm rl invalidate: transitive result invalidation over the pm graph"
 description: "Given an environment or benchmark version, list every EvalResult, Transfer and Run transitively invalidated by changing it. This is the question that costs programmes weeks and that nothing else records, and it is a reachability query over dependencies pm already stores."
 type: Feature
-status: in_progress
+status: closed
 priority: 2
 tags: []
 created_at: "2026-07-31T06:38:36.725Z"
-updated_at: "2026-08-16T02:27:55.738Z"
-assignee: pi-agent
+updated_at: "2026-08-16T02:49:13.558Z"
+closed_at: "2026-08-16T02:49:13.524Z"
+completed_at: "2026-08-16T02:49:13.524Z"
 claim_principal: pi-agent
 author: "harness:claude-code"
 estimated_minutes: 480
 acceptance_criteria: Returns exactly the transitive set with no false positives and no omissions on a fixture with several generations of environment versions; reports the path by which each result is reached
+resolution: "pm rl invalidate registered, tested at 100/100/100 coverage, and verified end-to-end."
+expected_result: "Exactly the transitive Run/EvalResult/Transfer set with paths, no false positives or omissions."
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rl-e20d,parent,"2026-07-31T06:38:37.062Z","harness:claude-code","cli:update:dep",detected
 comments[2]{created_at,author,text}:
   "2026-08-16T01:48:01.075Z",pi-agent,"Starting implementation. Plan: `pm rl invalidate <id>` walks the host-owned relationship graph (`client.graph(\"impact\", {id}, {direction: \"incoming\"})`) so invalidation is genuine reachability over the `dependencies` edges pm already stores — Run→Environment, EvalResult→Run/Benchmark, Transfer→both environments — not a re-implementation in pm-rl. It classifies affected items into EvalResult/Transfer/Run and reports the exact path for each. Adversarial tests: cycle, dangling dep id, zero-overlap runs, identical-metrics-different-config, and cross-environment-version refusal for compare."
   "2026-08-16T02:27:55.738Z",pi-agent,"Critical finding while implementing: the host's `pm graph impact` registers the `related` kind (what `--dep` records) as an UNDIRECTED relationship, so the blast-radius walk crosses a Transfer's second environment into the other version's runs — reporting results whose provenance does not derive from the changed version. Invalidation is directional data flow (a result derives FROM its dependencies), so the walk runs over the `dependencies` arrays pm itself stores (one `list --fields id,type,dependencies` read) with a directed BFS toward dependents. pm-rl still stores no graph of its own: the edge data, kinds, and dangling references all come from pm's items. Exactness proven on a real fixture: invalidating env v1 returns exactly v1's subtree plus the shared transfer, never v2/v3's runs."
+close_reason: "Implemented pm rl invalidate as a directed transitive walk over the dependencies pm itself stores (one list --fields id,type,dependencies read; no parallel graph in pm-rl). Directionality is required because the host registers the related kind --dep records as undirected, which would cross a Transfer into another version's runs. Exactness proven on a real tracker fixture with four environment versions, real runs, eval results, a benchmark, a transfer across versions, a dependency cycle, a dangling dep id and a non-result affected item: invalidating v1 returns exactly v1's subtree plus the shared transfer, the benchmark returns only eval results, cycles terminate, and each result reports its reaching path. Gates typecheck/lint/duplicates/docstring/coverage 100-100-100/release:check green; verified end-to-end with the real pm CLI."
 body: ""

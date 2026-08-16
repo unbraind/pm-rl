@@ -2,18 +2,22 @@ id: pm-rl-taj8
 title: "pm rl compare: a metric diff with the config delta that explains it"
 description: "Diff two runs at the metric level and report the hyperparameter, environment-version and reward-spec delta alongside, because a metric difference with no configuration difference beside it is not an explanation."
 type: Feature
-status: in_progress
+status: closed
 priority: 2
 tags: []
 created_at: "2026-07-31T06:38:37.499Z"
-updated_at: "2026-08-16T02:15:03.674Z"
-assignee: pi-agent
+updated_at: "2026-08-16T02:50:00.658Z"
+closed_at: "2026-08-16T02:50:00.633Z"
+completed_at: "2026-08-16T02:50:00.633Z"
 claim_principal: pi-agent
 author: "harness:claude-code"
 estimated_minutes: 360
 acceptance_criteria: Reports per-metric differences over the common step range and the full config delta; refuses to compare runs from different environment versions without saying so explicitly
+resolution: "pm rl compare registered, tested at 100/100/100 coverage, and verified end-to-end."
+expected_result: Per-metric differences over the common step range with the full config delta; typed cross-version refusal.
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rl-e20d,parent,"2026-07-31T06:38:37.886Z","harness:claude-code","cli:update:dep",detected
 comments[1]{created_at,author,text}:
   "2026-08-16T02:15:03.674Z",pi-agent,"Design decision: comparability refusals are typed and ordered — a run with no recorded environment refuses with run_environment_unrecorded (undecidable), and differing environments refuse with environment_version_mismatch naming both runs and both environment ids. Metric diff is restricted to the intersection of the two runs' measured step spans; zero overlap reports common_step_range null rather than refusing, because an explicitly empty range is honest while only a cross-version diff is misleading. Config delta is computed from each run's recorded body fences (environment snapshot + run configuration), not assumed equal."
+close_reason: "Implemented pm rl compare: per-metric differences restricted to the two runs' common step range (intersection of measured step spans), with the full config delta beside it — algorithm, deep hyperparameter diff, environment spec version, and reward specification — all computed from each run's recorded body fences rather than assumed. Cross-environment-version comparisons are a typed refusal (environment_version_mismatch, exit 4) naming both runs and both environment ids; an unrecorded environment refuses run_environment_unrecorded; an unreadable run body refuses run_body_unreadable. Adversarial tests: zero-overlapping-step runs report an explicitly empty common range, identical metrics with different configs report an empty diff with a real config delta. --json read from the host global flag. Gates green; verified end-to-end with the real pm CLI."
 body: ""
