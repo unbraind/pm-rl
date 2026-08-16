@@ -30,11 +30,11 @@ import {
 } from "./compare.ts";
 
 import {
-  classifyInvalidated,
   INVALIDATED_RESULT_TYPES,
   INVALIDATION_ROOT_TYPES,
   renderInvalidateReport,
-  type ImpactAffectedRow,
+  transitiveInvalidation,
+  type ItemDependencyEdge,
 } from "./invalidate.ts";
 
 import {
@@ -1267,15 +1267,16 @@ function runBodySections(body: string, id: string): RunBodySections {
  *
  * The query is a genuine reachability question over the dependency edges pm
  * already stores — Run→Environment, EvalResult→Run and Benchmark, Transfer→both
- * environments — answered by the host's own graph impact walk in the incoming
- * direction, so pm-rl declares the edges and asks rather than re-implementing
- * the graph. The walk is unbounded (`full`), because the default bounded row
- * sample would silently omit results past its limit and an omitted result is
- * exactly the false negative this command exists to prevent. Each invalidated
- * result carries the exact dependency path the walk found, because "this eval
- * is stale" and "this eval is stale because its run used the environment you
- * just changed" are different statements to an operator deciding what to
- * re-run. `--json` is the host-owned global flag, read from `context.global`.
+ * environments — read once from the inventory and walked directionally toward
+ * the items that depend on the root. The walk stays in pm-rl because the
+ * host's blast-radius query registers the `related` kind `--dep` records as an
+ * undirected relationship: it would cross a Transfer's second environment into
+ * another version's runs and report results whose provenance does not derive
+ * from the changed version at all. Each invalidated result carries the exact
+ * dependency path that reaches it, because "this eval is stale" and "this eval
+ * is stale because its run used the environment you just changed" are
+ * different statements to an operator deciding what to re-run. `--json` is the
+ * host-owned global flag, read from `context.global`.
  */
 async function invalidateResults(context: CommandHandlerContext): Promise<RlCommandResult> {
   const id = requiredArgument(context, "an environment or benchmark id");
@@ -1287,14 +1288,18 @@ async function invalidateResults(context: CommandHandlerContext): Promise<RlComm
   if (rootType !== "Environment" && rootType !== "Benchmark") {
     fail(`pm rl invalidate starts from an environment or benchmark version (${INVALIDATION_ROOT_TYPES.join(", ")}). ${rootId} is ${rootType}, and changing it invalidates no tracked RL result.`, "wrong_invalidation_root", EXIT_CODE.CONFLICT);
   }
-  const graphResult = await client.graph("impact", { id: rootId }, { direction: "incoming", full: true });
-  const affected = (graphResult as { affected?: readonly ImpactAffectedRow[] }).affected ?? [];
-  const inventory = await client.list({ status: "all", noTruncate: true, fields: "id,type" });
-  const typesById = new Map<string, string>();
+  const inventory = await client.list({ status: "all", noTruncate: true, fields: "id,type,dependencies" });
+  const items: ItemDependencyEdge[] = [];
   for (const item of inventory.items) {
-    if (item.id !== undefined) typesById.set(item.id, String(item.type));
+    // A listed item the SDK types without an id carries no identity to walk
+    // from, so it contributes no edge rather than failing the whole view. The
+    // projected `dependencies` column is typed `unknown` by the SDK's field
+    // projection, so the stored entries are narrowed to the ids the walk reads.
+    if (item.id === undefined) continue;
+    const dependencies = item.dependencies as readonly { readonly id: string }[] | null | undefined;
+    items.push({ id: item.id, type: String(item.type), targets: (dependencies ?? []).map((dependency) => dependency.id.trim()) });
   }
-  const invalidated = classifyInvalidated(affected, typesById);
+  const invalidated = transitiveInvalidation(rootId, items);
   const details: Record<string, unknown> = {
     root: rootId,
     root_type: rootType,
