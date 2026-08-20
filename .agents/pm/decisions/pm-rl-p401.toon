@@ -6,7 +6,7 @@ status: closed
 priority: 2
 tags: []
 created_at: "2026-07-31T06:38:30.036Z"
-updated_at: "2026-08-20T17:43:57.688Z"
+updated_at: "2026-08-20T18:11:58.803Z"
 closed_at: "2026-08-20T17:43:57.676Z"
 completed_at: "2026-08-20T17:44:00.000Z"
 claim_principal: "harness:codex#b44c9b090cf8bc81eaf457c4"
@@ -24,7 +24,8 @@ dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
 notes[2]{created_at,author,text}:
   "2026-08-20T17:18:02.654Z","harness:codex",Execute the recorded fail-closed decision as code and black-box command tests; refusals must be typed non-zero errors with actionable messages.
   "2026-08-20T17:42:16.077Z","harness:codex","Implemented both mandatory fail-closed decisions with EXIT_CODE.CONFLICT and stable codes. environment_version_mismatch names the benchmark and all mixed environment ids. benchmark_contaminated names the suite, version, benchmark id, and overlapping training environment. Real tracker tests prove a clean benchmark ranks while each incomparable graph refuses nonzero."
-files[3]{path,scope,note}:
+files[4]{path,scope,note}:
+  ARCHITECTURE.md,project,Contamination refusal architecture decision and command behavior
   index.ts,project,Graph-derived typed leaderboard refusals
   leaderboard.ts,project,Ranking runs only after comparability gates
   test/leaderboard.test.ts,project,Both refusal codes and messages exercised with real tracker data

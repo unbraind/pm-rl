@@ -318,6 +318,7 @@ export function parseBenchmarkSpec(text: string, source = "Benchmark file"): Ben
   }
   const contaminatedEnvironments = contamination as string[];
   return {
+    ...record,
     name: (record.name as string).trim(),
     version: (record.version as string).trim(),
     task_suite: record.task_suite!,
@@ -599,11 +600,11 @@ async function registerBenchmark(context: CommandHandlerContext): Promise<RlComm
     .filter((id) => id.length > 0);
   const client = clientFor(context);
   await ensurePersistentTypes(client);
-  const resolvedContamination: string[] = [];
+  const resolvedContamination = new Set<string>();
   for (const environmentId of [...new Set([...supplied.contaminated_environments, ...flagIds])]) {
-    resolvedContamination.push((await verifyEnvironmentIdentity(client, environmentId, "benchmark contamination edges")).id);
+    resolvedContamination.add((await verifyEnvironmentIdentity(client, environmentId, "benchmark contamination edges")).id);
   }
-  const spec: BenchmarkSpec = { ...supplied, contaminated_environments: resolvedContamination.sort() };
+  const spec: BenchmarkSpec = { ...supplied, contaminated_environments: [...resolvedContamination].sort() };
   const specHash = hashJson(spec as unknown as JsonValue);
   const requestedId = `benchmark-${idSegment(spec.name)}-${idSegment(spec.version)}-${specHash.slice(0, 12)}`;
   try {
@@ -712,7 +713,13 @@ async function showLeaderboard(context: CommandHandlerContext): Promise<RlComman
   const candidates: LeaderboardCandidate[] = [];
   for (const item of inventory.items) {
     if (item.type !== "EvalResult") continue;
-    const spec = parseEvalResultSpec(storedJson(String(item.body), `EvalResult ${item.id}`, "eval_result_missing_spec"), `EvalResult ${item.id} specification`);
+    // Parsed before the benchmark filter because benchmark_id lives only in
+    // the immutable body. A typed component pre-filter would let drift hide a
+    // row, so a malformed record refuses the corpus and names both records.
+    const spec = parseEvalResultSpec(
+      storedJson(String(item.body), `EvalResult ${item.id} (read while ranking ${benchmark.id})`, "eval_result_missing_spec"),
+      `EvalResult ${item.id} specification (read while ranking ${benchmark.id})`,
+    );
     if (spec.benchmark_id !== benchmark.id) continue;
     const resultHash = hashJson(spec as unknown as JsonValue);
     if (item.affected_version !== resultHash || !item.id.endsWith(resultHash.slice(0, 12))) {

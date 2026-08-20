@@ -6,7 +6,7 @@ status: closed
 priority: 2
 tags: []
 created_at: "2026-07-31T06:38:35.934Z"
-updated_at: "2026-08-20T17:43:57.305Z"
+updated_at: "2026-08-20T18:11:59.929Z"
 closed_at: "2026-08-20T17:43:57.293Z"
 completed_at: "2026-08-20T17:44:00.000Z"
 claim_principal: "harness:codex#b44c9b090cf8bc81eaf457c4"
@@ -21,10 +21,12 @@ expected_result: One benchmark ranks stably; mixed environment versions and cont
 actual_result: PmClient.listAllComplete certifies the corpus before filtering; clean results rank deterministically and both environment_version_mismatch and benchmark_contaminated refuse with named versions and suite context
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rl-e20d,parent,"2026-07-31T06:38:36.310Z","harness:claude-code","cli:update:dep",detected
-notes[2]{created_at,author,text}:
+notes[3]{created_at,author,text}:
   "2026-08-20T17:18:01.807Z","harness:codex",Implement a stable leaderboard that derives environment-version and contamination refusals from stored typed dependencies.
   "2026-08-20T17:42:15.596Z","harness:codex","Implemented pm rl leaderboard over PmClient.listAllComplete({includeBody:true}); filtering begins only after the SDK certifies the full unbounded corpus. Every EvalResult body, content id, typed metadata, source Run edge, Benchmark edge, Environment identity, reward spec, and run-environment dependency is re-verified. Ranking is direction-aware and byte-stable on equal scores, with every provenance field retained in JSON and table rows."
-files[3]{path,scope,note}:
+  "2026-08-20T18:11:59.929Z","harness:codex","Declined one CodeRabbit completeness-guard suggestion after checking the installed 2026.8.20 SDK implementation and types: PmClient.listAllComplete constructs an all-status/full/strict/unbounded request and certifyCompleteListResult throws before returning on any incomplete envelope; complete_list is the resulting certificate object, not a boolean. README completeness wording remains accurate."
+files[4]{path,scope,note}:
+  ARCHITECTURE.md,project,Implemented leaderboard command and exact refusal semantics
   index.ts,project,Complete-corpus leaderboard graph adapter and refusals
   leaderboard.ts,project,Stable direction-aware ranking and provenance table
   test/leaderboard.test.ts,project,Clean ranking plus mixed-environment and contamination refusals

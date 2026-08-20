@@ -29,7 +29,9 @@ export interface BenchmarkSpec {
   /** Whether larger or smaller scores rank first. */
   readonly direction: BenchmarkDirection;
   /** Environment versions known to overlap this suite's evaluation data. */
-  readonly contaminated_environments: readonly string[];
+  readonly contaminated_environments: string[];
+  /** Additional authored benchmark metadata retained in its content identity. */
+  readonly [key: string]: JsonValue;
 }
 
 /** Immutable evidence stored in one EvalResult item. */

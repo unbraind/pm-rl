@@ -43,6 +43,13 @@ function typedRefusal(code: string) {
   return (error: unknown): boolean => isPmCliExpectedError(error) && error.exitCode === EXIT_CODE.CONFLICT && String((error as { context?: { code?: string } }).context?.code) === code;
 }
 
+/** Extract one required JSON fence so fixture-format drift fails explicitly. */
+function fencedJson(body: unknown): string {
+  const fenced = String(body).match(/```json\n([\s\S]+?)\n```/)?.[1];
+  assert.ok(fenced !== undefined, `expected a JSON fence in body: ${String(body)}`);
+  return fenced;
+}
+
 /** Create one real tracker, client, and activated extension harness. */
 async function workspace(): Promise<{ root: string; pmRoot: string; client: PmClient; harness: ExtensionTestHarness }> {
   const root = mkdtempSync(join(tmpdir(), "pm-rl-leaderboard-"));
@@ -136,6 +143,7 @@ test("benchmark and evaluation parsers canonicalize valid provenance and refuse 
     pass_criteria: { gte: 0.5 },
     direction: "maximize",
     contaminated_environments: [" env-b ", "env-a", "env-a"],
+    harness: { seed: 42 },
   };
   assert.deepEqual(parseBenchmarkSpec(JSON.stringify(valid)), {
     ...valid,
@@ -236,7 +244,7 @@ test("real commands register immutable benchmarks and evaluations and rank one c
 });
 
 test("leaderboard refuses both mixed environment versions and declared benchmark contamination", async () => {
-  const { root, pmRoot, harness } = await workspace();
+  const { root, pmRoot, client, harness } = await workspace();
   const first = await sourceRun(root, pmRoot, harness, "1");
   const second = await sourceRun(root, pmRoot, harness, "2");
   const clean = await benchmark(root, pmRoot, harness);
@@ -247,7 +255,9 @@ test("leaderboard refuses both mixed environment versions and declared benchmark
     typedRefusal("environment_version_mismatch"),
   );
 
-  const contaminated = await benchmark(root, pmRoot, harness, first.environment);
+  const contaminated = await benchmark(root, pmRoot, harness, `${first.environment},${first.environment.slice(3)}`);
+  const contaminatedItem = (await client.get(contaminated, { depth: "deep" })).item;
+  assert.deepEqual(parseBenchmarkSpec(fencedJson(contaminatedItem.body)).contaminated_environments, [first.environment]);
   await evaluation(pmRoot, harness, first.run, contaminated, "sha-c", 0.99, true);
   await assert.rejects(
     harness.runCommand({ command: "rl leaderboard", pmRoot, args: [contaminated] }),
@@ -266,7 +276,7 @@ test("benchmark and evaluation commands reject incomplete input and mutated iden
 
   const result = await evaluation(pmRoot, harness, source.run, benchmarkId, "sha", 1, true);
   const item = await client.get(result.id!, { depth: "deep" });
-  const changed = parseEvalResultSpec(String(item.item.body).match(/```json\n([\s\S]+?)\n```/)?.[1] ?? "{}");
+  const changed = parseEvalResultSpec(fencedJson(item.item.body));
   await client.update(result.id!, {
     body: `# changed\n\n\`\`\`json\n${JSON.stringify({ ...changed, score: 2 }, null, 2)}\n\`\`\``,
     message: "simulate forbidden eval mutation",
@@ -281,7 +291,7 @@ test("benchmark and evaluation commands reject incomplete input and mutated iden
   );
 
   const benchmarkItem = await client.get(benchmarkId, { depth: "deep" });
-  const benchmarkSpec = parseBenchmarkSpec(String(benchmarkItem.item.body).match(/```json\n([\s\S]+?)\n```/)?.[1] ?? "{}");
+  const benchmarkSpec = parseBenchmarkSpec(fencedJson(benchmarkItem.item.body));
   await client.update(benchmarkId, {
     body: `# changed\n\n\`\`\`json\n${JSON.stringify({ ...benchmarkSpec, version: "2" }, null, 2)}\n\`\`\``,
     message: "simulate forbidden benchmark mutation",
@@ -294,7 +304,10 @@ test("benchmark and evaluation commands reject incomplete input and mutated iden
     harness.runCommand({ command: "rl benchmark register", pmRoot, options: { file: join(root, "benchmark-clean.json") } }),
     typedRefusal("benchmark_was_mutated"),
   );
-  assert.notEqual(hashJson(benchmarkSpec as unknown as JsonValue), "");
+  assert.notEqual(
+    hashJson({ ...benchmarkSpec, version: "2" } as unknown as JsonValue),
+    benchmarkItem.item.affected_version,
+  );
 });
 
 test("benchmark reads refuse missing identities, missing bodies, and contamination graph drift", async () => {
@@ -395,7 +408,7 @@ test("leaderboard refuses missing runs, run graph drift, stale provenance, and t
   {
     const { pmRoot, client, harness, environment, benchmarkId, evalId } = await comparableFixture();
     const original = await client.get(evalId, { depth: "deep" });
-    const spec = parseEvalResultSpec(String(original.item.body).match(/```json\n([\s\S]+?)\n```/)?.[1] ?? "{}");
+    const spec = parseEvalResultSpec(fencedJson(original.item.body));
     const issue = await client.create({ id: "wrong-run", title: "Wrong run", type: "Issue", status: "open" });
     const wrong: typeof spec = { ...spec, run_id: issue.item.id };
     const hash = hashJson(wrong as unknown as JsonValue);
@@ -422,7 +435,7 @@ test("leaderboard refuses missing runs, run graph drift, stale provenance, and t
   {
     const { pmRoot, client, harness, environment, benchmarkId, evalId } = await comparableFixture();
     const original = await client.get(evalId, { depth: "deep" });
-    const spec = parseEvalResultSpec(String(original.item.body).match(/```json\n([\s\S]+?)\n```/)?.[1] ?? "{}");
+    const spec = parseEvalResultSpec(fencedJson(original.item.body));
     const run = await client.create({ id: "run-without-edge", title: "Run without edge", type: "Run", status: "in_progress", environment });
     const wrong: typeof spec = { ...spec, run_id: run.item.id };
     const hash = hashJson(wrong as unknown as JsonValue);
@@ -449,7 +462,7 @@ test("leaderboard refuses missing runs, run graph drift, stale provenance, and t
   {
     const { pmRoot, client, harness, environment, run, benchmarkId, evalId } = await comparableFixture();
     const original = await client.get(evalId, { depth: "deep" });
-    const spec = parseEvalResultSpec(String(original.item.body).match(/```json\n([\s\S]+?)\n```/)?.[1] ?? "{}");
+    const spec = parseEvalResultSpec(fencedJson(original.item.body));
     const stale: typeof spec = { ...spec, checkpoint: "stale", reward_spec_hash: "stale-reward" };
     const hash = hashJson(stale as unknown as JsonValue);
     await client.create({
