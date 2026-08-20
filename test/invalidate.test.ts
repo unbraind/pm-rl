@@ -149,11 +149,9 @@ async function graphFixture(): Promise<{
       defaultStatus: itemType.default_status,
     });
   }
-  // The result types this query reports are fixture-registered here rather than
-  // shipped by pm-rl: registering them belongs to their own roadmap slices, and
-  // the invalidation query is deliberately a derived query over whatever typed
-  // graph the workspace already has.
-  for (const [name, folder] of [["Benchmark", "benchmarks"], ["EvalResult", "evals"], ["Transfer", "transfers"]] as const) {
+  // Transfer remains a roadmap type; Benchmark and EvalResult are supplied by
+  // the extension and therefore arrive through RL_ITEM_TYPES above.
+  for (const [name, folder] of [["Transfer", "transfers"]] as const) {
     await client.schemaAddType(name, { folder, description: `pm-rl test ${name}`, defaultStatus: "open" });
   }
   const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "schema"] });
@@ -191,13 +189,14 @@ async function graphFixture(): Promise<{
   const transfer1 = String((await client.create({ id: "transfer-1", title: "sim to real", type: "Transfer", status: "open", dep: [env1, env2] })).item.id);
   // An affected item that is NOT a result: the walk reaches it, the report must not list it.
   await client.create({ id: "task-1", title: "downstream chore", type: "Task", status: "open", dep: [run1] });
-  // A dangling dependency target: pm's `--dep` accepts ids that resolve to nothing.
-  await client.create({ id: "run-dangling", title: "run against a missing env", type: "Run", status: "in_progress", dep: ["env-nowhere"] });
+  // A deliberately dangling dependency target uses the SDK's explicit opt-in;
+  // current pm fails closed on unresolved local edges by default.
+  await client.create({ id: "run-dangling", title: "run against a missing env", type: "Run", status: "in_progress", dep: ["env-nowhere"], allowUnresolvedDeps: true });
   // A dependency cycle reachable from env3: the walk must terminate and still
   // return the exact set, once per item. cyc-a's edge to cyc-b dangles at create
   // time and resolves once cyc-b exists, which is exactly how `pm update --dep`
   // can produce cycles — it accepts ids that do not resolve yet.
-  const cycA = String((await client.create({ id: "run-cyc-a", title: "cycle a", type: "Run", status: "in_progress", dep: ["rl-run-cyc-b"] })).item.id);
+  const cycA = String((await client.create({ id: "run-cyc-a", title: "cycle a", type: "Run", status: "in_progress", dep: ["rl-run-cyc-b"], allowUnresolvedDeps: true })).item.id);
   const cycB = String((await client.create({ id: "run-cyc-b", title: "cycle b", type: "Run", status: "in_progress", dep: [cycA, env3] })).item.id);
   assert.equal(cycA, "rl-run-cyc-a");
   assert.equal(cycB, "rl-run-cyc-b");
