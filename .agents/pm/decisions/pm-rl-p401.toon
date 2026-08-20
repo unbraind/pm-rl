@@ -2,14 +2,36 @@ id: pm-rl-p401
 title: Refuse to rank the incomparable rather than warn about it
 description: "Two checkpoints evaluated under two environment versions are not comparable, and a benchmark whose tasks overlap the training environment's task suite yields a flattering score. A leaderboard that mixes either case silently launders a version change or a contamination into an apparent improvement. Warnings are ignored, so both cases exit non-zero. Because an extension handler cannot both return a report and exit non-zero, the refusal must throw, and the remediation has to be folded into the message since a thrown error's remediation field is replaced by a generic host line."
 type: Decision
-status: open
+status: closed
 priority: 2
 tags: []
 created_at: "2026-07-31T06:38:30.036Z"
-updated_at: "2026-08-01T12:08:34.616Z"
+updated_at: "2026-08-20T18:11:58.803Z"
+closed_at: "2026-08-20T17:43:57.676Z"
+completed_at: "2026-08-20T17:44:00.000Z"
+claim_principal: "harness:codex#b44c9b090cf8bc81eaf457c4"
 author: "harness:claude-code"
 estimated_minutes: 120
 acceptance_criteria: Ranking across two environment versions exits non-zero; ranking on a benchmark with a declared contamination edge to the training environment exits non-zero; both messages name the specific versions or the contaminating suite
+reviewer: "harness:codex"
+risk: high
+confidence: high
+resolution: Ranking is prohibited across environment versions or contaminated benchmark suites
+expected_result: Both graph-derived conditions exit nonzero and name the incompatible versions or contaminated suite
+actual_result: Real tracker acceptance exercises both typed conflict codes and verifies clean single-environment benchmarks still rank
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rl-e20d,parent,"2026-07-31T06:38:30.415Z","harness:claude-code","cli:update:dep",detected
+notes[2]{created_at,author,text}:
+  "2026-08-20T17:18:02.654Z","harness:codex",Execute the recorded fail-closed decision as code and black-box command tests; refusals must be typed non-zero errors with actionable messages.
+  "2026-08-20T17:42:16.077Z","harness:codex","Implemented both mandatory fail-closed decisions with EXIT_CODE.CONFLICT and stable codes. environment_version_mismatch names the benchmark and all mixed environment ids. benchmark_contaminated names the suite, version, benchmark id, and overlapping training environment. Real tracker tests prove a clean benchmark ranks while each incomparable graph refuses nonzero."
+files[4]{path,scope,note}:
+  ARCHITECTURE.md,project,Contamination refusal architecture decision and command behavior
+  index.ts,project,Graph-derived typed leaderboard refusals
+  leaderboard.ts,project,Ranking runs only after comparability gates
+  test/leaderboard.test.ts,project,Both refusal codes and messages exercised with real tracker data
+tests[1]{command,scope,timeout_seconds,shared_host_safe,note}:
+  npm run coverage,project,180,true,Exact refusal branch coverage
+docs[1]{path,scope,note}:
+  README.md,project,Documented fail-closed comparability policy
+close_reason: Accepted and implemented fail-closed leaderboard comparability policy
 body: ""

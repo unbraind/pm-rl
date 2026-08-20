@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { after, test } from "node:test";
 
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
-import type { CommandHandlerContext } from "@unbrained/pm-cli/sdk/authoring";
+import { checkExtensionManifestCompatibility, type CommandHandlerContext } from "@unbrained/pm-cli/sdk/authoring";
 import { init } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 
@@ -104,7 +104,8 @@ test("the shipped extension activates all commands, item types, fields, and leas
   for (const itemType of RL_ITEM_TYPES) harness.assertItemType({ name: itemType.name });
   assert.deepEqual(harness.assertCapabilityUsage({ declared: ["commands", "schema"] }).unused, []);
 
-  const manifest = JSON.parse(readFileSync(join(import.meta.dirname, "..", "manifest.json"), "utf8")) as {
+  const rawManifest = JSON.parse(readFileSync(join(import.meta.dirname, "..", "manifest.json"), "utf8")) as Record<string, unknown>;
+  const manifest = rawManifest as {
     name: string;
     version: string;
     entry: string;
@@ -119,8 +120,9 @@ test("the shipped extension activates all commands, item types, fields, and leas
   assert.equal(extension.version, manifest.version);
   assert.equal(pkg.version, manifest.version);
   assert.equal(manifest.entry, "./dist/index.js");
-  assert.equal(manifest.pm_min_version, "2026.8.1");
-  assert.equal(pkg.peerDependencies["@unbrained/pm-cli"], ">=2026.8.1");
+  assert.equal(manifest.pm_min_version, "2026.8.20");
+  assert.equal(pkg.peerDependencies["@unbrained/pm-cli"], ">=2026.8.20");
+  assert.deepEqual(checkExtensionManifestCompatibility(rawManifest, { pmVersion: "2026.8.20" }).findings, []);
   await harness.deactivate();
 });
 
@@ -408,6 +410,36 @@ test("domain commands reject missing arguments, options, wrong item types, and a
   const injectedSdk = { client } as NonNullable<CommandHandlerContext["sdk"]>;
   const injected = await command.run({ command: "rl env list", args: [], options: {}, global: {}, pm_root: pmRoot, sdk: injectedSdk }) as RlCommandResult;
   assert.equal(injected.details?.count, 0);
+});
+
+test("metric history reads refuse an SDK omission envelope even after requesting unbounded output", async (testContext) => {
+  const { root, pmRoot, harness } = await workspace();
+  const environmentFile = join(root, "omission-environment.json");
+  writeFileSync(environmentFile, JSON.stringify(SPEC));
+  const environment = resultOf(await harness.runCommand({ command: "rl env register", pmRoot, options: { file: environmentFile } }));
+  const run = resultOf(await harness.runCommand({
+    command: "rl run start",
+    pmRoot,
+    args: ["omitted-history"],
+    options: { environment: environment.id, algorithm: "PPO" },
+  }));
+  const client = new PmClient({ pmRoot, author: "pm-rl-test" });
+  testContext.mock.method(client, "notes", async () => ({
+    output_budget_exceeded: {
+      omitted_result: true,
+      reason: "requested_budget_infeasible",
+      restore_with: "retry unbounded",
+      recovery: { outputBudget: "unbounded" },
+    },
+    read_output: {},
+  }) as never);
+  const command = RL_COMMANDS.find((candidate) => candidate.name === "rl run show");
+  assert.ok(command?.run !== undefined);
+  const sdk = { client } as NonNullable<CommandHandlerContext["sdk"]>;
+  await assert.rejects(
+    command.run({ command: "rl run show", args: [run.id!], options: {}, global: {}, pm_root: pmRoot, sdk }),
+    /note history was omitted despite an unbounded read request/,
+  );
 });
 
 test("fallback author normalization resolves absent and blank to pm-rl while an explicit author remains direct", async (testContext) => {

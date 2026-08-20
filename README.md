@@ -1,15 +1,19 @@
 # pm-rl
 
-**Reinforcement-learning programme management, on the pm SDK.** The first production slice
-provides content-addressed environment specifications and attributable run lifecycles. Run
-metrics live in merge-safe notes and are proven to union losslessly when two real Git branches
-append independently. Benchmarks, sweeps, eval results and sim-to-real transfer are the next
-planned slices, not hidden or partial commands.
+**Reinforcement-learning programme management, on the pm SDK.** Production slices provide
+content-addressed environments and benchmarks, attributable run and evaluation lifecycles,
+fail-closed leaderboards, recursive-improvement lineage gates, transitive invalidation, and run
+comparison. Run metrics live in merge-safe notes and are proven to union losslessly when two real
+Git branches append independently. Sweeps and sim-to-real transfer remain planned slices, not
+hidden or partial commands.
 
 ```bash
 npm install --save-dev pm-rl     # or: bun add -d pm-rl
 pm install pm-rl
 pm rl env register --file environments/grid-v3.json
+pm rl benchmark register --file benchmarks/safety-v1.json
+pm rl eval record --run run-ppo-7 --benchmark benchmark-safety-v1-... --checkpoint sha256:... --score 0.91 --passed true
+pm rl leaderboard benchmark-safety-v1-...
 ```
 
 ---
@@ -74,6 +78,9 @@ query the host can already answer, not a feature to build.
 | command | what it does |
 | --- | --- |
 | `pm rl env register` / `list` / `show` | Declare and version environments and their reward specifications |
+| `pm rl benchmark register` | Declare a content-addressed task suite, scoring function, pass criteria, score direction, and typed contamination edges |
+| `pm rl eval record` | Record an immutable score/pass verdict whose typed edges and body trace to its checkpoint, source run, exact benchmark, environment, and reward specification |
+| `pm rl leaderboard` | Rank one benchmark version deterministically after a complete-corpus graph read; refuse mixed environment versions and declared training/eval contamination |
 | `pm rl run start` / `log` / `show` / `finish` | Snapshot exact environment and configuration provenance, append validated NDJSON metrics from a file or stdin, order the series by step, and refuse to finish an empty run |
 | `pm rl generation register` / `show` | Record one policy generation of a recursive self-improvement lineage, parented to the generation it was trained from, carrying its base checkpoint and collection runs. Registration records provenance only; the scores, gap and promotion evidence stay null until `promote` populates them. A seed may declare a `--policy` that its children's collection runs must match; a seed with no declared policy skips the run-policy check, since there is no declared policy to violate |
 | `pm rl generation promote` | Promote a candidate generation, but only after the contamination and approved-budget refusals below both pass |
@@ -158,10 +165,16 @@ The first slice fails closed when context would otherwise become misleading:
    (`run_environment_unrecorded`): comparability is undecidable, and a best-effort diff would answer a question that
    has exactly one answer. A Run whose body lacks the environment snapshot or configuration sections `rl run start`
    writes is refused (`run_body_unreadable`) rather than diffed against an invented empty configuration.
+7. **Incomparable or contaminated evaluations cannot be ranked.** `pm rl leaderboard` certifies
+   a complete, unbounded tracker inventory before filtering EvalResults. It refuses
+   (`environment_version_mismatch`) when rows span more than one environment version and names every
+   version, because cross-version scores do not share a measurement context. It also refuses
+   (`benchmark_contaminated`) when the benchmark's immutable contamination graph names the training
+   environment, including the suite name, version, benchmark id, and overlapping environment in the
+   error. Every accepted row is re-verified against its typed Run and Benchmark edges and the
+   current content identities of its environment and reward specification before ranking.
 
-All exit non-zero. The roadmap keeps a further hard refusal—ranking across incompatible
-environment versions—but no leaderboard command is registered until that graph-derived check is
-implemented and accepted. The gap-widening check needs at least two consecutive gaps, so
+All exit non-zero. The gap-widening check needs at least two consecutive gaps, so
 `pm rl lineage --gap-window` requires an integer of at least 2.
 
 ## Recursive self-improvement, and the four properties that make it honest

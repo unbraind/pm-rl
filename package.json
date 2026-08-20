@@ -10,6 +10,7 @@
     "dist/series.*",
     "dist/invalidate.*",
     "dist/compare.*",
+    "dist/leaderboard.*",
     "manifest.json",
     "README.md",
     "CHANGELOG.md",
@@ -31,11 +32,11 @@
     "audit:identities": "node scripts/audit-git-identities.ts",
     "audit:prod": "node --input-type=module -e \"import { spawnSync } from 'node:child_process'; import { devNull } from 'node:os'; const env = { ...process.env, npm_config_userconfig: devNull, NPM_CONFIG_USERCONFIG: devNull }; for (const key of Object.keys(env)) if (key.toLowerCase() === 'npm_config_allow_scripts') delete env[key]; const win = process.platform === 'win32'; const r = spawnSync(win ? 'npm.cmd' : 'npm', ['audit', '--omit=dev', '--ignore-scripts'], { stdio: 'inherit', env, shell: win }); process.exit(r.status ?? 1);\"",
     "pack:dry-run": "npm pack --dry-run",
-    "changelog:full": "pm-changelog --pm-root .agents/pm --mode replace --output CHANGELOG.md --all-release-tags --release-version-from-package --date 2026-07-31 --item-url-base https://github.com/unbraind/pm-rl/blob/main/.agents/pm --respect-item-release",
+    "changelog:full": "pm-changelog --pm-root .agents/pm --pm-arg=--output-budget --pm-arg=unbounded --pm-arg=--output-limit --pm-arg=unbounded --mode replace --output CHANGELOG.md --all-release-tags --release-version-from-package --date 2026-07-31 --item-url-base https://github.com/unbraind/pm-rl/blob/main/.agents/pm --respect-item-release",
     "changelog:check": "npm run changelog:full -- --check",
     "release:check": "npm run typecheck && npm run build && npm run lint && npm run duplicates && npm run docstring && npm run coverage && npm run audit:identities && npm run audit:prod && npm run pack:dry-run && npm run changelog:check",
     "prepublishOnly": "npm run release:check",
-    "release:notes": "pm-changelog --pm-root .agents/pm --stdout --since-previous-tag --until-release-tag --release-version-from-package --date 2026-07-31 --item-url-base https://github.com/unbraind/pm-rl/blob/main/.agents/pm --respect-item-release --pm-bin ./node_modules/.bin/pm --github-step-summary",
+    "release:notes": "pm-changelog --pm-root .agents/pm --pm-arg=--output-budget --pm-arg=unbounded --pm-arg=--output-limit --pm-arg=unbounded --stdout --since-previous-tag --until-release-tag --release-version-from-package --date 2026-07-31 --item-url-base https://github.com/unbraind/pm-rl/blob/main/.agents/pm --respect-item-release --pm-bin ./node_modules/.bin/pm --github-step-summary",
     "prepare": "node scripts/prepare-merge-driver.ts",
     "merge:install": "pm merge install",
     "coverage": "npm run build && npm run build:test && node scripts/coverage-gate.ts"
@@ -51,6 +52,7 @@
       "test/lineage.test.ts",
       "test/invalidate.test.ts",
       "test/compare.test.ts",
+      "test/leaderboard.test.ts",
       "test/quality-scripts.test.ts",
       "test/coverage-gate.test.ts"
     ],
@@ -88,17 +90,17 @@
     "@babel/core": "^8.0.1",
     "@babel/eslint-parser": "^8.0.1",
     "@babel/plugin-syntax-typescript": "^8.0.3",
-    "@types/node": "^26.1.2",
-    "@unbrained/pm-cli": "^2026.8.7",
+    "@types/node": "^26.2.0",
+    "@unbrained/pm-cli": "2026.8.20",
     "eslint": "^10.8.1",
     "jiti": "^2.7.0",
-    "jscpd": "^5.0.14",
-    "pm-changelog": "^2026.8.7",
-    "pm-ops": "^2026.8.7",
+    "jscpd": "^5.0.16",
+    "pm-changelog": "^2026.8.17",
+    "pm-ops": "^2026.8.17",
     "typescript": "^7.0.2"
   },
   "peerDependencies": {
-    "@unbrained/pm-cli": ">=2026.8.1"
+    "@unbrained/pm-cli": ">=2026.8.20"
   },
   "pm": {
     "aliases": [

@@ -17,7 +17,7 @@ import {
   type CommandHandlerContext,
   type ExtensionApi,
 } from "@unbrained/pm-cli/sdk/authoring";
-import { commitWorkspaceTransaction } from "@unbrained/pm-cli/sdk";
+import { commitWorkspaceTransaction, type LogNote } from "@unbrained/pm-cli/sdk";
 import { PmClient, type GetResult } from "@unbrained/pm-cli/sdk/core";
 import { createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 
@@ -56,6 +56,14 @@ import {
   type ScoreRecord,
 } from "./lineage.ts";
 
+import {
+  rankLeaderboard,
+  renderLeaderboard,
+  type BenchmarkSpec,
+  type EvalResultSpec,
+  type LeaderboardCandidate,
+} from "./leaderboard.ts";
+
 /**
  * The fenced JSON block regex shared by every pm-rl spec reader.
  *
@@ -76,6 +84,15 @@ const JSON_SPEC_FENCE = /```json\n([\s\S]+?)\n```/;
  * a recursive loop indefinitely.
  */
 const PROMOTION_LOCK_WAIT_MS = 30_000;
+
+/** Dependency provenance marker for a benchmark's declared contamination edge. */
+const BENCHMARK_CONTAMINATION_SOURCE = "pm-rl:benchmark:contaminated_by";
+
+/** Dependency provenance marker connecting an evaluation to its source run. */
+const EVAL_RUN_SOURCE = "pm-rl:eval:run";
+
+/** Dependency provenance marker connecting an evaluation to its benchmark. */
+const EVAL_BENCHMARK_SOURCE = "pm-rl:eval:benchmark";
 
 /** JSON values accepted in environment and run configuration files. */
 export type JsonValue = null | boolean | number | string | JsonValue[] | { readonly [key: string]: JsonValue };
@@ -131,6 +148,22 @@ export const RL_ITEM_TYPES = [
     description: "One policy generation in a recursive self-improvement lineage, gated by an approved promotion budget.",
     default_status: "open",
     required_create_fields: ["affected_version", "fixed_version", "component"],
+  }),
+  defineItemType({
+    name: "Benchmark",
+    folder: "benchmarks",
+    aliases: ["rl-benchmark", "rl-bench"],
+    description: "An immutable, content-addressed evaluation suite with explicit contamination edges.",
+    default_status: "open",
+    required_create_fields: ["affected_version", "fixed_version", "component"],
+  }),
+  defineItemType({
+    name: "EvalResult",
+    folder: "eval-results",
+    aliases: ["rl-eval-result", "rl-eval"],
+    description: "One immutable checkpoint verdict linked to its source run and exact benchmark version.",
+    default_status: "closed",
+    required_create_fields: ["affected_version", "fixed_version", "component", "environment"],
   }),
 ] as const;
 
@@ -223,6 +256,26 @@ function jsonObject(value: unknown, source: string): Record<string, JsonValue> {
   return value as Record<string, JsonValue>;
 }
 
+/** Parse one JSON object while preserving a domain-specific machine error code. */
+function parseJsonObject(text: string, source: string, code: string, exitCode: number = EXIT_CODE.USAGE): Record<string, JsonValue> {
+  try {
+    return jsonObject(JSON.parse(text), source);
+  } catch (error) {
+    if (isPmCliExpectedError(error)) throw error;
+    fail(`${source} is not valid JSON.`, code, exitCode);
+  }
+}
+
+/** Require non-empty string values for a domain specification's identity fields. */
+function requireJsonStrings(record: Readonly<Record<string, JsonValue>>, keys: readonly string[], source: string, codePrefix: string, exitCode: number = EXIT_CODE.USAGE): void {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value !== "string" || value.trim().length === 0) {
+      fail(`${source} requires a non-empty string ${key}.`, `${codePrefix}_${key}`, exitCode);
+    }
+  }
+}
+
 /**
  * Serialize JSON with recursively byte-ordered object keys.
  *
@@ -241,22 +294,61 @@ export function canonicalJson(value: JsonValue): string {
 
 /** Parse and validate an environment specification. */
 export function parseEnvironmentSpec(text: string, source = "Environment file"): EnvironmentSpec {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    fail(`${source} is not valid JSON.`, "invalid_environment_json");
-  }
-  const record = jsonObject(parsed, source);
-  for (const key of ["name", "version"] as const) {
-    if (typeof record[key] !== "string" || record[key].trim().length === 0) {
-      fail(`${source} requires a non-empty string ${key}.`, `invalid_environment_${key}`);
-    }
-  }
+  const record = parseJsonObject(text, source, "invalid_environment_json");
+  requireJsonStrings(record, ["name", "version"], source, "invalid_environment");
   for (const key of ["task_suite", "reward_specification"] as const) {
     if (!(key in record)) fail(`${source} requires ${key}.`, `missing_environment_${key}`);
   }
   return record as EnvironmentSpec;
+}
+
+/** Parse and validate a benchmark specification and canonicalize contamination ids. */
+export function parseBenchmarkSpec(text: string, source = "Benchmark file"): BenchmarkSpec {
+  const record = parseJsonObject(text, source, "invalid_benchmark_json");
+  requireJsonStrings(record, ["name", "version"], source, "invalid_benchmark");
+  for (const key of ["task_suite", "scoring_function", "pass_criteria"] as const) {
+    if (!(key in record)) fail(`${source} requires ${key}.`, `missing_benchmark_${key}`);
+  }
+  if (record.direction !== "maximize" && record.direction !== "minimize") {
+    fail(`${source} direction must be maximize or minimize.`, "invalid_benchmark_direction");
+  }
+  const contamination = record.contaminated_environments ?? [];
+  if (!Array.isArray(contamination) || contamination.some((id) => typeof id !== "string" || id.trim().length === 0)) {
+    fail(`${source} contaminated_environments must be an array of non-empty environment ids.`, "invalid_benchmark_contamination");
+  }
+  const contaminatedEnvironments = contamination as string[];
+  return {
+    ...record,
+    name: (record.name as string).trim(),
+    version: (record.version as string).trim(),
+    task_suite: record.task_suite!,
+    scoring_function: record.scoring_function!,
+    pass_criteria: record.pass_criteria!,
+    direction: record.direction,
+    contaminated_environments: [...new Set(contaminatedEnvironments.map((id) => id.trim()))].sort(),
+  };
+}
+
+/** Parse and validate one stored evaluation provenance record. */
+export function parseEvalResultSpec(text: string, source = "EvalResult"): EvalResultSpec {
+  const record = parseJsonObject(text, source, "invalid_eval_result_json", EXIT_CODE.CONFLICT);
+  requireJsonStrings(record, ["checkpoint", "run_id", "benchmark_id", "environment_id", "environment_spec_hash", "reward_spec_hash"], source, "invalid_eval_result", EXIT_CODE.CONFLICT);
+  if (typeof record.score !== "number" || !Number.isFinite(record.score)) {
+    fail(`${source} score must be finite.`, "invalid_eval_result_score", EXIT_CODE.CONFLICT);
+  }
+  if (typeof record.passed !== "boolean") {
+    fail(`${source} passed must be a boolean.`, "invalid_eval_result_passed", EXIT_CODE.CONFLICT);
+  }
+  return {
+    checkpoint: (record.checkpoint as string).trim(),
+    score: record.score,
+    passed: record.passed,
+    run_id: (record.run_id as string).trim(),
+    benchmark_id: (record.benchmark_id as string).trim(),
+    environment_id: (record.environment_id as string).trim(),
+    environment_spec_hash: (record.environment_spec_hash as string).trim(),
+    reward_spec_hash: (record.reward_spec_hash as string).trim(),
+  };
 }
 
 /** SHA-256 identity of a JSON value's canonical encoding. */
@@ -271,7 +363,7 @@ export function idSegment(value: string): string {
 }
 
 /** Validate that an existing item has the expected domain type. */
-async function getTypedItem(client: PmClient, id: string, type: "Environment" | "Run" | "Generation"): Promise<GetResult> {
+async function getTypedItem(client: PmClient, id: string, type: "Environment" | "Run" | "Generation" | "Benchmark" | "EvalResult"): Promise<GetResult> {
   const result = await client.get(id, { depth: "deep" });
   if (result.item.type !== type) fail(`pm rl expected ${type} ${id}, not ${String(result.item.type)}.`, "wrong_item_type", EXIT_CODE.CONFLICT);
   return result;
@@ -314,6 +406,22 @@ function readJsonFile(path: string, label: string): JsonValue {
   } catch {
     fail(`${label} at ${path} is not valid JSON.`, "invalid_json");
   }
+}
+
+/**
+ * Read every note required to reconstruct an immutable metric series.
+ *
+ * Universal reads intentionally default to bounded agent output. Metric history
+ * is a correctness input, so compacting a row or its compressed text would turn
+ * valid data into an apparent corrupt segment. Both dimensions are therefore
+ * explicitly unbounded and any omission envelope still fails closed.
+ */
+async function readCompleteNotes(client: PmClient, id: string): Promise<LogNote[]> {
+  const result = await client.notes(id, { outputBudget: "unbounded", outputLimit: "unbounded" });
+  if ("output_budget_exceeded" in result) {
+    fail(`Run ${id} note history was omitted despite an unbounded read request.`, "metric_history_incomplete", EXIT_CODE.CONFLICT);
+  }
+  return result.notes;
 }
 
 /** Register one immutable environment spec, idempotently by content identity. */
@@ -415,8 +523,7 @@ async function showRun(context: CommandHandlerContext): Promise<RlCommandResult>
   const id = requiredArgument(context, "a run id");
   const client = clientFor(context);
   const run = await getTypedItem(client, id, "Run");
-  const notes = await client.notes(id);
-  const series = readSeries(notes.notes.map((note) => note.text));
+  const series = readSeries((await readCompleteNotes(client, id)).map((note) => note.text));
   return { action: "rl-run-show", id: String(run.item.id), details: { status: run.item.status, environment_id: run.item.environment, events: series.events, comments: series.comments } };
 }
 
@@ -426,8 +533,7 @@ async function finishRun(context: CommandHandlerContext): Promise<RlCommandResul
   const reason = stringOption(context, "reason")!;
   const client = clientFor(context);
   await getTypedItem(client, id, "Run");
-  const notes = await client.notes(id);
-  const series = readSeries(notes.notes.map((note) => note.text));
+  const series = readSeries((await readCompleteNotes(client, id)).map((note) => note.text));
   if (series.events.length === 0) {
     fail(`Run ${id} has no metric events and cannot be finished. Log the trainer's final finite measurements first.`, "run_has_no_metrics", EXIT_CODE.CONFLICT);
   }
@@ -453,6 +559,227 @@ async function showEnvironment(context: CommandHandlerContext): Promise<RlComman
   const id = requiredArgument(context, "an environment id");
   const result = await getTypedItem(clientFor(context), id, "Environment");
   return { action: "rl-env-show", id: String(result.item.id), details: { title: result.item.title, version: result.item.fixed_version, spec_hash: result.item.affected_version, body: result.item.body } };
+}
+
+/** Return the JSON fence stored in a domain item's body or fail closed. */
+function storedJson(body: string, source: string, code: string): string {
+  const fenced = JSON_SPEC_FENCE.exec(body);
+  if (fenced?.[1] === undefined) fail(`${source} has no JSON specification fence.`, code, EXIT_CODE.CONFLICT);
+  return fenced[1];
+}
+
+/** Verify a benchmark remains content-addressed and its contamination graph matches its body. */
+async function verifyBenchmarkIdentity(client: PmClient, benchmarkId: string): Promise<{ id: string; spec: BenchmarkSpec }> {
+  const benchmark = await getTypedItem(client, benchmarkId, "Benchmark");
+  const benchmarkHash = benchmark.item.affected_version;
+  if (typeof benchmarkHash !== "string" || benchmarkHash.length === 0) {
+    fail(`Benchmark ${benchmarkId} has no specification affected_version.`, "benchmark_missing_hash", EXIT_CODE.CONFLICT);
+  }
+  const spec = parseBenchmarkSpec(storedJson(String(benchmark.item.body), `Benchmark ${benchmarkId}`, "benchmark_missing_spec"), `Benchmark ${benchmarkId} specification`);
+  const resolvedId = String(benchmark.item.id);
+  if (hashJson(spec as unknown as JsonValue) !== benchmarkHash || !resolvedId.endsWith(benchmarkHash.slice(0, 12))) {
+    fail(`Benchmark ${benchmarkId} no longer matches its content-addressed identity. Register the changed suite as a new version.`, "benchmark_was_mutated", EXIT_CODE.CONFLICT);
+  }
+  const edgeIds = (benchmark.item.dependencies ?? [])
+    .filter((dependency) => dependency.kind === "related" && dependency.source_kind === BENCHMARK_CONTAMINATION_SOURCE)
+    .map((dependency) => dependency.id)
+    .sort();
+  if (JSON.stringify(edgeIds) !== JSON.stringify(spec.contaminated_environments)) {
+    fail(`Benchmark ${resolvedId} contamination edges do not match its immutable specification.`, "benchmark_contamination_graph_mismatch", EXIT_CODE.CONFLICT);
+  }
+  return { id: resolvedId, spec };
+}
+
+/** Register one immutable benchmark suite and its typed contamination edges. */
+async function registerBenchmark(context: CommandHandlerContext): Promise<RlCommandResult> {
+  const path = stringOption(context, "file")!;
+  const supplied = parseBenchmarkSpec(readTextFile(path, "Benchmark file"), `Benchmark file ${path}`);
+  const flagIds = (stringOption(context, "contaminated_by", false) ?? "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter((id) => id.length > 0);
+  const client = clientFor(context);
+  await ensurePersistentTypes(client);
+  const resolvedContamination = new Set<string>();
+  for (const environmentId of [...new Set([...supplied.contaminated_environments, ...flagIds])]) {
+    resolvedContamination.add((await verifyEnvironmentIdentity(client, environmentId, "benchmark contamination edges")).id);
+  }
+  const spec: BenchmarkSpec = { ...supplied, contaminated_environments: [...resolvedContamination].sort() };
+  const specHash = hashJson(spec as unknown as JsonValue);
+  const requestedId = `benchmark-${idSegment(spec.name)}-${idSegment(spec.version)}-${specHash.slice(0, 12)}`;
+  try {
+    const existing = await verifyBenchmarkIdentity(client, requestedId);
+    return { action: "rl-benchmark-register", id: existing.id, created: false, details: { spec_hash: specHash, contaminated_environments: spec.contaminated_environments } };
+  } catch (error) {
+    if (!isItemNotFound(error)) throw error;
+  }
+  const result = await client.create({
+    id: requestedId,
+    title: `${spec.name} ${spec.version}`,
+    type: "Benchmark",
+    status: "open",
+    acceptanceCriteria: "The complete suite, scoring rule, pass criteria, direction, and contamination edges match its content identity.",
+    estimatedMinutes: "1",
+    body: `# ${spec.name} ${spec.version}\n\n\`\`\`json\n${JSON.stringify(spec, null, 2)}\n\`\`\``,
+    dep: spec.contaminated_environments.map((id) => `id=${id},kind=related,source_kind=${BENCHMARK_CONTAMINATION_SOURCE}`),
+    affectedVersion: specHash,
+    fixedVersion: spec.version,
+    component: spec.direction,
+    message: "Register immutable RL benchmark specification",
+  });
+  return { action: "rl-benchmark-register", id: result.item.id, created: true, details: { spec_hash: specHash, contaminated_environments: spec.contaminated_environments } };
+}
+
+/** Record one immutable checkpoint evaluation with complete run and benchmark provenance. */
+async function recordEvalResult(context: CommandHandlerContext): Promise<RlCommandResult> {
+  const runId = stringOption(context, "run")!;
+  const benchmarkId = stringOption(context, "benchmark")!;
+  const checkpoint = stringOption(context, "checkpoint")!;
+  const score = Number(stringOption(context, "score")!);
+  if (!Number.isFinite(score)) fail("pm rl eval record requires a finite --score.", "invalid_eval_result_score");
+  const passedRaw = context.options.passed;
+  const passed = typeof passedRaw === "boolean" ? passedRaw : passedRaw === "true" ? true : passedRaw === "false" ? false : undefined;
+  if (passed === undefined) fail("pm rl eval record requires --passed true or --passed false.", "invalid_eval_result_passed");
+  const client = clientFor(context);
+  await ensurePersistentTypes(client);
+  const run = await getTypedItem(client, runId, "Run");
+  const resolvedRunId = String(run.item.id);
+  const environmentId = normalizeRunEnvironment(run.item.environment);
+  if (typeof environmentId !== "string" || environmentId.length === 0) {
+    fail(`Run ${resolvedRunId} records no environment and cannot produce an attributable evaluation.`, "run_environment_unrecorded", EXIT_CODE.CONFLICT);
+  }
+  const environment = await verifyEnvironmentIdentity(client, environmentId, "evaluations");
+  const benchmark = await verifyBenchmarkIdentity(client, benchmarkId);
+  const spec: EvalResultSpec = {
+    checkpoint,
+    score,
+    passed,
+    run_id: resolvedRunId,
+    benchmark_id: benchmark.id,
+    environment_id: environment.id,
+    environment_spec_hash: hashJson(environment.spec),
+    reward_spec_hash: hashJson(environment.spec.reward_specification),
+  };
+  const resultHash = hashJson(spec as unknown as JsonValue);
+  const requestedId = `eval-${idSegment(benchmark.spec.name)}-${resultHash.slice(0, 12)}`;
+  try {
+    const existing = await getTypedItem(client, requestedId, "EvalResult");
+    const existingSpec = parseEvalResultSpec(
+      storedJson(String(existing.item.body), `EvalResult ${requestedId}`, "eval_result_missing_spec"),
+      `EvalResult ${requestedId} specification`,
+    );
+    if (existing.item.affected_version !== resultHash || hashJson(existingSpec as unknown as JsonValue) !== resultHash) {
+      fail(`EvalResult id ${requestedId} already exists with different provenance.`, "eval_result_identity_collision", EXIT_CODE.CONFLICT);
+    }
+    return { action: "rl-eval-record", id: String(existing.item.id), created: false, details: spec as unknown as Readonly<Record<string, unknown>> };
+  } catch (error) {
+    if (!isItemNotFound(error)) throw error;
+  }
+  const result = await client.create({
+    id: requestedId,
+    title: `${benchmark.spec.name} ${benchmark.spec.version}: ${checkpoint}`,
+    type: "EvalResult",
+    status: "closed",
+    closeReason: "Immutable evaluation verdict recorded",
+    completedAt: new Date().toISOString(),
+    acceptanceCriteria: "The verdict traces through typed graph edges to one source run, benchmark, environment, reward specification, and checkpoint.",
+    estimatedMinutes: "1",
+    body: `# Evaluation ${checkpoint}\n\n\`\`\`json\n${JSON.stringify(spec, null, 2)}\n\`\`\``,
+    dep: [
+      `id=${resolvedRunId},kind=discovered_from,source_kind=${EVAL_RUN_SOURCE}`,
+      `id=${benchmark.id},kind=verifies,source_kind=${EVAL_BENCHMARK_SOURCE}`,
+    ],
+    environment: environment.id,
+    affectedVersion: resultHash,
+    fixedVersion: checkpoint,
+    component: benchmark.id,
+    resolution: passed ? "passed" : "failed",
+    expectedResult: "The checkpoint is evaluated under the benchmark's immutable scoring and pass contracts.",
+    actualResult: `${score} (${passed ? "passed" : "failed"})`,
+    message: "Record immutable RL evaluation result",
+  });
+  return { action: "rl-eval-record", id: result.item.id, created: true, details: spec as unknown as Readonly<Record<string, unknown>> };
+}
+
+/** Build one benchmark leaderboard only after certifying graph-derived comparability. */
+async function showLeaderboard(context: CommandHandlerContext): Promise<RlCommandResult> {
+  const requestedBenchmarkId = requiredArgument(context, "a benchmark id");
+  const client = clientFor(context);
+  await ensurePersistentTypes(client);
+  const benchmark = await verifyBenchmarkIdentity(client, requestedBenchmarkId);
+  const inventory = await client.listAllComplete({ includeBody: true });
+  const byId = new Map(inventory.items.map((item) => [item.id, item]));
+  const environmentCache = new Map<string, Awaited<ReturnType<typeof verifyEnvironmentIdentity>>>();
+  const candidates: LeaderboardCandidate[] = [];
+  for (const item of inventory.items) {
+    if (item.type !== "EvalResult") continue;
+    // Parsed before the benchmark filter because benchmark_id lives only in
+    // the immutable body. A typed component pre-filter would let drift hide a
+    // row, so a malformed record refuses the corpus and names both records.
+    const spec = parseEvalResultSpec(
+      storedJson(String(item.body), `EvalResult ${item.id} (read while ranking ${benchmark.id})`, "eval_result_missing_spec"),
+      `EvalResult ${item.id} specification (read while ranking ${benchmark.id})`,
+    );
+    if (spec.benchmark_id !== benchmark.id) continue;
+    const resultHash = hashJson(spec as unknown as JsonValue);
+    if (item.affected_version !== resultHash || !item.id.endsWith(resultHash.slice(0, 12))) {
+      fail(`EvalResult ${item.id} no longer matches its content-addressed provenance.`, "eval_result_was_mutated", EXIT_CODE.CONFLICT);
+    }
+    const typedEdges = (item.dependencies ?? [])
+      .filter((dependency) => dependency.source_kind === EVAL_RUN_SOURCE || dependency.source_kind === EVAL_BENCHMARK_SOURCE)
+      .map((dependency) => `${dependency.id}\0${dependency.kind}\0${dependency.source_kind}`)
+      .sort();
+    const expectedEdges = [
+      `${spec.run_id}\0discovered_from\0${EVAL_RUN_SOURCE}`,
+      `${benchmark.id}\0verifies\0${EVAL_BENCHMARK_SOURCE}`,
+    ].sort();
+    if (JSON.stringify(typedEdges) !== JSON.stringify(expectedEdges)) {
+      fail(`EvalResult ${item.id} typed provenance edges do not exactly identify run ${spec.run_id} and benchmark ${benchmark.id}.`, "eval_result_graph_mismatch", EXIT_CODE.CONFLICT);
+    }
+    const run = byId.get(spec.run_id);
+    if (run?.type !== "Run") {
+      fail(`EvalResult ${item.id} source run ${spec.run_id} is missing or is not a Run.`, "eval_result_graph_mismatch", EXIT_CODE.CONFLICT);
+    }
+    const runEnvironment = normalizeRunEnvironment(run.environment);
+    if (runEnvironment !== spec.environment_id || !run.dependencies?.some((dependency) => dependency.id === spec.environment_id)) {
+      fail(`EvalResult ${item.id} environment ${spec.environment_id} does not match source run ${spec.run_id}.`, "eval_result_graph_mismatch", EXIT_CODE.CONFLICT);
+    }
+    let environment = environmentCache.get(spec.environment_id);
+    if (environment === undefined) {
+      environment = await verifyEnvironmentIdentity(client, spec.environment_id, "leaderboard rows");
+      environmentCache.set(spec.environment_id, environment);
+    }
+    if (hashJson(environment.spec) !== spec.environment_spec_hash || hashJson(environment.spec.reward_specification) !== spec.reward_spec_hash) {
+      fail(`EvalResult ${item.id} environment or reward-spec provenance no longer matches ${spec.environment_id}.`, "eval_result_provenance_mismatch", EXIT_CODE.CONFLICT);
+    }
+    if (item.environment !== spec.environment_id || item.fixed_version !== spec.checkpoint || item.component !== benchmark.id) {
+      fail(`EvalResult ${item.id} typed metadata does not match its immutable provenance body.`, "eval_result_metadata_mismatch", EXIT_CODE.CONFLICT);
+    }
+    candidates.push({ eval_id: item.id, ...spec });
+  }
+  const environments = [...new Set(candidates.map((candidate) => candidate.environment_id))].sort();
+  if (environments.length > 1) {
+    fail(`Leaderboard refused for ${benchmark.spec.name} ${benchmark.spec.version} (${benchmark.id}): results span incompatible environment versions ${environments.join(", ")}. Rank one environment version at a time.`, "environment_version_mismatch", EXIT_CODE.CONFLICT);
+  }
+  const contaminated = environments.filter((environmentId) => benchmark.spec.contaminated_environments.includes(environmentId));
+  if (contaminated.length > 0) {
+    fail(`Leaderboard refused for contaminated benchmark suite ${benchmark.spec.name} ${benchmark.spec.version} (${benchmark.id}): evaluation tasks overlap training environment ${contaminated.join(", ")}.`, "benchmark_contaminated", EXIT_CODE.CONFLICT);
+  }
+  const rows = rankLeaderboard(benchmark.spec.direction, candidates);
+  const details: Record<string, unknown> = {
+    benchmark_id: benchmark.id,
+    benchmark_name: benchmark.spec.name,
+    benchmark_version: benchmark.spec.version,
+    direction: benchmark.spec.direction,
+    environment_id: environments[0] ?? null,
+    count: rows.length,
+    rows,
+    complete_list: inventory.complete_list,
+  };
+  if (context.global.json === true) {
+    return { action: "rl-leaderboard", id: benchmark.id, details: { format: "json", ...details } };
+  }
+  return { action: "rl-leaderboard", id: benchmark.id, details: { format: "table", output: renderLeaderboard(benchmark.id, benchmark.spec, rows), ...details } };
 }
 
 /** Extract and parse a generation spec from an item body's JSON fence. */
@@ -1344,13 +1671,12 @@ async function compareRuns(context: CommandHandlerContext): Promise<RlCommandRes
   const readRun = async (item: GetResult): Promise<RunCompareInput> => {
     const runId = String(item.item.id);
     const sections = runBodySections(String(item.item.body), runId);
-    const notes = await client.notes(runId);
     const component = item.item.component;
     return {
       id: runId,
       algorithm: typeof component === "string" ? component : "",
       environment: normalizeRunEnvironment(item.item.environment) as string,
-      events: readSeries(notes.notes.map((note) => note.text)).events,
+      events: readSeries((await readCompleteNotes(client, runId)).map((note) => note.text)).events,
       environmentSpec: sections.environmentSpec,
       config: sections.config,
     };
@@ -1367,6 +1693,18 @@ export const RL_COMMANDS = [
   defineCommand({ name: "rl env register", description: "Register an immutable, content-addressed environment JSON specification.", flags: [{ long: "--file", value_name: "path", value_type: "string", required: true, description: "Environment JSON file." }], run: registerEnvironment }),
   defineCommand({ name: "rl env list", description: "List registered RL environment versions without their large bodies.", run: listEnvironments }),
   defineCommand({ name: "rl env show", description: "Show one registered environment and its specification identity.", arguments: [{ name: "id", required: true, description: "Environment item id." }], run: showEnvironment }),
+  defineCommand({ name: "rl benchmark register", description: "Register an immutable benchmark suite and typed contamination edges.", flags: [
+    { long: "--file", value_name: "path", value_type: "string", required: true, description: "Benchmark JSON file." },
+    { long: "--contaminated-by", value_name: "environment-ids", value_type: "string", description: "Comma-separated environment versions whose training data overlaps the suite." },
+  ], run: registerBenchmark }),
+  defineCommand({ name: "rl eval record", description: "Record one immutable checkpoint verdict linked to its source run and benchmark.", flags: [
+    { long: "--run", value_name: "id", value_type: "string", required: true, description: "Source Run item id." },
+    { long: "--benchmark", value_name: "id", value_type: "string", required: true, description: "Benchmark item id." },
+    { long: "--checkpoint", value_name: "hash", value_type: "string", required: true, description: "Content-addressed checkpoint identity." },
+    { long: "--score", value_name: "number", value_type: "string", required: true, description: "Finite scalar score." },
+    { long: "--passed", value_name: "true|false", value_type: "string", required: true, description: "Pass-criteria verdict." },
+  ], run: recordEvalResult }),
+  defineCommand({ name: "rl leaderboard", description: "Rank one benchmark's fully traced results, refusing mixed environments or contamination.", arguments: [{ name: "benchmark", required: true, description: "Benchmark item id." }], run: showLeaderboard }),
   defineCommand({ name: "rl run start", description: "Start an attributable run linked to one exact environment version.", arguments: [{ name: "id", required: true, description: "Run item id." }], flags: [
     { long: "--environment", value_name: "id", value_type: "string", required: true, description: "Environment item id." },
     { long: "--algorithm", value_name: "name", value_type: "string", required: true, description: "Training algorithm." },

@@ -1,0 +1,50 @@
+id: pm-rl-tvo2
+title: Remove ignored manifest metadata and adopt pm CLI/SDK 2026.8.20
+description: "The published 2026.8.20 SDK reports manifest_unknown_key for pm-rl because manifest.json retains an inert legacy pm object. The package also uses permissive old dev and peer ranges, so its tests do not prove the current SDK contract."
+type: Issue
+status: closed
+priority: 1
+tags: []
+created_at: "2026-08-20T17:18:22.342Z"
+updated_at: "2026-08-20T18:12:00.457Z"
+closed_at: "2026-08-20T17:43:58.078Z"
+completed_at: "2026-08-20T17:44:00.000Z"
+claim_principal: "harness:codex#b44c9b090cf8bc81eaf457c4"
+author: "harness:codex"
+estimated_minutes: 180
+acceptance_criteria: "The complete raw manifest returns compatible true with zero SDK findings at pm 2026.8.20; the inert key is removed only after the real extension capabilities are regression-tested; development uses an exact 2026.8.20 pm CLI/SDK pin and the peer/manifest floor is 2026.8.20; npm and Bun installed-package acceptance plus release:check pass"
+reviewer: "harness:codex"
+risk: medium
+confidence: high
+severity: high
+environment: pm CLI/SDK 2026.8.20; canonical pm-rl main 2635e697f5ef
+resolution: Adopted pm CLI SDK 2026.8.20 and repaired stricter read and dependency contracts
+expected_result: "Manifest compatibility has zero findings, current dependencies audit cleanly, intentional dangling edges are explicit, and metric history remains complete under universal output bounds"
+actual_result: "Raw manifest check returns no findings; npm audit reports zero vulnerabilities; 10,000-event acceptance reads unbounded history; exact all-source coverage is 100/100/100"
+component: manifest-and-sdk-contract
+dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
+  pm-rl-nzxt,related,"2026-08-20T17:18:22.342Z","harness:codex","cli:create:dep",detected
+notes[7]{created_at,author,text}:
+  "2026-08-20T17:18:27.515Z","harness:codex",Fold the compatibility repair into the benchmark/leaderboard tranche so the new command is exercised against the latest public SDK rather than the stale permissive range.
+  "2026-08-20T17:42:16.514Z","harness:codex","Adopted @unbrained/pm-cli 2026.8.20 exactly for development and >=2026.8.20 as the peer floor; updated the merge-driver marker to v2; removed obsolete manifest.pm compatibility metadata; raw-manifest compatibility now asserts zero findings. Current SDK strict dependency resolution required explicit allowUnresolvedDeps only in intentional dangling-edge fixtures. Metric reconstruction now requests unbounded note rows and token budget and refuses an omission envelope, fixing a 10,000-event false corruption under bounded default output."
+  "2026-08-20T17:45:46.039Z","harness:codex",pm-changelog 2026.8.17 correctly refused the latest CLI bounded list-all receipt (5 of 45 items). pm-rl now passes explicit unbounded output budget and row limit in local and daily-release generation. The reusable default fix is tracked upstream at unbraind/pm-changelog#147; this workaround preserves fail-closed completeness rather than accepting a partial changelog.
+  "2026-08-20T17:46:07.782Z","harness:codex","Latest strict health initially found pre-existing chain drift on pm-rl-81oc. The official history-repair dry run verified three entries would be rehashed, zero events discarded or reverted, and the pi-agent tests_add event preserved. Applied the audited repair; pm health --strict-exit now passes with only three non-gating provenance advisories."
+  "2026-08-20T17:50:35.183Z","harness:codex","Fresh packed-artifact acceptance passed with @unbrained/pm-cli 2026.8.20 through both npm+npx and bun+bunx. Each disposable project initialized its own tracker, installed the tarball as a project package, and confirmed pm package describe exposed pm-rl benchmark and leaderboard commands."
+  "2026-08-20T17:53:25.539Z","harness:codex","Privacy and repository-integrity audit covered the complete worktree, all reachable history, and two unreachable local commits: zero targeted credential/private-key patterns and zero private absolute host paths. GitHub reported zero open secret-scanning and Dependabot alerts. Code-scanning alerts were unavailable because this repository has no analysis, so that is a limitation rather than a clean code-scanning result."
+  "2026-08-20T18:12:00.457Z","harness:codex","Accepted CodeRabbit workflow findings: release-date, release-tag, and repository-name expressions now cross the shell boundary through env; shared changelog completeness arguments are defined once in the Bash step. Behavioral workflow assertions cover the hardened contract."
+files[9]{path,scope,note}:
+  .gitattributes,project,Latest v2 merge-driver fence
+  .github/workflows/release.yml,project,Daily release passes unbounded correctness controls to pm-changelog
+  "https://github.com/unbraind/pm-changelog/issues/147",global,Upstream default whole-corpus read fix
+  index.ts,project,Unbounded correctness reads for metric history
+  manifest.json,project,Canonical compatibility bound with obsolete metadata removed
+  package-lock.json,project,Resolved latest dependency graph
+  package.json,project,Exact pm CLI SDK 2026.8.20 development dependency and peer floor
+  test/index.test.ts,project,Raw manifest compatibility and omission-envelope regression
+  test/invalidate.test.ts,project,Explicit intentional dangling-edge opt-in for current SDK
+tests[1]{command,scope,timeout_seconds,shared_host_safe,note}:
+  "npm run release:check",project,240,true,Full latest-SDK release gate
+docs[1]{path,scope,note}:
+  README.md,project,Current benchmark and leaderboard package surface
+close_reason: pm-rl now targets the current pm CLI and SDK contract without ignored manifest metadata
+body: ""

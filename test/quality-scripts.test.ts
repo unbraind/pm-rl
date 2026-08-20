@@ -354,4 +354,9 @@ test("the release workflow publishes to npm only after the protected merge and i
     "npm publish must come after the merge is verified: publishing first leaves an immutable npm version behind when the protected push is rejected",
   );
   assert.ok(publish < tag, "the tag follows publication, so a failed publish does not leave a tag pointing at an unpublished version");
+  assert.match(workflow, /RELEASE_ISO_DATE: \$\{\{ steps\.decide\.outputs\.release_iso_date \}\}/);
+  assert.match(workflow, /common=\([\s\S]*--output-budget[\s\S]*--output-limit[\s\S]*"\$RELEASE_ISO_DATE"[\s\S]*\)/);
+  assert.match(workflow, /RELEASE_TAG: \$\{\{ steps\.decide\.outputs\.tag \}\}/);
+  assert.match(workflow, /REPOSITORY_NAME: \$\{\{ github\.event\.repository\.name \}\}/);
+  assert.match(workflow, /gh release create "\$RELEASE_TAG" --title "\$REPOSITORY_NAME \$RELEASE_TAG"/);
 });

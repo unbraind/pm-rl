@@ -114,11 +114,24 @@ jobs:
       - name: Generate changelog and release notes
         if: steps.decide.outputs.should_release == 'true'
         shell: bash
+        env:
+          RELEASE_ISO_DATE: ${{ steps.decide.outputs.release_iso_date }}
         run: |
           set -euo pipefail
-          npx pm-changelog --pm-root .agents/pm --mode replace --output CHANGELOG.md --all-release-tags --release-version-from-package --date ${{ steps.decide.outputs.release_iso_date }} --item-url-base https://github.com/unbraind/pm-rl/blob/main/.agents/pm --respect-item-release --pm-bin ./node_modules/.bin/pm --github-step-summary
-          npx pm-changelog --pm-root .agents/pm --mode replace --output CHANGELOG.md --all-release-tags --release-version-from-package --date ${{ steps.decide.outputs.release_iso_date }} --item-url-base https://github.com/unbraind/pm-rl/blob/main/.agents/pm --respect-item-release --pm-bin ./node_modules/.bin/pm --check
-          npx pm-changelog --pm-root .agents/pm --stdout --since-previous-tag --until-release-tag --release-version-from-package --date ${{ steps.decide.outputs.release_iso_date }} --item-url-base https://github.com/unbraind/pm-rl/blob/main/.agents/pm --respect-item-release --pm-bin ./node_modules/.bin/pm > RELEASE_NOTES.md
+          common=(
+            --pm-root .agents/pm
+            --pm-arg=--output-budget --pm-arg=unbounded
+            --pm-arg=--output-limit --pm-arg=unbounded
+            --release-version-from-package
+            --date "$RELEASE_ISO_DATE"
+            --item-url-base https://github.com/unbraind/pm-rl/blob/main/.agents/pm
+            --respect-item-release
+            --pm-bin ./node_modules/.bin/pm
+          )
+          replace=(--mode replace --output CHANGELOG.md --all-release-tags)
+          npx pm-changelog "${common[@]}" "${replace[@]}" --github-step-summary
+          npx pm-changelog "${common[@]}" "${replace[@]}" --check
+          npx pm-changelog "${common[@]}" --stdout --since-previous-tag --until-release-tag > RELEASE_NOTES.md
 
       - name: Run release checks
         if: steps.decide.outputs.should_release == 'true'
@@ -605,4 +618,6 @@ jobs:
         if: steps.decide.outputs.should_release == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${{ steps.decide.outputs.tag }}" --title "${{ github.event.repository.name }} ${{ steps.decide.outputs.tag }}" --notes-file RELEASE_NOTES.md --verify-tag
+          RELEASE_TAG: ${{ steps.decide.outputs.tag }}
+          REPOSITORY_NAME: ${{ github.event.repository.name }}
+        run: gh release create "$RELEASE_TAG" --title "$REPOSITORY_NAME $RELEASE_TAG" --notes-file RELEASE_NOTES.md --verify-tag

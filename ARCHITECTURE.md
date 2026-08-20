@@ -118,10 +118,10 @@ passed through.
 Most trackers will show you a number whatever you ask. pm-rl refuses in exactly two cases, and
 these refusals are the reason to use it.
 
-1. **Ranking across environment versions.** Two checkpoints measured under two environment
+1. **Ranking across environment versions.** `pm rl leaderboard` refuses two checkpoints measured under two environment
    versions are not comparable. A leaderboard that mixes them launders a version change into an
    apparent improvement.
-2. **Ranking on a contaminated benchmark.** If the benchmark's tasks overlap the training
+2. **Ranking on a contaminated benchmark.** `pm rl leaderboard` refuses when the benchmark's tasks overlap the training
    environment's task suite, the score is flattering and meaningless. The overlap is declared as
    an edge, so the refusal is derived rather than remembered.
 
@@ -180,9 +180,9 @@ transfer is reported as stale rather than plotted.
 | Run lifecycle, NDJSON ingestion into history | [`pm-rl-dyho`](.agents/pm/features/pm-rl-dyho.toon) | **first slab** |
 | Determinism receipts and `run verify` | [`pm-rl-dpug`](.agents/pm/features/pm-rl-dpug.toon) | planned |
 | Sweep planning | [`pm-rl-mqdb`](.agents/pm/features/pm-rl-mqdb.toon) | planned |
-| Benchmarks and eval results | [`pm-rl-tl1x`](.agents/pm/features/pm-rl-tl1x.toon) | planned |
+| Benchmarks and eval results | [`pm-rl-tl1x`](.agents/pm/features/pm-rl-tl1x.toon) | **implemented** (`pm rl benchmark register`, `pm rl eval record`) |
 | Sim-to-real transfer and gap reporting | [`pm-rl-06n6`](.agents/pm/features/pm-rl-06n6.toon) | planned |
-| Leaderboard and its two refusals | [`pm-rl-nzxt`](.agents/pm/features/pm-rl-nzxt.toon) | planned |
+| Leaderboard and its two refusals | [`pm-rl-nzxt`](.agents/pm/features/pm-rl-nzxt.toon) | **implemented** (`pm rl leaderboard`; see §3) |
 | `invalidate` over the dependency graph | [`pm-rl-keet`](.agents/pm/features/pm-rl-keet.toon) | **implemented** |
 | `compare` with the config delta | [`pm-rl-taj8`](.agents/pm/features/pm-rl-taj8.toon) | **implemented** |
 | 100/100/100 + docstring coverage | [`pm-rl-fpon`](.agents/pm/tasks/pm-rl-fpon.toon) | continuous gate |
