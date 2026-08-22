@@ -72,6 +72,15 @@ import {
 } from "./receipt.ts";
 
 import {
+  buildSweepStatus,
+  expandSearchSpace,
+  parseSelectionRule,
+  parseSweepSpec,
+  renderSweepStatus,
+  type SweepSpec,
+} from "./sweep.ts";
+
+import {
   assertNoCredentials,
   buildSimRealGap,
   deriveVerdict,
@@ -195,6 +204,14 @@ export const RL_ITEM_TYPES = [
     description: "One judged candidate against the fleet's mandatory gates: a content-addressed candidate tree, its gate results and extracted verdict, linked to its pull request.",
     default_status: "closed",
     required_create_fields: ["affected_version", "fixed_version", "component", "environment"],
+  }),
+  defineItemType({
+    name: "Sweep",
+    folder: "sweeps",
+    aliases: ["rl-sweep"],
+    description: "A declared search space and selection rule whose arms are independent child Run items.",
+    default_status: "open",
+    required_create_fields: ["affected_version", "fixed_version", "component"],
   }),
   defineItemType({
     name: "MergeOutcome",
@@ -402,7 +419,7 @@ export function idSegment(value: string): string {
 }
 
 /** Validate that an existing item has the expected domain type. */
-async function getTypedItem(client: PmClient, id: string, type: "Environment" | "Run" | "Generation" | "Benchmark" | "EvalResult" | "GateEpisode" | "MergeOutcome"): Promise<GetResult> {
+async function getTypedItem(client: PmClient, id: string, type: "Environment" | "Run" | "Generation" | "Benchmark" | "EvalResult" | "GateEpisode" | "MergeOutcome" | "Sweep"): Promise<GetResult> {
   const result = await client.get(id, { depth: "deep" });
   if (result.item.type !== type) fail(`pm rl expected ${type} ${id}, not ${String(result.item.type)}.`, "wrong_item_type", EXIT_CODE.CONFLICT);
   return result;
@@ -2111,6 +2128,163 @@ async function compareRuns(context: CommandHandlerContext): Promise<RlCommandRes
   return { action: "rl-compare", details: { format: "table", output: renderCompareReport(view), ...view } };
 }
 
+/**
+ * Expand a declared search space into one child Run per arm.
+ *
+ * Arms are ordinary Runs — same environment snapshot and configuration body a
+ * hand-started run gets, plus the arm's expanded hyperparameters as the run
+ * configuration — so two agents can advance two arms on two branches and merge.
+ * The Sweep item stores the space, the rule, and the planned arm list; nothing
+ * about the plan is inferred later from naming conventions.
+ */
+async function planSweep(context: CommandHandlerContext): Promise<RlCommandResult> {
+  const requestedId = requiredArgument(context, "a sweep id");
+  const path = stringOption(context, "file")!;
+  const environmentId = stringOption(context, "environment")!;
+  const algorithm = stringOption(context, "algorithm")!;
+  const spaceRaw = readJsonFile(path, "Search space");
+  if (spaceRaw === null || typeof spaceRaw !== "object" || Array.isArray(spaceRaw)) {
+    fail(`Search space ${path} must contain one JSON object with search_space and selection_rule.`, "invalid_search_space_file");
+  }
+  const spaceRecord = spaceRaw as Record<string, JsonValue>;
+  const spaceRawSpace = spaceRecord["search_space"];
+  if (spaceRawSpace === null || typeof spaceRawSpace !== "object" || Array.isArray(spaceRawSpace)) {
+    fail(`Search space file ${path} requires a search_space object of hyperparameter to candidate values.`, "invalid_search_space");
+  }
+  const ruleRaw = spaceRecord["selection_rule"];
+  if (typeof ruleRaw !== "string") {
+    fail(`Search space file ${path} requires a string selection_rule ("none" or max_final:<metric> / min_final:<metric>).`, "invalid_selection_rule");
+  }
+  // Validated BEFORE anything is written: an unplanable rule must not leave a
+  // half-registered sweep or partial arms behind.
+  const selectionRule = parseSelectionRule(ruleRaw);
+  const client = clientFor(context);
+  await ensurePersistentTypes(client);
+  const verifiedEnvironment = await verifyEnvironmentIdentity(client, environmentId, "sweep arms");
+  const configs = expandSearchSpace(spaceRawSpace as Record<string, JsonValue[]>);
+  if (configs.length === 0) {
+    fail(`Search space file ${path} declares no dimensions, so there is no arm to plan.`, "invalid_search_space");
+  }
+  const specHash = hashJson(verifiedEnvironment.spec);
+  // Every arm id is derived up front and checked before any create runs, so a
+  // re-plan refuses without leaving a partially expanded sweep behind.
+  const armIds = configs.map((_, index) => `${requestedId}-arm-${index + 1}`);
+  for (const armId of armIds) {
+    try {
+      await getTypedItem(client, armId, "Run");
+      fail(`Arm run ${armId} already exists; sweep ${requestedId} is already planned. Plan a new sweep id instead.`, "sweep_arm_exists", EXIT_CODE.CONFLICT);
+    } catch (error) {
+      if (!isItemNotFound(error)) throw error;
+    }
+  }
+  const arms: Array<{ id: string; config: JsonValue }> = [];
+  for (const [index, config] of configs.entries()) {
+    const armId = armIds[index]!;
+    const result = await client.create({
+      id: armId,
+      title: armId,
+      type: "Run",
+      status: "in_progress",
+      acceptanceCriteria: `Sweep arm ${index + 1} retains its exact environment and hyperparameter identities; its metrics are history appends independent of every other arm.`,
+      estimatedMinutes: "1",
+      body: `# ${armId}\n\nAlgorithm: ${algorithm}\n\nEnvironment snapshot:\n\n\`\`\`json\n${JSON.stringify(verifiedEnvironment.spec, null, 2)}\n\`\`\`\n\nRun configuration:\n\n\`\`\`json\n${JSON.stringify(config, null, 2)}\n\`\`\``,
+      dep: [verifiedEnvironment.id],
+      environment: verifiedEnvironment.id,
+      affectedVersion: specHash,
+      component: algorithm,
+      fixedVersion: hashJson(config),
+      message: `Plan RL sweep arm ${index + 1}`,
+    });
+    // Report the RESOLVED id: the host scopes created ids under its alias.
+    arms.push({ id: String(result.item.id), config });
+  }
+  const spec: SweepSpec = {
+    search_space: spaceRawSpace as Record<string, JsonValue[]>,
+    selection_rule: selectionRule,
+    algorithm,
+    environment_id: verifiedEnvironment.id,
+    environment_spec_hash: specHash,
+    arms,
+  };
+  const sweepHash = hashJson(spec as unknown as JsonValue);
+  await client.create({
+    id: requestedId,
+    title: requestedId,
+    type: "Sweep",
+    status: "open",
+    acceptanceCriteria: "The sweep retains its declared space, selection rule, and planned arms; its children are independent runs.",
+    estimatedMinutes: "1",
+    body: `# ${requestedId}\n\n\`\`\`json\n${JSON.stringify(spec, null, 2)}\n\`\`\``,
+    dep: [verifiedEnvironment.id],
+    affectedVersion: sweepHash,
+    fixedVersion: algorithm,
+    component: verifiedEnvironment.id,
+    message: "Plan RL sweep",
+  });
+  return {
+    action: "rl-sweep-plan",
+    id: requestedId,
+    created: true,
+    details: {
+      arms: arms.map((arm) => arm.id),
+      selection_rule: selectionRule.kind === "none" ? "none" : `${selectionRule.kind}:${selectionRule.metric}`,
+      environment_id: verifiedEnvironment.id,
+      spec_hash: sweepHash,
+    },
+  };
+}
+
+/**
+ * Report per-arm progress and the selection rule's current verdict.
+ *
+ * Progress is read live from each child run's metric history. The winner is
+ * named only when the stored rule supports one AND at least one arm has measured
+ * the selection metric; otherwise status states exactly why no verdict exists.
+ */
+async function showSweepStatus(context: CommandHandlerContext): Promise<RlCommandResult> {
+  const id = requiredArgument(context, "a sweep id");
+  const client = clientFor(context);
+  await ensurePersistentTypes(client);
+  const sweep = await getTypedItem(client, id, "Sweep");
+  const resolvedId = String(sweep.item.id);
+  let specText: string | null;
+  try {
+    specText = storedJson(String(sweep.item.body), resolvedId, "sweep_missing_spec");
+  } catch {
+    fail(`Sweep ${resolvedId} has no readable specification fence and cannot report status.`, "sweep_unreadable", EXIT_CODE.CONFLICT);
+  }
+  const spec = parseSweepSpec(specText, `Sweep ${resolvedId} specification`);
+  const selectionMetric = spec.selection_rule.kind === "none" ? null : spec.selection_rule.metric;
+  const arms = [];
+  for (const arm of spec.arms) {
+    const run = await getTypedItem(client, arm.id, "Run");
+    const series = readSeries((await readCompleteNotes(client, arm.id)).map((note) => note.text));
+    // Latest value per step of the selection metric; the final value is the one
+    // at the highest measured step.
+    const stepsByMetric = new Map<number, number>();
+    for (const event of series.events) {
+      if (selectionMetric !== null && event.metric === selectionMetric) {
+        stepsByMetric.set(event.step, event.value);
+      }
+    }
+    const finalStep = series.events.reduce((max, event) => Math.max(max, event.step), -1);
+    const finalEntry = [...stepsByMetric.entries()].sort(([left], [right]) => left - right).at(-1);
+    arms.push({
+      id: arm.id,
+      config: arm.config,
+      status: String(run.item.status),
+      metric_events: series.events.length,
+      last_step: finalStep < 0 ? null : finalStep,
+      final_value: finalEntry === undefined ? null : finalEntry[1],
+    });
+  }
+  const view = { sweep: resolvedId, ...buildSweepStatus(spec.selection_rule, arms) };
+  if (context.global.json === true) {
+    return { action: "rl-sweep-status", id: resolvedId, details: { format: "json", ...view } };
+  }
+  return { action: "rl-sweep-status", id: resolvedId, details: { format: "table", output: renderSweepStatus(view), ...view } };
+}
+
 /** Commands authored separately so activation and tests share one exact contract. */
 export const RL_COMMANDS = [
   defineCommand({ name: "rl env register", description: "Register an immutable, content-addressed environment JSON specification.", flags: [{ long: "--file", value_name: "path", value_type: "string", required: true, description: "Environment JSON file." }], run: registerEnvironment }),
@@ -2176,6 +2350,12 @@ export const RL_COMMANDS = [
     { long: "--pull-request", value_name: "link", value_type: "string", required: true, description: "Stable link matching the paired episode's pull request exactly." },
     { long: "--merged", value_name: "true|false", value_type: "string", required: true, description: "Whether the pull request merged." },
   ], run: recordOutcome }),
+  defineCommand({ name: "rl sweep plan", description: "Expand a declared search space into one child Run per arm with the arm's hyperparameters recorded.", arguments: [{ name: "id", required: true, description: "Sweep item id." }], flags: [
+    { long: "--file", value_name: "path", value_type: "string", required: true, description: "JSON with search_space and selection_rule." },
+    { long: "--environment", value_name: "id", value_type: "string", required: true, description: "Environment item id every arm trains under." },
+    { long: "--algorithm", value_name: "name", value_type: "string", required: true, description: "Training algorithm every arm runs." },
+  ], run: planSweep }),
+  defineCommand({ name: "rl sweep status", description: "Report per-arm progress and the selection rule's current verdict across arms, never inventing a winner the rule does not support.", arguments: [{ name: "id", required: true, description: "Sweep item id." }], run: showSweepStatus }),
   defineCommand({ name: "rl simreal gap", description: "Report the sim-to-real gap over the paired cohort of episodes and outcomes, denominators stated, unpaired sides as coverage.", run: simRealGap }),
   defineCommand({ name: "rl compare", description: "Diff two runs' metrics over their common step range with the hyperparameter, environment-version and reward-spec delta; refuses runs from different environment versions.", arguments: [
     { name: "baseline", required: true, description: "Baseline run item id." },
