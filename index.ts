@@ -2193,6 +2193,36 @@ async function compareRuns(context: CommandHandlerContext): Promise<RlCommandRes
 }
 
 /**
+ * Remove the arm runs an interrupted sweep plan already wrote.
+ *
+ * A partial sweep leaves orphaned child runs that later reads would treat as
+ * real arms, so every arm written before the failure is deleted. A removal that
+ * itself fails is refused with both causes named — the removal failure first,
+ * then the original create failure — because silent orphans are precisely what
+ * the cleanup exists to prevent.
+ *
+ * @param client - Client bound to the target workspace.
+ * @param arms - The resolved ids of the arms written so far.
+ * @param cause - The original failure that interrupted the plan, named in the
+ *   refusal when a removal itself fails.
+ * @returns When every arm was removed; the caller then rethrows its own cause.
+ * @throws {sweep_cleanup_failed} When any removal fails, naming both causes.
+ */
+export async function removePlannedArms(client: PmClient, arms: ReadonlyArray<{ id: string }>, cause: unknown): Promise<void> {
+  for (const arm of arms) {
+    try {
+      await client.delete(arm.id, { force: true });
+    } catch (removeError) {
+      fail(
+        `${String(removeError)} — and removing the partially planned arm ${arm.id} also failed while recovering from ${String(cause)}, so the sweep has orphaned arms that must be deleted before it can be re-planned.`,
+        "sweep_cleanup_failed",
+        EXIT_CODE.CONFLICT,
+      );
+    }
+  }
+}
+
+/**
  * Expand a declared search space into one child Run per arm.
  *
  * Arms are ordinary Runs — same environment snapshot and configuration body a
@@ -2274,14 +2304,8 @@ async function planSweep(context: CommandHandlerContext): Promise<RlCommandResul
   } catch (error) {
     // A mid-plan failure must not leave orphaned arm runs that later reads would
     // treat as real children. Remove everything this invocation wrote, then let
-    // the original cause surface first if a removal itself fails.
-    for (const arm of arms) {
-      try {
-        await client.delete(arm.id, { force: true });
-      } catch (removeError) {
-        fail(`${String(removeError)} — and removing the partially planned arm ${arm.id} also failed, so sweep ${requestedId} has orphaned arms that must be deleted before it can be re-planned.`, "sweep_cleanup_failed", EXIT_CODE.CONFLICT);
-      }
-    }
+    // the original cause surface.
+    await removePlannedArms(client, arms, error);
     throw error;
   }
   const spec: SweepSpec = {

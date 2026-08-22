@@ -190,32 +190,27 @@ test("a matching receipt verifies without mutating the run; a drifted one refuse
   );
 });
 
-test("a run configuration that embeds the receipt heading does not fool verify", async () => {
-  const { root, pmRoot, harness, client } = await workspace();
+test("caller-supplied text embedding the receipt heading does not fool verify", async () => {
+  const { root, pmRoot, harness } = await workspace();
   const environment = await registerEnv(root, pmRoot, harness);
-  // The configuration value contains the literal heading text; an unanchored
-  // search would find this impostor first and return the CONFIGURATION fence.
-  const configFile = join(root, "tricky-config.json");
-  writeFileSync(configFile, JSON.stringify({ note: "Determinism receipt: nothing to see here" }));
-  const environmentId = environment;
-  const receiptFile = writeReceipt(root, { environment_version: environmentId });
-  const run = await (async () => {
-    const started = resultOf(await harness.runCommand({
-      command: "rl run start",
-      pmRoot,
-      args: ["tricky-run"],
-      options: { environment: environmentId, algorithm: "PPO", configFile, receiptFile },
-    }));
-    return started.id!;
-  })();
+  const receiptFile = writeReceipt(root, { environment_version: environment });
+  // The algorithm is caller-supplied free text written BEFORE every fence in
+  // the body. An unanchored heading search finds this impostor first and
+  // returns the ENVIRONMENT-SNAPSHOT fence, which parseReceipt rejects — so a
+  // perfectly valid run could never verify.
+  const started = resultOf(await harness.runCommand({
+    command: "rl run start",
+    pmRoot,
+    args: ["tricky-run"],
+    options: { environment, algorithm: "PPO --note \"Determinism receipt: nothing to see here\"", receiptFile },
+  }));
   const verified = resultOf(await harness.runCommand({
     command: "rl run verify",
     pmRoot,
-    args: [run],
+    args: [started.id!],
     options: { receiptFile },
   }));
   assert.equal(verified.details?.verified, true);
-  void client;
 });
 
 test("verify re-derives against the run itself: an environment the run never used cannot verify", async () => {

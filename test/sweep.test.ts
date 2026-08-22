@@ -11,7 +11,7 @@ import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { EXIT_CODE, init, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness, type ExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 
-import extension, { RL_ITEM_TYPES, type RlCommandResult } from "../index.ts";
+import extension, { removePlannedArms, RL_ITEM_TYPES, type RlCommandResult } from "../index.ts";
 import {
   buildSweepStatus,
   expandSearchSpace,
@@ -43,6 +43,11 @@ function sdkWith(client: PmClient): HostSdk {
 /** Assert a refusal carries an explicit typed code and conflict exit. */
 function typedRefusal(code: string) {
   return (error: unknown): boolean => isPmCliExpectedError(error) && error.exitCode === EXIT_CODE.CONFLICT && String((error as { context?: { code?: string } }).context?.code) === code;
+}
+
+/** Assert an item does not resolve: the host's not-found exit. */
+function typedNotFound(error: unknown): boolean {
+  return isPmCliExpectedError(error) && error.exitCode === EXIT_CODE.NOT_FOUND;
 }
 
 /** Assert a usage-input refusal carries its typed code on the usage exit. */
@@ -435,10 +440,42 @@ test("planning refuses an existing sweep id even when its arms are gone, and cle
   });
   assert.equal(failed.handled, false);
   assert.match(String(failed.errorMessage), /injected host failure/);
+  // Every arm the invocation managed to write was removed before the error
+  // surfaced: nothing is left for a retry to trip over.
   for (const armId of ["rl-sweep-flaky-arm-1", "rl-sweep-flaky-arm-2", "rl-sweep-flaky-arm-3", "rl-sweep-flaky-arm-4"]) {
-    await assert.rejects(client.get(armId, {}), (error: unknown): boolean => isPmCliExpectedError(error) && error.exitCode === EXIT_CODE.NOT_FOUND, `${armId} must not survive a failed plan`);
+    await assert.rejects(client.get(armId, {}), typedNotFound, `${armId} must not survive a failed plan`);
   }
-  await assert.rejects(client.get("rl-sweep-flaky", {}), (error: unknown): boolean => isPmCliExpectedError(error) && error.exitCode === EXIT_CODE.NOT_FOUND);
+  await assert.rejects(client.get("rl-sweep-flaky", {}), typedNotFound);
+
+  // A cleanup that itself cannot remove the arm is refused with BOTH causes
+  // named — the removal failure first, the original create failure second.
+  let worseCreateCalls = 0;
+  const failingWorse = new Proxy(client, {
+    get(target, property, receiver) {
+      if (property === "create") {
+        return async (options?: unknown) => {
+          worseCreateCalls += 1;
+          if (worseCreateCalls >= 2) throw new Error("injected host failure on second create");
+          return (Reflect.get(target, "create", receiver) as (...a: unknown[]) => Promise<unknown>).bind(target)(options);
+        };
+      }
+      if (property === "delete") {
+        return async () => { throw new Error("injected removal failure"); };
+      }
+      const value = Reflect.get(target, property, receiver);
+      return typeof value === "function" ? (value as (...arguments_: unknown[]) => unknown).bind(target) : value;
+    },
+  }) as PmClient;
+  await assert.rejects(
+    removePlannedArms(failingWorse, [{ id: "rl-sweep-worse-arm-1" }], new Error("injected host failure on second create")),
+    (error: unknown): boolean => {
+      if (!isPmCliExpectedError(error) || String((error as { context?: { code?: string } }).context?.code) !== "sweep_cleanup_failed") return false;
+      const message = String(error.message ?? error);
+      assert.match(message, /injected removal failure/, "the removal cause is named first");
+      assert.match(message, /injected host failure/, "and the original create cause is not lost");
+      return true;
+    },
+  );
 });
 
 test("status refuses a missing sweep and a hand-authored body without a specification fence", async () => {
