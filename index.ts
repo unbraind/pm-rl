@@ -72,6 +72,14 @@ import {
 } from "./receipt.ts";
 
 import {
+  buildTransferGapReport,
+  parseTransferMetrics,
+  parseTransferSpec,
+  renderTransferGapReport,
+  type TransferSpec,
+} from "./transfer.ts";
+
+import {
   buildSweepStatus,
   expandSearchSpace,
   parseSelectionRule,
@@ -125,6 +133,15 @@ const EVAL_BENCHMARK_SOURCE = "pm-rl:eval:benchmark";
 
 /** Dependency provenance marker connecting a gate episode to its environment. */
 const EPISODE_ENVIRONMENT_SOURCE = "pm-rl:episode:environment";
+
+/** Dependency provenance marker for a transfer's simulator-side environment. */
+const TRANSFER_SOURCE_ENVIRONMENT = "pm-rl:transfer:source";
+
+/** Dependency provenance marker for a transfer's deployment-side environment. */
+const TRANSFER_TARGET_ENVIRONMENT = "pm-rl:transfer:target";
+
+/** Dependency provenance marker connecting a transfer to its source run. */
+const TRANSFER_RUN = "pm-rl:transfer:run";
 
 /** JSON values accepted in environment and run configuration files. */
 export type JsonValue = null | boolean | number | string | JsonValue[] | { readonly [key: string]: JsonValue };
@@ -203,6 +220,14 @@ export const RL_ITEM_TYPES = [
     aliases: ["rl-gate-episode", "rl-episode"],
     description: "One judged candidate against the fleet's mandatory gates: a content-addressed candidate tree, its gate results and extracted verdict, linked to its pull request.",
     default_status: "closed",
+    required_create_fields: ["affected_version", "fixed_version", "component", "environment"],
+  }),
+  defineItemType({
+    name: "Transfer",
+    folder: "transfers",
+    aliases: ["rl-transfer"],
+    description: "One measured per-metric sim-to-real gap for one checkpoint, linking both environment versions.",
+    default_status: "open",
     required_create_fields: ["affected_version", "fixed_version", "component", "environment"],
   }),
   defineItemType({
@@ -419,7 +444,7 @@ export function idSegment(value: string): string {
 }
 
 /** Validate that an existing item has the expected domain type. */
-async function getTypedItem(client: PmClient, id: string, type: "Environment" | "Run" | "Generation" | "Benchmark" | "EvalResult" | "GateEpisode" | "MergeOutcome" | "Sweep"): Promise<GetResult> {
+async function getTypedItem(client: PmClient, id: string, type: "Environment" | "Run" | "Generation" | "Benchmark" | "EvalResult" | "GateEpisode" | "MergeOutcome" | "Sweep" | "Transfer"): Promise<GetResult> {
   const result = await client.get(id, { depth: "deep" });
   if (result.item.type !== type) fail(`pm rl expected ${type} ${id}, not ${String(result.item.type)}.`, "wrong_item_type", EXIT_CODE.CONFLICT);
   return result;
@@ -2285,6 +2310,113 @@ async function showSweepStatus(context: CommandHandlerContext): Promise<RlComman
   return { action: "rl-sweep-status", id: resolvedId, details: { format: "table", output: renderSweepStatus(view), ...view } };
 }
 
+/**
+ * Record one sim-to-real transfer measurement.
+ *
+ * The transfer depends on BOTH environment versions and the checkpoint through
+ * typed edges, so an edit to either side invalidates it through `pm rl
+ * invalidate` with no new machinery. Both environments are re-verified against
+ * their content identities at write time — a measurement backed by a mutated
+ * specification is refused rather than recorded.
+ */
+async function recordTransfer(context: CommandHandlerContext): Promise<RlCommandResult> {
+  const requestedId = requiredArgument(context, "a transfer id");
+  const sourceId = stringOption(context, "source")!;
+  const targetId = stringOption(context, "target")!;
+  const checkpoint = stringOption(context, "checkpoint")!;
+  const runId = stringOption(context, "run")!;
+  const metricsPath = stringOption(context, "metrics")!;
+  if (sourceId === targetId) {
+    fail(`pm rl transfer record requires two DIFFERENT environments; ${sourceId} cannot be both the simulator and the deployment side of a gap.`, "degenerate_transfer", EXIT_CODE.CONFLICT);
+  }
+  const client = clientFor(context);
+  await ensurePersistentTypes(client);
+  // Verified before the metrics are even parsed so a broken environment is the
+  // first refusal reported.
+  const source = await verifyEnvironmentIdentity(client, sourceId, "transfers");
+  const target = await verifyEnvironmentIdentity(client, targetId, "transfers");
+  const run = await getTypedItem(client, runId, "Run");
+  const resolvedRunId = String(run.item.id);
+  const gaps = parseTransferMetrics(readTextFile(metricsPath, "Transfer metrics"), `Transfer metrics ${metricsPath}`);
+  const spec: TransferSpec = {
+    source_environment_id: source.id,
+    target_environment_id: target.id,
+    checkpoint,
+    run_id: resolvedRunId,
+    gaps,
+  };
+  const result = await client.create({
+    id: requestedId,
+    title: `Sim-to-real gap at ${checkpoint.slice(0, 16)}`,
+    type: "Transfer",
+    status: "open",
+    acceptanceCriteria: "The transfer traces to both exact environment versions, its source run, and its checkpoint, with every measured metric finite and named.",
+    estimatedMinutes: "1",
+    body: `# ${requestedId}\n\n\`\`\`json\n${JSON.stringify(spec, null, 2)}\n\`\`\``,
+    dep: [
+      `id=${source.id},kind=related,source_kind=${TRANSFER_SOURCE_ENVIRONMENT}`,
+      `id=${target.id},kind=related,source_kind=${TRANSFER_TARGET_ENVIRONMENT}`,
+      `id=${resolvedRunId},kind=discovered_from,source_kind=${TRANSFER_RUN}`,
+    ],
+    environment: source.id,
+    affectedVersion: hashJson(spec as unknown as JsonValue),
+    fixedVersion: checkpoint,
+    component: target.id,
+    message: "Record sim-to-real transfer measurement",
+  });
+  return {
+    action: "rl-transfer-record",
+    id: String(result.item.id),
+    created: true,
+    details: {
+      source_environment_id: source.id,
+      target_environment_id: target.id,
+      run_id: resolvedRunId,
+      checkpoint,
+      metrics: gaps.map((gap) => gap.metric),
+    },
+  };
+}
+
+/**
+ * Report the per-metric gap series across one run's transfers.
+ *
+ * Transfers are ordered by recording time (item id breaking ties within one
+ * instant). A transfer whose source or target environment no longer resolves to
+ * its content identity is reported as STALE with the reason, excluded from every
+ * series — a gap whose provenance went stale must not be plotted beside fresh
+ * ones, where it would quietly manufacture or flatten a trend.
+ */
+async function showTransferGap(context: CommandHandlerContext): Promise<RlCommandResult> {
+  const id = requiredArgument(context, "a run id");
+  const client = clientFor(context);
+  await ensurePersistentTypes(client);
+  const run = await getTypedItem(client, id, "Run");
+  const resolvedRunId = String(run.item.id);
+  const entries: Array<{ id: string; created_at: string; spec: TransferSpec; stale_reason: string | null }> = [];
+  for (const item of (await client.list({ type: "Transfer", status: "all", noTruncate: true, fields: "id,body,created_at" })).items) {
+    // A listed item without an id carries no identity to plot or name.
+    if (item.id === undefined) continue;
+    let specText: string;
+    try {
+      specText = storedJson(String(item.body), `Transfer ${item.id}`, "transfer_missing_spec");
+    } catch {
+      fail(`Transfer ${item.id} has no readable specification fence and cannot enter the gap series.`, "transfer_unreadable", EXIT_CODE.CONFLICT);
+    }
+    const spec = parseTransferSpec(specText, `Transfer ${item.id} specification`);
+    if (spec.run_id !== resolvedRunId) continue;
+    // Either side going stale breaks the whole measurement: half of a gap is
+    // not half a data point.
+    const staleReason = (await environmentInvalidationReason(client, spec.source_environment_id)) ?? (await environmentInvalidationReason(client, spec.target_environment_id));
+    entries.push({ id: String(item.id), created_at: String(item.created_at), spec, stale_reason: staleReason });
+  }
+  const report = buildTransferGapReport(entries);
+  if (context.global.json === true) {
+    return { action: "rl-transfer-gap", id: resolvedRunId, details: { format: "json", ...report } };
+  }
+  return { action: "rl-transfer-gap", id: resolvedRunId, details: { format: "table", output: renderTransferGapReport(resolvedRunId, report), ...report } };
+}
+
 /** Commands authored separately so activation and tests share one exact contract. */
 export const RL_COMMANDS = [
   defineCommand({ name: "rl env register", description: "Register an immutable, content-addressed environment JSON specification.", flags: [{ long: "--file", value_name: "path", value_type: "string", required: true, description: "Environment JSON file." }], run: registerEnvironment }),
@@ -2350,6 +2482,14 @@ export const RL_COMMANDS = [
     { long: "--pull-request", value_name: "link", value_type: "string", required: true, description: "Stable link matching the paired episode's pull request exactly." },
     { long: "--merged", value_name: "true|false", value_type: "string", required: true, description: "Whether the pull request merged." },
   ], run: recordOutcome }),
+  defineCommand({ name: "rl transfer record", description: "Record one measured per-metric sim-to-real gap for one checkpoint, linked to both environment versions and its run.", arguments: [{ name: "id", required: true, description: "Transfer item id." }], flags: [
+    { long: "--source", value_name: "id", value_type: "string", required: true, description: "Simulator-side Environment item id." },
+    { long: "--target", value_name: "id", value_type: "string", required: true, description: "Deployment-side Environment item id." },
+    { long: "--checkpoint", value_name: "hash", value_type: "string", required: true, description: "Content-addressed checkpoint identity measured." },
+    { long: "--run", value_name: "id", value_type: "string", required: true, description: "Source Run item id whose checkpoint series this joins." },
+    { long: "--metrics", value_name: "path", value_type: "string", required: true, description: "JSON file of per-metric gaps." },
+  ], run: recordTransfer }),
+  defineCommand({ name: "rl transfer gap", description: "Report the per-metric gap series across a run's checkpoints in order; superseded-environment transfers are reported stale, not plotted.", arguments: [{ name: "run", required: true, description: "Run item id whose transfers to report." }], run: showTransferGap }),
   defineCommand({ name: "rl sweep plan", description: "Expand a declared search space into one child Run per arm with the arm's hyperparameters recorded.", arguments: [{ name: "id", required: true, description: "Sweep item id." }], flags: [
     { long: "--file", value_name: "path", value_type: "string", required: true, description: "JSON with search_space and selection_rule." },
     { long: "--environment", value_name: "id", value_type: "string", required: true, description: "Environment item id every arm trains under." },
