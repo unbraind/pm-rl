@@ -65,6 +65,13 @@ import {
 } from "./leaderboard.ts";
 
 import {
+  compareReceipts,
+  parseReceipt,
+  renderReceiptDifferences,
+  type ReceiptSpec,
+} from "./receipt.ts";
+
+import {
   assertNoCredentials,
   buildSimRealGap,
   deriveVerdict,
@@ -495,9 +502,18 @@ async function startRun(context: CommandHandlerContext): Promise<RlCommandResult
   const algorithm = stringOption(context, "algorithm")!;
   const configPath = stringOption(context, "config_file", false);
   const config = configPath === undefined ? {} : readJsonFile(configPath, "Run configuration");
+  // A determinism receipt is optional at start but immutable once recorded: it
+  // is written into the body here and re-derived later by `rl run verify`.
+  const receiptPath = stringOption(context, "receipt_file", false);
+  const receipt: ReceiptSpec | null = receiptPath === undefined ? null : parseReceipt(readTextFile(receiptPath, "Determinism receipt"), `Determinism receipt ${receiptPath}`);
   const client = clientFor(context);
   await ensurePersistentTypes(client);
   const verifiedEnvironment = await verifyEnvironmentIdentity(client, environmentId, "runs");
+  // A receipt that names an environment other than the one this run records
+  // would be born already unverifiable; refuse it at the write, not at verify.
+  if (receipt !== null && receipt.environment_version !== verifiedEnvironment.id) {
+    fail(`Determinism receipt names environment "${receipt.environment_version}" but the run records ${verifiedEnvironment.id}. A receipt must pin the exact environment item id the run trains under.`, "receipt_environment_mismatch", EXIT_CODE.CONFLICT);
+  }
   const storedSpec = verifiedEnvironment.spec;
   const specHash = hashJson(storedSpec);
   const configHash = hashJson(config);
@@ -508,7 +524,7 @@ async function startRun(context: CommandHandlerContext): Promise<RlCommandResult
     status: "in_progress",
     acceptanceCriteria: "The run retains its exact environment and configuration identities, metric input is complete, and finish records the terminal outcome.",
     estimatedMinutes: "1",
-    body: `# ${requestedId}\n\nAlgorithm: ${algorithm}\n\nEnvironment snapshot:\n\n\`\`\`json\n${JSON.stringify(storedSpec, null, 2)}\n\`\`\`\n\nRun configuration:\n\n\`\`\`json\n${JSON.stringify(config, null, 2)}\n\`\`\``,
+    body: `# ${requestedId}\n\nAlgorithm: ${algorithm}\n\nEnvironment snapshot:\n\n\`\`\`json\n${JSON.stringify(storedSpec, null, 2)}\n\`\`\`\n\nRun configuration:\n\n\`\`\`json\n${JSON.stringify(config, null, 2)}\n\`\`\`${receipt === null ? "" : `\n\n${RECEIPT_HEADING}\n\n\`\`\`json\n${JSON.stringify(receipt, null, 2)}\n\`\`\``}`,
     // Both edges name the RESOLVED id. `environmentId` is the raw --environment
     // input, which may be an alias; recording it on one edge and the resolved id
     // on the other would make a single create call describe two different
@@ -522,6 +538,53 @@ async function startRun(context: CommandHandlerContext): Promise<RlCommandResult
     message: "Start attributable RL run",
   });
   return { action: "rl-run-start", id: result.item.id, created: true, details: { environment_id: verifiedEnvironment.id, spec_hash: specHash, config_hash: configHash } };
+}
+
+/**
+ * Re-derive a run's determinism receipt against a fresh one.
+ *
+ * Verification is a pure read over two inputs — the receipt recorded at start
+ * and the receipt the caller can still produce today — plus the run's own
+ * recorded environment, which the receipt must name even when it agrees with
+ * itself. Any difference refuses with `receipt_mismatch` naming each drifted
+ * field; a run with no stored receipt is refused rather than treated as
+ * matching an empty one. Verify never writes: an unverifiable claim must stay
+ * exactly as it was claimed so the disagreement remains inspectable.
+ */
+async function verifyRun(context: CommandHandlerContext): Promise<RlCommandResult> {
+  const id = requiredArgument(context, "a run id");
+  const receiptPath = stringOption(context, "receipt_file")!;
+  const rederived = parseReceipt(readTextFile(receiptPath, "Determinism receipt"), `Determinism receipt ${receiptPath}`);
+  const client = clientFor(context);
+  const run = await getTypedItem(client, id, "Run");
+  const resolvedId = String(run.item.id);
+  const storedReceipt = fencedSection(String(run.item.body), RECEIPT_HEADING);
+  if (storedReceipt === null) {
+    fail(`Run ${resolvedId} records no determinism receipt; restart it with pm rl run start --receipt-file to make it verifiable.`, "receipt_unrecorded", EXIT_CODE.CONFLICT);
+  }
+  const recorded = parseReceipt(storedReceipt, `Run ${resolvedId} recorded determinism receipt`);
+  const differences = compareReceipts(recorded, rederived);
+  // The receipt must also agree with the RUN ITSELF: an internally consistent
+  // receipt naming an environment this run never used would otherwise verify.
+  const runEnvironment = normalizeRunEnvironment(run.item.environment);
+  if (typeof runEnvironment === "string" && runEnvironment.length > 0 && recorded.environment_version !== runEnvironment) {
+    differences.unshift({ field: "environment_version", recorded: `"${recorded.environment_version}"`, now: `the run's recorded environment ${runEnvironment}` });
+  }
+  if (differences.length > 0) {
+    fail(`pm rl run verify reports run ${resolvedId} as UNVERIFIABLE. Receipt no longer re-derives: ${renderReceiptDifferences(differences)}.`, "receipt_mismatch", EXIT_CODE.CONFLICT);
+  }
+  return {
+    action: "rl-run-verify",
+    id: resolvedId,
+    details: {
+      verified: true,
+      differences: [],
+      seed_policy: recorded.seed_policy,
+      device: recorded.device,
+      library_versions: recorded.library_versions,
+      environment_version: recorded.environment_version,
+    },
+  };
 }
 
 /** Append parsed measurements as bounded compressed segments through the typed SDK. */
@@ -1887,6 +1950,22 @@ async function renderLineageCommand(context: CommandHandlerContext): Promise<RlC
   return { action: "rl-lineage", details: { format: "table", output: renderLineageTable(view), view } };
 }
 
+/** The run-body heading under which `rl run start` stores a determinism receipt. */
+const RECEIPT_HEADING = "Determinism receipt:";
+
+/**
+ * Return the JSON fence text following a body heading, or null when absent.
+ *
+ * @param body - The item body to search.
+ * @param heading - The exact heading text that precedes the fence.
+ * @returns The fence's JSON text, or null when the heading or fence is absent.
+ */
+function fencedSection(body: string, heading: string): string | null {
+  const start = body.indexOf(heading);
+  if (start < 0) return null;
+  return JSON_SPEC_FENCE.exec(body.slice(start))?.[1] ?? null;
+}
+
 /** Parsed provenance sections of a Run body written by `rl run start`. */
 interface RunBodySections {
   /** The exact environment specification snapshot the run started under. */
@@ -1912,11 +1991,7 @@ interface RunBodySections {
  *   parseable JSON object.
  */
 function runBodySections(body: string, id: string): RunBodySections {
-  const section = (heading: string): string | null => {
-    const start = body.indexOf(heading);
-    if (start < 0) return null;
-    return JSON_SPEC_FENCE.exec(body.slice(start))?.[1] ?? null;
-  };
+  const section = (heading: string): string | null => fencedSection(body, heading);
   const environmentJson = section("Environment snapshot:");
   if (environmentJson === null) {
     fail(`Run ${id} has no readable environment snapshot section, so its recorded environment version cannot be compared. Restart the run with pm rl run start to record one.`, "run_body_unreadable", EXIT_CODE.CONFLICT);
@@ -2059,6 +2134,9 @@ export const RL_COMMANDS = [
     { long: "--config-file", value_name: "path", value_type: "string", description: "Optional JSON configuration." },
   ], run: startRun }),
   defineCommand({ name: "rl run log", description: "Append NDJSON metric events from --file or stdin to merge-safe run notes.", arguments: [{ name: "id", required: true, description: "Run item id." }], flags: [{ long: "--file", value_name: "path", value_type: "string", description: "NDJSON file; omit to read stdin." }], run: logRun }),
+  defineCommand({ name: "rl run verify", description: "Re-derive a run's determinism receipt and report the difference, without mutating anything.", arguments: [{ name: "id", required: true, description: "Run item id." }], flags: [
+    { long: "--receipt-file", value_name: "path", value_type: "string", required: true, description: "Freshly derived determinism receipt JSON." },
+  ], run: verifyRun }),
   defineCommand({ name: "rl run show", description: "Read and order a run's metric series from append-only notes.", arguments: [{ name: "id", required: true, description: "Run item id." }], run: showRun }),
   defineCommand({ name: "rl run finish", description: "Finish a run without rewriting its metric history.", arguments: [{ name: "id", required: true, description: "Run item id." }], flags: [{ long: "--reason", value_name: "text", value_type: "string", required: true, description: "Why the run ended." }], run: finishRun }),
   defineCommand({ name: "rl generation register", description: "Register a policy generation (seed or candidate) with content-addressed provenance.", arguments: [{ name: "id", required: true, description: "Generation item id." }], flags: [
