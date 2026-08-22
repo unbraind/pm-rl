@@ -20,6 +20,7 @@
 
 ### Fixed
 
+- Resolve CodeRabbit round-2 findings on PR 16 ([pm-rl-weum](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-weum.toon))
 - Remove ignored manifest metadata and adopt pm CLI/SDK 2026.8.20 ([pm-rl-tvo2](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-tvo2.toon))
 - The tolerant lineage walk tolerated an unreadable body but not an unresolvable ancestor ([pm-rl-1f1h](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-1f1h.toon))
 - Review round 15: a pre-lock budget seeded the receipt, and four traversal and parsing defects ([pm-rl-g3k0](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-g3k0.toon))
