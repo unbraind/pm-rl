@@ -14,7 +14,9 @@
  * run item and call them.
  */
 
-import { createPmCliExpectedError, EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
+import { EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
+
+import { expectedFail } from "./refuse.ts";
 
 /**
  * The exact fields a determinism receipt carries.
@@ -50,11 +52,6 @@ export interface ReceiptDifference {
   readonly now: string;
 }
 
-/** Throw an expected command error with stable machine context. */
-function receiptFail(message: string, code: string, exitCode: number = EXIT_CODE.USAGE): never {
-  throw createPmCliExpectedError(message, { exitCode, context: { code } });
-}
-
 /**
  * Parse and validate a determinism receipt.
  *
@@ -75,35 +72,35 @@ export function parseReceipt(text: string, source = "Determinism receipt"): Rece
   try {
     parsed = JSON.parse(text);
   } catch {
-    receiptFail(`${source} is not valid JSON.`, "invalid_receipt_json");
+    expectedFail(`${source} is not valid JSON.`, "invalid_receipt_json");
   }
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    receiptFail(`${source} must contain one JSON object.`, "invalid_json_object");
+    expectedFail(`${source} must contain one JSON object.`, "invalid_json_object");
   }
   const record = parsed as Record<string, unknown>;
   for (const key of Object.keys(record)) {
     if (!RECEIPT_FIELDS.includes(key as ReceiptField)) {
-      receiptFail(`${source} carries unknown receipt field "${key}"; a receipt is exactly ${RECEIPT_FIELDS.join(", ")}.`, "invalid_receipt_field");
+      expectedFail(`${source} carries unknown receipt field "${key}"; a receipt is exactly ${RECEIPT_FIELDS.join(", ")}.`, "invalid_receipt_field");
     }
   }
   const stringField = (key: ReceiptField): string => {
     const value = record[key];
     if (typeof value !== "string" || value.trim().length === 0) {
-      receiptFail(`${source} requires a non-empty string ${key}.`, `invalid_receipt_${key}`);
+      expectedFail(`${source} requires a non-empty string ${key}.`, `invalid_receipt_${key}`);
     }
     return value.trim();
   };
   const libraryVersionsRaw = record["library_versions"];
   if (libraryVersionsRaw === null || typeof libraryVersionsRaw !== "object" || Array.isArray(libraryVersionsRaw)) {
-    receiptFail(`${source} requires library_versions as an object of library name to version.`, "invalid_receipt_library_versions");
+    expectedFail(`${source} requires library_versions as an object of library name to version.`, "invalid_receipt_library_versions");
   }
   const libraryVersions: Record<string, string> = {};
   for (const [name, version] of Object.entries(libraryVersionsRaw as Record<string, unknown>)) {
     if (name.trim().length === 0) {
-      receiptFail(`${source} requires a non-empty library name for every library version.`, "invalid_receipt_library_versions");
+      expectedFail(`${source} requires a non-empty library name for every library version.`, "invalid_receipt_library_versions");
     }
     if (typeof version !== "string" || version.trim().length === 0) {
-      receiptFail(`${source} requires a string version for library "${name}".`, "invalid_receipt_library_versions");
+      expectedFail(`${source} requires a string version for library "${name}".`, "invalid_receipt_library_versions");
     }
     libraryVersions[name.trim()] = version.trim();
   }

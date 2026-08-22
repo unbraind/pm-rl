@@ -20,9 +20,10 @@
  * The command handlers in {@link ./index.ts} resolve tracker items and call them.
  */
 
-import { createPmCliExpectedError, EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
+import { EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
 
 import type { JsonValue } from "./index.ts";
+import { asJsonObject, expectedFail, requiredTrimmedString } from "./refuse.ts";
 
 /** One mandatory gate: its stable name and the command whose exit decides it. */
 export interface GateDefinition {
@@ -129,28 +130,6 @@ export interface SimRealGapReport {
   readonly unpaired_outcomes: ReadonlyArray<{ id: string; pull_request: string }>;
 }
 
-/** Throw an expected command error with stable machine context. */
-function gatesimFail(message: string, code: string, exitCode: number = EXIT_CODE.USAGE): never {
-  throw createPmCliExpectedError(message, { exitCode, context: { code } });
-}
-
-/** Narrow a parsed value to a JSON object record. */
-function asObject(value: unknown, source: string): Record<string, unknown> {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    gatesimFail(`${source} must contain one JSON object.`, "invalid_json_object");
-  }
-  return value as Record<string, unknown>;
-}
-
-/** Require a non-empty trimmed string field, refusing anything else. */
-function requiredString(record: Record<string, unknown>, key: string, source: string): string {
-  const value = record[key];
-  if (typeof value !== "string" || value.trim().length === 0) {
-    gatesimFail(`${source} requires a non-empty string ${key}.`, `invalid_gate_environment_${key}`);
-  }
-  return value.trim();
-}
-
 /**
  * Parse and validate a gate-environment specification.
  *
@@ -172,38 +151,38 @@ export function parseGateEnvironmentSpec(text: string, source: string): GateEnvi
   try {
     parsed = JSON.parse(text);
   } catch {
-    gatesimFail(`${source} is not valid JSON.`, "invalid_gate_environment_json");
+    expectedFail(`${source} is not valid JSON.`, "invalid_gate_environment_json");
   }
-  const record = asObject(parsed, source);
-  const name = requiredString(record, "name", source);
-  const version = requiredString(record, "version", source);
-  const repository = requiredString(record, "repository", source);
-  const commit = requiredString(record, "commit", source);
+  const record = asJsonObject(parsed, source);
+  const name = requiredTrimmedString(record, "name", source, "invalid_gate_environment_");
+  const version = requiredTrimmedString(record, "version", source, "invalid_gate_environment_");
+  const repository = requiredTrimmedString(record, "repository", source, "invalid_gate_environment_");
+  const commit = requiredTrimmedString(record, "commit", source, "invalid_gate_environment_");
   if (!/^[0-9a-f]{7,40}$/i.test(commit)) {
-    gatesimFail(`${source} commit must be a hex git commit sha, got "${commit}".`, "invalid_commit");
+    expectedFail(`${source} commit must be a hex git commit sha, got "${commit}".`, "invalid_commit");
   }
   const gatesRaw = record["gates"];
   if (!Array.isArray(gatesRaw) || gatesRaw.length === 0) {
-    gatesimFail(`${source} requires a gates array with at least one gate.`, "invalid_gates");
+    expectedFail(`${source} requires a gates array with at least one gate.`, "invalid_gates");
   }
   const seen = new Set<string>();
   const gates: GateDefinition[] = gatesRaw.map((entry) => {
-    const gateRecord = asObject(entry, `${source} gate`);
-    const gateName = requiredString(gateRecord, "name", `${source} gate`);
-    const command = requiredString(gateRecord, "command", `${source} gate`);
+    const gateRecord = asJsonObject(entry, `${source} gate`);
+    const gateName = requiredTrimmedString(gateRecord, "name", `${source} gate`, "invalid_gate_environment_");
+    const command = requiredTrimmedString(gateRecord, "command", `${source} gate`, "invalid_gate_environment_");
     if (seen.has(gateName)) {
-      gatesimFail(`${source} requires unique gate names; "${gateName}" appears twice.`, "duplicate_gate_name");
+      expectedFail(`${source} requires unique gate names; "${gateName}" appears twice.`, "duplicate_gate_name");
     }
     seen.add(gateName);
     return { name: gateName, command };
   });
   const extractionRaw = record["verdict_extraction"];
   if (extractionRaw === null || typeof extractionRaw !== "object" || Array.isArray(extractionRaw)) {
-    gatesimFail(`${source} requires a verdict_extraction object.`, "invalid_verdict_extraction");
+    expectedFail(`${source} requires a verdict_extraction object.`, "invalid_verdict_extraction");
   }
   const rule = (extractionRaw as Record<string, unknown>)["rule"];
   if (rule !== "all_exit_zero") {
-    gatesimFail(`${source} verdict_extraction must declare the rule "all_exit_zero"; "${String(rule)}" is not a supported extraction.`, "invalid_verdict_rule");
+    expectedFail(`${source} verdict_extraction must declare the rule "all_exit_zero"; "${String(rule)}" is not a supported extraction.`, "invalid_verdict_rule");
   }
   return { name, version, repository, commit, gates, verdict_extraction: { rule } };
 }
@@ -229,35 +208,35 @@ export function parseGateResults(text: string, source: string, spec: GateEnviron
   try {
     parsed = JSON.parse(text);
   } catch {
-    gatesimFail(`${source} is not valid JSON.`, "invalid_gate_results");
+    expectedFail(`${source} is not valid JSON.`, "invalid_gate_results");
   }
-  const record = asObject(parsed, source);
+  const record = asJsonObject(parsed, source);
   const entriesRaw = record["gates"];
   if (!Array.isArray(entriesRaw)) {
-    gatesimFail(`${source} requires a gates array.`, "invalid_gate_results");
+    expectedFail(`${source} requires a gates array.`, "invalid_gate_results");
   }
   const byName = new Map<string, number>();
   for (const entry of entriesRaw) {
-    const entryRecord = asObject(entry, `${source} gate result`);
+    const entryRecord = asJsonObject(entry, `${source} gate result`);
     const name = entryRecord["name"];
     if (typeof name !== "string" || name.trim().length === 0) {
-      gatesimFail(`${source} gate result requires a non-empty string name.`, "invalid_gate_results");
+      expectedFail(`${source} gate result requires a non-empty string name.`, "invalid_gate_results");
     }
     if (byName.has(name)) {
-      gatesimFail(`${source} reports gate "${name}" twice.`, "duplicate_gate_result");
+      expectedFail(`${source} reports gate "${name}" twice.`, "duplicate_gate_result");
     }
     if (!spec.gates.some((gate) => gate.name === name)) {
-      gatesimFail(`${source} reports undeclared gate "${name}", which the environment ${spec.name} ${spec.version} never mandated.`, "unknown_gate_result", EXIT_CODE.CONFLICT);
+      expectedFail(`${source} reports undeclared gate "${name}", which the environment ${spec.name} ${spec.version} never mandated.`, "unknown_gate_result", EXIT_CODE.CONFLICT);
     }
     const exitCode = entryRecord["exit_code"];
     if (typeof exitCode !== "number" || !Number.isInteger(exitCode)) {
-      gatesimFail(`${source} gate "${name}" requires an integer exit_code.`, "invalid_gate_results");
+      expectedFail(`${source} gate "${name}" requires an integer exit_code.`, "invalid_gate_results");
     }
     byName.set(name, exitCode);
   }
   for (const gate of spec.gates) {
     if (!byName.has(gate.name)) {
-      gatesimFail(`${source} is missing a result for declared gate "${gate.name}".`, "missing_gate_result", EXIT_CODE.CONFLICT);
+      expectedFail(`${source} is missing a result for declared gate "${gate.name}".`, "missing_gate_result", EXIT_CODE.CONFLICT);
     }
   }
   return [...byName.entries()].map(([name, exit_code]) => ({ name, exit_code })).sort((left, right) => left.name.localeCompare(right.name));
@@ -303,7 +282,7 @@ const CREDENTIAL_PATTERNS: ReadonlyArray<{ name: string; pattern: RegExp }> = [
 export function assertNoCredentials(label: string, text: string): void {
   for (const { name, pattern } of CREDENTIAL_PATTERNS) {
     if (pattern.test(text)) {
-      gatesimFail(
+      expectedFail(
         `${label} appears to capture ${name}; episodes must never capture repository credentials. Remove the secret and record the link or diff without it.`,
         "credential_detected",
         EXIT_CODE.CONFLICT,
@@ -332,37 +311,37 @@ export function parseEpisodeSpec(text: string, source: string): EpisodeSpec {
   try {
     parsed = JSON.parse(text);
   } catch {
-    gatesimFail(`${source} is not valid JSON.`, "invalid_episode_json", EXIT_CODE.CONFLICT);
+    expectedFail(`${source} is not valid JSON.`, "invalid_episode_json", EXIT_CODE.CONFLICT);
   }
-  const record = asObject(parsed, source);
-  const environmentId = requiredString(record, "environment_id", source);
-  const environmentSpecHash = requiredString(record, "environment_spec_hash", source);
-  const repository = requiredString(record, "repository", source);
-  const baseCommit = requiredString(record, "base_commit", source);
+  const record = asJsonObject(parsed, source);
+  const environmentId = requiredTrimmedString(record, "environment_id", source, "invalid_episode_");
+  const environmentSpecHash = requiredTrimmedString(record, "environment_spec_hash", source, "invalid_episode_");
+  const repository = requiredTrimmedString(record, "repository", source, "invalid_gate_environment_");
+  const baseCommit = requiredTrimmedString(record, "base_commit", source, "invalid_episode_");
   const optionalIdentity = (key: string): string | null => {
     const value = record[key];
     if (value === null || value === undefined) return null;
     if (typeof value !== "string" || value.trim().length === 0) {
-      gatesimFail(`${source} requires ${key} to be a non-empty identity or null.`, "invalid_episode_identity", EXIT_CODE.CONFLICT);
+      expectedFail(`${source} requires ${key} to be a non-empty identity or null.`, "invalid_episode_identity", EXIT_CODE.CONFLICT);
     }
     return value.trim();
   };
   const resultsRaw = record["gate_results"];
   if (!Array.isArray(resultsRaw)) {
-    gatesimFail(`${source} requires a gate_results array.`, "invalid_episode_results", EXIT_CODE.CONFLICT);
+    expectedFail(`${source} requires a gate_results array.`, "invalid_episode_results", EXIT_CODE.CONFLICT);
   }
   const gateResults: GateResultEntry[] = resultsRaw.map((entry) => {
-    const entryRecord = asObject(entry, `${source} gate result`);
+    const entryRecord = asJsonObject(entry, `${source} gate result`);
     const name = entryRecord["name"];
     const exitCode = entryRecord["exit_code"];
     if (typeof name !== "string" || name.trim().length === 0 || typeof exitCode !== "number" || !Number.isInteger(exitCode)) {
-      gatesimFail(`${source} gate results must be named integer exit codes.`, "invalid_episode_results", EXIT_CODE.CONFLICT);
+      expectedFail(`${source} gate results must be named integer exit codes.`, "invalid_episode_results", EXIT_CODE.CONFLICT);
     }
     return { name: name.trim(), exit_code: exitCode };
   }).sort((left, right) => left.name.localeCompare(right.name));
   const verdict = record["verdict"];
   if (verdict !== "pass" && verdict !== "fail") {
-    gatesimFail(`${source} requires a verdict of "pass" or "fail".`, "invalid_episode_verdict", EXIT_CODE.CONFLICT);
+    expectedFail(`${source} requires a verdict of "pass" or "fail".`, "invalid_episode_verdict", EXIT_CODE.CONFLICT);
   }
   return {
     environment_id: environmentId,
@@ -373,7 +352,7 @@ export function parseEpisodeSpec(text: string, source: string): EpisodeSpec {
     patch_hash: optionalIdentity("patch_hash"),
     gate_results: gateResults,
     verdict,
-    pull_request: requiredString(record, "pull_request", source),
+    pull_request: requiredTrimmedString(record, "pull_request", source, "invalid_episode_"),
   };
 }
 
@@ -390,14 +369,14 @@ export function parseOutcomeSpec(text: string, source: string): OutcomeSpec {
   try {
     parsed = JSON.parse(text);
   } catch {
-    gatesimFail(`${source} is not valid JSON.`, "invalid_outcome_json", EXIT_CODE.CONFLICT);
+    expectedFail(`${source} is not valid JSON.`, "invalid_outcome_json", EXIT_CODE.CONFLICT);
   }
-  const record = asObject(parsed, source);
+  const record = asJsonObject(parsed, source);
   const merged = record["merged"];
   if (typeof merged !== "boolean") {
-    gatesimFail(`${source} requires a boolean merged.`, "invalid_outcome_merged", EXIT_CODE.CONFLICT);
+    expectedFail(`${source} requires a boolean merged.`, "invalid_outcome_merged", EXIT_CODE.CONFLICT);
   }
-  return { pull_request: requiredString(record, "pull_request", source), merged };
+  return { pull_request: requiredTrimmedString(record, "pull_request", source, "invalid_outcome_"), merged };
 }
 
 /**
@@ -426,7 +405,7 @@ export function buildSimRealGap(
       continue;
     }
     if (existing.merged !== spec.merged) {
-      gatesimFail(
+      expectedFail(
         `Outcomes ${existing.ids.join(", ")} and ${id} disagree about whether ${spec.pull_request} merged, so the real merge rate is undecidable. Record which outcome reflects reality and remove the other.`,
         "outcome_conflict",
         EXIT_CODE.CONFLICT,

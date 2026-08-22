@@ -19,9 +19,10 @@
  * without standing up a real workspace for every branch.
  */
 
-import { createPmCliExpectedError, EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
+import { EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
 
 import type { JsonValue } from "./index.ts";
+import { asJsonObject, expectedFail } from "./refuse.ts";
 
 /** Direction an objective optimizes: a higher value is better or a lower one is. */
 export type ObjectiveDirection = "maximize" | "minimize";
@@ -170,19 +171,6 @@ export interface LineageView {
   readonly ancestries: readonly LineageAncestry[];
 }
 
-/** Throw an expected command error with stable machine context. */
-function lineageFail(message: string, code: string, exitCode: number = EXIT_CODE.USAGE): never {
-  throw createPmCliExpectedError(message, { exitCode, context: { code } });
-}
-
-/** Narrow a parsed value to a JSON object record. */
-function asObject(value: unknown, source: string): Record<string, unknown> {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    lineageFail(`${source} must contain one JSON object.`, "invalid_json_object");
-  }
-  return value as Record<string, unknown>;
-}
-
 /**
  * Require a string field to be present and, when checked, non-empty, and return
  * it **trimmed**.
@@ -207,11 +195,11 @@ function asObject(value: unknown, source: string): Record<string, unknown> {
 function asString(record: Record<string, unknown>, key: string, source: string, required = true): string {
   const value = record[key];
   if (typeof value !== "string") {
-    if (required) lineageFail(`${source} requires a string ${key}.`, `missing_${key}`);
+    if (required) expectedFail(`${source} requires a string ${key}.`, `missing_${key}`);
     return "";
   }
   const normalized = value.trim();
-  if (required && normalized.length === 0) lineageFail(`${source} requires a non-empty ${key}.`, `empty_${key}`);
+  if (required && normalized.length === 0) expectedFail(`${source} requires a non-empty ${key}.`, `empty_${key}`);
   return normalized;
 }
 
@@ -231,22 +219,22 @@ function asString(record: Record<string, unknown>, key: string, source: string, 
  *   direction.
  */
 export function parseScoreRecord(value: unknown, label: string): ScoreRecord {
-  const record = asObject(value, label);
+  const record = asJsonObject(value, label);
   const objective = asString(record, "objective", label);
   const objectiveVersion = asString(record, "objective_version", label);
   const evaluationContext = asString(record, "evaluation_context", label);
   const seedSet = asString(record, "seed_set", label);
   const direction = record["direction"];
   if (direction !== "maximize" && direction !== "minimize") {
-    lineageFail(`${label} requires a direction of "maximize" or "minimize".`, "invalid_direction");
+    expectedFail(`${label} requires a direction of "maximize" or "minimize".`, "invalid_direction");
   }
   const scale = record["scale"];
   if (typeof scale !== "number" || !Number.isFinite(scale) || scale <= 0) {
-    lineageFail(`${label} requires a positive finite scale for normalization; objectives with no comparable scale are refused.`, "invalid_scale");
+    expectedFail(`${label} requires a positive finite scale for normalization; objectives with no comparable scale are refused.`, "invalid_scale");
   }
   const scoreValue = record["value"];
   if (typeof scoreValue !== "number" || !Number.isFinite(scoreValue)) {
-    lineageFail(`${label} requires a finite value.`, "invalid_value");
+    expectedFail(`${label} requires a finite value.`, "invalid_value");
   }
   return { objective, objective_version: objectiveVersion, evaluation_context: evaluationContext, seed_set: seedSet, direction, scale, value: scoreValue };
 }
@@ -271,14 +259,14 @@ export function parseGenerationSpec(text: string, source: string): GenerationSpe
   try {
     parsed = JSON.parse(text);
   } catch {
-    lineageFail(`${source} is not valid JSON.`, "invalid_generation_json");
+    expectedFail(`${source} is not valid JSON.`, "invalid_generation_json");
   }
-  const record = asObject(parsed, source);
+  const record = asJsonObject(parsed, source);
   const baseCheckpoint = asString(record, "base_checkpoint", source);
   const policy = asString(record, "policy", source, false);
   const collectionRunsRaw = record["collection_runs"];
   if (!Array.isArray(collectionRunsRaw) || !collectionRunsRaw.every((run) => typeof run === "string")) {
-    lineageFail(`${source} requires a collection_runs array of strings.`, "invalid_collection_runs");
+    expectedFail(`${source} requires a collection_runs array of strings.`, "invalid_collection_runs");
   }
   // The last stored identity list that was not normalized here. Each entry is
   // resolved by strict id lookup during the ancestry walk, so a padded entry
@@ -287,7 +275,7 @@ export function parseGenerationSpec(text: string, source: string): GenerationSpe
   // how a blank approval is treated.
   const collectionRuns = collectionRunsRaw.map((run) => run.trim());
   if (collectionRuns.some((run) => run.length === 0)) {
-    lineageFail(`${source} requires every collection run id to be a non-empty identity.`, "empty_collection_run");
+    expectedFail(`${source} requires every collection run id to be a non-empty identity.`, "empty_collection_run");
   }
   const trainingConfig = record["training_config"] ?? {};
   const environmentVersion = asString(record, "environment_version", source, false);
@@ -302,7 +290,7 @@ export function parseGenerationSpec(text: string, source: string): GenerationSpe
   // only before the value is stored.
   const parentRaw = record["parent"] ?? null;
   if (parentRaw !== null && typeof parentRaw !== "string") {
-    lineageFail(`${source} requires parent to be a string or null.`, "invalid_parent");
+    expectedFail(`${source} requires parent to be a string or null.`, "invalid_parent");
   }
   // A blank or whitespace-only parent string normalizes to null BEFORE the
   // seed-with-parent check: a seed body that carries `parent: "   "` is
@@ -312,21 +300,21 @@ export function parseGenerationSpec(text: string, source: string): GenerationSpe
   const parent = typeof parentRaw === "string" && parentRaw.trim().length === 0 ? null : parentRaw;
   const seed = record["seed"] === true;
   if (seed && parent !== null) {
-    lineageFail(`${source} declares seed but has a parent.`, "seed_with_parent");
+    expectedFail(`${source} declares seed but has a parent.`, "seed_with_parent");
   }
   if (!seed) {
     if (typeof parent !== "string") {
-      lineageFail(`${source} requires a non-empty parent for a non-seed generation.`, "missing_parent");
+      expectedFail(`${source} requires a non-empty parent for a non-seed generation.`, "missing_parent");
     }
-    if (policy.trim().length === 0) lineageFail(`${source} requires a non-empty policy for a non-seed generation.`, "missing_policy");
-    if (environmentVersion.trim().length === 0) lineageFail(`${source} requires a non-empty environment_version for a non-seed generation.`, "missing_environment");
-    if (rewardSpecVersion.trim().length === 0) lineageFail(`${source} requires a non-empty reward_spec_version for a non-seed generation.`, "missing_reward_spec");
-    if (collectionRuns.length === 0) lineageFail(`${source} requires at least one collection run for a non-seed generation.`, "missing_collection_runs");
+    if (policy.trim().length === 0) expectedFail(`${source} requires a non-empty policy for a non-seed generation.`, "missing_policy");
+    if (environmentVersion.trim().length === 0) expectedFail(`${source} requires a non-empty environment_version for a non-seed generation.`, "missing_environment");
+    if (rewardSpecVersion.trim().length === 0) expectedFail(`${source} requires a non-empty reward_spec_version for a non-seed generation.`, "missing_reward_spec");
+    if (collectionRuns.length === 0) expectedFail(`${source} requires at least one collection run for a non-seed generation.`, "missing_collection_runs");
   }
   const promoted = record["promoted"] === true;
   const approvalRaw = record["approval"];
   if (approvalRaw !== null && typeof approvalRaw !== "string") {
-    lineageFail(`${source} requires approval to be a string or null.`, "invalid_approval");
+    expectedFail(`${source} requires approval to be a string or null.`, "invalid_approval");
   }
   // Normalized at the parse boundary for the same reason as `parent` below: the
   // approval is an identity compared by strict equality in
@@ -339,7 +327,7 @@ export function parseGenerationSpec(text: string, source: string): GenerationSpe
   // an identity that names nothing.
   const approval = approvalRaw === null ? null : approvalRaw.trim();
   if (approval !== null && approval.length === 0) {
-    lineageFail(`${source} requires approval to be a non-empty identity or null.`, "empty_approval");
+    expectedFail(`${source} requires approval to be a non-empty identity or null.`, "empty_approval");
   }
   const proxyScore = record["proxy_score"] === null || record["proxy_score"] === undefined ? null : parseScoreRecord(record["proxy_score"], `${source} proxy_score`);
   const heldOutScore = record["held_out_score"] === null || record["held_out_score"] === undefined ? null : parseScoreRecord(record["held_out_score"], `${source} held_out_score`);
@@ -352,7 +340,7 @@ export function parseGenerationSpec(text: string, source: string): GenerationSpe
   // `gap` key would be refused for carrying evidence it does not have.
   const gap = record["gap"] ?? null;
   if (gap !== null && (typeof gap !== "number" || !Number.isFinite(gap))) {
-    lineageFail(`${source} requires gap to be a finite number or null.`, "invalid_gap");
+    expectedFail(`${source} requires gap to be a finite number or null.`, "invalid_gap");
   }
   // Normalized for the same reason as `gap` above: this is the last optional
   // field that was left as `undefined`, and the lineage renderer used it as a
@@ -360,7 +348,7 @@ export function parseGenerationSpec(text: string, source: string): GenerationSpe
   // as promoted.
   const promotionEvidence = record["promotion_evidence"] ?? null;
   if (promotionEvidence !== null && typeof promotionEvidence !== "string") {
-    lineageFail(`${source} requires promotion_evidence to be a string or null.`, "invalid_promotion_evidence");
+    expectedFail(`${source} requires promotion_evidence to be a string or null.`, "invalid_promotion_evidence");
   }
   // The promotion invariant: approval, proxy_score, held_out_score and gap are
   // non-null EXACTLY when promoted is true. A promoted record missing any of
@@ -377,12 +365,12 @@ export function parseGenerationSpec(text: string, source: string): GenerationSpe
   if (promoted) {
     const missing = evidenceFields.filter((field) => field.value === null).map((field) => field.name);
     if (missing.length > 0) {
-      lineageFail(`${source} is promoted but is missing promotion evidence: ${missing.join(", ")}. A promoted generation must carry its approval, both scores, and its gap.`, "promoted_missing_evidence");
+      expectedFail(`${source} is promoted but is missing promotion evidence: ${missing.join(", ")}. A promoted generation must carry its approval, both scores, and its gap.`, "promoted_missing_evidence");
     }
   } else {
     const present = evidenceFields.filter((field) => field.value !== null).map((field) => field.name);
     if (present.length > 0) {
-      lineageFail(`${source} is not promoted but carries promotion evidence: ${present.join(", ")}. An unpromoted generation must not carry approval, scores, or a gap.`, "unpromoted_with_evidence");
+      expectedFail(`${source} is not promoted but carries promotion evidence: ${present.join(", ")}. An unpromoted generation must not carry approval, scores, or a gap.`, "unpromoted_with_evidence");
     }
   }
   return {
@@ -426,12 +414,12 @@ export function parseApprovalSpec(text: string, source: string): ApprovalSpec {
   try {
     parsed = JSON.parse(text);
   } catch {
-    lineageFail(`${source} is not valid JSON.`, "invalid_approval_json");
+    expectedFail(`${source} is not valid JSON.`, "invalid_approval_json");
   }
-  const record = asObject(parsed, source);
+  const record = asJsonObject(parsed, source);
   const permitted = record["permitted_promotions"];
   if (typeof permitted !== "number" || !Number.isInteger(permitted) || permitted < 0) {
-    lineageFail(`${source} requires a non-negative integer permitted_promotions.`, "invalid_permitted_promotions");
+    expectedFail(`${source} requires a non-negative integer permitted_promotions.`, "invalid_permitted_promotions");
   }
   return { permitted_promotions: permitted };
 }
@@ -471,7 +459,7 @@ export function directionAwareGap(proxy: ScoreRecord, heldOut: ScoreRecord): num
     differences.push(`direction (proxy "${proxy.direction}" vs held-out "${heldOut.direction}")`);
   }
   if (differences.length > 0) {
-    lineageFail(
+    expectedFail(
       `Promotion refused: the proxy and held-out scores are not comparable. ${differences.join("; ")}. Both scores must share the same objective, objective version, and direction.`,
       "incomparable_scores",
       EXIT_CODE.CONFLICT,
@@ -717,7 +705,7 @@ export function buildLineageAncestry(
   // renderer instead of an expected error naming what was wrong.
   const last = ancestry[ancestry.length - 1];
   if (last === undefined) {
-    lineageFail("A lineage ancestry must contain at least the head generation; an empty ancestry has no head to render.", "empty_ancestry");
+    expectedFail("A lineage ancestry must contain at least the head generation; an empty ancestry has no head to render.", "empty_ancestry");
   }
   return { head: last.id, rows, findings };
 }

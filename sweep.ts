@@ -19,7 +19,9 @@
 
 import { Buffer } from "node:buffer";
 
-import { createPmCliExpectedError, EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
+import { EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
+
+import { expectedFail, parseJsonRecord, requiredTrimmedString } from "./refuse.ts";
 
 import type { JsonValue } from "./index.ts";
 
@@ -83,11 +85,6 @@ export interface SweepStatusView {
   readonly winner_reason: string;
 }
 
-/** Throw an expected command error with stable machine context. */
-function sweepFail(message: string, code: string, exitCode: number = EXIT_CODE.USAGE): never {
-  throw createPmCliExpectedError(message, { exitCode, context: { code } });
-}
-
 /**
  * Parse a selection rule from its command-syntax string.
  *
@@ -109,7 +106,7 @@ export function parseSelectionRule(raw: string): SelectionRule {
       return { kind: kind as SelectionRuleKind, metric };
     }
   }
-  sweepFail(
+  expectedFail(
     `selection_rule must be "none" or one of ${SELECTION_RULE_KINDS.map((kind) => `${kind}:<metric>`).join(" / ")}; got "${raw}".`,
     "invalid_selection_rule",
   );
@@ -132,7 +129,7 @@ export function expandSearchSpace(searchSpace: SearchSpace): Array<Record<string
   for (const key of Object.keys(searchSpace).sort()) {
     const values = searchSpace[key];
     if (!Array.isArray(values) || values.length === 0) {
-      sweepFail(`search_space requires a non-empty array of candidate values for "${key}".`, "invalid_search_space");
+      expectedFail(`search_space requires a non-empty array of candidate values for "${key}".`, "invalid_search_space");
     }
     const next: Array<Record<string, JsonValue>> = [];
     for (const partial of products) {
@@ -153,41 +150,26 @@ export function expandSearchSpace(searchSpace: SearchSpace): Array<Record<string
  *   search space declares nothing, the rule is malformed, or no arm is listed.
  */
 export function parseSweepSpec(text: string, source = "Sweep specification"): SweepSpec {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    sweepFail(`${source} is not valid JSON.`, "invalid_sweep_json", EXIT_CODE.CONFLICT);
-  }
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    sweepFail(`${source} must contain one JSON object.`, "invalid_json_object", EXIT_CODE.CONFLICT);
-  }
-  const record = parsed as Record<string, unknown>;
-  const stringField = (key: string): string => {
-    const value = record[key];
-    if (typeof value !== "string" || value.trim().length === 0) {
-      sweepFail(`${source} requires a non-empty string ${key}.`, `invalid_sweep_${key}`, EXIT_CODE.CONFLICT);
-    }
-    return value.trim();
-  };
+  const record = parseJsonRecord(text, source, "invalid_sweep_json", EXIT_CODE.CONFLICT);
+  const stringField = (key: string): string => requiredTrimmedString(record, key, source, "invalid_sweep_", EXIT_CODE.CONFLICT);
   const searchSpaceRaw = record["search_space"];
   if (searchSpaceRaw === null || typeof searchSpaceRaw !== "object" || Array.isArray(searchSpaceRaw)) {
-    sweepFail(`${source} requires a declared search space object.`, "invalid_sweep_search_space", EXIT_CODE.CONFLICT);
+    expectedFail(`${source} requires a declared search space object.`, "invalid_sweep_search_space", EXIT_CODE.CONFLICT);
   }
   const searchSpaceEntries = Object.entries(searchSpaceRaw as Record<string, unknown>);
   if (searchSpaceEntries.length === 0) {
-    sweepFail(`${source} requires a non-empty declared search space.`, "invalid_sweep_search_space", EXIT_CODE.CONFLICT);
+    expectedFail(`${source} requires a non-empty declared search space.`, "invalid_sweep_search_space", EXIT_CODE.CONFLICT);
   }
   const searchSpace: Record<string, JsonValue[]> = {};
   for (const [key, values] of searchSpaceEntries) {
     if (!Array.isArray(values)) {
-      sweepFail(`${source} requires a non-empty array of candidate values for "${key}".`, "invalid_sweep_search_space", EXIT_CODE.CONFLICT);
+      expectedFail(`${source} requires a non-empty array of candidate values for "${key}".`, "invalid_sweep_search_space", EXIT_CODE.CONFLICT);
     }
     searchSpace[key] = values;
   }
   const ruleRaw = record["selection_rule"];
   if (ruleRaw === null || typeof ruleRaw !== "object" || Array.isArray(ruleRaw)) {
-    sweepFail(`${source} requires a selection_rule object.`, "invalid_selection_rule", EXIT_CODE.CONFLICT);
+    expectedFail(`${source} requires a selection_rule object.`, "invalid_selection_rule", EXIT_CODE.CONFLICT);
   }
   const ruleRecord = ruleRaw as Record<string, unknown>;
   const kind = ruleRecord["kind"];
@@ -197,26 +179,26 @@ export function parseSweepSpec(text: string, source = "Sweep specification"): Sw
   } else if ((SELECTION_RULE_KINDS as readonly string[]).includes(kind as string)) {
     const metric = ruleRecord["metric"];
     if (typeof metric !== "string" || !/^[A-Za-z0-9_.-]+$/.test(metric)) {
-      sweepFail(`${source} requires a valid selection_rule metric name.`, "invalid_selection_rule", EXIT_CODE.CONFLICT);
+      expectedFail(`${source} requires a valid selection_rule metric name.`, "invalid_selection_rule", EXIT_CODE.CONFLICT);
     }
     rule = { kind: kind as SelectionRuleKind, metric };
   } else {
-    sweepFail(`${source} requires a selection_rule kind of none, ${SELECTION_RULE_KINDS.join(" or ")}.`, "invalid_selection_rule", EXIT_CODE.CONFLICT);
+    expectedFail(`${source} requires a selection_rule kind of none, ${SELECTION_RULE_KINDS.join(" or ")}.`, "invalid_selection_rule", EXIT_CODE.CONFLICT);
   }
   const armsRaw = record["arms"];
   if (!Array.isArray(armsRaw) || armsRaw.length === 0) {
-    sweepFail(`${source} requires at least one arm.`, "invalid_sweep_arms", EXIT_CODE.CONFLICT);
+    expectedFail(`${source} requires at least one arm.`, "invalid_sweep_arms", EXIT_CODE.CONFLICT);
   }
   const arms: Array<{ id: string; config: JsonValue }> = [];
   for (const entry of armsRaw) {
     if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
-      sweepFail(`${source} requires each arm to be an object with an id and a config.`, "invalid_sweep_arms", EXIT_CODE.CONFLICT);
+      expectedFail(`${source} requires each arm to be an object with an id and a config.`, "invalid_sweep_arms", EXIT_CODE.CONFLICT);
     }
     const armRecord = entry as Record<string, unknown>;
     const id = armRecord["id"];
     const config = armRecord["config"];
     if (typeof id !== "string" || id.trim().length === 0 || config === undefined || config === null || typeof config !== "object") {
-      sweepFail(`${source} requires each arm to carry a non-empty id and a configuration object.`, "invalid_sweep_arms", EXIT_CODE.CONFLICT);
+      expectedFail(`${source} requires each arm to carry a non-empty id and a configuration object.`, "invalid_sweep_arms", EXIT_CODE.CONFLICT);
     }
     arms.push({ id: id.trim(), config: config as JsonValue });
   }

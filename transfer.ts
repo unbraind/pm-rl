@@ -20,7 +20,9 @@
 
 import { Buffer } from "node:buffer";
 
-import { createPmCliExpectedError, EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
+import { EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
+
+import { expectedFail, parseJsonRecord, requiredTrimmedString } from "./refuse.ts";
 
 /** One recorded sim-to-real transfer: both environments, the checkpoint, and the measured gaps. */
 export interface TransferSpec {
@@ -47,11 +49,6 @@ export interface MetricGap {
   readonly gap: number;
 }
 
-/** Throw an expected command error with stable machine context. */
-function transferFail(message: string, code: string, exitCode: number = EXIT_CODE.USAGE): never {
-  throw createPmCliExpectedError(message, { exitCode, context: { code } });
-}
-
 /**
  * Parse and validate a transfer metrics file.
  *
@@ -62,39 +59,30 @@ function transferFail(message: string, code: string, exitCode: number = EXIT_COD
  *   duplicated, or any entry lacks a metric name or a finite gap.
  */
 export function parseTransferMetrics(text: string, source = "Transfer metrics"): MetricGap[] {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    transferFail(`${source} is not valid JSON.`, "invalid_transfer_gaps");
-  }
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    transferFail(`${source} must contain one JSON object.`, "invalid_json_object");
-  }
-  const gapsRaw = (parsed as Record<string, unknown>)["gaps"];
+  const gapsRaw = parseJsonRecord(text, source, "invalid_transfer_gaps")["gaps"];
   if (!Array.isArray(gapsRaw)) {
-    transferFail(`${source} requires a gaps array.`, "invalid_transfer_gaps");
+    expectedFail(`${source} requires a gaps array.`, "invalid_transfer_gaps");
   }
   if (gapsRaw.length === 0) {
-    transferFail(`${source} requires at least one measured gap; a transfer that measures nothing records nothing.`, "invalid_transfer_gaps", EXIT_CODE.CONFLICT);
+    expectedFail(`${source} requires at least one measured gap; a transfer that measures nothing records nothing.`, "invalid_transfer_gaps", EXIT_CODE.CONFLICT);
   }
   const seen = new Set<string>();
   const gaps: MetricGap[] = [];
   for (const entry of gapsRaw) {
     if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
-      transferFail(`${source} requires each gap to be an object with a metric and a gap.`, "invalid_transfer_gaps");
+      expectedFail(`${source} requires each gap to be an object with a metric and a gap.`, "invalid_transfer_gaps");
     }
     const record = entry as Record<string, unknown>;
     const metric = record["metric"];
     const gap = record["gap"];
     if (typeof metric !== "string" || metric.trim().length === 0) {
-      transferFail(`${source} requires a non-empty string metric for every gap.`, "invalid_transfer_gaps");
+      expectedFail(`${source} requires a non-empty string metric for every gap.`, "invalid_transfer_gaps");
     }
     if (typeof gap !== "number" || !Number.isFinite(gap)) {
-      transferFail(`${source} requires a finite number gap for "${metric}".`, "invalid_transfer_gaps");
+      expectedFail(`${source} requires a finite number gap for "${metric}".`, "invalid_transfer_gaps");
     }
     if (seen.has(metric)) {
-      transferFail(`${source} reports metric "${metric}" twice; measure each metric once per transfer.`, "invalid_transfer_gaps", EXIT_CODE.CONFLICT);
+      expectedFail(`${source} reports metric "${metric}" twice; measure each metric once per transfer.`, "invalid_transfer_gaps", EXIT_CODE.CONFLICT);
     }
     seen.add(metric);
     gaps.push({ metric: metric.trim(), gap });
@@ -112,23 +100,8 @@ export function parseTransferMetrics(text: string, source = "Transfer metrics"):
  *   malformed — a hand-authored body is the reachable path for both.
  */
 export function parseTransferSpec(text: string, source = "Transfer specification"): TransferSpec {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    transferFail(`${source} is not valid JSON.`, "invalid_transfer_json", EXIT_CODE.CONFLICT);
-  }
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    transferFail(`${source} must contain one JSON object.`, "invalid_json_object", EXIT_CODE.CONFLICT);
-  }
-  const record = parsed as Record<string, unknown>;
-  const stringField = (key: string): string => {
-    const value = record[key];
-    if (typeof value !== "string" || value.trim().length === 0) {
-      transferFail(`${source} requires a non-empty string ${key}.`, `invalid_transfer_${key}`, EXIT_CODE.CONFLICT);
-    }
-    return value.trim();
-  };
+  const record = parseJsonRecord(text, source, "invalid_transfer_json", EXIT_CODE.CONFLICT);
+  const stringField = (key: string): string => requiredTrimmedString(record, key, source, "invalid_transfer_", EXIT_CODE.CONFLICT);
   return {
     source_environment_id: stringField("source_environment_id"),
     target_environment_id: stringField("target_environment_id"),

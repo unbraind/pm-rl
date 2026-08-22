@@ -505,6 +505,38 @@ async function readCompleteNotes(client: PmClient, id: string): Promise<LogNote[
   return result.notes;
 }
 
+/**
+ * Register one immutable content-addressed Environment, or return the existing one.
+ *
+ * The idempotency discipline is written once for both the generic and the
+ * gate-simulator environment commands: derive the id from the content hash,
+ * return the existing item only when its recorded identity still matches, and
+ * refuse a squatter on the derived id that carries a different hash — trusting
+ * the id alone would let a foreign specification inherit an environment's
+ * provenance. When nothing exists yet, the caller's create envelope runs.
+ *
+ * @param client - Client bound to the target workspace.
+ * @param requestedId - Content-derived item id.
+ * @param specHash - Content identity the stored item must still match.
+ * @param action - Command action label for both outcomes.
+ * @param create - The create envelope for a genuinely new registration.
+ * @param details - Bounded details shared by both outcomes.
+ * @returns The command result naming the resolved id and whether it was created.
+ */
+async function registerImmutableEnvironment(client: PmClient, requestedId: string, specHash: string, action: string, create: () => Parameters<PmClient["create"]>[0], details: Readonly<Record<string, unknown>>): Promise<RlCommandResult> {
+  try {
+    const existing = await getTypedItem(client, requestedId, "Environment");
+    if (existing.item.affected_version !== specHash) {
+      fail(`Environment id ${requestedId} already exists with a different specification hash.`, "environment_identity_collision", EXIT_CODE.CONFLICT);
+    }
+    return { action, id: String(existing.item.id), created: false, details };
+  } catch (error) {
+    if (!isItemNotFound(error)) throw error;
+  }
+  const result = await client.create(create());
+  return { action, id: String(result.item.id), created: true, details };
+}
+
 /** Register one immutable environment spec, idempotently by content identity. */
 async function registerEnvironment(context: CommandHandlerContext): Promise<RlCommandResult> {
   const path = stringOption(context, "file")!;
@@ -513,16 +545,7 @@ async function registerEnvironment(context: CommandHandlerContext): Promise<RlCo
   const requestedId = `env-${idSegment(spec.name)}-${idSegment(spec.version)}-${specHash.slice(0, 12)}`;
   const client = clientFor(context);
   await ensurePersistentTypes(client);
-  try {
-    const existing = await getTypedItem(client, requestedId, "Environment");
-    if (existing.item.affected_version !== specHash) {
-      fail(`Environment id ${requestedId} already exists with a different specification hash.`, "environment_identity_collision", EXIT_CODE.CONFLICT);
-    }
-    return { action: "rl-env-register", id: String(existing.item.id), created: false, details: { spec_hash: specHash } };
-  } catch (error) {
-    if (!isItemNotFound(error)) throw error;
-  }
-  const result = await client.create({
+  return registerImmutableEnvironment(client, requestedId, specHash, "rl-env-register", () => ({
     id: requestedId,
     title: `${spec.name} ${spec.version}`,
     type: "Environment",
@@ -533,8 +556,7 @@ async function registerEnvironment(context: CommandHandlerContext): Promise<RlCo
     affectedVersion: specHash,
     fixedVersion: spec.version,
     message: "Register immutable RL environment specification",
-  });
-  return { action: "rl-env-register", id: result.item.id, created: true, details: { spec_hash: specHash } };
+  }), { spec_hash: specHash });
 }
 
 /** Start one run linked to an exact environment and immutable configuration. */
@@ -799,18 +821,11 @@ async function recordEvalResult(context: CommandHandlerContext): Promise<RlComma
   };
   const resultHash = hashJson(spec as unknown as JsonValue);
   const requestedId = `eval-${idSegment(benchmark.spec.name)}-${resultHash.slice(0, 12)}`;
-  try {
-    const existing = await getTypedItem(client, requestedId, "EvalResult");
-    const existingSpec = parseEvalResultSpec(
-      storedJson(String(existing.item.body), `EvalResult ${requestedId}`, "eval_result_missing_spec"),
-      `EvalResult ${requestedId} specification`,
-    );
-    if (existing.item.affected_version !== resultHash || hashJson(existingSpec as unknown as JsonValue) !== resultHash) {
-      fail(`EvalResult id ${requestedId} already exists with different provenance.`, "eval_result_identity_collision", EXIT_CODE.CONFLICT);
-    }
-    return { action: "rl-eval-record", id: String(existing.item.id), created: false, details: spec as unknown as Readonly<Record<string, unknown>> };
-  } catch (error) {
-    if (!isItemNotFound(error)) throw error;
+  const existingEval = await matchingImmutableRecord(client, requestedId, "EvalResult", "EvalResult", "eval_result_identity_collision", resultHash, (body) =>
+    parseEvalResultSpec(storedJson(body, `EvalResult ${requestedId}`, "eval_result_missing_spec"), `EvalResult ${requestedId} specification`) as unknown as JsonValue,
+  );
+  if (existingEval !== undefined) {
+    return { action: "rl-eval-record", id: String(existingEval.item.id), created: false, details: spec as unknown as Readonly<Record<string, unknown>> };
   }
   const result = await client.create({
     id: requestedId,
@@ -920,6 +935,67 @@ async function showLeaderboard(context: CommandHandlerContext): Promise<RlComman
 }
 
 /**
+ * Return the existing immutable record when it still matches its content identity.
+ *
+ * Three commands (eval results, gate episodes, merge outcomes) share one
+ * idempotency contract: derive the id from the content hash; if a record already
+ * exists there, its stored body must re-hash to the same identity, otherwise a
+ * squatter is carrying different provenance under this record's name and the
+ * collision is refused. A genuinely absent record returns undefined and the
+ * caller proceeds to create.
+ *
+ * @param client - Client bound to the target workspace.
+ * @param requestedId - Content-derived item id.
+ * @param itemType - The record's item type.
+ * @param label - Human-readable noun used in the collision refusal.
+ * @param collisionCode - Typed refusal code for the identity collision.
+ * @param specHash - Content identity the stored record must still match.
+ * @param rehydrate - Parses the stored body fence back into the record's spec.
+ * @returns The existing verified item, or undefined when none exists.
+ */
+async function matchingImmutableRecord(client: PmClient, requestedId: string, itemType: "EvalResult" | "GateEpisode" | "MergeOutcome", label: string, collisionCode: string, specHash: string, rehydrate: (body: string) => JsonValue): Promise<GetResult | undefined> {
+  try {
+    const existing = await getTypedItem(client, requestedId, itemType);
+    const existingSpec = rehydrate(String(existing.item.body));
+    if (existing.item.affected_version !== specHash || hashJson(existingSpec) !== specHash) {
+      fail(`${label} id ${requestedId} already exists with different provenance.`, collisionCode, EXIT_CODE.CONFLICT);
+    }
+    return existing;
+  } catch (error) {
+    if (isItemNotFound(error)) return undefined;
+    throw error;
+  }
+}
+
+/**
+ * Read an Environment item and demand its two provenance preconditions.
+ *
+ * Both the generic and the gate-simulator verification paths depend on the same
+ * two conditions before a body can even be checked: a recorded
+ * `affected_version` naming what the specification hashed to, and a readable
+ * JSON specification fence in the body. The conditions and their refusal codes
+ * are written once here so the two verifiers cannot drift on them.
+ *
+ * @param client - Client bound to the workspace holding the environment.
+ * @param environmentId - Environment item id to read.
+ * @param dependents - Plural noun naming what the caller is attributing, used
+ *   only in the missing-hash message (e.g. `runs`, `gate episodes`).
+ * @returns The resolved id, the recorded hash, and the fence's JSON text.
+ */
+async function verifiedEnvironmentFence(client: PmClient, environmentId: string, dependents: string): Promise<{ id: string; specHash: string; json: string }> {
+  const environment = await getTypedItem(client, environmentId, "Environment");
+  const specHash = environment.item.affected_version;
+  if (typeof specHash !== "string" || specHash.length === 0) {
+    fail(`Environment ${environmentId} has no specification affected_version and cannot support attributable ${dependents}.`, "environment_missing_hash", EXIT_CODE.CONFLICT);
+  }
+  const fenced = JSON_SPEC_FENCE.exec(String(environment.item.body));
+  if (fenced?.[1] === undefined) {
+    fail(`Environment ${environmentId} has no JSON specification fence.`, "environment_missing_spec", EXIT_CODE.CONFLICT);
+  }
+  return { id: String(environment.item.id), specHash, json: fenced[1]! };
+}
+
+/**
  * Re-verify a gate-simulator Environment still matches its content identity.
  *
  * Gate environments are ordinary content-addressed Environment items whose
@@ -937,20 +1013,12 @@ async function showLeaderboard(context: CommandHandlerContext): Promise<RlComman
  *   content-addressed identity.
  */
 async function verifyGateEnvironmentIdentity(client: PmClient, environmentId: string): Promise<{ id: string; spec: GateEnvironmentSpec }> {
-  const environment = await getTypedItem(client, environmentId, "Environment");
-  const specHash = environment.item.affected_version;
-  if (typeof specHash !== "string" || specHash.length === 0) {
-    fail(`Environment ${environmentId} has no specification affected_version and cannot support attributable gate episodes.`, "environment_missing_hash", EXIT_CODE.CONFLICT);
-  }
-  const fenced = JSON_SPEC_FENCE.exec(String(environment.item.body));
-  if (fenced?.[1] === undefined) {
-    fail(`Environment ${environmentId} has no JSON specification fence.`, "environment_missing_spec", EXIT_CODE.CONFLICT);
-  }
-  const storedSpec = parseGateEnvironmentSpec(fenced[1], `Gate environment ${environmentId} specification`);
-  if (hashJson(storedSpec as unknown as JsonValue) !== specHash || !String(environment.item.id).endsWith(specHash.slice(0, 12))) {
+  const verified = await verifiedEnvironmentFence(client, environmentId, "gate episodes");
+  const storedSpec = parseGateEnvironmentSpec(verified.json, `Gate environment ${environmentId} specification`);
+  if (hashJson(storedSpec as unknown as JsonValue) !== verified.specHash || !verified.id.endsWith(verified.specHash.slice(0, 12))) {
     fail(`Environment ${environmentId} no longer matches its content-addressed identity. Register the changed gate set as a new version.`, "environment_was_mutated", EXIT_CODE.CONFLICT);
   }
-  return { id: String(environment.item.id), spec: storedSpec };
+  return { id: verified.id, spec: storedSpec };
 }
 
 /** Register one immutable gate-simulator environment by content identity. */
@@ -961,16 +1029,7 @@ async function registerGateEnvironment(context: CommandHandlerContext): Promise<
   const requestedId = `env-${idSegment(spec.name)}-${idSegment(spec.version)}-${specHash.slice(0, 12)}`;
   const client = clientFor(context);
   await ensurePersistentTypes(client);
-  try {
-    const existing = await getTypedItem(client, requestedId, "Environment");
-    if (existing.item.affected_version !== specHash) {
-      fail(`Environment id ${requestedId} already exists with a different specification hash.`, "environment_identity_collision", EXIT_CODE.CONFLICT);
-    }
-    return { action: "rl-episode-env-register", id: String(existing.item.id), created: false, details: { spec_hash: specHash } };
-  } catch (error) {
-    if (!isItemNotFound(error)) throw error;
-  }
-  const result = await client.create({
+  return registerImmutableEnvironment(client, requestedId, specHash, "rl-episode-env-register", () => ({
     id: requestedId,
     title: `${spec.name} ${spec.version} gates at ${spec.commit.slice(0, 12)}`,
     type: "Environment",
@@ -981,8 +1040,7 @@ async function registerGateEnvironment(context: CommandHandlerContext): Promise<
     affectedVersion: specHash,
     fixedVersion: spec.version,
     message: "Register immutable gate-simulator environment",
-  });
-  return { action: "rl-episode-env-register", id: result.item.id, created: true, details: { spec_hash: specHash } };
+  }), { spec_hash: specHash });
 }
 
 /**
@@ -1031,18 +1089,11 @@ async function recordEpisode(context: CommandHandlerContext): Promise<RlCommandR
   };
   const specHash = hashJson(spec as unknown as JsonValue);
   const requestedId = `episode-${specHash.slice(0, 12)}`;
-  try {
-    const existing = await getTypedItem(client, requestedId, "GateEpisode");
-    const existingSpec = parseEpisodeSpec(
-      storedJson(String(existing.item.body), `Episode ${requestedId}`, "episode_missing_spec"),
-      `Episode ${requestedId} specification`,
-    );
-    if (existing.item.affected_version !== specHash || hashJson(existingSpec as unknown as JsonValue) !== specHash) {
-      fail(`Episode id ${requestedId} already exists with different provenance.`, "episode_identity_collision", EXIT_CODE.CONFLICT);
-    }
-    return { action: "rl-episode-record", id: String(existing.item.id), created: false, details: episodeDetails(spec, verified.id) };
-  } catch (error) {
-    if (!isItemNotFound(error)) throw error;
+  const existingEpisode = await matchingImmutableRecord(client, requestedId, "GateEpisode", "Episode", "episode_identity_collision", specHash, (body) =>
+    parseEpisodeSpec(storedJson(body, `Episode ${requestedId}`, "episode_missing_spec"), `Episode ${requestedId} specification`) as unknown as JsonValue,
+  );
+  if (existingEpisode !== undefined) {
+    return { action: "rl-episode-record", id: String(existingEpisode.item.id), created: false, details: episodeDetails(spec, verified.id) };
   }
   const result = await client.create({
     id: requestedId,
@@ -1154,18 +1205,11 @@ async function recordOutcome(context: CommandHandlerContext): Promise<RlCommandR
   const requestedId = `outcome-${specHash.slice(0, 12)}`;
   const client = clientFor(context);
   await ensurePersistentTypes(client);
-  try {
-    const existing = await getTypedItem(client, requestedId, "MergeOutcome");
-    const existingSpec = parseOutcomeSpec(
-      storedJson(String(existing.item.body), `MergeOutcome ${requestedId}`, "outcome_missing_spec"),
-      `MergeOutcome ${requestedId} specification`,
-    );
-    if (existing.item.affected_version !== specHash || hashJson(existingSpec as unknown as JsonValue) !== specHash) {
-      fail(`MergeOutcome id ${requestedId} already exists with different provenance.`, "outcome_identity_collision", EXIT_CODE.CONFLICT);
-    }
-    return { action: "rl-outcome-record", id: String(existing.item.id), created: false, details: spec as unknown as Readonly<Record<string, unknown>> };
-  } catch (error) {
-    if (!isItemNotFound(error)) throw error;
+  const existingOutcome = await matchingImmutableRecord(client, requestedId, "MergeOutcome", "MergeOutcome", "outcome_identity_collision", specHash, (body) =>
+    parseOutcomeSpec(storedJson(body, `MergeOutcome ${requestedId}`, "outcome_missing_spec"), `MergeOutcome ${requestedId} specification`) as unknown as JsonValue,
+  );
+  if (existingOutcome !== undefined) {
+    return { action: "rl-outcome-record", id: String(existingOutcome.item.id), created: false, details: spec as unknown as Readonly<Record<string, unknown>> };
   }
   const result = await client.create({
     id: requestedId,
@@ -1263,20 +1307,12 @@ function extractGenerationSpec(body: string, source: string): GenerationSpec {
  *   content-addressed identity.
  */
 async function verifyEnvironmentIdentity(client: PmClient, environmentId: string, dependents: string): Promise<{ id: string; spec: EnvironmentSpec }> {
-  const environment = await getTypedItem(client, environmentId, "Environment");
-  const specHash = environment.item.affected_version;
-  if (typeof specHash !== "string" || specHash.length === 0) {
-    fail(`Environment ${environmentId} has no specification affected_version and cannot support attributable ${dependents}.`, "environment_missing_hash", EXIT_CODE.CONFLICT);
-  }
-  const fenced = JSON_SPEC_FENCE.exec(String(environment.item.body));
-  if (fenced?.[1] === undefined) {
-    fail(`Environment ${environmentId} has no JSON specification fence.`, "environment_missing_spec", EXIT_CODE.CONFLICT);
-  }
-  const storedSpec = parseEnvironmentSpec(fenced[1], `Environment ${environmentId} specification`);
-  if (hashJson(storedSpec) !== specHash || !String(environment.item.id).endsWith(specHash.slice(0, 12))) {
+  const verified = await verifiedEnvironmentFence(client, environmentId, dependents);
+  const storedSpec = parseEnvironmentSpec(verified.json, `Environment ${environmentId} specification`);
+  if (hashJson(storedSpec) !== verified.specHash || !verified.id.endsWith(verified.specHash.slice(0, 12))) {
     fail(`Environment ${environmentId} no longer matches its content-addressed identity. Register the changed specification as a new version.`, "environment_was_mutated", EXIT_CODE.CONFLICT);
   }
-  return { id: String(environment.item.id), spec: storedSpec };
+  return { id: verified.id, spec: storedSpec };
 }
 
 /** Verify an environment is content-addressed and return its id and reward-spec hash. */
