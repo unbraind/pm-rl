@@ -2039,7 +2039,10 @@ const RECEIPT_HEADING = "Determinism receipt:";
  * @returns The fence's JSON text, or null when the heading or fence is absent.
  */
 function fencedSection(body: string, heading: string): string | null {
-  const start = body.indexOf(heading);
+  // Anchored to a line start: a caller-supplied run configuration can embed the
+  // heading's text inside a JSON string value, and an unanchored search would
+  // find that impostor first and return the wrong fence.
+  const start = body.indexOf(`\n${heading}`);
   if (start < 0) return null;
   return JSON_SPEC_FENCE.exec(body.slice(start))?.[1] ?? null;
 }
@@ -2227,8 +2230,16 @@ async function planSweep(context: CommandHandlerContext): Promise<RlCommandResul
     fail(`Search space file ${path} declares no dimensions, so there is no arm to plan.`, "invalid_search_space");
   }
   const specHash = hashJson(verifiedEnvironment.spec);
-  // Every arm id is derived up front and checked before any create runs, so a
-  // re-plan refuses without leaving a partially expanded sweep behind.
+  // Every id the plan will write is checked before any create runs — the sweep
+  // item itself AND every arm — so a re-plan refuses without leaving a partially
+  // expanded sweep behind. A sweep whose arms are gone (or were never created)
+  // would otherwise be re-armed under an owner that already exists.
+  try {
+    await getTypedItem(client, requestedId, "Sweep");
+    fail(`Sweep ${requestedId} already exists. Plan a new sweep id instead of re-arming an existing sweep.`, "sweep_exists", EXIT_CODE.CONFLICT);
+  } catch (error) {
+    if (!isItemNotFound(error)) throw error;
+  }
   const armIds = configs.map((_, index) => `${requestedId}-arm-${index + 1}`);
   for (const armId of armIds) {
     try {
@@ -2239,25 +2250,39 @@ async function planSweep(context: CommandHandlerContext): Promise<RlCommandResul
     }
   }
   const arms: Array<{ id: string; config: JsonValue }> = [];
-  for (const [index, config] of configs.entries()) {
-    const armId = armIds[index]!;
-    const result = await client.create({
-      id: armId,
-      title: armId,
-      type: "Run",
-      status: "in_progress",
-      acceptanceCriteria: `Sweep arm ${index + 1} retains its exact environment and hyperparameter identities; its metrics are history appends independent of every other arm.`,
-      estimatedMinutes: "1",
-      body: `# ${armId}\n\nAlgorithm: ${algorithm}\n\nEnvironment snapshot:\n\n\`\`\`json\n${JSON.stringify(verifiedEnvironment.spec, null, 2)}\n\`\`\`\n\nRun configuration:\n\n\`\`\`json\n${JSON.stringify(config, null, 2)}\n\`\`\``,
-      dep: [verifiedEnvironment.id],
-      environment: verifiedEnvironment.id,
-      affectedVersion: specHash,
-      component: algorithm,
-      fixedVersion: hashJson(config),
-      message: `Plan RL sweep arm ${index + 1}`,
-    });
-    // Report the RESOLVED id: the host scopes created ids under its alias.
-    arms.push({ id: String(result.item.id), config });
+  try {
+    for (const [index, config] of configs.entries()) {
+      const armId = armIds[index]!;
+      const result = await client.create({
+        id: armId,
+        title: armId,
+        type: "Run",
+        status: "in_progress",
+        acceptanceCriteria: `Sweep arm ${index + 1} retains its exact environment and hyperparameter identities; its metrics are history appends independent of every other arm.`,
+        estimatedMinutes: "1",
+        body: `# ${armId}\n\nAlgorithm: ${algorithm}\n\nEnvironment snapshot:\n\n\`\`\`json\n${JSON.stringify(verifiedEnvironment.spec, null, 2)}\n\`\`\`\n\nRun configuration:\n\n\`\`\`json\n${JSON.stringify(config, null, 2)}\n\`\`\``,
+        dep: [verifiedEnvironment.id],
+        environment: verifiedEnvironment.id,
+        affectedVersion: specHash,
+        component: algorithm,
+        fixedVersion: hashJson(config),
+        message: `Plan RL sweep arm ${index + 1}`,
+      });
+      // Report the RESOLVED id: the host scopes created ids under its alias.
+      arms.push({ id: String(result.item.id), config });
+    }
+  } catch (error) {
+    // A mid-plan failure must not leave orphaned arm runs that later reads would
+    // treat as real children. Remove everything this invocation wrote, then let
+    // the original cause surface first if a removal itself fails.
+    for (const arm of arms) {
+      try {
+        await client.delete(arm.id, { force: true });
+      } catch (removeError) {
+        fail(`${String(removeError)} — and removing the partially planned arm ${arm.id} also failed, so sweep ${requestedId} has orphaned arms that must be deleted before it can be re-planned.`, "sweep_cleanup_failed", EXIT_CODE.CONFLICT);
+      }
+    }
+    throw error;
   }
   const spec: SweepSpec = {
     search_space: spaceRawSpace as Record<string, JsonValue[]>,
@@ -2362,15 +2387,18 @@ async function recordTransfer(context: CommandHandlerContext): Promise<RlCommand
   const checkpoint = stringOption(context, "checkpoint")!;
   const runId = stringOption(context, "run")!;
   const metricsPath = stringOption(context, "metrics")!;
-  if (sourceId === targetId) {
-    fail(`pm rl transfer record requires two DIFFERENT environments; ${sourceId} cannot be both the simulator and the deployment side of a gap.`, "degenerate_transfer", EXIT_CODE.CONFLICT);
-  }
   const client = clientFor(context);
   await ensurePersistentTypes(client);
   // Verified before the metrics are even parsed so a broken environment is the
   // first refusal reported.
   const source = await verifyEnvironmentIdentity(client, sourceId, "transfers");
   const target = await verifyEnvironmentIdentity(client, targetId, "transfers");
+  // Compared on RESOLVED identities, not raw flags: pm resolves aliases, so two
+  // different inputs can name one environment, and measuring an environment
+  // against itself would record a gap that is zero by construction.
+  if (source.id === target.id) {
+    fail(`pm rl transfer record requires two DIFFERENT environments; ${source.id} cannot be both the simulator and the deployment side of a gap.`, "degenerate_transfer", EXIT_CODE.CONFLICT);
+  }
   const run = await getTypedItem(client, runId, "Run");
   const resolvedRunId = String(run.item.id);
   const gaps = parseTransferMetrics(readTextFile(metricsPath, "Transfer metrics"), `Transfer metrics ${metricsPath}`);
@@ -2430,6 +2458,7 @@ async function showTransferGap(context: CommandHandlerContext): Promise<RlComman
   const run = await getTypedItem(client, id, "Run");
   const resolvedRunId = String(run.item.id);
   const entries: Array<{ id: string; created_at: string; spec: TransferSpec; stale_reason: string | null }> = [];
+  const stalenessCache = new Map<string, string | null>();
   for (const item of (await client.list({ type: "Transfer", status: "all", noTruncate: true, fields: "id,body,created_at" })).items) {
     // A listed item without an id carries no identity to plot or name.
     if (item.id === undefined) continue;
@@ -2442,8 +2471,14 @@ async function showTransferGap(context: CommandHandlerContext): Promise<RlComman
     const spec = parseTransferSpec(specText, `Transfer ${item.id} specification`);
     if (spec.run_id !== resolvedRunId) continue;
     // Either side going stale breaks the whole measurement: half of a gap is
-    // not half a data point.
-    const staleReason = (await environmentInvalidationReason(client, spec.source_environment_id)) ?? (await environmentInvalidationReason(client, spec.target_environment_id));
+    // not half a data point. Reasons are cached per environment id because a
+    // run's transfers normally share one source and one target.
+    for (const envId of [spec.source_environment_id, spec.target_environment_id]) {
+      if (!stalenessCache.has(envId)) {
+        stalenessCache.set(envId, await environmentInvalidationReason(client, envId));
+      }
+    }
+    const staleReason = stalenessCache.get(spec.source_environment_id) ?? stalenessCache.get(spec.target_environment_id) ?? null;
     entries.push({ id: String(item.id), created_at: String(item.created_at), spec, stale_reason: staleReason });
   }
   const report = buildTransferGapReport(entries);

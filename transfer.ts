@@ -81,11 +81,16 @@ export function parseTransferMetrics(text: string, source = "Transfer metrics"):
     if (typeof gap !== "number" || !Number.isFinite(gap)) {
       expectedFail(`${source} requires a finite number gap for "${metric}".`, "invalid_transfer_gaps");
     }
-    if (seen.has(metric)) {
-      expectedFail(`${source} reports metric "${metric}" twice; measure each metric once per transfer.`, "invalid_transfer_gaps", EXIT_CODE.CONFLICT);
+    // Normalized BEFORE the uniqueness check: comparing raw spellings lets
+    // `"reward"` and `" reward "` both through, and both then store `reward` —
+    // two entries for one metric, where the report would silently keep only
+    // the first.
+    const normalizedMetric = metric.trim();
+    if (seen.has(normalizedMetric)) {
+      expectedFail(`${source} reports metric "${normalizedMetric}" twice; measure each metric once per transfer.`, "invalid_transfer_gaps", EXIT_CODE.CONFLICT);
     }
-    seen.add(metric);
-    gaps.push({ metric: metric.trim(), gap });
+    seen.add(normalizedMetric);
+    gaps.push({ metric: normalizedMetric, gap });
   }
   return gaps.sort((left, right) => left.metric.localeCompare(right.metric));
 }

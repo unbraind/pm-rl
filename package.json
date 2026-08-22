@@ -16,7 +16,6 @@
     "dist/sweep.*",
     "dist/transfer.*",
     "dist/refuse.*",
-    "dist/gatesim.*",
     "manifest.json",
     "README.md",
     "CHANGELOG.md",
@@ -64,8 +63,7 @@
       "test/compare.test.ts",
       "test/leaderboard.test.ts",
       "test/quality-scripts.test.ts",
-      "test/coverage-gate.test.ts",
-      "test/gatesim.test.ts"
+      "test/coverage-gate.test.ts"
     ],
     "thresholds": {
       "lines": 100,

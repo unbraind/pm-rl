@@ -34,6 +34,12 @@ function resultOf(run: { result?: unknown; handled: boolean }): RlCommandResult 
   return run.result as RlCommandResult;
 }
 
+/** A host SDK whose client is the given real client; the production commands read only `context.sdk.client`. */
+type HostSdk = NonNullable<Parameters<ExtensionTestHarness["runCommand"]>[0]["sdk"]>;
+function sdkWith(client: PmClient): HostSdk {
+  return { client } as unknown as HostSdk;
+}
+
 /** Assert a refusal carries an explicit typed code and conflict exit. */
 function typedRefusal(code: string) {
   return (error: unknown): boolean => isPmCliExpectedError(error) && error.exitCode === EXIT_CODE.CONFLICT && String((error as { context?: { code?: string } }).context?.code) === code;
@@ -142,6 +148,7 @@ test("a stored sweep specification refuses malformed JSON, objects, and arm entr
   assert.throws(() => parseSweepSpec(JSON.stringify({ ...spec, environment_spec_hash: "" })), /non-empty string environment_spec_hash/);
   assert.throws(() => parseSweepSpec(JSON.stringify({ ...spec, search_space: [1] })), /declared search space object/);
   assert.throws(() => parseSweepSpec(JSON.stringify({ ...spec, search_space: { lr: "fast" } })), /non-empty array/);
+  assert.throws(() => parseSweepSpec(JSON.stringify({ ...spec, search_space: { lr: [] } })), /non-empty array/);
   assert.throws(() => parseSweepSpec(JSON.stringify({ ...spec, selection_rule: 7 })), /selection_rule object/);
   assert.throws(() => parseSweepSpec(JSON.stringify({ ...spec, selection_rule: { kind: "max_final" } })), /valid selection_rule metric/);
   assert.throws(() => parseSweepSpec(JSON.stringify({ ...spec, selection_rule: { kind: "argmax", metric: "x" } })), /selection_rule kind/);
@@ -217,7 +224,7 @@ test("plan expands the declared space into child runs carrying each arm's hyperp
     assert.equal(stored.item.environment, environment);
   }
 
-  // Re-planning the same sweep refuses: its arms already exist.
+  // Re-planning the same sweep refuses on the sweep id itself.
   await assert.rejects(
     harness.runCommand({
       command: "rl sweep plan",
@@ -225,6 +232,22 @@ test("plan expands the declared space into child runs carrying each arm's hyperp
       args: ["sweep-lr"],
       options: {
         file: writeSpace(root, { search_space: { lr: [0.1] }, selection_rule: "none" }, "again.json"),
+        environment,
+        algorithm: "PPO",
+      },
+    }),
+    typedRefusal("sweep_exists"),
+  );
+
+  // A stray arm without its owning sweep is caught by the arm pre-check.
+  await client.create({ id: "rl-sweep-stray-arm-1", title: "stray", type: "Run", status: "in_progress", environment, affectedVersion: "h", fixedVersion: "c", component: "PPO" });
+  await assert.rejects(
+    harness.runCommand({
+      command: "rl sweep plan",
+      pmRoot,
+      args: ["sweep-stray"],
+      options: {
+        file: writeSpace(root, { search_space: { lr: [0.1] }, selection_rule: "none" }, "stray.json"),
         environment,
         algorithm: "PPO",
       },
@@ -280,7 +303,7 @@ test("two arms advanced on two branches merge with no conflict, and status reads
   execFileSync("git", ["config", "user.email", "pm-rl-test@example.invalid"], { cwd: root });
   execFileSync("pm", ["merge", "install"], { cwd: root });
   execFileSync("git", ["add", ".agents", ".gitattributes"], { cwd: root });
-  execFileSync("git", ["commit", "-m", "Seed sweep"], { cwd: root });
+  execFileSync("git", ["-c", "commit.gpgsign=false", "commit", "-m", "Seed sweep"], { cwd: root });
 
   const metricsA = join(root, "agent-a.ndjson");
   const metricsB = join(root, "agent-b.ndjson");
@@ -290,18 +313,18 @@ test("two arms advanced on two branches merge with no conflict, and status reads
   writeFileSync(metricsA, '{"step":1,"metric":"reward","value":3}\n{"step":6,"metric":"reward","value":5}');
   await harness.runCommand({ command: "rl run log", pmRoot, args: ["rl-sweep-git-arm-1"], options: { file: metricsA } });
   execFileSync("git", ["add", ".agents"], { cwd: root });
-  execFileSync("git", ["commit", "-m", "Agent A arm"], { cwd: root });
+  execFileSync("git", ["-c", "commit.gpgsign=false", "commit", "-m", "Agent A arm"], { cwd: root });
 
   execFileSync("git", ["switch", "main"], { cwd: root });
   execFileSync("git", ["switch", "-c", "agent-b"], { cwd: root });
   writeFileSync(metricsB, '{"step":1,"metric":"reward","value":8}');
   await harness.runCommand({ command: "rl run log", pmRoot, args: ["rl-sweep-git-arm-2"], options: { file: metricsB } });
   execFileSync("git", ["add", ".agents"], { cwd: root });
-  execFileSync("git", ["commit", "-m", "Agent B arm"], { cwd: root });
+  execFileSync("git", ["-c", "commit.gpgsign=false", "commit", "-m", "Agent B arm"], { cwd: root });
 
   // Both branches advanced independent arms of one sweep; the merge keeps both.
   execFileSync("git", ["switch", "agent-a"], { cwd: root });
-  execFileSync("git", ["merge", "--no-edit", "agent-b"], { cwd: root });
+  execFileSync("git", ["-c", "commit.gpgsign=false", "merge", "--no-edit", "agent-b"], { cwd: root });
 
   const status = resultOf(await harness.runCommand({ command: "rl sweep status", pmRoot, args: ["rl-sweep-git"] }));
   assert.equal(status.action, "rl-sweep-status");
@@ -314,7 +337,7 @@ test("two arms advanced on two branches merge with no conflict, and status reads
 test("planning refuses malformed space files before anything is written", async () => {
   const { root, pmRoot, harness } = await workspace();
   const environment = await registerEnv(root, pmRoot, harness);
-  const plan = async (id: string, content: unknown, filename: string): Promise<Promise<unknown>> =>
+  const plan = async (id: string, content: unknown, filename: string): Promise<unknown> =>
     harness.runCommand({
       command: "rl sweep plan",
       pmRoot,
@@ -358,6 +381,64 @@ test("status renders unmeasured arms and a no-winner rule in table form without 
   assert.match(output, /rl-sweep-fresh-arm-1 \| in_progress \| events=3 \| last_step=5 \| selection=-/);
   assert.match(output, /last_step=- \| selection=-/);
   assert.match(output, /winner: none \(the selection rule declares no winner\)/);
+});
+
+test("planning refuses an existing sweep id even when its arms are gone, and cleans up on mid-plan failure", async () => {
+  const { root, pmRoot, harness, client } = await workspace();
+  const environment = await registerEnv(root, pmRoot, harness);
+  // A sweep whose arm runs do not exist (hand-authored owner) must not be
+  // re-armed under an owner that already exists.
+  await client.create({ id: "sweep-orphan-owner", title: "owner only", type: "Sweep", status: "open", body: "no fence needed for this test" });
+  await assert.rejects(
+    harness.runCommand({
+      command: "rl sweep plan",
+      pmRoot,
+      args: ["sweep-orphan-owner"],
+      options: {
+        file: writeSpace(root, { search_space: { lr: [0.1] }, selection_rule: "none" }, "orphan.json"),
+        environment,
+        algorithm: "PPO",
+      },
+    }),
+    typedRefusal("sweep_exists"),
+  );
+
+  // An injected mid-write failure removes every arm the invocation already
+  // wrote, leaving nothing behind for a retry to trip over.
+  let createCalls = 0;
+  const failing = new Proxy(client, {
+    get(target, property, receiver) {
+      if (property === "create") {
+        return async (options?: unknown) => {
+          createCalls += 1;
+          if (createCalls >= 2) throw new Error("injected host failure on second create");
+          const delegated = (Reflect.get(target, "create", receiver) as (...a: unknown[]) => Promise<unknown>).bind(target);
+          return delegated(options);
+        };
+      }
+      const value = Reflect.get(target, property, receiver);
+      return typeof value === "function" ? (value as (...arguments_: unknown[]) => unknown).bind(target) : value;
+    },
+  }) as PmClient;
+  // The harness captures a non-pm error into errorMessage rather than rejecting;
+  // only pm expected errors propagate as rejections.
+  const failed = await harness.runCommand({
+    command: "rl sweep plan",
+    pmRoot,
+    args: ["sweep-flaky"],
+    options: {
+      file: writeSpace(root, { search_space: { lr: [0.3, 0.03], batch: [16, 32] }, selection_rule: "none" }, "flaky.json"),
+      environment,
+      algorithm: "PPO",
+    },
+    sdk: sdkWith(failing),
+  });
+  assert.equal(failed.handled, false);
+  assert.match(String(failed.errorMessage), /injected host failure/);
+  for (const armId of ["rl-sweep-flaky-arm-1", "rl-sweep-flaky-arm-2", "rl-sweep-flaky-arm-3", "rl-sweep-flaky-arm-4"]) {
+    await assert.rejects(client.get(armId, {}), (error: unknown): boolean => isPmCliExpectedError(error) && error.exitCode === EXIT_CODE.NOT_FOUND, `${armId} must not survive a failed plan`);
+  }
+  await assert.rejects(client.get("rl-sweep-flaky", {}), (error: unknown): boolean => isPmCliExpectedError(error) && error.exitCode === EXIT_CODE.NOT_FOUND);
 });
 
 test("status refuses a missing sweep and a hand-authored body without a specification fence", async () => {

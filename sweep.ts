@@ -162,7 +162,10 @@ export function parseSweepSpec(text: string, source = "Sweep specification"): Sw
   }
   const searchSpace: Record<string, JsonValue[]> = {};
   for (const [key, values] of searchSpaceEntries) {
-    if (!Array.isArray(values)) {
+    // Same rule expandSearchSpace enforces at plan time: an empty dimension has
+    // no candidate to expand, and storing one would defer the refusal until a
+    // re-plan that can never succeed.
+    if (!Array.isArray(values) || values.length === 0) {
       expectedFail(`${source} requires a non-empty array of candidate values for "${key}".`, "invalid_sweep_search_space", EXIT_CODE.CONFLICT);
     }
     searchSpace[key] = values;

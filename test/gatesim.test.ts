@@ -171,6 +171,12 @@ test("verdict extraction follows the pinned rule over complete, known gate resul
   assert.throws(() => parseGateResults(JSON.stringify({}), "results", GATES_SPEC), /requires a gates array/);
 });
 
+test("verdict extraction refuses an empty result set instead of vacuously passing", () => {
+  // `every` over nothing is true; a gate run that recorded NO results must be a
+  // refusal, never an absent measurement rendering as a pass.
+  assert.throws(() => deriveVerdict([]), pureRefusal("empty_gate_results"));
+});
+
 test("credential scanning refuses tokens, userinfo URLs, private keys and keyed secret literals, and passes ordinary diffs", () => {
   for (const secret of [
     "clone https://x-access-token:ghp_Abcdef12345678901234@github.com/unbraind/pm-rl",

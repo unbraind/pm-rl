@@ -247,11 +247,24 @@ export function parseGateResults(text: string, source: string, spec: GateEnviron
  *
  * The fleet's mandatory gates all decide the reward, so the supported rule is
  * `all_exit_zero`: the verdict passes only when every declared gate exited zero.
+ * An EMPTY result set is refused rather than defaulted: `every` over nothing is
+ * vacuously true, and a gate run that recorded no results would render as a
+ * pass — an absent measurement masquerading as a positive one. The command path
+ * cannot reach this (parseGateResults demands a result for every declared gate),
+ * but this function is exported, so the refusal is the contract.
  *
- * @param results - Complete results for every declared gate.
+ * @param results - Complete results for every declared gate; never empty.
  * @returns `"pass"` when every gate exited zero, otherwise `"fail"`.
+ * @throws {empty_gate_results} When no results were recorded at all.
  */
 export function deriveVerdict(results: GateResults): EpisodeVerdict {
+  if (results.length === 0) {
+    expectedFail(
+      "Verdict extraction refused: no gate results were recorded. An absent measurement is not a pass; record a result for every declared gate before extracting a verdict.",
+      "empty_gate_results",
+      EXIT_CODE.CONFLICT,
+    );
+  }
   return results.every((entry) => entry.exit_code === 0) ? "pass" : "fail";
 }
 

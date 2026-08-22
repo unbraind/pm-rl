@@ -113,9 +113,23 @@ test("transfer metrics accept finite per-metric gaps and refuse everything undec
     [JSON.stringify({ gaps: ["reward"] }), /each gap to be an object/],
     [JSON.stringify({ gaps: { reward: 1 } }), /requires a gaps array/],
     [JSON.stringify({ gaps: [{ metric: "r", gap: 1 }, { metric: "r", gap: 2 }] }), /reports metric "r" twice/],
+    // Padding must not walk around the uniqueness refusal: both spellings store
+    // the same normalized metric.
+    [JSON.stringify({ gaps: [{ metric: "reward", gap: 1 }, { metric: " reward ", gap: 2 }] }), /reports metric "reward" twice/],
   ] as Array<[string, RegExp]>) {
     assert.throws(() => parseTransferMetrics(text), message);
   }
+});
+
+test("metric names are normalized before storage, so only internal spelling differences survive", () => {
+  const parsed = parseTransferMetrics(JSON.stringify({ gaps: [{ metric: " reward ", gap: 1 }] }));
+  // Trimming is normalization, not mutation of distinct metrics: internal
+  // spacing is part of the name and is preserved.
+  assert.deepEqual(parsed, [{ metric: "reward", gap: 1 }]);
+  assert.deepEqual(parseTransferMetrics(JSON.stringify({ gaps: [{ metric: "re ward", gap: 1 }, { metric: "re  ward", gap: 2 }] })), [
+    { metric: "re  ward", gap: 2 },
+    { metric: "re ward", gap: 1 },
+  ]);
 });
 
 test("a stored transfer specification is validated field by field", () => {
@@ -208,13 +222,24 @@ test("recording links both environment versions, the run and the checkpoint; ref
   assert.match(String(stored.item.body), /sha256:abc123/);
   assert.match(String(stored.item.body), /episode_return/);
 
-  // Source and target being the same environment makes the gap meaningless.
+  // Source and target being the same environment makes the gap meaningless —
+  // whether named by the same raw flag or by two spellings that RESOLVE to one
+  // environment (pm normalizes the alias-scoped prefix away).
   await assert.rejects(
     harness.runCommand({
       command: "rl transfer record",
       pmRoot,
       args: ["xfer-degenerate"],
       options: { source, target: source, checkpoint: "sha256:x", run, metrics: writeMetrics(root, [["r", 1]], "deg.json") },
+    }),
+    typedRefusal("degenerate_transfer"),
+  );
+  await assert.rejects(
+    harness.runCommand({
+      command: "rl transfer record",
+      pmRoot,
+      args: ["xfer-degenerate-alias"],
+      options: { source, target: source.replace(/^rl-/, ""), checkpoint: "sha256:x", run, metrics: writeMetrics(root, [["r", 1]], "deg2.json") },
     }),
     typedRefusal("degenerate_transfer"),
   );
