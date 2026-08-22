@@ -4,6 +4,10 @@
 
 ### Added
 
+- Sim-to-real transfer measurement and gap reporting ([pm-rl-06n6](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-06n6.toon))
+- Sweep planning: expand a search space into independent child runs ([pm-rl-mqdb](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-mqdb.toon))
+- Determinism receipts, and re-deriving them on demand ([pm-rl-dpug](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-dpug.toon))
+- The fleet's own mandatory gates as the first sim-to-RL environment ([pm-rl-0cqg](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-0cqg.toon))
 - Benchmarks and eval results with complete provenance ([pm-rl-tl1x](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-tl1x.toon))
 - Leaderboard, and the two refusals it derives from the graph ([pm-rl-nzxt](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-nzxt.toon))
 - pm rl compare: a metric diff with the config delta that explains it ([pm-rl-taj8](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-taj8.toon))
@@ -41,6 +45,7 @@
 
 ### Other
 
+- Recursive self-improvement: a training loop whose every generation is tracked, gated, and invalidatable ([pm-rl-yi7j](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/epics/pm-rl-yi7j.toon))
 - Refuse to rank the incomparable rather than warn about it ([pm-rl-p401](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/decisions/pm-rl-p401.toon))
 - Promotion refuses on contamination rather than warning about it ([pm-rl-gyrj](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/decisions/pm-rl-gyrj.toon))
 - Mark stale in_progress items as blocked to clear stale_in_progress health warning ([pm-rl-d3ve](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-d3ve.toon))
