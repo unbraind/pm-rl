@@ -11,6 +11,8 @@
     "dist/invalidate.*",
     "dist/compare.*",
     "dist/leaderboard.*",
+    "dist/gatesim.*",
+    "dist/gatesim.*",
     "manifest.json",
     "README.md",
     "CHANGELOG.md",
@@ -48,13 +50,15 @@
     "tests": [
       "test/series.test.ts",
       "test/index.test.ts",
+      "test/gatesim.test.ts",
       "test/audit-git-identities.test.ts",
       "test/lineage.test.ts",
       "test/invalidate.test.ts",
       "test/compare.test.ts",
       "test/leaderboard.test.ts",
       "test/quality-scripts.test.ts",
-      "test/coverage-gate.test.ts"
+      "test/coverage-gate.test.ts",
+      "test/gatesim.test.ts"
     ],
     "thresholds": {
       "lines": 100,
