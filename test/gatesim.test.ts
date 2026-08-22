@@ -60,6 +60,11 @@ function pureRefusal(code: string) {
     isPmCliExpectedError(error) && String((error as { context?: { code?: string } }).context?.code) === code;
 }
 
+/** Assert a usage refusal carries its typed code on the usage exit. */
+function typedUsage(code: string) {
+  return (error: unknown): boolean => isPmCliExpectedError(error) && error.exitCode === EXIT_CODE.USAGE && String((error as { context?: { code?: string } }).context?.code) === code;
+}
+
 /** Representative gate-environment fixture shared across tests. */
 export const GATES_SPEC: GateEnvironmentSpec = {
   name: "fleet-gates",
@@ -783,4 +788,94 @@ test("episodes and outcomes refuse identity collisions, and outcomes are idempot
     body: "no fence",
   });
   await assert.rejects(harness.runCommand({ command: "rl simreal gap", pmRoot }), typedRefusal("outcome_unreadable"));
+});
+
+test("the merged option accepts host-native booleans and string forms, and refuses anything else", async () => {
+  const { root, pmRoot, harness } = await workspace();
+  await gatesEnv(root, pmRoot, harness);
+  // A host may deliver the flag already parsed as a boolean.
+  const native = resultOf(await harness.runCommand({
+    command: "rl outcome record",
+    pmRoot,
+    options: { pullRequest: "https://github.com/unbraind/pm-rl/pull/1", merged: true },
+  }));
+  assert.equal(native.details?.merged, true);
+  // The false direction of the host-native boolean is its own branch.
+  const nativeFalse = resultOf(await harness.runCommand({
+    command: "rl outcome record",
+    pmRoot,
+    options: { pullRequest: "https://github.com/unbraind/pm-rl/pull/1b", merged: false },
+  }));
+  assert.equal(nativeFalse.details?.merged, false);
+  const asString = resultOf(await harness.runCommand({
+    command: "rl outcome record",
+    pmRoot,
+    options: { pullRequest: "https://github.com/unbraind/pm-rl/pull/2", merged: "false" },
+  }));
+  assert.equal(asString.details?.merged, false);
+  const asTrueString = resultOf(await harness.runCommand({
+    command: "rl outcome record",
+    pmRoot,
+    options: { pullRequest: "https://github.com/unbraind/pm-rl/pull/2b", merged: "true" },
+  }));
+  assert.equal(asTrueString.details?.merged, true);
+  await assert.rejects(
+    harness.runCommand({
+      command: "rl outcome record",
+      pmRoot,
+      options: { pullRequest: "https://github.com/unbraind/pm-rl/pull/3", merged: "yes" },
+    }),
+    typedUsage("invalid_outcome_merged"),
+  );
+});
+
+test("the gap skips a listed episode or outcome row the SDK types without an id", async () => {
+  const { root, pmRoot, harness, client } = await workspace();
+  const environment = await gatesEnv(root, pmRoot, harness);
+  const recorded = resultOf(await harness.runCommand({
+    command: "rl episode record",
+    pmRoot,
+    options: {
+      environment,
+      candidateTree: "tree_1",
+      baseCommit: GATES_SPEC.commit,
+      pullRequest: "https://github.com/unbraind/pm-rl/pull/1",
+      gatesResults: writeGateResults(root, [["coverage", 0], ["docstring", 0]]),
+    },
+  }));
+  await harness.runCommand({
+    command: "rl outcome record",
+    pmRoot,
+    options: { pullRequest: "https://github.com/unbraind/pm-rl/pull/1", merged: true },
+  });
+  // A real client whose GateEpisode and MergeOutcome list results each carry one
+  // id-less row: the production guard that skips them must run for real against
+  // the exact shape it exists to defend, so the paired cohort is unchanged.
+  const augmented = new Proxy(client, {
+    get(target, property, receiver) {
+      if (property === "list") {
+        const delegated = target.list.bind(target) as (options?: unknown) => ReturnType<PmClient["list"]>;
+        return (options?: unknown) => {
+          const result = delegated(options);
+          const wanted = (options as { type?: string } | undefined)?.type;
+          if (wanted !== "GateEpisode" && wanted !== "MergeOutcome") return result;
+          return result.then((value) => {
+            const envelope = value as { items?: readonly unknown[] };
+            return { ...value, items: [...(envelope.items ?? []), { title: `idless-${String(wanted)}`, type: wanted, status: "closed" }] };
+          }) as ReturnType<PmClient["list"]>;
+        };
+      }
+      const value = Reflect.get(target, property, receiver);
+      return typeof value === "function" ? (value as (...arguments_: unknown[]) => unknown).bind(target) : value;
+    },
+  }) as PmClient;
+  const report = resultOf(await harness.runCommand({
+    command: "rl simreal gap",
+    pmRoot,
+    sdk: sdkWith(augmented),
+  }));
+  assert.equal((report.details?.paired as Record<string, unknown>).pull_requests, 1);
+  assert.equal((report.details?.paired as Record<string, unknown>).episodes, 1);
+  assert.equal((report.details?.paired as Record<string, unknown>).merge_rate, 1);
+  assert.match(String(recorded.id), /episode-/);
 });
