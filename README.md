@@ -4,8 +4,9 @@
 content-addressed environments and benchmarks, attributable run and evaluation lifecycles,
 fail-closed leaderboards, recursive-improvement lineage gates, transitive invalidation, and run
 comparison. Run metrics live in merge-safe notes and are proven to union losslessly when two real
-Git branches append independently. Sweeps and sim-to-real transfer remain planned slices, not
-hidden or partial commands.
+Git branches append independently. Sweeps expand into independent child-run arms and sim-to-real
+transfer reports the per-metric gap series across a run's checkpoints — both fully implemented,
+with no hidden or partial commands.
 
 ```bash
 npm install --save-dev pm-rl     # or: bun add -d pm-rl
@@ -87,6 +88,10 @@ query the host can already answer, not a feature to build.
 | `pm rl lineage` | Print the generation chain with each hop's promotion evidence, its direction-aware proxy-to-held-out gap, and any invalidation, reported with a distinct reason per condition (edited, unreadable, no recorded identity, or absent) |
 | `pm rl invalidate` | Given one environment or benchmark version, list every `Run`, `EvalResult` and `Transfer` transitively invalidated by changing it, each with the exact dependency path (`env-v1 → run-a → eval-a1`) by which the change reaches it. The walk is directional over the `dependencies` edges pm itself stores, so changing an environment version never reports another version's runs |
 | `pm rl compare` | Diff two runs at the metric level over their common step range and report the hyperparameter, environment-version and reward-spec delta alongside, because a metric difference with no configuration difference beside it is not an explanation |
+| `pm rl run verify` | Re-derive a run's determinism receipt — seed policy, library versions, device, environment item id — against a fresh one and refuse any drift naming every differing field, without mutating anything ([`pm-rl-dpug`](.agents/pm/features/pm-rl-dpug.toon)) |
+| `pm rl sweep plan` / `status` | Expand a declared search space into one child Run per arm with the arm's hyperparameters recorded; report per-arm progress and a verdict only when the selection rule supports one ([`pm-rl-mqdb`](.agents/pm/features/pm-rl-mqdb.toon)) |
+| `pm rl transfer record` / `gap` | Record one measured per-metric sim-to-real gap for one checkpoint, linked to both environment versions; report the gap series across a run's checkpoints in order, holding transfers whose environments went stale out of the series with reasons ([`pm-rl-06n6`](.agents/pm/features/pm-rl-06n6.toon)) |
+| `pm rl episode env register` / `record` / `replay`, `pm rl outcome record`, `pm rl simreal gap` | The fleet's own mandatory gates as a content-addressed environment: episodes store a candidate-tree identity (git tree or patch hash), replay resolves that exact artifact before re-deriving the verdict, every episode links its pull request, and the sim-to-real gap is computed over the paired cohort with denominators stated and unpaired sides reported as coverage ([`pm-rl-0cqg`](.agents/pm/features/pm-rl-0cqg.toon)) |
 
 The remaining types and commands in the roadmap table above are intentionally not registered
 until their acceptance criteria and refusal paths are implemented and tested.
