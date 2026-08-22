@@ -2,14 +2,20 @@ id: pm-rl-06n6
 title: Sim-to-real transfer measurement and gap reporting
 description: "A Transfer links a source Environment (the simulator) to a target Environment (deployment, or a harder benchmark) and records the measured per-metric gap for one checkpoint. transfer gap reports the gap series across a run's checkpoints, which surfaces the actual failure mode of a sim-heavy programme: sim performance improving while transfer stalls. Because a Transfer depends on both environments, invalidate already covers it."
 type: Feature
-status: open
+status: closed
 priority: 2
 tags: []
 created_at: "2026-07-31T06:38:35.139Z"
-updated_at: "2026-08-01T12:08:33.256Z"
+updated_at: "2026-08-22T13:02:42.459Z"
+closed_at: "2026-08-22T13:02:42.436Z"
+completed_at: "2026-08-22T13:02:42.436Z"
+claim_principal: pi-agent
 author: "harness:claude-code"
 estimated_minutes: 480
 acceptance_criteria: A Transfer depends on both environment versions and the checkpoint; gap reports a per-metric series over checkpoints in order; a transfer measured against a superseded environment version is reported as stale rather than plotted
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rl-e20d,parent,"2026-07-31T06:38:35.559Z","harness:claude-code","cli:update:dep",detected
+comments[1]{created_at,author,text}:
+  "2026-08-22T13:02:41.812Z",pi-agent,"Implemented sim-to-real transfer measurement and gap reporting, to every acceptance criterion.\n\n- A Transfer depends on BOTH environment versions and the checkpoint: `pm rl transfer record` creates typed dependency edges to the simulator-side environment, the deployment-side environment, and its source run, stores the checkpoint as the item's fixed_version and in the immutable body spec, and re-verifies both environments against their content identities at write time (environment_was_mutated propagates). A degenerate same-environment \"gap\" is refused (degenerate_transfer), and an unmeasurable gap set - empty, duplicated metric, non-finite value - is refused at record time (invalid_transfer_gaps).\n- `pm rl transfer gap <run>` reports a per-metric series over checkpoints in order: transfers are ordered by recording instant (item id tie-break within one instant), and each plotted transfer names its checkpoint and every measured gap; per-metric series are aligned across transfers, with a missing measurement shown as an explicit NaN hole rather than silently shifting the series.\n- A transfer measured against a superseded environment version is reported as STALE rather than plotted: either side's environment failing the invalidation check (edited, unreadable, no recorded identity, unresolvable) holds the whole transfer out of every series with its reason stated - half of a broken measurement is still broken. The report also refuses unreadable hand-authored bodies (transfer_unreadable), skips id-less list rows, filters other runs' transfers, and reports an empty series honestly.\n\nMeasured gates this session: npm test 226/226 pass; npm run coverage - 16 source file(s) at 100/100/100 lines/branches/functions, thresholds met; npm run docstring - 16 file(s), 116 declaration(s) documented; typecheck, lint, jscpd duplicates green.\n\nRevert-proof verification: each refusal/guard was temporarily reverted and its pinned test confirmed to FAIL, then restored from git: degenerate_transfer, the stale-exclusion guard (reverted to plot stale transfers; the test caught it), transfer_unreadable, and the record-time environment identity verification.\n"
+close_reason: "All acceptance criteria met: a Transfer depends on both environment versions and the checkpoint through typed edges (verified against content identities at write); transfer gap reports a per-metric series over checkpoints in recording order with aligned metrics; a transfer measured against a superseded environment version is reported stale with its reason rather than plotted. Gates: 226/226 tests, coverage 100/100/100 across 16 files, docstring 116 declarations, lint/duplicates/typecheck green. Four refusal paths verified revert-proof."
 body: ""

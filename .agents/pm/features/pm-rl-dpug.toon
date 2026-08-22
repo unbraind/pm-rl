@@ -2,14 +2,20 @@ id: pm-rl-dpug
 title: "Determinism receipts, and re-deriving them on demand"
 description: "A Run records a receipt: seed policy, library versions, device, and the environment version. run verify re-derives it and reports the difference. An unreproducible run is then detectable at the moment it is claimed rather than months later when someone tries to build on it, which is the only time the information is cheap."
 type: Feature
-status: open
+status: closed
 priority: 2
 tags: []
 created_at: "2026-07-31T06:38:32.554Z"
-updated_at: "2026-08-01T12:08:34.237Z"
+updated_at: "2026-08-22T12:11:04.018Z"
+closed_at: "2026-08-22T12:11:04.003Z"
+completed_at: "2026-08-22T12:11:04.003Z"
+claim_principal: pi-agent
 author: "harness:claude-code"
 estimated_minutes: 360
 acceptance_criteria: A run whose receipt no longer re-derives is reported as unverifiable with the differing fields named; a matching receipt verifies; verify never mutates the run
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rl-e20d,parent,"2026-07-31T06:38:32.989Z","harness:claude-code","cli:update:dep",detected
+comments[1]{created_at,author,text}:
+  "2026-08-22T12:11:03.559Z",pi-agent,"Implemented determinism receipts and their on-demand re-derivation, to every acceptance criterion.\n\n- `pm rl run start --receipt-file` records a receipt: seed policy, library versions (name -> exact version), device, and the environment version. The receipt must pin the run's exact resolved environment item id; one that names a foreign environment is refused at the write (receipt_environment_mismatch) so a receipt cannot be born already unverifiable.\n- `pm rl run verify <run> --receipt-file` re-derives the stored receipt against a fresh one: a matching receipt verifies (verified: true, differences: []); any drift is refused with receipt_mismatch naming EVERY differing field - seed policy, device, per-library upgrades, added libraries, removed libraries, environment version - plus a cross-check of the receipt against the RUN's own recorded environment, so an internally consistent receipt naming an environment the run never used still fails. A run with no stored receipt is refused (receipt_unrecorded), never treated as matching an empty one.\n- Verify never mutates the run: it performs reads only; tests assert body and updated_at are byte-identical before and after both the verifying and the refusing paths.\n\nMeasured gates this session: npm test 209/209 pass; npm run coverage - 14 source file(s) at 100/100/100 lines/branches/functions, thresholds met; npm run docstring - 14 file(s), 105 declaration(s) documented; typecheck, lint, jscpd duplicates green; ./.bin/pm health --strict-exit green (pinned binary).\n\nRevert-proof verification: each refusal was temporarily reverted with its guard deleted and the pinned test confirmed to FAIL, then restored from git: receipt_unrecorded, receipt_mismatch (drift comparison + render), receipt_environment_mismatch, and the parser's unknown-receipt-field guard.\n"
+close_reason: "All acceptance criteria met: a run whose receipt no longer re-derives is refused as UNVERIFIABLE with every differing field named (including per-library changes and the run's recorded environment cross-check); a matching receipt verifies; verify is a pure read and never mutates the run. Gates: 209/209 tests, coverage 100/100/100 across 14 files, docstring 105 declarations in 14 files, lint/duplicates/typecheck/pm-health green. Four refusal paths verified revert-proof."
 body: ""

@@ -2,14 +2,20 @@ id: pm-rl-mqdb
 title: "Sweep planning: expand a search space into independent child runs"
 description: "A Sweep carries the search space and the selection rule; its children are ordinary Run items. Independence is the design: two agents can take two arms on two branches and merge, because each arm is its own item and each arm's metrics are history appends. sweep status reports progress and the selection rule's current verdict across arms."
 type: Feature
-status: open
+status: closed
 priority: 2
 tags: []
 created_at: "2026-07-31T06:38:33.402Z"
-updated_at: "2026-08-01T12:08:33.925Z"
+updated_at: "2026-08-22T12:42:54.399Z"
+closed_at: "2026-08-22T12:42:54.386Z"
+completed_at: "2026-08-22T12:42:54.386Z"
+claim_principal: pi-agent
 author: "harness:claude-code"
 estimated_minutes: 480
 acceptance_criteria: plan expands a declared space into one child Run per arm with the arm's hyperparameters recorded; two arms advanced on two branches merge with no conflict; status reports per-arm progress and never invents a winner the selection rule does not support
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rl-e20d,parent,"2026-07-31T06:38:33.921Z","harness:claude-code","cli:update:dep",detected
+comments[1]{created_at,author,text}:
+  "2026-08-22T12:42:53.814Z",pi-agent,"Implemented sweep planning and status, to every acceptance criterion.\n\n- plan expands a declared space: `pm rl sweep plan <id> --file --environment --algorithm` takes {search_space, selection_rule}, expands the cartesian product in deterministic sorted-key order, and creates one ordinary child Run per arm with the arm's hyperparameters as its run configuration (verified by reading each child's body and environment edge). The rule is validated BEFORE anything is written (invalid_selection_rule), and every arm id is checked up front so a re-plan refuses (sweep_arm_exists) without leaving a partially expanded sweep.\n- Two arms on two branches merge with no conflict: the suite plans a sweep, advances arm 1 on branch agent-a and arm 2 on branch agent-b with a REAL git merge (merge driver installed), and reads both arms' series back through status - the same real-merge proof the run-metric series relies on.\n- status never invents a winner: `pm rl sweep status` reports per-arm progress (status, event count, last step, final value of the selection metric) read live from each child's history. A winner is named only when the stored rule supports one (max_final:<metric> / min_final:<metric>) AND at least one arm has measured that metric; ties break deterministically by item order and the tie is stated. A rule of \"none\" reports \"winner: none (the selection rule declares no winner)\" even with data present, and an unmeasured metric reports that no verdict exists.\n\nMeasured gates this session: npm test 219/219 pass; npm run coverage - 15 source file(s) at 100/100/100 lines/branches/functions, thresholds met; npm run docstring - 15 file(s), 112 declaration(s) documented; typecheck, lint, jscpd duplicates green.\n\nRevert-proof verification: each refusal/guard was temporarily reverted and its pinned test confirmed to FAIL, then restored from git: sweep_arm_exists, invalid_selection_rule (plan-time), the none-rule winner guard (a deliberately reverted status invented a winner and the test caught it), and sweep_unreadable.\n"
+close_reason: "All acceptance criteria met: plan expands a declared space into one child Run per arm with the arm's hyperparameters recorded (deterministic expansion, pre-write validation); two arms advanced on two real git branches merge with no conflict and status reads both; status reports per-arm progress and never invents a winner the selection rule does not support (none-rule and unmeasured-metric cases state why no verdict exists). Gates: 219/219 tests, coverage 100/100/100 across 15 files, docstring 112 declarations, lint/duplicates/typecheck green. Four refusal paths verified revert-proof."
 body: ""
