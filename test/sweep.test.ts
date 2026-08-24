@@ -109,7 +109,7 @@ test("search-space expansion is the deterministic cartesian product in sorted ke
   ]);
   assert.deepEqual(expandSearchSpace({}), []);
   assert.deepEqual(expandSearchSpace({ optimizer: ["adam"] }), [{ optimizer: "adam" }]);
-  assert.throws(() => expandSearchSpace({ lr: [] }), /non-empty array/);
+  assert.throws(() => expandSearchSpace({ lr: [] }), typedUsage("invalid_search_space"));
 });
 
 test("selection rules support exactly max_final, min_final over a metric, or none", () => {
@@ -118,7 +118,7 @@ test("selection rules support exactly max_final, min_final over a metric, or non
   assert.deepEqual(parseSelectionRule("min_final:loss"), { kind: "min_final", metric: "loss" });
   assert.deepEqual([...SELECTION_RULE_KINDS].sort(), ["max_final", "min_final"].sort());
   for (const bad of ["best_guess", "max_final:", ":metric", "max_final:has spaces", "MAX_FINAL:x"]) {
-    assert.throws(() => parseSelectionRule(bad), /selection_rule/, bad);
+    assert.throws(() => parseSelectionRule(bad), typedUsage("invalid_selection_rule"), bad);
   }
 });
 
@@ -176,6 +176,8 @@ test("a stored sweep specification refuses malformed JSON, objects, and arm entr
   assert.throws(() => parseSweepSpec(JSON.stringify({ ...spec, arms: "three" })), typedRefusal("invalid_sweep_arms"));
   assert.throws(() => parseSweepSpec(JSON.stringify({ ...spec, arms: ["a"] })), typedRefusal("invalid_sweep_arms"));
   assert.throws(() => parseSweepSpec(JSON.stringify({ ...spec, arms: [{ id: "  ", config: {} }] })), typedRefusal("invalid_sweep_arms"));
+  // An array is not a configuration object, even though typeof [] === "object".
+  assert.throws(() => parseSweepSpec(JSON.stringify({ ...spec, arms: [{ id: "a", config: [] }] })), typedRefusal("invalid_sweep_arms"));
 });
 
 test("status computes the verdict only when the selection rule supports one, stating why otherwise", () => {
@@ -474,18 +476,48 @@ test("planning refuses an existing sweep id even when its arms are gone, and cle
   }
   await assert.rejects(client.get("rl-sweep-flaky", {}), typedNotFound);
 
-  // A cleanup that itself cannot remove the arm is refused with BOTH causes
-  // named — the removal failure first, the original create failure second.
-  let worseCreateCalls = 0;
-  const failingWorse = new Proxy(client, {
+  // A failure on the FINAL create — the Sweep item after every arm succeeded —
+  // removes the arms too: a retry under the same id would otherwise hit the arm
+  // pre-check and could never complete.
+  let lateCreateCalls = 0;
+  const failingLate = new Proxy(client, {
     get(target, property, receiver) {
       if (property === "create") {
         return async (options?: unknown) => {
-          worseCreateCalls += 1;
-          if (worseCreateCalls >= 2) throw new Error("injected host failure on second create");
-          return (Reflect.get(target, "create", receiver) as (...a: unknown[]) => Promise<unknown>).bind(target)(options);
+          lateCreateCalls += 1;
+          // Four arm creates succeed; the fifth create (the Sweep) fails.
+          if (lateCreateCalls >= 5) throw new Error("injected host failure on sweep create");
+          const delegated = (Reflect.get(target, "create", receiver) as (...a: unknown[]) => Promise<unknown>).bind(target);
+          return delegated(options);
         };
       }
+      const value = Reflect.get(target, property, receiver);
+      return typeof value === "function" ? (value as (...arguments_: unknown[]) => unknown).bind(target) : value;
+    },
+  }) as PmClient;
+  const failedLate = await harness.runCommand({
+    command: "rl sweep plan",
+    pmRoot,
+    args: ["sweep-late-fail"],
+    options: {
+      file: writeSpace(root, { search_space: { lr: [0.3, 0.03], batch: [16, 32] }, selection_rule: "none" }, "late-fail.json"),
+      environment,
+      algorithm: "PPO",
+    },
+    sdk: sdkWith(failingLate),
+  });
+  assert.equal(failedLate.handled, false);
+  assert.match(String(failedLate.errorMessage), /injected host failure on sweep create/);
+  for (const armId of ["rl-sweep-late-fail-arm-1", "rl-sweep-late-fail-arm-2", "rl-sweep-late-fail-arm-3", "rl-sweep-late-fail-arm-4"]) {
+    await assert.rejects(client.get(armId, {}), typedNotFound, `${armId} must not survive a failed sweep create`);
+  }
+  await assert.rejects(client.get("rl-sweep-late-fail", {}), typedNotFound);
+
+  // A cleanup that itself cannot remove the arm is refused with BOTH causes
+  // named — the removal failure first, the original create failure second.
+  // Only the delete trap matters here: removePlannedArms never calls create.
+  const failingWorse = new Proxy(client, {
+    get(target, property, receiver) {
       if (property === "delete") {
         return async () => { throw new Error("injected removal failure"); };
       }

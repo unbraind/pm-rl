@@ -2317,20 +2317,29 @@ async function planSweep(context: CommandHandlerContext): Promise<RlCommandResul
     arms,
   };
   const sweepHash = hashJson(spec as unknown as JsonValue);
-  await client.create({
-    id: requestedId,
-    title: requestedId,
-    type: "Sweep",
-    status: "open",
-    acceptanceCriteria: "The sweep retains its declared space, selection rule, and planned arms; its children are independent runs.",
-    estimatedMinutes: "1",
-    body: `# ${requestedId}\n\n\`\`\`json\n${JSON.stringify(spec, null, 2)}\n\`\`\``,
-    dep: [verifiedEnvironment.id],
-    affectedVersion: sweepHash,
-    fixedVersion: algorithm,
-    component: verifiedEnvironment.id,
-    message: "Plan RL sweep",
-  });
+  // The sweep create sits under the same cleanup contract as the arms: if it
+  // fails AFTER the arms exist, a retry under the same id would hit the arm
+  // pre-check and could never complete. Remove the arms this invocation wrote,
+  // then let the original cause surface.
+  try {
+    await client.create({
+      id: requestedId,
+      title: requestedId,
+      type: "Sweep",
+      status: "open",
+      acceptanceCriteria: "The sweep retains its declared space, selection rule, and planned arms; its children are independent runs.",
+      estimatedMinutes: "1",
+      body: `# ${requestedId}\n\n\`\`\`json\n${JSON.stringify(spec, null, 2)}\n\`\`\``,
+      dep: [verifiedEnvironment.id],
+      affectedVersion: sweepHash,
+      fixedVersion: algorithm,
+      component: verifiedEnvironment.id,
+      message: "Plan RL sweep",
+    });
+  } catch (error) {
+    await removePlannedArms(client, arms, error);
+    throw error;
+  }
   return {
     action: "rl-sweep-plan",
     id: requestedId,

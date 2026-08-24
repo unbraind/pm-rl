@@ -77,7 +77,7 @@ export interface ArmProgress {
   /** Highest measured step, or null when the arm logged nothing yet. */
   readonly last_step: number | null;
   /** The arm's latest value of the selection metric, or null when unmeasured. */
-  final_value: number | null;
+  readonly final_value: number | null;
 }
 
 /** A complete sweep-status view. */
@@ -144,15 +144,16 @@ export function expandSearchSpace(searchSpace: SearchSpace): Array<Record<string
       expectedFail(`search_space requires a non-empty array of candidate values for "${key}".`, "invalid_search_space");
     }
     const next: Array<Record<string, JsonValue>> = [];
+    // The projected size is known arithmetically, so refuse BEFORE materializing
+    // an intermediate product that could itself be enormous: planning writes one
+    // arm per host call sequentially, and the cap is what turns "too big to
+    // want" into a typed refusal instead of a very long afternoon.
+    const projected = products.length * values.length;
+    if (projected > MAX_SWEEP_ARMS) {
+      expectedFail(`search_space expands to ${projected} arms; the cap is ${MAX_SWEEP_ARMS}. Narrow the space or split it across sweeps.`, "search_space_too_large");
+    }
     for (const partial of products) {
       for (const value of values) next.push({ ...partial, [key]: value });
-    }
-    // Refuse BEFORE growing further: `planSweep` issues sequential host writes
-    // per arm, so an unbounded product means unbounded work, and the cap is
-    // what turns "too big to want" into a typed refusal instead of a very long
-    // afternoon.
-    if (next.length > MAX_SWEEP_ARMS) {
-      expectedFail(`search_space expands to ${next.length} arms; the cap is ${MAX_SWEEP_ARMS}. Narrow the space or split it across sweeps.`, "search_space_too_large");
     }
     products = next;
   }
@@ -219,7 +220,7 @@ export function parseSweepSpec(text: string, source = "Sweep specification"): Sw
     const armRecord = entry as Record<string, unknown>;
     const id = armRecord["id"];
     const config = armRecord["config"];
-    if (typeof id !== "string" || id.trim().length === 0 || config === undefined || config === null || typeof config !== "object") {
+    if (typeof id !== "string" || id.trim().length === 0 || config === null || typeof config !== "object" || Array.isArray(config)) {
       expectedFail(`${source} requires each arm to carry a non-empty id and a configuration object.`, "invalid_sweep_arms", EXIT_CODE.CONFLICT);
     }
     arms.push({ id: id.trim(), config: config as JsonValue });
