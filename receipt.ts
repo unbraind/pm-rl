@@ -96,13 +96,19 @@ export function parseReceipt(text: string, source = "Determinism receipt"): Rece
   }
   const libraryVersions: Record<string, string> = {};
   for (const [name, version] of Object.entries(libraryVersionsRaw as Record<string, unknown>)) {
-    if (name.trim().length === 0) {
+    const normalizedName = name.trim();
+    if (normalizedName.length === 0) {
       expectedFail(`${source} requires a non-empty library name for every library version.`, "invalid_receipt_library_versions");
     }
     if (typeof version !== "string" || version.trim().length === 0) {
       expectedFail(`${source} requires a string version for library "${name}".`, "invalid_receipt_library_versions");
     }
-    libraryVersions[name.trim()] = version.trim();
+    // Two raw keys that normalize to the same name would silently overwrite the
+    // first version while verification sees only the survivor; refuse instead.
+    if (Object.hasOwn(libraryVersions, normalizedName)) {
+      expectedFail(`${source} names library "${normalizedName}" more than once after normalization; record one version per library.`, "duplicate_receipt_library");
+    }
+    libraryVersions[normalizedName] = version.trim();
   }
   return {
     seed_policy: stringField("seed_policy"),

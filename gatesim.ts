@@ -20,6 +20,8 @@
  * The command handlers in {@link ./index.ts} resolve tracker items and call them.
  */
 
+import { Buffer } from "node:buffer";
+
 import { EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
 
 import type { JsonValue } from "./index.ts";
@@ -239,7 +241,9 @@ export function parseGateResults(text: string, source: string, spec: GateEnviron
       expectedFail(`${source} is missing a result for declared gate "${gate.name}".`, "missing_gate_result", EXIT_CODE.CONFLICT);
     }
   }
-  return [...byName.entries()].map(([name, exit_code]) => ({ name, exit_code })).sort((left, right) => left.name.localeCompare(right.name));
+  // Byte order, not localeCompare: the returned order feeds the episode spec
+  // hash, so two hosts must canonicalize it identically.
+  return [...byName.entries()].map(([name, exit_code]) => ({ name, exit_code })).sort((left, right) => Buffer.compare(Buffer.from(left.name), Buffer.from(right.name)));
 }
 
 /**
@@ -351,7 +355,7 @@ export function parseEpisodeSpec(text: string, source: string): EpisodeSpec {
       expectedFail(`${source} gate results must be named integer exit codes.`, "invalid_episode_results", EXIT_CODE.CONFLICT);
     }
     return { name: name.trim(), exit_code: exitCode };
-  }).sort((left, right) => left.name.localeCompare(right.name));
+  }).sort((left, right) => Buffer.compare(Buffer.from(left.name), Buffer.from(right.name)));
   const verdict = record["verdict"];
   if (verdict !== "pass" && verdict !== "fail") {
     expectedFail(`${source} requires a verdict of "pass" or "fail".`, "invalid_episode_verdict", EXIT_CODE.CONFLICT);

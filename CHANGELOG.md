@@ -46,6 +46,7 @@
 
 ### Other
 
+- Resolve CodeRabbit round-3 review threads on PR 16 ([pm-rl-imux](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-imux.toon))
 - Recursive self-improvement: a training loop whose every generation is tracked, gated, and invalidatable ([pm-rl-yi7j](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/epics/pm-rl-yi7j.toon))
 - Refuse to rank the incomparable rather than warn about it ([pm-rl-p401](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/decisions/pm-rl-p401.toon))
 - Promotion refuses on contamination rather than warning about it ([pm-rl-gyrj](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/decisions/pm-rl-gyrj.toon))

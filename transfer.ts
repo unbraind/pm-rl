@@ -92,7 +92,9 @@ export function parseTransferMetrics(text: string, source = "Transfer metrics"):
     seen.add(normalizedMetric);
     gaps.push({ metric: normalizedMetric, gap });
   }
-  return gaps.sort((left, right) => left.metric.localeCompare(right.metric));
+  // Byte order, not localeCompare: this sequence is stored in an item body
+  // hashed into affectedVersion, so two hosts must sort it identically.
+  return gaps.sort((left, right) => Buffer.compare(Buffer.from(left.metric), Buffer.from(right.metric)));
 }
 
 /**
@@ -140,7 +142,14 @@ export interface StaleTransfer {
 export interface TransferGapReport {
   /** Plotted transfers in recording order. */
   readonly plotted: readonly PlottedTransfer[];
-  /** Per-metric gap series aligned with `plotted` order. */
+  /**
+   * Per-metric gap series aligned with `plotted` order.
+   *
+   * A metric a plotted transfer never measured appears as `Number.NaN`: the
+   * table renderer prints it verbatim as the hole, while the JSON path serializes
+   * that same value as `null` (JSON has no NaN) — consumers of either output must
+   * treat absent as missing, not zero.
+   */
   readonly per_metric: Readonly<Record<string, readonly number[]>>;
   /** Transfers held out of the series because their provenance went stale. */
   readonly stale: readonly StaleTransfer[];

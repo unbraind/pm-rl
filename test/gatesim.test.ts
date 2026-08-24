@@ -171,6 +171,15 @@ test("verdict extraction follows the pinned rule over complete, known gate resul
   assert.throws(() => parseGateResults(JSON.stringify({}), "results", GATES_SPEC), /requires a gates array/);
 });
 
+test("gate results canonicalize in byte order, independent of host locale", () => {
+  // "loss." and "loss_" diverge between collations: ICU orders "_" before ".",
+  // byte order is the reverse. The returned order feeds the episode spec hash,
+  // so it must be identical on every host; a localeCompare revert flips it.
+  const spec: GateEnvironmentSpec = { ...GATES_SPEC, gates: [{ name: "loss_", command: "npm run loss" }, { name: "loss.", command: "npm run loss:dot" }] };
+  const results = parseGateResults(JSON.stringify({ gates: [{ name: "loss_", exit_code: 0 }, { name: "loss.", exit_code: 0 }] }), "results", spec);
+  assert.deepEqual(results.map((entry) => entry.name), ["loss.", "loss_"]);
+});
+
 test("verdict extraction refuses an empty result set instead of vacuously passing", () => {
   // `every` over nothing is true; a gate run that recorded NO results must be a
   // refusal, never an absent measurement rendering as a pass.
@@ -609,6 +618,14 @@ test("episode and outcome specification parsing refuses malformed stored bodies"
   const parsed = parseEpisodeSpec(JSON.stringify(episode), "e");
   // Results are canonicalized sorted by gate name for stable hashing.
   assert.deepEqual(parsed.gate_results.map((entry) => entry.name), ["coverage", "docstring"]);
+  // The stored order is byte order, not collation order: a re-parsed body must
+  // re-hash to the recorded identity on every host.
+  const localeSensitive = parseEpisodeSpec(JSON.stringify({
+    ...episode,
+    gate_results: [{ name: "loss_", exit_code: 0 }, { name: "loss.", exit_code: 1 }],
+    verdict: "fail",
+  }), "e");
+  assert.deepEqual(localeSensitive.gate_results.map((entry) => entry.name), ["loss.", "loss_"]);
   for (const [override, message] of [
     [{ environment_id: "" }, /non-empty string environment_id/],
     [{ candidate_tree: 5 }, /non-empty identity or null/],

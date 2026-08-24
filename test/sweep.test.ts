@@ -15,6 +15,7 @@ import extension, { removePlannedArms, RL_ITEM_TYPES, type RlCommandResult } fro
 import {
   buildSweepStatus,
   expandSearchSpace,
+  MAX_SWEEP_ARMS,
   parseSelectionRule,
   parseSweepSpec,
   renderSweepStatus,
@@ -121,6 +122,20 @@ test("selection rules support exactly max_final, min_final over a metric, or non
   }
 });
 
+test("search-space expansion refuses a cartesian product beyond the sweep arm cap", () => {
+  const values = [0, 1, 2, 3];
+  // Exactly at the cap still expands.
+  assert.equal(expandSearchSpace({ a: values, b: values, c: values }).length, MAX_SWEEP_ARMS);
+  // One dimension past it refuses with the typed code before growing further:
+  // planning writes one arm per host call sequentially, so an unbounded product
+  // would mean unbounded sequential work.
+  assert.throws(() => expandSearchSpace({ a: values, b: values, c: values, d: values }), (error: unknown): boolean => {
+    if (!typedUsage("search_space_too_large")(error)) return false;
+    assert.match(String((error as Error).message), /expands to 256 arms; the cap is /);
+    return true;
+  });
+});
+
 test("a stored sweep specification is validated field by field", () => {
   const spec: SweepSpec = {
     search_space: { lr: [0.1, 0.01] },
@@ -131,11 +146,11 @@ test("a stored sweep specification is validated field by field", () => {
     arms: [{ id: "sweep-a-arm-1", config: { lr: 0.1 } }],
   };
   assert.deepEqual(parseSweepSpec(JSON.stringify(spec)), spec);
-  assert.throws(() => parseSweepSpec(JSON.stringify({ ...spec, arms: [] })), /at least one arm/);
-  assert.throws(() => parseSweepSpec(JSON.stringify({ ...spec, algorithm: "" })), /non-empty string algorithm/);
-  assert.throws(() => parseSweepSpec(JSON.stringify({ ...spec, environment_id: "" })), /non-empty string environment_id/);
-  assert.throws(() => parseSweepSpec(JSON.stringify({ ...spec, search_space: {} })), /declared search space/);
-  assert.throws(() => parseSweepSpec(JSON.stringify({ ...spec, selection_rule: { kind: "argmax" } })), /selection_rule/);
+  assert.throws(() => parseSweepSpec(JSON.stringify({ ...spec, arms: [] })), typedRefusal("invalid_sweep_arms"));
+  assert.throws(() => parseSweepSpec(JSON.stringify({ ...spec, algorithm: "" })), typedRefusal("invalid_sweep_algorithm"));
+  assert.throws(() => parseSweepSpec(JSON.stringify({ ...spec, environment_id: "" })), typedRefusal("invalid_sweep_environment_id"));
+  assert.throws(() => parseSweepSpec(JSON.stringify({ ...spec, search_space: {} })), typedRefusal("invalid_sweep_search_space"));
+  assert.throws(() => parseSweepSpec(JSON.stringify({ ...spec, selection_rule: { kind: "argmax" } })), typedRefusal("invalid_selection_rule"));
 });
 
 test("a stored sweep specification refuses malformed JSON, objects, and arm entries", () => {
@@ -147,19 +162,20 @@ test("a stored sweep specification refuses malformed JSON, objects, and arm entr
     environment_spec_hash: "hash-x",
     arms: [{ id: "a", config: {} }],
   };
-  assert.throws(() => parseSweepSpec("not-json"), /not valid JSON/);
-  assert.throws(() => parseSweepSpec("[]"), /one JSON object/);
-  assert.throws(() => parseSweepSpec(JSON.stringify({ ...spec, algorithm: 3 })), /non-empty string algorithm/);
-  assert.throws(() => parseSweepSpec(JSON.stringify({ ...spec, environment_spec_hash: "" })), /non-empty string environment_spec_hash/);
-  assert.throws(() => parseSweepSpec(JSON.stringify({ ...spec, search_space: [1] })), /declared search space object/);
-  assert.throws(() => parseSweepSpec(JSON.stringify({ ...spec, search_space: { lr: "fast" } })), /non-empty array/);
-  assert.throws(() => parseSweepSpec(JSON.stringify({ ...spec, search_space: { lr: [] } })), /non-empty array/);
-  assert.throws(() => parseSweepSpec(JSON.stringify({ ...spec, selection_rule: 7 })), /selection_rule object/);
-  assert.throws(() => parseSweepSpec(JSON.stringify({ ...spec, selection_rule: { kind: "max_final" } })), /valid selection_rule metric/);
-  assert.throws(() => parseSweepSpec(JSON.stringify({ ...spec, selection_rule: { kind: "argmax", metric: "x" } })), /selection_rule kind/);
-  assert.throws(() => parseSweepSpec(JSON.stringify({ ...spec, arms: "three" })), /at least one arm/);
-  assert.throws(() => parseSweepSpec(JSON.stringify({ ...spec, arms: ["a"] })), /each arm to be an object/);
-  assert.throws(() => parseSweepSpec(JSON.stringify({ ...spec, arms: [{ id: "  ", config: {} }] })), /non-empty id/);
+  assert.throws(() => parseSweepSpec("not-json"), typedRefusal("invalid_sweep_json"));
+  // A non-object payload is refused by the shared JSON guard's own code.
+  assert.throws(() => parseSweepSpec("[]"), typedRefusal("invalid_json_object"));
+  assert.throws(() => parseSweepSpec(JSON.stringify({ ...spec, algorithm: 3 })), typedRefusal("invalid_sweep_algorithm"));
+  assert.throws(() => parseSweepSpec(JSON.stringify({ ...spec, environment_spec_hash: "" })), typedRefusal("invalid_sweep_environment_spec_hash"));
+  assert.throws(() => parseSweepSpec(JSON.stringify({ ...spec, search_space: [1] })), typedRefusal("invalid_sweep_search_space"));
+  assert.throws(() => parseSweepSpec(JSON.stringify({ ...spec, search_space: { lr: "fast" } })), typedRefusal("invalid_sweep_search_space"));
+  assert.throws(() => parseSweepSpec(JSON.stringify({ ...spec, search_space: { lr: [] } })), typedRefusal("invalid_sweep_search_space"));
+  assert.throws(() => parseSweepSpec(JSON.stringify({ ...spec, selection_rule: 7 })), typedRefusal("invalid_selection_rule"));
+  assert.throws(() => parseSweepSpec(JSON.stringify({ ...spec, selection_rule: { kind: "max_final" } })), typedRefusal("invalid_selection_rule"));
+  assert.throws(() => parseSweepSpec(JSON.stringify({ ...spec, selection_rule: { kind: "argmax", metric: "x" } })), typedRefusal("invalid_selection_rule"));
+  assert.throws(() => parseSweepSpec(JSON.stringify({ ...spec, arms: "three" })), typedRefusal("invalid_sweep_arms"));
+  assert.throws(() => parseSweepSpec(JSON.stringify({ ...spec, arms: ["a"] })), typedRefusal("invalid_sweep_arms"));
+  assert.throws(() => parseSweepSpec(JSON.stringify({ ...spec, arms: [{ id: "  ", config: {} }] })), typedRefusal("invalid_sweep_arms"));
 });
 
 test("status computes the verdict only when the selection rule supports one, stating why otherwise", () => {
@@ -340,7 +356,7 @@ test("two arms advanced on two branches merge with no conflict, and status reads
 });
 
 test("planning refuses malformed space files before anything is written", async () => {
-  const { root, pmRoot, harness } = await workspace();
+  const { root, pmRoot, harness, client } = await workspace();
   const environment = await registerEnv(root, pmRoot, harness);
   const plan = async (id: string, content: unknown, filename: string): Promise<unknown> =>
     harness.runCommand({
@@ -353,6 +369,17 @@ test("planning refuses malformed space files before anything is written", async 
   await assert.rejects(plan("sweep-nospace", { selection_rule: "none" }, "nospace.json"), typedUsage("invalid_search_space"));
   await assert.rejects(plan("sweep-norule", { search_space: { lr: [1] } }, "norule.json"), typedUsage("invalid_selection_rule"));
   await assert.rejects(plan("sweep-empty", { search_space: {}, selection_rule: "none" }, "empty.json"), typedUsage("invalid_search_space"));
+  // An over-large space refuses on the cap rather than planning unbounded arms.
+  const fourValues = [0, 1, 2, 3];
+  await assert.rejects(
+    plan("sweep-huge", { search_space: { a: fourValues, b: fourValues, c: fourValues, d: fourValues }, selection_rule: "none" }, "huge.json"),
+    typedUsage("search_space_too_large"),
+  );
+  // Each refusal happened before any write: neither the sweep nor an arm exists.
+  for (const id of ["sweep-array", "sweep-nospace", "sweep-norule", "sweep-empty", "sweep-huge"]) {
+    await assert.rejects(client.get(`rl-${id}`, {}), typedNotFound, `${id} must not be written by a refused plan`);
+    await assert.rejects(client.get(`rl-${id}-arm-1`, {}), typedNotFound, `${id} arm must not be written by a refused plan`);
+  }
 });
 
 test("status renders unmeasured arms and a no-winner rule in table form without inventing a verdict", async () => {

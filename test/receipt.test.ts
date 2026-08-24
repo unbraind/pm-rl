@@ -10,7 +10,7 @@ import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { EXIT_CODE, init, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness, type ExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 
-import extension, { RL_ITEM_TYPES, type RlCommandResult } from "../index.ts";
+import extension, { RL_COMMANDS, RL_ITEM_TYPES, type RlCommandResult } from "../index.ts";
 import {
   compareReceipts,
   parseReceipt,
@@ -122,6 +122,35 @@ test("receipt parsing requires exactly the four provenance fields, fully populat
   assert.throws(() => parseReceipt(JSON.stringify({ ...RECEIPT, extra: "x" })), /unknown receipt field "extra"/);
   assert.throws(() => parseReceipt("not-json"), /not valid JSON/);
   assert.throws(() => parseReceipt("[]"), /one JSON object/);
+});
+
+test("receipt parsing refuses two library keys that normalize to the same name", () => {
+  // Raw JSON, not JSON.stringify: JSON.parse drops duplicate raw keys, and the
+  // hazard here is two DISTINCT spellings ("torch" and " torch ") that collapse
+  // onto one normalized name and would silently overwrite the first version.
+  const colliding = '{"seed_policy":"derived-from-seed-7","library_versions":{"torch":"2.4.0"," torch ":"9.9.9"},"device":"cuda:0","environment_version":"grid-world-3"}';
+  assert.throws(
+    () => parseReceipt(colliding),
+    (error: unknown): boolean => {
+      if (!isPmCliExpectedError(error) || String((error as { context?: { code?: string } }).context?.code) !== "duplicate_receipt_library") return false;
+      assert.match(String((error as Error).message), /names library "torch" more than once after normalization/);
+      return true;
+    },
+  );
+  // Distinct normalized names remain fine.
+  assert.doesNotThrow(() => parseReceipt(JSON.stringify({ ...RECEIPT, library_versions: { torch: "2.4.0", " torch2 ": "9.9.9" } })));
+});
+
+test("rl run start declares the --receipt-file flag its handler reads", () => {
+  const command = RL_COMMANDS.find((candidate) => candidate.name === "rl run start");
+  assert.ok(command !== undefined && "flags" in command, "rl run start must be registered with flags");
+  const flags = command.flags.map((flag) => flag.long);
+  // The handler reads receipt_file; an undeclared flag would make the host
+  // reject `pm rl run start --receipt-file` before the handler ever runs.
+  assert.ok(
+    flags.includes("--receipt-file"),
+    `startRun reads receipt_file but the command declares only: ${flags.join(", ")}`,
+  );
 });
 
 test("comparison names every differing field, including added and removed libraries", () => {

@@ -132,6 +132,15 @@ test("metric names are normalized before storage, so only internal spelling diff
   ]);
 });
 
+test("gap metrics canonicalize in byte order, independent of host locale", () => {
+  // "loss." and "loss_" diverge between collations: ICU orders "_" before ".",
+  // byte order is the reverse. The stored gap sequence feeds the transfer body
+  // hash, so this exact order must hold on every host; a localeCompare revert
+  // flips it and fails this assertion.
+  const parsed = parseTransferMetrics(JSON.stringify({ gaps: [{ metric: "loss_", gap: 1 }, { metric: "loss.", gap: 2 }] }));
+  assert.deepEqual(parsed.map((gap) => gap.metric), ["loss.", "loss_"]);
+});
+
 test("a stored transfer specification is validated field by field", () => {
   assert.deepEqual(parseTransferSpec(JSON.stringify(TRANSFER_SPEC)), TRANSFER_SPEC);
   assert.deepEqual([...TRANSFER_EDGE_SOURCES].sort(), ["pm-rl:transfer:run", "pm-rl:transfer:source", "pm-rl:transfer:target"].sort());

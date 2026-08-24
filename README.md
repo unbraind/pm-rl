@@ -73,6 +73,8 @@ query the host can already answer, not a feature to build.
 | **EvalResult** | one checkpoint scored against one benchmark version | Depends on both, so provenance is complete |
 | **Transfer** | the measured per-metric gap between a source environment and a target one for one checkpoint | Depends on **both** environments — the sim-to-real gap becomes tracked data, not folklore |
 | **Generation** | base checkpoint, the policy that collected the training data, those collection runs, and the training configuration | Its parent is the generation whose policy did the collecting, so lineage is an edge rather than a filename convention |
+| **GateEpisode** | one judged candidate against a registered gate environment: content-addressed candidate-tree identity, per-gate results, extracted verdict, and its pull-request link | Content-addressed; replay resolves that exact artifact before re-deriving the verdict, so a moved verdict is caught, not trusted |
+| **MergeOutcome** | whether one pull request actually merged | The real side of the sim-to-real gap: paired by pull-request link against gate episodes, with unpaired sides reported as coverage |
 
 ## Available commands
 

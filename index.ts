@@ -2533,6 +2533,7 @@ export const RL_COMMANDS = [
     { long: "--environment", value_name: "id", value_type: "string", required: true, description: "Environment item id." },
     { long: "--algorithm", value_name: "name", value_type: "string", required: true, description: "Training algorithm." },
     { long: "--config-file", value_name: "path", value_type: "string", description: "Optional JSON configuration." },
+    { long: "--receipt-file", value_name: "path", value_type: "string", description: "Optional determinism receipt JSON to record at start so `rl run verify` can re-derive it later." },
   ], run: startRun }),
   defineCommand({ name: "rl run log", description: "Append NDJSON metric events from --file or stdin to merge-safe run notes.", arguments: [{ name: "id", required: true, description: "Run item id." }], flags: [{ long: "--file", value_name: "path", value_type: "string", description: "NDJSON file; omit to read stdin." }], run: logRun }),
   defineCommand({ name: "rl run verify", description: "Re-derive a run's determinism receipt and report the difference, without mutating anything.", arguments: [{ name: "id", required: true, description: "Run item id." }], flags: [

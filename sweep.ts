@@ -28,6 +28,17 @@ import type { JsonValue } from "./index.ts";
 /** The selection-rule kinds that can ever name a winner. */
 export const SELECTION_RULE_KINDS = ["max_final", "min_final"] as const;
 
+/** The upper bound on arms one sweep may expand to; beyond it, planning refuses. */
+export const MAX_SWEEP_ARMS = 64;
+
+/** Characters a selection-metric name may use. Authored and stored rules share this rule. */
+const METRIC_NAME_PATTERN = /^[A-Za-z0-9_.-]+$/;
+
+/** Whether a value names a selection-rule kind that can pick a winner. */
+function isSelectionRuleKind(value: unknown): value is SelectionRuleKind {
+  return typeof value === "string" && (SELECTION_RULE_KINDS as readonly string[]).includes(value);
+}
+
 /** A kind of selection rule that can name a winner. */
 export type SelectionRuleKind = (typeof SELECTION_RULE_KINDS)[number];
 
@@ -102,8 +113,8 @@ export function parseSelectionRule(raw: string): SelectionRule {
   if (separator > 0) {
     const kind = raw.slice(0, separator);
     const metric = raw.slice(separator + 1);
-    if ((SELECTION_RULE_KINDS as readonly string[]).includes(kind) && /^[A-Za-z0-9_.-]+$/.test(metric)) {
-      return { kind: kind as SelectionRuleKind, metric };
+    if (isSelectionRuleKind(kind) && METRIC_NAME_PATTERN.test(metric)) {
+      return { kind, metric };
     }
   }
   expectedFail(
@@ -121,7 +132,8 @@ export function parseSelectionRule(raw: string): SelectionRule {
  *
  * @param searchSpace - Hyperparameter name to candidate values.
  * @returns Every combination, sorted-key order, keys alphabetical within each config.
- * @throws When a declared dimension is missing, empty, or not an array.
+ * @throws When a declared dimension is missing, empty, or not an array, or when
+ *   the product would exceed {@link MAX_SWEEP_ARMS} arms.
  */
 export function expandSearchSpace(searchSpace: SearchSpace): Array<Record<string, JsonValue>> {
   if (Object.keys(searchSpace).length === 0) return [];
@@ -134,6 +146,13 @@ export function expandSearchSpace(searchSpace: SearchSpace): Array<Record<string
     const next: Array<Record<string, JsonValue>> = [];
     for (const partial of products) {
       for (const value of values) next.push({ ...partial, [key]: value });
+    }
+    // Refuse BEFORE growing further: `planSweep` issues sequential host writes
+    // per arm, so an unbounded product means unbounded work, and the cap is
+    // what turns "too big to want" into a typed refusal instead of a very long
+    // afternoon.
+    if (next.length > MAX_SWEEP_ARMS) {
+      expectedFail(`search_space expands to ${next.length} arms; the cap is ${MAX_SWEEP_ARMS}. Narrow the space or split it across sweeps.`, "search_space_too_large");
     }
     products = next;
   }
@@ -179,12 +198,12 @@ export function parseSweepSpec(text: string, source = "Sweep specification"): Sw
   let rule: SelectionRule;
   if (kind === "none") {
     rule = { kind: "none" };
-  } else if ((SELECTION_RULE_KINDS as readonly string[]).includes(kind as string)) {
+  } else if (isSelectionRuleKind(kind)) {
     const metric = ruleRecord["metric"];
-    if (typeof metric !== "string" || !/^[A-Za-z0-9_.-]+$/.test(metric)) {
+    if (typeof metric !== "string" || !METRIC_NAME_PATTERN.test(metric)) {
       expectedFail(`${source} requires a valid selection_rule metric name.`, "invalid_selection_rule", EXIT_CODE.CONFLICT);
     }
-    rule = { kind: kind as SelectionRuleKind, metric };
+    rule = { kind, metric };
   } else {
     expectedFail(`${source} requires a selection_rule kind of none, ${SELECTION_RULE_KINDS.join(" or ")}.`, "invalid_selection_rule", EXIT_CODE.CONFLICT);
   }
