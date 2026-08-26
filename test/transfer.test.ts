@@ -413,3 +413,39 @@ test("transfer gap refuses a run that does not resolve and reports an empty seri
     (error: unknown): boolean => isPmCliExpectedError(error) && error.exitCode === EXIT_CODE.NOT_FOUND,
   );
 });
+
+test("metric series order by UTF-8 byte, so two hosts agree on a non-ASCII metric name", () => {
+  // JavaScript's default string sort orders by UTF-16 code unit, which disagrees
+  // with UTF-8 byte order above the BMP: "Ａ" (U+FF21) sorts AFTER "𝐀" (U+1D400)
+  // by code unit and BEFORE it by byte. The per-metric series is written into an
+  // item body that is hashed and compared across hosts, so the two orderings are
+  // not interchangeable - one of them makes the same input hash differently
+  // depending on where it ran.
+  const fullwidthA = "Ａ";
+  const mathematicalA = "\u{1D400}";
+  assert.notDeepEqual(
+    [fullwidthA, mathematicalA].sort(),
+    [fullwidthA, mathematicalA].sort((left, right) =>
+      Buffer.compare(Buffer.from(left), Buffer.from(right)),
+    ),
+    "the two orderings must genuinely differ, or this test proves nothing",
+  );
+
+  const report = buildTransferGapReport([
+    {
+      id: "t-1",
+      created_at: "2026-01-01T00:00:00Z",
+      spec: {
+        ...TRANSFER_SPEC,
+        checkpoint: "sha256:c1",
+        gaps: [
+          { metric: mathematicalA, gap: 0.2 },
+          { metric: fullwidthA, gap: 0.1 },
+        ],
+      },
+      stale_reason: null,
+    },
+  ]);
+
+  assert.deepEqual(Object.keys(report.per_metric), [fullwidthA, mathematicalA]);
+});

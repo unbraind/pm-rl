@@ -103,7 +103,7 @@ export function parseTransferMetrics(text: string, source = "Transfer metrics"):
   }
   // Byte order, not localeCompare: this sequence is stored in an item body
   // hashed into affectedVersion, so two hosts must sort it identically.
-  return gaps.sort((left, right) => Buffer.compare(Buffer.from(left.metric), Buffer.from(right.metric)));
+  return gaps.sort((left, right) => byByteOrder(left.metric, right.metric));
 }
 
 /**
@@ -165,6 +165,24 @@ export interface TransferGapReport {
 }
 
 /**
+ * Compare two strings by their UTF-8 bytes.
+ *
+ * Every ordering this module records ends up in an item body that is hashed and
+ * compared across hosts, so the comparator must not depend on locale or on
+ * JavaScript's UTF-16 code-unit ordering. Those two disagree in practice: `Ａ`
+ * (U+FF21) sorts after `𝐀` (U+1D400) by UTF-16 code unit and before it by UTF-8
+ * byte, so a metric name outside the BMP would order differently on two hosts
+ * that ran the same code.
+ *
+ * @param left - First string to compare.
+ * @param right - Second string to compare.
+ * @returns Negative, zero or positive, per `Array.prototype.sort`.
+ */
+function byByteOrder(left: string, right: string): number {
+  return Buffer.compare(Buffer.from(left), Buffer.from(right));
+}
+
+/**
  * Assemble the gap report: plotted transfers in recording order plus everything
  * held out as stale.
  *
@@ -181,7 +199,9 @@ export function buildTransferGapReport(
   entries: ReadonlyArray<{ id: string; created_at: string; spec: TransferSpec; stale_reason: string | null }>,
 ): TransferGapReport {
   const ordered = [...entries].sort((left, right) =>
-    left.created_at === right.created_at ? Buffer.compare(Buffer.from(left.id), Buffer.from(right.id)) : left.created_at.localeCompare(right.created_at),
+    left.created_at === right.created_at
+      ? byByteOrder(left.id, right.id)
+      : byByteOrder(left.created_at, right.created_at),
   );
   const plotted: PlottedTransfer[] = [];
   const stale: StaleTransfer[] = [];
@@ -192,7 +212,7 @@ export function buildTransferGapReport(
     }
     plotted.push({ id: entry.id, checkpoint: entry.spec.checkpoint, created_at: entry.created_at, gaps: entry.spec.gaps });
   }
-  const metrics = [...new Set(plotted.flatMap((transfer) => transfer.gaps.map((gap) => gap.metric)))].sort();
+  const metrics = [...new Set(plotted.flatMap((transfer) => transfer.gaps.map((gap) => gap.metric)))].sort(byByteOrder);
   const perMetric: Record<string, number[]> = {};
   for (const metric of metrics) {
     perMetric[metric] = plotted
