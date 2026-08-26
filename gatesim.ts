@@ -280,7 +280,14 @@ const CREDENTIAL_PATTERNS: ReadonlyArray<{ name: string; pattern: RegExp }> = [
   { name: "a URL carrying embedded userinfo credentials", pattern: /:\/\/[^\s/:@]+:[^\s/@]+@/ },
   { name: "a private key block", pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----/ },
   { name: "an AWS access key id", pattern: /\bAKIA[0-9A-Z]{16}\b/ },
-  { name: "an assigned secret literal", pattern: /\b(?:api[_-]?key|secret|password|passwd|token|authorization)\b\s*[:=]\s*(?:["'][^"']{6,}["']|[^\s"']{6,})/i },
+  // The unquoted alternative deliberately excludes TypeScript type keywords.
+  // Without that, `token: string` matches - `string` is six characters - and
+  // `assertNoCredentials` refuses a perfectly ordinary TypeScript patch before
+  // `rl episode record` ever hashes it. Requiring `=` for unquoted values would
+  // also fix that, but it would stop refusing `api_key: hunter22secret`, which
+  // is exactly the shape this scan exists to catch. `?` is allowed before the
+  // separator so an optional property annotation is recognised as one.
+  { name: "an assigned secret literal", pattern: /\b(?:api[_-]?key|secret|password|passwd|token|authorization)\b\s*\??\s*[:=]\s*(?:["'][^"']{6,}["']|(?!(?:string|number|boolean|bigint|symbol|object|unknown|never|undefined|null|any|true|false)\b)[^\s"']{6,})/i },
 ];
 
 /**
@@ -334,7 +341,10 @@ export function parseEpisodeSpec(text: string, source: string): EpisodeSpec {
   const record = asJsonObject(parsed, source);
   const environmentId = requiredTrimmedString(record, "environment_id", source, "invalid_episode_");
   const environmentSpecHash = requiredTrimmedString(record, "environment_spec_hash", source, "invalid_episode_");
-  const repository = requiredTrimmedString(record, "repository", source, "invalid_gate_environment_");
+  // Every other field of the EPISODE body refuses with invalid_episode_. Using
+  // the environment prefix here makes a caller that branches on the code blame
+  // the environment document for a fault in the episode body.
+  const repository = requiredTrimmedString(record, "repository", source, "invalid_episode_");
   const baseCommit = requiredTrimmedString(record, "base_commit", source, "invalid_episode_");
   const optionalIdentity = (key: string): string | null => {
     const value = record[key];

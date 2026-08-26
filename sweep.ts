@@ -188,7 +188,16 @@ export function parseSweepSpec(text: string, source = "Sweep specification"): Sw
     if (!Array.isArray(values) || values.length === 0) {
       expectedFail(`${source} requires a non-empty array of candidate values for "${key}".`, "invalid_sweep_search_space", EXIT_CODE.CONFLICT);
     }
-    searchSpace[key] = values;
+    // `searchSpace[key] = values` invokes the inherited setter when key is
+    // "__proto__" rather than creating an own property, so the dimension
+    // vanishes: expandSearchSpace then sees no keys and returns [], silently
+    // dropping a declared dimension instead of refusing.
+    Object.defineProperty(searchSpace, key, {
+      value: values,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
   }
   const ruleRaw = record["selection_rule"];
   if (ruleRaw === null || typeof ruleRaw !== "object" || Array.isArray(ruleRaw)) {

@@ -576,3 +576,27 @@ test("status refuses a missing sweep and a hand-authored body without a specific
     typedRefusal("sweep_unreadable"),
   );
 });
+
+test("a __proto__ dimension survives as an own key rather than vanishing", () => {
+  // `searchSpace[key] = values` invokes the inherited setter when the key is
+  // "__proto__", so no own property is created. expandSearchSpace then sees no
+  // keys and returns [], silently dropping a declared dimension instead of
+  // refusing - the worst outcome, because the sweep still looks like it ran.
+  const spec = parseSweepSpec(
+    JSON.stringify({
+      search_space: { ["__proto__"]: [0.1, 0.01] },
+      selection_rule: { kind: "max_final", metric: "episode_return" },
+      algorithm: "PPO",
+      environment_id: "env-x",
+      environment_spec_hash: "hash-x",
+      arms: [{ id: "sweep-a-arm-1", config: { lr: 0.1 } }],
+    }),
+  );
+
+  assert.ok(
+    Object.hasOwn(spec.search_space, "__proto__"),
+    "__proto__ must be an OWN key of the parsed search space",
+  );
+  assert.deepEqual(Object.keys(spec.search_space), ["__proto__"]);
+  assert.equal(expandSearchSpace(spec.search_space).length, 2, "both arm values must expand");
+});

@@ -921,3 +921,51 @@ test("the gap skips a listed episode or outcome row the SDK types without an id"
   assert.equal((report.details?.paired as Record<string, unknown>).merge_rate, 1);
   assert.match(String(recorded.id), /episode-/);
 });
+
+test("credential scanning accepts TypeScript type annotations it must not mistake for secrets", () => {
+  // The unquoted alternative requires six characters, and `string` has exactly
+  // six. Without excluding type keywords, `token: string` is refused as a
+  // credential and `rl episode record` rejects an ordinary TypeScript patch
+  // before it ever hashes it - a scan that blocks correct work is worse than
+  // the leak it prevents.
+  for (const patch of [
+    "token: string",
+    "token?: string",
+    "  secret: boolean;",
+    "password: number",
+    "authorization: unknown",
+    "api_key: undefined",
+  ]) {
+    assert.doesNotThrow(() => assertNoCredentials("patch", patch), patch);
+  }
+
+  // The narrowing must not reopen what the scan exists to catch.
+  for (const secret of ["password=hunter22secret", "api_key: hunter22secret", "token=abcdef123456"]) {
+    assert.throws(
+      () => assertNoCredentials("patch", secret),
+      /appears to capture .*; episodes must never capture repository credentials/,
+      secret,
+    );
+  }
+});
+
+test("an episode body's own fields refuse with the episode code prefix", () => {
+  // A caller branching on the refusal code must be able to tell which document
+  // is at fault. Reporting invalid_gate_environment_repository for a blank
+  // repository in an EPISODE body points at the wrong file entirely.
+  const body = JSON.stringify({
+    environment_id: "env-1",
+    environment_spec_hash: "sha256:abc",
+    repository: "   ",
+    base_commit: "abc123",
+  });
+  assert.throws(
+    () => parseEpisodeSpec(body, "episode body"),
+    (error: unknown) =>
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      String((error as { code: unknown }).code) === "invalid_episode_repository",
+    "a blank repository in an episode body must refuse with invalid_episode_repository",
+  );
+});
