@@ -134,6 +134,14 @@ test("search-space expansion refuses a cartesian product beyond the sweep arm ca
     assert.match(String((error as Error).message), /expands to 256 arms; the cap is /);
     return true;
   });
+  // A single dimension with a huge candidate array is refused BEFORE the
+  // intermediate product is materialized: the projected size is known
+  // arithmetically (products.length * values.length), so no allocation
+  // precedes the refusal.
+  assert.throws(
+    () => expandSearchSpace({ lr: Array.from({ length: MAX_SWEEP_ARMS + 1 }, (_, index) => index) }),
+    typedUsage("search_space_too_large"),
+  );
 });
 
 test("a stored sweep specification is validated field by field", () => {
@@ -512,6 +520,22 @@ test("planning refuses an existing sweep id even when its arms are gone, and cle
     await assert.rejects(client.get(armId, {}), typedNotFound, `${armId} must not survive a failed sweep create`);
   }
   await assert.rejects(client.get("rl-sweep-late-fail", {}), typedNotFound);
+
+  // The sweep id is not wedged: a retry under the same id now succeeds because
+  // no arm and no Sweep survived the failed create. Without the cleanup the
+  // retry would hit the arm pre-check (sweep_arm_exists) and could never finish.
+  const retriedLate = resultOf(await harness.runCommand({
+    command: "rl sweep plan",
+    pmRoot,
+    args: ["sweep-late-fail"],
+    options: {
+      file: writeSpace(root, { search_space: { lr: [0.3, 0.03], batch: [16, 32] }, selection_rule: "none" }, "late-fail-retry.json"),
+      environment,
+      algorithm: "PPO",
+    },
+  }));
+  assert.equal(retriedLate.action, "rl-sweep-plan");
+  assert.deepEqual(retriedLate.details?.arms, ["rl-sweep-late-fail-arm-1", "rl-sweep-late-fail-arm-2", "rl-sweep-late-fail-arm-3", "rl-sweep-late-fail-arm-4"]);
 
   // A cleanup that itself cannot remove the arm is refused with BOTH causes
   // named — the removal failure first, the original create failure second.
