@@ -16,7 +16,7 @@
 
 import { EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
 
-import { expectedFail } from "./refuse.ts";
+import { expectedFail, parseJsonRecord } from "./refuse.ts";
 
 /**
  * The exact fields a determinism receipt carries.
@@ -68,16 +68,7 @@ export interface ReceiptDifference {
  *   blank, a library version is not a string, or an unknown field is present.
  */
 export function parseReceipt(text: string, source = "Determinism receipt"): ReceiptSpec {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    expectedFail(`${source} is not valid JSON.`, "invalid_receipt_json");
-  }
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    expectedFail(`${source} must contain one JSON object.`, "invalid_json_object");
-  }
-  const record = parsed as Record<string, unknown>;
+  const record = parseJsonRecord(text, source, "invalid_receipt_json");
   for (const key of Object.keys(record)) {
     if (!RECEIPT_FIELDS.includes(key as ReceiptField)) {
       expectedFail(`${source} carries unknown receipt field "${key}"; a receipt is exactly ${RECEIPT_FIELDS.join(", ")}.`, "invalid_receipt_field");

@@ -220,10 +220,11 @@ export function parseGateResults(text: string, source: string, spec: GateEnviron
   const byName = new Map<string, number>();
   for (const entry of entriesRaw) {
     const entryRecord = asJsonObject(entry, `${source} gate result`);
-    const name = entryRecord["name"];
-    if (typeof name !== "string" || name.trim().length === 0) {
+    const rawName = entryRecord["name"];
+    if (typeof rawName !== "string" || rawName.trim().length === 0) {
       expectedFail(`${source} gate result requires a non-empty string name.`, "invalid_gate_results");
     }
+    const name = rawName.trim();
     if (byName.has(name)) {
       expectedFail(`${source} reports gate "${name}" twice.`, "duplicate_gate_result");
     }
@@ -279,7 +280,7 @@ const CREDENTIAL_PATTERNS: ReadonlyArray<{ name: string; pattern: RegExp }> = [
   { name: "a URL carrying embedded userinfo credentials", pattern: /:\/\/[^\s/:@]+:[^\s/@]+@/ },
   { name: "a private key block", pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----/ },
   { name: "an AWS access key id", pattern: /\bAKIA[0-9A-Z]{16}\b/ },
-  { name: "an assigned secret literal", pattern: /\b(?:api[_-]?key|secret|password|passwd|token|authorization)\b\s*[:=]\s*["'][^"']{6,}["']/i },
+  { name: "an assigned secret literal", pattern: /\b(?:api[_-]?key|secret|password|passwd|token|authorization)\b\s*[:=]\s*(?:["'][^"']{6,}["']|[^\s"']{6,})/i },
 ];
 
 /**

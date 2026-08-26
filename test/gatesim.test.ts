@@ -180,6 +180,14 @@ test("gate results canonicalize in byte order, independent of host locale", () =
   assert.deepEqual(results.map((entry) => entry.name), ["loss.", "loss_"]);
 });
 
+test("gate result names are trimmed at the parse boundary, matching the declared gate identity", () => {
+  // parseEpisodeSpec trims gate names (line 357); parseGateResults must agree.
+  // A padded name like " coverage " would fail the declared-gate check with
+  // unknown_gate_result instead of matching "coverage".
+  const results = parseGateResults(JSON.stringify({ gates: [{ name: " coverage ", exit_code: 0 }, { name: "docstring", exit_code: 0 }] }), "results", GATES_SPEC);
+  assert.deepEqual(results.map((entry) => entry.name), ["coverage", "docstring"]);
+});
+
 test("verdict extraction refuses an empty result set instead of vacuously passing", () => {
   // `every` over nothing is true; a gate run that recorded NO results must be a
   // refusal, never an absent measurement rendering as a pass.
@@ -198,6 +206,19 @@ test("credential scanning refuses tokens, userinfo URLs, private keys and keyed 
   }
   assert.doesNotThrow(() => assertNoCredentials("pull_request", "https://github.com/unbraind/pm-rl/pull/42"));
   assert.doesNotThrow(() => assertNoCredentials("patch", "+const tokenLimit = config.maxTokens;\n+password_field.setAttribute('type', 'password');\n-contextual line"));
+});
+
+test("credential scanning refuses unquoted assigned-secret assignments", () => {
+  // The quoted form is covered above; an unquoted assignment such as
+  // password=hunter22secret must also be refused, because episode bodies are
+  // committed and merged fleet data.
+  for (const secret of [
+    "password=hunter22secret",
+    "api_key: hunter22secret",
+    "secret=supersecretvalue",
+  ]) {
+    assert.throws(() => assertNoCredentials("patch", secret), /appears to capture .*; episodes must never capture repository credentials/, secret.slice(0, 30));
+  }
 });
 
 test("an episode records the candidate tree identity, links the pull request, and derives the verdict from the pinned extraction", async () => {
@@ -265,8 +286,6 @@ test("episode registration is idempotent by full provenance and refuses a mutate
   const third = resultOf(await harness.runCommand({ command: "rl episode record", pmRoot, options: { ...options, candidateTree: "tree_other" } }));
   assert.notEqual(third.id, first.id);
 
-  // Editing the environment's stored body breaks its content identity; recording
-  // against it must refuse rather than attribute an episode to a mutated spec.
   // Editing the environment's stored body breaks its content identity; a valid
   // but different gate set (a moved commit) is the realistic edit. Recording
   // against it must refuse rather than attribute an episode to a mutated spec.

@@ -38,8 +38,17 @@ export interface TransferSpec {
   readonly gaps: readonly MetricGap[];
 }
 
+/** Dependency provenance marker for a transfer's simulator-side environment. */
+export const TRANSFER_SOURCE_ENVIRONMENT = "pm-rl:transfer:source";
+
+/** Dependency provenance marker for a transfer's deployment-side environment. */
+export const TRANSFER_TARGET_ENVIRONMENT = "pm-rl:transfer:target";
+
+/** Dependency provenance marker connecting a transfer to its source run. */
+export const TRANSFER_RUN = "pm-rl:transfer:run";
+
 /** Dependency provenance markers connecting a transfer to its two environments and its run. */
-export const TRANSFER_EDGE_SOURCES = ["pm-rl:transfer:source", "pm-rl:transfer:target", "pm-rl:transfer:run"] as const;
+export const TRANSFER_EDGE_SOURCES = [TRANSFER_SOURCE_ENVIRONMENT, TRANSFER_TARGET_ENVIRONMENT, TRANSFER_RUN] as const;
 
 /** One measured per-metric gap. */
 export interface MetricGap {

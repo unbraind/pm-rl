@@ -244,6 +244,9 @@ test("plan expands the declared space into child runs carrying each arm's hyperp
     },
   }));
   assert.equal(planned.action, "rl-sweep-plan");
+  // The host scopes created ids under its alias, so the reported sweep id is
+  // the RESOLVED id ("rl-sweep-lr"), not the raw requested argument.
+  assert.equal(planned.id, "rl-sweep-lr");
   assert.deepEqual(planned.details?.arms, ["rl-sweep-lr-arm-1", "rl-sweep-lr-arm-2"]);
 
   // Each child is an ordinary Run whose configuration IS the arm's hyperparameters.

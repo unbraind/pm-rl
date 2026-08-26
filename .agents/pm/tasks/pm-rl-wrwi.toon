@@ -1,0 +1,33 @@
+id: pm-rl-wrwi
+title: Resolve CodeRabbit round-6 review findings on PR 16
+description: "Eight findings from the sixth bot review pass: a stale open-status claim on a closed review task, malformed regression-test provenance in a feature record, untrimmed gate names at the parse boundary, unquoted assigned-secret assignments not scanned, sweep plan reporting the requested id instead of the host-resolved id, duplicated parse-and-narrow in receipt.ts, a duplicated comment sentence in the gate episode test, and duplicated dependency-marker constants between transfer.ts and index.ts."
+type: Task
+status: closed
+priority: 2
+tags: []
+created_at: "2026-08-26T21:10:48.281Z"
+updated_at: "2026-08-26T21:14:30.910Z"
+closed_at: "2026-08-26T21:14:30.897Z"
+completed_at: "2026-08-26T21:14:30.897Z"
+claim_principal: pi-agent
+author: pi-agent
+notes[1]{created_at,author,text}:
+  "2026-08-26T21:14:27.037Z",pi-agent,"All 8 round-6 findings resolved: 6 VALID code fixes (gate name trimming, unquoted secret scanning, resolved sweep id reporting, parseJsonRecord reuse, duplicated comment removal, dependency marker consolidation), 1 VALID pm data provenance fix (malformed test title apostrophe), 1 INVALID (stale open-status claim on already-closed task). Revert-proof verification: 4 of 6 code fixes have tests that FAIL on revert. The parseJsonRecord reuse and comment cleanup are pure refactors with no behavioral change. Gates: 237/237 tests, coverage 100/100/100/100 across 17 files, docstring 129 declarations, jscpd 0 clones, changelog check green."
+files[9]{path,scope}:
+  gatesim.ts,project
+  index.ts,project
+  receipt.ts,project
+  transfer.ts,project
+  test/gatesim.test.ts,project
+  test/sweep.test.ts,project
+  test/transfer.test.ts,project
+  .agents/pm/features/pm-rl-06n6.toon,project
+  .agents/pm/tasks/pm-rl-imux.toon,project
+tests[5]{command,scope}:
+  npm test,project
+  "gate result names are trimmed at the parse boundary, matching the declared gate identity",project
+  credential scanning refuses unquoted assigned-secret assignments,project
+  plan expands the declared space into child runs carrying each arm hyperparameters,project
+  "recording links both environment versions, the run and the checkpoint; refusals fail closed",project
+close_reason: "All 8 round-6 findings resolved: 6 VALID code fixes with revert-verified tests, 1 VALID pm data provenance fix, 1 INVALID stale claim. Gates: 237/237 tests, coverage 100/100/100/100, docstring 129 declarations, jscpd 0 clones, changelog check green, pm health strict-exit green."
+body: ""

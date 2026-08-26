@@ -76,6 +76,9 @@ import {
   parseTransferMetrics,
   parseTransferSpec,
   renderTransferGapReport,
+  TRANSFER_RUN,
+  TRANSFER_SOURCE_ENVIRONMENT,
+  TRANSFER_TARGET_ENVIRONMENT,
   type TransferSpec,
 } from "./transfer.ts";
 
@@ -133,15 +136,6 @@ const EVAL_BENCHMARK_SOURCE = "pm-rl:eval:benchmark";
 
 /** Dependency provenance marker connecting a gate episode to its environment. */
 const EPISODE_ENVIRONMENT_SOURCE = "pm-rl:episode:environment";
-
-/** Dependency provenance marker for a transfer's simulator-side environment. */
-const TRANSFER_SOURCE_ENVIRONMENT = "pm-rl:transfer:source";
-
-/** Dependency provenance marker for a transfer's deployment-side environment. */
-const TRANSFER_TARGET_ENVIRONMENT = "pm-rl:transfer:target";
-
-/** Dependency provenance marker connecting a transfer to its source run. */
-const TRANSFER_RUN = "pm-rl:transfer:run";
 
 /** JSON values accepted in environment and run configuration files. */
 export type JsonValue = null | boolean | number | string | JsonValue[] | { readonly [key: string]: JsonValue };
@@ -2321,8 +2315,9 @@ async function planSweep(context: CommandHandlerContext): Promise<RlCommandResul
   // fails AFTER the arms exist, a retry under the same id would hit the arm
   // pre-check and could never complete. Remove the arms this invocation wrote,
   // then let the original cause surface.
+  let sweepResult;
   try {
-    await client.create({
+    sweepResult = await client.create({
       id: requestedId,
       title: requestedId,
       type: "Sweep",
@@ -2342,7 +2337,7 @@ async function planSweep(context: CommandHandlerContext): Promise<RlCommandResul
   }
   return {
     action: "rl-sweep-plan",
-    id: requestedId,
+    id: String(sweepResult.item.id),
     created: true,
     details: {
       arms: arms.map((arm) => arm.id),

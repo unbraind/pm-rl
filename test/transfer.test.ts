@@ -17,6 +17,9 @@ import {
   parseTransferSpec,
   renderTransferGapReport,
   TRANSFER_EDGE_SOURCES,
+  TRANSFER_RUN,
+  TRANSFER_SOURCE_ENVIRONMENT,
+  TRANSFER_TARGET_ENVIRONMENT,
   type TransferSpec,
 } from "../transfer.ts";
 
@@ -228,6 +231,12 @@ test("recording links both environment versions, the run and the checkpoint; ref
   const depIds = (stored.item.dependencies ?? []).map((dependency: { id: string }) => dependency.id).sort();
   assert.ok(depIds.includes(target));
   assert.ok(depIds.includes(source));
+  // The dependency markers (source_kind) must match the exported constants from
+  // transfer.ts — index.ts imports them, so the declarations cannot drift.
+  const depSourceKinds = new Map((stored.item.dependencies ?? []).map((dependency: { id: string; source_kind?: string }) => [dependency.id, dependency.source_kind]));
+  assert.equal(depSourceKinds.get(source), TRANSFER_SOURCE_ENVIRONMENT);
+  assert.equal(depSourceKinds.get(target), TRANSFER_TARGET_ENVIRONMENT);
+  assert.equal(depSourceKinds.get(run), TRANSFER_RUN);
   assert.match(String(stored.item.body), /sha256:abc123/);
   assert.match(String(stored.item.body), /episode_return/);
 
