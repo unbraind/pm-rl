@@ -646,36 +646,44 @@ async function verifyRun(context: CommandHandlerContext): Promise<RlCommandResul
 }
 
 /**
- * Read all of stdin (fd 0) synchronously, returning the piped content or an
- * empty string when nothing was piped.
+ * Read an async iterable to EOF, returning its concatenated UTF-8 content.
  *
- * `readFileSync(0)` is the only synchronous way to drain a piped stdin from an
- * `async` command handler, but its behaviour depends on what fd 0 actually is.
- * Under a real shell pipe the write end is closed at EOF, so the call returns
- * the piped data or `""`. Under `node --test` the test runner gives each test
- * file a non-blocking **socket** for stdin: there is no data and no EOF, so the
- * call throws `EAGAIN` instead of returning `""`. Both mean "nothing was piped",
- * so `EAGAIN` is treated as an empty read. Without this, the coverage gate
- * measures the `catch` branch locally (where fd 0 is a socket) but the
- * `try`-succeed branch on the runner (where fd 0 is a pipe), making the gate
- * pass in one environment and fail in the other for the same commit.
+ * The previous synchronous `readFileSync(0)` drain normalised a transient
+ * `EAGAIN` into an empty string. On a non-blocking stdin descriptor `EAGAIN`
+ * means the read *would block*, not that the stream reached EOF, so a producer
+ * that is merely slow — `some-generator | pm rl run log <id>` where the
+ * generator thinks for a moment before writing — had its valid NDJSON
+ * discarded and was told the stream was empty. Reading asynchronously until the
+ * iterable ends removes the `EAGAIN` interpretation entirely: a pipe at EOF
+ * ends, a slow producer is waited for, and a non-blocking socket ends when it
+ * is closed, so local and CI behaviour is identical — which was the whole
+ * point of the original normalisation, achieved without the data loss.
  *
- * @param read - Injectable `readFileSync` so a test can exercise both the
- *   `EAGAIN` and the non-`EAGAIN` error paths deterministically without
- *   depending on what fd 0 happens to be.
- * @returns The content read from stdin, or `""` when nothing was piped.
- * @throws When stdin fails with an error other than `EAGAIN`.
+ * @param stream - Async iterable of string or binary chunks to drain. Defaults
+ *   to the real `process.stdin` for direct production callers; tests pass an
+ *   iterable that ends so the suite never blocks on the test runner's
+ *   non-blocking fd 0, which never reaches EOF.
+ * @returns The concatenated UTF-8 content, or `""` when the stream was empty.
  */
-export function readStdin(
-  read: (fd: number, encoding: string) => string = (fd, encoding) => readFileSync(fd, encoding as BufferEncoding),
-): string {
-  try {
-    return read(0, "utf8");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EAGAIN") return "";
-    throw error;
+export async function readStdin(
+  stream: AsyncIterable<string | Uint8Array> = process.stdin,
+): Promise<string> {
+  const chunks: string[] = [];
+  for await (const chunk of stream) {
+    chunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
   }
+  return chunks.join("");
 }
+
+/**
+ * Injectable async stdin source for {@link logRun}'s pipe path. Defaults to the
+ * real `process.stdin` so production reads from the process's fd 0; tests
+ * substitute an `AsyncIterable` that ends, because the test runner's fd 0 is a
+ * non-blocking socket that never reaches EOF and would hang the suite forever.
+ */
+export const stdinSource: { stream: AsyncIterable<string | Uint8Array> } = {
+  stream: process.stdin,
+};
 
 /** Append parsed measurements as bounded compressed segments through the typed SDK. */
 async function logRun(context: CommandHandlerContext): Promise<RlCommandResult> {
@@ -686,7 +694,7 @@ async function logRun(context: CommandHandlerContext): Promise<RlCommandResult> 
   }
   let input: string;
   try {
-    input = path !== undefined ? readFileSync(path, "utf8") : readStdin();
+    input = path !== undefined ? readFileSync(path, "utf8") : await readStdin(stdinSource.stream);
   } catch (error) {
     fail(`Metric input could not be read: ${String(error)}`, "metric_input_failed");
  }
