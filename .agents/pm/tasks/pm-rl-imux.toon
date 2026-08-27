@@ -1,0 +1,38 @@
+id: pm-rl-imux
+title: Resolve CodeRabbit round-3 review threads on PR 16
+description: "Fix the eleven unresolved review threads from the third bot pass: byte-order canonical sorting feeding content-addressed hashes, duplicate normalized library names in receipts, the missing sweep arm-count cap, shared metric-name pattern, receipt-file flag registration, typed refusal codes and no-write assertions in tests, README type table, and pm record provenance citations."
+type: Task
+status: closed
+priority: 1
+tags: []
+created_at: "2026-08-24T08:49:24.176Z"
+updated_at: "2026-08-26T21:11:05.418Z"
+closed_at: "2026-08-24T08:52:10.426Z"
+completed_at: "2026-08-24T08:52:10.426Z"
+claim_principal: pi-agent
+author: pi-agent
+comments[3]{created_at,author,text}:
+  "2026-08-24T08:52:02.601Z",pi-agent,"Round-3 CodeRabbit findings on PR 16, all resolved in source with revert-verified regression tests:\n\n- transfer.ts + gatesim.ts: locale-sensitive sorts feeding content-addressed hashes replaced with byte order (Buffer.compare) at three sites; pinned by gap/gate/episode byte-order tests that flip under a localeCompare revert.\n- receipt.ts: two raw library keys normalizing to one name now refuse with duplicate_receipt_library instead of silently overwriting the first version.\n- sweep.ts: MAX_SWEEP_ARMS (64) cap added to expandSearchSpace with the typed search_space_too_large refusal, plus one shared METRIC_NAME_PATTERN and an isSelectionRuleKind guard replacing duplicated regex/kind checks.\n- index.ts: rl run start now declares the optional --receipt-file flag its handler already read.\n- README.md: GateEpisode and MergeOutcome rows added so the What-it-tracks table lists all nine registered types.\n- test/sweep.test.ts: parseSweepSpec refusals now assert typed codes; the before-anything-is-written plan test asserts neither sweep nor arm exists after each refusal.\n- transfer.ts: per_metric docstring now states the Number.NaN hole and its null JSON serialization.\n\nRevert-proof verification: each behavioural fix was temporarily reverted via git stash and its pinned test confirmed FAILING (receipt duplicate: 1 fail; arm cap: 2 fails across unit and plan tests; transfer byte sort: 1 fail; gatesim byte sorts: 2 fails; receipt-file flag: 1 fail), then restored."
+  "2026-08-24T09:31:02.941Z",pi-agent,"Round-3b follow-up: the two feature-record projections now carry the provenance citations as linked file evidence (.agents/pm/features/pm-rl-06n6.toon and .agents/pm/features/pm-rl-0cqg.toon, each holding a comment that cites its exact regression-test titles), and the dpug history stream holds the appended corrective provenance entry (./node_modules/.bin/pm, version 2026.8.20). Exact test titles cited per record are listed in this task's earlier comment."
+  "2026-08-26T21:11:05.418Z",pi-agent,"Review follow-up (PR 16 round 6): the earlier comment claimed exact test titles were listed in this task's earlier comment, but they were not. Here are the exact test() titles that pin the round-3 behavioural fixes: gap metrics canonicalize in byte order, independent of host locale (test/transfer.test.ts); gate results canonicalize in byte order, independent of host locale (test/gatesim.test.ts); receipt parsing refuses two library keys that normalize to the same name (test/receipt.test.ts); search-space expansion refuses a cartesian product beyond the sweep arm cap (test/sweep.test.ts). The feature records pm-rl-06n6 and pm-rl-0cqg hold their own citations in their comment streams."
+files[13]{path,scope,note}:
+  .agents/pm/features/pm-rl-06n6.toon,project,Follow-up comment citing the transfer regression-test titles and pinned-binary provenance
+  .agents/pm/features/pm-rl-0cqg.toon,project,Follow-up comment citing the gatesim regression-test titles and pinned-binary provenance
+  .agents/pm/history/pm-rl-dpug.jsonl,project,Appended provenance entry naming ./node_modules/.bin/pm version 2026.8.20
+  gatesim.ts,project,Gate-result sorts switched to byte order for stable episode-spec hashing
+  index.ts,project,rl run start now declares the --receipt-file flag its handler reads
+  README.md,project,GateEpisode and MergeOutcome rows added to the What-it-tracks type table
+  receipt.ts,project,Duplicate normalized library names now refuse with duplicate_receipt_library
+  sweep.ts,project,MAX_SWEEP_ARMS cap with search_space_too_large refusal; shared METRIC_NAME_PATTERN and isSelectionRuleKind helper
+  test/gatesim.test.ts,project,Byte-order canonicalization regression tests
+  test/receipt.test.ts,project,Duplicate-library and flag-declaration regression tests
+  test/sweep.test.ts,project,"Arm-cap,typed-code,and no-write regression tests"
+  test/transfer.test.ts,project,Byte-order gap-sort regression test
+  transfer.ts,project,Byte-order gap sorting feeding content-addressed hashes; per_metric NaN-hole contract documented
+tests[4]{command,path,scope,note}:
+  npm test,test/receipt.test.ts,project,receipt parsing refuses two library keys that normalize to the same name
+  npm test,test/sweep.test.ts,project,search-space expansion refuses a cartesian product beyond the sweep arm cap
+  npm test,test/gatesim.test.ts,project,"gate results canonicalize in byte order, independent of host locale"
+  npm test,test/transfer.test.ts,project,"gap metrics canonicalize in byte order, independent of host locale"
+close_reason: "All eleven round-3 threads addressed: byte-order canonical sorting at three hash-feeding sites (transfer.ts gaps, gatesim.ts gate results and stored episodes), duplicate normalized library names refused in receipts, MAX_SWEEP_ARMS cap with typed search_space_too_large refusal, one shared metric-name pattern, --receipt-file declared on rl run start, typed refusal codes and no-write state assertions pinned in tests, README type table completed to all nine types, and per_metric NaN-hole documented. Gates: npm test 235/235 pass; release:check fully green including coverage 17 files at 100/100/100 and changelog check; ./node_modules/.bin/pm health --strict-exit exit 0. Every behavioural fix revert-verified: pinned test confirmed failing under git stash of the fix, passing restored."
+body: ""

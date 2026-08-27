@@ -64,6 +64,46 @@ import {
   type LeaderboardCandidate,
 } from "./leaderboard.ts";
 
+import {
+  compareReceipts,
+  parseReceipt,
+  renderReceiptDifferences,
+  type ReceiptSpec,
+} from "./receipt.ts";
+
+import {
+  buildTransferGapReport,
+  parseTransferMetrics,
+  parseTransferSpec,
+  renderTransferGapReport,
+  TRANSFER_RUN,
+  TRANSFER_SOURCE_ENVIRONMENT,
+  TRANSFER_TARGET_ENVIRONMENT,
+  type TransferSpec,
+} from "./transfer.ts";
+
+import {
+  buildSweepStatus,
+  expandSearchSpace,
+  parseSelectionRule,
+  parseSweepSpec,
+  renderSweepStatus,
+  type SweepSpec,
+} from "./sweep.ts";
+
+import {
+  assertNoCredentials,
+  buildSimRealGap,
+  deriveVerdict,
+  parseEpisodeSpec,
+  parseGateEnvironmentSpec,
+  parseGateResults,
+  parseOutcomeSpec,
+  renderSimRealGap,
+  type EpisodeSpec,
+  type GateEnvironmentSpec,
+} from "./gatesim.ts";
+
 /**
  * The fenced JSON block regex shared by every pm-rl spec reader.
  *
@@ -93,6 +133,9 @@ const EVAL_RUN_SOURCE = "pm-rl:eval:run";
 
 /** Dependency provenance marker connecting an evaluation to its benchmark. */
 const EVAL_BENCHMARK_SOURCE = "pm-rl:eval:benchmark";
+
+/** Dependency provenance marker connecting a gate episode to its environment. */
+const EPISODE_ENVIRONMENT_SOURCE = "pm-rl:episode:environment";
 
 /** JSON values accepted in environment and run configuration files. */
 export type JsonValue = null | boolean | number | string | JsonValue[] | { readonly [key: string]: JsonValue };
@@ -164,6 +207,38 @@ export const RL_ITEM_TYPES = [
     description: "One immutable checkpoint verdict linked to its source run and exact benchmark version.",
     default_status: "closed",
     required_create_fields: ["affected_version", "fixed_version", "component", "environment"],
+  }),
+  defineItemType({
+    name: "GateEpisode",
+    folder: "gate-episodes",
+    aliases: ["rl-gate-episode", "rl-episode"],
+    description: "One judged candidate against the fleet's mandatory gates: a content-addressed candidate tree, its gate results and extracted verdict, linked to its pull request.",
+    default_status: "closed",
+    required_create_fields: ["affected_version", "fixed_version", "component", "environment"],
+  }),
+  defineItemType({
+    name: "Transfer",
+    folder: "transfers",
+    aliases: ["rl-transfer"],
+    description: "One measured per-metric sim-to-real gap for one checkpoint, linking both environment versions.",
+    default_status: "open",
+    required_create_fields: ["affected_version", "fixed_version", "component", "environment"],
+  }),
+  defineItemType({
+    name: "Sweep",
+    folder: "sweeps",
+    aliases: ["rl-sweep"],
+    description: "A declared search space and selection rule whose arms are independent child Run items.",
+    default_status: "open",
+    required_create_fields: ["affected_version", "fixed_version", "component"],
+  }),
+  defineItemType({
+    name: "MergeOutcome",
+    folder: "merge-outcomes",
+    aliases: ["rl-merge-outcome"],
+    description: "The real-side result of one pull request: whether it actually merged.",
+    default_status: "closed",
+    required_create_fields: ["affected_version", "fixed_version", "component"],
   }),
 ] as const;
 
@@ -363,7 +438,7 @@ export function idSegment(value: string): string {
 }
 
 /** Validate that an existing item has the expected domain type. */
-async function getTypedItem(client: PmClient, id: string, type: "Environment" | "Run" | "Generation" | "Benchmark" | "EvalResult"): Promise<GetResult> {
+async function getTypedItem(client: PmClient, id: string, type: "Environment" | "Run" | "Generation" | "Benchmark" | "EvalResult" | "GateEpisode" | "MergeOutcome" | "Sweep" | "Transfer"): Promise<GetResult> {
   const result = await client.get(id, { depth: "deep" });
   if (result.item.type !== type) fail(`pm rl expected ${type} ${id}, not ${String(result.item.type)}.`, "wrong_item_type", EXIT_CODE.CONFLICT);
   return result;
@@ -424,6 +499,38 @@ async function readCompleteNotes(client: PmClient, id: string): Promise<LogNote[
   return result.notes;
 }
 
+/**
+ * Register one immutable content-addressed Environment, or return the existing one.
+ *
+ * The idempotency discipline is written once for both the generic and the
+ * gate-simulator environment commands: derive the id from the content hash,
+ * return the existing item only when its recorded identity still matches, and
+ * refuse a squatter on the derived id that carries a different hash — trusting
+ * the id alone would let a foreign specification inherit an environment's
+ * provenance. When nothing exists yet, the caller's create envelope runs.
+ *
+ * @param client - Client bound to the target workspace.
+ * @param requestedId - Content-derived item id.
+ * @param specHash - Content identity the stored item must still match.
+ * @param action - Command action label for both outcomes.
+ * @param create - The create envelope for a genuinely new registration.
+ * @param details - Bounded details shared by both outcomes.
+ * @returns The command result naming the resolved id and whether it was created.
+ */
+async function registerImmutableEnvironment(client: PmClient, requestedId: string, specHash: string, action: string, create: () => Parameters<PmClient["create"]>[0], details: Readonly<Record<string, unknown>>): Promise<RlCommandResult> {
+  try {
+    const existing = await getTypedItem(client, requestedId, "Environment");
+    if (existing.item.affected_version !== specHash) {
+      fail(`Environment id ${requestedId} already exists with a different specification hash.`, "environment_identity_collision", EXIT_CODE.CONFLICT);
+    }
+    return { action, id: String(existing.item.id), created: false, details };
+  } catch (error) {
+    if (!isItemNotFound(error)) throw error;
+  }
+  const result = await client.create(create());
+  return { action, id: String(result.item.id), created: true, details };
+}
+
 /** Register one immutable environment spec, idempotently by content identity. */
 async function registerEnvironment(context: CommandHandlerContext): Promise<RlCommandResult> {
   const path = stringOption(context, "file")!;
@@ -432,16 +539,7 @@ async function registerEnvironment(context: CommandHandlerContext): Promise<RlCo
   const requestedId = `env-${idSegment(spec.name)}-${idSegment(spec.version)}-${specHash.slice(0, 12)}`;
   const client = clientFor(context);
   await ensurePersistentTypes(client);
-  try {
-    const existing = await getTypedItem(client, requestedId, "Environment");
-    if (existing.item.affected_version !== specHash) {
-      fail(`Environment id ${requestedId} already exists with a different specification hash.`, "environment_identity_collision", EXIT_CODE.CONFLICT);
-    }
-    return { action: "rl-env-register", id: String(existing.item.id), created: false, details: { spec_hash: specHash } };
-  } catch (error) {
-    if (!isItemNotFound(error)) throw error;
-  }
-  const result = await client.create({
+  return registerImmutableEnvironment(client, requestedId, specHash, "rl-env-register", () => ({
     id: requestedId,
     title: `${spec.name} ${spec.version}`,
     type: "Environment",
@@ -452,8 +550,7 @@ async function registerEnvironment(context: CommandHandlerContext): Promise<RlCo
     affectedVersion: specHash,
     fixedVersion: spec.version,
     message: "Register immutable RL environment specification",
-  });
-  return { action: "rl-env-register", id: result.item.id, created: true, details: { spec_hash: specHash } };
+  }), { spec_hash: specHash });
 }
 
 /** Start one run linked to an exact environment and immutable configuration. */
@@ -463,9 +560,18 @@ async function startRun(context: CommandHandlerContext): Promise<RlCommandResult
   const algorithm = stringOption(context, "algorithm")!;
   const configPath = stringOption(context, "config_file", false);
   const config = configPath === undefined ? {} : readJsonFile(configPath, "Run configuration");
+  // A determinism receipt is optional at start but immutable once recorded: it
+  // is written into the body here and re-derived later by `rl run verify`.
+  const receiptPath = stringOption(context, "receipt_file", false);
+  const receipt: ReceiptSpec | null = receiptPath === undefined ? null : parseReceipt(readTextFile(receiptPath, "Determinism receipt"), `Determinism receipt ${receiptPath}`);
   const client = clientFor(context);
   await ensurePersistentTypes(client);
   const verifiedEnvironment = await verifyEnvironmentIdentity(client, environmentId, "runs");
+  // A receipt that names an environment other than the one this run records
+  // would be born already unverifiable; refuse it at the write, not at verify.
+  if (receipt !== null && receipt.environment_version !== verifiedEnvironment.id) {
+    fail(`Determinism receipt names environment "${receipt.environment_version}" but the run records ${verifiedEnvironment.id}. A receipt must pin the exact environment item id the run trains under.`, "receipt_environment_mismatch", EXIT_CODE.CONFLICT);
+  }
   const storedSpec = verifiedEnvironment.spec;
   const specHash = hashJson(storedSpec);
   const configHash = hashJson(config);
@@ -476,7 +582,7 @@ async function startRun(context: CommandHandlerContext): Promise<RlCommandResult
     status: "in_progress",
     acceptanceCriteria: "The run retains its exact environment and configuration identities, metric input is complete, and finish records the terminal outcome.",
     estimatedMinutes: "1",
-    body: `# ${requestedId}\n\nAlgorithm: ${algorithm}\n\nEnvironment snapshot:\n\n\`\`\`json\n${JSON.stringify(storedSpec, null, 2)}\n\`\`\`\n\nRun configuration:\n\n\`\`\`json\n${JSON.stringify(config, null, 2)}\n\`\`\``,
+    body: `# ${requestedId}\n\nAlgorithm: ${algorithm}\n\nEnvironment snapshot:\n\n\`\`\`json\n${JSON.stringify(storedSpec, null, 2)}\n\`\`\`\n\nRun configuration:\n\n\`\`\`json\n${JSON.stringify(config, null, 2)}\n\`\`\`${receipt === null ? "" : `\n\n${RECEIPT_HEADING}\n\n\`\`\`json\n${JSON.stringify(receipt, null, 2)}\n\`\`\``}`,
     // Both edges name the RESOLVED id. `environmentId` is the raw --environment
     // input, which may be an alias; recording it on one edge and the resolved id
     // on the other would make a single create call describe two different
@@ -490,6 +596,53 @@ async function startRun(context: CommandHandlerContext): Promise<RlCommandResult
     message: "Start attributable RL run",
   });
   return { action: "rl-run-start", id: result.item.id, created: true, details: { environment_id: verifiedEnvironment.id, spec_hash: specHash, config_hash: configHash } };
+}
+
+/**
+ * Re-derive a run's determinism receipt against a fresh one.
+ *
+ * Verification is a pure read over two inputs — the receipt recorded at start
+ * and the receipt the caller can still produce today — plus the run's own
+ * recorded environment, which the receipt must name even when it agrees with
+ * itself. Any difference refuses with `receipt_mismatch` naming each drifted
+ * field; a run with no stored receipt is refused rather than treated as
+ * matching an empty one. Verify never writes: an unverifiable claim must stay
+ * exactly as it was claimed so the disagreement remains inspectable.
+ */
+async function verifyRun(context: CommandHandlerContext): Promise<RlCommandResult> {
+  const id = requiredArgument(context, "a run id");
+  const receiptPath = stringOption(context, "receipt_file")!;
+  const rederived = parseReceipt(readTextFile(receiptPath, "Determinism receipt"), `Determinism receipt ${receiptPath}`);
+  const client = clientFor(context);
+  const run = await getTypedItem(client, id, "Run");
+  const resolvedId = String(run.item.id);
+  const storedReceipt = fencedSection(String(run.item.body), RECEIPT_HEADING);
+  if (storedReceipt === null) {
+    fail(`Run ${resolvedId} records no determinism receipt; restart it with pm rl run start --receipt-file to make it verifiable.`, "receipt_unrecorded", EXIT_CODE.CONFLICT);
+  }
+  const recorded = parseReceipt(storedReceipt, `Run ${resolvedId} recorded determinism receipt`);
+  const differences = compareReceipts(recorded, rederived);
+  // The receipt must also agree with the RUN ITSELF: an internally consistent
+  // receipt naming an environment this run never used would otherwise verify.
+  const runEnvironment = normalizeRunEnvironment(run.item.environment);
+  if (typeof runEnvironment === "string" && runEnvironment.length > 0 && recorded.environment_version !== runEnvironment) {
+    differences.unshift({ field: "environment_version", recorded: `"${recorded.environment_version}"`, now: `the run's recorded environment ${runEnvironment}` });
+  }
+  if (differences.length > 0) {
+    fail(`pm rl run verify reports run ${resolvedId} as UNVERIFIABLE. Receipt no longer re-derives: ${renderReceiptDifferences(differences)}.`, "receipt_mismatch", EXIT_CODE.CONFLICT);
+  }
+  return {
+    action: "rl-run-verify",
+    id: resolvedId,
+    details: {
+      verified: true,
+      differences: [],
+      seed_policy: recorded.seed_policy,
+      device: recorded.device,
+      library_versions: recorded.library_versions,
+      environment_version: recorded.environment_version,
+    },
+  };
 }
 
 /** Append parsed measurements as bounded compressed segments through the typed SDK. */
@@ -662,18 +815,11 @@ async function recordEvalResult(context: CommandHandlerContext): Promise<RlComma
   };
   const resultHash = hashJson(spec as unknown as JsonValue);
   const requestedId = `eval-${idSegment(benchmark.spec.name)}-${resultHash.slice(0, 12)}`;
-  try {
-    const existing = await getTypedItem(client, requestedId, "EvalResult");
-    const existingSpec = parseEvalResultSpec(
-      storedJson(String(existing.item.body), `EvalResult ${requestedId}`, "eval_result_missing_spec"),
-      `EvalResult ${requestedId} specification`,
-    );
-    if (existing.item.affected_version !== resultHash || hashJson(existingSpec as unknown as JsonValue) !== resultHash) {
-      fail(`EvalResult id ${requestedId} already exists with different provenance.`, "eval_result_identity_collision", EXIT_CODE.CONFLICT);
-    }
-    return { action: "rl-eval-record", id: String(existing.item.id), created: false, details: spec as unknown as Readonly<Record<string, unknown>> };
-  } catch (error) {
-    if (!isItemNotFound(error)) throw error;
+  const existingEval = await matchingImmutableRecord(client, requestedId, "EvalResult", "EvalResult", "eval_result_identity_collision", resultHash, (body) =>
+    parseEvalResultSpec(storedJson(body, `EvalResult ${requestedId}`, "eval_result_missing_spec"), `EvalResult ${requestedId} specification`) as unknown as JsonValue,
+  );
+  if (existingEval !== undefined) {
+    return { action: "rl-eval-record", id: String(existingEval.item.id), created: false, details: spec as unknown as Readonly<Record<string, unknown>> };
   }
   const result = await client.create({
     id: requestedId,
@@ -782,6 +928,351 @@ async function showLeaderboard(context: CommandHandlerContext): Promise<RlComman
   return { action: "rl-leaderboard", id: benchmark.id, details: { format: "table", output: renderLeaderboard(benchmark.id, benchmark.spec, rows), ...details } };
 }
 
+/**
+ * Return the existing immutable record when it still matches its content identity.
+ *
+ * Three commands (eval results, gate episodes, merge outcomes) share one
+ * idempotency contract: derive the id from the content hash; if a record already
+ * exists there, its stored body must re-hash to the same identity, otherwise a
+ * squatter is carrying different provenance under this record's name and the
+ * collision is refused. A genuinely absent record returns undefined and the
+ * caller proceeds to create.
+ *
+ * @param client - Client bound to the target workspace.
+ * @param requestedId - Content-derived item id.
+ * @param itemType - The record's item type.
+ * @param label - Human-readable noun used in the collision refusal.
+ * @param collisionCode - Typed refusal code for the identity collision.
+ * @param specHash - Content identity the stored record must still match.
+ * @param rehydrate - Parses the stored body fence back into the record's spec.
+ * @returns The existing verified item, or undefined when none exists.
+ */
+async function matchingImmutableRecord(client: PmClient, requestedId: string, itemType: "EvalResult" | "GateEpisode" | "MergeOutcome", label: string, collisionCode: string, specHash: string, rehydrate: (body: string) => JsonValue): Promise<GetResult | undefined> {
+  try {
+    const existing = await getTypedItem(client, requestedId, itemType);
+    const existingSpec = rehydrate(String(existing.item.body));
+    if (existing.item.affected_version !== specHash || hashJson(existingSpec) !== specHash) {
+      fail(`${label} id ${requestedId} already exists with different provenance.`, collisionCode, EXIT_CODE.CONFLICT);
+    }
+    return existing;
+  } catch (error) {
+    if (isItemNotFound(error)) return undefined;
+    throw error;
+  }
+}
+
+/**
+ * Read an Environment item and demand its two provenance preconditions.
+ *
+ * Both the generic and the gate-simulator verification paths depend on the same
+ * two conditions before a body can even be checked: a recorded
+ * `affected_version` naming what the specification hashed to, and a readable
+ * JSON specification fence in the body. The conditions and their refusal codes
+ * are written once here so the two verifiers cannot drift on them.
+ *
+ * @param client - Client bound to the workspace holding the environment.
+ * @param environmentId - Environment item id to read.
+ * @param dependents - Plural noun naming what the caller is attributing, used
+ *   only in the missing-hash message (e.g. `runs`, `gate episodes`).
+ * @returns The resolved id, the recorded hash, and the fence's JSON text.
+ */
+async function verifiedEnvironmentFence(client: PmClient, environmentId: string, dependents: string): Promise<{ id: string; specHash: string; json: string }> {
+  const environment = await getTypedItem(client, environmentId, "Environment");
+  const specHash = environment.item.affected_version;
+  if (typeof specHash !== "string" || specHash.length === 0) {
+    fail(`Environment ${environmentId} has no specification affected_version and cannot support attributable ${dependents}.`, "environment_missing_hash", EXIT_CODE.CONFLICT);
+  }
+  const fenced = JSON_SPEC_FENCE.exec(String(environment.item.body));
+  if (fenced?.[1] === undefined) {
+    fail(`Environment ${environmentId} has no JSON specification fence.`, "environment_missing_spec", EXIT_CODE.CONFLICT);
+  }
+  return { id: String(environment.item.id), specHash, json: fenced[1]! };
+}
+
+/**
+ * Re-verify a gate-simulator Environment still matches its content identity.
+ *
+ * Gate environments are ordinary content-addressed Environment items whose
+ * specification is parsed by {@link parseGateEnvironmentSpec} instead of the
+ * generic environment parser. The verification discipline is deliberately the
+ * same as {@link verifyEnvironmentIdentity}: a recorded `affected_version`, a
+ * readable specification fence, a re-hash that still agrees, and an item id
+ * carrying the hash prefix — so an edited gate set cannot silently re-judge
+ * candidates under rules it no longer matches.
+ *
+ * @param client - Client bound to the workspace holding the environment.
+ * @param environmentId - Environment item id to re-verify.
+ * @returns The resolved id and the re-parsed gate specification.
+ * @throws When the environment lacks a hash or fence, or no longer matches its
+ *   content-addressed identity.
+ */
+async function verifyGateEnvironmentIdentity(client: PmClient, environmentId: string): Promise<{ id: string; spec: GateEnvironmentSpec }> {
+  const verified = await verifiedEnvironmentFence(client, environmentId, "gate episodes");
+  const storedSpec = parseGateEnvironmentSpec(verified.json, `Gate environment ${environmentId} specification`);
+  if (hashJson(storedSpec as unknown as JsonValue) !== verified.specHash || !verified.id.endsWith(verified.specHash.slice(0, 12))) {
+    fail(`Environment ${environmentId} no longer matches its content-addressed identity. Register the changed gate set as a new version.`, "environment_was_mutated", EXIT_CODE.CONFLICT);
+  }
+  return { id: verified.id, spec: storedSpec };
+}
+
+/** Register one immutable gate-simulator environment by content identity. */
+async function registerGateEnvironment(context: CommandHandlerContext): Promise<RlCommandResult> {
+  const path = stringOption(context, "file")!;
+  const spec = parseGateEnvironmentSpec(readTextFile(path, "Gate environment file"), `Gate environment file ${path}`);
+  const specHash = hashJson(spec as unknown as JsonValue);
+  const requestedId = `env-${idSegment(spec.name)}-${idSegment(spec.version)}-${specHash.slice(0, 12)}`;
+  const client = clientFor(context);
+  await ensurePersistentTypes(client);
+  return registerImmutableEnvironment(client, requestedId, specHash, "rl-episode-env-register", () => ({
+    id: requestedId,
+    title: `${spec.name} ${spec.version} gates at ${spec.commit.slice(0, 12)}`,
+    type: "Environment",
+    status: "open",
+    acceptanceCriteria: "The pinned repository commit, mandatory gate set and verdict extraction match the environment's content identity.",
+    estimatedMinutes: "1",
+    body: `# ${spec.name} ${spec.version} gates\n\n\`\`\`json\n${JSON.stringify(spec, null, 2)}\n\`\`\``,
+    affectedVersion: specHash,
+    fixedVersion: spec.version,
+    message: "Register immutable gate-simulator environment",
+  }), { spec_hash: specHash });
+}
+
+/**
+ * Record one sandbox episode: the judged candidate artifact, its gate results
+ * and extracted verdict, and its stable pull-request link.
+ *
+ * The episode stores a content-addressed identity for the candidate tree — the
+ * resulting git tree id, or the SHA-256 of the patch producing it — because the
+ * base commit alone identifies only the tree the action started from. Both the
+ * pull-request link and any patch content are refused when they capture
+ * repository credentials: episodes are committed, merged fleet data.
+ */
+async function recordEpisode(context: CommandHandlerContext): Promise<RlCommandResult> {
+  const environmentId = stringOption(context, "environment")!;
+  const baseCommit = stringOption(context, "base_commit")!;
+  const pullRequest = stringOption(context, "pull_request")!;
+  const resultsPath = stringOption(context, "gates_results")!;
+  const candidateTree = stringOption(context, "candidate_tree", false);
+  const patchPath = stringOption(context, "patch_file", false);
+  let patchHash: string | null = null;
+  if (patchPath !== undefined) {
+    const patchText = readTextFile(patchPath, "Candidate patch");
+    assertNoCredentials("The candidate patch", patchText);
+    patchHash = createHash("sha256").update(patchText).digest("hex");
+  }
+  if (candidateTree === undefined && patchHash === null) {
+    fail("pm rl episode record requires --candidate-tree or --patch-file: the base commit alone identifies only the tree the action started from, not the artifact that was judged.", "candidate_tree_unrecorded", EXIT_CODE.CONFLICT);
+  }
+  assertNoCredentials("The pull request link", pullRequest);
+  const client = clientFor(context);
+  await ensurePersistentTypes(client);
+  const verified = await verifyGateEnvironmentIdentity(client, environmentId);
+  const resultsText = readTextFile(resultsPath, "Gate results");
+  const gateResults = parseGateResults(resultsText, `Gate results ${resultsPath}`, verified.spec);
+  const verdict = deriveVerdict(gateResults);
+  const spec: EpisodeSpec = {
+    environment_id: verified.id,
+    environment_spec_hash: hashJson(verified.spec as unknown as JsonValue),
+    repository: verified.spec.repository,
+    base_commit: baseCommit,
+    candidate_tree: candidateTree ?? null,
+    patch_hash: patchHash,
+    gate_results: gateResults,
+    verdict,
+    pull_request: pullRequest,
+  };
+  const specHash = hashJson(spec as unknown as JsonValue);
+  const requestedId = `episode-${specHash.slice(0, 12)}`;
+  const existingEpisode = await matchingImmutableRecord(client, requestedId, "GateEpisode", "Episode", "episode_identity_collision", specHash, (body) =>
+    parseEpisodeSpec(storedJson(body, `Episode ${requestedId}`, "episode_missing_spec"), `Episode ${requestedId} specification`) as unknown as JsonValue,
+  );
+  if (existingEpisode !== undefined) {
+    return { action: "rl-episode-record", id: String(existingEpisode.item.id), created: false, details: episodeDetails(spec, verified.id) };
+  }
+  const result = await client.create({
+    id: requestedId,
+    title: `Gates ${verified.spec.name} ${verified.spec.version}: ${(candidateTree ?? patchHash!)!.slice(0, 16)}`,
+    type: "GateEpisode",
+    status: "closed",
+    closeReason: "Immutable gate-simulator episode recorded",
+    completedAt: new Date().toISOString(),
+    acceptanceCriteria: "The episode traces to its exact candidate artifact, gate environment, gate results, extracted verdict, and pull request.",
+    estimatedMinutes: "1",
+    body: `# Episode ${requestedId}\n\n\`\`\`json\n${JSON.stringify(spec, null, 2)}\n\`\`\``,
+    dep: [`id=${verified.id},kind=related,source_kind=${EPISODE_ENVIRONMENT_SOURCE}`],
+    environment: verified.id,
+    affectedVersion: specHash,
+    fixedVersion: baseCommit,
+    component: verified.spec.repository,
+    resolution: verdict,
+    expectedResult: "The gate results decide the verdict under the environment's pinned extraction.",
+    actualResult: verdict,
+    message: "Record immutable gate-simulator episode",
+  });
+  return { action: "rl-episode-record", id: result.item.id, created: true, details: episodeDetails(spec, verified.id) };
+}
+
+/** Build the bounded details block shared by both episode-record outcomes. */
+function episodeDetails(spec: EpisodeSpec, environmentId: string): Readonly<Record<string, unknown>> {
+  return {
+    environment_id: environmentId,
+    candidate_tree: spec.candidate_tree,
+    patch_hash: spec.patch_hash,
+    base_commit: spec.base_commit,
+    verdict: spec.verdict,
+    pull_request: spec.pull_request,
+    spec_hash: hashJson(spec as unknown as JsonValue),
+  };
+}
+
+/**
+ * Replay one episode against a re-resolved candidate artifact and fresh gate
+ * results, refusing anything that no longer reproduces.
+ *
+ * The artifact is resolved FIRST: replay must judge the exact tree or patch the
+ * episode recorded, not one it merely hopes is the same. Only then is the
+ * verdict re-derived from the fresh results under the environment's pinned
+ * extraction; a different verdict is refused, naming every gate whose outcome
+ * moved. Replay is a pure read: it never mutates the episode.
+ */
+async function replayEpisode(context: CommandHandlerContext): Promise<RlCommandResult> {
+  const id = requiredArgument(context, "an episode id");
+  const suppliedTree = stringOption(context, "candidate_tree", false);
+  const patchPath = stringOption(context, "patch_file", false);
+  const resultsPath = stringOption(context, "gates_results")!;
+  const client = clientFor(context);
+  await ensurePersistentTypes(client);
+  const episode = await getTypedItem(client, id, "GateEpisode");
+  const resolvedId = String(episode.item.id);
+  const spec = parseEpisodeSpec(
+    storedJson(String(episode.item.body), `Episode ${resolvedId}`, "episode_missing_spec"),
+    `Episode ${resolvedId} specification`,
+  );
+  if (spec.candidate_tree === null && spec.patch_hash === null) {
+    fail(`Episode ${resolvedId} records no candidate-tree identity and no patch hash, so replay cannot resolve what was judged. Re-record the episode with --candidate-tree or --patch-file.`, "candidate_tree_unrecorded", EXIT_CODE.CONFLICT);
+  }
+  let suppliedPatchHash: string | null = null;
+  if (patchPath !== undefined) {
+    suppliedPatchHash = createHash("sha256").update(readTextFile(patchPath, "Candidate patch")).digest("hex");
+  }
+  if (suppliedTree === undefined && suppliedPatchHash === null) {
+    fail(`Replay of episode ${resolvedId} requires --candidate-tree or --patch-file to resolve the exact artifact that was judged.`, "candidate_tree_unresolved", EXIT_CODE.CONFLICT);
+  }
+  if (suppliedTree !== undefined && (spec.candidate_tree === null || suppliedTree !== spec.candidate_tree)) {
+    fail(`Replay refused: episode ${resolvedId} judged candidate tree ${String(spec.candidate_tree)}, not "${suppliedTree}". Replay resolves the exact recorded artifact.`, "candidate_tree_mismatch", EXIT_CODE.CONFLICT);
+  }
+  if (suppliedPatchHash !== null && (spec.patch_hash === null || suppliedPatchHash !== spec.patch_hash)) {
+    fail(`Replay refused: episode ${resolvedId} judged the patch hashed ${String(spec.patch_hash)}, not "${suppliedPatchHash}". Replay resolves the exact recorded artifact.`, "candidate_patch_mismatch", EXIT_CODE.CONFLICT);
+  }
+  const verified = await verifyGateEnvironmentIdentity(client, spec.environment_id);
+  const freshResults = parseGateResults(readTextFile(resultsPath, "Gate results"), `Gate results ${resultsPath}`, verified.spec);
+  const freshVerdict = deriveVerdict(freshResults);
+  if (freshVerdict !== spec.verdict) {
+    const moved = spec.gate_results.filter((entry) => {
+      const now = freshResults.find((fresh) => fresh.name === entry.name);
+      return now === undefined || now.exit_code !== entry.exit_code;
+    }).map((entry) => `${entry.name} (${entry.exit_code} -> ${freshResults.find((fresh) => fresh.name === entry.name)?.exit_code})`);
+    fail(`Replay refused: episode ${resolvedId} recorded verdict "${spec.verdict}" but the fresh gate results derive "${freshVerdict}". Gates that moved: ${moved.join(", ")}.`, "verdict_changed", EXIT_CODE.CONFLICT);
+  }
+  return {
+    action: "rl-episode-replay",
+    id: resolvedId,
+    details: {
+      reproduced: true,
+      verdict: freshVerdict,
+      candidate_tree: spec.candidate_tree,
+      patch_hash: spec.patch_hash,
+      pull_request: spec.pull_request,
+    },
+  };
+}
+
+/** Record one real-side merge outcome for a pull request. */
+async function recordOutcome(context: CommandHandlerContext): Promise<RlCommandResult> {
+  const pullRequest = stringOption(context, "pull_request")!;
+  const mergedRaw = context.options.merged;
+  const merged = typeof mergedRaw === "boolean" ? mergedRaw : mergedRaw === "true" ? true : mergedRaw === "false" ? false : undefined;
+  if (merged === undefined) fail("pm rl outcome record requires --merged true or --merged false.", "invalid_outcome_merged");
+  assertNoCredentials("The pull request link", pullRequest);
+  const spec = { pull_request: pullRequest, merged };
+  const specHash = hashJson(spec as unknown as JsonValue);
+  const requestedId = `outcome-${specHash.slice(0, 12)}`;
+  const client = clientFor(context);
+  await ensurePersistentTypes(client);
+  const existingOutcome = await matchingImmutableRecord(client, requestedId, "MergeOutcome", "MergeOutcome", "outcome_identity_collision", specHash, (body) =>
+    parseOutcomeSpec(storedJson(body, `MergeOutcome ${requestedId}`, "outcome_missing_spec"), `MergeOutcome ${requestedId} specification`) as unknown as JsonValue,
+  );
+  if (existingOutcome !== undefined) {
+    return { action: "rl-outcome-record", id: String(existingOutcome.item.id), created: false, details: spec as unknown as Readonly<Record<string, unknown>> };
+  }
+  const result = await client.create({
+    id: requestedId,
+    title: `Merge outcome: ${pullRequest}`,
+    type: "MergeOutcome",
+    status: "closed",
+    closeReason: "Immutable merge outcome recorded",
+    completedAt: new Date().toISOString(),
+    acceptanceCriteria: "The outcome names one pull request and whether it merged, content-addressed by both.",
+    estimatedMinutes: "1",
+    body: `# Outcome ${requestedId}\n\n\`\`\`json\n${JSON.stringify(spec, null, 2)}\n\`\`\``,
+    affectedVersion: specHash,
+    fixedVersion: pullRequest,
+    component: merged ? "merged" : "not_merged",
+    resolution: merged ? "merged" : "not_merged",
+    message: "Record real-side merge outcome",
+  });
+  return { action: "rl-outcome-record", id: result.item.id, created: true, details: spec as unknown as Readonly<Record<string, unknown>> };
+}
+
+/**
+ * Report the sim-to-real gap over the paired cohort.
+ *
+ * Reads every recorded episode and outcome from the complete corpus, pairs them
+ * by pull-request link, and reports the sandbox gate-pass rate against the real
+ * merge rate with both denominators stated. Candidates on only one side are
+ * reported separately as coverage. Unreadable records refuse the report rather
+ * than silently shrinking the cohort, and two outcomes that disagree about one
+ * pull request make the merge rate undecidable and are refused.
+ */
+async function simRealGap(context: CommandHandlerContext): Promise<RlCommandResult> {
+  const client = clientFor(context);
+  await ensurePersistentTypes(client);
+  const episodes: Array<{ id: string; spec: EpisodeSpec }> = [];
+  for (const item of (await client.list({ type: "GateEpisode", status: "all", noTruncate: true, fields: "id,body" })).items) {
+    // A listed item the SDK types without an id carries no identity to report
+    // or pair, so it contributes no row rather than failing the corpus.
+    if (item.id === undefined) continue;
+    let text: string;
+    try {
+      text = storedJson(String(item.body), `Episode ${item.id}`, "episode_missing_spec");
+    } catch {
+      fail(`Episode ${item.id} has no readable specification fence and cannot enter the sim-to-real cohort.`, "episode_unreadable", EXIT_CODE.CONFLICT);
+    }
+    episodes.push({ id: item.id, spec: parseEpisodeSpec(text, `Episode ${item.id} specification`) });
+  }
+  const outcomes: Array<{ id: string; spec: { pull_request: string; merged: boolean } }> = [];
+  for (const item of (await client.list({ type: "MergeOutcome", status: "all", noTruncate: true, fields: "id,body" })).items) {
+    if (item.id === undefined) continue;
+    let text: string;
+    try {
+      text = storedJson(String(item.body), `MergeOutcome ${item.id}`, "outcome_missing_spec");
+    } catch {
+      fail(`MergeOutcome ${item.id} has no readable specification fence and cannot enter the sim-to-real cohort.`, "outcome_unreadable", EXIT_CODE.CONFLICT);
+    }
+    outcomes.push({ id: item.id, spec: parseOutcomeSpec(text, `MergeOutcome ${item.id} specification`) });
+  }
+  const report = buildSimRealGap(episodes, outcomes);
+  const details: Record<string, unknown> = {
+    paired: report.paired,
+    unpaired_episodes: report.unpaired_episodes,
+    unpaired_outcomes: report.unpaired_outcomes,
+  };
+  if (context.global.json === true) {
+    return { action: "rl-simreal-gap", details: { format: "json", ...details } };
+  }
+  return { action: "rl-simreal-gap", details: { format: "table", output: renderSimRealGap(report), ...details } };
+}
+
 /** Extract and parse a generation spec from an item body's JSON fence. */
 function extractGenerationSpec(body: string, source: string): GenerationSpec {
   const fenced = JSON_SPEC_FENCE.exec(body);
@@ -810,20 +1301,12 @@ function extractGenerationSpec(body: string, source: string): GenerationSpec {
  *   content-addressed identity.
  */
 async function verifyEnvironmentIdentity(client: PmClient, environmentId: string, dependents: string): Promise<{ id: string; spec: EnvironmentSpec }> {
-  const environment = await getTypedItem(client, environmentId, "Environment");
-  const specHash = environment.item.affected_version;
-  if (typeof specHash !== "string" || specHash.length === 0) {
-    fail(`Environment ${environmentId} has no specification affected_version and cannot support attributable ${dependents}.`, "environment_missing_hash", EXIT_CODE.CONFLICT);
-  }
-  const fenced = JSON_SPEC_FENCE.exec(String(environment.item.body));
-  if (fenced?.[1] === undefined) {
-    fail(`Environment ${environmentId} has no JSON specification fence.`, "environment_missing_spec", EXIT_CODE.CONFLICT);
-  }
-  const storedSpec = parseEnvironmentSpec(fenced[1], `Environment ${environmentId} specification`);
-  if (hashJson(storedSpec) !== specHash || !String(environment.item.id).endsWith(specHash.slice(0, 12))) {
+  const verified = await verifiedEnvironmentFence(client, environmentId, dependents);
+  const storedSpec = parseEnvironmentSpec(verified.json, `Environment ${environmentId} specification`);
+  if (hashJson(storedSpec) !== verified.specHash || !verified.id.endsWith(verified.specHash.slice(0, 12))) {
     fail(`Environment ${environmentId} no longer matches its content-addressed identity. Register the changed specification as a new version.`, "environment_was_mutated", EXIT_CODE.CONFLICT);
   }
-  return { id: String(environment.item.id), spec: storedSpec };
+  return { id: verified.id, spec: storedSpec };
 }
 
 /** Verify an environment is content-addressed and return its id and reward-spec hash. */
@@ -1539,6 +2022,25 @@ async function renderLineageCommand(context: CommandHandlerContext): Promise<RlC
   return { action: "rl-lineage", details: { format: "table", output: renderLineageTable(view), view } };
 }
 
+/** The run-body heading under which `rl run start` stores a determinism receipt. */
+const RECEIPT_HEADING = "Determinism receipt:";
+
+/**
+ * Return the JSON fence text following a body heading, or null when absent.
+ *
+ * @param body - The item body to search.
+ * @param heading - The exact heading text that precedes the fence.
+ * @returns The fence's JSON text, or null when the heading or fence is absent.
+ */
+function fencedSection(body: string, heading: string): string | null {
+  // Anchored to a line start: a caller-supplied run configuration can embed the
+  // heading's text inside a JSON string value, and an unanchored search would
+  // find that impostor first and return the wrong fence.
+  const start = body.indexOf(`\n${heading}`);
+  if (start < 0) return null;
+  return JSON_SPEC_FENCE.exec(body.slice(start))?.[1] ?? null;
+}
+
 /** Parsed provenance sections of a Run body written by `rl run start`. */
 interface RunBodySections {
   /** The exact environment specification snapshot the run started under. */
@@ -1564,11 +2066,7 @@ interface RunBodySections {
  *   parseable JSON object.
  */
 function runBodySections(body: string, id: string): RunBodySections {
-  const section = (heading: string): string | null => {
-    const start = body.indexOf(heading);
-    if (start < 0) return null;
-    return JSON_SPEC_FENCE.exec(body.slice(start))?.[1] ?? null;
-  };
+  const section = (heading: string): string | null => fencedSection(body, heading);
   const environmentJson = section("Environment snapshot:");
   if (environmentJson === null) {
     fail(`Run ${id} has no readable environment snapshot section, so its recorded environment version cannot be compared. Restart the run with pm rl run start to record one.`, "run_body_unreadable", EXIT_CODE.CONFLICT);
@@ -1688,6 +2186,336 @@ async function compareRuns(context: CommandHandlerContext): Promise<RlCommandRes
   return { action: "rl-compare", details: { format: "table", output: renderCompareReport(view), ...view } };
 }
 
+/**
+ * Remove the arm runs an interrupted sweep plan already wrote.
+ *
+ * A partial sweep leaves orphaned child runs that later reads would treat as
+ * real arms, so every arm written before the failure is deleted. A removal that
+ * itself fails is refused with both causes named — the removal failure first,
+ * then the original create failure — because silent orphans are precisely what
+ * the cleanup exists to prevent.
+ *
+ * @param client - Client bound to the target workspace.
+ * @param arms - The resolved ids of the arms written so far.
+ * @param cause - The original failure that interrupted the plan, named in the
+ *   refusal when a removal itself fails.
+ * @returns When every arm was removed; the caller then rethrows its own cause.
+ * @throws {sweep_cleanup_failed} When any removal fails, naming both causes.
+ */
+export async function removePlannedArms(client: PmClient, arms: ReadonlyArray<{ id: string }>, cause: unknown): Promise<void> {
+  for (const arm of arms) {
+    try {
+      await client.delete(arm.id, { force: true });
+    } catch (removeError) {
+      fail(
+        `${String(removeError)} — and removing the partially planned arm ${arm.id} also failed while recovering from ${String(cause)}, so the sweep has orphaned arms that must be deleted before it can be re-planned.`,
+        "sweep_cleanup_failed",
+        EXIT_CODE.CONFLICT,
+      );
+    }
+  }
+}
+
+/**
+ * Expand a declared search space into one child Run per arm.
+ *
+ * Arms are ordinary Runs — same environment snapshot and configuration body a
+ * hand-started run gets, plus the arm's expanded hyperparameters as the run
+ * configuration — so two agents can advance two arms on two branches and merge.
+ * The Sweep item stores the space, the rule, and the planned arm list; nothing
+ * about the plan is inferred later from naming conventions.
+ */
+async function planSweep(context: CommandHandlerContext): Promise<RlCommandResult> {
+  const requestedId = requiredArgument(context, "a sweep id");
+  const path = stringOption(context, "file")!;
+  const environmentId = stringOption(context, "environment")!;
+  const algorithm = stringOption(context, "algorithm")!;
+  const spaceRaw = readJsonFile(path, "Search space");
+  if (spaceRaw === null || typeof spaceRaw !== "object" || Array.isArray(spaceRaw)) {
+    fail(`Search space ${path} must contain one JSON object with search_space and selection_rule.`, "invalid_search_space_file");
+  }
+  const spaceRecord = spaceRaw as Record<string, JsonValue>;
+  const spaceRawSpace = spaceRecord["search_space"];
+  if (spaceRawSpace === null || typeof spaceRawSpace !== "object" || Array.isArray(spaceRawSpace)) {
+    fail(`Search space file ${path} requires a search_space object of hyperparameter to candidate values.`, "invalid_search_space");
+  }
+  const ruleRaw = spaceRecord["selection_rule"];
+  if (typeof ruleRaw !== "string") {
+    fail(`Search space file ${path} requires a string selection_rule ("none" or max_final:<metric> / min_final:<metric>).`, "invalid_selection_rule");
+  }
+  // Validated BEFORE anything is written: an unplanable rule must not leave a
+  // half-registered sweep or partial arms behind.
+  const selectionRule = parseSelectionRule(ruleRaw);
+  const client = clientFor(context);
+  await ensurePersistentTypes(client);
+  const verifiedEnvironment = await verifyEnvironmentIdentity(client, environmentId, "sweep arms");
+  const configs = expandSearchSpace(spaceRawSpace as Record<string, JsonValue[]>);
+  if (configs.length === 0) {
+    fail(`Search space file ${path} declares no dimensions, so there is no arm to plan.`, "invalid_search_space");
+  }
+  const specHash = hashJson(verifiedEnvironment.spec);
+  // Every id the plan will write is checked before any create runs — the sweep
+  // item itself AND every arm — so a re-plan refuses without leaving a partially
+  // expanded sweep behind. A sweep whose arms are gone (or were never created)
+  // would otherwise be re-armed under an owner that already exists.
+  try {
+    await getTypedItem(client, requestedId, "Sweep");
+    fail(`Sweep ${requestedId} already exists. Plan a new sweep id instead of re-arming an existing sweep.`, "sweep_exists", EXIT_CODE.CONFLICT);
+  } catch (error) {
+    if (!isItemNotFound(error)) throw error;
+  }
+  const armIds = configs.map((_, index) => `${requestedId}-arm-${index + 1}`);
+  for (const armId of armIds) {
+    try {
+      await getTypedItem(client, armId, "Run");
+      fail(`Arm run ${armId} already exists; sweep ${requestedId} is already planned. Plan a new sweep id instead.`, "sweep_arm_exists", EXIT_CODE.CONFLICT);
+    } catch (error) {
+      if (!isItemNotFound(error)) throw error;
+    }
+  }
+  const arms: Array<{ id: string; config: JsonValue }> = [];
+  try {
+    for (const [index, config] of configs.entries()) {
+      const armId = armIds[index]!;
+      const result = await client.create({
+        id: armId,
+        title: armId,
+        type: "Run",
+        status: "in_progress",
+        acceptanceCriteria: `Sweep arm ${index + 1} retains its exact environment and hyperparameter identities; its metrics are history appends independent of every other arm.`,
+        estimatedMinutes: "1",
+        body: `# ${armId}\n\nAlgorithm: ${algorithm}\n\nEnvironment snapshot:\n\n\`\`\`json\n${JSON.stringify(verifiedEnvironment.spec, null, 2)}\n\`\`\`\n\nRun configuration:\n\n\`\`\`json\n${JSON.stringify(config, null, 2)}\n\`\`\``,
+        dep: [verifiedEnvironment.id],
+        environment: verifiedEnvironment.id,
+        affectedVersion: specHash,
+        component: algorithm,
+        fixedVersion: hashJson(config),
+        message: `Plan RL sweep arm ${index + 1}`,
+      });
+      // Report the RESOLVED id: the host scopes created ids under its alias.
+      arms.push({ id: String(result.item.id), config });
+    }
+  } catch (error) {
+    // A mid-plan failure must not leave orphaned arm runs that later reads would
+    // treat as real children. Remove everything this invocation wrote, then let
+    // the original cause surface.
+    await removePlannedArms(client, arms, error);
+    throw error;
+  }
+  const spec: SweepSpec = {
+    search_space: spaceRawSpace as Record<string, JsonValue[]>,
+    selection_rule: selectionRule,
+    algorithm,
+    environment_id: verifiedEnvironment.id,
+    environment_spec_hash: specHash,
+    arms,
+  };
+  const sweepHash = hashJson(spec as unknown as JsonValue);
+  // The sweep create sits under the same cleanup contract as the arms: if it
+  // fails AFTER the arms exist, a retry under the same id would hit the arm
+  // pre-check and could never complete. Remove the arms this invocation wrote,
+  // then let the original cause surface.
+  let sweepResult;
+  try {
+    sweepResult = await client.create({
+      id: requestedId,
+      title: requestedId,
+      type: "Sweep",
+      status: "open",
+      acceptanceCriteria: "The sweep retains its declared space, selection rule, and planned arms; its children are independent runs.",
+      estimatedMinutes: "1",
+      body: `# ${requestedId}\n\n\`\`\`json\n${JSON.stringify(spec, null, 2)}\n\`\`\``,
+      dep: [verifiedEnvironment.id],
+      affectedVersion: sweepHash,
+      fixedVersion: algorithm,
+      component: verifiedEnvironment.id,
+      message: "Plan RL sweep",
+    });
+  } catch (error) {
+    await removePlannedArms(client, arms, error);
+    throw error;
+  }
+  return {
+    action: "rl-sweep-plan",
+    id: String(sweepResult.item.id),
+    created: true,
+    details: {
+      arms: arms.map((arm) => arm.id),
+      selection_rule: selectionRule.kind === "none" ? "none" : `${selectionRule.kind}:${selectionRule.metric}`,
+      environment_id: verifiedEnvironment.id,
+      spec_hash: sweepHash,
+    },
+  };
+}
+
+/**
+ * Report per-arm progress and the selection rule's current verdict.
+ *
+ * Progress is read live from each child run's metric history. The winner is
+ * named only when the stored rule supports one AND at least one arm has measured
+ * the selection metric; otherwise status states exactly why no verdict exists.
+ */
+async function showSweepStatus(context: CommandHandlerContext): Promise<RlCommandResult> {
+  const id = requiredArgument(context, "a sweep id");
+  const client = clientFor(context);
+  await ensurePersistentTypes(client);
+  const sweep = await getTypedItem(client, id, "Sweep");
+  const resolvedId = String(sweep.item.id);
+  let specText: string | null;
+  try {
+    specText = storedJson(String(sweep.item.body), resolvedId, "sweep_missing_spec");
+  } catch {
+    fail(`Sweep ${resolvedId} has no readable specification fence and cannot report status.`, "sweep_unreadable", EXIT_CODE.CONFLICT);
+  }
+  const spec = parseSweepSpec(specText, `Sweep ${resolvedId} specification`);
+  const selectionMetric = spec.selection_rule.kind === "none" ? null : spec.selection_rule.metric;
+  const arms = [];
+  for (const arm of spec.arms) {
+    const run = await getTypedItem(client, arm.id, "Run");
+    const series = readSeries((await readCompleteNotes(client, arm.id)).map((note) => note.text));
+    // Latest value per step of the selection metric; the final value is the one
+    // at the highest measured step.
+    const stepsByMetric = new Map<number, number>();
+    for (const event of series.events) {
+      if (selectionMetric !== null && event.metric === selectionMetric) {
+        stepsByMetric.set(event.step, event.value);
+      }
+    }
+    const finalStep = series.events.reduce((max, event) => Math.max(max, event.step), -1);
+    const finalEntry = [...stepsByMetric.entries()].sort(([left], [right]) => left - right).at(-1);
+    arms.push({
+      id: arm.id,
+      config: arm.config,
+      status: String(run.item.status),
+      metric_events: series.events.length,
+      last_step: finalStep < 0 ? null : finalStep,
+      final_value: finalEntry === undefined ? null : finalEntry[1],
+    });
+  }
+  const view = { sweep: resolvedId, ...buildSweepStatus(spec.selection_rule, arms) };
+  if (context.global.json === true) {
+    return { action: "rl-sweep-status", id: resolvedId, details: { format: "json", ...view } };
+  }
+  return { action: "rl-sweep-status", id: resolvedId, details: { format: "table", output: renderSweepStatus(view), ...view } };
+}
+
+/**
+ * Record one sim-to-real transfer measurement.
+ *
+ * The transfer depends on BOTH environment versions and the checkpoint through
+ * typed edges, so an edit to either side invalidates it through `pm rl
+ * invalidate` with no new machinery. Both environments are re-verified against
+ * their content identities at write time — a measurement backed by a mutated
+ * specification is refused rather than recorded.
+ */
+async function recordTransfer(context: CommandHandlerContext): Promise<RlCommandResult> {
+  const requestedId = requiredArgument(context, "a transfer id");
+  const sourceId = stringOption(context, "source")!;
+  const targetId = stringOption(context, "target")!;
+  const checkpoint = stringOption(context, "checkpoint")!;
+  const runId = stringOption(context, "run")!;
+  const metricsPath = stringOption(context, "metrics")!;
+  const client = clientFor(context);
+  await ensurePersistentTypes(client);
+  // Verified before the metrics are even parsed so a broken environment is the
+  // first refusal reported.
+  const source = await verifyEnvironmentIdentity(client, sourceId, "transfers");
+  const target = await verifyEnvironmentIdentity(client, targetId, "transfers");
+  // Compared on RESOLVED identities, not raw flags: pm resolves aliases, so two
+  // different inputs can name one environment, and measuring an environment
+  // against itself would record a gap that is zero by construction.
+  if (source.id === target.id) {
+    fail(`pm rl transfer record requires two DIFFERENT environments; ${source.id} cannot be both the simulator and the deployment side of a gap.`, "degenerate_transfer", EXIT_CODE.CONFLICT);
+  }
+  const run = await getTypedItem(client, runId, "Run");
+  const resolvedRunId = String(run.item.id);
+  const gaps = parseTransferMetrics(readTextFile(metricsPath, "Transfer metrics"), `Transfer metrics ${metricsPath}`);
+  const spec: TransferSpec = {
+    source_environment_id: source.id,
+    target_environment_id: target.id,
+    checkpoint,
+    run_id: resolvedRunId,
+    gaps,
+  };
+  const result = await client.create({
+    id: requestedId,
+    title: `Sim-to-real gap at ${checkpoint.slice(0, 16)}`,
+    type: "Transfer",
+    status: "open",
+    acceptanceCriteria: "The transfer traces to both exact environment versions, its source run, and its checkpoint, with every measured metric finite and named.",
+    estimatedMinutes: "1",
+    body: `# ${requestedId}\n\n\`\`\`json\n${JSON.stringify(spec, null, 2)}\n\`\`\``,
+    dep: [
+      `id=${source.id},kind=related,source_kind=${TRANSFER_SOURCE_ENVIRONMENT}`,
+      `id=${target.id},kind=related,source_kind=${TRANSFER_TARGET_ENVIRONMENT}`,
+      `id=${resolvedRunId},kind=discovered_from,source_kind=${TRANSFER_RUN}`,
+    ],
+    environment: source.id,
+    affectedVersion: hashJson(spec as unknown as JsonValue),
+    fixedVersion: checkpoint,
+    component: target.id,
+    message: "Record sim-to-real transfer measurement",
+  });
+  return {
+    action: "rl-transfer-record",
+    id: String(result.item.id),
+    created: true,
+    details: {
+      source_environment_id: source.id,
+      target_environment_id: target.id,
+      run_id: resolvedRunId,
+      checkpoint,
+      metrics: gaps.map((gap) => gap.metric),
+    },
+  };
+}
+
+/**
+ * Report the per-metric gap series across one run's transfers.
+ *
+ * Transfers are ordered by recording time (item id breaking ties within one
+ * instant). A transfer whose source or target environment no longer resolves to
+ * its content identity is reported as STALE with the reason, excluded from every
+ * series — a gap whose provenance went stale must not be plotted beside fresh
+ * ones, where it would quietly manufacture or flatten a trend.
+ */
+async function showTransferGap(context: CommandHandlerContext): Promise<RlCommandResult> {
+  const id = requiredArgument(context, "a run id");
+  const client = clientFor(context);
+  await ensurePersistentTypes(client);
+  const run = await getTypedItem(client, id, "Run");
+  const resolvedRunId = String(run.item.id);
+  const entries: Array<{ id: string; created_at: string; spec: TransferSpec; stale_reason: string | null }> = [];
+  const stalenessCache = new Map<string, string | null>();
+  for (const item of (await client.list({ type: "Transfer", status: "all", noTruncate: true, fields: "id,body,created_at" })).items) {
+    // A listed item without an id carries no identity to plot or name.
+    if (item.id === undefined) continue;
+    let specText: string;
+    try {
+      specText = storedJson(String(item.body), `Transfer ${item.id}`, "transfer_missing_spec");
+    } catch {
+      fail(`Transfer ${item.id} has no readable specification fence and cannot enter the gap series.`, "transfer_unreadable", EXIT_CODE.CONFLICT);
+    }
+    const spec = parseTransferSpec(specText, `Transfer ${item.id} specification`);
+    if (spec.run_id !== resolvedRunId) continue;
+    // Either side going stale breaks the whole measurement: half of a gap is
+    // not half a data point. Reasons are cached per environment id because a
+    // run's transfers normally share one source and one target.
+    for (const envId of [spec.source_environment_id, spec.target_environment_id]) {
+      if (!stalenessCache.has(envId)) {
+        stalenessCache.set(envId, await environmentInvalidationReason(client, envId));
+      }
+    }
+    const staleReason = stalenessCache.get(spec.source_environment_id) ?? stalenessCache.get(spec.target_environment_id) ?? null;
+    entries.push({ id: String(item.id), created_at: String(item.created_at), spec, stale_reason: staleReason });
+  }
+  const report = buildTransferGapReport(entries);
+  if (context.global.json === true) {
+    return { action: "rl-transfer-gap", id: resolvedRunId, details: { format: "json", ...report } };
+  }
+  return { action: "rl-transfer-gap", id: resolvedRunId, details: { format: "table", output: renderTransferGapReport(resolvedRunId, report), ...report } };
+}
+
 /** Commands authored separately so activation and tests share one exact contract. */
 export const RL_COMMANDS = [
   defineCommand({ name: "rl env register", description: "Register an immutable, content-addressed environment JSON specification.", flags: [{ long: "--file", value_name: "path", value_type: "string", required: true, description: "Environment JSON file." }], run: registerEnvironment }),
@@ -1709,8 +2537,12 @@ export const RL_COMMANDS = [
     { long: "--environment", value_name: "id", value_type: "string", required: true, description: "Environment item id." },
     { long: "--algorithm", value_name: "name", value_type: "string", required: true, description: "Training algorithm." },
     { long: "--config-file", value_name: "path", value_type: "string", description: "Optional JSON configuration." },
+    { long: "--receipt-file", value_name: "path", value_type: "string", description: "Optional determinism receipt JSON to record at start so `rl run verify` can re-derive it later." },
   ], run: startRun }),
   defineCommand({ name: "rl run log", description: "Append NDJSON metric events from --file or stdin to merge-safe run notes.", arguments: [{ name: "id", required: true, description: "Run item id." }], flags: [{ long: "--file", value_name: "path", value_type: "string", description: "NDJSON file; omit to read stdin." }], run: logRun }),
+  defineCommand({ name: "rl run verify", description: "Re-derive a run's determinism receipt and report the difference, without mutating anything.", arguments: [{ name: "id", required: true, description: "Run item id." }], flags: [
+    { long: "--receipt-file", value_name: "path", value_type: "string", required: true, description: "Freshly derived determinism receipt JSON." },
+  ], run: verifyRun }),
   defineCommand({ name: "rl run show", description: "Read and order a run's metric series from append-only notes.", arguments: [{ name: "id", required: true, description: "Run item id." }], run: showRun }),
   defineCommand({ name: "rl run finish", description: "Finish a run without rewriting its metric history.", arguments: [{ name: "id", required: true, description: "Run item id." }], flags: [{ long: "--reason", value_name: "text", value_type: "string", required: true, description: "Why the run ended." }], run: finishRun }),
   defineCommand({ name: "rl generation register", description: "Register a policy generation (seed or candidate) with content-addressed provenance.", arguments: [{ name: "id", required: true, description: "Generation item id." }], flags: [
@@ -1732,6 +2564,39 @@ export const RL_COMMANDS = [
     { long: "--gap-window", value_name: "n", value_type: "string", description: "Number of consecutive gaps for the widening check (at least 2); defaults to 3." },
   ], run: renderLineageCommand }),
   defineCommand({ name: "rl invalidate", description: "List every Run, EvalResult and Transfer transitively invalidated by changing one environment or benchmark version, with the dependency path that reaches each.", arguments: [{ name: "id", required: true, description: "Environment or Benchmark item id whose change invalidates downstream results." }], run: invalidateResults }),
+  defineCommand({ name: "rl episode env register", description: "Register an immutable gate-simulator environment pinning the repository commit, mandatory gates, and verdict extraction.", flags: [{ long: "--file", value_name: "path", value_type: "string", required: true, description: "Gate environment JSON file." }], run: registerGateEnvironment }),
+  defineCommand({ name: "rl episode record", description: "Record one sandbox episode against the fleet's mandatory gates with its candidate-tree identity, verdict, and pull-request link.", flags: [
+    { long: "--environment", value_name: "id", value_type: "string", required: true, description: "Gate environment item id." },
+    { long: "--base-commit", value_name: "sha", value_type: "string", required: true, description: "Base commit the candidate diffed against." },
+    { long: "--candidate-tree", value_name: "tree-id", value_type: "string", description: "Git tree id of the judged candidate tree." },
+    { long: "--patch-file", value_name: "path", value_type: "string", description: "Patch producing the judged candidate; stored by content hash." },
+    { long: "--gates-results", value_name: "path", value_type: "string", required: true, description: "JSON file of per-gate exit codes." },
+    { long: "--pull-request", value_name: "link", value_type: "string", required: true, description: "Stable link to the corresponding pull request." },
+  ], run: recordEpisode }),
+  defineCommand({ name: "rl episode replay", description: "Replay one episode against its re-resolved candidate artifact and fresh gate results; refuses any verdict that no longer reproduces.", arguments: [{ name: "episode", required: true, description: "GateEpisode item id." }], flags: [
+    { long: "--candidate-tree", value_name: "tree-id", value_type: "string", description: "Git tree id replay resolves and compares to the recorded one." },
+    { long: "--patch-file", value_name: "path", value_type: "string", description: "Patch whose content hash is compared to the recorded one." },
+    { long: "--gates-results", value_name: "path", value_type: "string", required: true, description: "Fresh JSON file of per-gate exit codes." },
+  ], run: replayEpisode }),
+  defineCommand({ name: "rl outcome record", description: "Record the real-side merge outcome for one pull request.", flags: [
+    { long: "--pull-request", value_name: "link", value_type: "string", required: true, description: "Stable link matching the paired episode's pull request exactly." },
+    { long: "--merged", value_name: "true|false", value_type: "string", required: true, description: "Whether the pull request merged." },
+  ], run: recordOutcome }),
+  defineCommand({ name: "rl transfer record", description: "Record one measured per-metric sim-to-real gap for one checkpoint, linked to both environment versions and its run.", arguments: [{ name: "id", required: true, description: "Transfer item id." }], flags: [
+    { long: "--source", value_name: "id", value_type: "string", required: true, description: "Simulator-side Environment item id." },
+    { long: "--target", value_name: "id", value_type: "string", required: true, description: "Deployment-side Environment item id." },
+    { long: "--checkpoint", value_name: "hash", value_type: "string", required: true, description: "Content-addressed checkpoint identity measured." },
+    { long: "--run", value_name: "id", value_type: "string", required: true, description: "Source Run item id whose checkpoint series this joins." },
+    { long: "--metrics", value_name: "path", value_type: "string", required: true, description: "JSON file of per-metric gaps." },
+  ], run: recordTransfer }),
+  defineCommand({ name: "rl transfer gap", description: "Report the per-metric gap series across a run's checkpoints in order; superseded-environment transfers are reported stale, not plotted.", arguments: [{ name: "run", required: true, description: "Run item id whose transfers to report." }], run: showTransferGap }),
+  defineCommand({ name: "rl sweep plan", description: "Expand a declared search space into one child Run per arm with the arm's hyperparameters recorded.", arguments: [{ name: "id", required: true, description: "Sweep item id." }], flags: [
+    { long: "--file", value_name: "path", value_type: "string", required: true, description: "JSON with search_space and selection_rule." },
+    { long: "--environment", value_name: "id", value_type: "string", required: true, description: "Environment item id every arm trains under." },
+    { long: "--algorithm", value_name: "name", value_type: "string", required: true, description: "Training algorithm every arm runs." },
+  ], run: planSweep }),
+  defineCommand({ name: "rl sweep status", description: "Report per-arm progress and the selection rule's current verdict across arms, never inventing a winner the rule does not support.", arguments: [{ name: "id", required: true, description: "Sweep item id." }], run: showSweepStatus }),
+  defineCommand({ name: "rl simreal gap", description: "Report the sim-to-real gap over the paired cohort of episodes and outcomes, denominators stated, unpaired sides as coverage.", run: simRealGap }),
   defineCommand({ name: "rl compare", description: "Diff two runs' metrics over their common step range with the hyperparameter, environment-version and reward-spec delta; refuses runs from different environment versions.", arguments: [
     { name: "baseline", required: true, description: "Baseline run item id." },
     { name: "candidate", required: true, description: "Candidate run item id." },

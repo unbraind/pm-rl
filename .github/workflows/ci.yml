@@ -67,11 +67,20 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Lint
+        run: npm run lint
+
+      - name: Check for duplicated code
+        run: npm run duplicates
+
       - name: Verify complete docstring coverage
         run: npm run docstring
 
       - name: Test with coverage gate
         run: npm run coverage
+
+      - name: Audit commit identities against the approved list
+        run: npm run audit:identities
 
       - name: Production dependency audit
         run: npm run audit:prod

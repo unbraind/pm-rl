@@ -178,10 +178,10 @@ transfer is reported as stale rather than plotted.
 | --- | --- | --- |
 | Environment registration and versioning | [`pm-rl-et5b`](.agents/pm/features/pm-rl-et5b.toon) | **first slab** |
 | Run lifecycle, NDJSON ingestion into history | [`pm-rl-dyho`](.agents/pm/features/pm-rl-dyho.toon) | **first slab** |
-| Determinism receipts and `run verify` | [`pm-rl-dpug`](.agents/pm/features/pm-rl-dpug.toon) | planned |
-| Sweep planning | [`pm-rl-mqdb`](.agents/pm/features/pm-rl-mqdb.toon) | planned |
+| Determinism receipts and `run verify` | [`pm-rl-dpug`](.agents/pm/features/pm-rl-dpug.toon) | **implemented** (`pm rl run start --receipt-file`, `pm rl run verify`) |
+| Sweep planning | [`pm-rl-mqdb`](.agents/pm/features/pm-rl-mqdb.toon) | **implemented** (`pm rl sweep plan`, `pm rl sweep status`; arms are ordinary Runs, proven by a real two-branch merge) |
 | Benchmarks and eval results | [`pm-rl-tl1x`](.agents/pm/features/pm-rl-tl1x.toon) | **implemented** (`pm rl benchmark register`, `pm rl eval record`) |
-| Sim-to-real transfer and gap reporting | [`pm-rl-06n6`](.agents/pm/features/pm-rl-06n6.toon) | planned |
+| Sim-to-real transfer and gap reporting | [`pm-rl-06n6`](.agents/pm/features/pm-rl-06n6.toon) | **implemented** (`pm rl transfer record`, `pm rl transfer gap`) |
 | Leaderboard and its two refusals | [`pm-rl-nzxt`](.agents/pm/features/pm-rl-nzxt.toon) | **implemented** (`pm rl leaderboard`; see §3) |
 | `invalidate` over the dependency graph | [`pm-rl-keet`](.agents/pm/features/pm-rl-keet.toon) | **implemented** |
 | `compare` with the config delta | [`pm-rl-taj8`](.agents/pm/features/pm-rl-taj8.toon) | **implemented** |
