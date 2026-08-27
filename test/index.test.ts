@@ -17,6 +17,7 @@ import extension, {
   hashJson,
   idSegment,
   parseEnvironmentSpec,
+  readStdin,
   RL_COMMANDS,
   RL_ITEM_TYPES,
   type EnvironmentSpec,
@@ -69,6 +70,28 @@ const SPEC: EnvironmentSpec = {
   reward_specification: { goal: 10, step: -0.01, trap: -5 },
   action_space: ["up", "down", "left", "right"],
 };
+
+test("readStdin returns piped content from an injectable read", () => {
+  assert.equal(readStdin(() => '{"step":1,"metric":"reward","value":2}\n'), '{"step":1,"metric":"reward","value":2}\n');
+});
+
+test("readStdin treats EAGAIN as an empty read so the gate measures the same branch on a socket and on a pipe", () => {
+  // Under `node --test` fd 0 is a non-blocking socket: readFileSync(0) throws
+  // EAGAIN because there is no data and no EOF. Under a real shell pipe the
+  // call returns "" at EOF. Both mean "nothing was piped", so EAGAIN must map
+  // to the same empty-string path the pipe takes — otherwise the coverage
+  // gate measures the catch branch on the developer's machine and the
+  // try-succeed branch on the runner.
+  const eagain = new Error("EAGAIN: resource temporarily unavailable, read") as Error & { code?: string };
+  eagain.code = "EAGAIN";
+  assert.equal(readStdin(() => { throw eagain; }), "");
+});
+
+test("readStdin rethrows non-EAGAIN read errors so a genuine failure is not swallowed", () => {
+  const enoent = new Error("ENOENT: no such file or directory") as Error & { code?: string };
+  enoent.code = "ENOENT";
+  assert.throws(() => readStdin(() => { throw enoent; }), /ENOENT/);
+});
 
 test("canonical environment identities ignore object insertion order but preserve array order", () => {
   const left: JsonValue = { z: 1, nested: { b: true, a: null }, list: ["x", "y"] };

@@ -645,6 +645,38 @@ async function verifyRun(context: CommandHandlerContext): Promise<RlCommandResul
   };
 }
 
+/**
+ * Read all of stdin (fd 0) synchronously, returning the piped content or an
+ * empty string when nothing was piped.
+ *
+ * `readFileSync(0)` is the only synchronous way to drain a piped stdin from an
+ * `async` command handler, but its behaviour depends on what fd 0 actually is.
+ * Under a real shell pipe the write end is closed at EOF, so the call returns
+ * the piped data or `""`. Under `node --test` the test runner gives each test
+ * file a non-blocking **socket** for stdin: there is no data and no EOF, so the
+ * call throws `EAGAIN` instead of returning `""`. Both mean "nothing was piped",
+ * so `EAGAIN` is treated as an empty read. Without this, the coverage gate
+ * measures the `catch` branch locally (where fd 0 is a socket) but the
+ * `try`-succeed branch on the runner (where fd 0 is a pipe), making the gate
+ * pass in one environment and fail in the other for the same commit.
+ *
+ * @param read - Injectable `readFileSync` so a test can exercise both the
+ *   `EAGAIN` and the non-`EAGAIN` error paths deterministically without
+ *   depending on what fd 0 happens to be.
+ * @returns The content read from stdin, or `""` when nothing was piped.
+ * @throws When stdin fails with an error other than `EAGAIN`.
+ */
+export function readStdin(
+  read: (fd: number, encoding: string) => string = (fd, encoding) => readFileSync(fd, encoding as BufferEncoding),
+): string {
+  try {
+    return read(0, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EAGAIN") return "";
+    throw error;
+  }
+}
+
 /** Append parsed measurements as bounded compressed segments through the typed SDK. */
 async function logRun(context: CommandHandlerContext): Promise<RlCommandResult> {
   const id = requiredArgument(context, "a run id");
@@ -654,10 +686,10 @@ async function logRun(context: CommandHandlerContext): Promise<RlCommandResult> 
   }
   let input: string;
   try {
-    input = readFileSync(path ?? 0, "utf8");
+    input = path !== undefined ? readFileSync(path, "utf8") : readStdin();
   } catch (error) {
     fail(`Metric input could not be read: ${String(error)}`, "metric_input_failed");
-  }
+ }
   const events = parseNdjsonStream(input);
   if (events.length === 0) fail("Metric input contains no events.", "empty_metric_stream");
   const client = clientFor(context);

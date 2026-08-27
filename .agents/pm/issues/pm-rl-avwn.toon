@@ -1,0 +1,20 @@
+id: pm-rl-avwn
+title: "Coverage gate diverges on the runner: readFileSync(0) on stdin throws EAGAIN locally but returns empty on the CI pipe"
+description: "The coverage gate passes locally (100%) but can report 99.97% line / 99.94% branch on the CI runner. The root cause is index.ts logRun reading stdin via readFileSync(path ?? 0, 'utf8'). Under node --test the local child process has fd 0 as a non-blocking socket, so readFileSync(0) throws EAGAIN. On the CI runner fd 0 is a pipe at EOF, so readFileSync(0) returns empty string. The stdin test therefore takes the catch branch locally and the try-succeed branch on CI, making the gate measure different code in each place."
+type: Issue
+status: closed
+priority: 2
+tags: []
+created_at: "2026-08-27T21:00:29.144Z"
+updated_at: "2026-08-27T21:07:44.673Z"
+closed_at: "2026-08-27T21:07:44.659Z"
+completed_at: "2026-08-27T21:07:44.659Z"
+claim_principal: pi-agent
+author: pi-agent
+comments[1]{created_at,author,text}:
+  "2026-08-27T21:07:33.773Z",pi-agent,"Measured: locally readFileSync(0) on fd 0 (a socket under node --test) throws EAGAIN; on a CI pipe at EOF it returns empty string. The logRun stdin test therefore took the catch branch locally and the try-succeed branch on CI. Fixed by extracting readStdin() with an injectable read parameter: EAGAIN is treated as empty input so both environments take the same path. Three new tests cover the success, EAGAIN, and non-EAGAIN error branches deterministically. npm run coverage exits 0 with 17 files at 100/100/100."
+files[2]{path,scope,note}:
+  index.ts,project,"Extracted readStdin() to handle EAGAIN from readFileSync(0) on a socket,making stdin reads deterministic across environments"
+  test/index.test.ts,project,"Added three readStdin tests covering success,EAGAIN,and non-EAGAIN error branches with injected read functions"
+close_reason: fixed
+body: ""
