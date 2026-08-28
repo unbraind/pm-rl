@@ -1,0 +1,35 @@
+id: pm-rl-irmn
+title: Decoding stdin chunk by chunk corrupts a multi-byte character split across a chunk boundary
+description: "readStdin decoded each binary chunk with Buffer.toString and joined the results. A stream splits on byte boundaries, not character boundaries, so a multi-byte UTF-8 sequence straddling two chunks decoded to two replacement characters, one on each side of the split. Piped NDJSON containing any non-ASCII text was silently corrupted, and a truncated trailing sequence was dropped rather than reported."
+type: Issue
+status: closed
+priority: 1
+tags[3]: "area:cli","area:encoding","type:defect"
+created_at: "2026-08-28T05:20:43.088Z"
+updated_at: "2026-08-28T05:20:55.473Z"
+deadline: "2026-08-29T00:00:00.000Z"
+closed_at: "2026-08-28T05:20:55.459Z"
+completed_at: "2026-08-28T05:20:55.459Z"
+author: claude
+estimated_minutes: 45
+acceptance_criteria: A multi-byte character split across two chunks is reassembled exactly; a truncated trailing sequence is flushed as a replacement character rather than dropped; both assertions fail when the per-chunk decode is restored; the coverage gate still reports 100 percent.
+resolution: "readStdin decodes binary chunks through a node:string_decoder StringDecoder and flushes the held tail with end(), so an incomplete sequence is carried to the next chunk instead of being decoded as garbage."
+expected_result: "Piped NDJSON containing non-ASCII text arrives byte-for-byte identical regardless of where the producer flushed, and a truncated final sequence is reported as a replacement character."
+actual_result: "Restoring the per-chunk decode fails only the boundary reassembly test; removing the end() flush fails only the truncated-tail test. Suite: 19 passed 0 failed. Gates: typecheck 0, lint 0, docstring 0 (17 files, 131 declarations), coverage 100/100/100 across 17 files."
+dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
+  pm-rl-avwn,related,"2026-08-28T05:20:43.088Z",claude,"cli:create:dep",asserted
+comments[1]{created_at,author,text}:
+  "2026-08-28T05:20:43.088Z",claude,"Both new tests were proven to discriminate independently: restoring the per-chunk decode failed only the boundary reassembly test,and removing the decoder end() flush failed only the truncated-tail test."
+notes[1]{created_at,author,text}:
+  "2026-08-28T05:20:43.088Z",claude,"Demonstrated outside the repo: decoding the two halves of the two-byte sequence for e-acute separately yields two replacement characters,while concatenating the bytes first yields the character."
+learnings[1]{created_at,author,text}:
+  "2026-08-28T05:20:43.088Z",claude,Treat every chunk boundary in a byte stream as arbitrary. Decoding per chunk makes the output depend on how the producer happened to flush.
+files[2]{path,scope,note}:
+  index.ts,project,readStdin decodes binary chunks through a StringDecoder and flushes the tail with end()
+  test/index.test.ts,project,boundary reassembly and truncated-tail flush tests
+tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  node --test test/index.test.ts,project,120,claude,"2026-08-28T05:20:43.088Z",local_mutation,fix/coverage-parity-on-the-runner
+docs[1]{path,scope,note}:
+  index.ts,project,readStdin contract
+close_reason: fixed
+body: "The chunk boundary is an artefact of how the kernel filled the pipe, not of the data. Any decode that treats a chunk as a complete unit inherits that arbitrariness. A streaming decoder holds the incomplete tail until the next chunk supplies it, which is the only way the result is a function of the input alone."

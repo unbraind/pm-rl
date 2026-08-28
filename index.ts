@@ -9,6 +9,7 @@
 
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { StringDecoder } from "node:string_decoder";
 
 import {
   defineCommand,
@@ -645,6 +646,56 @@ async function verifyRun(context: CommandHandlerContext): Promise<RlCommandResul
   };
 }
 
+/**
+ * Read an async iterable to EOF, returning its concatenated UTF-8 content.
+ *
+ * The previous synchronous `readFileSync(0)` drain normalised a transient
+ * `EAGAIN` into an empty string. On a non-blocking stdin descriptor `EAGAIN`
+ * means the read *would block*, not that the stream reached EOF, so a producer
+ * that is merely slow — `some-generator | pm rl run log <id>` where the
+ * generator thinks for a moment before writing — had its valid NDJSON
+ * discarded and was told the stream was empty. Reading asynchronously until the
+ * iterable ends removes the `EAGAIN` interpretation entirely: a pipe at EOF
+ * ends, a slow producer is waited for, and a non-blocking socket ends when it
+ * is closed, so local and CI behaviour is identical — which was the whole
+ * point of the original normalisation, achieved without the data loss.
+ *
+ * Binary chunks are decoded through a {@link StringDecoder} rather than
+ * per-chunk `Buffer.toString`, because a stream splits on byte boundaries, not
+ * character boundaries: a multi-byte UTF-8 sequence straddling two chunks would
+ * decode to two replacement characters on each side of the split and silently
+ * corrupt the NDJSON. The decoder holds the incomplete tail until the next
+ * chunk supplies it, and `end()` flushes whatever remains of a truncated final
+ * sequence.
+ *
+ * @param stream - Async iterable of string or binary chunks to drain. Defaults
+ *   to the real `process.stdin` for direct production callers; tests pass an
+ *   iterable that ends so the suite never blocks on the test runner's
+ *   non-blocking fd 0, which never reaches EOF.
+ * @returns The concatenated UTF-8 content, or `""` when the stream was empty.
+ */
+export async function readStdin(
+  stream: AsyncIterable<string | Uint8Array> = process.stdin,
+): Promise<string> {
+  const decoder = new StringDecoder("utf8");
+  const chunks: string[] = [];
+  for await (const chunk of stream) {
+    chunks.push(typeof chunk === "string" ? chunk : decoder.write(Buffer.from(chunk)));
+  }
+  chunks.push(decoder.end());
+  return chunks.join("");
+}
+
+/**
+ * Injectable async stdin source for {@link logRun}'s pipe path. Defaults to the
+ * real `process.stdin` so production reads from the process's fd 0; tests
+ * substitute an `AsyncIterable` that ends, because the test runner's fd 0 is a
+ * non-blocking socket that never reaches EOF and would hang the suite forever.
+ */
+export const stdinSource: { stream: AsyncIterable<string | Uint8Array> } = {
+  stream: process.stdin,
+};
+
 /** Append parsed measurements as bounded compressed segments through the typed SDK. */
 async function logRun(context: CommandHandlerContext): Promise<RlCommandResult> {
   const id = requiredArgument(context, "a run id");
@@ -654,7 +705,7 @@ async function logRun(context: CommandHandlerContext): Promise<RlCommandResult> 
   }
   let input: string;
   try {
-    input = readFileSync(path ?? 0, "utf8");
+    input = path !== undefined ? readFileSync(path, "utf8") : await readStdin(stdinSource.stream);
   } catch (error) {
     fail(`Metric input could not be read: ${String(error)}`, "metric_input_failed");
   }

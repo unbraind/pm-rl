@@ -20,6 +20,8 @@
 
 ### Fixed
 
+- Decoding stdin chunk by chunk corrupts a multi-byte character split across a chunk boundary ([pm-rl-irmn](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-irmn.toon))
+- Coverage gate diverges on the runner: readFileSync(0) on stdin throws EAGAIN locally but returns empty on the CI pipe ([pm-rl-avwn](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-avwn.toon))
 - Resolve CodeRabbit round-2 findings on PR 16 ([pm-rl-weum](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-weum.toon))
 - Remove ignored manifest metadata and adopt pm CLI/SDK 2026.8.20 ([pm-rl-tvo2](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-tvo2.toon))
 - The tolerant lineage walk tolerated an unreadable body but not an unresolvable ancestor ([pm-rl-1f1h](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-1f1h.toon))

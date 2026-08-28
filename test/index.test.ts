@@ -17,6 +17,8 @@ import extension, {
   hashJson,
   idSegment,
   parseEnvironmentSpec,
+  readStdin,
+  stdinSource,
   RL_COMMANDS,
   RL_ITEM_TYPES,
   type EnvironmentSpec,
@@ -69,6 +71,70 @@ const SPEC: EnvironmentSpec = {
   reward_specification: { goal: 10, step: -0.01, trap: -5 },
   action_space: ["up", "down", "left", "right"],
 };
+
+test("readStdin drains a string chunk to EOF", async () => {
+  assert.equal(await readStdin((async function* () { yield '{"step":1,"metric":"reward","value":2}\n'; })()), '{"step":1,"metric":"reward","value":2}\n');
+});
+
+test("readStdin drains a Uint8Array chunk to EOF as UTF-8", async () => {
+  const payload = '{"step":2,"metric":"loss","value":0.5}\n';
+  assert.equal(await readStdin((async function* () { yield new TextEncoder().encode(payload); })()), payload);
+});
+
+test("readStdin returns an empty string for an empty stream that ends immediately", async () => {
+  assert.equal(await readStdin((async function* () {})()), "");
+});
+
+test("readStdin concatenates multiple mixed chunks in arrival order", async () => {
+  const first = '{"step":1,"metric":"reward","value":3}\n';
+  const second = '{"step":2,"metric":"reward","value":4}\n';
+  const stream = (async function* () {
+    yield first;
+    yield new TextEncoder().encode(second);
+  })();
+  assert.equal(await readStdin(stream), first + second);
+});
+
+test("readStdin reassembles a multi-byte character split across a chunk boundary", async () => {
+  const payload = '{"step":1,"metric":"réward","value":2}\n';
+  const bytes = new TextEncoder().encode(payload);
+  const split = payload.indexOf("é") + 1;
+  const stream = (async function* () {
+    yield bytes.subarray(0, split);
+    yield bytes.subarray(split);
+  })();
+  assert.equal(await readStdin(stream), payload);
+});
+
+test("readStdin flushes a truncated trailing multi-byte sequence instead of dropping it", async () => {
+  const bytes = new TextEncoder().encode("é");
+  assert.equal(await readStdin((async function* () { yield bytes.subarray(0, 1); })()), "\uFFFD");
+});
+
+test("readStdin waits for a slow producer instead of treating the pause as EOF", async () => {
+  // A producer that thinks for a tick before writing is waited for: the
+  // async read does not return until the iterable ends. Under the old
+  // synchronous readFileSync(0) this pause surfaced as EAGAIN and the valid
+  // chunk was discarded as an empty stream, so the content was lost.
+  const payload = '{"step":9,"metric":"reward","value":1}\n';
+  const slow = (async function* () {
+    await new Promise((resolve) => { setTimeout(resolve, 10); });
+    yield payload;
+  })();
+  assert.equal(await readStdin(slow), payload);
+});
+
+/**
+ * Swap the module-level stdin source for an injected iterable, run `body`, then
+ * restore the real source. The save and swap are synchronous so no `await` can
+ * interleave; the restore runs in `.finally` so a thrown assertion cannot leak
+ * the fake onto later tests.
+ */
+function withStdin(stream: AsyncIterable<string | Uint8Array>, body: () => Promise<void>): Promise<void> {
+  const saved = stdinSource.stream;
+  stdinSource.stream = stream;
+  return body().finally(() => { stdinSource.stream = saved; });
+}
 
 test("canonical environment identities ignore object insertion order but preserve array order", () => {
   const left: JsonValue = { z: 1, nested: { b: true, a: null }, list: ["x", "y"] };
@@ -302,10 +368,12 @@ test("a run can use an empty configuration while malformed or missing inputs fai
     if (stdinDescriptor === undefined) delete (process.stdin as { isTTY?: boolean }).isTTY;
     else Object.defineProperty(process.stdin, "isTTY", stdinDescriptor);
   }
-  await assert.rejects(
-    harness.runCommand({ command: "rl run log", pmRoot, args: [started.id!] }),
-    /Metric input could not be read|contains no events/,
-  );
+  await withStdin((async function* () {})(), async () => {
+    await assert.rejects(
+      harness.runCommand({ command: "rl run log", pmRoot, args: [started.id!] }),
+      /contains no events/,
+    );
+  });
 
   const client = new PmClient({ pmRoot, author: "pm-rl-test" });
   const incomplete = await client.create({
