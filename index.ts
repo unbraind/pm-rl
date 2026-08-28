@@ -9,6 +9,7 @@
 
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { StringDecoder } from "node:string_decoder";
 
 import {
   defineCommand,
@@ -659,6 +660,14 @@ async function verifyRun(context: CommandHandlerContext): Promise<RlCommandResul
  * is closed, so local and CI behaviour is identical — which was the whole
  * point of the original normalisation, achieved without the data loss.
  *
+ * Binary chunks are decoded through a {@link StringDecoder} rather than
+ * per-chunk `Buffer.toString`, because a stream splits on byte boundaries, not
+ * character boundaries: a multi-byte UTF-8 sequence straddling two chunks would
+ * decode to two replacement characters on each side of the split and silently
+ * corrupt the NDJSON. The decoder holds the incomplete tail until the next
+ * chunk supplies it, and `end()` flushes whatever remains of a truncated final
+ * sequence.
+ *
  * @param stream - Async iterable of string or binary chunks to drain. Defaults
  *   to the real `process.stdin` for direct production callers; tests pass an
  *   iterable that ends so the suite never blocks on the test runner's
@@ -668,10 +677,12 @@ async function verifyRun(context: CommandHandlerContext): Promise<RlCommandResul
 export async function readStdin(
   stream: AsyncIterable<string | Uint8Array> = process.stdin,
 ): Promise<string> {
+  const decoder = new StringDecoder("utf8");
   const chunks: string[] = [];
   for await (const chunk of stream) {
-    chunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
+    chunks.push(typeof chunk === "string" ? chunk : decoder.write(Buffer.from(chunk)));
   }
+  chunks.push(decoder.end());
   return chunks.join("");
 }
 
@@ -697,7 +708,7 @@ async function logRun(context: CommandHandlerContext): Promise<RlCommandResult> 
     input = path !== undefined ? readFileSync(path, "utf8") : await readStdin(stdinSource.stream);
   } catch (error) {
     fail(`Metric input could not be read: ${String(error)}`, "metric_input_failed");
- }
+  }
   const events = parseNdjsonStream(input);
   if (events.length === 0) fail("Metric input contains no events.", "empty_metric_stream");
   const client = clientFor(context);

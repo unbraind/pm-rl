@@ -95,6 +95,22 @@ test("readStdin concatenates multiple mixed chunks in arrival order", async () =
   assert.equal(await readStdin(stream), first + second);
 });
 
+test("readStdin reassembles a multi-byte character split across a chunk boundary", async () => {
+  const payload = '{"step":1,"metric":"réward","value":2}\n';
+  const bytes = new TextEncoder().encode(payload);
+  const split = payload.indexOf("é") + 1;
+  const stream = (async function* () {
+    yield bytes.subarray(0, split);
+    yield bytes.subarray(split);
+  })();
+  assert.equal(await readStdin(stream), payload);
+});
+
+test("readStdin flushes a truncated trailing multi-byte sequence instead of dropping it", async () => {
+  const bytes = new TextEncoder().encode("é");
+  assert.equal(await readStdin((async function* () { yield bytes.subarray(0, 1); })()), "\uFFFD");
+});
+
 test("readStdin waits for a slow producer instead of treating the pause as EOF", async () => {
   // A producer that thinks for a tick before writing is waited for: the
   // async read does not return until the iterable ends. Under the old
