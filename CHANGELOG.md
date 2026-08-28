@@ -60,6 +60,7 @@
 
 ### Added
 
+- Environment registration and versioning, immutable once referenced ([pm-rl-et5b](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-et5b.toon))
 - Run lifecycle ingests NDJSON in bounded pm-rl/2 segments, reads pm-rl/1, and measures sustained storage ([pm-rl-dyho](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-dyho.toon))
 
 ### Other

@@ -64,7 +64,7 @@ async function workspace(): Promise<{ root: string; pmRoot: string; client: PmCl
       defaultStatus: itemType.default_status,
     });
   }
-  const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "schema"] });
+  const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
   assert.deepEqual(harness.activation.failed, []);
   return { root, pmRoot: initialized.path, client, harness };
 }
