@@ -2,24 +2,26 @@ id: pm-rl-et5b
 title: "Environment registration and versioning, immutable once referenced"
 description: "An Environment holds the task suite, reward specification, and version as content-addressed project context. Registration is idempotent by canonical content, changed content receives a new id, and every pm-rl command revalidates the stored hash before use. Arbitrary direct core mutations cannot yet be intercepted at write time; host-level mutation guards remain pending pm-cli#854, so this feature stays in progress until the SDK exposes that capability."
 type: Feature
-status: in_progress
+status: closed
 priority: 2
 tags: []
 created_at: "2026-07-31T06:38:30.856Z"
-updated_at: "2026-08-28T19:54:18.153Z"
-assignee: pi-agent
+updated_at: "2026-08-28T21:47:09.744Z"
+closed_at: "2026-08-28T21:47:09.725Z"
+completed_at: "2026-08-28T21:47:09.725Z"
 claim_principal: pi-agent
 author: "harness:claude-code"
 estimated_minutes: 480
 acceptance_criteria: Registering a changed reward specification against a referenced version is refused and produces a new version instead; every Run records the exact environment version id it ran against; show reports the reward specification that was in force
 release: 2026.7.31
-blocked_reason: "Externally blocked on pm-cli#854: the 2026.8.1 extension SDK has no pre-commit mutation guard, so arbitrary direct core mutations cannot be intercepted at write time. The feature stays blocked until the SDK exposes that capability."
+unblock_note: "Unblocked: pm-cli#854 closed 2026-08-01. The SDK now ships defineBeforeMutationHook, BeforeMutationHook, BeforeMutationHookContext, BeforeMutationHookDecision, and ExtensionMutationGuardSdk in @unbrained/pm-cli/sdk/authoring. Verified in node_modules/@unbrained/pm-cli/dist/sdk/authoring.d.ts and dist/core/extensions/extension-types.d.ts. The beforeMutation hook is registered via api.hooks.beforeMutation() and runs under the target item lock before either the item or its history is persisted. Implemented and tested: the guard refuses update, close, and delete mutations to a referenced Environment through the command, SDK, and direct core routes."
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rl-e20d,parent,"2026-07-31T06:38:31.227Z","harness:claude-code","cli:update:dep",detected
 comments[1]{created_at,author,text}:
   "2026-08-22T13:30:16.475Z",pi-agent,"Re-verified this session (pi-agent). All three acceptance criteria ARE met and tested in the current tree: (1) registering a changed reward specification against a referenced version produces a new content-addressed version rather than overwriting it, and every command revalidates the stored hash before use — including the new gate-simulator environments, whose verification shares the same discipline; (2) every Run records the exact resolved environment item id and copies the exact specification into its immutable start body; (3) env show reports the full stored reward specification.\n\nWhat still keeps this BLOCKED is unchanged and specific: arbitrary direct core mutations cannot be intercepted at WRITE time. I checked whether the blocker had lifted: pm-cli#854 is CLOSED (2026-08-01), but the capability it shipped in @unbrained/pm-cli 2026.8.20 (sdk/mutation-guard.d.ts) is a fixed credential/attribution policy plus a mutation-action inventory — there is NO extension-registerable pre-commit invariant hook that would let pm-rl refuse an out-of-band body edit to a referenced Environment. Until that exists, detection remains at USE time (which is what pm-rl implements everywhere). Staying blocked on the original, precise premise; not closing on a reinterpretation of scope.\n"
-notes[1]{created_at,author,text}:
+notes[2]{created_at,author,text}:
   "2026-08-01T12:07:57.787Z",codex,"Registration now derives `Environment` ids from canonical specification content, is byte-idempotent, produces a new id for any changed reward spec, stores the human version plus full hash, and verifies body/hash/id consistency before every Run snapshot. Every Run records the exact environment id and copies the exact specification into its immutable start body. Direct arbitrary core mutations still cannot be rejected at write time because the 2026.8.1 extension SDK has no pre-commit mutation guard; tracked upstream as https://github.com/unbraind/pm-cli/issues/854. The feature remains in progress until that host capability exists. Related host integration gaps found and worked around without doubles: https://github.com/unbraind/pm-cli/issues/853 and https://github.com/unbraind/pm-cli/issues/855."
+  "2026-08-28T21:47:06.032Z","harness:pi","SDK verification: pm-cli#854 closed 2026-08-01. Verified these SDK symbols in node_modules/@unbrained/pm-cli/dist/sdk/authoring.d.ts: defineBeforeMutationHook, BeforeMutationHook, BeforeMutationHookContext, BeforeMutationHookDecision, ExtensionMutationGuardSdk. The hook is registered in index.ts activate() via api.hooks.beforeMutation(guardReferencedEnvironmentMutation) and runs under the target item lock before persistence. The guard scans context.sdk.list() for any Run, Generation, Sweep, Benchmark, EvalResult, GateEpisode, or Transfer whose environment field or dependency edge references the Environment being mutated, and refuses with code environment_referenced. Adversarial tests verify refusal through the command route (pm update), the SDK route (client.update), the direct core route (runWithActiveExtensions + runUpdate), and the source hook route (harness.runMutationGuard). Each test was revert-proofed: all fail when the guard registration is removed."
 files[1]{path,scope,note}:
   index.ts,project,Content-addressed registration and provenance snapshot
 tests[2]{command,scope}:
@@ -27,4 +29,5 @@ tests[2]{command,scope}:
   "name=an environment registers idempotently by canonical content and can be listed and shown,result=pass",project
 docs[1]{path,scope,note}:
   README.md,project,Current enforcement boundary
+close_reason: "Implemented and tested: a beforeMutation hook refuses mutations to any Environment version referenced by a Run, Generation, Sweep, Benchmark, EvalResult, GateEpisode, or Transfer. The guard runs at the write boundary under the target item lock, intercepting command, SDK, and direct core mutations. 7 new adversarial tests cover the create-allowed, non-Environment-allowed, unreferenced-allowed, referenced-refused (environment field and dependency edge), close-refused, delete-refused, and non-reference-type-allowed paths. All tests revert-proofed. 100/100/100 coverage maintained. All gates pass: build, test, lint, coverage, changelog, release:check, health --strict-exit."
 body: ""
