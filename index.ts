@@ -12,6 +12,7 @@ import { readFileSync } from "node:fs";
 import { StringDecoder } from "node:string_decoder";
 
 import {
+  defineBeforeMutationHook,
   defineCommand,
   defineExtension,
   defineItemType,
@@ -19,7 +20,7 @@ import {
   type ExtensionApi,
 } from "@unbrained/pm-cli/sdk/authoring";
 import { commitWorkspaceTransaction, type LogNote } from "@unbrained/pm-cli/sdk";
-import { PmClient, type GetResult } from "@unbrained/pm-cli/sdk/core";
+import { PmClient, type GetResult, type ItemMetadata } from "@unbrained/pm-cli/sdk/core";
 import { createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 
 import { encodeEventSegments, parseNdjsonStream, readSeries } from "./series.ts";
@@ -242,6 +243,47 @@ export const RL_ITEM_TYPES = [
     required_create_fields: ["affected_version", "fixed_version", "component"],
   }),
 ] as const;
+
+/** Item types whose stored provenance can make an Environment version immutable. */
+const ENVIRONMENT_REFERENCE_TYPES = new Set([
+  "Run",
+  "Generation",
+  "Sweep",
+  "Benchmark",
+  "EvalResult",
+  "GateEpisode",
+  "Transfer",
+]);
+
+/** Return whether one known provenance record names an Environment id. */
+function metadataReferencesEnvironment(item: ItemMetadata, environmentId: string): boolean {
+  if (!ENVIRONMENT_REFERENCE_TYPES.has(item.type)) return false;
+  if (typeof item.environment === "string" && item.environment.trim() === environmentId) return true;
+  return item.dependencies?.some((dependency) => typeof dependency.id === "string" && dependency.id.trim() === environmentId) ?? false;
+}
+
+/**
+ * Refuse every mutation to an Environment after a run, generation, or result
+ * records that version. The host invokes this guard under the target item lock
+ * before writing either the item or its history, so SDK, command, and direct
+ * core mutations share one write-boundary refusal rather than relying on each
+ * pm-rl command to remember a preflight check.
+ */
+const guardReferencedEnvironmentMutation = defineBeforeMutationHook(async (context) => {
+  if (context.before === null || context.before.metadata.type !== "Environment") return { allow: true };
+  const environmentId = context.before.metadata.id;
+  const references = (await context.sdk.list())
+    .filter((item) => item.id !== environmentId && metadataReferencesEnvironment(item, environmentId))
+    .map((item) => `${item.type} ${item.id}`)
+    .sort((left, right) => left.localeCompare(right));
+  if (references.length === 0) return { allow: true };
+  return {
+    allow: false,
+    code: "environment_referenced",
+    message: `Environment ${environmentId} is immutable; refusing ${context.operation} because ${references.join(", ")} reference it.`,
+    remediation: `Register changed environment content as a new version instead of mutating ${environmentId}.`,
+  };
+});
 
 /**
  * The provenance subset of a generation specification, in a stable shape.
@@ -2657,6 +2699,7 @@ export const RL_COMMANDS = [
 /** Install pm-rl's typed schema and command surface into the active host. */
 function activate(api: ExtensionApi): void {
   api.registerItemTypes([...RL_ITEM_TYPES]);
+  api.hooks.beforeMutation(guardReferencedEnvironmentMutation);
   for (const command of RL_COMMANDS) api.registerCommand(command);
 }
 

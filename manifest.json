@@ -5,9 +5,10 @@
   "author": "@unbraind",
   "entry": "./dist/index.js",
   "priority": 50,
-  "pm_min_version": "2026.8.20",
+  "pm_min_version": "2026.8.28",
   "capabilities": [
     "commands",
+    "hooks",
     "schema"
   ]
 }

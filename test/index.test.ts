@@ -1,7 +1,7 @@
 /** Host-level tests for pm-rl's schema and first environment/run lifecycle. */
 
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,7 +9,7 @@ import { after, test } from "node:test";
 
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { checkExtensionManifestCompatibility, type CommandHandlerContext } from "@unbrained/pm-cli/sdk/authoring";
-import { init } from "@unbrained/pm-cli/sdk/runtime";
+import { init, runUpdate, runWithActiveExtensions } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 
 import extension, {
@@ -52,9 +52,19 @@ async function workspace(): Promise<{
       defaultStatus: itemType.default_status,
     });
   }
-  const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "schema"] });
+  const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
   assert.deepEqual(harness.activation.failed, []);
   return { root, pmRoot: initialized.path, harness };
+}
+
+/** Install the built package into a real temporary tracker for host-bound mutation tests. */
+async function installedWorkspace(): ReturnType<typeof workspace> {
+  const fixture = await workspace();
+  execFileSync(join(process.cwd(), "node_modules", ".bin", "pm"), ["install", process.cwd(), "--project", "--json"], {
+    cwd: fixture.root,
+    encoding: "utf8",
+  });
+  return fixture;
 }
 
 /** Extract a successful structured command result. */
@@ -168,7 +178,8 @@ test("the shipped extension activates all commands, item types, fields, and leas
   const { harness } = await workspace();
   for (const command of RL_COMMANDS) harness.assertCommandContract({ name: command.name });
   for (const itemType of RL_ITEM_TYPES) harness.assertItemType({ name: itemType.name });
-  assert.deepEqual(harness.assertCapabilityUsage({ declared: ["commands", "schema"] }).unused, []);
+  harness.assertHook({ kind: "before_mutation", extensionName: "pm-rl" });
+  assert.deepEqual(harness.assertCapabilityUsage({ declared: ["commands", "hooks", "schema"] }).unused, []);
 
   const rawManifest = JSON.parse(readFileSync(join(import.meta.dirname, "..", "manifest.json"), "utf8")) as Record<string, unknown>;
   const manifest = rawManifest as {
@@ -186,9 +197,9 @@ test("the shipped extension activates all commands, item types, fields, and leas
   assert.equal(extension.version, manifest.version);
   assert.equal(pkg.version, manifest.version);
   assert.equal(manifest.entry, "./dist/index.js");
-  assert.equal(manifest.pm_min_version, "2026.8.20");
-  assert.equal(pkg.peerDependencies["@unbrained/pm-cli"], ">=2026.8.20");
-  assert.deepEqual(checkExtensionManifestCompatibility(rawManifest, { pmVersion: "2026.8.20" }).findings, []);
+  assert.equal(manifest.pm_min_version, "2026.8.28");
+  assert.equal(pkg.peerDependencies["@unbrained/pm-cli"], ">=2026.8.28");
+  assert.deepEqual(checkExtensionManifestCompatibility(rawManifest, { pmVersion: "2026.8.28" }).findings, []);
   await harness.deactivate();
 });
 
@@ -233,6 +244,57 @@ test("a changed reward specification registers as a new version rather than over
   assert.notEqual(second.id, first.id);
   const listed = resultOf(await harness.runCommand({ command: "rl env list", pmRoot }));
   assert.equal(listed.details?.count, 2);
+});
+
+test("a referenced environment is refused at the write boundary by the command, SDK, and direct core routes", async () => {
+  const { root, pmRoot, harness } = await installedWorkspace();
+  const environmentFile = join(root, "environment.json");
+  writeFileSync(environmentFile, JSON.stringify(SPEC));
+  const environment = resultOf(await harness.runCommand({ command: "rl env register", pmRoot, options: { file: environmentFile } }));
+  const run = resultOf(await harness.runCommand({
+    command: "rl run start",
+    pmRoot,
+    args: ["guarded-run"],
+    options: { environment: environment.id, algorithm: "PPO" },
+  }));
+  const client = new PmClient({ pmRoot, author: "pm-rl-test" });
+  const before = await client.get(environment.id!, { depth: "deep" });
+  const beforeBody = String(before.item.body);
+  const historyPath = join(pmRoot, "history", `${environment.id!}.jsonl`);
+  const beforeHistory = readFileSync(historyPath, "utf8");
+  const changedBody = [
+    "# changed",
+    "",
+    "```json",
+    JSON.stringify({ ...SPEC, reward_specification: { goal: 999 } }, null, 2),
+    "```",
+  ].join("\n");
+  const pmBin = join(process.cwd(), "node_modules", ".bin", "pm");
+  const command = spawnSync(pmBin, ["update", environment.id!, "--body", changedBody, "--message", "attempt guarded edit", "--json"], {
+    cwd: root,
+    encoding: "utf8",
+  });
+  assert.notEqual(command.status, 0);
+  assert.match(`${command.stdout}\n${command.stderr}`, /immutable|environment_referenced/);
+
+  await assert.rejects(
+    client.update(environment.id!, { body: changedBody, message: "attempt SDK edit" }),
+    /immutable/,
+  );
+
+  await assert.rejects(
+    runWithActiveExtensions({ path: pmRoot }, () => runUpdate(
+      environment.id!,
+      { body: changedBody, message: "attempt direct core edit" },
+      { json: true, path: pmRoot, author: "pm-rl-test" },
+    )),
+    /immutable/,
+  );
+
+  const after = await client.get(environment.id!, { depth: "deep" });
+  assert.equal(after.item.body, beforeBody);
+  assert.equal(readFileSync(historyPath, "utf8"), beforeHistory);
+  assert.equal(run.details?.environment_id, environment.id);
 });
 
 test("a real run links exact provenance, appends NDJSON metrics, reads them in step order, and finishes", async () => {

@@ -154,7 +154,7 @@ async function graphFixture(): Promise<{
   for (const [name, folder] of [["Transfer", "transfers"]] as const) {
     await client.schemaAddType(name, { folder, description: `pm-rl test ${name}`, defaultStatus: "open" });
   }
-  const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "schema"] });
+  const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
   assert.deepEqual(harness.activation.failed, []);
 
   const env1 = resultOf(await harness.runCommand({ command: "rl env register", pmRoot: initialized.path, options: { file: writeEnv(root, "1", 10) } })).id!;
