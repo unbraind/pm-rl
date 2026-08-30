@@ -35,6 +35,7 @@
     "duplicates": "jscpd --config .jscpd.json",
     "docstring": "node scripts/docstring-gate.ts",
     "audit:identities": "node scripts/audit-git-identities.ts",
+    "verify:release-publish-attestation": "node scripts/verify-release-publish-attestation.ts",
     "audit:prod": "node --input-type=module -e \"import { spawnSync } from 'node:child_process'; import { devNull } from 'node:os'; const env = { ...process.env, npm_config_userconfig: devNull, NPM_CONFIG_USERCONFIG: devNull }; for (const key of Object.keys(env)) if (key.toLowerCase() === 'npm_config_allow_scripts') delete env[key]; const win = process.platform === 'win32'; const r = spawnSync(win ? 'npm.cmd' : 'npm', ['audit', '--omit=dev', '--ignore-scripts'], { stdio: 'inherit', env, shell: win }); process.exit(r.status ?? 1);\"",
     "pack:dry-run": "npm pack --dry-run",
     "changelog:full": "pm-changelog --pm-root .agents/pm --pm-arg=--output-budget --pm-arg=unbounded --pm-arg=--output-limit --pm-arg=unbounded --mode replace --output CHANGELOG.md --all-release-tags --release-version-from-package --date 2026-07-31 --item-url-base https://github.com/unbraind/pm-rl/blob/main/.agents/pm --respect-item-release",
@@ -63,13 +64,17 @@
       "test/compare.test.ts",
       "test/leaderboard.test.ts",
       "test/quality-scripts.test.ts",
-      "test/coverage-gate.test.ts"
+      "test/coverage-gate.test.ts",
+      "test/shell-command-scan.test.ts",
+      "test/verify-release-publish-attestation.test.ts"
     ],
     "thresholds": {
+      "statements": 100,
       "lines": 100,
       "branches": 100,
       "functions": 100
-    }
+    },
+    "ignore": []
   },
   "keywords": [
     "pm-cli",
