@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 
 import { bashArrays, expandArrays, joinContinuations } from "../scripts/shell-command-scan.ts";
-import { isMainInvocation } from "../scripts/main-invocation.ts";
+import { isMainInvocation } from "../scripts/script-launcher.ts";
 
 test("an unknown array reference is left in place rather than erased", () => {
   // Erasing it would turn "this scan does not understand the command" into
@@ -31,8 +31,8 @@ test("the main-invocation guard answers both ways", () => {
   // Name the module under test, not a gate: not every package carries the same
   // gates, and a path that resolves nowhere makes realpathSync throw rather
   // than answer.
-  const self = fileURLToPath(import.meta.resolve("../scripts/main-invocation.ts"));
-  const url = import.meta.resolve("../scripts/main-invocation.ts");
+  const self = fileURLToPath(import.meta.resolve("../scripts/script-launcher.ts"));
+  const url = import.meta.resolve("../scripts/script-launcher.ts");
   assert.equal(isMainInvocation(["node", self], url), true);
   assert.equal(isMainInvocation(["node", fileURLToPath(import.meta.url)], url), false);
   assert.equal(isMainInvocation(["node"], url), false);

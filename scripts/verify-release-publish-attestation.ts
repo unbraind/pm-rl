@@ -35,7 +35,7 @@ import {
   tokenizeCommands,
   type VerifierResult,
 } from "./shell-command-scan.ts";
-import { isMainInvocation } from "./main-invocation.ts";
+import { isMainInvocation } from "./script-launcher.ts";
 
 /** The flag that attaches a build attestation to the published tarball. */
 export const ATTESTATION_FLAG = "--provenance";

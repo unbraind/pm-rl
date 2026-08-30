@@ -528,7 +528,7 @@ test("runIfMain runs only as the entry point, and reports when it does", () => {
   try {
     // isMainInvocation canonicalises both sides, so a non-entry argument must
     // name a file that exists; a missing path is a different failure entirely.
-    assert.equal(runIfMain(["node", "scripts/main-invocation.ts"], pathToFileURL(resolve("scripts/verify-release-publish-attestation.ts")).href, root), false);
+    assert.equal(runIfMain(["node", "scripts/script-launcher.ts"], pathToFileURL(resolve("scripts/verify-release-publish-attestation.ts")).href, root), false);
     assert.equal(
       runIfMain(
         ["node", "scripts/verify-release-publish-attestation.ts"],
