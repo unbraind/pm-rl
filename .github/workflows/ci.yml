@@ -76,6 +76,9 @@ jobs:
       - name: Verify complete docstring coverage
         run: npm run docstring
 
+      - name: Verify every publish invocation is attested
+        run: npm run verify:release-publish-attestation
+
       - name: Test with coverage gate
         run: npm run coverage
 
