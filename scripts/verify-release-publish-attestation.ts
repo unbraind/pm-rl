@@ -28,6 +28,7 @@ import {
   commandName,
   expandArrays,
   expandScalars,
+  heredocBodyLines,
   joinContinuations,
   shellScalarsByLine,
   type ShellCommand,
@@ -105,11 +106,13 @@ export function manifestCommandLines(text: string): string {
     .join("\n");
 }
 
-/** Subcommands that run something else, so a later `publish` word is its argument. */
-// npm's runner subcommands, which take a script or package name rather than
-// publishing. `workspace` is deliberately absent: it is not a subcommand at all
-// -- npm selects a workspace with the `-w`/`--workspace` FLAG -- and listing it
-// here only meant that a `publish` written after the word was never audited.
+/**
+ * Subcommands that run something else, so a later `publish` word is its argument.
+ *
+ * These npm runner subcommands take a script or package name rather than
+ * publishing. `workspace` is deliberately absent: npm selects one with the
+ * `-w`/`--workspace` flag, and treating it as a runner could hide a publish.
+ */
 const RUNNER_SUBCOMMANDS = new Set(["run", "run-script", "exec", "explore", "x"]);
 
 /**
@@ -228,13 +231,19 @@ export function attestationEnabled(command: ShellCommand): boolean {
 export function publishInvocationsIn(source: SourceFile): PublishInvocation[] {
   const raw = source.file.endsWith("package.json") ? manifestCommandLines(source.text) : source.text;
   const text = joinContinuations(raw);
-  const arrays = bashArrays(text);
-  // Per line, not per file: `unset` gives a binding a lifetime, so an
-  // invocation must be expanded against the bindings standing where it runs.
+  const lines = text.split("\n");
+  const bodies = heredocBodyLines(lines);
+  let arrayPrefix = "";
+  // Arrays and scalars both have lexical lifetimes. Build each array snapshot
+  // only from declarations visible at that line, excluding heredoc data that
+  // the running shell never executes as a binding.
+  const arraysByLine = lines.map((line, index) => {
+    arrayPrefix += bodies[index]! ? "\n" : `${line}\n`;
+    return bashArrays(arrayPrefix);
+  });
   const scalars = shellScalarsByLine(text);
-  const expanded = text
-    .split("\n")
-    .map((line, index) => expandScalars(expandArrays(line, arrays), scalars[index]!))
+  const expanded = lines
+    .map((line, index) => expandScalars(expandArrays(line, arraysByLine[index]!), scalars[index]!))
     .join("\n");
   const found: PublishInvocation[] = [];
   for (const command of tokenizeCommands(expanded)) {
@@ -282,8 +291,15 @@ export function renderCommand(command: ShellCommand): string {
  * @returns Failures and per-file notes.
  */
 export function auditPublishAttestation(sources: SourceFile[]): VerifierResult {
-  const invocations = sources.flatMap(publishInvocationsIn);
   const failures: string[] = [];
+  const invocations: PublishInvocation[] = [];
+  for (const source of sources) {
+    try {
+      invocations.push(...publishInvocationsIn(source));
+    } catch {
+      failures.push(`${source.file}: shell command scan failed; refusing an incomplete publish audit`);
+    }
+  }
   const counted = new Map<string, { total: number; unflagged: number }>();
   for (const invocation of invocations) {
     const tally = counted.get(invocation.file) ?? { total: 0, unflagged: 0 };

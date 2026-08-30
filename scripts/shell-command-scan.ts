@@ -23,16 +23,26 @@
  * and `sh -c` payloads recursed into -- and each command records whether its
  * words were quoted. Nothing downstream has to guess.
  *
- * This is deliberately not a shell. It does not expand variables, globs or
- * arithmetic, and it does not track redirections. It exists to enumerate
- * candidate command invocations for auditing, where missing one is a security
- * failure and inventing one is merely noise.
+ * This is deliberately not a shell. It does not expand globs or arithmetic;
+ * scalar and array expansion are separate passes. Redirections and heredoc
+ * bodies are recognised only far enough to locate commands and model binding
+ * scope. It exists to enumerate candidate command invocations for auditing,
+ * where missing one is a security failure and inventing one is merely noise.
  *
  * @packageDocumentation
  */
 
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+
+/** Signals that nested shell evaluation exceeded the scanner's safe bound. */
+export class ShellScanDepthError extends Error {
+  /** Construct the fixed fail-closed scanner error. */
+  public constructor() {
+    super("shell command scan exceeded its safe recursion limit");
+    this.name = "ShellScanDepthError";
+  }
+}
 
 /** One word of a command, after quote resolution. */
 export interface ShellToken {
@@ -209,9 +219,10 @@ function readSubstitution(text: string, start: number): { inner: string; end: nu
  * @param text - Shell text, typically one file or one manifest script body.
  * @param depth - Current evaluator recursion depth; callers pass nothing.
  * @returns Every simple command found, outermost first.
+ * @throws {@link ShellScanDepthError} when nested evaluators exceed the safe bound.
  */
 export function tokenizeCommands(text: string, depth = 0): ShellCommand[] {
-  if (depth > 8) return [];
+  if (depth > 8) throw new ShellScanDepthError();
   const commands: ShellCommand[] = [];
   const nested: string[] = [];
   let command: ShellCommand = [];

@@ -98,6 +98,18 @@ test("a shared bash array holding the flag is expanded rather than read as an ab
   assert.deepEqual(result.failures, []);
 });
 
+test("array bindings apply only where the shell executes them", () => {
+  for (const text of [
+    `npm publish "\${flags[@]}"\nflags=( ${ATTESTATION_FLAG} )`,
+    `flags=( ${ATTESTATION_FLAG} )\nflags=( )\nnpm publish "\${flags[@]}"`,
+    `cat <<'DATA'\nflags=( ${ATTESTATION_FLAG} )\nDATA\nnpm publish "\${flags[@]}"`,
+  ]) {
+    const result = auditPublishAttestation([{ file: "release.yml", text }]);
+    assert.equal(result.failures.length, 1, text);
+    assert.match(result.failures[0]!, /does not enable --provenance/);
+  }
+});
+
 test("a quoted closing parenthesis cannot hide a later disabling array flag", () => {
   // The old non-greedy regex stopped at the parenthesis in "package)". The
   // truncated value retained the earlier enabling flag and discarded the later
@@ -413,7 +425,11 @@ test("evaluator recursion is bounded, so hostile nesting cannot hang the gate", 
   for (let depth = 0; depth < 12; depth += 1) {
     text = `eval "${text.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
   }
-  assert.deepEqual(tokenizeCommands(text, 9), [], "past the bound the walk stops rather than recursing");
+  assert.throws(() => tokenizeCommands(text, 9), /safe recursion limit/,
+    "past the bound the walk fails closed rather than returning an incomplete scan");
+  const result = auditPublishAttestation([{ file: "release.yml", text }]);
+  assert.ok(result.failures.some((failure) => failure.includes("incomplete publish audit")),
+    "the audit reports scanner truncation as a failure");
   assert.ok(tokenizeCommands(`eval "${UNATTESTED}"`).length > 1, "within the bound the payload is still scanned");
 });
 
