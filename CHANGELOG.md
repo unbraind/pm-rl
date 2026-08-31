@@ -20,6 +20,7 @@
 
 ### Fixed
 
+- Allow dependabot\[bot\] through the git identity audit ([pm-rl-niml](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-niml.toon))
 - This repository has never produced a static analysis, because it runs no CodeQL workflow ([pm-rl-romb](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-romb.toon))
 - pm-rl received no dependency updates at all, because it had no Dependabot configuration ([pm-rl-bjl7](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-bjl7.toon))
 - The release workflow falls back to an unattested npm publish and exits zero ([pm-rl-t43i](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-t43i.toon))
@@ -51,6 +52,8 @@
 
 ### Other
 
+- Converge the pinned pm-cli on 2026.8.31 and repair history hashes ([pm-rl-cfqp](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-cfqp.toon))
+- Run the publish-attestation gate in release:check ([pm-rl-t9b1](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-t9b1.toon))
 - Resolve CodeRabbit round-6 review findings on PR 16 ([pm-rl-wrwi](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-wrwi.toon))
 - Resolve CodeRabbit round-3 review threads on PR 16 ([pm-rl-imux](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-imux.toon))
 - Recursive self-improvement: a training loop whose every generation is tracked, gated, and invalidatable ([pm-rl-yi7j](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/epics/pm-rl-yi7j.toon))

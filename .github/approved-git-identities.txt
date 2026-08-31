@@ -22,3 +22,11 @@ stefan@preu.at
 # otherwise write a commit that this very audit rejects on every subsequent run,
 # leaving the gate permanently red. Found on unbraind/pm-rust#6 and applied here.
 41898282+github-actions[bot]@users.noreply.github.com
+
+# Dependabot authors every dependency-bump commit on this repository. The audit
+# inspects every physical Git object -- including the unreachable commit objects
+# a Dependabot pull request introduces into a CI checkout's object database -- so
+# an unlisted Dependabot identity fails the gate on every Dependabot PR. The
+# address is exact (no wildcard): a different user-id prefix or a human address
+# is still rejected, so this approves only genuine Dependabot commits.
+49699333+dependabot[bot]@users.noreply.github.com

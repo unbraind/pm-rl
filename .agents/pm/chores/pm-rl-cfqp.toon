@@ -1,0 +1,20 @@
+id: pm-rl-cfqp
+title: Converge the pinned pm-cli on 2026.8.31 and repair history hashes
+description: "Converge the fleet on @unbrained/pm-cli 2026.8.31. pm-cli changed its history-hash computation between 2026.8.22 and 2026.8.24, so a repo whose history was written by an older pm reports history_drift_chain_mismatch when the pinned binary is bumped (upstream pm-cli#1168). The history is not corrupt; history-repair recomputes the hash fields under the new binary. The whole fleet converges on 2026.8.31 so every repo agrees."
+type: Chore
+status: closed
+priority: 2
+tags: []
+created_at: "2026-08-31T16:38:41.769Z"
+updated_at: "2026-08-31T18:34:04.158Z"
+closed_at: "2026-08-31T16:38:54.987Z"
+completed_at: "2026-08-31T16:38:54.987Z"
+claim_principal: pi-agent
+author: pi-agent
+comments[1]{created_at,author,text}:
+  "2026-08-31T16:38:54.115Z",pi-agent,"Pinned @unbrained/pm-cli to exactly 2026.8.31 (npm i --save-exact -D). Deleted .agents/pm/runtime/history-drift-cache.json before each health run. Pre health: history_drift ok, EXIT=0. Ran pm history-repair --all: scanned_streams 53, drifted_streams 0, repaired 0 (history already clean under 2026.8.31). Post health: history_drift ok, EXIT=0. git status shows only package.json, package-lock.json, and the gate/test changes -- no .agents/pm/history or .toon files changed, confirming no data loss."
+files[2]{path,scope}:
+  package-lock.json,project
+  package.json,project
+close_reason: Pinned pm-cli to 2026.8.31; history-repair found no drift (already clean); post-health exits 0; no .toon or history payload changes.
+body: ""

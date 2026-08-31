@@ -11,7 +11,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, test } from "node:test";
 import { pathToFileURL } from "node:url";
 
@@ -385,4 +385,74 @@ test("command main succeeds for a public repository and marks a refusal", async 
   await main(root, join(root, "missing-allowlist"));
   assert.equal(process.exitCode, 1);
   process.exitCode = previousExitCode;
+});
+
+// The repository's real allowlist, used to prove the Dependabot approval is a
+// data-file change rather than a code change: the gate accepts a genuine
+// Dependabot commit because the address is listed, and reverts red because the
+// address is not. Resolving the path from the test file keeps the test honest
+// against a checkout rather than hard-coding a path that could drift.
+const realAllowlist = resolve(import.meta.dirname, "..", ".github", "approved-git-identities.txt");
+
+/** The exact noreply address Dependabot authors dependency-bump commits with. */
+const DEPENDABOT_IDENTITY = "49699333+dependabot[bot]@users.noreply.github.com";
+
+test("the repository allowlist approves a genuine dependabot[bot] commit", async () => {
+  // A Dependabot pull request introduces its own commit object into the CI
+  // checkout's object database, and the audit inspects every physical object,
+  // so the gate fails unless the bot's address is allowlisted. This test runs
+  // against the real .github/approved-git-identities.txt and goes red if that
+  // entry is reverted: the audit would then reject the Dependabot identity.
+  dir = makeTempDir();
+  const root = dir.root;
+  git(root, ["init", "-q"]);
+  git(root, ["config", "user.name", "dependabot[bot]"]);
+  git(root, ["config", "user.email", DEPENDABOT_IDENTITY]);
+  writeFileSync(join(root, "package-lock.json"), "{}");
+  git(root, ["add", "package-lock.json"]);
+  git(root, ["commit", "-qm", "chore(deps): bump a dependency"]);
+  await assert.doesNotReject(auditGitIdentities(root, realAllowlist));
+});
+
+test("the repository allowlist still rejects an unknown human identity beside the Dependabot entry", async () => {
+  // Approving the Dependabot address must not weaken the gate: an unknown human
+  // identity is still rejected against the real allowlist. This test is
+  // independent of the Dependabot entry (it holds a single human commit), so
+  // it passes whether or not the bot is listed. Paired with the approval test
+  // above and the near-miss bot test below, the three pin the smallest correct
+  // change: the approved bot passes, the human does not, and a different bot
+  // does not either.
+  dir = makeTempDir();
+  const root = dir.root;
+  git(root, ["init", "-q"]);
+  git(root, ["config", "user.name", "Local Developer"]);
+  git(root, ["config", "user.email", "steve@laptop.local"]);
+  writeFileSync(join(root, "file"), "work");
+  git(root, ["add", "file"]);
+  git(root, ["commit", "-qm", "local work"]);
+  await assert.rejects(
+    auditGitIdentities(root, realAllowlist),
+    /rejected 1 non-public address\(es\): s\*\*\*@laptop\.local\./,
+  );
+});
+
+test("the repository allowlist rejects an unapproved GitHub-style bot identity, so a noreply wildcard cannot pass", async () => {
+  // The human-identity test above does not catch a wildcard that accepts every
+  // *@users.noreply.github.com address, because steve@laptop.local is not a
+  // noreply address. A near-miss bot identity -- same domain, different
+  // user-id and bot name -- is rejected by the exact-address entry and would
+  // be accepted by such a wildcard, so this test goes red if the allowlist is
+  // weakened from the exact Dependabot address to a domain-wide pattern.
+  dir = makeTempDir();
+  const root = dir.root;
+  git(root, ["init", "-q"]);
+  git(root, ["config", "user.name", "somebody[bot]"]);
+  git(root, ["config", "user.email", "12345678+somebody[bot]@users.noreply.github.com"]);
+  writeFileSync(join(root, "file"), "work");
+  git(root, ["add", "file"]);
+  git(root, ["commit", "-qm", "bot work"]);
+  await assert.rejects(
+    auditGitIdentities(root, realAllowlist),
+    /rejected 1 non-public address\(es\): 1\*\*\*@users\.noreply\.github\.com\./,
+  );
 });
