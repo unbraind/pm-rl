@@ -20,6 +20,7 @@
 
 ### Fixed
 
+- pm-rl received no dependency updates at all, because it had no Dependabot configuration ([pm-rl-bjl7](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-bjl7.toon))
 - The release workflow falls back to an unattested npm publish and exits zero ([pm-rl-t43i](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-t43i.toon))
 - Decoding stdin chunk by chunk corrupts a multi-byte character split across a chunk boundary ([pm-rl-irmn](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-irmn.toon))
 - Coverage gate diverges on the runner: readFileSync(0) on stdin throws EAGAIN locally but returns empty on the CI pipe ([pm-rl-avwn](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-avwn.toon))

@@ -1,0 +1,16 @@
+id: pm-rl-bjl7
+title: "pm-rl received no dependency updates at all, because it had no Dependabot configuration"
+description: "pm-rl had no .github/dependabot.yml at all, so it received no dependency updates of any kind: no npm bumps and no GitHub Actions bumps. Every sibling package in the fleet gets both. Two consequences. First, a vulnerable transitive dependency here is never reported and never bumped, and nothing distinguishes a repository with no findings from a repository nothing ever scanned. Second, when a codeql workflow is added here it would inherit the fleet-wide split-pair deadlock, because Dependabot opens github/codeql-action/init and github/codeql-action/analyze as two separate pull requests and the two must carry the same version, so each one alone fails the codeql check. Measured 2026-08-31 in unbraind/pm-gantt-chart 87 and 88. This adds npm and github-actions ecosystems on a weekly schedule, with a codeql-action group so that deadlock can never arrive here."
+type: Issue
+status: closed
+priority: 2
+tags: []
+created_at: "2026-08-31T10:42:15.276Z"
+updated_at: "2026-08-31T10:42:16.144Z"
+closed_at: "2026-08-31T10:42:16.132Z"
+completed_at: "2026-08-31T10:42:16.132Z"
+author: claude-orchestrator
+files[1]{path,scope}:
+  .github/dependabot.yml,project
+close_reason: "Resolved by adding a Dependabot configuration covering npm and github-actions, with codeql-action bumps grouped into one pull request."
+body: ""
