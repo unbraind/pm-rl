@@ -418,9 +418,10 @@ test("the repository allowlist still rejects an unknown human identity beside th
   // Approving the Dependabot address must not weaken the gate: an unknown human
   // identity is still rejected against the real allowlist. This test is
   // independent of the Dependabot entry (it holds a single human commit), so
-  // it passes whether or not the bot is listed -- but a wildcard or a disabled
-  // gate would make it fail. Paired with the approval test above, the two pin
-  // the smallest correct change: the bot passes, the human does not.
+  // it passes whether or not the bot is listed. Paired with the approval test
+  // above and the near-miss bot test below, the three pin the smallest correct
+  // change: the approved bot passes, the human does not, and a different bot
+  // does not either.
   dir = makeTempDir();
   const root = dir.root;
   git(root, ["init", "-q"]);
@@ -432,5 +433,26 @@ test("the repository allowlist still rejects an unknown human identity beside th
   await assert.rejects(
     auditGitIdentities(root, realAllowlist),
     /rejected 1 non-public address\(es\): s\*\*\*@laptop\.local\./,
+  );
+});
+
+test("the repository allowlist rejects an unapproved GitHub-style bot identity, so a noreply wildcard cannot pass", async () => {
+  // The human-identity test above does not catch a wildcard that accepts every
+  // *@users.noreply.github.com address, because steve@laptop.local is not a
+  // noreply address. A near-miss bot identity -- same domain, different
+  // user-id and bot name -- is rejected by the exact-address entry and would
+  // be accepted by such a wildcard, so this test goes red if the allowlist is
+  // weakened from the exact Dependabot address to a domain-wide pattern.
+  dir = makeTempDir();
+  const root = dir.root;
+  git(root, ["init", "-q"]);
+  git(root, ["config", "user.name", "somebody[bot]"]);
+  git(root, ["config", "user.email", "12345678+somebody[bot]@users.noreply.github.com"]);
+  writeFileSync(join(root, "file"), "work");
+  git(root, ["add", "file"]);
+  git(root, ["commit", "-qm", "bot work"]);
+  await assert.rejects(
+    auditGitIdentities(root, realAllowlist),
+    /rejected 1 non-public address\(es\): 1\*\*\*@users\.noreply\.github\.com\./,
   );
 });
