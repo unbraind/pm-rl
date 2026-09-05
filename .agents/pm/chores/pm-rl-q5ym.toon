@@ -1,0 +1,29 @@
+id: pm-rl-q5ym
+title: Pin pm toolchain 2026.9.5 and refuse reminting reserved sweep identities
+description: "pm-cli 2026.9.5 reserves a deleted item's history stream, so sweep plan cleanup-by-delete can no longer remint the same arm ids. Pin the published toolchain and refuse live or reserved identities before any arm is written."
+type: Chore
+status: closed
+priority: 2
+tags: []
+created_at: "2026-09-05T18:07:22.539Z"
+updated_at: "2026-09-05T18:38:14.502Z"
+closed_at: "2026-09-05T18:38:14.463Z"
+completed_at: "2026-09-05T18:38:14.463Z"
+claim_principal: pi-agent
+author: pi-agent
+resolution: "Pinned @unbrained/pm-cli 2026.9.5, pm-changelog 2026.9.2, and pm-ops 2026.9.5. Sweep plan now refuses live or history-reserved identities before writing arms, and a deterministic in-lock already-promoted re-check covers the promotion race."
+expected_result: "release:check and pm health --strict-exit pass on the pinned toolchain; sweep retry after cleanup refuses with sweep_arm_reserved instead of leaking item_identity_reserved."
+actual_result: "Coverage 100% (334/334). Revert-proof on the sweep test: 0 pass/1 fail against the old pre-check, 1 pass/0 fail with refuseTakenPlanIdentity."
+comments[1]{created_at,author,text}:
+  "2026-09-05T18:08:09.449Z",pi-agent,"pm-cli 2026.9.5 reserves deleted identities (item_identity_reserved). Sweep plan now checks get then history before any create, and refuses with sweep_reserved / sweep_arm_reserved instead of reminting. Revert-proof on \"planning refuses an existing sweep id even when its arms are gone, and cleans up on mid-plan failure\": old pre-check 0 pass / 1 fail (leaked item_identity_reserved); restored fix 1 pass / 0 fail."
+files[5]{path,scope}:
+  package.json,project
+  package-lock.json,project
+  index.ts,project
+  test/sweep.test.ts,project
+  test/lineage.test.ts,project
+tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  "planning refuses an existing sweep id even when its arms are gone, and cleans up on mid-plan failure",project,pi-agent,"2026-09-05T18:07:58.173Z",local_mutation,fix/sweep-plan-honors-reserved-identities
+  the in-lock already-promoted re-check refuses a peer write the pre-lock read did not see,project,pi-agent,"2026-09-05T18:33:17.328Z",local_mutation,fix/sweep-plan-honors-reserved-identities
+close_reason: "Pinned @unbrained/pm-cli 2026.9.5, pm-changelog 2026.9.2, and pm-ops 2026.9.5. Sweep plan now refuses live or history-reserved identities before writing arms, and a deterministic in-lock already-promoted re-check covers the promotion race."
+body: ""

@@ -1,9 +1,11 @@
 # Changelog
 
-## Unreleased
+## 2026.7.31 - 2026-07-31
 
 ### Added
 
+- Environment registration and versioning, immutable once referenced ([pm-rl-et5b](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-et5b.toon))
+- Run lifecycle ingests NDJSON in bounded pm-rl/2 segments, reads pm-rl/1, and measures sustained storage ([pm-rl-dyho](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-dyho.toon))
 - Sim-to-real transfer measurement and gap reporting ([pm-rl-06n6](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-06n6.toon))
 - Sweep planning: expand a search space into independent child runs ([pm-rl-mqdb](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-mqdb.toon))
 - Determinism receipts, and re-deriving them on demand ([pm-rl-dpug](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-dpug.toon))
@@ -52,6 +54,9 @@
 
 ### Other
 
+- Metric series live in item history, never in an item body ([pm-rl-mpd9](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/decisions/pm-rl-mpd9.toon))
+- 100/100/100 coverage and full docstring coverage for pm-rl ([pm-rl-fpon](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-fpon.toon))
+- Pin pm toolchain 2026.9.5 and refuse reminting reserved sweep identities ([pm-rl-q5ym](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-q5ym.toon))
 - Converge the pinned pm-cli on 2026.8.31 and repair history hashes ([pm-rl-cfqp](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-cfqp.toon))
 - Run the publish-attestation gate in release:check ([pm-rl-t9b1](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-t9b1.toon))
 - Resolve CodeRabbit round-6 review findings on PR 16 ([pm-rl-wrwi](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-wrwi.toon))
@@ -61,15 +66,3 @@
 - Promotion refuses on contamination rather than warning about it ([pm-rl-gyrj](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/decisions/pm-rl-gyrj.toon))
 - Mark stale in_progress items as blocked to clear stale_in_progress health warning ([pm-rl-d3ve](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-d3ve.toon))
 - The changelog heading records the day it was generated, so the gate fails every following day ([pm-rl-yxhe](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-yxhe.toon))
-
-## 2026.7.31 - 2026-07-31
-
-### Added
-
-- Environment registration and versioning, immutable once referenced ([pm-rl-et5b](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-et5b.toon))
-- Run lifecycle ingests NDJSON in bounded pm-rl/2 segments, reads pm-rl/1, and measures sustained storage ([pm-rl-dyho](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-dyho.toon))
-
-### Other
-
-- Metric series live in item history, never in an item body ([pm-rl-mpd9](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/decisions/pm-rl-mpd9.toon))
-- 100/100/100 coverage and full docstring coverage for pm-rl ([pm-rl-fpon](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-fpon.toon))

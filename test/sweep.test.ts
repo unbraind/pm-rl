@@ -433,20 +433,23 @@ test("planning refuses an existing sweep id even when its arms are gone, and cle
   const environment = await registerEnv(root, pmRoot, harness);
   // A sweep whose arm runs do not exist (hand-authored owner) must not be
   // re-armed under an owner that already exists.
-  await client.create({ id: "sweep-orphan-owner", title: "owner only", type: "Sweep", status: "open", body: "no fence needed for this test" });
-  await assert.rejects(
-    harness.runCommand({
-      command: "rl sweep plan",
-      pmRoot,
-      args: ["sweep-orphan-owner"],
-      options: {
-        file: writeSpace(root, { search_space: { lr: [0.1] }, selection_rule: "none" }, "orphan.json"),
-        environment,
-        algorithm: "PPO",
-      },
-    }),
-    typedRefusal("sweep_exists"),
-  );
+  const orphan = await client.create({ id: "sweep-orphan-owner", title: "owner only", type: "Sweep", status: "open", body: "no fence needed for this test" });
+  const planOrphan = (): Promise<unknown> => harness.runCommand({
+    command: "rl sweep plan",
+    pmRoot,
+    args: ["sweep-orphan-owner"],
+    options: {
+      file: writeSpace(root, { search_space: { lr: [0.1] }, selection_rule: "none" }, "orphan.json"),
+      environment,
+      algorithm: "PPO",
+    },
+  });
+  await assert.rejects(planOrphan(), typedRefusal("sweep_exists"));
+  // Deleting the owner does not free the id: the history stream still reserves
+  // it, and the refusal must happen before any arm is written.
+  await client.delete(String(orphan.item.id), { force: true });
+  await assert.rejects(planOrphan(), typedRefusal("sweep_reserved"));
+  await assert.rejects(client.get("rl-sweep-orphan-owner-arm-1", {}), typedNotFound);
 
   // An injected mid-write failure removes every arm the invocation already
   // wrote, leaving nothing behind for a retry to trip over.
@@ -524,21 +527,26 @@ test("planning refuses an existing sweep id even when its arms are gone, and cle
   }
   await assert.rejects(client.get("rl-sweep-late-fail", {}), typedNotFound);
 
-  // The sweep id is not wedged: a retry under the same id now succeeds because
-  // no arm and no Sweep survived the failed create. Without the cleanup the
-  // retry would hit the arm pre-check (sweep_arm_exists) and could never finish.
-  const retriedLate = resultOf(await harness.runCommand({
-    command: "rl sweep plan",
-    pmRoot,
-    args: ["sweep-late-fail"],
-    options: {
-      file: writeSpace(root, { search_space: { lr: [0.3, 0.03], batch: [16, 32] }, selection_rule: "none" }, "late-fail-retry.json"),
-      environment,
-      algorithm: "PPO",
-    },
-  }));
-  assert.equal(retriedLate.action, "rl-sweep-plan");
-  assert.deepEqual(retriedLate.details?.arms, ["rl-sweep-late-fail-arm-1", "rl-sweep-late-fail-arm-2", "rl-sweep-late-fail-arm-3", "rl-sweep-late-fail-arm-4"]);
+  // Cleanup removes live arms so later reads do not treat them as real children.
+  // It cannot free those identities: reminting the same arm ids would splice a
+  // second item into one immutable history stream. A retry under the same sweep
+  // id must refuse with a typed reservation error before writing anything new.
+  await assert.rejects(
+    harness.runCommand({
+      command: "rl sweep plan",
+      pmRoot,
+      args: ["sweep-late-fail"],
+      options: {
+        file: writeSpace(root, { search_space: { lr: [0.3, 0.03], batch: [16, 32] }, selection_rule: "none" }, "late-fail-retry.json"),
+        environment,
+        algorithm: "PPO",
+      },
+    }),
+    typedRefusal("sweep_arm_reserved"),
+  );
+  for (const armId of ["rl-sweep-late-fail-arm-1", "rl-sweep-late-fail-arm-2", "rl-sweep-late-fail-arm-3", "rl-sweep-late-fail-arm-4"]) {
+    await assert.rejects(client.get(armId, {}), typedNotFound, `${armId} must stay absent after a reserved-identity refusal`);
+  }
 
   // A cleanup that itself cannot remove the arm is refused with BOTH causes
   // named — the removal failure first, the original create failure second.
