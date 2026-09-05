@@ -2280,13 +2280,54 @@ async function compareRuns(context: CommandHandlerContext): Promise<RlCommandRes
 }
 
 /**
+ * Refuse to plan over a live item or a deleted identity whose history stream
+ * still reserves the id.
+ *
+ * pm-cli 2026.9.5 keeps a deleted item's history file, so creating the same id
+ * fails with item_identity_reserved. Checking get then history before any writes
+ * keeps that host error from leaking after sibling arms have already been minted.
+ *
+ * @param client - Client bound to the target workspace.
+ * @param id - Requested item id, resolved by the host the same way create is.
+ * @param type - Live item type expected when the id still exists.
+ * @param existsCode - Typed code when a live item occupies the id.
+ * @param reservedCode - Typed code when only the history stream remains.
+ * @param existsMessage - Operator-facing refusal for the live case.
+ * @param reservedMessage - Operator-facing refusal for the reserved case.
+ */
+async function refuseTakenPlanIdentity(
+  client: PmClient,
+  id: string,
+  type: "Sweep" | "Run",
+  existsCode: string,
+  reservedCode: string,
+  existsMessage: string,
+  reservedMessage: string,
+): Promise<void> {
+  try {
+    await getTypedItem(client, id, type);
+    fail(existsMessage, existsCode, EXIT_CODE.CONFLICT);
+  } catch (error) {
+    if (!isItemNotFound(error)) throw error;
+  }
+  try {
+    await client.run("history", { id });
+    fail(reservedMessage, reservedCode, EXIT_CODE.CONFLICT);
+  } catch (error) {
+    if (!isItemNotFound(error)) throw error;
+  }
+}
+
+/**
  * Remove the arm runs an interrupted sweep plan already wrote.
  *
  * A partial sweep leaves orphaned child runs that later reads would treat as
- * real arms, so every arm written before the failure is deleted. A removal that
- * itself fails is refused with both causes named — the removal failure first,
- * then the original create failure — because silent orphans are precisely what
- * the cleanup exists to prevent.
+ * real arms, so every arm written before the failure is deleted. Deleting does
+ * not free those identities: the host keeps the history stream, and a retry must
+ * plan a new sweep id rather than remint the same arms. A removal that itself
+ * fails is refused with both causes named — the removal failure first, then the
+ * original create failure — because silent orphans are precisely what the
+ * cleanup exists to prevent.
  *
  * @param client - Client bound to the target workspace.
  * @param arms - The resolved ids of the arms written so far.
@@ -2348,23 +2389,31 @@ async function planSweep(context: CommandHandlerContext): Promise<RlCommandResul
   }
   const specHash = hashJson(verifiedEnvironment.spec);
   // Every id the plan will write is checked before any create runs — the sweep
-  // item itself AND every arm — so a re-plan refuses without leaving a partially
-  // expanded sweep behind. A sweep whose arms are gone (or were never created)
-  // would otherwise be re-armed under an owner that already exists.
-  try {
-    await getTypedItem(client, requestedId, "Sweep");
-    fail(`Sweep ${requestedId} already exists. Plan a new sweep id instead of re-arming an existing sweep.`, "sweep_exists", EXIT_CODE.CONFLICT);
-  } catch (error) {
-    if (!isItemNotFound(error)) throw error;
-  }
+  // item itself AND every arm, live or reserved by history — so a re-plan
+  // refuses without leaving a partially expanded sweep behind. Checking history
+  // after a 404 is load-bearing: a deleted sweep still owns its stream, and
+  // creating arms first would mint a fresh set of identities only to fail on
+  // the reserved sweep id and then reserve those arms during cleanup.
+  await refuseTakenPlanIdentity(
+    client,
+    requestedId,
+    "Sweep",
+    "sweep_exists",
+    "sweep_reserved",
+    `Sweep ${requestedId} already exists. Plan a new sweep id instead of re-arming an existing sweep.`,
+    `Sweep ${requestedId} is reserved by an existing history stream. Plan a new sweep id instead of reminting a deleted sweep.`,
+  );
   const armIds = configs.map((_, index) => `${requestedId}-arm-${index + 1}`);
   for (const armId of armIds) {
-    try {
-      await getTypedItem(client, armId, "Run");
-      fail(`Arm run ${armId} already exists; sweep ${requestedId} is already planned. Plan a new sweep id instead.`, "sweep_arm_exists", EXIT_CODE.CONFLICT);
-    } catch (error) {
-      if (!isItemNotFound(error)) throw error;
-    }
+    await refuseTakenPlanIdentity(
+      client,
+      armId,
+      "Run",
+      "sweep_arm_exists",
+      "sweep_arm_reserved",
+      `Arm run ${armId} already exists; sweep ${requestedId} is already planned. Plan a new sweep id instead.`,
+      `Arm run ${armId} is reserved by an existing history stream; sweep ${requestedId} cannot be re-planned under this id. Plan a new sweep id instead.`,
+    );
   }
   const arms: Array<{ id: string; config: JsonValue }> = [];
   try {

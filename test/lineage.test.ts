@@ -254,6 +254,47 @@ function clientWithFailingCloseAndFailingRevert(real: PmClient): PmClient {
   }) as PmClient;
 }
 
+/** Later reads of one generation report it as already promoted, so the in-lock re-check is forced. */
+function clientWithPromotedReread(real: PmClient, generationId: string): PmClient {
+  let generationReads = 0;
+  return new Proxy(real, {
+    get(target, property, receiver) {
+      if (property === "get") {
+        return async (id: string, options?: { depth?: string }) => {
+          const result = await target.get(id, options);
+          if (String(result.item.id) !== generationId) return result;
+          generationReads += 1;
+          // 1: pre-lock already-promoted guard. 2: pre-lock ancestry walk.
+          // 3: in-lock re-read — the branch this fixture exists to hit.
+          if (generationReads < 3) return result;
+          const body = String(result.item.body);
+          const fenced = /```json\n([\s\S]*?)\n```/.exec(body);
+          if (fenced?.[1] === undefined) return result;
+          const parsed = JSON.parse(fenced[1]) as Record<string, unknown>;
+          parsed.promoted = true;
+          parsed.approval = "approval-1";
+          parsed.proxy_score = {
+            objective: "episode_return", objective_version: "obj-v1", evaluation_context: "proxy-ctx",
+            seed_set: "seed-set-1", direction: "maximize", scale: 1, value: 12,
+          };
+          parsed.held_out_score = {
+            objective: "episode_return", objective_version: "obj-v1", evaluation_context: "held-out-ctx",
+            seed_set: "seed-set-1", direction: "maximize", scale: 1, value: 9,
+          };
+          parsed.gap = 3;
+          parsed.promotion_evidence = "peer";
+          return {
+            ...result,
+            item: { ...result.item, body: body.replace(fenced[1], JSON.stringify(parsed, null, 2)) },
+          };
+        };
+      }
+      const value = Reflect.get(target, property, receiver);
+      return typeof value === "function" ? (value as (...arguments_: unknown[]) => unknown).bind(target) : value;
+    },
+  }) as PmClient;
+}
+
 function clientWithFailingClose(real: PmClient): PmClient {
   return new Proxy(real, {
     get(target, property, receiver) {
@@ -1707,5 +1748,29 @@ test("concurrent promotions of the SAME generation promote it exactly once", asy
   const second = resultOf(await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-c2"], options: { baseCheckpoint: "ckpt-c2", parent: candidate.id, policy: "ckpt-c2", collectionRuns: run2.id, environment: env } }));
   const next = resultOf(await harness.runCommand({ command: "rl generation promote", pmRoot, args: [second.id!], options: { approval: approval.item.id, scores, evidence: "second" } }));
   assert.equal(next.details?.budget_consumed, 2);
+});
+
+test("the in-lock already-promoted re-check refuses a peer write the pre-lock read did not see", async () => {
+  // The concurrent test above may lose the race to lock-wait instead of the
+  // in-lock re-read, so this injection makes the re-check the only path: the
+  // pre-lock get and ancestry walk see an unpromoted body, and the in-lock
+  // re-read reports promoted — exactly what a peer that won the lock wrote.
+  const { root, pmRoot, client, harness } = await workspace();
+  const env = await registerEnv(harness, pmRoot, root, "Grid");
+  const approval = await client.create({ id: "approval-1", title: "Approval", type: "Decision", status: "open", body: "# approval\n\n```json\n" + JSON.stringify({ permitted_promotions: 3 }) + "\n```" });
+  const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed", "ckpt-seed");
+  const run = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-1"], options: { environment: env, algorithm: "ckpt-seed" } }));
+  const candidate = resultOf(await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-c1"], options: { baseCheckpoint: "ckpt-c1", parent: seed, policy: "ckpt-c1", collectionRuns: run.id, environment: env } }));
+  const scores = writeScores(root, 12, "held-out-ctx", 9);
+  await assert.rejects(
+    harness.runCommand({
+      command: "rl generation promote",
+      pmRoot,
+      args: [candidate.id!],
+      options: { approval: approval.item.id, scores, evidence: "peer" },
+      sdk: sdkWith(clientWithPromotedReread(client, candidate.id!)),
+    }),
+    (error: unknown): boolean => String(error).includes("is already promoted"),
+  );
 });
 
