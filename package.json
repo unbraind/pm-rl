@@ -65,7 +65,6 @@
       "test/leaderboard.test.ts",
       "test/quality-scripts.test.ts",
       "test/coverage-gate.test.ts",
-      "test/shell-command-scan.test.ts",
       "test/verify-release-publish-attestation.test.ts"
     ],
     "thresholds": {
