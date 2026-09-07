@@ -52,6 +52,10 @@
 - changelog:full and changelog:check use different projections ([pm-rl-mxe0](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-mxe0.toon))
 - pm CLI 2026.8.6 exposes untested fallback-author branches under the exact coverage gate ([pm-rl-tqym](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-tqym.toon))
 
+### Security
+
+- Consume the canonical attestation gate instead of carrying a copy of it ([pm-rl-dy0w](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-dy0w.toon))
+
 ### Other
 
 - Metric series live in item history, never in an item body ([pm-rl-mpd9](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/decisions/pm-rl-mpd9.toon))
