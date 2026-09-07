@@ -7,6 +7,8 @@
  * concurrent branches, unlike a scalar item body.
  */
 
+export { runBanditProgramme, type BanditCheckpoint, type BanditExample, type BanditGeneration, type BanditProgramme, type BanditResult } from "./bandit.ts";
+
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { StringDecoder } from "node:string_decoder";

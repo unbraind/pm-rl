@@ -269,3 +269,42 @@ npm run changelog:check
 ## License
 
 MIT
+
+## Real recursive training adapter
+
+The package exports a small numerical foundation for the execution controller.
+This example performs three real policy-gradient updates with disjoint synthetic
+training and evaluation identities. Every accepted successor supplies the policy
+used to collect the next generation's actions.
+
+```typescript
+import { runBanditProgramme } from "pm-rl";
+
+const result = runBanditProgramme({
+  training: [
+    { id: "train-positive", feature: 1, rewards: [0, 1] },
+    { id: "train-negative", feature: -1, rewards: [1, 0] },
+  ],
+  evaluation: [
+    { id: "eval-positive", feature: 0.8, rewards: [0, 1] },
+    { id: "eval-negative", feature: -0.8, rewards: [1, 0] },
+  ],
+  initialWeight: 0,
+  seed: 42,
+  generations: 3,
+  samplesPerGeneration: 256,
+  learningRate: 0.5,
+  minimumImprovement: 0,
+  maximumGap: 0.2,
+});
+console.log(result.generations.map(({ source, candidate, evaluationScore, promoted }) => ({
+  source: source.digest, weight: candidate.weight, evaluationScore, promoted,
+})));
+```
+
+The API returns deterministic content-addressed checkpoint and collection receipts.
+It stops at the first rejected candidate and retains the last accepted checkpoint.
+It does not mutate a tracker, grant a budget, execute an LLM, or launch a hosted
+job. Evaluation is an adaptive validation set; a separate final benchmark is
+needed after repeated selection. See [the execution contract](RECURSIVE_TRAINING.md)
+for the durable controller and LLM training work still required.

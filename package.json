@@ -7,6 +7,7 @@
   "files": [
     "dist/index.*",
     "dist/lineage.*",
+    "dist/bandit.*",
     "dist/series.*",
     "dist/invalidate.*",
     "dist/compare.*",
@@ -66,7 +67,8 @@
       "test/leaderboard.test.ts",
       "test/quality-scripts.test.ts",
       "test/coverage-gate.test.ts",
-      "test/verify-release-publish-attestation.test.ts"
+      "test/verify-release-publish-attestation.test.ts",
+      "test/bandit.test.ts"
     ],
     "thresholds": {
       "statements": 100,
