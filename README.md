@@ -186,11 +186,12 @@ All exit non-zero. The gap-widening check needs at least two consecutive gaps, s
 
 ## Recursive self-improvement, and the four properties that make it honest
 
-pm-rl exists to **track and gate** a loop that improves itself: a generation collects trajectories,
-a trainer *outside pm-rl* produces a successor, and the successor collects the next generation's
-trajectories. pm-rl never runs the trainer — that boundary is the same one stated under *Not in
-scope*, and it does not move here. That loop is easy to run and almost impossible to trust, because
-every property that makes its results meaningful degrades *silently* as it turns.
+The current pm-rl runtime **tracks and gates** a recursive loop: a generation collects trajectories,
+an external trainer produces a successor, and the successor collects the next generation's
+trajectories. Full bounded execution is the next phase, specified in
+[Recursive training execution](RECURSIVE_TRAINING.md). It will add native controller and trainer
+adapter contracts while retaining the provenance and promotion checks below. Trainer execution is
+not implemented by the current commands.
 
 None of the four failures below is a training problem. Each one is a provenance problem — which is
 to say a context problem — and each becomes answerable from the graph pm stores and merges, **once
@@ -228,17 +229,18 @@ over the **paired cohort** — candidates linked to a real pull request on both 
 denominator stated; candidates present on only one side are reported separately as coverage rather
 than folded into a rate.
 
-**What this is not.** None of the above is a claim of unbounded self-improvement, and pm-rl does
-not train anything — it has no orchestration and never will (see *Not in scope*). It tracks the
-loop, and it refuses to let the loop's results look valid when their provenance says otherwise.
+The implemented tracking layer does not train a model. The next execution phase must prove real
+checkpoint updates and successor-policy use before it can claim full recursive training. Its
+resource bounds and provenance refusals apply to every generation.
 The programme is specified under [`pm-rl-yi7j`](.agents/pm/epics/pm-rl-yi7j.toon); as with every
 other roadmap slice, no command is registered until its acceptance criteria and refusal paths are
 implemented and tested.
 
 ## Not in scope
 
-- **No orchestration.** pm-rl does not schedule GPUs, launch jobs, or wrap a trainer. `run log`
-  accepts NDJSON on stdin, so any trainer in any language pipes into it.
+- **Current execution boundary.** `run log` accepts NDJSON from an external trainer. Native
+  bounded execution is planned in [Recursive training execution](RECURSIVE_TRAINING.md); the
+  current runtime does not schedule GPUs or launch training jobs.
 - **No separate metric store.** The history stream *is* the store. Retained evidence necessarily
   grows with retained measurements. Each segment is capped at 48 KiB decoded and 65 KiB
   serialized. In the representative sustained integration workload—not as a universal

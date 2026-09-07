@@ -19,7 +19,8 @@
     "manifest.json",
     "README.md",
     "CHANGELOG.md",
-    "examples/"
+    "examples/",
+    "RECURSIVE_TRAINING.md"
   ],
   "engines": {
     "node": ">=22.18.0"
@@ -142,7 +143,8 @@
     },
     "docs": [
       "README.md",
-      "CHANGELOG.md"
+      "CHANGELOG.md",
+      "RECURSIVE_TRAINING.md"
     ],
     "examples": [
       "README.md",

@@ -1,0 +1,14 @@
+id: pm-rl-apvf
+title: "Execute bounded recursive collection, training, evaluation and promotion"
+description: "Implement the full execution loop specified in RECURSIVE_TRAINING.md. Existing pm-rl-yi7j supplies lineage and promotion gates; it does not execute training. Add a TypeScript/Rust controller with local Docker Compose trainer adapters, content-addressed checkpoints, atomic budget reservations, idempotent resumption, cancellation and held-out evaluation. Companion pm-cli-website-eag2 and pm-cli-website-hktr."
+type: Epic
+status: open
+priority: 1
+tags[3]: execution,recursive-training,roadmap
+created_at: "2026-09-07T21:21:56.236Z"
+updated_at: "2026-09-07T21:21:56.710Z"
+author: codex-pm-ecosystem
+acceptance_criteria: Two real training generations produce changed checkpoints and collect with the promoted successor; a bounded LLM adapter demonstrates parameter updates; two controllers launch a job once; crash and cancellation drills preserve artifacts and budget integrity; contamination and invalid checkpoints stop promotion; every authored source passes exact four-metric coverage and documented-surface gates
+docs[1]{path,scope}:
+  RECURSIVE_TRAINING.md,project
+body: ""
