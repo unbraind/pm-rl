@@ -140,7 +140,8 @@ export function runBanditProgramme(programme: BanditProgramme): BanditResult {
     const validated: BanditExample[] = [];
     for (const example of dataset) {
       if (example.id.trim().length === 0 || !Number.isFinite(example.feature) || Math.abs(example.feature) > 1
-        || example.rewards.some((reward) => !Number.isFinite(reward) || reward < 0 || reward > 1)) {
+        || example.rewards.length !== 2
+        || [example.rewards[0], example.rewards[1]].some((reward) => !Number.isFinite(reward) || reward < 0 || reward > 1)) {
         throw new Error("bandit_invalid: named examples require bounded features and rewards");
       }
       if (identities.has(example.id)) throw new Error("bandit_overlap: example identities must be unique and disjoint");

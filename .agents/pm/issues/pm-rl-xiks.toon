@@ -1,0 +1,15 @@
+id: pm-rl-xiks
+title: Enforce the configured statement coverage threshold in the package gate
+description: "package.json declares coverageGate.thresholds.statements=100, but scripts/coverage-gate.ts forwards only line, branch and function thresholds to the native Node test runner. The runner exposes no statement metric, so a green coverage command cannot substantiate the mandated 100/100/100/100 claim. The new numerical adapter was independently measured with c8, but whole-package statement coverage remains unmeasured. This is a package gate issue, not an upstream CLI or SDK defect."
+type: Issue
+status: open
+priority: 1
+tags[2]: coverage,gates
+created_at: "2026-09-07T23:14:48.380Z"
+updated_at: "2026-09-07T23:14:48.380Z"
+author: codex-pm-native
+acceptance_criteria: Every configured coverage dimension is actually measured and enforced across every authored runtime source; a failing statement threshold rejects the gate; omitted sources and existing line branch function regressions still reject; complete real package tests report exact four-dimensional totals without exclusions or lowered thresholds
+files[2]{path,scope}:
+  scripts/coverage-gate.ts,project
+  package.json,project
+body: ""

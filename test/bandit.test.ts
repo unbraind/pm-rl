@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { runBanditProgramme, type BanditProgramme } from "../bandit.ts";
+import { runBanditProgramme as runPublishedBanditProgramme } from "../dist/index.js";
 
 /** Disjoint synthetic examples share a learnable objective and distinct identities. */
 const programme: BanditProgramme = {
@@ -106,4 +107,23 @@ test("one observed reward produces the hand-computable score-function gradient",
     training: [{ id: "one", feature: 1, rewards: [1, 0] }] });
   assert.equal(unobserved.generations[0].candidate.weight, 0);
   assert.equal(unobserved.stopReason, "unchanged_checkpoint");
+});
+
+test("runtime tuple shape cannot yield a promoted nonfinite checkpoint", () => {
+  const sparse: number[] = [];
+  sparse[1] = 1;
+  for (const rewards of [[], [0], [0, 1, 0], sparse]) {
+    const runtimeRewards = rewards as unknown as readonly [number, number];
+    assert.throws(() => runBanditProgramme({ ...programme,
+      training: [{ id: "malformed-rewards", feature: 1, rewards: runtimeRewards }] }), /bandit_invalid/);
+  }
+});
+
+
+test("the emitted public package entry point executes the documented programme", () => {
+  const result = runPublishedBanditProgramme(programme);
+  assert.deepEqual(result, runBanditProgramme(programme));
+  assert.equal(result.samplesConsumed, 768);
+  assert.equal(result.final.weight, 0.36331123588596426);
+  assert.equal(result.generations[1].source.digest, result.generations[0].candidate.digest);
 });
