@@ -22,6 +22,7 @@
 
 ### Fixed
 
+- Enforce the configured statement coverage threshold in the package gate ([pm-rl-xiks](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-xiks.toon))
 - Allow dependabot\[bot\] through the git identity audit ([pm-rl-niml](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-niml.toon))
 - This repository has never produced a static analysis, because it runs no CodeQL workflow ([pm-rl-romb](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-romb.toon))
 - pm-rl received no dependency updates at all, because it had no Dependabot configuration ([pm-rl-bjl7](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-bjl7.toon))
