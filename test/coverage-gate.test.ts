@@ -18,11 +18,13 @@ import { pathToFileURL } from "node:url";
 import {
   collectSources,
   computeRequired,
+  computeStatementCoverage,
   DEFAULT_SKIP_DIRS,
   defaultSpawn,
   isMainInvocation,
   main,
   parseLcov,
+  parseLcovTotals,
   resolveEmitPaths,
   runGate,
 } from "../scripts/coverage-gate.ts";
@@ -125,6 +127,517 @@ test("parseLcov throws when the report file does not exist", () => {
     () => parseLcov(join(root, "missing.info"), root),
     /no coverage report was written/,
   );
+});
+
+test("parseLcovTotals sums LF/LH, BRF/BRH and FNF/FNH across records", () => {
+  dir = makeTempDir();
+  const lcovPath = join(dir.root, "lcov.info");
+  // Two lcov records with different totals confirm the function sums rather
+  // than taking the last record.
+  writeFileSync(lcovPath, [
+    "SF:a.ts",
+    "FN:1,fa",
+    "FNDA:1,fa",
+    "FNF:1",
+    "FNH:1",
+    "BRDA:1,0,0,1",
+    "BRDA:1,1,0,0",
+    "BRF:2",
+    "BRH:1",
+    "DA:1,1",
+    "DA:2,0",
+    "LF:2",
+    "LH:1",
+    "end_of_record",
+    "SF:b.ts",
+    "FNF:2",
+    "FNH:2",
+    "BRF:1",
+    "BRH:1",
+    "LF:3",
+    "LH:3",
+    "end_of_record",
+    "",
+  ].join("\n"));
+  const totals = parseLcovTotals(lcovPath);
+  assert.equal(totals.lines.found, 5);
+  assert.equal(totals.lines.hit, 4);
+  assert.equal(totals.branches.found, 3);
+  assert.equal(totals.branches.hit, 2);
+  assert.equal(totals.functions.found, 3);
+  assert.equal(totals.functions.hit, 3);
+});
+
+test("parseLcovTotals returns zeros when the report has no summary lines", () => {
+  // A minimal lcov with only SF/DA lines (as the mock spawns write) has no
+  // LF/LH/BRF/BRH/FNF/FNH lines, so the totals stay at zero.
+  dir = makeTempDir();
+  const lcovPath = join(dir.root, "lcov.info");
+  writeFileSync(lcovPath, "SF:a.ts\nDA:1,1\n");
+  const totals = parseLcovTotals(lcovPath);
+  assert.equal(totals.lines.found, 0);
+  assert.equal(totals.lines.hit, 0);
+  assert.equal(totals.branches.found, 0);
+  assert.equal(totals.branches.hit, 0);
+  assert.equal(totals.functions.found, 0);
+  assert.equal(totals.functions.hit, 0);
+});
+
+test("computeStatementCoverage measures all-covered V8 block ranges as 100%", () => {
+  dir = makeTempDir();
+  const root = dir.root;
+  writeFileSync(join(root, "a.ts"), "export const a = 1;\n");
+  const v8Dir = join(root, "v8");
+  mkdirSync(v8Dir);
+  // Two functions, each with one range at count > 0 \u2014 fully covered.
+  writeFileSync(
+    join(v8Dir, "coverage-0.json"),
+    JSON.stringify({
+      result: [
+        {
+          scriptId: "1",
+          url: pathToFileURL(join(root, "a.ts")).href,
+          functions: [
+            { functionName: "", ranges: [{ startOffset: 0, endOffset: 20, count: 1 }], isBlockCoverage: true },
+            { functionName: "f", ranges: [{ startOffset: 7, endOffset: 20, count: 2 }], isBlockCoverage: true },
+          ],
+        },
+      ],
+    }),
+  );
+  const result = computeStatementCoverage(v8Dir, ["a.ts"], root);
+  assert.equal(result.total, 2);
+  assert.equal(result.covered, 2);
+  assert.equal(result.percentage, 100);
+  assert.deepEqual(result.uncoveredFiles, []);
+});
+
+test("computeStatementCoverage flags files with uncovered V8 block ranges", () => {
+  dir = makeTempDir();
+  const root = dir.root;
+  writeFileSync(join(root, "a.ts"), "export function f(x: number): number { return x > 0 ? x : -x; }\n");
+  const v8Dir = join(root, "v8");
+  mkdirSync(v8Dir);
+  // The `f` function has an outer range (count 1) and an inner range for the
+  // false branch (count 0) \u2014 one uncovered block.
+  writeFileSync(
+    join(v8Dir, "coverage-0.json"),
+    JSON.stringify({
+      result: [
+        {
+          scriptId: "1",
+          url: pathToFileURL(join(root, "a.ts")).href,
+          functions: [
+            { functionName: "", ranges: [{ startOffset: 0, endOffset: 60, count: 1 }], isBlockCoverage: true },
+            { functionName: "f", ranges: [
+              { startOffset: 7, endOffset: 58, count: 1 },
+              { startOffset: 50, endOffset: 55, count: 0 },
+            ], isBlockCoverage: true },
+          ],
+        },
+      ],
+    }),
+  );
+  const result = computeStatementCoverage(v8Dir, ["a.ts"], root);
+  assert.equal(result.total, 3);
+  assert.equal(result.covered, 2);
+  assert.ok(result.percentage < 100, "percentage must be below 100 when a block has count 0");
+  assert.deepEqual(result.uncoveredFiles, ["a.ts"]);
+});
+
+test("computeStatementCoverage returns 100% with no matching V8 data", () => {
+  // A required file absent from the V8 coverage report is skipped (the lcov
+  // presence check catches missing files); with no matching blocks the total
+  // stays 0 and the percentage defaults to 100 so an empty report does not
+  // produce a false-negative zero.
+  dir = makeTempDir();
+  const root = dir.root;
+  const v8Dir = join(root, "v8");
+  mkdirSync(v8Dir);
+  writeFileSync(join(v8Dir, "coverage-0.json"), JSON.stringify({ result: [] }));
+  const result = computeStatementCoverage(v8Dir, ["missing.ts"], root);
+  assert.equal(result.total, 0);
+  assert.equal(result.percentage, 100);
+});
+
+test("computeStatementCoverage skips non-JSON files in the V8 coverage directory", () => {
+  // Node only writes .json files to NODE_V8_COVERAGE, but the directory may
+  // contain other files (a stale lock file, a temp file). The filter must skip
+  // them rather than trying to JSON.parse a non-JSON file.
+  dir = makeTempDir();
+  const root = dir.root;
+  writeFileSync(join(root, "a.ts"), "export const a = 1;\n");
+  const v8Dir = join(root, "v8");
+  mkdirSync(v8Dir);
+  writeFileSync(join(v8Dir, "stale.lock"), "not json");
+  writeFileSync(
+    join(v8Dir, "coverage-0.json"),
+    JSON.stringify({
+      result: [
+        {
+          scriptId: "1",
+          url: pathToFileURL(join(root, "a.ts")).href,
+          functions: [
+            { functionName: "", ranges: [{ startOffset: 0, endOffset: 20, count: 1 }], isBlockCoverage: true },
+          ],
+        },
+      ],
+    }),
+  );
+  const result = computeStatementCoverage(v8Dir, ["a.ts"], root);
+  assert.equal(result.total, 1);
+  assert.equal(result.covered, 1);
+  assert.equal(result.percentage, 100);
+});
+
+test("computeStatementCoverage skips V8 entries with non-file URLs", () => {
+  // The real V8 coverage includes Node internals with `node:` URLs and other
+  // non-file schemes. `fileURLToPath` throws on those, so they must be filtered
+  // out before path conversion.
+  dir = makeTempDir();
+  const root = dir.root;
+  writeFileSync(join(root, "a.ts"), "export const a = 1;\n");
+  const v8Dir = join(root, "v8");
+  mkdirSync(v8Dir);
+  writeFileSync(
+    join(v8Dir, "coverage-0.json"),
+    JSON.stringify({
+      result: [
+        {
+          scriptId: "1",
+          url: "node:internal/process/pre_execution",
+          functions: [
+            { functionName: "", ranges: [{ startOffset: 0, endOffset: 100, count: 1 }], isBlockCoverage: true },
+          ],
+        },
+        {
+          scriptId: "2",
+          url: pathToFileURL(join(root, "a.ts")).href,
+          functions: [
+            { functionName: "", ranges: [{ startOffset: 0, endOffset: 20, count: 1 }], isBlockCoverage: true },
+          ],
+        },
+      ],
+    }),
+  );
+  const result = computeStatementCoverage(v8Dir, ["a.ts"], root);
+  assert.equal(result.total, 1);
+  assert.equal(result.covered, 1);
+  assert.equal(result.percentage, 100);
+});
+
+test("computeStatementCoverage ignores V8 entries for files not in the required set", () => {
+  // The V8 coverage directory includes test files, fixtures, and other modules
+  // loaded during the run but not in the gate's required source set. Those
+  // entries must be skipped so only the required files contribute to the
+  // statement total.
+  dir = makeTempDir();
+  const root = dir.root;
+  writeFileSync(join(root, "a.ts"), "export const a = 1;\n");
+  writeFileSync(join(root, "b.ts"), "export const b = 2;\n");
+  const v8Dir = join(root, "v8");
+  mkdirSync(v8Dir);
+  writeFileSync(
+    join(v8Dir, "coverage-0.json"),
+    JSON.stringify({
+      result: [
+        {
+          scriptId: "1",
+          url: pathToFileURL(join(root, "a.ts")).href,
+          functions: [
+            { functionName: "", ranges: [{ startOffset: 0, endOffset: 20, count: 1 }], isBlockCoverage: true },
+          ],
+        },
+        {
+          scriptId: "2",
+          url: pathToFileURL(join(root, "b.ts")).href,
+          functions: [
+            { functionName: "", ranges: [{ startOffset: 0, endOffset: 20, count: 1 }], isBlockCoverage: true },
+          ],
+        },
+      ],
+    }),
+  );
+  const result = computeStatementCoverage(v8Dir, ["a.ts"], root);
+  assert.equal(result.total, 1);
+  assert.equal(result.covered, 1);
+  assert.equal(result.percentage, 100);
+});
+
+test("computeStatementCoverage merges V8 block ranges across JSON files by max count", () => {
+  // Node writes one V8 coverage JSON file per process, so the same source file
+  // appears in multiple files with different counts. A block is covered if
+  // ANY process entered it, so the merge takes the maximum count per range.
+  dir = makeTempDir();
+  const root = dir.root;
+  writeFileSync(join(root, "a.ts"), "export const a = 1;\n");
+  const v8Dir = join(root, "v8");
+  mkdirSync(v8Dir);
+  // First JSON: both ranges have count 0 (the block was not entered by this process).
+  writeFileSync(
+    join(v8Dir, "coverage-0.json"),
+    JSON.stringify({
+      result: [
+        {
+          scriptId: "1",
+          url: pathToFileURL(join(root, "a.ts")).href,
+          functions: [
+            { functionName: "", ranges: [{ startOffset: 0, endOffset: 20, count: 0 }], isBlockCoverage: true },
+            { functionName: "f", ranges: [{ startOffset: 7, endOffset: 20, count: 0 }], isBlockCoverage: true },
+          ],
+        },
+      ],
+    }),
+  );
+  // Second JSON: same ranges but count 1 (the block was entered by this process).
+  writeFileSync(
+    join(v8Dir, "coverage-1.json"),
+    JSON.stringify({
+      result: [
+        {
+          scriptId: "2",
+          url: pathToFileURL(join(root, "a.ts")).href,
+          functions: [
+            { functionName: "", ranges: [{ startOffset: 0, endOffset: 20, count: 1 }], isBlockCoverage: true },
+            { functionName: "f", ranges: [{ startOffset: 7, endOffset: 20, count: 1 }], isBlockCoverage: true },
+          ],
+        },
+      ],
+    }),
+  );
+  // Third JSON: same ranges but count 0 again. Processing this after the second
+  // file exercises the `range.count > existing` false branch (0 is not > 1).
+  writeFileSync(
+    join(v8Dir, "coverage-2.json"),
+    JSON.stringify({
+      result: [
+        {
+          scriptId: "3",
+          url: pathToFileURL(join(root, "a.ts")).href,
+          functions: [
+            { functionName: "", ranges: [{ startOffset: 0, endOffset: 20, count: 0 }], isBlockCoverage: true },
+            { functionName: "f", ranges: [{ startOffset: 7, endOffset: 20, count: 0 }], isBlockCoverage: true },
+          ],
+        },
+      ],
+    }),
+  );
+  const result = computeStatementCoverage(v8Dir, ["a.ts"], root);
+  // Merged: max(0, 1, 0) = 1 for each range, so both covered.
+  assert.equal(result.total, 2);
+  assert.equal(result.covered, 2);
+  assert.equal(result.percentage, 100);
+});
+
+test("computeStatementCoverage counts a function V8 never entered as uncovered", () => {
+  dir = makeTempDir();
+  const root = dir.root;
+  writeFileSync(join(root, "a.ts"), "export const a = 1;\n");
+  const v8Dir = join(root, "v8");
+  mkdirSync(v8Dir);
+  // V8 sets `isBlockCoverage: false` for a function it NEVER ENTERED, reporting
+  // a single whole-function range with count 0. Skipping those entries removes
+  // the uncovered code from the numerator AND the denominator, so an entirely
+  // uncalled function cannot move the percentage — the gate reports 100% with a
+  // whole function untested, which is the blindness this gate exists to close.
+  // Measured on the real tree: an uncalled probe function dropped lines to
+  // 99.93% and functions to 99.69% while statements stayed at 100.00%.
+  writeFileSync(
+    join(v8Dir, "coverage-0.json"),
+    JSON.stringify({
+      result: [
+        {
+          scriptId: "1",
+          url: pathToFileURL(join(root, "a.ts")).href,
+          functions: [
+            { functionName: "", ranges: [{ startOffset: 0, endOffset: 20, count: 1 }], isBlockCoverage: true },
+            { functionName: "g", ranges: [{ startOffset: 7, endOffset: 20, count: 0 }], isBlockCoverage: false },
+          ],
+        },
+      ],
+    }),
+  );
+  const result = computeStatementCoverage(v8Dir, ["a.ts"], root);
+  assert.equal(result.total, 2);
+  assert.equal(result.covered, 1);
+  assert.equal(result.percentage, 50);
+  assert.deepEqual(result.uncoveredFiles, ["a.ts"]);
+});
+
+test("computeStatementCoverage counts a called function V8 did not instrument as covered", () => {
+  dir = makeTempDir();
+  const root = dir.root;
+  writeFileSync(join(root, "a.ts"), "export const a = 1;\n");
+  const v8Dir = join(root, "v8");
+  mkdirSync(v8Dir);
+  // The complement of the case above: `isBlockCoverage: false` with a non-zero
+  // count means V8 entered the function but did not instrument it at block
+  // level. That is covered code, and counting it as uncovered would make the
+  // gate fail on tested source.
+  writeFileSync(
+    join(v8Dir, "coverage-0.json"),
+    JSON.stringify({
+      result: [
+        {
+          scriptId: "1",
+          url: pathToFileURL(join(root, "a.ts")).href,
+          functions: [
+            { functionName: "", ranges: [{ startOffset: 0, endOffset: 20, count: 1 }], isBlockCoverage: true },
+            { functionName: "g", ranges: [{ startOffset: 7, endOffset: 20, count: 3 }], isBlockCoverage: false },
+          ],
+        },
+      ],
+    }),
+  );
+  const result = computeStatementCoverage(v8Dir, ["a.ts"], root);
+  assert.equal(result.total, 2);
+  assert.equal(result.covered, 2);
+  assert.equal(result.percentage, 100);
+  assert.deepEqual(result.uncoveredFiles, []);
+});
+
+test("computeStatementCoverage removes phantom blocks subsumed by a covered block from another process", () => {
+  // Different V8 processes can report the same code with different range
+  // boundaries. One process reports a catch block starting at offset 50 with
+  // count 0 (never entered as a standalone block), while another reports a
+  // larger block starting at offset 40 that contains it with count 1 (the
+  // code was entered). The subsumption filter removes the phantom so the
+  // gate does not flag code that another process measured as covered.
+  dir = makeTempDir();
+  const root = dir.root;
+  writeFileSync(join(root, "a.ts"), "export const a = 1;\n");
+  const v8Dir = join(root, "v8");
+  mkdirSync(v8Dir);
+  // First JSON: function with a block at 50-100, count 0.
+  writeFileSync(
+    join(v8Dir, "coverage-0.json"),
+    JSON.stringify({
+      result: [
+        {
+          scriptId: "1",
+          url: pathToFileURL(join(root, "a.ts")).href,
+          functions: [
+            { functionName: "", ranges: [{ startOffset: 0, endOffset: 110, count: 1 }], isBlockCoverage: true },
+            { functionName: "f", ranges: [
+              { startOffset: 10, endOffset: 105, count: 1 },
+              { startOffset: 50, endOffset: 100, count: 0 },
+            ], isBlockCoverage: true },
+          ],
+        },
+      ],
+    }),
+  );
+  // Second JSON: same function but the block starts at 40-100, count 1.
+  // This contains the 50-100 block from the first JSON.
+  writeFileSync(
+    join(v8Dir, "coverage-1.json"),
+    JSON.stringify({
+      result: [
+        {
+          scriptId: "2",
+          url: pathToFileURL(join(root, "a.ts")).href,
+          functions: [
+            { functionName: "", ranges: [{ startOffset: 0, endOffset: 110, count: 1 }], isBlockCoverage: true },
+            { functionName: "f", ranges: [
+              { startOffset: 10, endOffset: 105, count: 1 },
+              { startOffset: 40, endOffset: 100, count: 1 },
+            ], isBlockCoverage: true },
+          ],
+        },
+      ],
+    }),
+  );
+  const result = computeStatementCoverage(v8Dir, ["a.ts"], root);
+  // The 50-100 block (count 0) is subsumed by the 40-100 block (count 1).
+  // Remaining: module(0-110,count1), f outer(10-105,count1), f sub(40-100,count1).
+  assert.equal(result.total, 3);
+  assert.equal(result.covered, 3);
+  assert.equal(result.percentage, 100);
+  assert.deepEqual(result.uncoveredFiles, []);
+});
+
+test("computeStatementCoverage keeps genuinely uncovered blocks that are not subsumed", () => {
+  // An uncovered block that no covered block from the same function contains
+  // is genuine and must count against the threshold.
+  dir = makeTempDir();
+  const root = dir.root;
+  writeFileSync(join(root, "a.ts"), "export const a = 1;\n");
+  const v8Dir = join(root, "v8");
+  mkdirSync(v8Dir);
+  writeFileSync(
+    join(v8Dir, "coverage-0.json"),
+    JSON.stringify({
+      result: [
+        {
+          scriptId: "1",
+          url: pathToFileURL(join(root, "a.ts")).href,
+          functions: [
+            { functionName: "", ranges: [{ startOffset: 0, endOffset: 110, count: 1 }], isBlockCoverage: true },
+            { functionName: "f", ranges: [
+              { startOffset: 10, endOffset: 105, count: 1 },
+              { startOffset: 50, endOffset: 100, count: 0 },
+            ], isBlockCoverage: true },
+          ],
+        },
+      ],
+    }),
+  );
+  // Second JSON: has a covered block at 60-80, but it does NOT contain the
+  // 50-100 uncovered block (60 > 50, so it starts after the uncovered block).
+  writeFileSync(
+    join(v8Dir, "coverage-1.json"),
+    JSON.stringify({
+      result: [
+        {
+          scriptId: "2",
+          url: pathToFileURL(join(root, "a.ts")).href,
+          functions: [
+            { functionName: "", ranges: [{ startOffset: 0, endOffset: 110, count: 1 }], isBlockCoverage: true },
+            { functionName: "f", ranges: [
+              { startOffset: 10, endOffset: 105, count: 1 },
+              { startOffset: 60, endOffset: 80, count: 1 },
+            ], isBlockCoverage: true },
+          ],
+        },
+      ],
+    }),
+  );
+  const result = computeStatementCoverage(v8Dir, ["a.ts"], root);
+  // The 50-100 block (count 0) is NOT subsumed by 60-80 (60 > 50).
+  assert.ok(result.total >= 4, `total ${result.total} must include the uncovered block`);
+  assert.ok(result.covered < result.total, "some blocks must be uncovered");
+  assert.ok(result.percentage < 100, "percentage must be below 100");
+  assert.deepEqual(result.uncoveredFiles, ["a.ts"]);
+});
+
+test("computeStatementCoverage handles a function with an empty ranges array", () => {
+  // V8 may emit a function entry with `isBlockCoverage: true` but no ranges in
+  // degenerate cases. The ternary falls back to a firstStart of 0 so the key
+  // is still unique, and the empty range loop contributes zero blocks.
+  dir = makeTempDir();
+  const root = dir.root;
+  writeFileSync(join(root, "a.ts"), "export const a = 1;\n");
+  const v8Dir = join(root, "v8");
+  mkdirSync(v8Dir);
+  writeFileSync(
+    join(v8Dir, "coverage-0.json"),
+    JSON.stringify({
+      result: [
+        {
+          scriptId: "1",
+          url: pathToFileURL(join(root, "a.ts")).href,
+          functions: [
+            { functionName: "", ranges: [{ startOffset: 0, endOffset: 20, count: 1 }], isBlockCoverage: true },
+            { functionName: "g", ranges: [], isBlockCoverage: true },
+          ],
+        },
+      ],
+    }),
+  );
+  const result = computeStatementCoverage(v8Dir, ["a.ts"], root);
+  assert.equal(result.total, 1);
+  assert.equal(result.covered, 1);
+  assert.equal(result.percentage, 100);
 });
 
 test("resolveEmitPaths returns outDir and rootDir from the real tsconfig", () => {
@@ -336,6 +849,68 @@ function spawnNoLcov(
   return { status: 0 };
 }
 
+/** V8 block ranges for a fully covered single-function file. */
+function v8FullyCovered(root: string, file: string): unknown {
+  return {
+    result: [
+      {
+        scriptId: "1",
+        url: pathToFileURL(join(root, file)).href,
+        functions: [
+          { functionName: "", ranges: [{ startOffset: 0, endOffset: 20, count: 1 }], isBlockCoverage: true },
+          { functionName: "f", ranges: [{ startOffset: 7, endOffset: 20, count: 2 }], isBlockCoverage: true },
+        ],
+      },
+    ],
+  };
+}
+
+/** V8 block ranges for a file with one uncovered block (the false branch). */
+function v8PartiallyCovered(root: string, file: string): unknown {
+  return {
+    result: [
+      {
+        scriptId: "1",
+        url: pathToFileURL(join(root, file)).href,
+        functions: [
+          { functionName: "", ranges: [{ startOffset: 0, endOffset: 60, count: 1 }], isBlockCoverage: true },
+          { functionName: "f", ranges: [
+            { startOffset: 7, endOffset: 58, count: 1 },
+            { startOffset: 50, endOffset: 55, count: 0 },
+          ], isBlockCoverage: true },
+        ],
+      },
+    ],
+  };
+}
+
+/** Mock spawn that writes both an lcov report and V8 coverage JSON. */
+function mockSpawnWithV8(
+  required: readonly string[],
+  lcovPath: string,
+  v8Data: unknown,
+): typeof spawnWithV8 {
+  function spawnWithV8(
+    _command: string,
+    args: readonly string[],
+    options: { cwd: string; stdio: "inherit"; env: NodeJS.ProcessEnv },
+  ): { status: number | null; error?: Error } {
+    const destIndex = args.indexOf(`--test-reporter-destination=${lcovPath}`);
+    if (destIndex >= 0) {
+      mkdirSync(join(lcovPath, ".."), { recursive: true });
+      const lcov = required.map((file) => `SF:${file}\nDA:1,1\n`).join("");
+      writeFileSync(lcovPath, lcov);
+    }
+    const v8Dir = options.env.NODE_V8_COVERAGE;
+    if (v8Dir) {
+      mkdirSync(v8Dir, { recursive: true });
+      writeFileSync(join(v8Dir, "coverage-0.json"), JSON.stringify(v8Data));
+    }
+    return { status: 0 };
+  }
+  return spawnWithV8;
+}
+
 test("runGate succeeds when the mock spawn reports all required files", () => {
   dir = makeTempDir();
   writeFileSync(join(dir.root, "a.ts"), "export const a = 1;\n");
@@ -449,6 +1024,147 @@ test("runGate fails when required files are missing from the report", () => {
   assert.equal(result.exitCode, 1);
   assert.match(result.stderr, /b\.ts/);
   assert.match(result.stderr, /never loaded during the run/);
+});
+
+test("runGate enforces the configured statements threshold and reports four-dimensional totals", () => {
+  // When `statements` is configured, the gate reads V8 block coverage from
+  // the NODE_V8_COVERAGE directory the runner wrote, computes the percentage,
+  // and includes all four dimensions in the success message. With all blocks
+  // covered the gate passes.
+  dir = makeTempDir();
+  const root = dir.root;
+  writeFileSync(join(root, "a.ts"), "export const a = 1;\n");
+  const config = {
+    sources: ["."],
+    tests: ["test/a.test.ts"],
+    thresholds: { lines: 100, branches: 100, functions: 100, statements: 100 },
+  };
+  const lcovPath = join(root, "coverage", "lcov.info");
+  const result = runGate(config, root, mockSpawnWithV8(["a.ts"], lcovPath, v8FullyCovered(root, "a.ts")));
+  assert.equal(result.exitCode, 0, result.stderr);
+  assert.match(result.stdout, /1 source file\(s\) reported/);
+  assert.match(result.stdout, /lines 100\.00%/);
+  assert.match(result.stdout, /branches 100\.00%/);
+  assert.match(result.stdout, /functions 100\.00%/);
+  assert.match(result.stdout, /statements 100\.00%/);
+});
+
+test("runGate fails when statement coverage is below the configured threshold", () => {
+  // The V8 data has one uncovered block (count 0), so statement coverage is
+  // below 100%. The gate must reject it even though the mock lcov reports all
+  // files present and the mock runner exits 0 \u2014 proving the gate is not
+  // blind to the statement dimension.
+  dir = makeTempDir();
+  const root = dir.root;
+  writeFileSync(join(root, "a.ts"), "export function f(x: number): number { return x > 0 ? x : -x; }\n");
+  const config = {
+    sources: ["."],
+    tests: ["test/a.test.ts"],
+    thresholds: { lines: 100, branches: 100, functions: 100, statements: 100 },
+  };
+  const lcovPath = join(root, "coverage", "lcov.info");
+  const result = runGate(config, root, mockSpawnWithV8(["a.ts"], lcovPath, v8PartiallyCovered(root, "a.ts")));
+  assert.equal(result.exitCode, 1);
+  assert.match(result.stderr, /statement coverage/);
+  assert.match(result.stderr, /below the configured threshold/);
+  assert.match(result.stderr, /a\.ts/);
+});
+
+test("runGate fails when statements is configured but no V8 coverage data exists", () => {
+  // If the runner exits 0 but no V8 coverage was written (a misconfigured env,
+  // a runner that swallowed the env var, or a mock that did not write it),
+  // the gate must fail rather than pass vacuously with total 0 = 100%.
+  dir = makeTempDir();
+  const root = dir.root;
+  writeFileSync(join(root, "a.ts"), "export const a = 1;\n");
+  const config = {
+    sources: ["."],
+    tests: ["test/a.test.ts"],
+    thresholds: { lines: 100, branches: 100, functions: 100, statements: 100 },
+  };
+  const lcovPath = join(root, "coverage", "lcov.info");
+  // mockSpawnSuccess writes lcov but no V8 coverage.
+  const result = runGate(config, root, mockSpawnSuccess(["a.ts"], lcovPath));
+  assert.equal(result.exitCode, 1);
+  assert.match(result.stderr, /no V8 block coverage data found/);
+});
+
+test("runGate skips statement coverage when the threshold is not configured", () => {
+  // Without `statements` in the config the gate does not read V8 coverage,
+  // so it passes even when no V8 data was written. This is the backward-
+  // compatible path: existing configs without `statements` are unaffected.
+  dir = makeTempDir();
+  const root = dir.root;
+  writeFileSync(join(root, "a.ts"), "export const a = 1;\n");
+  const config = {
+    sources: ["."],
+    tests: ["test/a.test.ts"],
+    thresholds: { lines: 100, branches: 100, functions: 100 },
+  };
+  const lcovPath = join(root, "coverage", "lcov.info");
+  const result = runGate(config, root, mockSpawnSuccess(["a.ts"], lcovPath));
+  assert.equal(result.exitCode, 0, result.stderr);
+  // The three measured dimensions appear and statements does NOT. Printing a
+  // literal 100% for a dimension the gate skipped would state a
+  // measured-looking value it never measured — the exact claim this gate exists
+  // to refuse, since a declared-but-unenforced statements threshold is what
+  // made the old "thresholds met" line overstate what it had checked.
+  assert.match(result.stdout, /lines 100\.00%, branches 100\.00%, functions 100\.00%\)/u);
+  assert.doesNotMatch(result.stdout, /statements/u);
+});
+
+test("runGate reports non-vacuous percentages when the lcov report has summary lines", () => {
+  // The mock lcov in other tests has only SF/DA lines, so the line, branch and
+  // function totals are zero and the percentages default to the vacuous 100%.
+  // This test writes an lcov with LF/LH/BRF/BRH/FNF/FNH lines so the gate
+  // computes real percentages from the totals, exercising the `found > 0` branch
+  // of each ternary.
+  dir = makeTempDir();
+  const root = dir.root;
+  writeFileSync(join(root, "a.ts"), "export const a = 1;\n");
+  const config = {
+    sources: ["."],
+    tests: ["test/a.test.ts"],
+    thresholds: { lines: 100, branches: 100, functions: 100, statements: 100 },
+  };
+  const lcovPath = join(root, "coverage", "lcov.info");
+  function spawnWithTotals(
+    _command: string,
+    args: readonly string[],
+    options: { cwd: string; stdio: "inherit"; env: NodeJS.ProcessEnv },
+  ): { status: number | null; error?: Error } {
+    const destIndex = args.indexOf(`--test-reporter-destination=${lcovPath}`);
+    if (destIndex >= 0) {
+      mkdirSync(join(lcovPath, ".."), { recursive: true });
+      writeFileSync(lcovPath, [
+        "SF:a.ts",
+        "FN:1,f",
+        "FNDA:1,f",
+        "FNF:1",
+        "FNH:1",
+        "BRDA:1,0,0,1",
+        "BRF:1",
+        "BRH:1",
+        "DA:1,1",
+        "LF:1",
+        "LH:1",
+        "end_of_record",
+        "",
+      ].join("\n"));
+    }
+    const v8Dir = options.env.NODE_V8_COVERAGE;
+    if (v8Dir) {
+      mkdirSync(v8Dir, { recursive: true });
+      writeFileSync(join(v8Dir, "coverage-0.json"), JSON.stringify(v8FullyCovered(root, "a.ts")));
+    }
+    return { status: 0 };
+  }
+  const result = runGate(config, root, spawnWithTotals);
+  assert.equal(result.exitCode, 0, result.stderr);
+  assert.match(result.stdout, /lines 100\.00%/);
+  assert.match(result.stdout, /branches 100\.00%/);
+  assert.match(result.stdout, /functions 100\.00%/);
+  assert.match(result.stdout, /statements 100\.00%/);
 });
 
 test("runGate fails when config is null", () => {
@@ -588,4 +1304,90 @@ test("isMainInvocation throws rather than skipping the gate when the entry canno
     /ENOENT/,
     "an unresolvable entry must propagate, not silently decline to run the gate",
   );
+});
+test("an uncovered block reported by the same process that covered its parent is not a phantom", () => {
+  dir = makeTempDir();
+  const root = dir.root;
+  writeFileSync(join(root, "a.ts"), "export const a = 1;\n");
+  const v8Dir = join(root, "v8");
+  mkdirSync(v8Dir);
+  // Process 0 reports the parent B and the child C both uncovered; process 1
+  // reports B covered and C STILL UNCOVERED. Merging by max count keeps B at 1
+  // and C at 0, and if each block remembers only the source of its max-count
+  // report, B remembers process 1 while C remembers process 0. A subsumption
+  // test comparing those single sources then sees "different source" and drops
+  // C as a range-boundary phantom — even though process 1 explicitly reported
+  // C as never entered. The block is genuinely uncovered and must be counted.
+  writeFileSync(
+    join(v8Dir, "coverage-0.json"),
+    JSON.stringify({
+      result: [
+        {
+          scriptId: "1",
+          url: pathToFileURL(join(root, "a.ts")).href,
+          functions: [
+            { functionName: "f", ranges: [
+              { startOffset: 0, endOffset: 100, count: 0 },
+              { startOffset: 50, endOffset: 90, count: 0 },
+            ], isBlockCoverage: true },
+          ],
+        },
+      ],
+    }),
+  );
+  writeFileSync(
+    join(v8Dir, "coverage-1.json"),
+    JSON.stringify({
+      result: [
+        {
+          scriptId: "1",
+          url: pathToFileURL(join(root, "a.ts")).href,
+          functions: [
+            { functionName: "f", ranges: [
+              { startOffset: 0, endOffset: 100, count: 1 },
+              { startOffset: 50, endOffset: 90, count: 0 },
+            ], isBlockCoverage: true },
+          ],
+        },
+      ],
+    }),
+  );
+  const result = computeStatementCoverage(v8Dir, ["a.ts"], root);
+  assert.equal(result.total, 2);
+  assert.equal(result.covered, 1);
+  assert.equal(result.percentage, 50);
+  assert.deepEqual(result.uncoveredFiles, ["a.ts"]);
+});
+
+test("a file with several uncovered blocks is listed once", () => {
+  dir = makeTempDir();
+  const root = dir.root;
+  writeFileSync(join(root, "a.ts"), "export const a = 1;\n");
+  const v8Dir = join(root, "v8");
+  mkdirSync(v8Dir);
+  // uncoveredFiles is documented as the files with at least one uncovered
+  // block, and the failure output prints one bullet per entry, so pushing per
+  // block would repeat the same path once per block.
+  writeFileSync(
+    join(v8Dir, "coverage-0.json"),
+    JSON.stringify({
+      result: [
+        {
+          scriptId: "1",
+          url: pathToFileURL(join(root, "a.ts")).href,
+          functions: [
+            { functionName: "f", ranges: [
+              { startOffset: 0, endOffset: 100, count: 1 },
+              { startOffset: 10, endOffset: 20, count: 0 },
+              { startOffset: 30, endOffset: 40, count: 0 },
+            ], isBlockCoverage: true },
+          ],
+        },
+      ],
+    }),
+  );
+  const result = computeStatementCoverage(v8Dir, ["a.ts"], root);
+  assert.equal(result.total, 3);
+  assert.equal(result.covered, 1);
+  assert.deepEqual(result.uncoveredFiles, ["a.ts"]);
 });

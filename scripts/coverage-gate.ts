@@ -30,14 +30,19 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { type GateResult, isMainInvocation, runIfMain } from "./script-launcher.ts";
 
 /**
- * Minimum acceptable percentage for each coverage dimension Node reports.
+ * Minimum acceptable percentage for each coverage dimension.
  *
- * Statement coverage is not listed because V8 reports statements as lines; the
- * line figure is the statement figure for this runtime.
+ * Lines, branches and functions are forwarded to the Node test runner as
+ * `--test-coverage-*` flags, so the runner enforces them and exits non-zero
+ * when a threshold is unmet. Statements are measured separately from raw V8
+ * block coverage (see {@link computeStatementCoverage}) because the Node runner
+ * exposes no statement-level counter — forwarding a `--test-coverage-statements`
+ * flag would be a no-op that passes a threshold the runner never checks.
  */
 interface CoverageThresholds {
   /** Minimum percentage of executable lines that must be covered. */
@@ -46,6 +51,8 @@ interface CoverageThresholds {
   readonly branches: number;
   /** Minimum percentage of declared functions that must be invoked. */
   readonly functions: number;
+  /** Minimum percentage of V8 block ranges that must have been entered. */
+  readonly statements?: number;
 }
 
 /** The `coverageGate` block read from `package.json`. */
@@ -81,6 +88,64 @@ interface CoverageGateConfig {
 /** Shape of the `package.json` fields this script reads. */
 interface PackageManifest {
   readonly coverageGate?: CoverageGateConfig;
+}
+
+/** A single V8 block range with its execution count. */
+interface V8Range {
+  /** Byte offset where the block begins (inclusive). */
+  readonly startOffset: number;
+  /** Byte offset where the block ends (exclusive). */
+  readonly endOffset: number;
+  /** Number of times the block was entered during the test run. */
+  readonly count: number;
+}
+
+/** A function entry in V8's coverage report. */
+interface V8Function {
+  /** Name of the function, empty string for the top-level module scope. */
+  readonly functionName: string;
+  /** Block ranges covering the function body and its sub-blocks. */
+  readonly ranges: readonly V8Range[];
+  /** Whether this entry carries block-level coverage data. */
+  readonly isBlockCoverage: boolean;
+}
+
+/** A file entry in V8's coverage report. */
+interface V8ScriptCoverage {
+  /** V8's internal script identifier. */
+  readonly scriptId: string;
+  /** `file://` URL of the source file. */
+  readonly url: string;
+  /** Function-level coverage entries for this file. */
+  readonly functions: readonly V8Function[];
+}
+
+/** The root object of a V8 coverage JSON file. */
+interface V8CoverageReport {
+  /** Per-file coverage entries. */
+  readonly result: readonly V8ScriptCoverage[];
+}
+
+/** Statement coverage measured from V8 block ranges. */
+interface StatementCoverage {
+  /** Total V8 block ranges across all matched required source files. */
+  readonly total: number;
+  /** Block ranges with count > 0 (entered at least once). */
+  readonly covered: number;
+  /** Percentage of blocks covered, or 100 when no blocks were found. */
+  readonly percentage: number;
+  /** Required files with at least one uncovered block. */
+  readonly uncoveredFiles: readonly string[];
+}
+
+/** Aggregate coverage totals parsed from an lcov report. */
+interface LcovTotals {
+  /** Total lines found and hit across all reported files. */
+  readonly lines: { readonly found: number; readonly hit: number };
+  /** Total branches found and hit across all reported files. */
+  readonly branches: { readonly found: number; readonly hit: number };
+  /** Total functions found and hit across all reported files. */
+  readonly functions: { readonly found: number; readonly hit: number };
 }
 
 /** Compiler paths used to locate a source file's emitted output. */
@@ -353,13 +418,208 @@ export function parseLcov(lcovPath: string, repoRoot: string): Set<string> {
 }
 
 /**
+ * Parses aggregate line, branch and function totals from an lcov report.
+ *
+ * Sums the `LF`/`LH`, `BRF`/`BRH`, and `FNF`/`FNH` summary lines across all
+ * records so the gate can report the exact three-dimensional totals the Node
+ * runner enforced, alongside the statement total computed from V8 coverage.
+ *
+ * @param lcovPath - Absolute path to the lcov report.
+ * @returns Aggregate line, branch and function found/hit counts.
+ */
+export function parseLcovTotals(lcovPath: string): LcovTotals {
+  const lines = { found: 0, hit: 0 };
+  const branches = { found: 0, hit: 0 };
+  const functions = { found: 0, hit: 0 };
+  for (const line of readFileSync(lcovPath, "utf8").split("\n")) {
+    if (line.startsWith("LF:")) lines.found += Number(line.slice(3));
+    else if (line.startsWith("LH:")) lines.hit += Number(line.slice(3));
+    else if (line.startsWith("BRF:")) branches.found += Number(line.slice(4));
+    else if (line.startsWith("BRH:")) branches.hit += Number(line.slice(4));
+    else if (line.startsWith("FNF:")) functions.found += Number(line.slice(4));
+    else if (line.startsWith("FNH:")) functions.hit += Number(line.slice(4));
+  }
+  return { lines, branches, functions };
+}
+
+/**
+ * Computes statement coverage from V8 block coverage data.
+ *
+ * The Node test runner reports line, branch and function coverage but not
+ * statements — V8 exposes no statement-level counter. V8 does, however, report
+ * block ranges: each is a maximal sequence of statements with a uniform
+ * execution count. A block with count > 0 was entered, so every statement in
+ * it was executed; a block with count 0 was never entered, so none of its
+ * statements ran.
+ *
+ * Property: every V8 block range was entered at least once (count > 0).
+ * Domain: all ranges of every function entry across every required source
+ * file's V8 coverage, INCLUDING entries with `isBlockCoverage` false. V8 sets
+ * that flag false for a function it never entered, reporting one
+ * whole-function range with count 0, so excluding them would drop an entirely
+ * uncalled function from both the numerator and the denominator and leave the
+ * percentage at 100.
+ *
+ * The guard is bound to this property — "all blocks entered" — not to a
+ * single symptom value, so it remains correct when the specific uncovered
+ * block changes. For a 100% threshold, block coverage is equivalent to
+ * statement coverage: all blocks entered iff all statements executed.
+ *
+ * Node writes one V8 coverage JSON file per process, even with
+ * --test-concurrency=1, so the same source file appears in multiple files.
+ * Different processes can report different range boundaries for the same
+ * logical block (V8 splits or merges ranges depending on optimisation level).
+ * The merge keys on `(file, functionName, functionFirstStart, rangeStartOffset)`:
+ * a block is covered if ANY process entered it. When a count-0 block from one
+ * process is fully contained by a count->0 block from a different process (same
+ * function, earlier start, same-or-later end), the count-0 block is a V8
+ * range-boundary phantom and is removed — it represents the same code the other
+ * process measured as covered, not genuinely untested code.
+ *
+ * @param v8CoverageDir - Directory containing V8 coverage JSON files.
+ * @param required - Repository-relative POSIX paths that must appear in the report.
+ * @param repoRoot - Absolute repository root for path resolution.
+ * @returns The total block count, covered block count, percentage, and uncovered files.
+ */
+export function computeStatementCoverage(
+  v8CoverageDir: string,
+  required: readonly string[],
+  repoRoot: string,
+): StatementCoverage {
+  const scriptsWithSources: { script: V8ScriptCoverage; source: string }[] = [];
+  for (const file of readdirSync(v8CoverageDir)) {
+    if (!file.endsWith(".json")) continue;
+    const report = JSON.parse(readFileSync(join(v8CoverageDir, file), "utf8")) as V8CoverageReport;
+    for (const script of report.result) {
+      scriptsWithSources.push({ script, source: file });
+    }
+  }
+
+  const requiredSet = new Set(required);
+  // Key: "file|fnName|funcFirstStart|rangeStart" -> { count, endOffset, source }
+  const blockEntries = new Map<
+    string,
+    { count: number; endOffset: number; sources: Set<string>; coveredSources: Set<string> }
+  >();
+
+  for (const { script, source } of scriptsWithSources) {
+    if (!script.url.startsWith("file://")) continue;
+    const abs = fileURLToPath(script.url);
+    const rel = relative(repoRoot, abs).split(sep).join("/");
+    if (!requiredSet.has(rel)) continue;
+
+    for (const func of script.functions) {
+      // Do NOT skip functions with `isBlockCoverage: false`. V8 sets that flag
+      // false for a function it never entered, reporting a single
+      // whole-function range with `count: 0`. Skipping those makes an entirely
+      // uncalled function contribute nothing to either total or covered, so the
+      // percentage stays at 100% while a whole function is untested — the exact
+      // blindness this gate exists to close. Its ranges are counted like any
+      // other: a never-entered function is one uncovered block, and a called
+      // one that V8 did not instrument at block level is one covered block.
+      const funcFirstStart = func.ranges.length > 0 ? func.ranges[0].startOffset : 0;
+      for (const range of func.ranges) {
+        const key = `${rel}|${func.functionName}|${funcFirstStart}|${range.startOffset}`;
+        let existing = blockEntries.get(key);
+        if (existing === undefined) {
+          existing = { count: range.count, endOffset: range.endOffset, sources: new Set(), coveredSources: new Set() };
+          blockEntries.set(key, existing);
+        } else if (range.count > existing.count) {
+          existing.count = range.count;
+          existing.endOffset = range.endOffset;
+        }
+        // Every source that REPORTED this range, not just the one with the
+        // highest count. Keeping only the max-count source loses the fact that
+        // a covered process also saw this block as uncovered, which is exactly
+        // what distinguishes a range-boundary phantom from real uncovered code.
+        existing.sources.add(source);
+        if (range.count > 0) existing.coveredSources.add(source);
+      }
+    }
+  }
+
+  // Pre-group covered blocks by function so the subsumption loop only
+  // iterates over covered blocks in the same function, not all blocks.
+  const coveredByFunc = new Map<string, { start: number; end: number; srcs: ReadonlySet<string> }[]>();
+  for (const [key, entry] of blockEntries) {
+    if (entry.coveredSources.size === 0) continue;
+    const parts = key.split("|");
+    const funcKey = `${parts[0]}|${parts[1]}|${parts[2]}`;
+    let list = coveredByFunc.get(funcKey);
+    if (list === undefined) {
+      list = [];
+      coveredByFunc.set(funcKey, list);
+    }
+    list.push({ start: Number(parts[3]), end: entry.endOffset, srcs: entry.coveredSources });
+  }
+
+  let total = 0;
+  let covered = 0;
+  const uncoveredFileSet = new Set<string>();
+
+  for (const [key, entry] of blockEntries) {
+    if (entry.count > 0) {
+      total++;
+      covered++;
+      continue;
+    }
+    // A block is a range-boundary phantom only when some process entered a
+    // containing block AND never reported THIS block at all — meaning that
+    // process split the range differently, so its coverage says nothing about
+    // this range's boundaries.
+    //
+    // The test is over SETS of sources, not a single stored one. Keeping only
+    // the max-count source loses which processes saw this block at all: with
+    // B=0,C=0 from process 0 and B=1,C=0 from process 1, C keeps process 0 as
+    // its source while B keeps process 1, so a source-inequality check drops C
+    // as a phantom even though process 1 reported it uncovered too.
+    const parts = key.split("|");
+    const file = parts[0];
+    const funcKey = `${parts[0]}|${parts[1]}|${parts[2]}`;
+    const start = Number(parts[3]);
+    const list = coveredByFunc.get(funcKey);
+    let subsumed = false;
+    if (list !== undefined) {
+      for (const other of list) {
+        // Subsume only when NO source that reported this block also covered
+        // the containing one. If a source reported both, that source is saying
+        // "I entered the parent and did not enter this range", which is real
+        // uncovered code, not a boundary artefact.
+        let sharedSource = false;
+        for (const src of other.srcs) {
+          if (entry.sources.has(src)) {
+            sharedSource = true;
+            break;
+          }
+        }
+        if (!sharedSource && other.start <= start && other.end >= entry.endOffset) {
+          subsumed = true;
+          break;
+        }
+      }
+    }
+    if (subsumed) continue;
+    total++;
+    uncoveredFileSet.add(file);
+  }
+  // A set, not a list: the loop runs once per uncovered BLOCK, so a file with
+  // several of them would otherwise be printed once per block in the failure
+  // output, and `uncoveredFiles` is documented as the files with at least one.
+  const uncoveredFiles = [...uncoveredFileSet];
+
+  const percentage = total === 0 ? 100 : (covered / total) * 100;
+  return { total, covered, percentage, uncoveredFiles };
+}
+
+/**
  * Runs the coverage gate against a configured repository root.
  *
  * Walks the configured sources, validates ignore entries, spawns the test
- * runner with V8 coverage, parses the lcov report, and reconciles the reported
- * file list against the required set. Returns the exit code and output the CLI
- * would emit, so a test can call this in-process without touching the real
- * streams or exit code.
+ * runner with V8 coverage, parses the lcov report, reconciles the reported
+ * file list against the required set, and \u2014 when `statements` is configured \u2014
+ * measures statement coverage from raw V8 block data and enforces the threshold.
+ * Returns the exit code and output the CLI would emit, so a test can call this
+ * in-process without touching the real streams or exit code.
  *
  * @param config - The `coverageGate` block from `package.json`.
  * @param repoRoot - Absolute repository root.
@@ -393,11 +653,19 @@ export function runGate(
   }
 
   const lcovPath = join(repoRoot, "coverage", "lcov.info");
+  // Directory for the raw V8 coverage JSON that the statement-coverage
+  // measurement reads. Node creates the directory when `NODE_V8_COVERAGE` is
+  // set, but deleting it first prevents a leftover from a previous, broader
+  // run from satisfying the statement check on stale data — the same stale-
+  // report hazard the lcov deletion guards against for the presence check.
+  const v8CoverageDir = join(repoRoot, "coverage", "v8");
   mkdirSync(join(repoRoot, "coverage"), { recursive: true });
   // Delete any previous report first. If this run writes none, a leftover file
   // from an earlier, broader run would satisfy the presence check on stale data —
   // the gate would pass by reading history rather than by measuring anything.
   rmSync(lcovPath, { force: true });
+  rmSync(v8CoverageDir, { recursive: true, force: true });
+  mkdirSync(v8CoverageDir, { recursive: true });
 
   const result = spawn(
     process.execPath,
@@ -434,7 +702,7 @@ export function runGate(
       // a local offset than under UTC, which moves the reported percentage between
       // a contributor's machine and CI. A threshold pinned to one machine's number
       // then fails on the other for reasons unrelated to the change under review.
-      env: { ...process.env, TZ: "UTC" },
+      env: { ...process.env, TZ: "UTC", NODE_V8_COVERAGE: v8CoverageDir },
     },
   );
 
@@ -481,9 +749,61 @@ export function runGate(
     };
   }
 
+  // The Node runner enforces line, branch and function thresholds and exits
+  // non-zero when any is unmet, so reaching this point means those three passed.
+  // Statements are not a Node runner metric, so the gate measures them itself
+  // from the raw V8 block coverage. Without this check a `statements` threshold
+  // declared in package.json would be silently ignored — the gate would report
+  // success having never measured the dimension it promised to enforce.
+  let statementCoverage: StatementCoverage | null = null;
+  if (config.thresholds.statements !== undefined) {
+    statementCoverage = computeStatementCoverage(v8CoverageDir, required, repoRoot);
+    if (statementCoverage.total === 0) {
+      return {
+        exitCode: 1,
+        stdout: "",
+        stderr:
+          "coverage-gate: no V8 block coverage data found \u2014 cannot measure statement coverage. Ensure NODE_V8_COVERAGE is set and the test runner wrote coverage output.",
+      };
+    }
+    if (statementCoverage.percentage < config.thresholds.statements) {
+      return {
+        exitCode: 1,
+        stdout: "",
+        stderr: [
+          "",
+          `coverage-gate: statement coverage ${statementCoverage.percentage.toFixed(2)}% is below the configured threshold of ${config.thresholds.statements}%.`,
+          `  ${statementCoverage.total - statementCoverage.covered} of ${statementCoverage.total} V8 block(s) never entered in:`,
+          ...statementCoverage.uncoveredFiles.map((file) => `  - ${file}`),
+          "",
+          "Add a test that exercises the uncovered branch or block.",
+          "",
+        ].join("\n"),
+      };
+    }
+  }
+
+  const totals = parseLcovTotals(lcovPath);
+  const linesPct = totals.lines.found === 0 ? 100 : (totals.lines.hit / totals.lines.found) * 100;
+  const branchesPct = totals.branches.found === 0 ? 100 : (totals.branches.hit / totals.branches.found) * 100;
+  const functionsPct = totals.functions.found === 0 ? 100 : (totals.functions.hit / totals.functions.found) * 100;
+  const dimensions = [
+    `lines ${linesPct.toFixed(2)}%`,
+    `branches ${branchesPct.toFixed(2)}%`,
+    `functions ${functionsPct.toFixed(2)}%`,
+  ];
+  // Only report statements when they were actually measured. Falling back to a
+  // literal 100 would print a measured-looking number for a dimension the gate
+  // skipped, which is precisely the claim this gate exists to refuse: a
+  // declared statements threshold that was never enforced is what made the old
+  // "thresholds met" line overstate what it had checked.
+  if (statementCoverage !== null) {
+    dimensions.push(`statements ${statementCoverage.percentage.toFixed(2)}%`);
+  }
+
   return {
     exitCode: 0,
-    stdout: `\ncoverage-gate: ${required.length} source file(s) reported, thresholds met.`,
+    stdout: `\ncoverage-gate: ${required.length} source file(s) reported, thresholds met (${dimensions.join(", ")}).`,
     stderr: "",
   };
 }
