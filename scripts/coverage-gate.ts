@@ -502,7 +502,14 @@ export function computeStatementCoverage(
     if (!requiredSet.has(rel)) continue;
 
     for (const func of script.functions) {
-      if (!func.isBlockCoverage) continue;
+      // Do NOT skip functions with `isBlockCoverage: false`. V8 sets that flag
+      // false for a function it never entered, reporting a single
+      // whole-function range with `count: 0`. Skipping those makes an entirely
+      // uncalled function contribute nothing to either total or covered, so the
+      // percentage stays at 100% while a whole function is untested — the exact
+      // blindness this gate exists to close. Its ranges are counted like any
+      // other: a never-entered function is one uncovered block, and a called
+      // one that V8 did not instrument at block level is one covered block.
       const funcFirstStart = func.ranges.length > 0 ? func.ranges[0].startOffset : 0;
       for (const range of func.ranges) {
         const key = `${rel}|${func.functionName}|${funcFirstStart}|${range.startOffset}`;

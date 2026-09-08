@@ -429,14 +429,19 @@ test("computeStatementCoverage merges V8 block ranges across JSON files by max c
   assert.equal(result.percentage, 100);
 });
 
-test("computeStatementCoverage skips non-block-coverage function entries", () => {
+test("computeStatementCoverage counts a function V8 never entered as uncovered", () => {
   dir = makeTempDir();
   const root = dir.root;
   writeFileSync(join(root, "a.ts"), "export const a = 1;\n");
   const v8Dir = join(root, "v8");
   mkdirSync(v8Dir);
-  // An entry with `isBlockCoverage: false` carries only function-level
-  // coverage and no block ranges; it must not contribute to the statement count.
+  // V8 sets `isBlockCoverage: false` for a function it NEVER ENTERED, reporting
+  // a single whole-function range with count 0. Skipping those entries removes
+  // the uncovered code from the numerator AND the denominator, so an entirely
+  // uncalled function cannot move the percentage — the gate reports 100% with a
+  // whole function untested, which is the blindness this gate exists to close.
+  // Measured on the real tree: an uncalled probe function dropped lines to
+  // 99.93% and functions to 99.69% while statements stayed at 100.00%.
   writeFileSync(
     join(v8Dir, "coverage-0.json"),
     JSON.stringify({
@@ -453,9 +458,42 @@ test("computeStatementCoverage skips non-block-coverage function entries", () =>
     }),
   );
   const result = computeStatementCoverage(v8Dir, ["a.ts"], root);
-  assert.equal(result.total, 1);
+  assert.equal(result.total, 2);
   assert.equal(result.covered, 1);
+  assert.equal(result.percentage, 50);
+  assert.deepEqual(result.uncoveredFiles, ["a.ts"]);
+});
+
+test("computeStatementCoverage counts a called function V8 did not instrument as covered", () => {
+  dir = makeTempDir();
+  const root = dir.root;
+  writeFileSync(join(root, "a.ts"), "export const a = 1;\n");
+  const v8Dir = join(root, "v8");
+  mkdirSync(v8Dir);
+  // The complement of the case above: `isBlockCoverage: false` with a non-zero
+  // count means V8 entered the function but did not instrument it at block
+  // level. That is covered code, and counting it as uncovered would make the
+  // gate fail on tested source.
+  writeFileSync(
+    join(v8Dir, "coverage-0.json"),
+    JSON.stringify({
+      result: [
+        {
+          scriptId: "1",
+          url: pathToFileURL(join(root, "a.ts")).href,
+          functions: [
+            { functionName: "", ranges: [{ startOffset: 0, endOffset: 20, count: 1 }], isBlockCoverage: true },
+            { functionName: "g", ranges: [{ startOffset: 7, endOffset: 20, count: 3 }], isBlockCoverage: false },
+          ],
+        },
+      ],
+    }),
+  );
+  const result = computeStatementCoverage(v8Dir, ["a.ts"], root);
+  assert.equal(result.total, 2);
+  assert.equal(result.covered, 2);
   assert.equal(result.percentage, 100);
+  assert.deepEqual(result.uncoveredFiles, []);
 });
 
 test("computeStatementCoverage removes phantom blocks subsumed by a covered block from another process", () => {
