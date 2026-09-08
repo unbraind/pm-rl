@@ -1,0 +1,29 @@
+id: pm-rl-s44k
+title: Execute deterministic bandit policy updates across promoted generations
+description: "Implement an opt-in TypeScript execution foundation for the recursive controller: a real two-action contextual bandit policy-gradient update, deterministic on-policy collection, separate evaluation examples, bounded generations and samples, checkpoint identities and successor reuse. This is a small numerical adapter, not an LLM trainer, durable controller, hosted training service or new CLI command."
+type: Feature
+status: in_progress
+priority: 1
+tags[3]: adapter,execution,recursive-training
+created_at: "2026-09-07T22:57:50.791Z"
+updated_at: "2026-09-07T23:29:33.025Z"
+assignee: codex-pm-native
+claim_principal: codex-pm-native
+author: codex-pm-native
+acceptance_criteria: Two generations change actual policy weights and the second collection receipt binds the first promoted checkpoint; identical inputs replay identical receipts; evaluation examples never contribute to gradient updates; invalid input and shared dataset identities refuse before work; a candidate that regresses or fails the declared gap bound stops recursion; new runtime source has exact four-metric coverage
+parent: pm-rl-apvf
+comments[3]{created_at,author,text}:
+  "2026-09-07T23:06:04.837Z",codex-pm-native,"Implementation evidence 2026-09-07 UTC: eight real numerical tests pass, including an independently calculated one-sample REINFORCE gradient. The packed 57-file npm artifact executes through the public package export on Node 24.19.0 and Bun with byte-identical JSON receipts. Three accepted generations consume 768 samples and change weights from 0 to 0.1240234375, 0.24036581167552068 and 0.36331123588596426; evaluation expected rewards rise from 0.5 to 0.5247843586553662, 0.5479255767381022 and 0.5721550086836353. Generation two sources the exact first candidate digest. c8 independently reports bandit.ts 100 percent statements, branches, functions and lines. Typecheck, ESLint, zero duplication, 19-file/134-declaration docstrings, production audit, approved identities and publish-attestation checks pass. Full package coverage and exact-head PR review remain pending; this does not establish LLM training or a durable execution controller."
+  "2026-09-07T23:14:12.337Z",codex-pm-native,"Follow-up before merge: self-review added a failing runtime-shape regression for empty, short, oversized and sparse reward tuples, which TypeScript-only callers normally prevent but JavaScript callers can supply. Explicit arity and slot validation now refuse instead of allowing NaN into a checkpoint. CodeRabbit exact-head review 5576513489 requested automated public-entry coverage: a build-dependent top-level dist/index.js import now executes the documented programme. Removing the emitted re-export fails the test as required. Ten numerical/public-entry tests pass, and independent c8 still reports 100/100/100/100 for bandit.ts. No coverage threshold or source selection was relaxed."
+  "2026-09-07T23:29:33.025Z",codex-pm-native,"Final stable-tree release:check passed with installed CLI/SDK 2026.9.7 and pm-changelog 2026.9.6. All 277 top-level tests pass, with zero failures/skips; all 19 required source files report 100 percent lines, branches and functions. Independent c8 on the new bandit.ts reports 100 percent statements, branches, functions and lines. The emitted public-entry and runtime tuple regressions are included. A refreshed packed artifact again yields byte-identical Node/Bun results. The earlier exploratory run passed its tests but mixed source revisions during coverage; it is not the acceptance run. Whole-package statement enforcement remains separately open in pm-rl-xiks, and required reviewer responses remain pending."
+files[4]{path,scope}:
+  bandit.ts,project
+  index.ts,project
+  package.json,project
+  test/bandit.test.ts,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  npm run coverage,project,"harness:codex","2026-09-07T23:03:03.554Z",local_mutation,chore/certify-pm-cli-2026-9-7
+docs[2]{path,scope}:
+  README.md,project
+  RECURSIVE_TRAINING.md,project
+body: ""
