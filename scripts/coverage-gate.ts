@@ -453,8 +453,12 @@ export function parseLcovTotals(lcovPath: string): LcovTotals {
  * statements ran.
  *
  * Property: every V8 block range was entered at least once (count > 0).
- * Domain: all block ranges with `isBlockCoverage` true across every required
- * source file's V8 coverage entry.
+ * Domain: all ranges of every function entry across every required source
+ * file's V8 coverage, INCLUDING entries with `isBlockCoverage` false. V8 sets
+ * that flag false for a function it never entered, reporting one
+ * whole-function range with count 0, so excluding them would drop an entirely
+ * uncalled function from both the numerator and the denominator and leave the
+ * percentage at 100.
  *
  * The guard is bound to this property — "all blocks entered" — not to a
  * single symptom value, so it remains correct when the specific uncovered
@@ -493,7 +497,10 @@ export function computeStatementCoverage(
 
   const requiredSet = new Set(required);
   // Key: "file|fnName|funcFirstStart|rangeStart" -> { count, endOffset, source }
-  const blockEntries = new Map<string, { count: number; endOffset: number; source: string }>();
+  const blockEntries = new Map<
+    string,
+    { count: number; endOffset: number; sources: Set<string>; coveredSources: Set<string> }
+  >();
 
   for (const { script, source } of scriptsWithSources) {
     if (!script.url.startsWith("file://")) continue;
@@ -513,19 +520,29 @@ export function computeStatementCoverage(
       const funcFirstStart = func.ranges.length > 0 ? func.ranges[0].startOffset : 0;
       for (const range of func.ranges) {
         const key = `${rel}|${func.functionName}|${funcFirstStart}|${range.startOffset}`;
-        const existing = blockEntries.get(key);
-        if (existing === undefined || range.count > existing.count) {
-          blockEntries.set(key, { count: range.count, endOffset: range.endOffset, source });
+        let existing = blockEntries.get(key);
+        if (existing === undefined) {
+          existing = { count: range.count, endOffset: range.endOffset, sources: new Set(), coveredSources: new Set() };
+          blockEntries.set(key, existing);
+        } else if (range.count > existing.count) {
+          existing.count = range.count;
+          existing.endOffset = range.endOffset;
         }
+        // Every source that REPORTED this range, not just the one with the
+        // highest count. Keeping only the max-count source loses the fact that
+        // a covered process also saw this block as uncovered, which is exactly
+        // what distinguishes a range-boundary phantom from real uncovered code.
+        existing.sources.add(source);
+        if (range.count > 0) existing.coveredSources.add(source);
       }
     }
   }
 
   // Pre-group covered blocks by function so the subsumption loop only
   // iterates over covered blocks in the same function, not all blocks.
-  const coveredByFunc = new Map<string, { start: number; end: number; src: string }[]>();
+  const coveredByFunc = new Map<string, { start: number; end: number; srcs: ReadonlySet<string> }[]>();
   for (const [key, entry] of blockEntries) {
-    if (entry.count === 0) continue;
+    if (entry.coveredSources.size === 0) continue;
     const parts = key.split("|");
     const funcKey = `${parts[0]}|${parts[1]}|${parts[2]}`;
     let list = coveredByFunc.get(funcKey);
@@ -533,12 +550,12 @@ export function computeStatementCoverage(
       list = [];
       coveredByFunc.set(funcKey, list);
     }
-    list.push({ start: Number(parts[3]), end: entry.endOffset, src: entry.source });
+    list.push({ start: Number(parts[3]), end: entry.endOffset, srcs: entry.coveredSources });
   }
 
   let total = 0;
   let covered = 0;
-  const uncoveredFiles: string[] = [];
+  const uncoveredFileSet = new Set<string>();
 
   for (const [key, entry] of blockEntries) {
     if (entry.count > 0) {
@@ -546,11 +563,16 @@ export function computeStatementCoverage(
       covered++;
       continue;
     }
-    // Check whether a covered block from a DIFFERENT V8 process fully contains
-    // this uncovered block. If so, it is a range-boundary phantom: the same
-    // code was entered in another process that split the range differently.
-    // The `src !== entry.source` check prevents a parent block in the same
-    // process from subsuming its genuinely-uncovered child.
+    // A block is a range-boundary phantom only when some process entered a
+    // containing block AND never reported THIS block at all — meaning that
+    // process split the range differently, so its coverage says nothing about
+    // this range's boundaries.
+    //
+    // The test is over SETS of sources, not a single stored one. Keeping only
+    // the max-count source loses which processes saw this block at all: with
+    // B=0,C=0 from process 0 and B=1,C=0 from process 1, C keeps process 0 as
+    // its source while B keeps process 1, so a source-inequality check drops C
+    // as a phantom even though process 1 reported it uncovered too.
     const parts = key.split("|");
     const file = parts[0];
     const funcKey = `${parts[0]}|${parts[1]}|${parts[2]}`;
@@ -559,7 +581,18 @@ export function computeStatementCoverage(
     let subsumed = false;
     if (list !== undefined) {
       for (const other of list) {
-        if (other.src !== entry.source && other.start <= start && other.end >= entry.endOffset) {
+        // Subsume only when NO source that reported this block also covered
+        // the containing one. If a source reported both, that source is saying
+        // "I entered the parent and did not enter this range", which is real
+        // uncovered code, not a boundary artefact.
+        let sharedSource = false;
+        for (const src of other.srcs) {
+          if (entry.sources.has(src)) {
+            sharedSource = true;
+            break;
+          }
+        }
+        if (!sharedSource && other.start <= start && other.end >= entry.endOffset) {
           subsumed = true;
           break;
         }
@@ -567,8 +600,12 @@ export function computeStatementCoverage(
     }
     if (subsumed) continue;
     total++;
-    uncoveredFiles.push(file);
+    uncoveredFileSet.add(file);
   }
+  // A set, not a list: the loop runs once per uncovered BLOCK, so a file with
+  // several of them would otherwise be printed once per block in the failure
+  // output, and `uncoveredFiles` is documented as the files with at least one.
+  const uncoveredFiles = [...uncoveredFileSet];
 
   const percentage = total === 0 ? 100 : (covered / total) * 100;
   return { total, covered, percentage, uncoveredFiles };
@@ -750,13 +787,19 @@ export function runGate(
   const linesPct = totals.lines.found === 0 ? 100 : (totals.lines.hit / totals.lines.found) * 100;
   const branchesPct = totals.branches.found === 0 ? 100 : (totals.branches.hit / totals.branches.found) * 100;
   const functionsPct = totals.functions.found === 0 ? 100 : (totals.functions.hit / totals.functions.found) * 100;
-  const statementsPct = statementCoverage ? statementCoverage.percentage : 100;
   const dimensions = [
     `lines ${linesPct.toFixed(2)}%`,
     `branches ${branchesPct.toFixed(2)}%`,
     `functions ${functionsPct.toFixed(2)}%`,
-    `statements ${statementsPct.toFixed(2)}%`,
   ];
+  // Only report statements when they were actually measured. Falling back to a
+  // literal 100 would print a measured-looking number for a dimension the gate
+  // skipped, which is precisely the claim this gate exists to refuse: a
+  // declared statements threshold that was never enforced is what made the old
+  // "thresholds met" line overstate what it had checked.
+  if (statementCoverage !== null) {
+    dimensions.push(`statements ${statementCoverage.percentage.toFixed(2)}%`);
+  }
 
   return {
     exitCode: 0,

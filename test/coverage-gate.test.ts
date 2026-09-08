@@ -1104,8 +1104,13 @@ test("runGate skips statement coverage when the threshold is not configured", ()
   const lcovPath = join(root, "coverage", "lcov.info");
   const result = runGate(config, root, mockSpawnSuccess(["a.ts"], lcovPath));
   assert.equal(result.exitCode, 0, result.stderr);
-  // Three-dimensional totals still appear, but statements defaults to 100%.
-  assert.match(result.stdout, /statements 100\.00%/);
+  // The three measured dimensions appear and statements does NOT. Printing a
+  // literal 100% for a dimension the gate skipped would state a
+  // measured-looking value it never measured — the exact claim this gate exists
+  // to refuse, since a declared-but-unenforced statements threshold is what
+  // made the old "thresholds met" line overstate what it had checked.
+  assert.match(result.stdout, /lines 100\.00%, branches 100\.00%, functions 100\.00%\)/u);
+  assert.doesNotMatch(result.stdout, /statements/u);
 });
 
 test("runGate reports non-vacuous percentages when the lcov report has summary lines", () => {
@@ -1299,4 +1304,90 @@ test("isMainInvocation throws rather than skipping the gate when the entry canno
     /ENOENT/,
     "an unresolvable entry must propagate, not silently decline to run the gate",
   );
+});
+test("an uncovered block reported by the same process that covered its parent is not a phantom", () => {
+  dir = makeTempDir();
+  const root = dir.root;
+  writeFileSync(join(root, "a.ts"), "export const a = 1;\n");
+  const v8Dir = join(root, "v8");
+  mkdirSync(v8Dir);
+  // Process 0 reports the parent B and the child C both uncovered; process 1
+  // reports B covered and C STILL UNCOVERED. Merging by max count keeps B at 1
+  // and C at 0, and if each block remembers only the source of its max-count
+  // report, B remembers process 1 while C remembers process 0. A subsumption
+  // test comparing those single sources then sees "different source" and drops
+  // C as a range-boundary phantom — even though process 1 explicitly reported
+  // C as never entered. The block is genuinely uncovered and must be counted.
+  writeFileSync(
+    join(v8Dir, "coverage-0.json"),
+    JSON.stringify({
+      result: [
+        {
+          scriptId: "1",
+          url: pathToFileURL(join(root, "a.ts")).href,
+          functions: [
+            { functionName: "f", ranges: [
+              { startOffset: 0, endOffset: 100, count: 0 },
+              { startOffset: 50, endOffset: 90, count: 0 },
+            ], isBlockCoverage: true },
+          ],
+        },
+      ],
+    }),
+  );
+  writeFileSync(
+    join(v8Dir, "coverage-1.json"),
+    JSON.stringify({
+      result: [
+        {
+          scriptId: "1",
+          url: pathToFileURL(join(root, "a.ts")).href,
+          functions: [
+            { functionName: "f", ranges: [
+              { startOffset: 0, endOffset: 100, count: 1 },
+              { startOffset: 50, endOffset: 90, count: 0 },
+            ], isBlockCoverage: true },
+          ],
+        },
+      ],
+    }),
+  );
+  const result = computeStatementCoverage(v8Dir, ["a.ts"], root);
+  assert.equal(result.total, 2);
+  assert.equal(result.covered, 1);
+  assert.equal(result.percentage, 50);
+  assert.deepEqual(result.uncoveredFiles, ["a.ts"]);
+});
+
+test("a file with several uncovered blocks is listed once", () => {
+  dir = makeTempDir();
+  const root = dir.root;
+  writeFileSync(join(root, "a.ts"), "export const a = 1;\n");
+  const v8Dir = join(root, "v8");
+  mkdirSync(v8Dir);
+  // uncoveredFiles is documented as the files with at least one uncovered
+  // block, and the failure output prints one bullet per entry, so pushing per
+  // block would repeat the same path once per block.
+  writeFileSync(
+    join(v8Dir, "coverage-0.json"),
+    JSON.stringify({
+      result: [
+        {
+          scriptId: "1",
+          url: pathToFileURL(join(root, "a.ts")).href,
+          functions: [
+            { functionName: "f", ranges: [
+              { startOffset: 0, endOffset: 100, count: 1 },
+              { startOffset: 10, endOffset: 20, count: 0 },
+              { startOffset: 30, endOffset: 40, count: 0 },
+            ], isBlockCoverage: true },
+          ],
+        },
+      ],
+    }),
+  );
+  const result = computeStatementCoverage(v8Dir, ["a.ts"], root);
+  assert.equal(result.total, 3);
+  assert.equal(result.covered, 1);
+  assert.deepEqual(result.uncoveredFiles, ["a.ts"]);
 });
