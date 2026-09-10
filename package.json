@@ -109,12 +109,12 @@
     "@babel/eslint-parser": "^8.0.1",
     "@babel/plugin-syntax-typescript": "^8.0.3",
     "@types/node": "^26.4.1",
-    "@unbrained/pm-cli": "2026.9.7",
+    "@unbrained/pm-cli": "2026.9.10",
     "eslint": "^10.9.1",
     "jiti": "^2.7.0",
     "jscpd": "^5.1.1",
     "pm-changelog": "2026.9.6",
-    "pm-ops": "^2026.9.7",
+    "pm-ops": "^2026.9.9",
     "typescript": "^7.0.2"
   },
   "peerDependencies": {
