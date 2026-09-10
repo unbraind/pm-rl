@@ -6,6 +6,7 @@
 
 - Environment registration and versioning, immutable once referenced ([pm-rl-et5b](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-et5b.toon))
 - Run lifecycle ingests NDJSON in bounded pm-rl/2 segments, reads pm-rl/1, and measures sustained storage ([pm-rl-dyho](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-dyho.toon))
+- Fail-closed statistically bounded promotion gate for the recursive loop ([pm-rl-gr7j](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-gr7j.toon))
 - Sim-to-real transfer measurement and gap reporting ([pm-rl-06n6](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-06n6.toon))
 - Sweep planning: expand a search space into independent child runs ([pm-rl-mqdb](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-mqdb.toon))
 - Determinism receipts, and re-deriving them on demand ([pm-rl-dpug](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-dpug.toon))

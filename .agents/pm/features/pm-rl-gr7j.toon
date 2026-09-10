@@ -1,0 +1,30 @@
+id: pm-rl-gr7j
+title: Fail-closed statistically bounded promotion gate for the recursive loop
+description: ""
+type: Feature
+status: closed
+priority: 1
+tags[3]: gate,promotion,recursive-training
+created_at: "2026-09-10T22:04:51.758Z"
+updated_at: "2026-09-10T22:05:15.706Z"
+closed_at: "2026-09-10T22:05:15.677Z"
+completed_at: "2026-09-10T22:05:15.677Z"
+claim_principal: pi-agent
+author: pi-agent
+parent: pm-rl-apvf
+resolution: "Promotion gate delivered and integrated into the recursive bandit loop. 100/100/100/100 coverage, 100% docstrings, all gates green, revert-check confirmed (14 tests RED when gate neutered)."
+expected_result: A fail-closed statistically bounded promotion gate closes the recursive self-improvement loop.
+actual_result: "promotion.ts gate + bandit.ts integration + 23 adversarial/numerical tests pass; coverage 100/100/100/100; docstrings 100%; typecheck, lint, duplicates, changelog green."
+comments[1]{created_at,author,text}:
+  "2026-09-10T22:05:05.431Z",pi-agent,"Delivered: promotion.ts is a pure fail-closed statistically bounded promotion gate (Hoeffding inequality over bounded-reward sample evidence). It enforces that a candidate is promoted ONLY when its held-out lower confidence bound exceeds the incumbent's upper bound by the effect threshold, with confidence 1-alpha over at least minSamples episodes, and the held-out set is isolated from training (contamination verdict null). Default is NO. Integrated into bandit.ts: the recursive loop now draws seeded held-out evaluation episodes and gates each promotion through decidePromotion, recording every refusal reason on the generation receipt (refusalReason) so the generations array is the auditable lineage. Adversarial tests in test/promotion.test.ts (19 tests) and test/bandit.test.ts (4 new gate tests) cover: no evidence -> refused; wrong generation -> refused; contaminated held-out -> refused; single lucky sample below minSamples -> refused; genuine statistically sound improvement -> promoted; regression -> refused with reason; minimize direction; transitive invalidation via existing buildLineageAncestry; determinism. Revert-check: neutering decidePromotion to always-promote turns 14 promotion tests RED (5 pass: pure parse/bound helpers + deterministic + transitive invalidation, which do not depend on the refusal behaviour). Coverage 100/100/100/100, docstrings 100%, no any, no inline await import, erasable TS only."
+files[6]{path,scope}:
+  bandit.ts,project
+  index.ts,project
+  package.json,project
+  promotion.ts,project
+  test/bandit.test.ts,project
+  test/promotion.test.ts,project
+tests[1]{command,path,scope,provenance{author,created_at,source_kind,source_ref},note}:
+  npm test,test/promotion.test.ts,project,pi-agent,"2026-09-10T22:05:10.678Z",local_mutation,feat/recursive-improvement-promotion-gate,"Adversarial gate tests: no evidence, wrong generation, contaminated held-out, single lucky sample, genuine improvement, regression, minimize, transitive invalidation, determinism"
+close_reason: "Promotion gate delivered and integrated into the recursive bandit loop. 100/100/100/100 coverage, 100% docstrings, all gates green, revert-check confirmed (14 tests RED when gate neutered)."
+body: ""

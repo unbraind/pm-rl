@@ -9,6 +9,8 @@
  */
 import { createHash } from "node:crypto";
 
+import { decidePromotion, type PromotionCriterion, type PromotionEvidence } from "./promotion.ts";
+
 /** A synthetic contextual bandit example with bounded feature and action rewards. */
 export interface BanditExample {
   /** Stable dataset-local identity, disjoint across training and evaluation. */
@@ -39,6 +41,12 @@ export interface BanditProgramme {
   readonly minimumImprovement: number;
   /** Maximum positive training-to-evaluation expected reward gap. */
   readonly maximumGap: number;
+  /** Number of held-out evaluation episodes sampled per policy for the promotion gate; 1..100000. */
+  readonly evaluationSamples: number;
+  /** Confidence level 1-alpha for the promotion gate's Hoeffding bound, in (0, 1). */
+  readonly confidence: number;
+  /** Minimum sample count the promotion gate requires from each side; a positive integer. */
+  readonly minSamples: number;
 }
 
 /** A reproducible policy checkpoint whose digest binds format and actual weight. */
@@ -69,6 +77,12 @@ export interface BanditGeneration {
   readonly evaluationScore: number;
   /** Whether this candidate became the next generation's policy. */
   readonly promoted: boolean;
+  /** Empirical mean reward of the incumbent on the sampled held-out evaluation episodes. */
+  readonly incumbentHeldOutMean: number;
+  /** Empirical mean reward of the candidate on the sampled held-out evaluation episodes. */
+  readonly candidateHeldOutMean: number;
+  /** The promotion gate's verdict reason; null when promoted, otherwise the recorded refusal. */
+  readonly refusalReason: string | null;
 }
 
 /** Terminal outcome; a rejection always retains the last accepted checkpoint. */
@@ -112,6 +126,36 @@ function evaluate(weight: number, examples: readonly BanditExample[]): number {
 }
 
 /**
+ * Sample held-out evaluation episodes and return the empirical mean reward.
+ *
+ * The promotion gate bounds SAMPLED evidence, not the exact expected reward the
+ * receipt records for determinism: a single noisy rollout beating the incumbent
+ * is not improvement, and a bound over the exact mean would be a bound over a
+ * constant. Each episode picks an evaluation example (cycling in declared
+ * order), samples an action from the given policy under the supplied LCG seed,
+ * and records the reward of the sampled action. The seed makes the empirical
+ * mean deterministic, so a replay reproduces it byte-identically.
+ *
+ * @param weight - The policy parameter to evaluate.
+ * @param examples - The held-out evaluation examples.
+ * @param samples - Number of episodes to draw.
+ * @param seed - Unsigned 32-bit LCG seed for reproducible action sampling.
+ * @returns The empirical mean reward over the drawn episodes.
+ */
+function sampledHeldOutMean(weight: number, examples: readonly BanditExample[], samples: number, seed: number): number {
+  let state = seed;
+  let total = 0;
+  for (let index = 0; index < samples; index += 1) {
+    const example = examples[index % examples.length];
+    const probability = 1 / (1 + Math.exp(-weight * example.feature));
+    state = (Math.imul(1664525, state) + 1013904223) >>> 0;
+    const action = state / 0x1_0000_0000 < probability ? 1 : 0;
+    total += example.rewards[action];
+  }
+  return total / samples;
+}
+
+/**
  * Execute real bounded policy-gradient generations without external processes.
  *
  * Inputs are validated before collection. The uint32 LCG makes every selected
@@ -122,7 +166,7 @@ function evaluate(weight: number, examples: readonly BanditExample[]): number {
  * necessary for unbiased claims after repeated selection.
  */
 export function runBanditProgramme(programme: BanditProgramme): BanditResult {
-  const { training, evaluation, initialWeight, seed, generations, samplesPerGeneration, learningRate, minimumImprovement, maximumGap } = programme;
+  const { training, evaluation, initialWeight, seed, generations, samplesPerGeneration, learningRate, minimumImprovement, maximumGap, evaluationSamples, confidence, minSamples } = programme;
   if (!Number.isInteger(seed) || seed < 0 || seed > 0xffff_ffff
     || !Number.isInteger(generations) || generations < 1 || generations > 100
     || !Number.isInteger(samplesPerGeneration) || samplesPerGeneration < 1
@@ -130,7 +174,10 @@ export function runBanditProgramme(programme: BanditProgramme): BanditResult {
     || !Number.isFinite(initialWeight) || Math.abs(initialWeight) > 20
     || !Number.isFinite(learningRate) || learningRate <= 0 || learningRate > 1
     || !Number.isFinite(minimumImprovement) || minimumImprovement < 0
-    || !Number.isFinite(maximumGap) || maximumGap < 0) {
+    || !Number.isFinite(maximumGap) || maximumGap < 0
+    || !Number.isInteger(evaluationSamples) || evaluationSamples < 1 || evaluationSamples > 100_000
+    || !Number.isFinite(confidence) || confidence <= 0 || confidence >= 1
+    || !Number.isInteger(minSamples) || minSamples < 1) {
     throw new Error("bandit_invalid: finite policy, seed, sample and promotion bounds required");
   }
   const identities = new Set<string>();
@@ -154,7 +201,7 @@ export function runBanditProgramme(programme: BanditProgramme): BanditResult {
   const trainingDigest = digest(collector);
   const evaluationDigest = digest(evaluator);
   const programmeDigest = digest({ format: "pm-rl/bandit-programme/1", trainingDigest, evaluationDigest,
-    initialWeight, seed, generations, samplesPerGeneration, learningRate, minimumImprovement, maximumGap });
+    initialWeight, seed, generations, samplesPerGeneration, learningRate, minimumImprovement, maximumGap, evaluationSamples, confidence, minSamples });
   const initial = checkpoint(initialWeight);
   let current = initial;
   let randomState = seed;
@@ -178,15 +225,58 @@ export function runBanditProgramme(programme: BanditProgramme): BanditResult {
     const baselineScore = evaluate(current.weight, evaluator);
     const trainingScore = evaluate(candidate.weight, collector);
     const evaluationScore = evaluate(candidate.weight, evaluator);
-    if (candidate.digest === current.digest) stopReason = "unchanged_checkpoint";
-    else if (evaluationScore - baselineScore < minimumImprovement) stopReason = "evaluation_rejected";
-    else if (trainingScore - evaluationScore > maximumGap) stopReason = "gap_rejected";
-    const promoted = stopReason === "generation_limit";
-    receipts.push({ generation, source: current, candidate,
-      collectionDigest: digest({ source: current.digest, trainingDigest, observations }),
-      actionCounts, baselineScore, trainingScore, evaluationScore, promoted });
-    if (!promoted) break;
-    current = candidate;
+    const collectionDigest = digest({ source: current.digest, trainingDigest, observations });
+    // The promotion gate bounds SAMPLED held-out evidence, so a single noisy
+    // rollout beating the incumbent cannot admit a generation. The incumbent
+    // and candidate are evaluated on independent seeded streams: independence
+    // is what the Hoeffding bound assumes, and the seeds make the empirical
+    // means deterministic. The training and evaluation example identities are
+    // validated disjoint above, so the held-out set is structurally
+    // unreachable from the gradient; the gate's contamination verdict is null.
+    const incumbentSeed = (Math.imul(generation, 0x9E3779B1) + seed) >>> 0;
+    const candidateSeed = (incumbentSeed + 0x6D5B5B5D) >>> 0;
+    const incumbentHeldOutMean = sampledHeldOutMean(current.weight, evaluator, evaluationSamples, incumbentSeed);
+    const candidateHeldOutMean = sampledHeldOutMean(candidate.weight, evaluator, evaluationSamples, candidateSeed);
+    if (candidate.digest === current.digest) {
+      stopReason = "unchanged_checkpoint";
+      receipts.push({ generation, source: current, candidate, collectionDigest, actionCounts,
+        baselineScore, trainingScore, evaluationScore, promoted: false,
+        incumbentHeldOutMean, candidateHeldOutMean,
+        refusalReason: "candidate checkpoint unchanged; no policy update to promote" });
+      break;
+    }
+    if (trainingScore - evaluationScore > maximumGap) {
+      stopReason = "gap_rejected";
+      receipts.push({ generation, source: current, candidate, collectionDigest, actionCounts,
+        baselineScore, trainingScore, evaluationScore, promoted: false,
+        incumbentHeldOutMean, candidateHeldOutMean,
+        refusalReason: `training-to-evaluation gap ${Math.max(0, trainingScore - evaluationScore).toFixed(6)} exceeds the maximum ${maximumGap}` });
+      break;
+    }
+    const candidateEvidence: PromotionEvidence = {
+      generation: `gen-${generation}`, objective: "expected_reward", objective_version: "1",
+      evaluation_context: evaluationDigest, direction: "maximize",
+      samples: evaluationSamples, mean: candidateHeldOutMean, rewardBounds: [0, 1],
+    };
+    const incumbentEvidence: PromotionEvidence = {
+      generation: generation === 1 ? "seed" : `gen-${generation - 1}`, objective: "expected_reward", objective_version: "1",
+      evaluation_context: evaluationDigest, direction: "maximize",
+      samples: evaluationSamples, mean: incumbentHeldOutMean, rewardBounds: [0, 1],
+    };
+    const criterion: PromotionCriterion = { confidence, minSamples, effectThreshold: minimumImprovement };
+    const verdict = decidePromotion({ candidate: candidateEvidence, incumbent: incumbentEvidence, criterion, contaminationPath: null, expectedGeneration: `gen-${generation}` });
+    if (verdict.decision === "promote") {
+      receipts.push({ generation, source: current, candidate, collectionDigest, actionCounts,
+        baselineScore, trainingScore, evaluationScore, promoted: true,
+        incumbentHeldOutMean, candidateHeldOutMean, refusalReason: null });
+      current = candidate;
+      continue;
+    }
+    stopReason = "evaluation_rejected";
+    receipts.push({ generation, source: current, candidate, collectionDigest, actionCounts,
+      baselineScore, trainingScore, evaluationScore, promoted: false,
+      incumbentHeldOutMean, candidateHeldOutMean, refusalReason: verdict.reason });
+    break;
   }
   return { programmeDigest, trainingDigest, evaluationDigest, initial, final: current,
     generations: receipts, samplesConsumed: receipts.length * samplesPerGeneration, stopReason };

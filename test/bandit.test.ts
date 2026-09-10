@@ -10,6 +10,8 @@ const programme: BanditProgramme = {
   evaluation: [{ id: "eval-positive", feature: 0.8, rewards: [0, 1] }, { id: "eval-negative", feature: -0.8, rewards: [1, 0] }],
   initialWeight: 0, seed: 42, generations: 3, samplesPerGeneration: 256,
   learningRate: 0.5, minimumImprovement: 0, maximumGap: 0.2,
+  // Enough sampled held-out episodes for the Hoeffding gate to admit a ~0.025 per-generation improvement at 95% confidence.
+  evaluationSamples: 30000, confidence: 0.95, minSamples: 10,
 };
 
 test("real policy updates recur using the promoted checkpoint and replay exactly", () => {
@@ -126,4 +128,56 @@ test("the emitted public package entry point executes the documented programme",
   assert.equal(result.samplesConsumed, 768);
   assert.equal(result.final.weight, 0.36331123588596426);
   assert.equal(result.generations[1].source.digest, result.generations[0].candidate.digest);
+});
+
+test("a regressing generation is refused by the gate and the refusal reason is recorded as lineage", () => {
+  // The evaluation set rewards the opposite action from the training set, so the
+  // candidate's held-out mean regresses below the incumbent's. The gate refuses
+  // and the refusal reason is recorded on the generation receipt.
+  const result = runBanditProgramme({ ...programme, evaluation: [{ id: "opposite", feature: 1, rewards: [1, 0] }], generations: 1 });
+  assert.equal(result.generations.length, 1);
+  assert.equal(result.generations[0].promoted, false);
+  assert.equal(result.stopReason, "evaluation_rejected");
+  assert.equal(result.final.digest, result.initial.digest);
+  assert.ok(result.generations[0].refusalReason !== null);
+  assert.match(result.generations[0].refusalReason!, /statistically better|regressed/);
+  // The candidate checkpoint still changed (the gradient is unaffected by the held-out set), so the refusal is on the gate, not on an unchanged checkpoint.
+  assert.notEqual(result.generations[0].candidate.digest, result.generations[0].source.digest);
+});
+
+test("a single lucky held-out sample cannot promote below the gate's minimum sample count", () => {
+  // One evaluation episode: the empirical mean is one noisy reward. The gate's
+  // Hoeffding bound is wide enough that even a high single-sample mean cannot
+  // clear the incumbent, and minSamples below the requirement refuses outright.
+  const lucky = runBanditProgramme({ ...programme, evaluationSamples: 1, minSamples: 1000, generations: 1 });
+  assert.equal(lucky.stopReason, "evaluation_rejected");
+  assert.equal(lucky.generations[0].promoted, false);
+  assert.match(lucky.generations[0].refusalReason!, /below the required minimum/);
+  // Even with minSamples met, a single sample's bound is too wide to promote.
+  const wide = runBanditProgramme({ ...programme, evaluationSamples: 1, minSamples: 1, generations: 1 });
+  assert.equal(wide.stopReason, "evaluation_rejected");
+  assert.equal(wide.generations[0].promoted, false);
+  assert.match(wide.generations[0].refusalReason!, /statistically better/);
+});
+
+test("the gate's refusal is attributable: every refused generation records a non-null reason", () => {
+  for (const stopReason of ["evaluation_rejected", "gap_rejected", "unchanged_checkpoint"] as const) {
+    const result = stopReason === "gap_rejected"
+      ? runBanditProgramme({ ...programme, maximumGap: 0, generations: 1 })
+      : stopReason === "unchanged_checkpoint"
+        ? runBanditProgramme({ ...programme, training: [{ id: "zero", feature: 0, rewards: [0, 0] }], generations: 1 })
+        : runBanditProgramme({ ...programme, evaluation: [{ id: "opposite", feature: 1, rewards: [1, 0] }], generations: 1 });
+    assert.equal(result.stopReason, stopReason);
+    assert.equal(result.generations[0].promoted, false);
+    assert.ok(result.generations[0].refusalReason !== null, `${stopReason} must record a refusal reason`);
+  }
+});
+
+test("promoted generations carry no refusal reason and refused generations carry no promotion", () => {
+  const result = runBanditProgramme(programme);
+  for (const generation of result.generations) {
+    assert.equal(generation.promoted, true);
+    assert.equal(generation.refusalReason, null);
+    assert.ok(generation.candidateHeldOutMean > generation.incumbentHeldOutMean);
+  }
 });
