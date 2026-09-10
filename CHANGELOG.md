@@ -62,6 +62,7 @@
 
 - Metric series live in item history, never in an item body ([pm-rl-mpd9](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/decisions/pm-rl-mpd9.toon))
 - 100/100/100 coverage and full docstring coverage for pm-rl ([pm-rl-fpon](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-fpon.toon))
+- Certify pm CLI 2026.9.10 and pick up the canonical auditor fixes the lockfile was holding back ([pm-rl-unhg](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-unhg.toon))
 - Pin pm toolchain 2026.9.5 and refuse reminting reserved sweep identities ([pm-rl-q5ym](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-q5ym.toon))
 - Converge the pinned pm-cli on 2026.8.31 and repair history hashes ([pm-rl-cfqp](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-cfqp.toon))
 - Run the publish-attestation gate in release:check ([pm-rl-t9b1](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-t9b1.toon))
