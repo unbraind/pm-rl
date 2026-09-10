@@ -9,6 +9,8 @@
 
 export { runBanditProgramme, type BanditCheckpoint, type BanditExample, type BanditGeneration, type BanditProgramme, type BanditResult } from "./bandit.ts";
 
+export { decidePromotion, hoeffdingEpsilon, parsePromotionCriterion, parsePromotionEvidence, type PromotionCriterion, type PromotionDecision, type PromotionEvidence, type PromotionGateInput } from "./promotion.ts";
+
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { StringDecoder } from "node:string_decoder";

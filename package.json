@@ -17,6 +17,7 @@
     "dist/sweep.*",
     "dist/transfer.*",
     "dist/refuse.*",
+    "dist/promotion.*",
     "manifest.json",
     "README.md",
     "CHANGELOG.md",
@@ -68,7 +69,8 @@
       "test/quality-scripts.test.ts",
       "test/coverage-gate.test.ts",
       "test/verify-release-publish-attestation.test.ts",
-      "test/bandit.test.ts"
+      "test/bandit.test.ts",
+      "test/promotion.test.ts"
     ],
     "thresholds": {
       "statements": 100,
