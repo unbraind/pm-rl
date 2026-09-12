@@ -6,6 +6,7 @@
 
 - Environment registration and versioning, immutable once referenced ([pm-rl-et5b](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-et5b.toon))
 - Run lifecycle ingests NDJSON in bounded pm-rl/2 segments, reads pm-rl/1, and measures sustained storage ([pm-rl-dyho](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-dyho.toon))
+- Execute deterministic bandit policy updates across promoted generations ([pm-rl-s44k](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-s44k.toon))
 - Fail-closed statistically bounded promotion gate for the recursive loop ([pm-rl-gr7j](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-gr7j.toon))
 - Sim-to-real transfer measurement and gap reporting ([pm-rl-06n6](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-06n6.toon))
 - Sweep planning: expand a search space into independent child runs ([pm-rl-mqdb](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-mqdb.toon))
@@ -62,6 +63,7 @@
 
 - Metric series live in item history, never in an item body ([pm-rl-mpd9](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/decisions/pm-rl-mpd9.toon))
 - 100/100/100 coverage and full docstring coverage for pm-rl ([pm-rl-fpon](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-fpon.toon))
+- pm-rl: an RL programme as tracked project data ([pm-rl-e20d](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/epics/pm-rl-e20d.toon))
 - Certify pm CLI 2026.9.12 and the pm-ops 2026.9.11 auditor ([pm-rl-9e9f](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-9e9f.toon))
 - Certify pm CLI 2026.9.10 and pick up the canonical auditor fixes the lockfile was holding back ([pm-rl-unhg](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-unhg.toon))
 - Pin pm toolchain 2026.9.5 and refuse reminting reserved sweep identities ([pm-rl-q5ym](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-q5ym.toon))
