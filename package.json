@@ -110,7 +110,7 @@
     "@babel/plugin-syntax-typescript": "^8.0.3",
     "@types/node": "^26.4.1",
     "@unbrained/pm-cli": "2026.9.10",
-    "eslint": "^10.9.1",
+    "eslint": "^10.10.0",
     "jiti": "^2.7.0",
     "jscpd": "^5.1.1",
     "pm-changelog": "2026.9.6",
