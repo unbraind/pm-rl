@@ -2,15 +2,20 @@ id: pm-rl-e20d
 title: "pm-rl: an RL programme as tracked project data"
 description: "An RL programme is one of the most context-heavy things an agent can run, and today its context lives in a dashboard, a folder of JSON and shell history: not reviewable, not merge-safe, and not available to the agent deciding what to train next. pm-rl makes the programme itself a tracker. Two pm properties do the real work. Metric logging is append-only and so is pm history, which unions losslessly under concurrent writers on separate branches, so two agents sweeping on two branches never lose rows. And runs form a dependency graph pm already models and queries, so the question that actually costs teams weeks - which results does this reward-spec change invalidate - is a reachability query rather than a feature."
 type: Epic
-status: open
+status: closed
 priority: 2
 tags: []
 created_at: "2026-07-31T06:38:28.906Z"
-updated_at: "2026-08-28T21:47:02.197Z"
+updated_at: "2026-09-12T23:18:52.981Z"
+closed_at: "2026-09-12T23:18:52.963Z"
+completed_at: "2026-09-12T23:18:52.963Z"
 author: "harness:claude-code"
 estimated_minutes: 4800
 acceptance_criteria: "Every item type registers with typed fields under the host schema; a run's metric series is only ever written to history; two concurrent runs on two branches merge to the union of both series against real git branches; leaderboard and invalidate answer from the dependency graph; 100 percent line, branch, function and docstring coverage"
 unblock_note: "Unblocked: pm-cli#854 closed 2026-08-01. The SDK now ships defineBeforeMutationHook and BeforeMutationHook types, verified in node_modules/@unbrained/pm-cli/dist/sdk/authoring.d.ts. The child pm-rl-et5b is implemented and tested with a real beforeMutation hook."
+resolution: All five acceptance criteria satisfied; the host-level write interception blocker is resolved via defineBeforeMutationHook.
+expected_result: Every item type registers; metric series in history; two-branch merge unions; leaderboard and invalidate from graph; 100 percent coverage and docstrings.
+actual_result: "defineExtension registers all types; series.ts writes to history; test/index.test.ts:569 proves two-branch union; leaderboard.ts and invalidate.ts query the graph; coverage 100/100/100/100, 139 declarations documented, 323 tests pass."
 comments[1]{created_at,author,text}:
   "2026-08-22T13:30:17.054Z",pi-agent,"Re-verified this session (pi-agent). Every acceptance criterion in THIS epic is satisfied against the current tree: all nine item types register with typed fields under the host schema; a run's metric series is only ever written to history (never a body); two concurrent writers on two real git branches merge to the union of both series — proven for plain runs and again for independent sweep arms; leaderboard and invalidate answer from the stored dependency graph; npm run coverage reports 17 source file(s) at 100/100/100 lines/branches/functions and npm run docstring reports 17 file(s), 123 declaration(s) documented, with release:check fully green.\n\nThe epic stays BLOCKED for exactly one reason, inherited from its child pm-rl-et5b: host-level write-time interception of arbitrary core mutations (see that item's re-verification note — pm-cli#854 closed without delivering an extension-registerable mutation-invariant hook in 2026.8.20). Nothing else is missing; if et5b unblocks or the fleet agrees use-time detection satisfies its intent, this epic can close immediately on the evidence above.\n"
 notes[1]{created_at,author,text}:
@@ -19,4 +24,5 @@ files[1]{path,scope,note}:
   LICENSE,project,Public package licensing boundary
 docs[1]{path,scope,note}:
   CHANGELOG.md,project,Generated release evidence from package PM history
+close_reason: "All acceptance criteria met in current main. Every item type registers with typed fields via defineExtension (index.ts); a run's metric series is only ever written to history notes (series.ts, index.ts line 189); two concurrent runs on two real git branches merge to the union of both series (test/index.test.ts line 569, test/sweep.test.ts line 321); leaderboard and invalidate answer from the dependency graph (leaderboard.ts, invalidate.ts with comprehensive tests); 100 percent line/branch/function/statement coverage across 20 source files and 139 documented declarations. The blocker pm-cli#854 is resolved: defineBeforeMutationHook is shipped and used at index.ts line 276 (guardReferencedEnvironmentMutation). All 15 children are closed. 323 tests pass."
 body: ""
