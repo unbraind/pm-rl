@@ -106,7 +106,7 @@
   "homepage": "https://github.com/unbraind/pm-rl#readme",
   "devDependencies": {
     "@babel/core": "^8.0.6",
-    "@babel/eslint-parser": "^8.0.1",
+    "@babel/eslint-parser": "^8.0.6",
     "@babel/plugin-syntax-typescript": "^8.0.3",
     "@types/node": "^26.6.1",
     "@unbrained/pm-cli": "2026.9.17",
