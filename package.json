@@ -108,7 +108,7 @@
     "@babel/core": "^8.0.1",
     "@babel/eslint-parser": "^8.0.1",
     "@babel/plugin-syntax-typescript": "^8.0.3",
-    "@types/node": "^26.5.1",
+    "@types/node": "^26.6.1",
     "@unbrained/pm-cli": "2026.9.17",
     "eslint": "^10.10.0",
     "jiti": "^2.7.0",
