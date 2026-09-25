@@ -4,7 +4,7 @@
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -12,16 +12,7 @@ import test from "node:test";
 
 import eslintConfig from "../scripts/eslint.config.ts";
 import { isMainInvocation as docstringIsMain, main as docstringMain, runGate as docstringRunGate } from "../scripts/docstring-gate.ts";
-import { isExecutableFile, isMainInvocation as prepareIsMain, main as prepareMain, pmOnPath } from "../scripts/prepare-merge-driver.ts";
 import { runIfMain } from "../scripts/script-launcher.ts";
-
-/** Creates an executable Node fixture and returns its path. */
-function executableFixture(root: string, body: string, name = "fixture.ts"): string {
-  const path = join(root, name);
-  writeFileSync(path, `#!/usr/bin/env node\n${body}\n`);
-  chmodSync(path, 0o755);
-  return path;
-}
 
 test("ESLint configuration applies every mandatory TypeScript syntax prohibition", () => {
   const configured = eslintConfig.find((entry) => entry.files?.includes("**/*.ts"));
@@ -53,90 +44,6 @@ test("ESLint configuration enforces eqeqeq and prefer-const", () => {
   assert.ok(configured, "TypeScript rule block must be configured");
   assert.deepEqual(configured.rules?.eqeqeq, ["error", "always"]);
   assert.equal(configured.rules?.["prefer-const"], "error");
-});
-
-test("merge-driver preparation distinguishes absence, invalid candidates and an executable PM", () => {
-  const root = mkdtempSync(join(tmpdir(), "pm-rl-prepare-"));
-  try {
-    const directory = join(root, "pm");
-    mkdirSync(directory);
-    assert.equal(isExecutableFile(directory, "linux"), false);
-    assert.equal(isExecutableFile(join(root, "absent"), "linux"), false);
-    const nonExecutable = executableFixture(root, "process.exit(0);", "not-pm");
-    chmodSync(nonExecutable, 0o644);
-    assert.equal(isExecutableFile(nonExecutable, "linux"), false);
-    assert.equal(isExecutableFile(nonExecutable, "win32"), true);
-    assert.equal(pmOnPath({ PATH: "" }, "win32"), null);
-    assert.equal(pmOnPath({}, "linux"), null);
-    assert.equal(pmOnPath({ PATH: '"' + root + '"', PATHEXT: ".CMD;.EXE" }, "win32"), null);
-    assert.equal(prepareMain({ PATH: "" }, "linux"), false);
-
-    rmSync(directory, { recursive: true });
-    const marker = join(root, "called");
-    executableFixture(root, `
-if (process.argv.slice(2).join(" ") !== "merge install") process.exit(8);
-require("node:fs").writeFileSync(${JSON.stringify(marker)}, "yes");`, "pm");
-    const fixturePath = `${root}:${dirname(process.execPath)}`;
-    assert.equal(pmOnPath({ PATH: fixturePath }, "linux"), join(root, "pm"));
-    assert.equal(prepareMain({ PATH: fixturePath }, "linux"), true);
-
-    const windowsShim = executableFixture(root, "process.exit(0);", "pm.CMD");
-    const windowsEnvironment = { PATH: `"${root}"`, PATHEXT: ".CMD;.EXE" };
-    assert.equal(
-      pmOnPath(windowsEnvironment, "win32"),
-      windowsShim,
-    );
-    let windowsShell = false;
-    assert.equal(prepareMain(windowsEnvironment, "win32", (executable, arguments_, options) => {
-      // With shell:true on Windows the executable path is quoted before it
-      // crosses the cmd.exe boundary, so a directory name containing a space
-      // is not split into arguments.
-      assert.equal(executable, `"${windowsShim}"`);
-      assert.deepEqual(arguments_, ["merge", "install"]);
-      windowsShell = options.shell;
-    }), true);
-    assert.equal(windowsShell, true);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("prepare-merge-driver quotes a Windows shim resolved from a directory whose name contains a space", () => {
-  // execFileSync with shell:true hands cmd.exe a single command line and does
-  // not quote the executable path itself, so a shim under a directory such as
-  // `Program Files` would be split at the space. Discovery resolves the real
-  // path; main must then quote it before invoking the shell.
-  const root = mkdtempSync(join(tmpdir(), "pm-rl-prepare-space-"));
-  try {
-    const spaced = join(root, "Program Files");
-    mkdirSync(spaced, { recursive: true });
-    const shim = executableFixture(spaced, "process.exit(0);", "pm.CMD");
-    const environment = { PATH: `"${spaced}"`, PATHEXT: ".CMD;.EXE" };
-    assert.equal(pmOnPath(environment, "win32"), shim);
-    let received: string | null = null;
-    assert.equal(prepareMain(environment, "win32", (executable) => {
-      received = executable;
-    }), true);
-    assert.equal(received, `"${shim}"`);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("prepare-merge-driver isMainInvocation resolves matching and non-matching scripts", () => {
-  const root = mkdtempSync(join(tmpdir(), "pm-rl-prepare-main-"));
-  try {
-    const script = join(root, "prepare-merge-driver.ts");
-    const other = join(root, "other.ts");
-    writeFileSync(script, "");
-    writeFileSync(other, "");
-    const url = pathToFileURL(script).href;
-    assert.equal(prepareIsMain([process.execPath, script], url), true);
-    assert.equal(prepareIsMain([process.execPath, other], url), false);
-    assert.equal(prepareIsMain([process.execPath], url), false);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
 });
 
 test("docstring gate runGate returns success for the real repository root", () => {

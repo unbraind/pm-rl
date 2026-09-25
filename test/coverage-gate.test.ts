@@ -582,8 +582,9 @@ test("computeStatementCoverage keeps genuinely uncovered blocks that are not sub
       ],
     }),
   );
-  // Second JSON: has a covered block at 60-80, but it does NOT contain the
-  // 50-100 uncovered block (60 > 50, so it starts after the uncovered block).
+  // Second JSON: this process split the same unexecuted code differently, at
+  // 45-100, and also left it at count 0. Its innermost range enclosing 50-100
+  // is that count-0 range, so no process vouches for the block.
   writeFileSync(
     join(v8Dir, "coverage-1.json"),
     JSON.stringify({
@@ -595,7 +596,7 @@ test("computeStatementCoverage keeps genuinely uncovered blocks that are not sub
             { functionName: "", ranges: [{ startOffset: 0, endOffset: 110, count: 1 }], isBlockCoverage: true },
             { functionName: "f", ranges: [
               { startOffset: 10, endOffset: 105, count: 1 },
-              { startOffset: 60, endOffset: 80, count: 1 },
+              { startOffset: 45, endOffset: 100, count: 0 },
             ], isBlockCoverage: true },
           ],
         },
@@ -603,10 +604,70 @@ test("computeStatementCoverage keeps genuinely uncovered blocks that are not sub
     }),
   );
   const result = computeStatementCoverage(v8Dir, ["a.ts"], root);
-  // The 50-100 block (count 0) is NOT subsumed by 60-80 (60 > 50).
-  assert.ok(result.total >= 4, `total ${result.total} must include the uncovered block`);
-  assert.ok(result.covered < result.total, "some blocks must be uncovered");
+  // Neither process entered the 50-100 code, whatever boundaries it reported.
+  // Process 1's 45-100 block is credited: process 0 ran offsets 45-50, inside
+  // its count-1 function range. Counted: module, f, and the uncovered 50-100.
+  assert.equal(result.total, 3);
+  assert.equal(result.covered, 2);
   assert.ok(result.percentage < 100, "percentage must be below 100");
+  assert.deepEqual(result.uncoveredFiles, ["a.ts"]);
+});
+
+/** Write one V8 coverage file per process for `a.ts` under a fresh temp root and measure it. */
+function measureProcesses(processes: ReadonlyArray<ReadonlyArray<{ functionName: string; ranges: { startOffset: number; endOffset: number; count: number }[]; isBlockCoverage: boolean }>>): ReturnType<typeof computeStatementCoverage> {
+  dir = makeTempDir();
+  const root = dir.root;
+  writeFileSync(join(root, "a.ts"), "export const a = 1;\n");
+  const v8Dir = join(root, "v8");
+  mkdirSync(v8Dir);
+  processes.forEach((functions, index) => {
+    writeFileSync(
+      join(v8Dir, `coverage-${index}.json`),
+      JSON.stringify({ result: [{ scriptId: String(index + 1), url: pathToFileURL(join(root, "a.ts")).href, functions }] }),
+    );
+  });
+  return computeStatementCoverage(v8Dir, ["a.ts"], root);
+}
+
+test("computeStatementCoverage credits a module-level block another process ran without splitting a range there", () => {
+  // The launcher fixture suite: each child process runs a different branch of
+  // the same module-level code. Process 0 skipped 50-80 and reports it at 0;
+  // process 1 ran it, and because its count equals the enclosing module range
+  // V8 emits no nested range there. Its innermost range enclosing 50-80 is the
+  // module range with count 1, so the block was entered.
+  const result = measureProcesses([
+    [{ functionName: "", ranges: [{ startOffset: 0, endOffset: 200, count: 1 }, { startOffset: 50, endOffset: 80, count: 0 }], isBlockCoverage: true }],
+    [{ functionName: "", ranges: [{ startOffset: 0, endOffset: 200, count: 1 }, { startOffset: 120, endOffset: 150, count: 0 }], isBlockCoverage: true }],
+  ]);
+  // Process 0 in turn ran 120-150, which process 1 skipped: both blocks are phantoms.
+  assert.equal(result.total, 1);
+  assert.equal(result.covered, 1);
+  assert.deepEqual(result.uncoveredFiles, []);
+});
+
+test("computeStatementCoverage takes the innermost enclosing range, whatever order a process lists them in", () => {
+  // Process 1 lists its narrower 40-100 range (count 0) BEFORE the wider
+  // function range (count 1): the narrower one decides, so 50-90 stays uncovered.
+  const uncovered = measureProcesses([
+    [{ functionName: "f", ranges: [{ startOffset: 10, endOffset: 105, count: 1 }, { startOffset: 50, endOffset: 90, count: 0 }], isBlockCoverage: true }],
+    [{ functionName: "f", ranges: [{ startOffset: 40, endOffset: 100, count: 0 }, { startOffset: 10, endOffset: 105, count: 1 }], isBlockCoverage: true }],
+  ]);
+  assert.deepEqual(uncovered.uncoveredFiles, ["a.ts"]);
+  // A process whose ranges enclose nothing of the block cannot vouch for it.
+  const disjoint = measureProcesses([
+    [{ functionName: "f", ranges: [{ startOffset: 10, endOffset: 105, count: 1 }, { startOffset: 50, endOffset: 90, count: 0 }], isBlockCoverage: true }],
+    [{ functionName: "f", ranges: [{ startOffset: 60, endOffset: 70, count: 1 }], isBlockCoverage: true }],
+  ]);
+  assert.deepEqual(disjoint.uncoveredFiles, ["a.ts"]);
+});
+
+test("computeStatementCoverage never lets a process without block coverage vouch for a block", () => {
+  // isBlockCoverage false: V8 only knows the function ran, not which of its
+  // blocks did, so its whole-function count says nothing about 50-100.
+  const result = measureProcesses([
+    [{ functionName: "f", ranges: [{ startOffset: 10, endOffset: 105, count: 1 }, { startOffset: 50, endOffset: 100, count: 0 }], isBlockCoverage: true }],
+    [{ functionName: "f", ranges: [{ startOffset: 10, endOffset: 105, count: 3 }], isBlockCoverage: false }],
+  ]);
   assert.deepEqual(result.uncoveredFiles, ["a.ts"]);
 });
 
