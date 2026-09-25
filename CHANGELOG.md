@@ -63,6 +63,7 @@
 
 - Metric series live in item history, never in an item body ([pm-rl-mpd9](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/decisions/pm-rl-mpd9.toon))
 - 100/100/100 coverage and full docstring coverage for pm-rl ([pm-rl-fpon](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-fpon.toon))
+- Certify pm CLI 2026.9.23 and adopt the guarded pm-ops merge-driver launcher ([pm-rl-nerp](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-nerp.toon))
 - Certify pm CLI 2026.9.17 ([pm-rl-jlom](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-jlom.toon))
 - pm-rl: an RL programme as tracked project data ([pm-rl-e20d](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/epics/pm-rl-e20d.toon))
 - Certify pm CLI 2026.9.12 and the pm-ops 2026.9.11 auditor ([pm-rl-9e9f](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-9e9f.toon))

@@ -67,6 +67,7 @@
       "test/compare.test.ts",
       "test/leaderboard.test.ts",
       "test/quality-scripts.test.ts",
+      "test/prepare-merge-driver.test.ts",
       "test/coverage-gate.test.ts",
       "test/verify-release-publish-attestation.test.ts",
       "test/bandit.test.ts",
@@ -109,12 +110,12 @@
     "@babel/eslint-parser": "^8.0.6",
     "@babel/plugin-syntax-typescript": "^8.0.3",
     "@types/node": "^26.6.1",
-    "@unbrained/pm-cli": "2026.9.17",
+    "@unbrained/pm-cli": "2026.9.23",
     "eslint": "^10.10.0",
     "jiti": "^2.7.0",
     "jscpd": "^5.3.0",
-    "pm-changelog": "^2026.9.16",
-    "pm-ops": "^2026.9.13",
+    "pm-changelog": "2026.9.23",
+    "pm-ops": "2026.9.23",
     "typescript": "^7.0.2"
   },
   "peerDependencies": {

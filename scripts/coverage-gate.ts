@@ -470,11 +470,18 @@ export function parseLcovTotals(lcovPath: string): LcovTotals {
  * Different processes can report different range boundaries for the same
  * logical block (V8 splits or merges ranges depending on optimisation level).
  * The merge keys on `(file, functionName, functionFirstStart, rangeStartOffset)`:
- * a block is covered if ANY process entered it. When a count-0 block from one
- * process is fully contained by a count->0 block from a different process (same
- * function, earlier start, same-or-later end), the count-0 block is a V8
- * range-boundary phantom and is removed — it represents the same code the other
- * process measured as covered, not genuinely untested code.
+ * a block is covered if ANY process entered it. Within one process V8 nests
+ * ranges and emits a nested range only where its count differs from the
+ * enclosing one, so a process that executed a block without reporting a range
+ * at that offset still measured it: the innermost range of that process
+ * enclosing the block carries its count. A count-0 block is therefore dropped
+ * as a range-boundary phantom when some OTHER process with block-level coverage
+ * for the function has a count->0 innermost range enclosing it. A process that
+ * reported the block itself saw it at count 0 and never vouches for it, and a
+ * process without block-level coverage (`isBlockCoverage` false) knows only that
+ * the function ran, so it vouches for nothing inside it. A child-process
+ * fixture suite needs this: each run enters a different branch of the same
+ * module-level code.
  *
  * @param v8CoverageDir - Directory containing V8 coverage JSON files.
  * @param required - Repository-relative POSIX paths that must appear in the report.
@@ -499,8 +506,16 @@ export function computeStatementCoverage(
   // Key: "file|fnName|funcFirstStart|rangeStart" -> { count, endOffset, source }
   const blockEntries = new Map<
     string,
-    { count: number; endOffset: number; sources: Set<string>; coveredSources: Set<string> }
+    {
+      count: number;
+      endOffset: number;
+      sources: Set<string>;
+      views: ReadonlyMap<string, { readonly block: boolean; readonly ranges: readonly V8Range[] }>;
+    }
   >();
+
+  // Per function, each process's own ranges: the view a phantom check needs.
+  const rangesBySource = new Map<string, Map<string, { block: boolean; ranges: readonly V8Range[] }>>();
 
   for (const { script, source } of scriptsWithSources) {
     if (!script.url.startsWith("file://")) continue;
@@ -518,11 +533,18 @@ export function computeStatementCoverage(
       // other: a never-entered function is one uncovered block, and a called
       // one that V8 did not instrument at block level is one covered block.
       const funcFirstStart = func.ranges.length > 0 ? func.ranges[0].startOffset : 0;
+      const funcKey = `${rel}|${func.functionName}|${funcFirstStart}`;
+      let perSource = rangesBySource.get(funcKey);
+      if (perSource === undefined) {
+        perSource = new Map();
+        rangesBySource.set(funcKey, perSource);
+      }
+      perSource.set(source, { block: func.isBlockCoverage, ranges: func.ranges });
       for (const range of func.ranges) {
         const key = `${rel}|${func.functionName}|${funcFirstStart}|${range.startOffset}`;
         let existing = blockEntries.get(key);
         if (existing === undefined) {
-          existing = { count: range.count, endOffset: range.endOffset, sources: new Set(), coveredSources: new Set() };
+          existing = { count: range.count, endOffset: range.endOffset, sources: new Set(), views: perSource };
           blockEntries.set(key, existing);
         } else if (range.count > existing.count) {
           existing.count = range.count;
@@ -533,24 +555,8 @@ export function computeStatementCoverage(
         // a covered process also saw this block as uncovered, which is exactly
         // what distinguishes a range-boundary phantom from real uncovered code.
         existing.sources.add(source);
-        if (range.count > 0) existing.coveredSources.add(source);
       }
     }
-  }
-
-  // Pre-group covered blocks by function so the subsumption loop only
-  // iterates over covered blocks in the same function, not all blocks.
-  const coveredByFunc = new Map<string, { start: number; end: number; srcs: ReadonlySet<string> }[]>();
-  for (const [key, entry] of blockEntries) {
-    if (entry.coveredSources.size === 0) continue;
-    const parts = key.split("|");
-    const funcKey = `${parts[0]}|${parts[1]}|${parts[2]}`;
-    let list = coveredByFunc.get(funcKey);
-    if (list === undefined) {
-      list = [];
-      coveredByFunc.set(funcKey, list);
-    }
-    list.push({ start: Number(parts[3]), end: entry.endOffset, srcs: entry.coveredSources });
   }
 
   let total = 0;
@@ -563,39 +569,26 @@ export function computeStatementCoverage(
       covered++;
       continue;
     }
-    // A block is a range-boundary phantom only when some process entered a
-    // containing block AND never reported THIS block at all — meaning that
-    // process split the range differently, so its coverage says nothing about
-    // this range's boundaries.
-    //
-    // The test is over SETS of sources, not a single stored one. Keeping only
-    // the max-count source loses which processes saw this block at all: with
-    // B=0,C=0 from process 0 and B=1,C=0 from process 1, C keeps process 0 as
-    // its source while B keeps process 1, so a source-inequality check drops C
-    // as a phantom even though process 1 reported it uncovered too.
+    // A range-boundary phantom: another process with block-level coverage for
+    // this function entered the code, which its innermost enclosing range
+    // records even though it reported no range at this offset. A process that
+    // reported this block saw it at count 0 and is skipped.
     const parts = key.split("|");
     const file = parts[0];
-    const funcKey = `${parts[0]}|${parts[1]}|${parts[2]}`;
     const start = Number(parts[3]);
-    const list = coveredByFunc.get(funcKey);
     let subsumed = false;
-    if (list !== undefined) {
-      for (const other of list) {
-        // Subsume only when NO source that reported this block also covered
-        // the containing one. If a source reported both, that source is saying
-        // "I entered the parent and did not enter this range", which is real
-        // uncovered code, not a boundary artefact.
-        let sharedSource = false;
-        for (const src of other.srcs) {
-          if (entry.sources.has(src)) {
-            sharedSource = true;
-            break;
-          }
+    for (const [source, view] of entry.views) {
+      if (!view.block || entry.sources.has(source)) continue;
+      let innermost: V8Range | undefined;
+      for (const range of view.ranges) {
+        if (range.startOffset <= start && range.endOffset >= entry.endOffset
+          && (innermost === undefined || range.endOffset - range.startOffset < innermost.endOffset - innermost.startOffset)) {
+          innermost = range;
         }
-        if (!sharedSource && other.start <= start && other.end >= entry.endOffset) {
-          subsumed = true;
-          break;
-        }
+      }
+      if (innermost !== undefined && innermost.count > 0) {
+        subsumed = true;
+        break;
       }
     }
     if (subsumed) continue;
