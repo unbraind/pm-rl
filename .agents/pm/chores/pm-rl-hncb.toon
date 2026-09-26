@@ -1,0 +1,25 @@
+id: pm-rl-hncb
+title: Certify pm-rl against PM CLI SDK 2026.9.26
+description: "Upgrade exact development pins for @unbrained/pm-cli, pm-ops and pm-changelog, then certify the recursive-training extension and release pipeline on the installed toolchain. This does not close the durable-controller epic."
+type: Chore
+status: in_progress
+priority: 1
+tags: []
+created_at: "2026-09-26T19:59:42.997Z"
+updated_at: "2026-09-26T20:15:34.554Z"
+author: codex
+acceptance_criteria: "Package and lockfile pin published PM CLI 2026.9.26, pm-ops 2026.9.26, pm-changelog 2026.9.25; full release:check and strict tracker health pass on installed dependencies; packed npm and Bun extension acceptance is measured; PR links this item and records review limitations."
+parent: pm-rl-apvf
+notes[2]{created_at,author,text}:
+  "2026-09-26T20:06:25.026Z",codex,"Initial pm test linked release gate failed because the default schema sandbox injected PM_PATH into npm tests that initialize their own temporary trackers; direct release:check reached a real canonical-launcher mismatch with pm-ops 2026.9.26. Updated the launcher from the installed canonical template. Both observations are distinct; revalidation follows."
+  "2026-09-26T20:15:33.662Z",codex,"2026-09-26: Direct npm run release:check on installed PM CLI/SDK 2026.9.26, pm-ops 2026.9.26 and pm-changelog 2026.9.25 passed 329/329 tests, 0 failures, 100.00% statements/lines/branches/functions over 20 authored source files, 136/136 documented declarations, zero duplication and zero npm production vulnerabilities. Packed pm-rl tarball installed and imported under npm/Node and Bun 1.3.5. PM linked bandit acceptance passed 14/14. Strict PM health ok=true with an existing provenance-value warning. Full linked npm test context limitation is upstream pm-cli#1318; direct full gate is the valid package result."
+files[3]{path,scope,note}:
+  package-lock.json,project,Resolved PM toolchain lock
+  package.json,project,Exact PM toolchain pins
+  scripts/prepare-merge-driver.ts,project,Canonical pm-ops 2026.9.26 launcher
+tests[1]{command,path,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref},note}:
+  node --test test/bandit.test.ts,test/bandit.test.ts,project,120,codex,"2026-09-26T20:13:30.835Z",local_mutation,chore/pm-rl-cli-sdk-2026-9-26,Bounded recursive training adapter acceptance
+docs[2]{path,scope,note}:
+  "https://github.com/unbraind/pm-cli/issues/1318",project,Linked test sandbox issue
+  RECURSIVE_TRAINING.md,project,Controller scope remains open
+body: ""
