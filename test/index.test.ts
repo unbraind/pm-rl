@@ -245,12 +245,14 @@ test("a referenced environment is refused at the write boundary by the command, 
   const { root, pmRoot, harness } = await workspace();
   // Exercise the shipped archive. The CLI refuses a source-directory install
   // once dependency trees make its bounded scan incomplete.
-  const archive = execFileSync(process.platform === "win32" ? "npm.cmd" : "npm", ["pack", "--ignore-scripts", "--silent", "--pack-destination", root], {
+  const packOutput = execFileSync(process.platform === "win32" ? "npm.cmd" : "npm", ["pack", "--ignore-scripts", "--silent", "--pack-destination", root], {
     cwd: process.cwd(),
     encoding: "utf8",
     shell: process.platform === "win32",
-  }).trim();
-  assert.match(archive, /^pm-rl-.*\.tgz$/);
+  });
+  // npm 10 on Node 22 also prints the prepare script's output to stdout.
+  const archive = packOutput.trim().split(/\r?\n/).at(-1);
+  assert.ok(archive && /^pm-rl-.*\.tgz$/.test(archive), "npm pack did not return the pm-rl archive as its final line");
   execFileSync(join(process.cwd(), "node_modules", ".bin", "pm"), ["package", "install", join(root, archive), "--project", "--json"], {
     cwd: root,
     encoding: "utf8",
