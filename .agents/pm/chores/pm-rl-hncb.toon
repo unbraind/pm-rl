@@ -1,28 +1,53 @@
 id: pm-rl-hncb
-title: Certify pm-rl against PM CLI SDK 2026.9.26
-description: "Upgrade exact development pins for @unbrained/pm-cli, pm-ops and pm-changelog, then certify the recursive-training extension and release pipeline on the installed toolchain. This does not close the durable-controller epic."
+title: Certify pm-rl against PM CLI SDK 2026.9.28
+description: "Upgrade the candidate development CLI and SDK to published 2026.9.28 to match the active pm-github extension SDK; retain published pm-ops 2026.9.28 and pm-changelog 2026.9.25. Certify direct release gates, packed npm/Bun behavior, and strict tracker health. Companion rollout: pm-cli-website-377e."
 type: Chore
 status: in_progress
 priority: 1
 tags: []
 created_at: "2026-09-26T19:59:42.997Z"
-updated_at: "2026-09-28T06:51:22.103Z"
+updated_at: "2026-09-28T19:57:12.474Z"
 author: codex
-acceptance_criteria: "Package and lockfile pin published PM CLI 2026.9.26, pm-ops 2026.9.28, pm-changelog 2026.9.25; full release:check and strict tracker health pass on installed dependencies; packed npm and Bun extension acceptance is measured; PR links this item and records review limitations."
+acceptance_criteria: "Package and lockfile pin published PM CLI 2026.9.28, pm-ops 2026.9.28, pm-changelog 2026.9.25; full direct release:check and strict tracker health pass on installed dependencies; packed npm and Bun extension acceptance is measured; PR links this item and records independent review and recursive-training limitations."
 parent: pm-rl-apvf
 comments[1]{created_at,author,text}:
   "2026-09-28T06:51:05.996Z",claude-hub,"2026-09-28: pinned pm-ops 2026.9.28 and re-copied its templates/prepare-merge-driver.ts in 29e11d7 (pm-ops#124: the omit-dev skip now checks every Node resolution path for an incomplete hoisted pm-ops). release:check and changelog:check pass on this branch. Acceptance criteria and the launcher link note now name pm-ops 2026.9.28; the dated 2026.9.26 notes above stay as historical results."
-notes[3]{created_at,author,text}:
+notes[5]{created_at,author,text}:
   "2026-09-26T20:06:25.026Z",codex,"Initial pm test linked release gate failed because the default schema sandbox injected PM_PATH into npm tests that initialize their own temporary trackers; direct release:check reached a real canonical-launcher mismatch with pm-ops 2026.9.26. Updated the launcher from the installed canonical template. Both observations are distinct; revalidation follows."
   "2026-09-26T20:15:33.662Z",codex,"2026-09-26: Direct npm run release:check on installed PM CLI/SDK 2026.9.26, pm-ops 2026.9.26 and pm-changelog 2026.9.25 passed 329/329 tests, 0 failures, 100.00% statements/lines/branches/functions over 20 authored source files, 136/136 documented declarations, zero duplication and zero npm production vulnerabilities. Packed pm-rl tarball installed and imported under npm/Node and Bun 1.3.5. PM linked bandit acceptance passed 14/14. Strict PM health ok=true with an existing provenance-value warning. Full linked npm test context limitation is upstream pm-cli#1318; direct full gate is the valid package result."
   "2026-09-26T20:16:50.259Z",codex,"PR https://github.com/unbraind/pm-rl/pull/54 proposes the SDK and canonical launcher update. Exact-head CI, bot review, merge and publication remain pending independently of the passed local release gate."
-files[3]{path,scope,note}:
+  "2026-09-28T19:51:00.569Z","harness:codex","2026-09-28 red-first CLI 2026.9.28 gate: one real host-bound test failed because pm install pointed at the whole checkout and the current CLI refused an incomplete 10000-entry source scan. Replaced that one-use fixture with npm pack archive installation through pm package install. Focused compiled test passed 1/1. The CLI refusal is expected upstream behavior; this is a package test correction."
+  "2026-09-28T19:57:12.452Z","harness:codex","2026-09-28 final local CLI 2026.9.28 candidate: direct release:check passed 329/329 tests with 0 failures or skips. Coverage gate measured 100.00% statements lines branches and functions over 20 authored source files; docstrings 136/136 declarations; duplication zero; production npm audit zero vulnerabilities; package pack and changelog check passed. A red-first host-bound test failed on the now-correct 10000-entry local source scan refusal and passed after installing the packed archive. Fresh npm/Node and Bun 1.3.5 projects imported the tarball and npx/bunx ran pm 2026.9.28. A linked snapshot workspace run of the focused packed mutation test passed 1/1; initial linked none/source and isolated attempts failed on context and absent test file, respectively. Strict PM health passes with one historical provenance advisory. pm-github public issue import and sync dry runs planned zero writes because the repo currently has zero GitHub issues. This does not certify a nonempty import, recursive controller, hosted service or external reviews."
+files[4]{path,scope,note}:
   package-lock.json,project,Resolved PM toolchain lock
   package.json,project,Exact PM toolchain pins
   scripts/prepare-merge-driver.ts,project,Canonical pm-ops 2026.9.28 launcher
-tests[1]{command,path,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref},note}:
-  node --test test/bandit.test.ts,test/bandit.test.ts,project,120,codex,"2026-09-26T20:13:30.835Z",local_mutation,chore/pm-rl-cli-sdk-2026-9-26,Bounded recursive training adapter acceptance
-docs[2]{path,scope,note}:
+  test/index.test.ts,project,Packed extension host-bound mutation acceptance
+tests[2]:
+  - command: node --test test/bandit.test.ts
+    path: test/bandit.test.ts
+    scope: project
+    timeout_seconds: 120
+    provenance:
+      author: codex
+      created_at: "2026-09-26T20:13:30.835Z"
+      source_kind: local_mutation
+      source_ref: chore/pm-rl-cli-sdk-2026-9-26
+    note: Bounded recursive training adapter acceptance
+  - command: "node --test --test-name-pattern=\"a referenced environment is refused\" test/index.test.ts"
+    path: test/index.test.ts
+    scope: project
+    timeout_seconds: 120
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: "harness:codex"
+      created_at: "2026-09-28T19:56:55.002Z"
+      source_kind: local_mutation
+      source_ref: chore/pm-rl-cli-sdk-2026-9-26
+    note: Packed extension host-bound mutation acceptance on the installed CLI
+docs[3]{path,scope,note}:
+  "https://github.com/unbraind/pm-cli/releases/tag/v2026.9.28",global,Published CLI and SDK used by this candidate
   "https://github.com/unbraind/pm-cli/issues/1318",project,Linked test sandbox issue
   RECURSIVE_TRAINING.md,project,Controller scope remains open
 body: ""
