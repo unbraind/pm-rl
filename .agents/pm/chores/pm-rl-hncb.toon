@@ -6,12 +6,13 @@ status: in_progress
 priority: 1
 tags: []
 created_at: "2026-09-26T19:59:42.997Z"
-updated_at: "2026-09-29T13:29:25.687Z"
+updated_at: "2026-10-02T18:22:43.959Z"
 author: codex
 acceptance_criteria: "Package and lockfile pin published PM CLI 2026.9.29; full direct release:check and strict tracker health pass on installed dependencies; packed npm and Bun extension acceptance with CLI 2026.9.29 is measured; PR links this item and records independent review, publication and recursive-training limitations."
 parent: pm-rl-apvf
-comments[1]{created_at,author,text}:
+comments[2]{created_at,author,text}:
   "2026-09-28T06:51:05.996Z",claude-hub,"2026-09-28: pinned pm-ops 2026.9.28 and re-copied its templates/prepare-merge-driver.ts in 29e11d7 (pm-ops#124: the omit-dev skip now checks every Node resolution path for an incomplete hoisted pm-ops). release:check and changelog:check pass on this branch. Acceptance criteria and the launcher link note now name pm-ops 2026.9.28; the dated 2026.9.26 notes above stay as historical results."
+  "2026-10-02T18:22:43.959Z",pi-land-a,"Merge-readiness verification pass by pi-land-a (fleet PR landing session): exact head 9fe6606 is mergeable and CLEAN against origin/main; Node 22/26, CodeQL CI green; all five review threads resolved; re-requested the bot review window because CodeRabbit's prior full-review attempt on this head failed with an internal error (issuecomment-5891308945) and Greptile/Gemini are not active on this repository."
 notes[9]{created_at,author,text}:
   "2026-09-26T20:06:25.026Z",codex,"Initial pm test linked release gate failed because the default schema sandbox injected PM_PATH into npm tests that initialize their own temporary trackers; direct release:check reached a real canonical-launcher mismatch with pm-ops 2026.9.26. Updated the launcher from the installed canonical template. Both observations are distinct; revalidation follows."
   "2026-09-26T20:15:33.662Z",codex,"2026-09-26: Direct npm run release:check on installed PM CLI/SDK 2026.9.26, pm-ops 2026.9.26 and pm-changelog 2026.9.25 passed 329/329 tests, 0 failures, 100.00% statements/lines/branches/functions over 20 authored source files, 136/136 documented declarations, zero duplication and zero npm production vulnerabilities. Packed pm-rl tarball installed and imported under npm/Node and Bun 1.3.5. PM linked bandit acceptance passed 14/14. Strict PM health ok=true with an existing provenance-value warning. Full linked npm test context limitation is upstream pm-cli#1318; direct full gate is the valid package result."
