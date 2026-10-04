@@ -1,22 +1,29 @@
 id: pm-rl-hncb
-title: Certify pm-rl against published PM CLI SDK 2026.9.29
+title: Certify pm-rl on PM CLI/SDK 2026.10.4 and consolidate pending dependency updates
 description: "Upgrade the development CLI and SDK to published 2026.9.29 while retaining published pm-ops 2026.9.28 and pm-changelog 2026.9.25. Certify direct release gates, packed npm/Bun behavior, and strict tracker health. The durable recursive LLM controller remains separately open under pm-rl-apvf."
 type: Chore
 status: in_progress
 priority: 1
 tags: []
 created_at: "2026-09-26T19:59:42.997Z"
-updated_at: "2026-10-02T23:43:10.577Z"
+updated_at: "2026-10-04T12:05:05.145Z"
 author: codex
-acceptance_criteria: "Package and lockfile pin published PM CLI 2026.9.29; full direct release:check and strict tracker health pass on installed dependencies; packed npm and Bun extension acceptance with CLI 2026.9.29 is measured; PR links this item and records independent review, publication and recursive-training limitations."
+acceptance_criteria: "Package and lockfile pin published PM CLI 2026.10.4; full direct release:check and strict tracker health pass on installed dependencies; packed npm and Bun extension acceptance with CLI 2026.10.4 is measured; PR links this item and records independent review, publication and recursive-training limitations."
 parent: pm-rl-apvf
-actual_result: "npm ci and direct npm run release:check PASS: 329/329 tests, zero skipped; independently measured statements/lines/branches/functions 100/100/100/100 across 20 sources; 136 documented declarations. Lint/duplicates/publish-attestation/identity audit/production audit/pack/changelog pass. Strict CI health, pm validate, Bun install and focused linked launcher test 6/6 pass. Red all-dependency audit found one high brace-expansion advisory; npm lock patch 5.0.9 to 5.0.12 now matches existing Bun lock, final audit zero and exact PM tool pins unchanged. Full gate ran directly because pm-cli#1318 affects PM full-suite sandbox; focused linked tests use PM. Durable controller remains unshipped in pm-rl-apvf. History prefixes preserved; exact-head CI and substantive review remain separate, item released in_progress, no closure or publication."
-comments[5]{created_at,author,text}:
+actual_result: "PM CLI/pm-ops/pm-changelog 2026.10.4 exact pins; Dependabot #50 #53 #55 #56 #57 consolidated with exact action SHA. Locked release:check PASS 332/332, zero skips, 100/100/100/100 across 20 sources, 136 declarations; audits zero. Packed copied-real-tracker npx and native bunx --bun PASS: env list, run start, append and show each retain three metrics; scratch deleted. pm-github managed 2026.10.4 dry-run planned zero writes. Strict health exits zero with inherited advisory debt. Evidence docs/certification-2026.10.4.md. No publication, item closure or PR merge; final-head CI/reviews remain separate."
+comments[12]{created_at,author,text}:
   "2026-09-28T06:51:05.996Z",claude-hub,"2026-09-28: pinned pm-ops 2026.9.28 and re-copied its templates/prepare-merge-driver.ts in 29e11d7 (pm-ops#124: the omit-dev skip now checks every Node resolution path for an incomplete hoisted pm-ops). release:check and changelog:check pass on this branch. Acceptance criteria and the launcher link note now name pm-ops 2026.9.28; the dated 2026.9.26 notes above stay as historical results."
   "2026-10-02T18:22:43.959Z",pi-land-a,"Merge-readiness verification pass by pi-land-a (fleet PR landing session): exact head 9fe6606 is mergeable and CLEAN against origin/main; Node 22/26, CodeQL CI green; all five review threads resolved; re-requested the bot review window because CodeRabbit's prior full-review attempt on this head failed with an internal error (issuecomment-5891308945) and Greptile/Gemini are not active on this repository."
   "2026-10-02T18:52:29.433Z",pi-land-a,"Cubic review (new head 9a2b201) findings on this candidate: (1) valid - the tracked bun.lock still resolved @unbrained/pm-cli, pm-changelog and pm-ops at 2026.8.1; regenerated with bun 1.3.5 so it now resolves the exact pins 2026.9.29/2026.9.25/2026.9.28. (2) valid - the v2026.9.28 release link was mislabeled 'used by this candidate'; relabeled as the earlier heads' SDK, superseded by 2026.9.29. Refused with reasons in their threads: the lstatSync/require.resolve.paths launcher probes are the byte-identical published pm-ops template (upstream pm-ops issue filed), and the npm pack final-line parse uses --ignore-scripts so prepare output cannot follow the archive name, with an exact-regex assertion that fails loudly otherwise. Full npm run release:check after the changes passed 329/329 with 100/100/100/100 measured coverage over 20 sources and zero production audit findings."
   "2026-10-02T23:37:38.478Z",codex-sol,"Restart codex-sol: retained c8a640a is pushed/clean; current REST PR/comment/review/inline read shows no new bot artifact. Revalidate direct full release:check on published CLI 2026.9.29 and canonical pm-ops 2026.9.28; strict health, Bun and bounded audit patch checks. Keep full suite outside PM linked sandbox (pm-cli#1318); link/run focused launcher test. Durable recursive controller remains open under pm-rl-apvf. Earlier review dispositions and histories are preserved."
   "2026-10-02T23:43:09.924Z",codex-sol,"npm ci and direct npm run release:check PASS: 329/329 tests, zero skipped; independently measured statements/lines/branches/functions 100/100/100/100 across 20 sources; 136 documented declarations. Lint/duplicates/publish-attestation/identity audit/production audit/pack/changelog pass. Strict CI health, pm validate, Bun install and focused linked launcher test 6/6 pass. Red all-dependency audit found one high brace-expansion advisory; npm lock patch 5.0.9 to 5.0.12 now matches existing Bun lock, final audit zero and exact PM tool pins unchanged. Full gate ran directly because pm-cli#1318 affects PM full-suite sandbox; focused linked tests use PM. Durable controller remains unshipped in pm-rl-apvf. History prefixes preserved; exact-head CI and substantive review remain separate, item released in_progress, no closure or publication."
+  "2026-10-04T10:47:11.097Z",codex-sol,"Isolated certification worktree from origin/main f855645. Consolidating Dependabot #50 #53 #55 #56 #57; no open security alerts. Preserve owner-controlled unpublished release gate and peer/manifest floor. Full serialized CI gate, packed real-tracker npm/Bun dogfood and read-only GitHub preview planned."
+  "2026-10-04T10:49:39.809Z",codex-sol,Published PM CLI/pm-ops/pm-changelog pins are 2026.10.4. npm audit --omit=dev and npm audit both zero vulnerabilities. pm-github 2026.10.4 installed; dry-run sync planned 0 writes (no linked issues). Strict health exits 0 with inherited stale-item and legacy provenance advisory warnings. Launcher is copied byte-for-byte from published pm-ops. No peer/manifest floor or owner release approval changed.
+  "2026-10-04T10:51:22.171Z",codex-sol,"Added launcher regression fixtures for a missing package.json directory, dangling symlink and an ENOTDIR lookup. Scoped node --test test/prepare-merge-driver.test.ts passes 9/9 with no skips. Linked pm test initially refused none/source context; rerun with --workspace-context snapshot passed. The launcher remains a byte-identical published template."
+  "2026-10-04T10:53:51.847Z",codex-sol,Full local gate and real-data packed npm/native Bun dogfood passed; exact command/output evidence committed in docs/certification-2026.10.4.md. Ready for final-head CI and bot review. Item remains in_progress for orchestrator verification.
+  "2026-10-04T11:00:01.133Z",codex-sol,Removed the existing POSIX skip helper from the three new failure fixtures; no new skip guards are introduced. Scoped launcher suite still passes 9/9. No launcher bytes or production behavior changed.
+  "2026-10-04T11:54:14.420Z",codex-sol,"Review follow-up: Greptile pm-slack#124 finding 4177259636 correctly flags privileged Windows directory symlink creation. Shared dangling-link fixture now requests a junction on Windows and a directory link on POSIX without adding skips. Targeted launcher suite passes 9/9 on this Linux host; native Windows execution is unverified. Canonical launcher bytes and production behavior are unchanged. Initial substantive review remains unavailable from CodeRabbit automatic-skip/Sourcery quota and silent reviewers; request one explicit re-review after this push, retain open readiness boundary."
+  "2026-10-04T12:05:03.922Z",codex-sol,"Applied the valid certification-version consistency finding from pm-starter#122 to this reused certification item as well: acceptance criteria now target 2026.10.4 for pins and packed acceptance, preserving all other checks. No code or gate changed. Keep missing substantive reviews and publication/controller boundaries open."
 notes[9]{created_at,author,text}:
   "2026-09-26T20:06:25.026Z",codex,"Initial pm test linked release gate failed because the default schema sandbox injected PM_PATH into npm tests that initialize their own temporary trackers; direct release:check reached a real canonical-launcher mismatch with pm-ops 2026.9.26. Updated the launcher from the installed canonical template. Both observations are distinct; revalidation follows."
   "2026-09-26T20:15:33.662Z",codex,"2026-09-26: Direct npm run release:check on installed PM CLI/SDK 2026.9.26, pm-ops 2026.9.26 and pm-changelog 2026.9.25 passed 329/329 tests, 0 failures, 100.00% statements/lines/branches/functions over 20 authored source files, 136/136 documented declarations, zero duplication and zero npm production vulnerabilities. Packed pm-rl tarball installed and imported under npm/Node and Bun 1.3.5. PM linked bandit acceptance passed 14/14. Strict PM health ok=true with an existing provenance-value warning. Full linked npm test context limitation is upstream pm-cli#1318; direct full gate is the valid package result."
@@ -27,25 +34,15 @@ notes[9]{created_at,author,text}:
   "2026-09-29T13:23:14.871Z",codex,"Fresh synthetic npm/npx and Bun/bunx projects installed the packed pm-rl 2026.7.31 archive alongside published CLI 2026.9.29, completed package install with copy.complete=true and activation, registered Grid World 3 from the packed example, listed it, and passed strict PM health with zero warnings. Direct release:check passed before the pin edit at code head 29c8242; rerunning it on the new exact dependency head follows."
   "2026-09-29T13:28:17.437Z",codex,"On installed repository-local @unbrained/pm-cli 2026.9.29, direct npm run release:check passed 329/329 tests with zero failures and skips, 20 reported authored sources at 100.00% statements/lines/branches/functions, 136 documented declarations, zero clones, zero production vulnerabilities, packed artifact, changelog and publish-attestation checks. This is source and toolchain certification only; pm-rl-apvf still owns the unshipped durable LLM controller. A new exact-head packed artifact and PR review follow after commit."
   "2026-09-29T13:29:25.687Z",codex,"Exact pushed head 4027888 was packed to a fresh archive. Independent npm/npx and Bun/bunx workspaces each installed published CLI 2026.9.29 and that archive, initialized a tracker, completed pm package install with copy.complete=true and activation, registered the packed Grid World 3 example with identical content hash, and passed strict PM health with zero warnings. The full direct release gate already passed on this same head before this evidence-only note. Review and pm-rl-apvf execution-controller gates remain open."
-files[6]:
-  - path: package-lock.json
-    scope: project
-    note: Resolved PM toolchain lock
-  - path: package.json
-    scope: project
-    note: Exact PM toolchain pins
-  - path: README.md
-    scope: project
-    note: Current CLI floor and fresh-checkout GitHub extension setup
-  - path: scripts/prepare-merge-driver.ts
-    scope: project
-    note: Canonical pm-ops 2026.9.28 launcher
-  - path: test/index.test.ts
-    scope: project
-    note: Packed extension host-bound mutation acceptance
-  - path: test/prepare-merge-driver.test.ts
-    scope: project
-tests[3]:
+files[7]{path,scope,note}:
+  .github/workflows/codeql.yml,project,Dependabot #53 exact CodeQL action SHA
+  package-lock.json,project,Resolved PM toolchain lock
+  package.json,project,Exact PM CLI 2026.10.4 and consolidated current dependency pins
+  README.md,project,Current CLI floor and fresh-checkout GitHub extension setup
+  scripts/prepare-merge-driver.ts,project,Canonical pm-ops 2026.10.4 launcher
+  test/index.test.ts,project,Packed extension host-bound mutation acceptance
+  test/prepare-merge-driver.test.ts,project,Broken-package and inconclusive-lookup regressions
+tests[5]:
   - command: node --test test/bandit.test.ts
     path: test/bandit.test.ts
     scope: project
@@ -75,13 +72,34 @@ tests[3]:
       created_at: "2026-10-02T23:37:40.129Z"
       source_kind: local_mutation
       source_ref: land-54
-docs[5]:
+  - command: "flock /tmp/claude-1000/heavy-gate.lock npm run release:check"
+    scope: project
+    timeout_seconds: 1200
+    pm_context_mode: none
+    provenance:
+      author: codex-sol
+      created_at: "2026-10-04T10:49:12.479Z"
+      source_kind: local_mutation
+      source_ref: chore/pm-rl-pm-cli-2026-10-4
+  - command: node --test test/prepare-merge-driver.test.ts
+    scope: project
+    timeout_seconds: 180
+    pm_context_mode: none
+    provenance:
+      author: codex-sol
+      created_at: "2026-10-04T10:49:13.643Z"
+      source_kind: local_mutation
+      source_ref: chore/pm-rl-pm-cli-2026-10-4
+docs[6]:
   - path: "https://github.com/unbraind/pm-cli/releases/tag/v2026.9.28"
     scope: global
     note: "Published CLI and SDK used by the earlier heads of this candidate, superseded by 2026.9.29"
   - path: "https://github.com/unbraind/pm-cli/releases/tag/v2026.9.29"
     scope: global
     note: Published CLI SDK used by the refreshed candidate
+  - path: docs/certification-2026.10.4.md
+    scope: project
+    note: Full gate and real tracker packed npm/native Bun evidence
   - path: "https://github.com/unbraind/pm-cli/issues/1318"
     scope: project
     note: Linked test sandbox issue
