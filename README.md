@@ -260,7 +260,7 @@ implemented and tested.
 
 ```bash
 npm ci
-./node_modules/.bin/pm package install npm:pm-github@2026.9.26 --project
+./node_modules/.bin/pm package install npm:pm-github@2026.10.4 --project
 ./node_modules/.bin/pm github import unbraind/pm-rl --state open --atomic --dry-run
 ./node_modules/.bin/pm github sync --repo unbraind/pm-rl --dry-run
 npm run typecheck
