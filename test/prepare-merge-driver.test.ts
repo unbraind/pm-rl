@@ -121,7 +121,7 @@ test("an installer killed by a signal fails the install instead of reporting suc
 });
 
 
-test("a pm-ops directory without package.json fails instead of skipping", posixOnly, () => {
+test("a pm-ops directory without package.json fails instead of skipping", () => {
   const directory = checkout("broken-package", "absent");
   mkdirSync(join(directory, "node_modules", "pm-ops"), { recursive: true });
   const result = prepare(directory, hostPath);
@@ -130,7 +130,7 @@ test("a pm-ops directory without package.json fails instead of skipping", posixO
   assert.doesNotMatch(result.stderr, /skipping merge-driver install/);
 });
 
-test("a dangling pm-ops link fails instead of skipping", posixOnly, () => {
+test("a dangling pm-ops link fails instead of skipping", () => {
   const directory = checkout("dangling-package", "absent");
   mkdirSync(join(directory, "node_modules"));
   symlinkSync(join(directory, "missing-package"), join(directory, "node_modules", "pm-ops"), "dir");
@@ -140,7 +140,7 @@ test("a dangling pm-ops link fails instead of skipping", posixOnly, () => {
   assert.doesNotMatch(result.stderr, /skipping merge-driver install/);
 });
 
-test("an inconclusive lookup preserves the original installer resolution failure", posixOnly, () => {
+test("an inconclusive lookup preserves the original installer resolution failure", () => {
   const directory = checkout("invalid-lookup", "absent");
   writeFileSync(join(directory, "node_modules"), "a file blocks this lookup directory");
   const result = prepare(directory, hostPath);
