@@ -1,0 +1,22 @@
+{
+  "environment": { "name": "Recursive loop bandit", "version": "1" },
+  "training": [
+    { "id": "train-positive", "feature": 1, "rewards": [0, 1] },
+    { "id": "train-negative", "feature": -1, "rewards": [1, 0] }
+  ],
+  "evaluation": [
+    { "id": "eval-positive", "feature": 0.8, "rewards": [0, 1] },
+    { "id": "eval-negative", "feature": -0.8, "rewards": [1, 0] }
+  ],
+  "initial_weight": 0,
+  "seed": 42,
+  "max_generations": 3,
+  "samples_per_generation": 256,
+  "budget": 768,
+  "learning_rate": 0.5,
+  "minimum_improvement": 0.01,
+  "maximum_gap": 0.2,
+  "evaluation_samples": 40000,
+  "confidence": 0.95,
+  "min_samples": 10
+}

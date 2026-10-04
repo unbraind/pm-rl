@@ -18,6 +18,7 @@
     "dist/transfer.*",
     "dist/refuse.*",
     "dist/promotion.*",
+    "dist/loop.*",
     "manifest.json",
     "README.md",
     "CHANGELOG.md",
@@ -71,7 +72,8 @@
       "test/coverage-gate.test.ts",
       "test/verify-release-publish-attestation.test.ts",
       "test/bandit.test.ts",
-      "test/promotion.test.ts"
+      "test/promotion.test.ts",
+      "test/loop.test.ts"
     ],
     "thresholds": {
       "statements": 100,
@@ -155,6 +157,7 @@
       "README.md",
       "examples/grid-world.json",
       "examples/ppo.json",
+      "examples/loop-bandit.json",
       "examples/metrics.ndjson"
     ]
   }
