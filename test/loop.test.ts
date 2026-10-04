@@ -2,7 +2,7 @@
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
@@ -263,10 +263,37 @@ test("the built-in environment spec carries both disjoint datasets and the rewar
 });
 
 test("collection seeds are deterministic per generation and never collide with the base seed stream", () => {
-  assert.equal(stepSeed(42, 1), (Math.imul(1, 0x9e3779b1) + 42) >>> 0);
+  assert.equal(stepSeed(42, 1), (Math.imul(1, 0x9e3779b1) + 42 + 0x85ebca6b) >>> 0);
   assert.equal(stepSeed(42, 1), stepSeed(42, 1));
   assert.notEqual(stepSeed(42, 1), stepSeed(42, 2));
   assert.notEqual(stepSeed(42, 1), 42);
+});
+
+test("collection and held-out action streams differ and replay deterministically", () => {
+  for (const generation of [1, 2, 3]) {
+    const replays: BanditGeneration[][] = [];
+    for (let replay = 0; replay < 2; replay += 1) {
+      const receipts: BanditGeneration[] = [];
+      for (let index = 0; index < 64; index += 1) {
+        const seed = Math.imul(index, 0x9e3779b1) >>> 0;
+        // Feature zero keeps both policies at weight zero; reward exposes the
+        // sampled action, so all three streams have the same decision boundary.
+        const config = parseLoopConfig({ ...LOOP_CONFIG, seed,
+          training: [{ id: "collect", feature: 0, rewards: [0, 1] }],
+          evaluation: [{ id: "held-out", feature: 0, rewards: [0, 1] }],
+          samples_per_generation: 1, evaluation_samples: 1, min_samples: 1 });
+        receipts.push(runLoopGeneration(config, { learningRate: config.learningRate, evaluationSamples: 1 }, generation, banditCheckpoint(0)));
+      }
+      replays.push(receipts);
+    }
+    assert.deepEqual(replays[0], replays[1]);
+    const collection = replays[0].map((receipt) => receipt.observations[0].action);
+    const incumbent = replays[0].map((receipt) => receipt.incumbentHeldOutMean);
+    const candidate = replays[0].map((receipt) => receipt.candidateHeldOutMean);
+    assert.notDeepEqual(collection, incumbent, "collection must not alias incumbent draws");
+    assert.notDeepEqual(collection, candidate, "collection must not alias candidate draws");
+    assert.notDeepEqual(incumbent, candidate, "held-out policies must not alias draws");
+  }
 });
 
 test("evaluation results derive the next generation's training and evaluation configuration", () => {
@@ -331,6 +358,9 @@ test("lucky sampled evaluation cannot promote a truly regressing policy", async 
     maximum_gap: 1, evaluation_samples: 10, min_samples: 1, confidence: 0.001, minimum_improvement: 0.001 };
   const config = parseLoopConfig(raw);
   const receipt = runLoopGeneration(config, { learningRate: config.learningRate, evaluationSamples: config.evaluationSamples }, 1, banditCheckpoint(0));
+  assert.equal(receipt.candidateHeldOutMean, 0.9);
+  assert.equal(receipt.incumbentHeldOutMean, 0.4);
+  assert.equal(receipt.evaluationScore, 0.46781798872397673);
   assert.ok(receipt.candidateHeldOutMean > receipt.incumbentHeldOutMean, "fixture must have lucky candidate samples");
   assert.ok(receipt.evaluationScore < receipt.baselineScore, "the actual policy must regress");
   const report = await runLoopCommand(harness, pmRoot, root, "lucky", raw, approval);
@@ -644,17 +674,23 @@ test("loop creation propagates real filesystem failures", async () => {
   const approval = await createApproval(client, "filesystem-approval", 1);
   const create = client.create.bind(client);
   const folder = join(pmRoot, "environments");
+  const backup = join(pmRoot, "environments-backup");
   client.create = async (options) => {
-    chmodSync(folder, 0o500);
+    // A file in place of the item directory fails even with DAC override.
+    // Keep the real SDK create and its filesystem error propagation intact.
+    renameSync(folder, backup);
+    writeFileSync(folder, "not a directory");
     try {
       return await create(options);
     } finally {
-      chmodSync(folder, 0o700);
+      rmSync(folder);
+      renameSync(backup, folder);
     }
   };
   await assert.rejects(runRlLoop(client, { pmRoot, author: "pm-rl-test" }, {
     id: "filesystem-create", config: LOOP_CONFIG, approval,
-  }), (error: unknown) => error instanceof Error && !isPmCliExpectedError(error) && error.message.includes("EACCES"));
+  }), (error: unknown) => error instanceof Error && !isPmCliExpectedError(error)
+    && "code" in error && error.code === "EEXIST");
 });
 
 test("an exhausted approval budget refuses the persisted promotion and records the refusal", async () => {

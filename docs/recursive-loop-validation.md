@@ -49,7 +49,8 @@ Different content produces a typed conflict even when it claims the expected
 hash. The SDK currently supplies conflict exit 4 and an empty error context for
 duplicate creates; recovery checks its exact resolved-id message as well.
 Invalid-status, strict duplicate-policy, different-id duplicate and actual
-filesystem EACCES errors propagate.
+filesystem errors propagate. The review round below replaces the original
+permission-based EACCES fixture with a privilege-independent EEXIST fixture.
 
 Audit: `loop.ts` is pure. Environment, seed, collection Run and candidate
 Generation persistence in `index.ts` share the verified create/re-read path.
@@ -90,17 +91,55 @@ cancellations in snapshot workspace context with `pm_context_mode=none`.
 The final unfiltered `pm test pm-rl-hjg1 --run --progress` also passed both
 linked commands: the complete loop suite (32/32) and focused regressions (9/9).
 
+## Independent sampling repair (PR #61)
+
+Finding 4178790392 exposed identical collection and incumbent evaluation seeds.
+The new `collection and held-out action streams differ and replay deterministically`
+test first failed with identical action vectors. It executes the real numerical
+kernel across 64 base seeds and three generations, holds both policies at weight
+zero, exposes sampled actions through rewards, compares all three streams and
+replays every receipt exactly. No numerical kernel or evaluator is mocked.
+
+The common unsigned 32-bit generation seed is
+`base + Math.imul(generation, 0x9e3779b1)`. Collection adds `0x85ebca6b`,
+incumbent held-out evaluation adds zero, and candidate held-out evaluation adds
+`0x6d5b5b5d`, all modulo 2^32. These distinct seed domains separate collection
+from both held-out streams while preserving deterministic replay. They do not
+turn adaptive validation into an independent final benchmark.
+
+The lucky-sample fixture still uses seed 2 and yields sampled rewards 0.9 versus
+0.4, but its candidate's exact expected reward is now 0.46781798872397673 versus
+0.5. The expected-reward guard still refuses it. The packed demo below was rerun
+after the seed change, refreshing its means and checkpoint identities.
+
+Finding 4178790401 was valid: directory permissions can be bypassed by a
+privileged process. `loop creation propagates real filesystem failures` now
+replaces the Environment directory with a regular file immediately before the
+real SDK create and restores it afterward. The SDK's mkdir fails with raw
+EEXIST, distinct from its typed duplicate-item conflict, regardless of write
+permission overrides. The test first failed when its portable assertion saw the
+old EACCES fixture, then passed with the replacement; it requires no skip.
+Privileged execution itself was unavailable in this verification environment.
+
+Finding 4178790398 is addressed in README and RECURSIVE_TRAINING: the registered
+command trains and persists the bounded bandit loop today. Durable continuation,
+external process adapters and LLM trainers remain future work. The gap stop is a
+training-to-evaluation gap above `maximum_gap`, not a trend check.
+
 ## Packed CLI demo
 
-Built and packed the package, initialized a fresh directory under /tmp, installed the tarball and activated that installed package as the README instructs:
+Built and packed the package, initialized a fresh disposable consumer project,
+installed the tarball and activated that installed package as the README instructs.
+The commands below use relative paths for an artifacts directory and a separate
+consumer project:
 
 ```bash
 npm run build
-npm pack --pack-destination /tmp
+npm pack --pack-destination artifacts
 # In a fresh scratch project:
 pm init rl --defaults --agent-guidance skip
 npm init -y
-npm install /tmp/pm-rl-2026.7.31.tgz --ignore-scripts
+npm install ../artifacts/pm-rl-2026.7.31.tgz --ignore-scripts
 pm package install ./node_modules/pm-rl --project
 printf '%s\n' '```json' '{"permitted_promotions":3}' '```' > approval.md
 pm create Decision "Allow three bandit promotions" --id demo-approval --body-file approval.md
@@ -123,8 +162,8 @@ Real command output:
         "run": "rl-demo-loop-g1-collect",
         "item": "rl-demo-loop-g1",
         "promoted": true,
-        "held_out_mean": 0.523175,
-        "candidate_checkpoint": "sha256:c47003f9493b0f2cae47df1dde3269678a5be90278d9fbe94af36c5cfb807bbc",
+        "held_out_mean": 0.5231,
+        "candidate_checkpoint": "sha256:b616a657d2fbbe517dbdb321bdd56a8b9ab4c3e8c42fc2279fbc91a3f77ee7dd",
         "refusal_reason": null
       },
       {
@@ -132,8 +171,8 @@ Real command output:
         "run": "rl-demo-loop-g2-collect",
         "item": "rl-demo-loop-g2",
         "promoted": true,
-        "held_out_mean": 0.549825,
-        "candidate_checkpoint": "sha256:6cc5f0c2d1115e877ac4af316f693a9c2753356f86f0dcf2d005bf2850553bcf",
+        "held_out_mean": 0.551875,
+        "candidate_checkpoint": "sha256:47dc9d4f8a9c39fbc8b0efee229f2d9185c09ce34cacbebb32da8a094715905c",
         "refusal_reason": null
       },
       {
@@ -141,15 +180,15 @@ Real command output:
         "run": "rl-demo-loop-g3-collect",
         "item": "rl-demo-loop-g3",
         "promoted": true,
-        "held_out_mean": 0.57255,
-        "candidate_checkpoint": "sha256:24bddd3243234bb6423a4f29c7434ff5487ee009b88acff2129c4cb90ac03043",
+        "held_out_mean": 0.5742,
+        "candidate_checkpoint": "sha256:91c81703f2a3edb817bf52409e44cd83256f8f4ff98d312632cbaafa4006e874",
         "refusal_reason": null
       }
     ],
     "promoted": 3,
     "samples_consumed": 768,
     "budget": 768,
-    "final_checkpoint": "sha256:24bddd3243234bb6423a4f29c7434ff5487ee009b88acff2129c4cb90ac03043",
+    "final_checkpoint": "sha256:91c81703f2a3edb817bf52409e44cd83256f8f4ff98d312632cbaafa4006e874",
     "refusal_reason": null
   }
 }
@@ -170,8 +209,8 @@ git identity audit approved 1 unique address(es).
 git identity audit approved 0 unique address(es).
 git identity audit approved 1 unique address(es).
 git identity audit approved 1 unique address(es).
-ℹ tests 364
-ℹ pass 364
+ℹ tests 365
+ℹ pass 365
 ℹ fail 0
 ℹ skipped 0
 coverage-gate: 21 source file(s) reported, thresholds met (lines 100.00%, branches 100.00%, functions 100.00%, statements 100.00%).

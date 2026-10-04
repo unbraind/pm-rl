@@ -31,7 +31,7 @@ pm rl loop run demo-loop --file node_modules/pm-rl/examples/loop-bandit.json --a
 ```
 
 For a local build, run `npm run build` and `npm pack` in this repository, then
-install the resulting tarball with `npm install /absolute/path/to/pm-rl-2026.7.31.tgz`
+install the resulting tarball with `npm install ../artifacts/pm-rl-2026.7.31.tgz`
 in the consumer project before `pm package install ./node_modules/pm-rl --project`. Initialize a fresh consumer
 with `pm init rl --defaults` first. The seed Generation retains the whole
 configuration and a terminal report in its comment history; each attempted
@@ -126,8 +126,8 @@ query the host can already answer, not a feature to build.
 | `pm rl episode env register` / `record` / `replay`, `pm rl outcome record`, `pm rl simreal gap` | The fleet's own mandatory gates as a content-addressed environment: episodes store a candidate-tree identity (git tree or patch hash), replay resolves that exact artifact before re-deriving the verdict, every episode links its pull request, and the sim-to-real gap is computed over the paired cohort with denominators stated and unpaired sides reported as coverage ([`pm-rl-0cqg`](.agents/pm/features/pm-rl-0cqg.toon)) |
 | `pm rl loop run` | Execute one bounded recursive collect → train → evaluate → promote-or-reject loop over the built-in deterministic contextual bandit: each generation persists a collection Run with per-sample metric notes and a Generation item, promotion goes through the existing transactional contamination- and budget-checked gate, refusal reasons land in item history, and the previous evaluation results deterministically derive the next generation's learning rate and evaluation episode count. Generation count, total sample budget, a strictly better held-out gate, and the approved promotion budget all terminate the loop with a distinct recorded reason ([`pm-rl-hjg1`](.agents/pm/features/pm-rl-hjg1.toon)) |
 
-The remaining types and commands in the roadmap table above are intentionally not registered
-until their acceptance criteria and refusal paths are implemented and tested.
+All commands listed above are implemented. Durable continuation and external trainer
+adapters remain specified in [Recursive training execution](RECURSIVE_TRAINING.md).
 
 ## Implemented refusals
 
@@ -218,7 +218,7 @@ All exit non-zero. The gap-widening check needs at least two consecutive gaps, s
 ## Recursive self-improvement, and the four properties that make it honest
 
 The current pm-rl runtime **executes, tracks and gates** a bounded numerical loop: a generation collects trajectories,
-an external trainer produces a successor, and the successor collects the next generation's
+the built-in bandit trainer produces a successor, and the successor collects the next generation's
 trajectories. `pm rl loop run` executes these steps with the built-in contextual
 bandit. The durable controller specified in [Recursive training execution](RECURSIVE_TRAINING.md)
 will add isolated trainer adapters, leases, crash recovery and LLM parameter updates
@@ -260,18 +260,19 @@ over the **paired cohort** — candidates linked to a real pull request on both 
 denominator stated; candidates present on only one side are reported separately as coverage rather
 than folded into a rate.
 
-The implemented tracking layer does not train a model. The next execution phase must prove real
-checkpoint updates and successor-policy use before it can claim full recursive training. Its
-resource bounds and provenance refusals apply to every generation.
-The programme is specified under [`pm-rl-yi7j`](.agents/pm/epics/pm-rl-yi7j.toon); as with every
-other roadmap slice, no command is registered until its acceptance criteria and refusal paths are
-implemented and tested.
+`pm rl loop run` trains the bounded contextual-bandit policy, persists real checkpoint
+updates and uses each promoted successor for the next collection batch. Its resource
+bounds and provenance refusals apply to every generation. Durable continuation after
+crashes or cancellation, isolated external trainers and LLM parameter updates remain
+under [`pm-rl-apvf`](.agents/pm/epics/pm-rl-apvf.toon), extending the programme specified
+under [`pm-rl-yi7j`](.agents/pm/epics/pm-rl-yi7j.toon).
 
 ## Not in scope
 
 - **Current execution boundary.** `run log` accepts NDJSON from an external trainer. Native
-  bounded execution is planned in [Recursive training execution](RECURSIVE_TRAINING.md); the
-  current runtime does not schedule GPUs or launch training jobs.
+  bounded contextual-bandit training is implemented as `pm rl loop run`. Durable external
+  execution is planned in [Recursive training execution](RECURSIVE_TRAINING.md); the current
+  runtime does not schedule GPUs or launch external training jobs.
 - **No separate metric store.** The history stream *is* the store. Retained evidence necessarily
   grows with retained measurements. Each segment is capped at 48 KiB decoded and 65 KiB
   serialized. In the representative sustained integration workload—not as a universal
@@ -338,6 +339,9 @@ const result = runBanditProgramme({
   learningRate: 0.5,
   minimumImprovement: 0,
   maximumGap: 0.2,
+  evaluationSamples: 40000,
+  confidence: 0.95,
+  minSamples: 10,
 });
 console.log(result.generations.map(({ source, candidate, evaluationScore, promoted }) => ({
   source: source.digest, weight: candidate.weight, evaluationScore, promoted,

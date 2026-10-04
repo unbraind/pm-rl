@@ -274,16 +274,17 @@ export function loopEnvironmentSpec(config: LoopConfig): EnvironmentSpec {
 /**
  * Derive one generation's action-sampling seed from the loop's base seed.
  *
- * Distinct per generation and never equal to the base seed stream, so a
- * generation's collection is reproducible on its own and cannot alias the
- * in-process programme's seed-continuation behaviour.
+ * All streams start from base + imul(generation, 0x9e3779b1), modulo 2^32.
+ * Collection adds 0x85ebca6b; incumbent held-out evaluation adds zero;
+ * candidate held-out evaluation adds 0x6d5b5b5d. These distinct salts prevent
+ * collection and either held-out stream from reusing the same LCG draws.
  *
  * @param base - The loop's unsigned 32-bit base seed.
  * @param generation - The one-based generation number.
  * @returns The generation's collection seed.
  */
 export function stepSeed(base: number, generation: number): number {
-  return (Math.imul(generation, 0x9e3779b1) + base) >>> 0;
+  return (Math.imul(generation, 0x9e3779b1) + base + 0x85ebca6b) >>> 0;
 }
 
 /**
