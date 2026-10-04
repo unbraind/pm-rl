@@ -218,3 +218,5 @@ Both npm/npx and native Bun (`bunx --bun`) passed environment listing, run creat
 ```
 
 CI and substantive review receipts are assessed independently on the final PR head. This certification does not implement the durable controller described by pm-rl-apvf and does not authorize publication.
+
+Review follow-up: the dangling-link fixture uses a Windows junction and a POSIX directory link, following [Node filesystem APIs](https://nodejs.org/api/fs.html#fssymlinksynctarget-path-type). Scoped launcher tests pass 9/9 on Linux. Native Windows execution has not been verified. No skip guards were added; the canonical launcher is unchanged.
