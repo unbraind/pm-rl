@@ -9,6 +9,26 @@
 
 export { runBanditProgramme, type BanditCheckpoint, type BanditExample, type BanditGeneration, type BanditProgramme, type BanditResult } from "./bandit.ts";
 
+export { banditCheckpoint, executeBanditStep, validatedBanditDatasets, type BanditDatasets, type BanditObservation, type BanditStepInput, type BanditStopReason } from "./bandit.ts";
+
+export {
+  collectionMetricEvents,
+  deriveNextStepConfig,
+  generationTrainingConfig,
+  loopEnvironmentSpec,
+  loopPromotionScores,
+  MAX_LOOP_BUDGET,
+  MAX_LOOP_EVALUATION_SAMPLES,
+  MAX_LOOP_GENERATIONS,
+  MIN_LOOP_LEARNING_RATE,
+  parseLoopConfig,
+  runLoopGeneration,
+  seedTrainingConfig,
+  stepSeed,
+  type LoopConfig,
+  type LoopStepConfig,
+} from "./loop.ts";
+
 export { decidePromotion, hoeffdingEpsilon, parsePromotionCriterion, parsePromotionEvidence, type PromotionCriterion, type PromotionDecision, type PromotionEvidence, type PromotionGateInput } from "./promotion.ts";
 
 import { createHash, randomUUID } from "node:crypto";
@@ -27,7 +47,9 @@ import { commitWorkspaceTransaction, type LogNote } from "@unbrained/pm-cli/sdk"
 import { PmClient, type GetResult, type ItemMetadata } from "@unbrained/pm-cli/sdk/core";
 import { createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 
-import { encodeEventSegments, parseNdjsonStream, readSeries } from "./series.ts";
+import { parseJsonRecord } from "./refuse.ts";
+
+import { encodeEventSegments, parseNdjsonStream, readSeries, type MetricEvent } from "./series.ts";
 
 import {
   buildCompareView,
@@ -109,6 +131,21 @@ import {
   type EpisodeSpec,
   type GateEnvironmentSpec,
 } from "./gatesim.ts";
+
+import {
+  collectionMetricEvents,
+  deriveNextStepConfig,
+  generationTrainingConfig,
+  loopEnvironmentSpec,
+  loopPromotionScores,
+  parseLoopConfig,
+  runLoopGeneration,
+  seedTrainingConfig,
+  stepSeed,
+  type LoopStepConfig,
+} from "./loop.ts";
+
+import { banditCheckpoint } from "./bandit.ts";
 
 /**
  * The fenced JSON block regex shared by every pm-rl spec reader.
@@ -547,6 +584,44 @@ async function readCompleteNotes(client: PmClient, id: string): Promise<LogNote[
 }
 
 /**
+ * Create an immutable identity or verify the item that won a concurrent create.
+ *
+ * Only the SDK's typed already-exists refusal permits recovery. The pinned SDK
+ * has no context code for create collisions, so its exact resolved-id message
+ * is checked as well as its conflict exit code. Other errors propagate.
+ * Neither path rewrites the winner or its history.
+ *
+ * @param client - Client bound to the target workspace.
+ * @param options - Complete create envelope with an explicit identity and type.
+ * @param collisionCode - Typed refusal when the existing identity differs.
+ * @param matches - Checks the stored content and provenance, not just the id.
+ * @returns The created or verified item and whether this caller created it.
+ */
+async function createOrReadIdentical(client: PmClient, options: Parameters<PmClient["create"]>[0] & { id: string; type: "Environment" | "Run" | "Generation" }, collisionCode: string, matches: (item: GetResult["item"]) => boolean): Promise<{ item: GetResult["item"]; created: boolean }> {
+  /** Read and validate the winner at either the initial read or collision boundary. */
+  async function readMatching(): Promise<GetResult["item"]> {
+    const existing = await getTypedItem(client, options.id, options.type);
+    if (!matches(existing.item)) {
+      fail(`${options.type} id ${options.id} already exists with a different specification hash or provenance content.`, collisionCode, EXIT_CODE.CONFLICT);
+    }
+    return existing.item;
+  }
+  try {
+    return { item: await readMatching(), created: false };
+  } catch (error) {
+    if (!isItemNotFound(error)) throw error;
+  }
+  try {
+    return { item: (await client.create(options)).item, created: true };
+  } catch (error) {
+    if (!isPmCliExpectedError(error) || error.exitCode !== EXIT_CODE.CONFLICT || !/^Item "[^"]+" already exists$/.test(error.message)) throw error;
+    const item = await readMatching();
+    if (error.message !== `Item "${String(item.id)}" already exists`) throw error;
+    return { item, created: false };
+  }
+}
+
+/**
  * Register one immutable content-addressed Environment, or return the existing one.
  *
  * The idempotency discipline is written once for both the generic and the
@@ -565,27 +640,36 @@ async function readCompleteNotes(client: PmClient, id: string): Promise<LogNote[
  * @returns The command result naming the resolved id and whether it was created.
  */
 async function registerImmutableEnvironment(client: PmClient, requestedId: string, specHash: string, action: string, create: () => Parameters<PmClient["create"]>[0], details: Readonly<Record<string, unknown>>): Promise<RlCommandResult> {
-  try {
-    const existing = await getTypedItem(client, requestedId, "Environment");
-    if (existing.item.affected_version !== specHash) {
-      fail(`Environment id ${requestedId} already exists with a different specification hash.`, "environment_identity_collision", EXIT_CODE.CONFLICT);
-    }
-    return { action, id: String(existing.item.id), created: false, details };
-  } catch (error) {
-    if (!isItemNotFound(error)) throw error;
-  }
-  const result = await client.create(create());
-  return { action, id: String(result.item.id), created: true, details };
+  const result = await createOrReadIdentical(client, { ...create(), id: requestedId, type: "Environment" }, "environment_identity_collision", (item) =>
+    item.affected_version === specHash && hashJson(parseJsonRecord(storedJson(String(item.body), `Environment ${requestedId}`, "environment_missing_spec"), `Environment ${requestedId}`, "environment_identity_collision", EXIT_CODE.CONFLICT) as JsonValue) === specHash,
+  );
+  return { action, id: String(result.item.id), created: result.created, details };
 }
 
 /** Register one immutable environment spec, idempotently by content identity. */
 async function registerEnvironment(context: CommandHandlerContext): Promise<RlCommandResult> {
   const path = stringOption(context, "file")!;
   const spec = parseEnvironmentSpec(readTextFile(path, "Environment file"), `Environment file ${path}`);
-  const specHash = hashJson(spec);
-  const requestedId = `env-${idSegment(spec.name)}-${idSegment(spec.version)}-${specHash.slice(0, 12)}`;
   const client = clientFor(context);
   await ensurePersistentTypes(client);
+  return registerEnvironmentSpecValue(client, spec);
+}
+
+/**
+ * Register one immutable environment specification value, idempotently.
+ *
+ * The idempotency discipline is shared by the file-driven command and the
+ * recursive loop: two loops over the same built-in environment content derive
+ * the same content-addressed id, and the second registration returns the
+ * first item rather than creating a squatter.
+ *
+ * @param client - Client bound to the target workspace.
+ * @param spec - The complete environment specification to register.
+ * @returns The command result naming the resolved id and whether it was created.
+ */
+async function registerEnvironmentSpecValue(client: PmClient, spec: EnvironmentSpec): Promise<RlCommandResult> {
+  const specHash = hashJson(spec);
+  const requestedId = `env-${idSegment(spec.name)}-${idSegment(spec.version)}-${specHash.slice(0, 12)}`;
   return registerImmutableEnvironment(client, requestedId, specHash, "rl-env-register", () => ({
     id: requestedId,
     title: `${spec.name} ${spec.version}`,
@@ -613,23 +697,54 @@ async function startRun(context: CommandHandlerContext): Promise<RlCommandResult
   const receipt: ReceiptSpec | null = receiptPath === undefined ? null : parseReceipt(readTextFile(receiptPath, "Determinism receipt"), `Determinism receipt ${receiptPath}`);
   const client = clientFor(context);
   await ensurePersistentTypes(client);
-  const verifiedEnvironment = await verifyEnvironmentIdentity(client, environmentId, "runs");
+  return startRunCore(client, { id: requestedId, environmentId, algorithm, config, receipt });
+}
+
+/** The resolved inputs of one attributable run, shared by the command and the recursive loop. */
+interface RunStartRequest {
+  /** Requested run item id. */
+  readonly id: string;
+  /** Environment item id the run trains under. */
+  readonly environmentId: string;
+  /** Training algorithm, recorded as the run's component identity. */
+  readonly algorithm: string;
+  /** Immutable run configuration, hashed into the run's fixed version. */
+  readonly config: JsonValue;
+  /** Optional determinism receipt recorded at start; null when absent. */
+  readonly receipt: ReceiptSpec | null;
+}
+
+/**
+ * Create one attributable run linked to an exact environment version.
+ *
+ * The write-boundary invariants live here once: the environment is verified
+ * content-addressed before the run records it, and a receipt naming a
+ * different environment is refused at the write rather than born
+ * unverifiable. The recursive loop's collection runs go through the same
+ * path, so a loop-generated run is attributable exactly like a manual one.
+ *
+ * @param client - Client bound to the target workspace.
+ * @param request - The resolved run inputs.
+ * @returns The command result naming the created run and its identities.
+ */
+async function startRunCore(client: PmClient, request: RunStartRequest): Promise<RlCommandResult> {
+  const verifiedEnvironment = await verifyEnvironmentIdentity(client, request.environmentId, "runs");
   // A receipt that names an environment other than the one this run records
   // would be born already unverifiable; refuse it at the write, not at verify.
-  if (receipt !== null && receipt.environment_version !== verifiedEnvironment.id) {
-    fail(`Determinism receipt names environment "${receipt.environment_version}" but the run records ${verifiedEnvironment.id}. A receipt must pin the exact environment item id the run trains under.`, "receipt_environment_mismatch", EXIT_CODE.CONFLICT);
+  if (request.receipt !== null && request.receipt.environment_version !== verifiedEnvironment.id) {
+    fail(`Determinism receipt names environment "${request.receipt.environment_version}" but the run records ${verifiedEnvironment.id}. A receipt must pin the exact environment item id the run trains under.`, "receipt_environment_mismatch", EXIT_CODE.CONFLICT);
   }
   const storedSpec = verifiedEnvironment.spec;
   const specHash = hashJson(storedSpec);
-  const configHash = hashJson(config);
-  const result = await client.create({
-    id: requestedId,
-    title: requestedId,
-    type: "Run",
+  const configHash = hashJson(request.config);
+  const createOptions = {
+    id: request.id,
+    title: request.id,
+    type: "Run" as const,
     status: "in_progress",
     acceptanceCriteria: "The run retains its exact environment and configuration identities, metric input is complete, and finish records the terminal outcome.",
     estimatedMinutes: "1",
-    body: `# ${requestedId}\n\nAlgorithm: ${algorithm}\n\nEnvironment snapshot:\n\n\`\`\`json\n${JSON.stringify(storedSpec, null, 2)}\n\`\`\`\n\nRun configuration:\n\n\`\`\`json\n${JSON.stringify(config, null, 2)}\n\`\`\`${receipt === null ? "" : `\n\n${RECEIPT_HEADING}\n\n\`\`\`json\n${JSON.stringify(receipt, null, 2)}\n\`\`\``}`,
+    body: `# ${request.id}\n\nAlgorithm: ${request.algorithm}\n\nEnvironment snapshot:\n\n\`\`\`json\n${JSON.stringify(storedSpec, null, 2)}\n\`\`\`\n\nRun configuration:\n\n\`\`\`json\n${JSON.stringify(request.config, null, 2)}\n\`\`\`${request.receipt === null ? "" : `\n\n${RECEIPT_HEADING}\n\n\`\`\`json\n${JSON.stringify(request.receipt, null, 2)}\n\`\`\``}`,
     // Both edges name the RESOLVED id. `environmentId` is the raw --environment
     // input, which may be an alias; recording it on one edge and the resolved id
     // on the other would make a single create call describe two different
@@ -638,11 +753,15 @@ async function startRun(context: CommandHandlerContext): Promise<RlCommandResult
     dep: [verifiedEnvironment.id],
     environment: verifiedEnvironment.id,
     affectedVersion: specHash,
-    component: algorithm,
+    component: request.algorithm,
     fixedVersion: configHash,
     message: "Start attributable RL run",
-  });
-  return { action: "rl-run-start", id: result.item.id, created: true, details: { environment_id: verifiedEnvironment.id, spec_hash: specHash, config_hash: configHash } };
+  };
+  const result = await createOrReadIdentical(client, createOptions, "run_identity_collision", (item) =>
+    item.affected_version === specHash && item.fixed_version === configHash && item.component === request.algorithm
+    && normalizeRunEnvironment(item.environment) === verifiedEnvironment.id && item.body === createOptions.body,
+  );
+  return { action: "rl-run-start", id: result.item.id, created: result.created, details: { environment_id: verifiedEnvironment.id, spec_hash: specHash, config_hash: configHash } };
 }
 
 /**
@@ -742,7 +861,34 @@ export const stdinSource: { stream: AsyncIterable<string | Uint8Array> } = {
   stream: process.stdin,
 };
 
-/** Append parsed measurements as bounded compressed segments through the typed SDK. */
+/**
+ * Append validated metric events to a run's merge-safe note history.
+ *
+ * One write path for the file-driven command and the recursive loop: events
+ * are packed into bounded compressed segments and appended as one atomic
+ * mutation, so concurrent branches keep every accepted occurrence.
+ *
+ * @param client - Client bound to the target workspace.
+ * @param runId - The run item id whose history the events join.
+ * @param events - At least one validated metric event.
+ * @returns Bounded receipt details shared by both callers.
+ */
+async function appendRunMetrics(client: PmClient, runId: string, events: readonly MetricEvent[]): Promise<Readonly<Record<string, unknown>>> {
+  const notes = encodeEventSegments(events);
+  await client.update(runId, {
+    note: notes,
+    message: `Append ${events.length} RL metric event(s) in ${notes.length} bounded segment(s) atomically`,
+  });
+  return {
+    appended: events.length,
+    segments: notes.length,
+    stored_bytes: notes.reduce((total, note) => total + Buffer.byteLength(note), 0),
+    first_step: events[0]!.step,
+    last_step: events.at(-1)!.step,
+  };
+}
+
+/** Append NDJSON metric events from a file or stdin to a run's merge-safe notes. */
 async function logRun(context: CommandHandlerContext): Promise<RlCommandResult> {
   const id = requiredArgument(context, "a run id");
   const path = stringOption(context, "file", false);
@@ -760,12 +906,8 @@ async function logRun(context: CommandHandlerContext): Promise<RlCommandResult> 
   const client = clientFor(context);
   const run = await getTypedItem(client, id, "Run");
   if (run.item.status !== "in_progress") fail(`Run ${id} is ${String(run.item.status)}; only an in-progress run accepts metrics.`, "run_not_active", EXIT_CODE.CONFLICT);
-  const notes = encodeEventSegments(events);
-  await client.update(id, {
-    note: notes,
-    message: `Append ${events.length} RL metric event(s) in ${notes.length} bounded segment(s) atomically`,
-  });
-  return { action: "rl-run-log", id: String(run.item.id), details: { appended: events.length, segments: notes.length, stored_bytes: notes.reduce((total, note) => total + Buffer.byteLength(note), 0), first_step: events[0]!.step, last_step: events.at(-1)!.step } };
+  const details = await appendRunMetrics(client, id, events);
+  return { action: "rl-run-log", id: String(run.item.id), details };
 }
 
 /** Read one run and decode only pm-rl event notes into an ordered series. */
@@ -1701,16 +1843,66 @@ function parseGapWindow(raw: string): number {
 async function registerGeneration(context: CommandHandlerContext): Promise<RlCommandResult> {
   const requestedId = requiredArgument(context, "a generation id");
   const baseCheckpoint = stringOption(context, "base_checkpoint")!;
-  const parentInput = stringOption(context, "parent", false);
-  const configPath = stringOption(context, "config_file", false);
-  const config = configPath === undefined ? {} : readJsonFile(configPath, "Generation configuration");
-  const client = clientFor(context);
-  await ensurePersistentTypes(client);
   // `stringOption` returns `value.trim()` and maps a blank to `undefined`, so
   // `parentInput` is already normalized and already non-empty when defined.
   // Re-trimming here would state a normalization this boundary does not
   // perform, which is worse than not restating it at all.
+  const parentInput = stringOption(context, "parent", false);
   const isSeed = parentInput === undefined;
+  const configPath = stringOption(context, "config_file", false);
+  const config = configPath === undefined ? {} : readJsonFile(configPath, "Generation configuration");
+  const client = clientFor(context);
+  await ensurePersistentTypes(client);
+  return registerGenerationCore(client, {
+    id: requestedId,
+    baseCheckpoint,
+    parent: isSeed ? null : parentInput,
+    policy: isSeed ? (stringOption(context, "policy", false) ?? "") : stringOption(context, "policy")!,
+    collectionRuns: isSeed ? [] : stringOption(context, "collection_runs")!.split(",").map((run) => run.trim()).filter((run) => run.length > 0),
+    environment: isSeed ? undefined : stringOption(context, "environment")!,
+    config,
+  });
+}
+
+/** The resolved provenance of one generation registration, shared by the command and the recursive loop. */
+interface GenerationRegistrationRequest {
+  /** Requested generation item id. */
+  readonly id: string;
+  /** Content-addressed base checkpoint identity the generation started from. */
+  readonly baseCheckpoint: string;
+  /** Parent generation id; null for the seed generation. */
+  readonly parent: string | null;
+  /** Policy that collected the training data; empty only for a policyless seed. */
+  readonly policy: string;
+  /** Collection run item ids; empty for the seed generation. */
+  readonly collectionRuns: readonly string[];
+  /** Environment item id the collection runs used; undefined for the seed generation. */
+  readonly environment: string | undefined;
+  /** Training configuration recorded in the generation's body. */
+  readonly config: JsonValue;
+}
+
+/**
+ * Register one policy generation with its full provenance and typed edges.
+ *
+ * The write-boundary invariants live here once: a candidate's parent must be
+ * promoted (or the seed), each collection run must have been collected by the
+ * parent's declared policy under the declared environment, and the spec is
+ * hashed over provenance only so promotion can record its outcome without
+ * breaking the stored identity. The recursive loop registers its seed and
+ * every candidate through this path, so a loop-generated generation carries
+ * exactly the provenance discipline a manual one does.
+ *
+ * @param client - Client bound to the target workspace.
+ * @param request - The resolved generation provenance.
+ * @returns The command result naming the created generation and its identities.
+ */
+async function registerGenerationCore(client: PmClient, request: GenerationRegistrationRequest): Promise<RlCommandResult> {
+  const requestedId = request.id;
+  const baseCheckpoint = request.baseCheckpoint;
+  const parentInput = request.parent;
+  const config = request.config;
+  const isSeed = parentInput === null;
   let policy = "";
   let collectionRuns: string[] = [];
   let environmentId = "";
@@ -1719,16 +1911,15 @@ async function registerGeneration(context: CommandHandlerContext): Promise<RlCom
   if (isSeed) {
     // A seed may declare the policy that collected its data; without one the
     // recorded policy is empty and candidates parented to it skip the check.
-    policy = stringOption(context, "policy", false) ?? "";
+    policy = request.policy;
   } else {
     const parent = await getTypedItem(client, parentInput!, "Generation");
     const parentSpec = extractGenerationSpec(String(parent.item.body), `Parent generation ${parentInput}`);
     if (!parentSpec.promoted && !parentSpec.seed) {
       fail(`Parent generation ${parentInput} is not promoted. Only a promoted generation (or the seed) may parent a candidate.`, "parent_not_promoted", EXIT_CODE.CONFLICT);
     }
-    policy = stringOption(context, "policy")!;
-    const collectionRunsRaw = stringOption(context, "collection_runs")!;
-    collectionRuns = collectionRunsRaw.split(",").map((run) => run.trim()).filter((run) => run.length > 0);
+    policy = request.policy;
+    collectionRuns = [...request.collectionRuns];
     if (collectionRuns.length === 0) {
       fail("pm rl generation register requires --collection-runs for a non-seed generation.", "missing_collection_runs");
     }
@@ -1739,8 +1930,7 @@ async function registerGeneration(context: CommandHandlerContext): Promise<RlCom
     // reads the run's own environment, so the gate and the provenance field
     // would disagree — the same class of silent drift the identity checks exist
     // to prevent.
-    const envInput = stringOption(context, "environment")!;
-    const envResult = await verifyEnvironmentForGeneration(client, envInput);
+    const envResult = await verifyEnvironmentForGeneration(client, request.environment!);
     environmentId = envResult.id;
     rewardSpecVersion = envResult.rewardSpecHash;
     for (const runId of collectionRuns) {
@@ -1797,11 +1987,13 @@ async function registerGeneration(context: CommandHandlerContext): Promise<RlCom
     message: isSeed ? "Register seed RL generation" : "Register candidate RL generation",
     ...(isSeed ? {} : { parent: parentInput, dep: deps, environment: environmentId }),
   };
-  const result = await client.create(createOptions);
+  const result = await createOrReadIdentical(client, createOptions, "generation_identity_collision", (item) =>
+    item.affected_version === specHash && hashJson(generationProvenance(extractGenerationSpec(String(item.body), `Generation ${requestedId}`))) === specHash,
+  );
   return {
     action: "rl-generation-register",
     id: result.item.id,
-    created: true,
+    created: result.created,
     details: {
       seed: isSeed,
       parent: isSeed ? null : parentInput,
@@ -1814,6 +2006,32 @@ async function registerGeneration(context: CommandHandlerContext): Promise<RlCom
       edge_types: [...GENERATION_EDGE_TYPES],
     },
   };
+}
+
+/**
+ * Read and validate one approval Decision's permitted promotion count.
+ *
+ * One implementation serves the pre-lock fast refusal, the in-lock decision,
+ * and the loop's fail-fast start check, so the three cannot drift apart. The
+ * budget a promotion is checked against must come from a read taken INSIDE the
+ * lock: an approval whose permitted count is lowered while this caller waits
+ * would otherwise be compared against the capacity it had before, and the
+ * promotion would exceed the approval that actually governs it.
+ *
+ * @param client - Client bound to the target workspace.
+ * @param approvalId - The approval Decision item id.
+ * @returns The parsed approval specification.
+ */
+async function readApprovalSpec(client: PmClient, approvalId: string): Promise<ApprovalSpec> {
+  const approval = await client.get(approvalId, { depth: "deep" });
+  if (String(approval.item.type) !== "Decision") {
+    fail(`pm rl expected a Decision ${approvalId} as the approval item, not ${String(approval.item.type)}.`, "wrong_approval_type", EXIT_CODE.CONFLICT);
+  }
+  const approvalFenced = JSON_SPEC_FENCE.exec(String(approval.item.body));
+  if (approvalFenced?.[1] === undefined) {
+    fail(`Approval item ${approvalId} has no JSON specification fence.`, "approval_missing_spec", EXIT_CODE.CONFLICT);
+  }
+  return parseApprovalSpec(approvalFenced[1], `Approval ${approvalId}`);
 }
 
 /** Promote a candidate generation after contamination and budget checks pass. */
@@ -1847,35 +2065,76 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
     fail("Promotion scores require a held_out_score. A generation without both a proxy and a held-out score cannot be promoted.", "missing_held_out_score");
   }
   const heldOutScore = parseScoreRecord(heldOutScoreRaw, "held_out_score");
+  const outcome = await promoteGenerationCore(client, { pmRoot: context.pm_root, author: authorFor(context) }, id, approvalId, proxyScore, heldOutScore, evidence);
+  return {
+    action: "rl-generation-promote",
+    id,
+    details: {
+      status: outcome.status,
+      gap: outcome.gap,
+      proxy_score: proxyScore.value,
+      held_out_score: heldOutScore.value,
+      approval: approvalId,
+      budget_consumed: outcome.promotedCount + 1,
+      budget_permitted: outcome.permittedPromotions,
+      evidence,
+    },
+  };
+}
+
+/** The workspace coordinates a transactional promotion needs outside the client. */
+interface WorkspaceCoordinates {
+  /** The tracker root the workspace transaction coordinator journals into. */
+  readonly pmRoot: string;
+  /** The attributable actor for the transaction journal. */
+  readonly author: string;
+}
+
+/** The persisted outcome of one transactional promotion. */
+interface PromotionOutcome {
+  /** The promoted generation's terminal status. */
+  readonly status: string;
+  /** The direction-aware proxy-to-held-out gap recorded at promotion. */
+  readonly gap: number;
+  /** Promotions already consumed under the approval before this one. */
+  readonly promotedCount: number;
+  /** The approval's permitted promotion count, re-read inside the lock. */
+  readonly permittedPromotions: number;
+}
+
+/**
+ * Promote one candidate generation through the transactional, budget-checked flow.
+ *
+ * Contamination is decided twice — once before the writer lock as a fast
+ * refusal and once inside it as the authoritative verdict — and the approved
+ * promotion budget is counted and consumed inside the same critical section,
+ * so two concurrent promoters cannot both spend headroom they both read. The
+ * recursive loop promotes through this path, so a loop-generated promotion is
+ * bounded by exactly the invariants a manual one is.
+ *
+ * @param client - Client bound to the target workspace.
+ * @param coordinates - Workspace root and author for the transaction journal.
+ * @param id - The candidate generation item id.
+ * @param approvalId - The approval Decision item id.
+ * @param proxyScore - The parsed proxy score record.
+ * @param heldOutScore - The parsed held-out score record.
+ * @param evidence - Human-readable promotion evidence.
+ * @returns The promotion's persisted outcome.
+ */
+async function promoteGenerationCore(client: PmClient, coordinates: WorkspaceCoordinates, id: string, approvalId: string, proxyScore: ScoreRecord, heldOutScore: ScoreRecord, evidence: string): Promise<PromotionOutcome> {
+  const { pmRoot, author } = coordinates;
   const ancestry = await buildAncestry(client, id, true);
   const contamination = findContaminationPath(ancestry, heldOutScore.evaluation_context);
   if (contamination !== null) {
     fail(`Promotion refused: the evaluation set is reachable from the candidate's training data over provenance edges. Path: ${renderContaminationPath(contamination)}`, "contamination_refused", EXIT_CODE.CONFLICT);
   }
   const gap = directionAwareGap(proxyScore, heldOutScore);
-  // Read and validated through one function so the pre-lock fast refusal and
-  // the in-lock decision cannot drift apart. The budget the promotion is
-  // checked against must come from a read taken INSIDE the lock: an approval
-  // whose permitted count is lowered while this caller waits would otherwise be
-  // compared against the capacity it had before, and the promotion would exceed
-  // the approval that actually governs it.
-  const readApprovalSpec = async (): Promise<ApprovalSpec> => {
-    const approval = await client.get(approvalId, { depth: "deep" });
-    if (String(approval.item.type) !== "Decision") {
-      fail(`pm rl expected a Decision ${approvalId} as the approval item, not ${String(approval.item.type)}.`, "wrong_approval_type", EXIT_CODE.CONFLICT);
-    }
-    const approvalFenced = JSON_SPEC_FENCE.exec(String(approval.item.body));
-    if (approvalFenced?.[1] === undefined) {
-      fail(`Approval item ${approvalId} has no JSON specification fence.`, "approval_missing_spec", EXIT_CODE.CONFLICT);
-    }
-    return parseApprovalSpec(approvalFenced[1], `Approval ${approvalId}`);
-  };
   // Called for its refusals, not its value: it rejects a non-Decision approval,
   // a missing JSON fence, and an unparseable spec BEFORE the writer lock is
   // taken, so an obviously invalid approval never queues behind a live promotion.
   // The value is deliberately discarded — every number the decision and the
   // receipt use is re-read inside the lock.
-  await readApprovalSpec();
+  await readApprovalSpec(client, approvalId);
   // Count the consumed budget and write the promotion inside one workspace
   // writer lock. Two concurrent promotions would otherwise both read the same
   // count, both observe headroom, and both promote — the race a recursive loop
@@ -1908,7 +2167,7 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
   // between that read and the lock: this value is written back on a failed
   // close, so it must be the body that was current when the promoting write
   // overwrote it, not the one this caller happened to see first.
-  let bodyBeforePromotion = String(generation.item.body);
+  let bodyBeforePromotion = String((await getTypedItem(client, id, "Generation")).item.body);
   // Revert the promoting write. The coordinator compensates steps it has already
   // recorded as applied, and a single-step plan has none — verified empirically:
   // a step whose `apply` throws runs inspect, apply, then propagates, never
@@ -1931,7 +2190,7 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
   let permittedPromotions = 0;
   let closedStatus = "";
   await commitWorkspaceTransaction({
-    pmRoot: context.pm_root,
+    pmRoot,
     // Unique per invocation. The transaction is used here for MUTUAL EXCLUSION,
     // not for idempotent replay, and the two must not share a key: keying on the
     // generation makes concurrent callers promoting the SAME generation look
@@ -1940,7 +2199,7 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
     // performed. Correctness under concurrency comes from the re-check inside
     // the lock instead.
     transactionId: `pm-rl-generation-promote-${id}-${randomUUID()}`,
-    author: authorFor(context),
+    author,
     lockWaitMs: PROMOTION_LOCK_WAIT_MS,
     steps: [{
       id: "promote-generation",
@@ -1986,7 +2245,7 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
         // Re-read inside the lock for the same reason the count is: the budget
         // is a comparison between two values, and re-reading only one of them
         // leaves the comparison stale in the other direction.
-        const lockedApprovalSpec = await readApprovalSpec();
+        const lockedApprovalSpec = await readApprovalSpec(client, approvalId);
         promotedCount = await countPromotedUnderApproval(client, approvalId);
         permittedPromotions = lockedApprovalSpec.permitted_promotions;
         if (promotedCount >= permittedPromotions) {
@@ -2024,25 +2283,223 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
       compensate: revertPromotingWrite,
     }],
   });
-  return {
-    action: "rl-generation-promote",
-    id,
-    details: {
-      status: closedStatus,
-      gap,
-      proxy_score: proxyScore.value,
-      held_out_score: heldOutScore.value,
-      approval: approvalId,
-      budget_consumed: promotedCount + 1,
-      // The IN-LOCK value. `approvalSpec` is the pre-lock read, and reporting
-      // it here would tell the caller a capacity that was already superseded by
-      // the one the promotion was actually checked against and recorded in the
-      // item. This was the site my own pre-lock audit missed: the value was
-      // re-read for the DECISION and not for the RECEIPT.
-      budget_permitted: permittedPromotions,
-      evidence,
-    },
+  return { status: closedStatus, gap, promotedCount, permittedPromotions };
+}
+
+/** One executed generation's persisted record within a loop report. */
+export interface RlLoopGenerationReport {
+  /** One-based generation number. */
+  readonly generation: number;
+  /** The generation's collection Run item id. */
+  readonly run: string;
+  /** The generation's Generation item id. */
+  readonly item: string;
+  /** Whether this generation's candidate was promoted. */
+  readonly promoted: boolean;
+  /** The candidate's sampled held-out mean reward. */
+  readonly held_out_mean: number;
+  /** The candidate's content-addressed checkpoint identity. */
+  readonly candidate_checkpoint: string;
+  /** The refusal that terminated the loop here; null when promoted. */
+  readonly refusal_reason: string | null;
+}
+
+/** The bounded terminal report of one executed recursive loop. */
+export interface RlLoopReport {
+  /** The exact condition that terminated the loop. */
+  readonly stop_reason: "generation_limit" | "budget_exhausted" | "unchanged_checkpoint" | "gap_rejected" | "evaluation_rejected" | "promotion_refused";
+  /** The registered environment item id every run and generation references. */
+  readonly environment: string;
+  /** The seed generation item id the loop parented every candidate to. */
+  readonly seed_generation: string;
+  /** Every executed generation, in order, promoted or refused. */
+  readonly generations: readonly RlLoopGenerationReport[];
+  /** Number of promotions the loop recorded. */
+  readonly promoted: number;
+  /** Samples actually collected before termination. */
+  readonly samples_consumed: number;
+  /** The loop's total sample budget. */
+  readonly budget: number;
+  /** The last accepted checkpoint identity: the seed's when nothing promoted. */
+  readonly final_checkpoint: string;
+  /** The refusal that terminated the loop; null when the generation limit was reached. */
+  readonly refusal_reason: string | null;
+}
+
+/** One bounded recursive loop execution request. */
+export interface RlLoopRequest {
+  /** Loop id prefix; child items are named `<id>-seed`, `<id>-g<n>-collect` and `<id>-g<n>`. */
+  readonly id: string;
+  /** The parsed loop configuration document (see {@link parseLoopConfig}). */
+  readonly config: JsonValue;
+  /** The approval Decision item id stating the permitted promotion count. */
+  readonly approval: string;
+}
+
+/**
+ * Execute one bounded recursive collect-train-evaluate-promote loop against a real tracker.
+ *
+ * Every generation is persisted before its verdict: a collection Run item
+ * carries the batch's real per-sample metric events in merge-safe notes, and a
+ * candidate Generation item carries the derived training configuration and full
+ * provenance. Promotion goes through the existing transactional,
+ * contamination- and budget-checked flow; a refusal — statistical, structural,
+ * or from an exhausted approved promotion budget — is recorded as a comment on
+ * the candidate's item, so history, not a process exit code, is the audit
+ * trail. The loop never advances past its own bounds: generation count, total
+ * collected samples, and the strictly-better held-out gate all terminate it
+ * with a distinct recorded reason, and the next generation's configuration is
+ * derived deterministically from the previous evaluation results.
+ *
+ * @param client - Client bound to the target workspace.
+ * @param coordinates - Workspace root and author for the transaction journal.
+ * The typed SDK surface of `pm rl loop run`: host extensions, other packages,
+ * and the command handler share this one code path, so the loop cannot behave
+ * differently depending on how it was invoked.
+ *
+ * @param request - The loop id, configuration, and approval.
+ * @returns The bounded terminal report of the executed loop.
+ */
+export async function runRlLoop(client: PmClient, coordinates: WorkspaceCoordinates, request: RlLoopRequest): Promise<RlLoopReport> {
+  const config = parseLoopConfig(request.config);
+  await ensurePersistentTypes(client);
+  // Fail fast on the approval before any collection is charged: a loop that
+  // cannot promote must refuse before it spends budget, not after.
+  await readApprovalSpec(client, request.approval);
+  const environment = await registerEnvironmentSpecValue(client, loopEnvironmentSpec(config));
+  const environmentId = String(environment.id);
+  const seedCheckpoint = banditCheckpoint(config.initialWeight);
+  const seedRegistration = await registerGenerationCore(client, {
+    id: `${request.id}-seed`,
+    baseCheckpoint: seedCheckpoint.digest,
+    parent: null,
+    policy: seedCheckpoint.digest,
+    collectionRuns: [],
+    environment: undefined,
+    config: seedTrainingConfig(config),
+  });
+  // Item ids are normalized by the tracker (an id prefix may be prepended), so
+  // every later reference — run creation, parent edges, comments, closes, and
+  // the report — uses the id each create actually returned, never a guessed
+  // shape. A parent edge written from the requested text would name nothing
+  // and silently leave every generation a lineage head.
+  const seedId = String(seedRegistration.id);
+  // Registration may reuse identical provenance, but execution needs one owner:
+  // a second caller must not append collection metrics or spend the budget again.
+  if (!seedRegistration.created) {
+    fail(`Loop seed ${seedId} already exists; use a new loop id for a new execution.`, "loop_already_started", EXIT_CODE.CONFLICT);
+  }
+  const reports: RlLoopGenerationReport[] = [];
+  let step: LoopStepConfig = { learningRate: config.learningRate, evaluationSamples: config.evaluationSamples };
+  let current = seedCheckpoint;
+  let parent = seedId;
+  let promotedCount = 0;
+  let consumed = 0;
+  let stopReason: RlLoopReport["stop_reason"] = "generation_limit";
+  let refusalReason: string | null = null;
+  for (let generation = 1; generation <= config.maxGenerations; generation += 1) {
+    // The budget bound is checked BEFORE the generation runs, so a loop whose
+    // remaining allowance cannot fit one more collection batch stops without
+    // charging or recording a partial batch.
+    if (consumed + config.samplesPerGeneration > config.budget) {
+      stopReason = "budget_exhausted";
+      refusalReason = `sample budget ${config.budget} exhausted after ${consumed} collected sample(s)`;
+      break;
+    }
+    const receipt = runLoopGeneration(config, step, generation, current);
+    consumed += config.samplesPerGeneration;
+    // Collect: the batch's real per-sample observations become the run's
+    // merge-safe metric history, attributed to the collecting policy.
+    const runRegistration = await startRunCore(client, {
+      id: `${request.id}-g${generation}-collect`,
+      environmentId,
+      algorithm: receipt.source.digest,
+      config: generationTrainingConfig(config, step, generation, receipt),
+      receipt: null,
+    });
+    const runId = String(runRegistration.id);
+    await appendRunMetrics(client, runId, collectionMetricEvents(receipt));
+    await client.close(runId, "collection complete", {
+      message: "Finish RL run",
+      resolution: "collection complete",
+      expectedResult: "The run reaches a terminal state without rewriting its metric history.",
+      actualResult: `Collected ${config.samplesPerGeneration} sample(s) for loop ${request.id} generation ${generation}.`,
+    });
+    // Train and evaluate are recorded on the candidate generation: the derived
+    // configuration, both checkpoints, and the evaluation numbers the next
+    // generation's configuration is derived from.
+    const generationRegistration = await registerGenerationCore(client, {
+      id: `${request.id}-g${generation}`,
+      baseCheckpoint: receipt.source.digest,
+      parent,
+      // The recorded policy is the checkpoint this generation's successor
+      // collection runs must match: the candidate it produced. The generation's
+      // OWN runs were checked against its parent's policy at this same boundary.
+      policy: receipt.candidate.digest,
+      collectionRuns: [runId],
+      environment: environmentId,
+      config: generationTrainingConfig(config, step, generation, receipt),
+    });
+    const generationId = String(generationRegistration.id);
+    if (!receipt.promoted) {
+      // The gate refused the candidate: record the refusal in the candidate's
+      // history and stop. A refused candidate never becomes a collector.
+      await client.comments(generationId, { add: `Loop ${request.id} generation ${generation} refused: ${receipt.refusalReason}` });
+      reports.push({ generation, run: runId, item: generationId, promoted: false,
+        held_out_mean: receipt.candidateHeldOutMean, candidate_checkpoint: receipt.candidate.digest, refusal_reason: receipt.refusalReason });
+      stopReason = receipt.stopReason!;
+      refusalReason = receipt.refusalReason;
+      break;
+    }
+    // Promote through the existing transactional, budget-checked flow. An
+    // expected refusal here — an exhausted approval, a contamination verdict —
+    // terminates the loop with the refusal recorded, not retried.
+    const scores = loopPromotionScores(config, step, generation, receipt);
+    try {
+      await promoteGenerationCore(client, coordinates, generationId, request.approval,
+        parseScoreRecord(scores.proxy_score, "proxy_score"), parseScoreRecord(scores.held_out_score, "held_out_score"),
+        `loop ${request.id} generation ${generation}: held-out mean improved from ${receipt.incumbentHeldOutMean.toFixed(4)} to ${receipt.candidateHeldOutMean.toFixed(4)} over ${step.evaluationSamples} episodes at confidence ${config.confidence}`);
+    } catch (error) {
+      if (!isPmCliExpectedError(error)) throw error;
+      const message = `Loop ${request.id} generation ${generation} promotion refused: ${error.message}`;
+      await client.comments(generationId, { add: message });
+      reports.push({ generation, run: runId, item: generationId, promoted: false,
+        held_out_mean: receipt.candidateHeldOutMean, candidate_checkpoint: receipt.candidate.digest, refusal_reason: error.message });
+      stopReason = "promotion_refused";
+      refusalReason = error.message;
+      break;
+    }
+    reports.push({ generation, run: runId, item: generationId, promoted: true,
+      held_out_mean: receipt.candidateHeldOutMean, candidate_checkpoint: receipt.candidate.digest, refusal_reason: null });
+    promotedCount += 1;
+    parent = generationId;
+    current = receipt.candidate;
+    // The evaluation results generate the next generation's configuration.
+    step = deriveNextStepConfig(config, step, receipt.candidateHeldOutMean - receipt.incumbentHeldOutMean);
+  }
+  const report: RlLoopReport = {
+    stop_reason: stopReason,
+    environment: environmentId,
+    seed_generation: seedId,
+    generations: reports,
+    promoted: promotedCount,
+    samples_consumed: consumed,
+    budget: config.budget,
+    final_checkpoint: current.digest,
+    refusal_reason: refusalReason,
   };
+  await client.comments(seedId, { add: `Loop ${request.id} terminal report:\n${JSON.stringify(report)}` });
+  return report;
+}
+
+/** Execute one bounded recursive loop through the public command surface. */
+async function runLoop(context: CommandHandlerContext): Promise<RlCommandResult> {
+  const id = requiredArgument(context, "a loop id");
+  const path = stringOption(context, "file")!;
+  const approval = stringOption(context, "approval")!;
+  const config = readJsonFile(path, "Loop configuration");
+  const report = await runRlLoop(clientFor(context), { pmRoot: context.pm_root, author: authorFor(context) }, { id, config, approval });
+  return { action: "rl-loop-run", id, details: { ...report } };
 }
 
 /** Show one generation and its lineage details. */
@@ -2705,6 +3162,10 @@ export const RL_COMMANDS = [
     { long: "--evidence", value_name: "text", value_type: "string", required: true, description: "Human-readable promotion evidence." },
   ], run: promoteGeneration }),
   defineCommand({ name: "rl generation show", description: "Show one generation and its lineage details.", arguments: [{ name: "id", required: true, description: "Generation item id." }], run: showGeneration }),
+  defineCommand({ name: "rl loop run", description: "Execute one bounded recursive collect-train-evaluate-promote loop over the built-in bandit environment, persisting every generation.", arguments: [{ name: "id", required: true, description: "Loop id prefix; child items are named <id>-seed, <id>-g<n>-collect and <id>-g<n>." }], flags: [
+    { long: "--file", value_name: "path", value_type: "string", required: true, description: "Loop configuration JSON: datasets, environment identity, and hard bounds." },
+    { long: "--approval", value_name: "id", value_type: "string", required: true, description: "Approval Decision item id stating the permitted promotion count." },
+  ], run: runLoop }),
   defineCommand({ name: "rl lineage", description: "Render the generation chain from seed to head(s) with promotion evidence and invalidation state.", arguments: [{ name: "head", required: false, description: "Head generation id; omit to enumerate every head." }], flags: [
     { long: "--format", value_name: "table|json", value_type: "string", description: "Output format; defaults to table." },
     { long: "--gap-window", value_name: "n", value_type: "string", description: "Number of consecutive gaps for the widening check (at least 2); defaults to 3." },

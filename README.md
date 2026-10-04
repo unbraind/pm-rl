@@ -6,16 +6,46 @@ fail-closed leaderboards, recursive-improvement lineage gates, transitive invali
 comparison. Run metrics live in merge-safe notes and are proven to union losslessly when two real
 Git branches append independently. Sweeps expand into independent child-run arms and sim-to-real
 transfer reports the per-metric gap series across a run's checkpoints — both fully implemented,
-with no hidden or partial commands.
+with no hidden or partial commands. The persisted recursive loop (`pm rl loop run`) executes a
+bounded collect → train → evaluate → promote-or-reject cycle over the built-in deterministic
+bandit, records every generation as tracker items and merge-safe history, and stops itself on its
+own hard bounds.
 
 ```bash
 npm install --save-dev pm-rl     # or: bun add -d pm-rl
-pm install pm-rl
+pm package install ./node_modules/pm-rl --project
 pm rl env register --file environments/grid-v3.json
 pm rl benchmark register --file benchmarks/safety-v1.json
 pm rl eval record --run run-ppo-7 --benchmark benchmark-safety-v1-... --checkpoint sha256:... --score 0.91 --passed true
 pm rl leaderboard benchmark-safety-v1-...
 ```
+
+To run the built-in recursive loop in an initialized project, install the package
+as above, create a Decision containing the promotion allowance, then run the
+packaged example:
+
+```bash
+printf '%s\n' '```json' '{"permitted_promotions":3}' '```' > approval.md
+pm create Decision "Allow three bandit promotions" --id demo-approval --body-file approval.md
+pm rl loop run demo-loop --file node_modules/pm-rl/examples/loop-bandit.json --approval demo-approval --json
+```
+
+For a local build, run `npm run build` and `npm pack` in this repository, then
+install the resulting tarball with `npm install /absolute/path/to/pm-rl-2026.7.31.tgz`
+in the consumer project before `pm package install ./node_modules/pm-rl --project`. Initialize a fresh consumer
+with `pm init rl --defaults` first. The seed Generation retains the whole
+configuration and a terminal report in its comment history; each attempted
+generation retains its collection metrics, checkpoint weights and evaluation
+results. Budget and generation limits stop before another batch is collected.
+Promotion requires both a strictly higher exact held-out expected reward and a
+Hoeffding-bounded sampled improvement. A tie or regression preserves the last
+promoted checkpoint, even when noisy samples favor the candidate.
+
+The typed SDK entry point is `runRlLoop(client, { pmRoot, author }, { id, config,
+approval })`, exported from `pm-rl`. Use unique loop ids for independent runs.
+Its `RlLoopReport` names every attempted generation and the terminal condition.
+Repeated held-out selection is adaptive validation; use an independent final
+benchmark for unbiased performance claims.
 
 ---
 
@@ -94,6 +124,7 @@ query the host can already answer, not a feature to build.
 | `pm rl sweep plan` / `status` | Expand a declared search space into one child Run per arm with the arm's hyperparameters recorded; report per-arm progress and a verdict only when the selection rule supports one ([`pm-rl-mqdb`](.agents/pm/features/pm-rl-mqdb.toon)) |
 | `pm rl transfer record` / `gap` | Record one measured per-metric sim-to-real gap for one checkpoint, linked to both environment versions; report the gap series across a run's checkpoints in order, holding transfers whose environments went stale out of the series with reasons ([`pm-rl-06n6`](.agents/pm/features/pm-rl-06n6.toon)) |
 | `pm rl episode env register` / `record` / `replay`, `pm rl outcome record`, `pm rl simreal gap` | The fleet's own mandatory gates as a content-addressed environment: episodes store a candidate-tree identity (git tree or patch hash), replay resolves that exact artifact before re-deriving the verdict, every episode links its pull request, and the sim-to-real gap is computed over the paired cohort with denominators stated and unpaired sides reported as coverage ([`pm-rl-0cqg`](.agents/pm/features/pm-rl-0cqg.toon)) |
+| `pm rl loop run` | Execute one bounded recursive collect → train → evaluate → promote-or-reject loop over the built-in deterministic contextual bandit: each generation persists a collection Run with per-sample metric notes and a Generation item, promotion goes through the existing transactional contamination- and budget-checked gate, refusal reasons land in item history, and the previous evaluation results deterministically derive the next generation's learning rate and evaluation episode count. Generation count, total sample budget, a strictly better held-out gate, and the approved promotion budget all terminate the loop with a distinct recorded reason ([`pm-rl-hjg1`](.agents/pm/features/pm-rl-hjg1.toon)) |
 
 The remaining types and commands in the roadmap table above are intentionally not registered
 until their acceptance criteria and refusal paths are implemented and tested.
@@ -186,12 +217,12 @@ All exit non-zero. The gap-widening check needs at least two consecutive gaps, s
 
 ## Recursive self-improvement, and the four properties that make it honest
 
-The current pm-rl runtime **tracks and gates** a recursive loop: a generation collects trajectories,
+The current pm-rl runtime **executes, tracks and gates** a bounded numerical loop: a generation collects trajectories,
 an external trainer produces a successor, and the successor collects the next generation's
-trajectories. Full bounded execution is the next phase, specified in
-[Recursive training execution](RECURSIVE_TRAINING.md). It will add native controller and trainer
-adapter contracts while retaining the provenance and promotion checks below. Trainer execution is
-not implemented by the current commands.
+trajectories. `pm rl loop run` executes these steps with the built-in contextual
+bandit. The durable controller specified in [Recursive training execution](RECURSIVE_TRAINING.md)
+will add isolated trainer adapters, leases, crash recovery and LLM parameter updates
+while retaining the provenance and promotion checks below.
 
 None of the four failures below is a training problem. Each one is a provenance problem — which is
 to say a context problem — and each becomes answerable from the graph pm stores and merges, **once
