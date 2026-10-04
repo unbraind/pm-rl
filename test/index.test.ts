@@ -62,16 +62,6 @@ async function workspace(): Promise<{
   return { root, pmRoot: initialized.path, harness };
 }
 
-/** Install the built package into a real temporary tracker for host-bound mutation tests. */
-async function installedWorkspace(): ReturnType<typeof workspace> {
-  const fixture = await workspace();
-  execFileSync(join(process.cwd(), "node_modules", ".bin", "pm"), ["install", process.cwd(), "--project", "--json"], {
-    cwd: fixture.root,
-    encoding: "utf8",
-  });
-  return fixture;
-}
-
 /** Extract a successful structured command result. */
 function resultOf(run: { result?: unknown; handled: boolean }): RlCommandResult {
   assert.equal(run.handled, true, JSON.stringify(run));
@@ -252,7 +242,21 @@ test("a changed reward specification registers as a new version rather than over
 });
 
 test("a referenced environment is refused at the write boundary by the command, SDK, and direct core routes", async () => {
-  const { root, pmRoot, harness } = await installedWorkspace();
+  const { root, pmRoot, harness } = await workspace();
+  // Exercise the shipped archive. The CLI refuses a source-directory install
+  // once dependency trees make its bounded scan incomplete.
+  const packOutput = execFileSync(process.platform === "win32" ? "npm.cmd" : "npm", ["pack", "--ignore-scripts", "--silent", "--pack-destination", root], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    shell: process.platform === "win32",
+  });
+  // npm 10 on Node 22 also prints the prepare script's output to stdout.
+  const archive = packOutput.trim().split(/\r?\n/).at(-1);
+  assert.ok(archive && /^pm-rl-.*\.tgz$/.test(archive), "npm pack did not return the pm-rl archive as its final line");
+  execFileSync(join(process.cwd(), "node_modules", ".bin", "pm"), ["package", "install", join(root, archive), "--project", "--json"], {
+    cwd: root,
+    encoding: "utf8",
+  });
   const environmentFile = join(root, "environment.json");
   writeFileSync(environmentFile, JSON.stringify(SPEC));
   const environment = resultOf(await harness.runCommand({ command: "rl env register", pmRoot, options: { file: environmentFile } }));

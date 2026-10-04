@@ -252,7 +252,7 @@ implemented and tested.
 ## Requirements
 
 - Node.js ≥ 22.18, tested on 22 and 26
-- `@unbrained/pm-cli` ≥ 2026.8.1 (peer dependency)
+- `@unbrained/pm-cli` ≥ 2026.8.28 (peer dependency)
 - Works under `npm`/`npx` and `bun`/`bunx`
 - No runtime dependencies beyond the Node standard library
 
@@ -260,11 +260,22 @@ implemented and tested.
 
 ```bash
 npm ci
+./node_modules/.bin/pm package install npm:pm-github@2026.9.26 --project
+./node_modules/.bin/pm github import unbraind/pm-rl --state open --atomic --dry-run
+./node_modules/.bin/pm github sync --repo unbraind/pm-rl --dry-run
 npm run typecheck
 npm run docstring       # hard 100% documented declarations
-npm run coverage        # hard 100% lines / branches / functions, no suppressions
+npm run coverage        # hard 100% statements / lines / branches / functions
 npm run changelog:check
 ```
+
+The tracked managed-extension manifest records `pm-github`, but its installed
+code is ignored by Git. `npm ci` does not restore that project extension in a
+fresh checkout, so install the pinned package before using `pm github`.
+The import and sync commands above only preview changes. Review issue bodies,
+provenance, and the proposed PM diff for private data and duplicates before
+any import or push; scheduled issue sync remains disabled until that review can
+be enforced automatically.
 
 ## License
 
