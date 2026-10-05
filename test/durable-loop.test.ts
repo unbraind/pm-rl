@@ -1,7 +1,7 @@
 /** Durable replay, cancellation, status and real controller contention. */
 import assert from "node:assert/strict";
 import { fork, execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync, rmSync, symlinkSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync, rmSync, symlinkSync, existsSync, statSync, readdirSync } from "node:fs";
 import { tmpdir, hostname } from "node:os";
 import { join, resolve } from "node:path";
 import { createServer } from "node:http";
@@ -10,7 +10,7 @@ import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { setActiveExtensionServices, createPmCliExpectedError, type ExtensionApi } from "@unbrained/pm-cli";
 import { init, isPmCliExpectedError, acquireLock, EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import extension, { runRlLoop, resumeRlLoop, rlLoopStatus, loopLeaseLockId, loopProcessStartTime, LOOP_LEASE_TTL_SECONDS, type JsonValue } from "../index.ts";
+import extension, { runRlLoop, resumeRlLoop, rlLoopStatus, loopLeaseLockId, loopProcessStartTime, loopProcessIdentityIO, LOOP_LEASE_TTL_SECONDS, type JsonValue } from "../index.ts";
 import { parseStoredLoopGeneration, verifyStoredLoopGeneration, parseLoopConfig, generationTrainingConfig, runLoopGeneration } from "../loop.ts";
 import { readSeries, encodeEventSegments, type MetricEvent } from "../series.ts";
 import { configValue } from "./fixtures/systemone.ts";
@@ -327,7 +327,7 @@ test("ambiguous local identities and malformed leases require override; audit fa
   const path = join(pmRoot, "locks", `${loopLeaseLockId(request.id)}.lock`);
   for (const record of [{ hostname: hostname(), pid: 0 }, { hostname: hostname(), pid: "bad" }, { hostname: hostname(), pid: process.pid }, null, "broken JSON"]) {
     writeFileSync(path, typeof record === "string" ? record : JSON.stringify(record));
-    await assert.rejects(resumeRlLoop(client, { pmRoot, author: "rl-test" }, request), /holder is ambiguous/);
+    await assert.rejects(resumeRlLoop(client, { pmRoot, author: "rl-test" }, request), /holder is (ambiguous|unverifiable)/);
   }
   const update = client.update.bind(client);
   const contents = readFileSync(path, "utf8");
@@ -341,6 +341,106 @@ test("ambiguous local identities and malformed leases require override; audit fa
   writeFileSync(path, JSON.stringify({ hostname: hostname(), pid: process.pid, process_start_time: "different" }));
   await resumeRlLoop(client, { pmRoot, author: "rl-test" }, { ...request, forceTakeover: true });
   await lock();
+});
+
+test("unavailable own birth-time probing refuses before acquiring locks even with force", async () => {
+  const { client, pmRoot, approval } = await workspace();
+  const request = { id: "no-probe", config: { ...config, max_generations: 1 }, approval };
+  const processIdentityIO = { ...loopProcessIdentityIO, exec: () => { throw new Error("OS probe tooling unavailable"); } };
+  for (const forceTakeover of [false, true]) {
+    await assert.rejects(runRlLoop(client, { pmRoot, author: "rl-test" }, { ...request, forceTakeover, processIdentityIO }), (error: unknown) => {
+      assert.ok(isPmCliExpectedError(error)); assert.equal(error.context.code, "loop_identity_unavailable");
+      assert.ok(error.message.includes("--force-takeover cannot bypass"));
+      assert.ok(error.message.includes(`locks/${loopLeaseLockId(request.id)}.lock`)); assert.ok(!error.message.includes(pmRoot)); return true;
+    });
+    assert.equal(existsSync(join(pmRoot, "locks", `${loopLeaseLockId(request.id)}.lock`)), false);
+    assert.equal(existsSync(join(pmRoot, "locks", `${loopLeaseLockId(request.id)}-recovery.lock`)), false);
+    await assert.rejects(client.get(`${request.id}-seed`));
+  }
+  await runRlLoop(client, { pmRoot, author: "rl-test" }, request);
+  const release = await acquireLock(pmRoot, loopLeaseLockId(request.id), LOOP_LEASE_TTL_SECONDS, "test");
+  try {
+    const path = join(pmRoot, "locks", `${loopLeaseLockId(request.id)}.lock`);
+    const before = readFileSync(path, "utf8");
+    await assert.rejects(resumeRlLoop(client, { pmRoot, author: "rl-test" }, { ...request, forceTakeover: true, processIdentityIO }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_identity_unavailable");
+    assert.equal(readFileSync(path, "utf8"), before);
+  } finally { await release(); }
+});
+
+test("live local PID with unavailable probing or missing recorded identity blocks forced takeover", async () => {
+  const { client, pmRoot, approval } = await workspace();
+  const winner = launch(pmRoot, approval, "hold"); await winner.ready;
+  const path = join(pmRoot, "locks", `${loopLeaseLockId("race")}.lock`);
+  const original = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+  const pid = winner.child.pid!;
+  const processIdentityIO = {
+    ...loopProcessIdentityIO,
+    read: (path: string) => { if (path === `/proc/${pid}/stat`) throw new Error("holder probe denied"); return loopProcessIdentityIO.read(path); },
+    exec: (file: string, args: string[]) => {
+      if (args.includes(String(pid)) || args.some((arg) => arg.includes(`-Id ${pid} `))) throw new Error("holder probe denied");
+      return loopProcessIdentityIO.exec(file, args);
+    },
+  };
+  try {
+    const { hostname: omittedHost, ...legacy } = original; assert.equal(typeof omittedHost, "string");
+    for (const record of [original, { ...original, process_start_time: null }, legacy]) {
+      writeFileSync(path, JSON.stringify(record)); const before = readFileSync(path, "utf8");
+      for (const forceTakeover of [false, true]) {
+        await assert.rejects(resumeRlLoop(client, { pmRoot, author: "rl-test" }, { id: "race", approval, forceTakeover, processIdentityIO }), /holder is unverifiable/);
+        assert.equal(readFileSync(path, "utf8"), before);
+      }
+    }
+    writeFileSync(path, JSON.stringify({ ...original, process_start_time: null }));
+    await assert.rejects(resumeRlLoop(client, { pmRoot, author: "rl-test" }, { id: "race", approval, forceTakeover: true }), /holder is unverifiable/);
+    const seed = await client.get("race-seed");
+    assert.ok(!readFileSync(join(pmRoot, "history", `${seed.item.id}.jsonl`), "utf8").includes("forced lease takeover"));
+  } finally { winner.child.kill("SIGKILL"); await winner.result; }
+  const { hostname: omittedHost, ...legacy } = original; assert.equal(typeof omittedHost, "string");
+  writeFileSync(path, JSON.stringify(legacy));
+  assert.equal((await resumeRlLoop(client, { pmRoot, author: "rl-test" }, { id: "race", approval, forceTakeover: true })).promoted, 3);
+});
+
+test("identity publication atomically replaces the SDK record while recovery stays serialized", async () => {
+  const { client, pmRoot, approval } = await workspace();
+  const id = "atomic-identity"; const lock = loopLeaseLockId(id); const path = join(pmRoot, "locks", `${lock}.lock`);
+  let oldInode = 0; let token: unknown; let capturedStart: string | null = null; let probes = 0;
+  let observed!: () => void; const captured = new Promise<void>((resolve) => { observed = resolve; });
+  let proceed!: () => void; const permitted = new Promise<void>((resolve) => { proceed = resolve; });
+  const harness = await createExtensionTestHarness({ activate(api: ExtensionApi) {
+    api.registerService("lock_acquire", async (context) => {
+      const payload = context.payload as { id: string };
+      if (payload.id !== lock) return { handled: false };
+      setActiveExtensionServices(null);
+      try {
+        const release = await acquireLock(pmRoot, lock, LOOP_LEASE_TTL_SECONDS, "rl-test");
+        oldInode = statSync(path).ino;
+        const record = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>; token = record.token;
+        assert.equal(record.hostname, undefined); observed(); await permitted;
+        return { handled: true, result: release };
+      } finally { setActiveExtensionServices(harness.activation.services); }
+    });
+  } }, { name: "atomic-identity", capabilities: ["services"] });
+  const get = client.get.bind(client);
+  client.get = (async (id, options) => { const result = await get(id, options); if (id === approval) setActiveExtensionServices(harness.activation.services); return result; }) as PmClient["get"];
+  const request = { id, config: { ...config, max_generations: 1 }, approval };
+  const running = runRlLoop(client, { pmRoot, author: "rl-test" }, { ...request,
+    processIdentityIO: { ...loopProcessIdentityIO, exec(file, args) { probes += 1; return loopProcessIdentityIO.exec(file, args); } },
+    onPhase() {
+      const record = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+      assert.notEqual(statSync(path).ino, oldInode); assert.equal(record.token, token);
+      assert.equal(record.hostname, hostname()); assert.equal(typeof record.process_start_time, "string");
+      capturedStart = String(record.process_start_time); assert.equal(probes, 1);
+      assert.ok(!readdirSync(join(pmRoot, "locks")).some((name) => name.startsWith(`${lock}.lock.`)));
+    },
+  });
+  try {
+    await Promise.race([captured, running.then(() => { throw new Error("controller ended before identity publication"); })]);
+    await assert.rejects(runRlLoop(client, { pmRoot, author: "rl-test" }, { ...request, forceTakeover: true }), /lease recovery is contended/);
+    proceed(); assert.equal((await running).promoted, 1);
+    assert.equal(existsSync(path), false);
+    const seed = await get(`${id}-seed`);
+    assert.ok(readFileSync(join(pmRoot, "history", `${seed.item.id}.jsonl`), "utf8").includes(capturedStart!));
+  } finally { proceed(); await running.catch(() => undefined); setActiveExtensionServices(null); }
 });
 
 test("SDK lock conflict names recovery and identity-write failure releases the acquired lock", async () => {

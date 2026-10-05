@@ -26,16 +26,29 @@ at completed collect/train/evaluate/promote boundaries.
 Controllers acquire SDK `acquireLock` leases before creating job artifacts and
 claim the seed through the SDK. An SDK recovery mutex serializes abandoned-lease
 inspection, dead-identity cleanup and acquisition. Lease records bind hostname,
-PID and process start time; recovery never uses elapsed lease age. Linux start
+PID and process start time; recovery never uses elapsed lease age. Before any
+lock acquisition, the controller must determine its own birth time or refuse
+with `loop_identity_unavailable`; `--force-takeover` cannot bypass this check.
+Restore the OS process-start tooling or access and retry. The captured birth time
+is reused for the lease and claim. The enriched SDK record is written to an
+exclusive same-directory temporary file, then renamed into place under the
+recovery mutex; no recovery can consume a partially written identity.
+Linux start
 time combines field 22 of the process stat record, clock ticks from `getconf CLK_TCK`
 and the kernel boot epoch ([process stat](https://www.man7.org/linux/man-pages/man5/proc_pid_stat.5.html),
 [boot time](https://www.man7.org/linux/man-pages/man5/proc_stat.5.html)). A reused PID
 whose birth time differs is a dead holder. macOS and other Unix systems use
 `ps -p <pid> -o lstart=` with the C locale and UTC timezone; this signal has
-second precision. Windows uses PowerShell `Get-Process` and its UTC `StartTime`
+one-second precision, so PID reuse within that second may be indistinguishable
+and remain blocked. Operators must stop or wait for the unrelated process to
+exit and verify the original controller has stopped before retrying resume;
+do not kill an unrelated process merely to clear the lease. Windows uses
+PowerShell `Get-Process` and its UTC `StartTime`
 in round-trip format. These portable probes depend on OS tooling and access;
-missing birth times, denied probes, legacy records and different hostnames are
-ambiguous and never recover automatically. EPERM alone does not prove identity.
+different hostnames and malformed records are ambiguous and never recover
+automatically. A live local PID with an unavailable birth-time probe or missing
+stored identity blocks even explicit takeover, including legacy SDK records
+without host metadata. EPERM cannot prove death and does not authorize takeover.
 
 Refusals name the tracker-relative lock path and the exact
 `pm rl loop resume <id> --approval <decision> --force-takeover` command. Operators
@@ -43,7 +56,9 @@ must first stop or otherwise exclude the previous controller, particularly for
 shared filesystems. The flag explicitly recovers an ambiguous or stale lease and
 records the forcing PM author, previous PID and identity digests in the seed's
 append-only history before removing the old lease. A matching live identity
-still blocks, even with the flag. Claim receipts also retain PID, birth time and
+still blocks, even with the flag, including indistinguishable same-second reuse
+on macOS/BSD. Restore probing and stop or exclude an unverifiable local holder
+before forcing recovery. Claim receipts also retain PID, birth time and
 a hostname digest; raw hostnames remain only in local lease files.
 
 Standalone PM projects coordinate at their tracker root.

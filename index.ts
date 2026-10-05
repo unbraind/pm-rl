@@ -90,7 +90,7 @@ export { decidePromotion, hoeffdingEpsilon, parsePromotionCriterion, parsePromot
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, realpathSync } from "node:fs";
-import { readFile, unlink, writeFile } from "node:fs/promises";
+import { readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
@@ -2430,6 +2430,8 @@ export interface RlLoopRequest {
   readonly signal?: AbortSignal;
   /** Explicit operator recovery of an ambiguous lease; matching live holders still refuse. */
   readonly forceTakeover?: boolean;
+  /** Inject OS birth-time reads for controller identity failure drills. @internal */
+  readonly processIdentityIO?: LoopProcessIdentityIO;
   /** Observe completed phase boundaries for telemetry and interruption drills. */
   readonly onPhase?: (phase: "collect" | "train" | "evaluate" | "promote", generation: number) => void | Promise<void>;
 }
@@ -2490,6 +2492,8 @@ interface ControllerLease {
   readonly release: () => Promise<void>;
   /** The seed item id whose claim records durable controller ownership. */
   readonly seedId: string;
+  /** The verified birth time captured before acquiring this controller's locks. */
+  readonly processStartTime: string;
 }
 
 /** SDK lock horizon; controller recovery depends on holder identity, never elapsed time. */
@@ -2522,8 +2526,8 @@ export interface LoopProcessIdentityIO {
   readonly exec: (file: string, args: string[]) => string;
 }
 
-/** Native identity probes; failures are handled conservatively by the caller. */
-const loopProcessIdentityIO: LoopProcessIdentityIO = {
+/** Native identity probes; failures are handled conservatively by the caller. @internal */
+export const loopProcessIdentityIO: LoopProcessIdentityIO = {
   read: (path) => readFileSync(path, "utf8"),
   exec: (file, args) => execFileSync(file, args, { encoding: "utf8", env: { ...process.env, LC_ALL: "C", TZ: "UTC" }, stdio: ["ignore", "pipe", "ignore"] }),
 };
@@ -2549,19 +2553,32 @@ export function loopProcessStartTime(pid: number, platform: NodeJS.Platform = pr
 }
 
 /** Classify a holder without permitting PID reuse, remote hosts or denied probes to imply life. */
-function leaseHolderState(record: Record<string, unknown>): "alive" | "dead" | "ambiguous" {
-  if (record["hostname"] !== hostname()) return "ambiguous";
+function leaseHolderState(record: Record<string, unknown>, io: LoopProcessIdentityIO | undefined): "alive" | "dead" | "ambiguous" | "unverifiable" {
+  const sameHost = record["hostname"] === hostname();
+  if (typeof record["hostname"] === "string" && !sameHost) return "ambiguous";
   const pid = record["pid"];
   if (typeof pid !== "number" || !Number.isSafeInteger(pid) || pid <= 0) return "ambiguous";
   try {
     process.kill(pid, 0);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ESRCH") return "dead";
+    if ((error as NodeJS.ErrnoException).code === "ESRCH") return sameHost ? "dead" : "ambiguous";
     // EPERM alone proves neither identity nor death; still try the birth-time probe.
   }
-  const start = loopProcessStartTime(pid);
-  if (start === null || typeof record["process_start_time"] !== "string") return "ambiguous";
+  const start = loopProcessStartTime(pid, process.platform, io);
+  if (!sameHost || start === null || typeof record["process_start_time"] !== "string") return "unverifiable";
   return record["process_start_time"] === start ? "alive" : "dead";
+}
+
+/** Publish the SDK token and verified holder identity together without exposing partial JSON. */
+async function publishControllerIdentity(lockPath: string, processStartTime: string): Promise<void> {
+  const acquired = JSON.parse(await readFile(lockPath, "utf8")) as Record<string, unknown>;
+  const temporary = `${lockPath}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporary, `${JSON.stringify({ ...acquired, hostname: hostname(), process_start_time: processStartTime })}\n`, { encoding: "utf8", flag: "wx" });
+    await rename(temporary, lockPath);
+  } finally {
+    await unlink(temporary).catch(() => undefined);
+  }
 }
 
 /**
@@ -2601,6 +2618,10 @@ async function acquireControllerLease(client: PmClient, coordinates: WorkspaceCo
   const lockId = loopLeaseLockId(id);
   const lockPath = join(authorityRoot, "locks", `${lockId}.lock`);
   const refusal = `Lease ${relative(coordinates.pmRoot, lockPath)}; operator recovery: pm rl loop resume ${id} --approval ${request.approval} --force-takeover.`;
+  const ownStart = loopProcessStartTime(process.pid, process.platform, request.processIdentityIO);
+  if (ownStart === null) {
+    fail(`Loop ${id} cannot acquire a lease without a verifiable process start time. Restore OS process-start tooling or access before retrying; --force-takeover cannot bypass unavailable controller identity. ${refusal}`, "loop_identity_unavailable", EXIT_CODE.CONFLICT);
+  }
   // All controller acquisitions participate in this SDK mutex. A recovery
   // cannot unlink a successor's lease between observation and acquisition.
   const releaseRecovery = await acquireLock(authorityRoot, `${lockId}-recovery`, 30, coordinates.author, false, false, 5000).catch((error: unknown) => {
@@ -2611,9 +2632,9 @@ async function acquireControllerLease(client: PmClient, coordinates: WorkspaceCo
   try {
     const record = await readLeaseRecord(authorityRoot, lockId);
     if (record !== null) {
-      const state = leaseHolderState(record);
-      if (state === "alive" || (state === "ambiguous" && request.forceTakeover !== true)) {
-        fail(`Loop ${id} controller holder is ${state}. ${refusal}`, "loop_controller_active", EXIT_CODE.CONFLICT);
+      const state = leaseHolderState(record, request.processIdentityIO);
+      if (state === "alive" || state === "unverifiable" || (state === "ambiguous" && request.forceTakeover !== true)) {
+        fail(`Loop ${id} controller holder is ${state}; a live PID with unverifiable identity cannot be force-taken over. Stop or exclude the holder and restore identity probing before retrying. ${refusal}`, "loop_controller_active", EXIT_CODE.CONFLICT);
       }
       if (request.forceTakeover === true) {
         // Host and owner digests identify the previous holder without publishing machine identity.
@@ -2632,8 +2653,7 @@ async function acquireControllerLease(client: PmClient, coordinates: WorkspaceCo
       fail(`Loop ${id} is already being executed by another controller. ${refusal}`, "loop_controller_active", EXIT_CODE.CONFLICT);
     }
     try {
-      const acquired = JSON.parse(await readFile(lockPath, "utf8")) as Record<string, unknown>;
-      await writeFile(lockPath, `${JSON.stringify({ ...acquired, hostname: hostname(), process_start_time: loopProcessStartTime(process.pid) })}\n`, "utf8");
+      await publishControllerIdentity(lockPath, ownStart);
     } catch (error) {
       await release();
       throw error;
@@ -2667,7 +2687,7 @@ async function acquireControllerLease(client: PmClient, coordinates: WorkspaceCo
     await release();
     throw error;
   }
-  return { release, seedId };
+  return { release, seedId, processStartTime: ownStart };
 }
 
 /**
@@ -2759,7 +2779,7 @@ async function prepareLoopController(client: PmClient, coordinates: WorkspaceCoo
     // continues its persisted programme, while a different configuration under
     // the same id fails here as an identity collision rather than quietly
     // forking the lineage.
-    await client.claim(seedId, { force: true, message: `pm-rl loop controller lease for ${request.id}: ${JSON.stringify({ hostname_digest: hashJson(hostname()), pid: process.pid, process_start_time: loopProcessStartTime(process.pid) })}` });
+    await client.claim(seedId, { force: true, message: `pm-rl loop controller lease for ${request.id}: ${JSON.stringify({ hostname_digest: hashJson(hostname()), pid: process.pid, process_start_time: lease.processStartTime })}` });
     return {
       programme,
       seedId,

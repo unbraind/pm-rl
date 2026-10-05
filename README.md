@@ -237,13 +237,24 @@ trajectories. `pm rl loop run` executes these steps with the built-in contextual
 bandit or the frozen System One model with a fitted calibration head. SDK leases serialize controllers, persisted receipts support crash recovery, and real calibration parameters change across generations. [Durable adapter validation](docs/durable-systemone-validation.md) explains the shared worktree authority and endpoint boundary.
 
 Controller leases bind hostname, PID and process birth time. A dead same-host
-identity recovers automatically; PID reuse cannot retain ownership. Different-host,
+identity recovers automatically when the probed birth time differs. Linux uses
+boot time plus process-start ticks; Windows uses the OS process start timestamp.
+macOS/BSD and other Unix probes have one-second precision: a PID reused within
+that second may be indistinguishable and remain blocked. Stop or wait for the
+unrelated process to exit, verify that the original controller has stopped, then
+retry resume; do not kill an unrelated process solely to clear a lease.
+Different-host,
 legacy or unreadable identities refuse with a tracker-relative lock path and the
 exact recovery command. After checking that the previous controller has stopped,
 use `pm rl loop resume <id> --approval <decision> --force-takeover` to recover an
 ambiguous lease. The seed's PM history records the operator and previous holder,
 with machine identities represented by digests. A matching live identity still
-blocks; elapsed time never authorizes takeover. Symlink aliases of one tracker
+blocks, including indistinguishable same-second PID reuse. A live local PID with
+unavailable birth-time probing or missing recorded identity also blocks forced
+takeover. Restore OS probing and stop or exclude the holder before retrying;
+`--force-takeover` cannot bypass `loop_identity_unavailable` when this controller
+cannot determine its own birth time. Elapsed time never authorizes takeover.
+Symlink aliases of one tracker
 share the same launch-authority identity.
 
 None of the four failures below is a training problem. Each one is a provenance problem — which is
