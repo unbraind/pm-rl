@@ -6,16 +6,17 @@ status: in_progress
 priority: 1
 tags[3]: execution,llm-adapter,recursive-training
 created_at: "2026-10-05T04:32:35.578Z"
-updated_at: "2026-10-05T06:05:10.973Z"
+updated_at: "2026-10-05T06:09:57.337Z"
 author: pi-glm
 estimated_minutes: 960
 acceptance_criteria: "A systemone loop config parses and validates disjoint labelled datasets, question specs and decision-model endpoint bounds; the head fit performs real gradient updates so candidate checkpoints differ from their source across two generations; generation two's collection run records generation one's promoted candidate as its collecting policy; collected and held-out decisions persist as one merge-safe metric event per endpoint query and resume appends only the missing suffix; an invalid checkpoint (NaN, shape mismatch, tampered digest) or an overlapping dataset identity stops promotion with a stable refusal; the endpoint client refuses non-200 responses, malformed bodies and missing answers as expected CLI errors and honours AbortSignal and timeout; unit coverage of the adapter is exact 100/100/100/100 against a real in-process HTTP server"
 parent: pm-rl-apvf
-comments[4]{created_at,author,text}:
+comments[5]{created_at,author,text}:
   "2026-10-05T05:05:21.442Z",codex-sol,"Preserving the interrupted calibration-head implementation in a focused commit. Typecheck and eslint pass; existing loop regressions pass 33/33. Adapter tests, endpoint acceptance and exact coverage are still pending. Audit found lease-recovery races and replay budget/refusal gaps to repair before claiming durability."
   "2026-10-05T05:38:50.425Z",codex-sol,"Second live acceptance PASS with unchanged real calibration results: accuracy 1.0 -> 1.0; ECE 0.3329814443 -> 0.2927389850 -> 0.2411651910; generation means 0.66375 -> 0.70685 and 0.709475 -> 0.761025; 1094 tokens across 8 requests. Endpoint-only elapsed 23302.17 ms, mean 2912.77 ms/request; controller wall 26157.71 ms. Generation-two source is the promoted 77bb31851756 checkpoint and successor a66accd456bf differs. Follow-up pm-rl-9nlg records the unresolved remote-completion/local-receipt kill window. Exact-source coverage remains in progress."
   "2026-10-05T06:00:38.024Z",codex-sol,"Packed npm/Node and Bun consumers both passed a real HTTP two-generation programme: two promotions, eight queries, eight charged logical samples, distinct checkpoints, successor collection attributed to generation one, read-only status and terminal resume with zero additional queries. Adapter unit tests use real in-process HTTP servers; no fetch mock or new runtime dependency. Bun check/build:test/docstring and the full npm release gate are being finalized."
   "2026-10-05T06:05:08.307Z",codex-sol,"Final release gate passed exact four-metric 100% across all 23 authored source files and 387 tests without skips. PM-linked adapter tests passed 6/6 with real HTTP servers. Bun check/build:test/docstring passed; packed npm/Node and native Bun each passed two-generation promotion, successor collection, checkpoint validation, status and no-query terminal resume. Frozen-model calibration and two-item adaptive validation limits are documented."
+  "2026-10-05T06:09:57.336Z",codex-sol,"Draft PR https://github.com/unbraind/pm-rl/pull/62 contains the calibration adapter, contamination/checkpoint guards and measured live evidence. Final packaged npm/Node and Bun acceptance both pass. Provider receipt/idempotency follow-up pm-rl-9nlg remains open. Claim released for verification."
 files[5]{path,scope}:
   promotion.ts,project
   refuse.ts,project
