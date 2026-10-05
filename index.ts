@@ -89,9 +89,10 @@ export { decidePromotion, hoeffdingEpsilon, parsePromotionCriterion, parsePromot
 
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { readFile, unlink } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { readFileSync, realpathSync } from "node:fs";
+import { readFile, unlink, writeFile } from "node:fs/promises";
+import { hostname } from "node:os";
+import { dirname, join, relative, resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 
 import {
@@ -2427,6 +2428,8 @@ export interface RlLoopRequest {
   readonly approval: string;
   /** Optional cancellation signal; aborting stops at the next phase boundary. */
   readonly signal?: AbortSignal;
+  /** Explicit operator recovery of an ambiguous lease; matching live holders still refuse. */
+  readonly forceTakeover?: boolean;
   /** Observe completed phase boundaries for telemetry and interruption drills. */
   readonly onPhase?: (phase: "collect" | "train" | "evaluate" | "promote", generation: number) => void | Promise<void>;
 }
@@ -2489,7 +2492,7 @@ interface ControllerLease {
   readonly seedId: string;
 }
 
-/** Seconds a controller lease stays valid before an abandoned record can be taken over. */
+/** SDK lock horizon; controller recovery depends on holder identity, never elapsed time. */
 export const LOOP_LEASE_TTL_SECONDS = 1_000_000_000;
 
 /** Exit status a cancelled loop reports, matching the conventional signal exit status. */
@@ -2500,31 +2503,65 @@ export function loopLeaseLockId(id: string): string {
   return `pm-rl-loop-${idSegment(id)}`;
 }
 
-/** Read the pm CLI's lock record for one lease, or null when no readable record exists. */
-async function readLeaseRecord(pmRoot: string, lockId: string): Promise<{ pid: number; createdAt: number; ttlSeconds: number } | null> {
+/** Read a lease; missing is null, while unreadable or malformed records remain ambiguous. */
+async function readLeaseRecord(pmRoot: string, lockId: string): Promise<Record<string, unknown> | null> {
   try {
     const parsed: unknown = JSON.parse(await readFile(join(pmRoot, "locks", `${lockId}.lock`), "utf8"));
-    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-    const record = parsed as Record<string, unknown>;
-    const pid = record["pid"];
-    const createdAt = record["created_at"];
-    const ttlSeconds = record["ttl_seconds"];
-    if (typeof pid !== "number" || !Number.isInteger(pid) || typeof createdAt !== "string" || typeof ttlSeconds !== "number") return null;
-    const createdMs = Date.parse(createdAt);
-    return Number.isFinite(createdMs) ? { pid, createdAt: createdMs, ttlSeconds } : null;
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return parsed as Record<string, unknown>;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "ENOENT" ? null : {};
+  }
+}
+
+/** Injectable operating-system reads for portable process identity probes. @internal */
+export interface LoopProcessIdentityIO {
+  /** Read a system process-information file. */
+  readonly read: (path: string) => string;
+  /** Execute a system identity command without a shell. */
+  readonly exec: (file: string, args: string[]) => string;
+}
+
+/** Native identity probes; failures are handled conservatively by the caller. */
+const loopProcessIdentityIO: LoopProcessIdentityIO = {
+  read: (path) => readFileSync(path, "utf8"),
+  exec: (file, args) => execFileSync(file, args, { encoding: "utf8", env: { ...process.env, LC_ALL: "C", TZ: "UTC" }, stdio: ["ignore", "pipe", "ignore"] }),
+};
+
+/** Read process birth time: Linux boot epoch plus field 22 ticks, or portable OS tooling. @internal */
+export function loopProcessStartTime(pid: number, platform: NodeJS.Platform = process.platform, io: LoopProcessIdentityIO = loopProcessIdentityIO): string | null {
+  try {
+    if (platform === "linux") {
+      const stat = io.read(`/proc/${pid}/stat`);
+      const ticks = Number(stat.slice(stat.lastIndexOf(")") + 2).trim().split(/\s+/u)[19]);
+      const boot = Number(/^btime (\d+)$/mu.exec(io.read("/proc/stat"))?.[1]);
+      const hz = Number(io.exec("getconf", ["CLK_TCK"]).trim());
+      if (!Number.isSafeInteger(ticks) || ticks < 0 || !Number.isSafeInteger(boot) || boot <= 0 || !Number.isSafeInteger(hz) || hz <= 0) return null;
+      return new Date((boot + ticks / hz) * 1000).toISOString();
+    }
+    const start = platform === "win32"
+      ? io.exec("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", `(Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToUniversalTime().ToString('o')`]).trim()
+      : io.exec("ps", ["-p", String(pid), "-o", "lstart="]).trim();
+    return start.length > 0 ? start : null;
   } catch {
     return null;
   }
 }
 
-/** Whether an operating-system process identity is still alive, treating untestable pids as alive. */
-function isLeaseHolderAlive(pid: number): boolean {
+/** Classify a holder without permitting PID reuse, remote hosts or denied probes to imply life. */
+function leaseHolderState(record: Record<string, unknown>): "alive" | "dead" | "ambiguous" {
+  if (record["hostname"] !== hostname()) return "ambiguous";
+  const pid = record["pid"];
+  if (typeof pid !== "number" || !Number.isSafeInteger(pid) || pid <= 0) return "ambiguous";
   try {
     process.kill(pid, 0);
-    return true;
   } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "EPERM";
+    if ((error as NodeJS.ErrnoException).code === "ESRCH") return "dead";
+    // EPERM alone proves neither identity nor death; still try the birth-time probe.
   }
+  const start = loopProcessStartTime(pid);
+  if (start === null || typeof record["process_start_time"] !== "string") return "ambiguous";
+  return record["process_start_time"] === start ? "alive" : "dead";
 }
 
 /**
@@ -2534,7 +2571,7 @@ function isLeaseHolderAlive(pid: number): boolean {
  * mutex (`acquireLock`, the same primitive every pm mutation serializes on)
  * fails the second controller fast, and the owner-bound claim on the loop's
  * seed item records durable, merge-safe ownership in append-only history.
- * A lock record whose holder process is dead — or whose own TTL expired — is
+ * A lock record whose same-host holder identity is demonstrably dead is
  * an abandoned lease, not a live controller: it is removed and the
  * acquisition retried once, so a crashed controller never blocks the resume
  * its own persisted state was designed for. No lock file is invented; this
@@ -2543,12 +2580,13 @@ function isLeaseHolderAlive(pid: number): boolean {
  *
  * @param client - Client bound to the target workspace.
  * @param coordinates - Workspace root and author for the lease and the claim.
- * @param id - The loop id the lease guards.
+ * @param request - Loop identity, approval and explicit operator recovery choice.
  * @param seedId - The seed generation item id the claim is recorded on.
  * @returns The lease, which the caller must release exactly once.
  * @throws An expected `loop_controller_active` refusal when a live controller holds the lease.
  */
-async function acquireControllerLease(client: PmClient, coordinates: WorkspaceCoordinates, id: string, seedId: string): Promise<ControllerLease> {
+async function acquireControllerLease(client: PmClient, coordinates: WorkspaceCoordinates, request: RlLoopRequest, seedId: string): Promise<ControllerLease> {
+  const id = request.id;
   // Git worktrees share the repository metadata, so the SDK's lease and
   // launch journal are shared even when the tracked PM roots diverge.
   let authorityRoot = coordinates.pmRoot;
@@ -2561,20 +2599,44 @@ async function acquireControllerLease(client: PmClient, coordinates: WorkspaceCo
     // Standalone PM projects have no Git worktree family.
   }
   const lockId = loopLeaseLockId(id);
+  const lockPath = join(authorityRoot, "locks", `${lockId}.lock`);
+  const refusal = `Lease ${relative(coordinates.pmRoot, lockPath)}; operator recovery: pm rl loop resume ${id} --approval ${request.approval} --force-takeover.`;
   // All controller acquisitions participate in this SDK mutex. A recovery
   // cannot unlink a successor's lease between observation and acquisition.
-  const releaseRecovery = await acquireLock(authorityRoot, `${lockId}-recovery`, 30, coordinates.author, false, false, 5000);
+  const releaseRecovery = await acquireLock(authorityRoot, `${lockId}-recovery`, 30, coordinates.author, false, false, 5000).catch((error: unknown) => {
+    if (!isPmCliExpectedError(error) || error.exitCode !== EXIT_CODE.CONFLICT) throw error;
+    fail(`Loop ${id} lease recovery is contended. ${refusal}`, "loop_controller_active", EXIT_CODE.CONFLICT);
+  });
   let release: () => Promise<void>;
   try {
     const record = await readLeaseRecord(authorityRoot, lockId);
-    if (record !== null && !isLeaseHolderAlive(record.pid)) {
-      await unlink(join(authorityRoot, "locks", `${lockId}.lock`));
+    if (record !== null) {
+      const state = leaseHolderState(record);
+      if (state === "alive" || (state === "ambiguous" && request.forceTakeover !== true)) {
+        fail(`Loop ${id} controller holder is ${state}. ${refusal}`, "loop_controller_active", EXIT_CODE.CONFLICT);
+      }
+      if (request.forceTakeover === true) {
+        // Host and owner digests identify the previous holder without publishing machine identity.
+        await client.update(seedId, { comment: [`Loop ${id} forced lease takeover by ${coordinates.author}: ${JSON.stringify({
+          previous_holder: { pid: typeof record["pid"] === "number" ? record["pid"] : null, process_start_time_digest: hashJson(String(record["process_start_time"])),
+            hostname_digest: hashJson(String(record["hostname"])), owner_digest: hashJson(String(record["owner"])) },
+          lock: relative(coordinates.pmRoot, lockPath),
+        })}`] });
+      }
+      await unlink(lockPath);
     }
     try {
       release = await acquireLock(authorityRoot, lockId, LOOP_LEASE_TTL_SECONDS, coordinates.author);
     } catch (error) {
       if (!isPmCliExpectedError(error) || error.exitCode !== EXIT_CODE.CONFLICT) throw error;
-      fail(`Loop ${id} is already being executed by another controller.`, "loop_controller_active", EXIT_CODE.CONFLICT);
+      fail(`Loop ${id} is already being executed by another controller. ${refusal}`, "loop_controller_active", EXIT_CODE.CONFLICT);
+    }
+    try {
+      const acquired = JSON.parse(await readFile(lockPath, "utf8")) as Record<string, unknown>;
+      await writeFile(lockPath, `${JSON.stringify({ ...acquired, hostname: hostname(), process_start_time: loopProcessStartTime(process.pid) })}\n`, "utf8");
+    } catch (error) {
+      await release();
+      throw error;
     }
   } finally {
     await releaseRecovery();
@@ -2589,14 +2651,14 @@ async function acquireControllerLease(client: PmClient, coordinates: WorkspaceCo
         await releaseInitialization();
       }
       const launchId = loopLeaseLockId(id);
-      const owner = hashJson(resolve(coordinates.pmRoot));
+      const owner = hashJson(realpathSync(resolve(coordinates.pmRoot)));
       const previous = await authority.get(launchId).catch((error: unknown) => isItemNotFound(error) ? null : Promise.reject(error));
       if (previous === null) {
         await authority.create({ id: launchId, type: "Decision", title: `Loop ${id} launch authority`, body: owner });
       } else if (String(previous.item.body) !== owner) {
         const comments = await readLoopComments(client, seedId).catch((error: unknown) => isItemNotFound(error) ? [] : Promise.reject(error));
         if (!comments.some((comment) => comment.text.startsWith(`Loop ${id} terminal report:`))) {
-          fail(`Loop ${id} was launched in another worktree; merge its persisted artifacts before continuing here.`, "loop_launch_elsewhere", EXIT_CODE.CONFLICT);
+          fail(`Loop ${id} launch authority item ${launchId} belongs to another worktree. Merge its persisted artifacts and terminal report before continuing here; after stopping all controllers and verifying those artifacts, from this tracker directory reassign authority with: pm --pm-path "${relative(coordinates.pmRoot, authorityRoot)}" update ${launchId} --body ${owner}. ${refusal}`, "loop_launch_elsewhere", EXIT_CODE.CONFLICT);
         }
       }
     }
@@ -2664,7 +2726,7 @@ export async function runRlLoop(client: PmClient, coordinates: WorkspaceCoordina
 
 /** Take the controller lease before registering the environment and seed for execution. */
 async function prepareLoopController(client: PmClient, coordinates: WorkspaceCoordinates, programme: LoopProgramme, request: RlLoopRequest): Promise<LoopPrepared> {
-  const lease = await acquireControllerLease(client, coordinates, request.id, `${request.id}-seed`);
+  const lease = await acquireControllerLease(client, coordinates, request, `${request.id}-seed`);
   try {
     await ensurePersistentTypes(client);
     const environmentSpec = programme.trainer === "bandit"
@@ -2697,7 +2759,7 @@ async function prepareLoopController(client: PmClient, coordinates: WorkspaceCoo
     // continues its persisted programme, while a different configuration under
     // the same id fails here as an identity collision rather than quietly
     // forking the lineage.
-    await client.claim(seedId, { force: true, message: `pm-rl loop controller lease for ${request.id}` });
+    await client.claim(seedId, { force: true, message: `pm-rl loop controller lease for ${request.id}: ${JSON.stringify({ hostname_digest: hashJson(hostname()), pid: process.pid, process_start_time: loopProcessStartTime(process.pid) })}` });
     return {
       programme,
       seedId,
@@ -3340,7 +3402,7 @@ function statusOf(report: RlLoopGenerationReport, phase: RlLoopGenerationStatus[
  *
  * @param client - Client bound to the target workspace.
  * @param coordinates - Workspace root and author for the transaction journal.
- * @param request - The loop id, approval, and optional cancellation signal.
+ * @param request - The loop id, approval, optional cancellation signal and audited forceTakeover choice.
  * @returns The bounded terminal report of the resumed loop.
  * @throws An expected NOT_FOUND error when the loop's seed generation does not exist.
  */
@@ -3381,7 +3443,8 @@ async function resumeLoopCommand(context: CommandHandlerContext): Promise<RlComm
   const cancellation = installCancellationSignals();
   let report: RlLoopReport;
   try {
-    report = await resumeRlLoop(clientFor(context), { pmRoot: context.pm_root, author: authorFor(context) }, { id, approval, signal: cancellation.controller.signal });
+    report = await resumeRlLoop(clientFor(context), { pmRoot: context.pm_root, author: authorFor(context) }, { id, approval, signal: cancellation.controller.signal,
+      forceTakeover: (context.options["force_takeover"] ?? context.options["forceTakeover"]) === true });
   } finally {
     removeCancellationSignals(cancellation.handlers);
   }
@@ -4078,6 +4141,7 @@ export const RL_COMMANDS = [
   ], run: runLoop }),
   defineCommand({ name: "rl loop resume", description: "Resume one interrupted loop from its persisted seed programme, taking over a lease a crashed controller left behind.", arguments: [{ name: "id", required: true, description: "Loop id prefix whose seed generation stores the programme." }], flags: [
     { long: "--approval", value_name: "id", value_type: "string", required: true, description: "Approval Decision item id governing the loop's remaining promotions." },
+    { long: "--force-takeover", description: "Audit an operator takeover of an ambiguous or stale lease; matching live holders still block." },
   ], run: resumeLoopCommand }),
   defineCommand({ name: "rl loop status", description: "Reconstruct one loop's persisted generations, budget and terminal reason without mutating anything.", arguments: [{ name: "id", required: true, description: "Loop id prefix whose persisted programme is reconstructed." }], run: showLoopStatus }),
   defineCommand({ name: "rl lineage", description: "Render the generation chain from seed to head(s) with promotion evidence and invalidation state.", arguments: [{ name: "head", required: false, description: "Head generation id; omit to enumerate every head." }], flags: [

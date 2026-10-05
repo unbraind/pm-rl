@@ -1,0 +1,12 @@
+id: pm-rl-9uz4
+title: Reconcile existing tracker health advisories
+description: Strict pm health passes but reports an existing stale in-progress item and legacy provenance role values. Review owner activity and provenance normalization separately from PR #62 lease recovery; preserve audit history and avoid blanket status changes.
+type: Chore
+status: open
+priority: 3
+tags: []
+created_at: "2026-10-05T06:41:18.944Z"
+updated_at: "2026-10-05T06:41:18.944Z"
+author: codex-sol
+parent: pm-rl-hncb
+body: ""

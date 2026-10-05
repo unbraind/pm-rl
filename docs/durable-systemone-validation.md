@@ -25,11 +25,35 @@ at completed collect/train/evaluate/promote boundaries.
 
 Controllers acquire SDK `acquireLock` leases before creating job artifacts and
 claim the seed through the SDK. An SDK recovery mutex serializes abandoned-lease
-inspection, dead-PID cleanup and acquisition; a live lease cannot expire during
-the bounded programme. Standalone PM projects coordinate at their tracker root.
+inspection, dead-identity cleanup and acquisition. Lease records bind hostname,
+PID and process start time; recovery never uses elapsed lease age. Linux start
+time combines field 22 of the process stat record, clock ticks from `getconf CLK_TCK`
+and the kernel boot epoch ([process stat](https://www.man7.org/linux/man-pages/man5/proc_pid_stat.5.html),
+[boot time](https://www.man7.org/linux/man-pages/man5/proc_stat.5.html)). A reused PID
+whose birth time differs is a dead holder. macOS and other Unix systems use
+`ps -p <pid> -o lstart=` with the C locale and UTC timezone; this signal has
+second precision. Windows uses PowerShell `Get-Process` and its UTC `StartTime`
+in round-trip format. These portable probes depend on OS tooling and access;
+missing birth times, denied probes, legacy records and different hostnames are
+ambiguous and never recover automatically. EPERM alone does not prove identity.
+
+Refusals name the tracker-relative lock path and the exact
+`pm rl loop resume <id> --approval <decision> --force-takeover` command. Operators
+must first stop or otherwise exclude the previous controller, particularly for
+shared filesystems. The flag explicitly recovers an ambiguous or stale lease and
+records the forcing PM author, previous PID and identity digests in the seed's
+append-only history before removing the old lease. A matching live identity
+still blocks, even with the flag. Claim receipts also retain PID, birth time and
+a hostname digest; raw hostnames remain only in local lease files.
+
+Standalone PM projects coordinate at their tracker root.
 Git worktrees coordinate at shared repository metadata: an SDK tracker containing
 Decision launch records and SDK leases under `pm-rl-controllers`. Launch records
-store an opaque digest of the owning tracker coordinate, never its path. A losing
+store an opaque digest of the canonical real tracker path, never its path.
+Symlink aliases share this identity. A launch refusal names the authority Decision
+item and the canonical digest needed to reassign its body in the shared controller
+tracker after stopping all controllers and verifying the persisted artifacts.
+A losing
 worktree creates no duplicate job artifacts. Merge the winning artifacts before
 using that id elsewhere. These receipts are local coordination state and must be
 retained along with repository metadata; separate clones/machines require a shared

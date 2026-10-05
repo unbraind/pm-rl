@@ -1,16 +1,16 @@
 /** Durable replay, cancellation, status and real controller contention. */
 import assert from "node:assert/strict";
 import { fork, execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdtempSync, readFileSync, writeFileSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir, hostname } from "node:os";
 import { join, resolve } from "node:path";
 import { createServer } from "node:http";
 import { after, test } from "node:test";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { setActiveExtensionServices, createPmCliExpectedError, type ExtensionApi } from "@unbrained/pm-cli";
-import { init, isPmCliExpectedError, acquireLock } from "@unbrained/pm-cli/sdk/runtime";
+import { init, isPmCliExpectedError, acquireLock, EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import extension, { runRlLoop, resumeRlLoop, rlLoopStatus, loopLeaseLockId, LOOP_LEASE_TTL_SECONDS, type JsonValue } from "../index.ts";
+import extension, { runRlLoop, resumeRlLoop, rlLoopStatus, loopLeaseLockId, loopProcessStartTime, LOOP_LEASE_TTL_SECONDS, type JsonValue } from "../index.ts";
 import { parseStoredLoopGeneration, verifyStoredLoopGeneration, parseLoopConfig, generationTrainingConfig, runLoopGeneration } from "../loop.ts";
 import { readSeries, encodeEventSegments, type MetricEvent } from "../series.ts";
 import { configValue } from "./fixtures/systemone.ts";
@@ -124,6 +124,9 @@ test("two Git worktree processes share launch authority and merge one job's arti
   const winner = launch(pmRoot, approval, "hold"); await winner.ready;
   const loser = launch(join(second, ".agents/pm"), approval, "run"); assert.ok(JSON.stringify((await loser.result).messages).includes("loop_controller_active"));
   winner.child.send("continue"); assert.equal((await winner.result).code, 0);
+  const alias = join(root, "alias"); symlinkSync(root, alias, process.platform === "win32" ? "junction" : "dir");
+  const sameWorktree = launch(join(alias, ".agents/pm"), approval, "run"); assert.equal((await sameWorktree.result).code, 0);
+  rmSync(alias);
   const late = launch(join(second, ".agents/pm"), approval, "run"); assert.ok(JSON.stringify((await late.result).messages).includes("loop_launch_elsewhere"));
   const authorityGet = PmClient.prototype.get;
   const unreadable = context.mock.method(PmClient.prototype, "get", (async function (this: PmClient, id, options) {
@@ -134,6 +137,11 @@ test("two Git worktree processes share launch authority and merge one job's arti
     await assert.rejects(runRlLoop(client, { pmRoot, author: "rl-test" }, { id: "race", config, approval }), /launch journal unreadable/);
   } finally { unreadable.mock.restore(); }
   const losingClient = new PmClient({ pmRoot: join(second, ".agents/pm"), cwd: second, author: "rl-test" });
+  await assert.rejects(runRlLoop(losingClient, { pmRoot: join(second, ".agents/pm"), author: "rl-test" }, { id: "race", config, approval }), (error: unknown) => {
+    assert.ok(isPmCliExpectedError(error)); assert.equal(error.context.code, "loop_launch_elsewhere");
+    assert.ok(error.message.includes(`authority item ${loopLeaseLockId("race")}`));
+    assert.ok(error.message.includes("reassign")); assert.ok(!error.message.includes(root)); return true;
+  });
   losingClient.comments = async () => { throw new Error("launch receipt unreadable"); };
   await assert.rejects(runRlLoop(losingClient, { pmRoot: join(second, ".agents/pm"), author: "rl-test" }, { id: "race", config, approval }), /launch receipt unreadable/);
   execFileSync("git", ["add", ".agents/pm"], { cwd: root }); execFileSync("git", ["commit", "-m", "Persist one job"], { cwd: root, stdio: "ignore" });
@@ -218,7 +226,7 @@ test("the actual CLI signal handlers retain artifacts for both SIGINT and SIGTER
   }
 });
 
-test("unreadable controller records recover through SDK locks; EPERM preserves a live holder", async () => {
+test("malformed and legacy controller records refuse; EPERM requires matching birth time", async () => {
   for (const record of [[], {}, { pid: process.pid, created_at: "bad date", ttl_seconds: 30 }]) {
     const { client, pmRoot, approval } = await workspace();
     const lock = loopLeaseLockId("corrupt-lock");
@@ -229,11 +237,139 @@ test("unreadable controller records recover through SDK locks; EPERM preserves a
   }
   const { client, pmRoot, approval } = await workspace(); const lock = loopLeaseLockId("permission");
   const release = await acquireLock(pmRoot, lock, LOOP_LEASE_TTL_SECONDS, "test");
+  const path = join(pmRoot, "locks", `${lock}.lock`);
+  const record = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+  writeFileSync(path, JSON.stringify({ ...record, hostname: hostname(), process_start_time: loopProcessStartTime(process.pid) }));
   const kill = process.kill;
   try {
     process.kill = (pid, signal) => { if (pid === process.pid && signal === 0) throw Object.assign(new Error("Permission denied"), { code: "EPERM" }); return kill(pid, signal); };
     await assert.rejects(runRlLoop(client, { pmRoot, author: "rl-test" }, { id: "permission", config, approval }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_controller_active");
   } finally { process.kill = kill; await release(); }
+});
+
+test("real live same-identity holder blocks even force and an expired timestamp", async () => {
+  const { client, pmRoot, approval } = await workspace();
+  const winner = launch(pmRoot, approval, "hold"); await winner.ready;
+  try {
+    const path = join(pmRoot, "locks", `${loopLeaseLockId("race")}.lock`);
+    const record = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+    assert.equal(record.hostname, hostname()); assert.equal(record.pid, winner.child.pid);
+    assert.equal(record.process_start_time, loopProcessStartTime(winner.child.pid!));
+    writeFileSync(path, JSON.stringify({ ...record, created_at: "1970-01-01T00:00:00.000Z", ttl_seconds: 1 }));
+    for (const forceTakeover of [false, true]) {
+      await assert.rejects(resumeRlLoop(client, { pmRoot, author: "rl-test" }, { id: "race", approval, forceTakeover }), (error: unknown) => {
+        assert.ok(isPmCliExpectedError(error)); assert.equal(error.context.code, "loop_controller_active");
+        assert.ok(error.message.includes(`locks/${loopLeaseLockId("race")}.lock`));
+        assert.ok(error.message.includes(`pm rl loop resume race --approval ${approval} --force-takeover`));
+        assert.ok(!error.message.includes(pmRoot)); return true;
+      });
+    }
+  } finally { winner.child.kill("SIGKILL"); await winner.result; }
+});
+
+test("reused PID with mismatched birth time recovers while the unrelated real process exists", async () => {
+  const { client, pmRoot, approval } = await workspace();
+  const winner = launch(pmRoot, approval, "hold"); await winner.ready;
+  try {
+    const path = join(pmRoot, "locks", `${loopLeaseLockId("race")}.lock`);
+    const record = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+    writeFileSync(path, JSON.stringify({ ...record, process_start_time: "1970-01-01T00:00:00.000Z" }));
+    assert.equal((await resumeRlLoop(client, { pmRoot, author: "rl-test" }, { id: "race", approval })).promoted, 3);
+    assert.equal(process.kill(winner.child.pid!, 0), true);
+  } finally { winner.child.kill("SIGKILL"); await winner.result; }
+});
+
+test("foreign-host lease refuses automatic recovery and CLI force takeover audits the previous holder", async () => {
+  const { client, pmRoot, approval } = await workspace();
+  const winner = launch(pmRoot, approval, "hold"); await winner.ready;
+  try {
+    const path = join(pmRoot, "locks", `${loopLeaseLockId("race")}.lock`);
+    const record = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+    writeFileSync(path, JSON.stringify({ ...record, hostname: "other-host.invalid" }));
+    await assert.rejects(resumeRlLoop(client, { pmRoot, author: "rl-test" }, { id: "race", approval }), /holder is ambiguous/);
+    const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
+    const result = await harness.runCommand({ command: "rl loop resume", pmRoot, args: ["race"], options: { approval, force_takeover: true }, global: { author: "operator-test" } });
+    assert.equal(result.handled, true);
+    const seed = await client.get("race-seed");
+    const history = readFileSync(join(pmRoot, "history", `${seed.item.id}.jsonl`), "utf8");
+    assert.ok(history.includes("forced lease takeover by operator-test"));
+    assert.ok(history.includes(String(winner.child.pid))); assert.ok(history.includes("hostname_digest"));
+    assert.ok(!history.includes("other-host.invalid")); assert.ok(!history.includes(hostname())); assert.ok(!history.includes(pmRoot));
+  } finally { winner.child.kill("SIGKILL"); await winner.result; }
+});
+
+test("portable process birth probes preserve precision and refuse unavailable signals", () => {
+  const stat = `42 (name with ) parentheses) S ${Array(18).fill("0").join(" ")} 1234`;
+  const io = { read: (path: string) => path === "/proc/stat" ? "btime 1000000000\n" : stat, exec: () => "100" };
+  assert.equal(loopProcessStartTime(42, "linux", io), "2001-09-09T01:46:52.340Z");
+  for (const [read, exec] of [
+    [() => "invalid", () => "100"],
+    [() => "btime 0", () => "100"],
+    [io.read, () => "0"],
+    [io.read, () => { throw new Error("unavailable"); }],
+  ] as const) assert.equal(loopProcessStartTime(42, "linux", { read, exec }), null);
+  assert.equal(loopProcessStartTime(42, "linux", { read: () => { throw new Error("denied"); }, exec: io.exec }), null);
+  assert.equal(loopProcessStartTime(42, "linux", { read: (path) => path === "/proc/stat" ? "no boot epoch" : stat, exec: io.exec }), null);
+  assert.equal(loopProcessStartTime(42, "linux", { read: (path) => path === "/proc/stat" ? "btime 0" : stat, exec: io.exec }), null);
+  for (const platform of ["darwin", "win32"] as const) {
+    assert.equal(loopProcessStartTime(42, platform, { read: io.read, exec(file, args) {
+      assert.equal(file, platform === "win32" ? "powershell.exe" : "ps");
+      assert.ok(args.join(" ").includes("42")); return " precise process birth ";
+    } }), "precise process birth");
+    assert.equal(loopProcessStartTime(42, platform, { read: io.read, exec: () => "" }), null);
+  }
+});
+
+test("ambiguous local identities and malformed leases require override; audit failure preserves the lease", async () => {
+  const { client, pmRoot, approval } = await workspace();
+  const request = { id: "ambiguous", config: { ...config, max_generations: 1 }, approval };
+  await runRlLoop(client, { pmRoot, author: "rl-test" }, request);
+  const path = join(pmRoot, "locks", `${loopLeaseLockId(request.id)}.lock`);
+  for (const record of [{ hostname: hostname(), pid: 0 }, { hostname: hostname(), pid: "bad" }, { hostname: hostname(), pid: process.pid }, null, "broken JSON"]) {
+    writeFileSync(path, typeof record === "string" ? record : JSON.stringify(record));
+    await assert.rejects(resumeRlLoop(client, { pmRoot, author: "rl-test" }, request), /holder is ambiguous/);
+  }
+  const update = client.update.bind(client);
+  const contents = readFileSync(path, "utf8");
+  client.update = async (id, options) => { if (options?.comment) throw new Error("audit unavailable"); return update(id, options); };
+  await assert.rejects(resumeRlLoop(client, { pmRoot, author: "rl-test" }, { ...request, forceTakeover: true }), /audit unavailable/);
+  assert.equal(readFileSync(path, "utf8"), contents);
+  client.update = update;
+  const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
+  assert.equal((await harness.runCommand({ command: "rl loop resume", pmRoot, args: [request.id], options: { approval, forceTakeover: true } })).handled, true);
+  const lock = await acquireLock(pmRoot, loopLeaseLockId(request.id), LOOP_LEASE_TTL_SECONDS, "test");
+  writeFileSync(path, JSON.stringify({ hostname: hostname(), pid: process.pid, process_start_time: "different" }));
+  await resumeRlLoop(client, { pmRoot, author: "rl-test" }, { ...request, forceTakeover: true });
+  await lock();
+});
+
+test("SDK lock conflict names recovery and identity-write failure releases the acquired lock", async () => {
+  for (const mode of ["lease-conflict", "identity-write", "recovery-conflict", "recovery-io"] as const) {
+    const { client, pmRoot, approval } = await workspace();
+    let released = false;
+    const harness = await createExtensionTestHarness({ activate(api: ExtensionApi) {
+      api.registerService("lock_acquire", (context) => {
+        const payload = context.payload as { id: string };
+        const target = `${loopLeaseLockId("identity-fault")}${mode.startsWith("recovery") ? "-recovery" : ""}`;
+        if (payload.id !== target) return { handled: false };
+        if (mode !== "identity-write") return { handled: true, result: { get release() {
+          if (mode === "recovery-io") throw new Error("recovery IO failure");
+          throw createPmCliExpectedError("conflict", { exitCode: EXIT_CODE.CONFLICT });
+        } } };
+        return { handled: true, result: () => { released = true; } };
+      });
+    } }, { name: "identity-fault", capabilities: ["services"] });
+    const get = client.get.bind(client);
+    client.get = (async (id, options) => { const result = await get(id, options); if (id === approval) setActiveExtensionServices(harness.activation.services); return result; }) as PmClient["get"];
+    try {
+      await assert.rejects(runRlLoop(client, { pmRoot, author: "rl-test" }, { id: "identity-fault", config, approval }), (error: unknown) => {
+        if (mode === "recovery-io") assert.match((error as Error).message, /recovery IO failure/);
+        else if (mode !== "identity-write") { assert.ok(isPmCliExpectedError(error)); assert.equal(error.context.code, "loop_controller_active"); assert.ok(error.message.includes("--force-takeover")); }
+        else { assert.equal((error as NodeJS.ErrnoException).code, "ENOENT"); assert.equal(released, true); }
+        return true;
+      });
+    } finally { setActiveExtensionServices(null); }
+  }
 });
 
 test("read failures and omitted comments propagate; release errors still release the controller mutex", async () => {

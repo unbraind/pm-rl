@@ -138,7 +138,7 @@ query the host can already answer, not a feature to build.
 | `pm rl episode env register` / `record` / `replay`, `pm rl outcome record`, `pm rl simreal gap` | The fleet's own mandatory gates as a content-addressed environment: episodes store a candidate-tree identity (git tree or patch hash), replay resolves that exact artifact before re-deriving the verdict, every episode links its pull request, and the sim-to-real gap is computed over the paired cohort with denominators stated and unpaired sides reported as coverage ([`pm-rl-0cqg`](.agents/pm/features/pm-rl-0cqg.toon)) |
 | `pm rl loop run` | Execute or resume a bounded `bandit` or `systemone` programme, preserving per-generation artifacts, logical sample accounting and transactional promotions. |
 | `pm rl loop status <id>` | Reconstruct phases, consumed samples, checkpoints and terminal reason without writes. |
-| `pm rl loop resume <id>` | Load the seed's persisted programme; requires the governing `--approval` Decision. |
+| `pm rl loop resume <id>` | Load the seed's persisted programme; requires the governing `--approval` Decision. `--force-takeover` audits explicit recovery of an ambiguous or stale controller lease. |
 
 All commands listed above are implemented. [Recursive training execution](RECURSIVE_TRAINING.md)
 describes the remaining isolated external trainer and compute-reservation work.
@@ -235,6 +235,16 @@ The current pm-rl runtime **executes, tracks and gates** a bounded numerical loo
 the built-in bandit trainer produces a successor, and the successor collects the next generation's
 trajectories. `pm rl loop run` executes these steps with the built-in contextual
 bandit or the frozen System One model with a fitted calibration head. SDK leases serialize controllers, persisted receipts support crash recovery, and real calibration parameters change across generations. [Durable adapter validation](docs/durable-systemone-validation.md) explains the shared worktree authority and endpoint boundary.
+
+Controller leases bind hostname, PID and process birth time. A dead same-host
+identity recovers automatically; PID reuse cannot retain ownership. Different-host,
+legacy or unreadable identities refuse with a tracker-relative lock path and the
+exact recovery command. After checking that the previous controller has stopped,
+use `pm rl loop resume <id> --approval <decision> --force-takeover` to recover an
+ambiguous lease. The seed's PM history records the operator and previous holder,
+with machine identities represented by digests. A matching live identity still
+blocks; elapsed time never authorizes takeover. Symlink aliases of one tracker
+share the same launch-authority identity.
 
 None of the four failures below is a training problem. Each one is a provenance problem — which is
 to say a context problem — and each becomes answerable from the graph pm stores and merges, **once
