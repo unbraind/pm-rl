@@ -8,8 +8,8 @@ Git branches append independently. Sweeps expand into independent child-run arms
 transfer reports the per-metric gap series across a run's checkpoints — both fully implemented,
 with no hidden or partial commands. The persisted recursive loop (`pm rl loop run`) executes a
 bounded collect → train → evaluate → promote-or-reject cycle over the built-in deterministic
-bandit, records every generation as tracker items and merge-safe history, and stops itself on its
-own hard bounds.
+bandit or a calibration head over a frozen System One decision model, records every generation as tracker items and merge-safe history, and stops itself on its
+own hard bounds. Interrupted executions resume from persisted generations; `loop status` reconstructs their state.
 
 ```bash
 npm install --save-dev pm-rl     # or: bun add -d pm-rl
@@ -28,6 +28,8 @@ packaged example:
 printf '%s\n' '```json' '{"permitted_promotions":3}' '```' > approval.md
 pm create Decision "Allow three bandit promotions" --id demo-approval --body-file approval.md
 pm rl loop run demo-loop --file node_modules/pm-rl/examples/loop-bandit.json --approval demo-approval --json
+pm rl loop status demo-loop --json
+pm rl loop resume demo-loop --approval demo-approval --json
 ```
 
 For a local build, run `npm run build` and `npm pack` in this repository, then
@@ -42,10 +44,20 @@ Hoeffding-bounded sampled improvement. A tie or regression preserves the last
 promoted checkpoint, even when noisy samples favor the candidate.
 
 The typed SDK entry point is `runRlLoop(client, { pmRoot, author }, { id, config,
-approval })`, exported from `pm-rl`. Use unique loop ids for independent runs.
+approval, signal? })`, exported from `pm-rl`. Repeating an id resumes it; use unique ids for independent runs. `resumeRlLoop(client, coordinates, { id, approval, signal? })` loads the stored programme, and `rlLoopStatus(client, id)` performs a read-only reconstruction. `onPhase(phase, generation)` observes durable phase boundaries for telemetry and interruption drills.
 Its `RlLoopReport` names every attempted generation and the terminal condition.
 Repeated held-out selection is adaptive validation; use an independent final
 benchmark for unbiased performance claims.
+
+For decision-model training, select `"trainer": "systemone"` and provide a
+`decision_model` with `base_url`, `model` and `timeout_ms`, choice `questions`,
+disjoint labelled PM items in `training`/`evaluation`, and the bounds described in
+[the adapter contract](docs/durable-systemone-validation.md). No new runtime dependency is required.
+The packaged `examples/loop-systemone.json` supplies a complete two-generation
+configuration for the same synthetic demonstration. Run `npm run test:live`
+locally for two real `tev1:4b` generations. Override
+`SYSTEMONE_BASE_URL` and `SYSTEMONE_MODEL` for another TypeSafe-compatible service.
+CI uses real in-process HTTP servers and never calls Ollama.
 
 ---
 
@@ -124,10 +136,12 @@ query the host can already answer, not a feature to build.
 | `pm rl sweep plan` / `status` | Expand a declared search space into one child Run per arm with the arm's hyperparameters recorded; report per-arm progress and a verdict only when the selection rule supports one ([`pm-rl-mqdb`](.agents/pm/features/pm-rl-mqdb.toon)) |
 | `pm rl transfer record` / `gap` | Record one measured per-metric sim-to-real gap for one checkpoint, linked to both environment versions; report the gap series across a run's checkpoints in order, holding transfers whose environments went stale out of the series with reasons ([`pm-rl-06n6`](.agents/pm/features/pm-rl-06n6.toon)) |
 | `pm rl episode env register` / `record` / `replay`, `pm rl outcome record`, `pm rl simreal gap` | The fleet's own mandatory gates as a content-addressed environment: episodes store a candidate-tree identity (git tree or patch hash), replay resolves that exact artifact before re-deriving the verdict, every episode links its pull request, and the sim-to-real gap is computed over the paired cohort with denominators stated and unpaired sides reported as coverage ([`pm-rl-0cqg`](.agents/pm/features/pm-rl-0cqg.toon)) |
-| `pm rl loop run` | Execute one bounded recursive collect → train → evaluate → promote-or-reject loop over the built-in deterministic contextual bandit: each generation persists a collection Run with per-sample metric notes and a Generation item, promotion goes through the existing transactional contamination- and budget-checked gate, refusal reasons land in item history, and the previous evaluation results deterministically derive the next generation's learning rate and evaluation episode count. Generation count, total sample budget, a strictly better held-out gate, and the approved promotion budget all terminate the loop with a distinct recorded reason ([`pm-rl-hjg1`](.agents/pm/features/pm-rl-hjg1.toon)) |
+| `pm rl loop run` | Execute or resume a bounded `bandit` or `systemone` programme, preserving per-generation artifacts, logical sample accounting and transactional promotions. |
+| `pm rl loop status <id>` | Reconstruct phases, consumed samples, checkpoints and terminal reason without writes. |
+| `pm rl loop resume <id>` | Load the seed's persisted programme; requires the governing `--approval` Decision. `--force-takeover` audits explicit recovery of an ambiguous or stale controller lease. |
 
-All commands listed above are implemented. Durable continuation and external trainer
-adapters remain specified in [Recursive training execution](RECURSIVE_TRAINING.md).
+All commands listed above are implemented. [Recursive training execution](RECURSIVE_TRAINING.md)
+describes the remaining isolated external trainer and compute-reservation work.
 
 ## Implemented refusals
 
@@ -220,9 +234,28 @@ All exit non-zero. The gap-widening check needs at least two consecutive gaps, s
 The current pm-rl runtime **executes, tracks and gates** a bounded numerical loop: a generation collects trajectories,
 the built-in bandit trainer produces a successor, and the successor collects the next generation's
 trajectories. `pm rl loop run` executes these steps with the built-in contextual
-bandit. The durable controller specified in [Recursive training execution](RECURSIVE_TRAINING.md)
-will add isolated trainer adapters, leases, crash recovery and LLM parameter updates
-while retaining the provenance and promotion checks below.
+bandit or the frozen System One model with a fitted calibration head. SDK leases serialize controllers, persisted receipts support crash recovery, and real calibration parameters change across generations. [Durable adapter validation](docs/durable-systemone-validation.md) explains the shared worktree authority and endpoint boundary.
+
+Controller leases bind hostname, PID and process birth time. A dead same-host
+identity recovers automatically when the probed birth time differs. Linux uses
+boot time plus process-start ticks; Windows uses the OS process start timestamp.
+macOS/BSD and other Unix probes have one-second precision: a PID reused within
+that second may be indistinguishable and remain blocked. Verify that the original
+controller has stopped and wait for the unrelated process to exit, then retry
+resume; do not kill an unrelated process solely to clear a lease.
+Different-host,
+legacy or unreadable identities refuse with a tracker-relative lock path and the
+exact recovery command. After checking that the previous controller has stopped,
+use `pm rl loop resume <id> --approval <decision> --force-takeover` to recover an
+ambiguous lease. The seed's PM history records the operator and previous holder,
+with machine identities represented by digests. A matching live identity still
+blocks, including indistinguishable same-second PID reuse. A live local PID with
+unavailable birth-time probing or missing recorded identity also blocks forced
+takeover. Restore OS probing and stop or exclude the holder before retrying;
+`--force-takeover` cannot bypass `loop_identity_unavailable` when this controller
+cannot determine its own birth time. Elapsed time never authorizes takeover.
+Symlink aliases of one tracker
+share the same launch-authority identity.
 
 None of the four failures below is a training problem. Each one is a provenance problem — which is
 to say a context problem — and each becomes answerable from the graph pm stores and merges, **once
@@ -262,15 +295,13 @@ than folded into a rate.
 
 `pm rl loop run` trains the bounded contextual-bandit policy, persists real checkpoint
 updates and uses each promoted successor for the next collection batch. Its resource
-bounds and provenance refusals apply to every generation. Durable continuation after
-crashes or cancellation, isolated external trainers and LLM parameter updates remain
-under [`pm-rl-apvf`](.agents/pm/epics/pm-rl-apvf.toon), extending the programme specified
+bounds and provenance refusals apply to every generation. Durable continuation and calibration-head updates are implemented. GPU scheduling, isolated external trainers and remote endpoint idempotency remain under [`pm-rl-apvf`](.agents/pm/epics/pm-rl-apvf.toon), extending the programme specified
 under [`pm-rl-yi7j`](.agents/pm/epics/pm-rl-yi7j.toon).
 
 ## Not in scope
 
 - **Current execution boundary.** `run log` accepts NDJSON from an external trainer. Native
-  bounded contextual-bandit training is implemented as `pm rl loop run`. Durable external
+  bounded bandit and System One calibration-head training are implemented as `pm rl loop run`. Isolated external
   execution is planned in [Recursive training execution](RECURSIVE_TRAINING.md); the current
   runtime does not schedule GPUs or launch external training jobs.
 - **No separate metric store.** The history stream *is* the store. Retained evidence necessarily
@@ -353,4 +384,4 @@ It stops at the first rejected candidate and retains the last accepted checkpoin
 It does not mutate a tracker, grant a budget, execute an LLM, or launch a hosted
 job. Evaluation is an adaptive validation set; a separate final benchmark is
 needed after repeated selection. See [the execution contract](RECURSIVE_TRAINING.md)
-for the durable controller and LLM training work still required.
+for isolated external trainer work still required; [the decision adapter](docs/durable-systemone-validation.md) documents the implemented frozen-model calibration trainer.

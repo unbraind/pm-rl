@@ -1,6 +1,6 @@
 # Recursive training execution
 
-Status: the persisted bounded loop is implemented as `pm rl loop run` ([`pm-rl-hjg1`](.agents/pm/features/pm-rl-hjg1.toon)): one command executes collect → train → evaluate → compare against the promoted baseline → promote or reject over the built-in deterministic contextual bandit, records every generation as real tracker items (a collection Run with per-sample metric notes, a Generation item with the derived configuration and full provenance, refusal reasons as item history), promotes only through the existing transactional contamination- and budget-checked gate, derives the next generation's learning rate and evaluation episode count deterministically from the previous evaluation results, and terminates on its own hard bounds — generation limit, total sample budget, unchanged checkpoint, training-to-evaluation gap above `maximum_gap`, statistical gate refusal, or an exhausted approved promotion budget. Durable continuation remains specified for implementation: Docker Compose trainer adapters, process isolation, owner-bound leases, atomic compute-budget reservations, crash and cancellation recovery, and an LLM parameter-update adapter are not part of this slice. This phase adds the complete persisted collect → train → evaluate → promote → collect cycle to pm-rl.
+Status: the persisted bounded loop is implemented as `pm rl loop run` ([`pm-rl-hjg1`](.agents/pm/features/pm-rl-hjg1.toon)): one command executes collect → train → evaluate → compare against the promoted baseline → promote or reject over the built-in deterministic contextual bandit, records every generation as real tracker items (a collection Run with per-sample metric notes, a Generation item with the derived configuration and full provenance, refusal reasons as item history), promotes only through the existing transactional contamination- and budget-checked gate, derives the next generation's learning rate and evaluation episode count deterministically from the previous evaluation results, and terminates on its own hard bounds — generation limit, total sample budget, unchanged checkpoint, training-to-evaluation gap above `maximum_gap`, statistical gate refusal, or an exhausted approved promotion budget. Durable continuation is implemented in [pm-rl-od32](.agents/pm/features/pm-rl-od32.toon): SDK controller leases, shared worktree launch authority, persisted replay, status/resume commands and signal recovery. [pm-rl-qhz2](.agents/pm/features/pm-rl-qhz2.toon) adds real per-question temperature/bias gradient updates over a frozen System One model; [pm-rl-ip21](.agents/pm/features/pm-rl-ip21.toon) records two real tev1 generations. See [the measured adapter contract](docs/durable-systemone-validation.md). Docker Compose adapters, storage/compute reservations and remote endpoint idempotency remain separate work.
 
 ## The next production slice
 
@@ -69,7 +69,8 @@ semantic dataset independence or detect differently named duplicate content.
 
 `pm rl loop run` already persists collection Runs, Generation artifacts and refusal
 history, and calls the transactional provenance-aware PM promotion gate against an
-approved promotion budget. The remaining durable controller must add owner-bound
-leases, isolated external execution, compute-budget reservations and idempotent
-continuation after crashes or cancellation. LLM trainers require real parameter
-updates and successor use under the evidence criteria above.
+approved promotion budget. The implemented controller adds owner-bound SDK leases and idempotent
+continuation after durable phase boundaries and cancellation. The System One
+adapter changes calibration-head parameters and uses promoted heads for successor
+collection. Isolated external execution, compute-budget reservations and remote
+request idempotency remain under the execution criteria above.

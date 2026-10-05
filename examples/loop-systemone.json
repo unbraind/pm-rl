@@ -1,0 +1,80 @@
+{
+  "trainer": "systemone",
+  "environment": {
+    "name": "Synthetic PM item routing",
+    "version": "1"
+  },
+  "decision_model": {
+    "base_url": "http://localhost:11434",
+    "model": "tev1:4b",
+    "timeout_ms": 120000
+  },
+  "questions": {
+    "kind": {
+      "type": "choice",
+      "instructions": "Classify this project management item. Choose Bug for repairing broken behavior or Feature for adding functionality.",
+      "criteria": {
+        "Bug": "Repair a defect",
+        "Feature": "Add new functionality"
+      }
+    }
+  },
+  "training": [
+    {
+      "id": "train-crash",
+      "title": "Fix export crash",
+      "description": "Exporting a report crashes the application. Repair the defect.",
+      "labels": {
+        "kind": "Bug"
+      }
+    },
+    {
+      "id": "train-format",
+      "title": "Add CSV export",
+      "description": "Implement a new CSV export feature.",
+      "labels": {
+        "kind": "Feature"
+      }
+    }
+  ],
+  "evaluation": [
+    {
+      "id": "eval-search",
+      "title": "Repair broken search",
+      "description": "Search fails with an error on valid input. Fix this defect.",
+      "labels": {
+        "kind": "Bug"
+      }
+    },
+    {
+      "id": "eval-pdf",
+      "title": "Add PDF downloads",
+      "description": "Implement a new PDF download feature.",
+      "labels": {
+        "kind": "Feature"
+      }
+    }
+  ],
+  "initial_head": {
+    "log_temperature": {
+      "kind": 2
+    },
+    "biases": {
+      "kind": {
+        "Bug": 0,
+        "Feature": 0
+      }
+    }
+  },
+  "seed": 42,
+  "max_generations": 2,
+  "samples_per_generation": 2,
+  "budget": 8,
+  "learning_rate": 0.5,
+  "fit_steps": 2,
+  "minimum_improvement": 0.001,
+  "maximum_gap": 0.5,
+  "evaluation_samples": 40000,
+  "confidence": 0.95,
+  "min_samples": 10
+}

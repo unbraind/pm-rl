@@ -1,0 +1,15 @@
+id: pm-rl-9nlg
+title: Recover external decision receipts across the HTTP-to-PM commit window
+description: "A hard kill after a frozen decision endpoint executes but before the local PM metric note commits can lose the response and require reissuing the unresolved request. Local persisted decisions and logical samples replay once, but physical request and unknown token accounting require endpoint-side idempotency or receipt retrieval. Add a supported endpoint contract and kill-in-window acceptance before claiming exactly-once remote request spending."
+type: Issue
+status: open
+priority: 1
+tags: []
+created_at: "2026-10-05T05:29:43.601Z"
+updated_at: "2026-10-05T06:03:04.984Z"
+author: codex-sol
+acceptance_criteria: An endpoint supplies stable request-id idempotency or retrievable immutable receipts; a hard kill after remote completion before local receipt persistence resumes without a second physical inference; physical request and token accounting are reconciled from receipts
+parent: pm-rl-apvf
+docs[1]{path,scope}:
+  docs/durable-systemone-validation.md,project
+body: ""

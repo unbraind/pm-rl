@@ -19,11 +19,13 @@
     "dist/refuse.*",
     "dist/promotion.*",
     "dist/loop.*",
+    "dist/systemone.*",
     "manifest.json",
     "README.md",
     "CHANGELOG.md",
     "examples/",
-    "RECURSIVE_TRAINING.md"
+    "RECURSIVE_TRAINING.md",
+    "docs/durable-systemone-validation.md"
   ],
   "engines": {
     "node": ">=22.18.0"
@@ -49,7 +51,8 @@
     "release:notes": "pm-changelog --pm-root .agents/pm --pm-arg=--output-budget --pm-arg=unbounded --pm-arg=--output-limit --pm-arg=unbounded --stdout --since-previous-tag --until-release-tag --release-version-from-package --date 2026-07-31 --item-url-base https://github.com/unbraind/pm-rl/blob/main/.agents/pm --respect-item-release --pm-bin ./node_modules/.bin/pm --github-step-summary",
     "prepare": "node scripts/prepare-merge-driver.ts",
     "merge:install": "pm merge install",
-    "coverage": "npm run build && npm run build:test && node scripts/coverage-gate.ts"
+    "coverage": "npm run build && npm run build:test && node scripts/coverage-gate.ts",
+    "test:live": "node scripts/live-systemone.ts"
   },
   "coverageGate": {
     "sources": [
@@ -73,7 +76,10 @@
       "test/verify-release-publish-attestation.test.ts",
       "test/bandit.test.ts",
       "test/promotion.test.ts",
-      "test/loop.test.ts"
+      "test/loop.test.ts",
+      "test/systemone.test.ts",
+      "test/durable-loop.test.ts",
+      "test/live-systemone.test.ts"
     ],
     "thresholds": {
       "statements": 100,
@@ -151,14 +157,16 @@
     "docs": [
       "README.md",
       "CHANGELOG.md",
-      "RECURSIVE_TRAINING.md"
+      "RECURSIVE_TRAINING.md",
+      "docs/durable-systemone-validation.md"
     ],
     "examples": [
       "README.md",
       "examples/grid-world.json",
       "examples/ppo.json",
       "examples/loop-bandit.json",
-      "examples/metrics.ndjson"
+      "examples/metrics.ndjson",
+      "examples/loop-systemone.json"
     ]
   }
 }

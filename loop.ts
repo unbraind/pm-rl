@@ -27,10 +27,13 @@
 
 import { createHash } from "node:crypto";
 
-import { executeBanditStep, validatedBanditDatasets, type BanditCheckpoint, type BanditExample, type BanditGeneration } from "./bandit.ts";
+import { EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
+
+import { banditCheckpoint, executeBanditStep, validatedBanditDatasets, type BanditCheckpoint, type BanditExample, type BanditGeneration } from "./bandit.ts";
 import { hoeffdingEpsilon } from "./promotion.ts";
-import { asJsonObject, expectedFail, requiredTrimmedString } from "./refuse.ts";
+import { asJsonObject, expectedFail, requiredTrimmedString, storedCheckpointNumber, storedCheckpointDigest, verifyReplayFields, verifyTrainerReceipt } from "./refuse.ts";
 import { canonicalJson, type EnvironmentSpec, type JsonValue } from "./index.ts";
+import { parseSystemOneLoopConfig, type SystemOneLoopConfig } from "./systemone.ts";
 import type { MetricEvent } from "./series.ts";
 
 /** Format identity of a candidate generation's derived training configuration. */
@@ -287,6 +290,14 @@ export function stepSeed(base: number, generation: number): number {
   return (Math.imul(generation, 0x9e3779b1) + base + 0x85ebca6b) >>> 0;
 }
 
+/** The promotion bounds both loop trainers share, so one schedule derivation serves both. */
+export interface LoopScheduleBounds {
+  /** Strictly positive minimum held-out improvement every promotion must clear. */
+  readonly minimumImprovement: number;
+  /** Confidence level 1-alpha for the gate's Hoeffding bound, in (0, 1). */
+  readonly confidence: number;
+}
+
 /**
  * Derive the next generation's training and evaluation configuration from the measured evaluation results.
  *
@@ -304,7 +315,7 @@ export function stepSeed(base: number, generation: number): number {
  * @param improvement - The candidate's held-out mean minus the incumbent's.
  * @returns The successor generation's configuration.
  */
-export function deriveNextStepConfig(config: LoopConfig, step: LoopStepConfig, improvement: number): LoopStepConfig {
+export function deriveNextStepConfig(config: LoopScheduleBounds, step: LoopStepConfig, improvement: number): LoopStepConfig {
   const learningRate = improvement >= STRONG_IMPROVEMENT_FACTOR * config.minimumImprovement
     ? step.learningRate
     : Math.max(step.learningRate / 2, MIN_LOOP_LEARNING_RATE);
@@ -473,4 +484,197 @@ export function seedTrainingConfig(config: LoopConfig): JsonValue {
       min_samples: config.minSamples,
     },
   };
+}
+
+
+/** The trainer adapters a bounded loop programme may select. */
+export const LOOP_TRAINER_VALUES = ["bandit", "systemone"] as const;
+
+/** One validated trainer name for a loop configuration. */
+export type LoopTrainer = (typeof LOOP_TRAINER_VALUES)[number];
+
+/** The validated trainer programme a loop executes: one adapter plus its configuration. */
+export type LoopProgramme =
+  | { readonly trainer: "bandit"; readonly config: LoopConfig }
+  | { readonly trainer: "systemone"; readonly config: SystemOneLoopConfig };
+
+/**
+ * Read the trainer selector of a loop configuration.
+ *
+ * The selector is optional and defaults to the built-in bandit, so every
+ * existing loop configuration keeps executing exactly as before; only the
+ * literal `systemone` selects the decision-model adapter. Any other value is
+ * refused rather than guessed, because silently running the wrong trainer
+ * would charge a different budget and produce different checkpoints under the
+ * same loop identity.
+ *
+ * @param raw - The parsed loop configuration document.
+ * @returns The validated trainer name.
+ * @throws An expected CLI error naming the unsupported trainer value.
+ */
+export function parseLoopTrainer(raw: JsonValue): LoopTrainer {
+  const record = asJsonObject(raw, "Loop configuration", "loop_invalid_json");
+  const trainer = record["trainer"] ?? "bandit";
+  if (trainer !== "bandit" && trainer !== "systemone") {
+    expectedFail(`Loop configuration trainer must be one of ${LOOP_TRAINER_VALUES.join(", ")}.`, "loop_invalid_trainer");
+  }
+  return trainer;
+}
+
+/**
+ * Parse and validate one bounded loop programme, dispatching on its trainer.
+ *
+ * One entry point serves the command handler, the typed SDK surface, and the
+ * resume path, so all three agree on what a valid programme is. Each adapter's
+ * own parser validates its datasets and bounds; this function only selects
+ * which one runs.
+ *
+ * @param raw - The parsed loop configuration document.
+ * @returns The validated trainer programme.
+ * @throws An expected CLI error naming the first invalid field of the selected trainer.
+ */
+export function parseLoopProgramme(raw: JsonValue): LoopProgramme {
+  const trainer = parseLoopTrainer(raw);
+  if (trainer === "systemone") {
+    return { trainer, config: parseSystemOneLoopConfig(raw) };
+  }
+  return { trainer, config: parseLoopConfig(raw) };
+}
+
+/**
+ * The persisted training configuration of one completed bandit generation.
+ *
+ * This is the resume contract: everything {@link generationTrainingConfig}
+ * wrote, read back and re-validated, so a controller that never saw the
+ * original process can verify the persisted generation against the
+ * deterministic replay before advancing the chain.
+ */
+export interface StoredLoopGeneration {
+  /** One-based generation number, matching the recomputed receipt. */
+  readonly generation: number;
+  /** The derived learning rate this generation ran under. */
+  readonly learningRate: number;
+  /** The held-out evaluation episode count this generation sampled. */
+  readonly evaluationSamples: number;
+  /** The generation's collection seed. */
+  readonly collectionSeed: number;
+  /** Collected samples this generation persisted. */
+  readonly samples: number;
+  /** Content identity of the complete ordered observed batch. */
+  readonly collectionDigest: string;
+  /** Counts of sampled actions zero and one. */
+  readonly actionCounts: readonly [number, number];
+  /** Content-addressed identity of the collecting policy. */
+  readonly sourceCheckpoint: string;
+  /** Content-addressed identity of the candidate policy. */
+  readonly candidateCheckpoint: string;
+  /** The candidate's actual scalar weight. */
+  readonly candidateWeight: number;
+  /** Expected reward under the candidate on the collection examples. */
+  readonly trainingScore: number;
+  /** Expected reward under the candidate on the held-out examples. */
+  readonly evaluationScore: number;
+  /** The incumbent's sampled held-out mean this generation was judged against. */
+  readonly incumbentHeldOutMean: number;
+  /** The candidate's sampled held-out mean the gate bounded. */
+  readonly candidateHeldOutMean: number;
+}
+
+/**
+ * Parse and validate one persisted bandit generation training configuration.
+ *
+ * Every field the resume walk advances the chain from is checked for shape and
+ * finiteness here, so a tampered or corrupted checkpoint - a NaN weight, a
+ * truncated digest, a misshapen action count - is refused as an invalid
+ * checkpoint before it can become the next generation's collecting policy.
+ *
+ * @param value - The training configuration JSON read from the generation item.
+ * @param source - Human-readable origin for error messages.
+ * @returns The validated stored generation.
+ * @throws An expected CLI error with a stable invalid-checkpoint code.
+ */
+export function parseStoredLoopGeneration(value: JsonValue, source: string): StoredLoopGeneration {
+  const record = asJsonObject(value, source, "loop_invalid_training_config");
+  if (record["format"] !== LOOP_GENERATION_FORMAT) {
+    expectedFail(`${source} must carry the ${LOOP_GENERATION_FORMAT} format marker.`, "loop_invalid_training_config");
+  }
+  const generation = storedCheckpointNumber(record, "generation", source, "loop_invalid_training_config");
+  const actionCounts = record["action_counts"];
+  if (!Array.isArray(actionCounts) || actionCounts.length !== 2
+    || typeof actionCounts[0] !== "number" || typeof actionCounts[1] !== "number"
+    || !Number.isInteger(actionCounts[0]) || !Number.isInteger(actionCounts[1]) || actionCounts[0] < 0 || actionCounts[1] < 0) {
+    expectedFail(`${source} requires integer action_counts for both actions; the persisted checkpoint is invalid.`, "loop_invalid_checkpoint");
+  }
+  if (!Number.isInteger(generation) || generation < 1) {
+    expectedFail(`${source} requires a positive integer generation.`, "loop_invalid_training_config");
+  }
+  const candidateWeight = storedCheckpointNumber(record, "candidate_weight", source, "loop_invalid_checkpoint");
+  if (Math.abs(candidateWeight) > 20) {
+    expectedFail(`${source} candidate_weight is outside the stable policy bound [-20, 20]; the persisted checkpoint is invalid.`, "loop_invalid_checkpoint");
+  }
+  const stored: StoredLoopGeneration = {
+    generation,
+    learningRate: storedCheckpointNumber(record, "learning_rate", source, "loop_invalid_training_config"),
+    evaluationSamples: storedCheckpointNumber(record, "evaluation_samples", source, "loop_invalid_training_config"),
+    collectionSeed: storedCheckpointNumber(record, "collection_seed", source, "loop_invalid_training_config"),
+    samples: storedCheckpointNumber(record, "samples", source, "loop_invalid_training_config"),
+    collectionDigest: storedCheckpointDigest(record, "collection_digest", source, "loop_invalid_checkpoint"),
+    actionCounts: [actionCounts[0], actionCounts[1]],
+    sourceCheckpoint: storedCheckpointDigest(record, "source_checkpoint", source, "loop_invalid_checkpoint"),
+    candidateCheckpoint: storedCheckpointDigest(record, "candidate_checkpoint", source, "loop_invalid_checkpoint"),
+    candidateWeight,
+    trainingScore: storedCheckpointNumber(record, "training_score", source, "loop_invalid_training_config"),
+    evaluationScore: storedCheckpointNumber(record, "evaluation_score", source, "loop_invalid_training_config"),
+    incumbentHeldOutMean: storedCheckpointNumber(record, "incumbent_held_out_mean", source, "loop_invalid_training_config"),
+    candidateHeldOutMean: storedCheckpointNumber(record, "candidate_held_out_mean", source, "loop_invalid_training_config"),
+  };
+  if (!Number.isInteger(stored.samples) || stored.samples < 1
+    || !Number.isInteger(stored.evaluationSamples) || stored.evaluationSamples < 1
+    || !Number.isInteger(stored.collectionSeed) || stored.collectionSeed < 0) {
+    expectedFail(`${source} requires positive integer sample bounds.`, "loop_invalid_training_config");
+  }
+  return stored;
+}
+
+/**
+ * Replay one bandit generation and verify it against its persisted configuration.
+ *
+ * The bandit step is a pure function of the programme, the derived step
+ * configuration, the generation number, and the source checkpoint, so a resume
+ * replays it exactly and compares field-for-field against what the original
+ * process persisted. Any disagreement - a tampered weight, a mismatched
+ * digest, an edited score - is a drift refusal naming both sides, because
+ * advancing from evidence that does not reproduce would let a rewritten
+ * history steer the loop.
+ *
+ * @param config - The validated bandit loop configuration.
+ * @param step - The derived step configuration this generation ran under.
+ * @param generation - The one-based generation number.
+ * @param source - The checkpoint whose policy collected this batch.
+ * @param stored - The persisted training configuration to verify against.
+ * @returns The replayed generation receipt, proven identical to the persisted one.
+ * @throws An expected CLI drift refusal when the replay and the persisted record disagree.
+ */
+export function verifyStoredLoopGeneration(config: LoopConfig, step: LoopStepConfig, generation: number, source: BanditCheckpoint, stored: StoredLoopGeneration): BanditGeneration {
+  const receipt = runLoopGeneration(config, step, generation, source);
+  // The candidate digest is recomputed from the persisted weight before any
+  // other comparison, so a tampered hash - a digest naming a checkpoint the
+  // stored parameters cannot produce - is refused as an invalid checkpoint
+  // rather than generic drift.
+  if (stored.candidateCheckpoint !== banditCheckpoint(stored.candidateWeight).digest) {
+    expectedFail(`Loop generation ${generation} records candidate checkpoint ${stored.candidateCheckpoint}, which does not match the digest of its own persisted weight; the persisted checkpoint is invalid.`, "loop_invalid_checkpoint", EXIT_CODE.CONFLICT);
+  }
+  const expected: Array<[string, unknown, unknown]> = [
+    ["generation", stored.generation, generation],
+    ["learning_rate", stored.learningRate, step.learningRate],
+    ["evaluation_samples", stored.evaluationSamples, step.evaluationSamples],
+    ["collection_seed", stored.collectionSeed, stepSeed(config.seed, generation)],
+    ["samples", stored.samples, config.samplesPerGeneration],
+    ["collection_digest", stored.collectionDigest, receipt.collectionDigest],
+    ["action_counts", stored.actionCounts.join(","), receipt.actionCounts.join(",")],
+    ["candidate_weight", stored.candidateWeight, receipt.candidate.weight],
+  ];
+  verifyReplayFields(expected, generation);
+  verifyTrainerReceipt(stored, receipt, generation);
+  return receipt;
 }
