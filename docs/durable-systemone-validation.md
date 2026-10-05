@@ -165,7 +165,7 @@ or token-budget reservation is claimed by this slice.
 
 ## Package verification
 
-`npm run release:check` passed 396 tests, zero failures/skips, and exact
+`npm run release:check` passed 398 tests, zero failures/skips, and exact
 100% statements, lines, branches and functions across all 23 authored source
 files, including operational scripts. Coverage ignores remain empty and every
 threshold remains 100. Lint and strict TypeScript passed; duplication was zero;
@@ -174,13 +174,17 @@ production audit (zero vulnerabilities), pack dry run and changelog check passed
 The documented changelog generator was run; open features produce no completed
 release entries, so the existing changelog remains current.
 
-`bun run check`, `bun run build:test` and `bun run docstring` passed. Separate
+Earlier adapter acceptance passed `bun run check`, `bun run build:test` and
+`bun run docstring`. Separate
 packed npm/Node and native Bun consumers each completed two promotions, eight
 requests, eight charged logical samples, successor collection, checkpoint
-validation and status/resume without further requests. PM-linked commands
-`node --test test/durable-loop.test.ts` (24 tests),
-`node --test test/systemone.test.ts` (6 tests) and
-`node --test test/live-systemone.test.ts` (1 test) passed. Strict `pm health` passed.
+validation and status/resume without further requests. The current release gate
+includes 25 durable-loop tests and 7 adapter tests. PM-linked commands
+`node --test --test-name-pattern="terminal bandit candidates" test/durable-loop.test.ts`,
+`node --test --test-name-pattern="real HTTP usage" test/systemone.test.ts` and
+`node --test test/systemone.test.ts` passed. Earlier PM-linked full durability
+(24 tests) and live-command (1 test) checks passed. Strict `pm health` passed with
+two existing tracker advisories recorded in `pm-rl-9uz4`.
 The live command is deliberately outside CI.
 
 The PR #62 lease review regressions add real-process reused-PID recovery,
