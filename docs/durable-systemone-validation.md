@@ -40,8 +40,8 @@ and the kernel boot epoch ([process stat](https://www.man7.org/linux/man-pages/m
 whose birth time differs is a dead holder. macOS and other Unix systems use
 `ps -p <pid> -o lstart=` with the C locale and UTC timezone; this signal has
 one-second precision, so PID reuse within that second may be indistinguishable
-and remain blocked. Operators must stop or wait for the unrelated process to
-exit and verify the original controller has stopped before retrying resume;
+and remain blocked. Operators must verify the original controller has stopped
+and wait for the unrelated process to exit before retrying resume;
 do not kill an unrelated process merely to clear the lease. Windows uses
 PowerShell `Get-Process` and its UTC `StartTime`
 in round-trip format. These portable probes depend on OS tooling and access;
@@ -158,11 +158,11 @@ or token-budget reservation is claimed by this slice.
 
 ## Package verification
 
-`npm run release:check` passed 393 tests, zero failures/skips, and exact
+`npm run release:check` passed 396 tests, zero failures/skips, and exact
 100% statements, lines, branches and functions across all 23 authored source
 files, including operational scripts. Coverage ignores remain empty and every
 threshold remains 100. Lint and strict TypeScript passed; duplication was zero;
-all 202 declarations were documented. Identity and publish-attestation gates,
+all 203 declarations were documented. Identity and publish-attestation gates,
 production audit (zero vulnerabilities), pack dry run and changelog check passed.
 The documented changelog generator was run; open features produce no completed
 release entries, so the existing changelog remains current.
@@ -171,7 +171,7 @@ release entries, so the existing changelog remains current.
 packed npm/Node and native Bun consumers each completed two promotions, eight
 requests, eight charged logical samples, successor collection, checkpoint
 validation and status/resume without further requests. PM-linked commands
-`node --test test/durable-loop.test.ts` (21 tests),
+`node --test test/durable-loop.test.ts` (24 tests),
 `node --test test/systemone.test.ts` (6 tests) and
 `node --test test/live-systemone.test.ts` (1 test) passed. Strict `pm health` passed.
 The live command is deliberately outside CI.
@@ -180,6 +180,12 @@ The PR #62 lease review regressions add real-process reused-PID recovery,
 matching live-holder refusal despite an old lock timestamp, foreign-host refusal,
 audited CLI force takeover, malformed/legacy identity recovery and preservation
 of the old lease when its audit write fails. A real symlink alias reaches the same
-Git worktree's launch authority. Portable birth-time probes and SDK acquisition
+Git worktree's launch authority. Re-review regressions prove own-probe failure
+refuses before acquisition, unavailable live-holder probing or missing recorded
+identity blocks forced takeover, and publication replaces the SDK record's inode
+atomically while preserving its token and excluding recovery during the raw-record
+window. The captured own birth time is shared with the claim receipt. PM-linked
+full durability and focused identity commands passed 24 and 4 tests respectively.
+Portable birth-time probes and SDK acquisition
 failure paths have fixture coverage; native macOS and Windows execution was not
 performed in this Linux validation run.

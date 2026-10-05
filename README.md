@@ -240,9 +240,9 @@ Controller leases bind hostname, PID and process birth time. A dead same-host
 identity recovers automatically when the probed birth time differs. Linux uses
 boot time plus process-start ticks; Windows uses the OS process start timestamp.
 macOS/BSD and other Unix probes have one-second precision: a PID reused within
-that second may be indistinguishable and remain blocked. Stop or wait for the
-unrelated process to exit, verify that the original controller has stopped, then
-retry resume; do not kill an unrelated process solely to clear a lease.
+that second may be indistinguishable and remain blocked. Verify that the original
+controller has stopped and wait for the unrelated process to exit, then retry
+resume; do not kill an unrelated process solely to clear a lease.
 Different-host,
 legacy or unreadable identities refuse with a tracker-relative lock path and the
 exact recovery command. After checking that the previous controller has stopped,
