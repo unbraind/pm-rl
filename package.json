@@ -24,7 +24,8 @@
     "README.md",
     "CHANGELOG.md",
     "examples/",
-    "RECURSIVE_TRAINING.md"
+    "RECURSIVE_TRAINING.md",
+    "docs/durable-systemone-validation.md"
   ],
   "engines": {
     "node": ">=22.18.0"
@@ -156,14 +157,16 @@
     "docs": [
       "README.md",
       "CHANGELOG.md",
-      "RECURSIVE_TRAINING.md"
+      "RECURSIVE_TRAINING.md",
+      "docs/durable-systemone-validation.md"
     ],
     "examples": [
       "README.md",
       "examples/grid-world.json",
       "examples/ppo.json",
       "examples/loop-bandit.json",
-      "examples/metrics.ndjson"
+      "examples/metrics.ndjson",
+      "examples/loop-systemone.json"
     ]
   }
 }

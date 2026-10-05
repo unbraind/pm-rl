@@ -6,18 +6,17 @@ status: in_progress
 priority: 1
 tags[3]: durability,execution,recursive-training
 created_at: "2026-10-05T04:32:30.577Z"
-updated_at: "2026-10-05T05:56:17.039Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-10-05T06:05:10.103Z"
 author: pi-glm
 estimated_minutes: 960
 acceptance_criteria: "pm rl loop run re-run after an injected failure at each phase boundary completes to the exact uninterrupted report, with one create per item in history and no duplicated metric events; pm rl loop status reports per-generation phase, consumed budget and terminal reason without mutating anything; pm rl loop resume completes an interrupted loop from the persisted seed configuration; two concurrent controller processes produce exactly one seed, one run per generation and one promotion, the loser failing with a stable contention error; a killed controller's lease is taken over promptly via dead-pid detection; AbortSignal/SIGTERM cancellation mid-phase stops at a phase boundary, leaves consistent state, and a subsequent resume completes the loop"
 parent: pm-rl-apvf
-comments[4]{created_at,author,text}:
+comments[5]{created_at,author,text}:
   "2026-10-05T04:32:45.155Z",pi-glm,"Starting the durable-continuation slice on branch feat/durable-rsi-continuation. Design decisions recorded as I go: (1) launch mutual exclusion uses the pm SDK's own primitives — an owner-bound claim on the loop seed item plus the SDK workspace lock acquireLock per generation, with dead-pid takeover of an abandoned SDK lock record; no invented lock file. (2) resume reconstructs state from persisted items only: the deterministic bandit receipt is recomputed and verified against the stored training configuration, and missing metric-event suffixes are appended rather than re-collected. (3) pm rl loop run becomes idempotent end to end; the previous loop_already_started refusal is replaced by resume semantics, while a different configuration under the same loop id still conflicts through the content-addressed registration identity."
   "2026-10-05T05:04:20.384Z",codex-sol,"Resumed the interrupted implementation with codex-sol. Existing loop and calibration-head work is preserved; typecheck passes. Next verify lease safety, replay identities and existing regressions, then commit the implementation before adding crash, process-contention and cancellation proofs. Feature items remain open until orchestrator verification."
   "2026-10-05T05:21:48.906Z",codex-sol,Crash-phase replay and OS-process contention/cancellation proofs now run against real SDK projects. SIGKILL dead-controller takeover plus SIGINT and SIGTERM resumes pass. Cross-worktree audit exposed duplicate seed create identities when registration preceded shared launch authority; acquisition now precedes all job artifact creation and uses SDK acquireLock plus an SDK Decision journal under shared Git metadata. Losing worktrees leave no duplicate job artifacts. Exact coverage is pending.
   "2026-10-05T05:56:17.039Z",codex-sol,"Verified collect/train/evaluate/promote replay, partial decision-note cancellation, actual CLI SIGINT/SIGTERM handlers, SIGKILL dead-controller recovery, real two-process launch exclusion, two Git worktree merge/replay, rejected-budget accounting and receipt corruption refusals. PM-linked durability test passed 14 tests; full coverage run passed 386 tests and exposed three controller failure branches. Added SDK lease failure and launch-journal/read failure drills for those branches; focused checks pass. No threshold or source exclusions changed."
+  "2026-10-05T06:05:07.654Z",codex-sol,"Final npm run release:check passed 387/387 tests, zero skips and exact 100/100/100/100 statements/lines/branches/functions over all 23 authored source files including scripts. No ignores or lowered thresholds. Strict TypeScript, ESLint, zero jscpd clones, 200 documented declarations, publish attestation, identity audit, zero production vulnerabilities, pack dry run and changelog check passed. Final PM-linked node --test test/durable-loop.test.ts passed 15/15. Strict pm health passed. Items remain open for orchestrator verification."
 files[4]{path,scope}:
   index.ts,project
   loop.ts,project
