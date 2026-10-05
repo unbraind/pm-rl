@@ -1261,7 +1261,8 @@ export interface SystemOneDecisionResponse {
  * A plain `fetch` against the configured TypeSafe-compatible endpoint — no
  * new runtime dependency. The request shape, the response shape, and every
  * failure mode are validated here: a non-2xx status, an unreachable host, a
- * malformed body, a missing usage record, or an answer set that does not
+ * malformed body, usage counts or their sum outside non-negative safe integers,
+ * a missing usage record, or an answer set that does not
  * match the declared questions is refused as an expected CLI error, and the
  * caller's abort signal plus the configured timeout are combined so a hung
  * endpoint can never pin the controller. An abort that originates from the
@@ -1317,9 +1318,10 @@ export async function requestSystemOneDecision(endpoint: SystemOneEndpointSpec, 
   const usageRecord = asJsonObject(record["usage"] ?? null, "Decision model usage", "systemone_endpoint_usage_invalid", EXIT_CODE.GENERIC_FAILURE);
   const inputTokens = usageRecord["input_tokens"];
   const outputTokens = usageRecord["output_tokens"];
-  if (typeof inputTokens !== "number" || !Number.isFinite(inputTokens) || inputTokens < 0
-    || typeof outputTokens !== "number" || !Number.isFinite(outputTokens) || outputTokens < 0) {
-    expectedFail("Decision model usage must report non-negative token counts.", "systemone_endpoint_usage_invalid", EXIT_CODE.GENERIC_FAILURE);
+  if (typeof inputTokens !== "number" || !Number.isSafeInteger(inputTokens) || inputTokens < 0
+    || typeof outputTokens !== "number" || !Number.isSafeInteger(outputTokens) || outputTokens < 0
+    || !Number.isSafeInteger(inputTokens + outputTokens)) {
+    expectedFail("Decision model usage must report non-negative safe integer token counts whose sum is also a safe integer.", "systemone_endpoint_usage_invalid", EXIT_CODE.GENERIC_FAILURE);
   }
   const names = questions.map((question) => question.name);
   if (Object.keys(answersRecord).length !== names.length || names.some((name) => !(name in answersRecord))) {

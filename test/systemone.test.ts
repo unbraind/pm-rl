@@ -134,6 +134,23 @@ test("decision metric events round trip and reject corrupted evidence", () => {
   for (const altered of [{ ...event, metric: "other" }, { ...event, tags: undefined }, { ...event, tags: { example: "x" } }, { ...event, tags: { example: "x", answers: "bad" } }, { ...event, tags: { example: "x", answers: "{}" } }, { ...event, tags: { example: "x", answers: '{"kind":{}}' } }, { ...event, tags: { example: "x", answers: '{"kind":{"Bug":-1,"Feature":2}}' } }, { ...event, value: 2 }]) assert.throws(() => parseSystemOneDecisionEvent(altered, SYSTEMONE_COLLECTION_METRIC, config.questions, "event"));
 });
 
+test("real HTTP usage rejects fractional and unsafe token accounting", async () => {
+  const config = parseSystemOneLoopConfig(configValue());
+  const answers = { kind: { probabilities: { Bug: 0.6, Feature: 0.4 } } };
+  for (const [input_tokens, output_tokens] of [[10.5, 1], [10, 0.5], [Number.MAX_SAFE_INTEGER + 1, 0],
+    [0, Number.MAX_SAFE_INTEGER + 1], [Number.MAX_SAFE_INTEGER, 1], [0, -1], ["10", 1], [10, "1"]]) {
+    const baseURL = await endpoint({ answers, usage: { input_tokens, output_tokens } });
+    await assert.rejects(requestSystemOneDecision({ ...config.endpoint, baseURL }, "state", config.questions),
+      (error: unknown) => isPmCliExpectedError(error) && error.context.code === "systemone_endpoint_usage_invalid");
+  }
+  for (const usage of [{ input_tokens: 0, output_tokens: 0 }, { input_tokens: Number.MAX_SAFE_INTEGER - 1, output_tokens: 1 }]) {
+    const baseURL = await endpoint({ answers, usage });
+    const decision = await requestSystemOneDecision({ ...config.endpoint, baseURL }, "state", config.questions);
+    assert.equal(decision.usage.input_tokens, usage.input_tokens);
+    assert.equal(decision.usage.output_tokens, usage.output_tokens);
+  }
+});
+
 test("real HTTP requests validate protocol, status, timeout, abort and response shape", async () => {
   const config = parseSystemOneLoopConfig(configValue());
   const good = { answers: { kind: { type: "choice", choice: "Bug", probabilities: { Bug: 0.6, Feature: 0.4 }, confidence: 0.6 } }, usage: { input_tokens: 10, output_tokens: 1 } };

@@ -18,6 +18,13 @@ Candidate Generation items store actual parameters, digests, training evidence
 and evaluation scores. Replay verifies these artifacts and appends only missing
 metric suffixes. Logical samples are reconstructed from persisted batches;
 rejected candidates retain spent budget. Existing promotion refusals are terminal.
+An existing bandit candidate requires the complete collection batch to match its
+deterministic receipt, including event count, sample identities, actions and
+rewards. Lost, duplicated or rewritten collection notes make both status and
+resume refuse with `loop_generation_drift`, including after promotion or refusal.
+The System One HTTP adapter rejects fractional or unsafe input/output token counts
+and an unsafe total with `systemone_endpoint_usage_invalid` before recording a
+decision. Zero counts and totals up to the maximum safe integer are accepted.
 The SDK transaction coordinator admits each promotion and charges the governing
 Decision once. Cancellation stops at a phase boundary or aborts an HTTP request;
 completed artifacts remain available to resume. `onPhase` provides observation

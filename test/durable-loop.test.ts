@@ -505,6 +505,38 @@ test("bandit continuation refuses extra or rewritten metric evidence", async () 
   }
 });
 
+test("terminal bandit candidates refuse lost, rewritten and duplicated collection notes", async () => {
+  for (const promoted of [true, false]) {
+    for (const fault of ["lost-note", "changed-reward", "duplicated-note", "missing-event", "changed-example", "changed-action"]) {
+      const { client, pmRoot, approval } = await workspace();
+      const coordinates = { pmRoot, author: "rl-test" };
+      const report = await runRlLoop(client, coordinates, { id: "terminal-evidence", approval,
+        config: { ...config, max_generations: 1, maximum_gap: promoted ? config.maximum_gap : 0 } });
+      assert.equal(report.generations[0].promoted, promoted);
+      const runId = report.generations[0].run!;
+      const notes = await client.notes(runId, { outputBudget: "unbounded", outputLimit: "unbounded" });
+      assert.ok(!("output_budget_exceeded" in notes));
+      assert.equal(notes.notes.length, 1);
+      const events = [...readSeries(notes.notes.map((note) => note.text)).events];
+      if (fault === "lost-note") await client.notes(runId, { delete: 1 });
+      else if (fault === "duplicated-note") await client.notes(runId, { add: notes.notes[0].text });
+      else {
+        if (fault === "changed-reward") events[0] = { ...events[0], value: events[0].value === 0 ? 1 : 0 };
+        if (fault === "missing-event") events.pop();
+        if (fault === "changed-example") events[0] = { ...events[0], tags: { ...events[0].tags, example: "foreign" } };
+        if (fault === "changed-action") events[0] = { ...events[0], tags: { ...events[0].tags, action: "foreign" } };
+        await client.notes(runId, { edit: 1, add: encodeEventSegments(events)[0] });
+      }
+      const history = readFileSync(join(pmRoot, "history", `${report.generations[0].item}.jsonl`), "utf8");
+      for (const inspect of [() => rlLoopStatus(client, "terminal-evidence"),
+        () => resumeRlLoop(client, coordinates, { id: "terminal-evidence", approval })]) {
+        await assert.rejects(inspect(), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_generation_drift", `${promoted}/${fault}`);
+      }
+      assert.equal(readFileSync(join(pmRoot, "history", `${report.generations[0].item}.jsonl`), "utf8"), history);
+    }
+  }
+});
+
 test("decision receipt corruption, incomplete phases and exhausted query budgets refuse advancement", async () => {
   const endpoint = await decisionServer();
   try {

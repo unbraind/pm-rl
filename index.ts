@@ -2937,11 +2937,17 @@ async function inspectBanditGeneration(client: PmClient, programme: LoopProgramm
   const { run, item } = await findGenerationItems(client, request.id, generation);
   if (run !== null) await verifyLoopRun(client, programme, chain, generation, run);
   if (item !== null) {
+    const events = await readRunMetricEvents(client, String(run!.item.id));
+    const expected = collectionMetricEvents(receipt);
+    verifyEventPrefix(expected, events, request.id, generation);
+    if (events.length !== expected.length) {
+      fail(`Loop ${request.id} generation ${generation} registered a candidate whose collection evidence is incomplete; the persisted lineage is inconsistent.`, "loop_generation_drift", EXIT_CODE.CONFLICT);
+    }
     const spec = extractGenerationSpec(String(item.item.body), `Generation ${item.item.id}`);
     const stored = parseStoredLoopGeneration(spec.training_config as JsonValue, `Loop ${request.id} generation ${generation} training configuration`);
     const verified = verifyStoredLoopGeneration(config, chain.step, generation, chain.current as BanditCheckpoint, stored);
     return inspectCandidateVerdict(client, programme, request, chain, generation, String(run!.item.id), item, verified,
-      { generation, run: String(run!.item.id), item: String(item.item.id), banditReceipt: verified, collection: [], heldOut: [], events: await readRunMetricEvents(client, String(run!.item.id)) });
+      { generation, run: String(run!.item.id), item: String(item.item.id), banditReceipt: verified, collection: [], heldOut: [], events });
   }
   if (run !== null) {
     // A crash between the run's creation and the candidate's registration: the
