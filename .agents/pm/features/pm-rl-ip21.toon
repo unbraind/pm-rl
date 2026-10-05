@@ -6,11 +6,21 @@ status: in_progress
 priority: 1
 tags[4]: execution,live-acceptance,llm-adapter,recursive-training
 created_at: "2026-10-05T04:32:39.873Z"
-updated_at: "2026-10-05T05:01:33.920Z"
+updated_at: "2026-10-05T05:43:14.097Z"
 assignee: codex-sol
 claim_principal: codex-sol
 author: pi-glm
 estimated_minutes: 180
 acceptance_criteria: "npm run test:live executes two real generations against the configured endpoint and model, asserts the candidate checkpoint changes each generation and that generation two collects with generation one's promoted checkpoint, and prints measured before/after accuracy, ECE, latency and token totals; npm test and the coverage gate never invoke the live suite; the measured numbers are recorded as a pm comment on the adapter feature item"
 parent: pm-rl-apvf
+comments[1]{created_at,author,text}:
+  "2026-10-05T05:21:48.391Z",codex-sol,"Live acceptance first run PASS: two real tev1:4b generations promoted; generation 2 collection component equals generation 1 candidate checkpoint. Held-out accuracy 1.0 -> 1.0 in both generations; ECE 0.3329814443 -> 0.2927389850 -> 0.2411651910. Sampled held-out means 0.66375 -> 0.70685 and 0.709475 -> 0.761025. Changed checkpoints 77bb31851756 then a66accd456bf. Eight endpoint requests, 1094 reported tokens, wall elapsed 23189.12 ms (2898.64 ms per query including tracker/training overhead). Endpoint-only latency instrumentation is being added and will be rerun. This two-item synthetic held-out split measures adaptive validation, not an independent benchmark."
+files[3]{path,scope}:
+  package.json,project
+  scripts/live-systemone.ts,project
+  test/live-systemone.test.ts,project
+tests[1]{command,scope,pm_context_mode,workspace_context_mode,provenance{author,created_at,source_kind,source_ref}}:
+  node --test test/live-systemone.test.ts,project,none,snapshot,codex-sol,"2026-10-05T05:43:14.070Z",local_mutation,feat/durable-rsi-continuation
+docs[1]{path,scope}:
+  docs/durable-systemone-validation.md,project
 body: ""

@@ -580,8 +580,7 @@ test("seed registration is idempotent while simultaneous execution of one loop i
   assert.equal(registered.created, false);
   const approval = await createApproval(client, "single-owner-approval", 1);
   const clients = ["owner-a", "owner-b"].map((author) => new PmClient({ pmRoot, author }));
-  synchronizeCreates(clients, "Environment");
-  synchronizeCreates(clients, "Generation");
+
   const results = await Promise.allSettled(clients.map((caller) => runRlLoop(caller, { pmRoot, author: "pm-rl-test" }, {
     id: "single-owner", config: { ...LOOP_CONFIG, max_generations: 1 }, approval,
   })));

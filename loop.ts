@@ -31,7 +31,7 @@ import { EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
 
 import { banditCheckpoint, executeBanditStep, validatedBanditDatasets, type BanditCheckpoint, type BanditExample, type BanditGeneration } from "./bandit.ts";
 import { hoeffdingEpsilon } from "./promotion.ts";
-import { asJsonObject, expectedFail, requiredTrimmedString } from "./refuse.ts";
+import { asJsonObject, expectedFail, requiredTrimmedString, storedCheckpointNumber, storedCheckpointDigest, verifyReplayFields, verifyTrainerReceipt } from "./refuse.ts";
 import { canonicalJson, type EnvironmentSpec, type JsonValue } from "./index.ts";
 import { parseSystemOneLoopConfig, type SystemOneLoopConfig } from "./systemone.ts";
 import type { MetricEvent } from "./series.ts";
@@ -580,24 +580,6 @@ export interface StoredLoopGeneration {
   readonly candidateHeldOutMean: number;
 }
 
-/** Read one required finite number from a persisted generation training configuration. */
-function storedNumber(record: Readonly<Record<string, unknown>>, key: string, source: string, code: string): number {
-  const value = record[key];
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    expectedFail(`${source} requires a finite number ${key}; the persisted checkpoint is invalid.`, code);
-  }
-  return value;
-}
-
-/** Read one required content-addressed digest string from a persisted generation training configuration. */
-function storedDigest(record: Readonly<Record<string, unknown>>, key: string, source: string, code: string): string {
-  const value = record[key];
-  if (typeof value !== "string" || !/^sha256:[a-f0-9]{64}$/.test(value)) {
-    expectedFail(`${source} requires a content-addressed digest ${key}; the persisted checkpoint is invalid.`, code);
-  }
-  return value;
-}
-
 /**
  * Parse and validate one persisted bandit generation training configuration.
  *
@@ -616,35 +598,35 @@ export function parseStoredLoopGeneration(value: JsonValue, source: string): Sto
   if (record["format"] !== LOOP_GENERATION_FORMAT) {
     expectedFail(`${source} must carry the ${LOOP_GENERATION_FORMAT} format marker.`, "loop_invalid_training_config");
   }
-  const generation = storedNumber(record, "generation", source, "loop_invalid_training_config");
+  const generation = storedCheckpointNumber(record, "generation", source, "loop_invalid_training_config");
   const actionCounts = record["action_counts"];
   if (!Array.isArray(actionCounts) || actionCounts.length !== 2
     || typeof actionCounts[0] !== "number" || typeof actionCounts[1] !== "number"
-    || !Number.isInteger(actionCounts[0]) || !Number.isInteger(actionCounts[1])) {
+    || !Number.isInteger(actionCounts[0]) || !Number.isInteger(actionCounts[1]) || actionCounts[0] < 0 || actionCounts[1] < 0) {
     expectedFail(`${source} requires integer action_counts for both actions; the persisted checkpoint is invalid.`, "loop_invalid_checkpoint");
   }
   if (!Number.isInteger(generation) || generation < 1) {
     expectedFail(`${source} requires a positive integer generation.`, "loop_invalid_training_config");
   }
-  const candidateWeight = storedNumber(record, "candidate_weight", source, "loop_invalid_checkpoint");
+  const candidateWeight = storedCheckpointNumber(record, "candidate_weight", source, "loop_invalid_checkpoint");
   if (Math.abs(candidateWeight) > 20) {
     expectedFail(`${source} candidate_weight is outside the stable policy bound [-20, 20]; the persisted checkpoint is invalid.`, "loop_invalid_checkpoint");
   }
   const stored: StoredLoopGeneration = {
     generation,
-    learningRate: storedNumber(record, "learning_rate", source, "loop_invalid_training_config"),
-    evaluationSamples: storedNumber(record, "evaluation_samples", source, "loop_invalid_training_config"),
-    collectionSeed: storedNumber(record, "collection_seed", source, "loop_invalid_training_config"),
-    samples: storedNumber(record, "samples", source, "loop_invalid_training_config"),
-    collectionDigest: storedDigest(record, "collection_digest", source, "loop_invalid_checkpoint"),
+    learningRate: storedCheckpointNumber(record, "learning_rate", source, "loop_invalid_training_config"),
+    evaluationSamples: storedCheckpointNumber(record, "evaluation_samples", source, "loop_invalid_training_config"),
+    collectionSeed: storedCheckpointNumber(record, "collection_seed", source, "loop_invalid_training_config"),
+    samples: storedCheckpointNumber(record, "samples", source, "loop_invalid_training_config"),
+    collectionDigest: storedCheckpointDigest(record, "collection_digest", source, "loop_invalid_checkpoint"),
     actionCounts: [actionCounts[0], actionCounts[1]],
-    sourceCheckpoint: storedDigest(record, "source_checkpoint", source, "loop_invalid_checkpoint"),
-    candidateCheckpoint: storedDigest(record, "candidate_checkpoint", source, "loop_invalid_checkpoint"),
+    sourceCheckpoint: storedCheckpointDigest(record, "source_checkpoint", source, "loop_invalid_checkpoint"),
+    candidateCheckpoint: storedCheckpointDigest(record, "candidate_checkpoint", source, "loop_invalid_checkpoint"),
     candidateWeight,
-    trainingScore: storedNumber(record, "training_score", source, "loop_invalid_training_config"),
-    evaluationScore: storedNumber(record, "evaluation_score", source, "loop_invalid_training_config"),
-    incumbentHeldOutMean: storedNumber(record, "incumbent_held_out_mean", source, "loop_invalid_training_config"),
-    candidateHeldOutMean: storedNumber(record, "candidate_held_out_mean", source, "loop_invalid_training_config"),
+    trainingScore: storedCheckpointNumber(record, "training_score", source, "loop_invalid_training_config"),
+    evaluationScore: storedCheckpointNumber(record, "evaluation_score", source, "loop_invalid_training_config"),
+    incumbentHeldOutMean: storedCheckpointNumber(record, "incumbent_held_out_mean", source, "loop_invalid_training_config"),
+    candidateHeldOutMean: storedCheckpointNumber(record, "candidate_held_out_mean", source, "loop_invalid_training_config"),
   };
   if (!Number.isInteger(stored.samples) || stored.samples < 1
     || !Number.isInteger(stored.evaluationSamples) || stored.evaluationSamples < 1
@@ -690,18 +672,9 @@ export function verifyStoredLoopGeneration(config: LoopConfig, step: LoopStepCon
     ["samples", stored.samples, config.samplesPerGeneration],
     ["collection_digest", stored.collectionDigest, receipt.collectionDigest],
     ["action_counts", stored.actionCounts.join(","), receipt.actionCounts.join(",")],
-    ["source_checkpoint", stored.sourceCheckpoint, receipt.source.digest],
-    ["candidate_checkpoint", stored.candidateCheckpoint, receipt.candidate.digest],
     ["candidate_weight", stored.candidateWeight, receipt.candidate.weight],
-    ["training_score", stored.trainingScore, receipt.trainingScore],
-    ["evaluation_score", stored.evaluationScore, receipt.evaluationScore],
-    ["incumbent_held_out_mean", stored.incumbentHeldOutMean, receipt.incumbentHeldOutMean],
-    ["candidate_held_out_mean", stored.candidateHeldOutMean, receipt.candidateHeldOutMean],
   ];
-  const differences = expected.filter(([, storedValue, replayedValue]) => storedValue !== replayedValue);
-  if (differences.length > 0) {
-    const rendered = differences.map(([field, storedValue, replayedValue]) => `${field}: persisted ${String(storedValue)} != replayed ${String(replayedValue)}`).join("; ");
-    expectedFail(`Loop generation ${generation} does not replay against its persisted training configuration (${rendered}). The recorded evidence must reproduce before the chain can advance.`, "loop_generation_drift", EXIT_CODE.CONFLICT);
-  }
+  verifyReplayFields(expected, generation);
+  verifyTrainerReceipt(stored, receipt, generation);
   return receipt;
 }

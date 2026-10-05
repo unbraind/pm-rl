@@ -6,13 +6,24 @@ status: in_progress
 priority: 1
 tags[3]: execution,llm-adapter,recursive-training
 created_at: "2026-10-05T04:32:35.578Z"
-updated_at: "2026-10-05T05:05:21.442Z"
+updated_at: "2026-10-05T05:43:11.522Z"
 assignee: codex-sol
 claim_principal: codex-sol
 author: pi-glm
 estimated_minutes: 960
 acceptance_criteria: "A systemone loop config parses and validates disjoint labelled datasets, question specs and decision-model endpoint bounds; the head fit performs real gradient updates so candidate checkpoints differ from their source across two generations; generation two's collection run records generation one's promoted candidate as its collecting policy; collected and held-out decisions persist as one merge-safe metric event per endpoint query and resume appends only the missing suffix; an invalid checkpoint (NaN, shape mismatch, tampered digest) or an overlapping dataset identity stops promotion with a stable refusal; the endpoint client refuses non-200 responses, malformed bodies and missing answers as expected CLI errors and honours AbortSignal and timeout; unit coverage of the adapter is exact 100/100/100/100 against a real in-process HTTP server"
 parent: pm-rl-apvf
-comments[1]{created_at,author,text}:
+comments[2]{created_at,author,text}:
   "2026-10-05T05:05:21.442Z",codex-sol,"Preserving the interrupted calibration-head implementation in a focused commit. Typecheck and eslint pass; existing loop regressions pass 33/33. Adapter tests, endpoint acceptance and exact coverage are still pending. Audit found lease-recovery races and replay budget/refusal gaps to repair before claiming durability."
+  "2026-10-05T05:38:50.425Z",codex-sol,"Second live acceptance PASS with unchanged real calibration results: accuracy 1.0 -> 1.0; ECE 0.3329814443 -> 0.2927389850 -> 0.2411651910; generation means 0.66375 -> 0.70685 and 0.709475 -> 0.761025; 1094 tokens across 8 requests. Endpoint-only elapsed 23302.17 ms, mean 2912.77 ms/request; controller wall 26157.71 ms. Generation-two source is the promoted 77bb31851756 checkpoint and successor a66accd456bf differs. Follow-up pm-rl-9nlg records the unresolved remote-completion/local-receipt kill window. Exact-source coverage remains in progress."
+files[5]{path,scope}:
+  promotion.ts,project
+  refuse.ts,project
+  systemone.ts,project
+  test/fixtures/systemone.ts,project
+  test/systemone.test.ts,project
+tests[1]{command,scope,pm_context_mode,workspace_context_mode,provenance{author,created_at,source_kind,source_ref}}:
+  node --test test/systemone.test.ts,project,none,snapshot,codex-sol,"2026-10-05T05:43:11.472Z",local_mutation,feat/durable-rsi-continuation
+docs[1]{path,scope}:
+  docs/durable-systemone-validation.md,project
 body: ""

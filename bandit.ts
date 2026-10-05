@@ -9,7 +9,7 @@
  */
 import { createHash } from "node:crypto";
 
-import { decidePromotion, type PromotionCriterion, type PromotionEvidence } from "./promotion.ts";
+import { decideTrainerPromotion } from "./promotion.ts";
 
 /** A synthetic contextual bandit example with bounded feature and action rewards. */
 export interface BanditExample {
@@ -317,36 +317,10 @@ export function executeBanditStep(input: BanditStepInput): BanditGeneration {
   const candidateSeed = (incumbentSeed + 0x6D5B5B5D) >>> 0;
   evidence.incumbentHeldOutMean = sampledHeldOutMean(source.weight, evaluation, evaluationSamples, incumbentSeed);
   evidence.candidateHeldOutMean = sampledHeldOutMean(candidate.weight, evaluation, evaluationSamples, candidateSeed);
-  if (candidate.digest === source.digest) {
-    return { ...evidence, promoted: false,
-      refusalReason: "candidate checkpoint unchanged; no policy update to promote", stopReason: "unchanged_checkpoint" };
-  }
-  if (trainingScore - evaluationScore > maximumGap) {
-    return { ...evidence, promoted: false,
-      refusalReason: `training-to-evaluation gap ${Math.max(0, trainingScore - evaluationScore).toFixed(6)} exceeds the maximum ${maximumGap}`,
-      stopReason: "gap_rejected" };
-  }
-  if (evaluationScore <= baselineScore) {
-    return { ...evidence, promoted: false,
-      refusalReason: "candidate does not improve held-out expected reward; statistically better sampled evidence cannot promote a regression or tie",
-      stopReason: "evaluation_rejected" };
-  }
-  const candidateEvidence: PromotionEvidence = {
-    generation: `gen-${generation}`, objective: "expected_reward", objective_version: "1",
-    evaluation_context: evaluationDigest, direction: "maximize",
-    samples: evaluationSamples, mean: evidence.candidateHeldOutMean, rewardBounds: [0, 1],
-  };
-  const incumbentEvidence: PromotionEvidence = {
-    generation: generation === 1 ? "seed" : `gen-${generation - 1}`, objective: "expected_reward", objective_version: "1",
-    evaluation_context: evaluationDigest, direction: "maximize",
-    samples: evaluationSamples, mean: evidence.incumbentHeldOutMean, rewardBounds: [0, 1],
-  };
-  const criterion: PromotionCriterion = { confidence, minSamples, effectThreshold: minimumImprovement };
-  const verdict = decidePromotion({ candidate: candidateEvidence, incumbent: incumbentEvidence, criterion, contaminationPath: null, expectedGeneration: `gen-${generation}` });
-  if (verdict.decision === "promote") {
-    return { ...evidence, promoted: true, refusalReason: null, stopReason: null };
-  }
-  return { ...evidence, promoted: false, refusalReason: verdict.reason, stopReason: "evaluation_rejected" };
+  return { ...evidence, ...decideTrainerPromotion({ changed: candidate.digest !== source.digest, training: trainingScore, evaluation: evaluationScore,
+    baseline: baselineScore, maximumGap, generation, version: "1", context: evaluationDigest, samples: evaluationSamples,
+    candidateMean: evidence.candidateHeldOutMean, incumbentMean: evidence.incumbentHeldOutMean,
+    criterion: { confidence, minSamples, effectThreshold: minimumImprovement } }) };
 }
 
 /**

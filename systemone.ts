@@ -29,8 +29,8 @@ import { EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
 
 import { canonicalJson, hashJson, type EnvironmentSpec, type JsonValue } from "./index.ts";
 import type { LoopStepConfig } from "./loop.ts";
-import { decidePromotion, type PromotionCriterion, type PromotionEvidence } from "./promotion.ts";
-import { asJsonObject, expectedFail, requiredTrimmedString } from "./refuse.ts";
+import { decideTrainerPromotion } from "./promotion.ts";
+import { asJsonObject, expectedFail, requiredTrimmedString, storedCheckpointNumber, storedCheckpointDigest, verifyReplayFields, verifyTrainerReceipt } from "./refuse.ts";
 import type { MetricEvent } from "./series.ts";
 
 /** Format identity of one calibration head checkpoint. */
@@ -466,6 +466,7 @@ export function parseSystemOneLoopConfig(raw: JsonValue): SystemOneLoopConfig {
   const questions: SystemOneChoiceSpec[] = [];
   for (const name of Object.keys(questionRecord).sort()) {
     const spec = asJsonObject(questionRecord[name], `SystemOne question ${name}`, "systemone_invalid_question");
+    if (spec["type"] !== undefined && spec["type"] !== "choice") expectedFail("Calibration requires choice questions.", "systemone_invalid_question");
     const instructions = requiredTrimmedString(spec, "instructions", `SystemOne question ${name}`, "systemone_question_");
     const criteria = asJsonObject(spec["criteria"] ?? null, `SystemOne question ${name} criteria`, "systemone_question_criteria");
     const options = Object.keys(criteria).sort();
@@ -485,8 +486,11 @@ export function parseSystemOneLoopConfig(raw: JsonValue): SystemOneLoopConfig {
   }
   const model = asJsonObject(record["decision_model"] ?? null, "SystemOne loop configuration decision_model", "systemone_invalid_decision_model");
   const baseURL = requiredTrimmedString(model, "base_url", "SystemOne decision model", "systemone_decision_model_");
-  if (!/^https?:\/\//.test(baseURL)) {
-    expectedFail("SystemOne decision model base_url must be an http(s) URL.", "systemone_decision_model_base_url");
+  try {
+    const url = new URL(baseURL);
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error("invalid endpoint");
+  } catch {
+    expectedFail("SystemOne decision model base_url must be an http(s) URL without credentials, query or fragment.", "systemone_decision_model_base_url");
   }
   const endpointModel = requiredTrimmedString(model, "model", "SystemOne decision model", "systemone_decision_model_");
   const timeoutMs = requiredConfigNumber(model, "timeout_ms", "systemone_invalid_timeout_ms");
@@ -672,91 +676,56 @@ function observationQuestion(observation: SystemOneObservation, question: System
     }
     probabilities[option] = value;
   }
+  const sum = Object.values(probabilities).reduce((total, value) => total + value, 0);
+  if (Math.abs(sum - 1) > 1e-6) expectedFail("Decision probabilities must sum to one.", "systemone_decision_shape");
   return probabilities;
 }
 
-/** Exact expected reward: the calibrated probability of the true answer, averaged over questions and items. */
+/** Score each question answer against its labelled outcome under a checkpoint. */
+function scoredAnswers(observations: readonly SystemOneObservation[], examples: readonly SystemOneExample[], questions: readonly SystemOneChoiceSpec[], checkpoint: SystemOneCheckpoint): Array<{ correct: number; confidence: number; reward: number }> {
+  if (observations.length === 0) expectedFail("Scoring requires at least one decision.", "systemone_empty_evidence");
+  const labels = new Map(examples.map((example) => [example.id, example]));
+  const scores: Array<{ correct: number; confidence: number; reward: number }> = [];
+  for (const observation of observations) {
+    const example = labels.get(observation.example);
+    if (example === undefined) expectedFail(`Decision names unknown example ${observation.example}.`, "systemone_decision_example");
+    for (const question of questions) {
+      const probabilities = calibratedProbabilities(observationQuestion(observation, question), checkpoint.parameters.logTemperature[question.name], checkpoint.parameters.biases[question.name]);
+      const [top, confidence] = Object.entries(probabilities).reduce((best, entry) => entry[1] > best[1] ? entry : best);
+      scores.push({ correct: top === example.labels[question.name] ? 1 : 0, confidence, reward: probabilities[example.labels[question.name]] });
+    }
+  }
+  return scores;
+}
+
+/** Mean expected correctness over the fixed labelled observations. */
 function expectedReward(observations: readonly SystemOneObservation[], examples: readonly SystemOneExample[], questions: readonly SystemOneChoiceSpec[], checkpoint: SystemOneCheckpoint): number {
-  const labels = new Map(examples.map((example) => [example.id, example]));
-  if (observations.length === 0) {
-    expectedFail("Expected reward requires at least one decision.", "systemone_empty_evidence");
-  }
-  let total = 0;
-  for (const observation of observations) {
-    const example = labels.get(observation.example);
-    if (example === undefined) {
-      expectedFail(`Decision names unknown example ${observation.example}.`, "systemone_decision_example");
-    }
-    for (const question of questions) {
-      const calibrated = calibratedProbabilities(observationQuestion(observation, question), checkpoint.parameters.logTemperature[question.name], checkpoint.parameters.biases[question.name]);
-      total += calibrated[example.labels[question.name]];
-    }
-  }
-  return total / (observations.length * questions.length);
+  const scores = scoredAnswers(observations, examples, questions, checkpoint);
+  return scores.reduce((sum, score) => sum + score.reward, 0) / scores.length;
 }
 
-/** Argmax accuracy: the fraction of question answers the head's top option gets right. */
+/** Fraction of answers whose highest-probability option matches the label. */
 export function systemOneAccuracy(observations: readonly SystemOneObservation[], examples: readonly SystemOneExample[], questions: readonly SystemOneChoiceSpec[], checkpoint: SystemOneCheckpoint): number {
-  const labels = new Map(examples.map((example) => [example.id, example]));
-  let correct = 0;
-  for (const observation of observations) {
-    const example = labels.get(observation.example);
-    if (example === undefined) {
-      expectedFail(`Decision names unknown example ${observation.example}.`, "systemone_decision_example");
-    }
-    for (const question of questions) {
-      const calibrated = calibratedProbabilities(observationQuestion(observation, question), checkpoint.parameters.logTemperature[question.name], checkpoint.parameters.biases[question.name]);
-      const top = Object.entries(calibrated).reduce((best, entry) => (entry[1] > best[1] ? entry : best), ["", Number.NaN])[0];
-      if (top === example.labels[question.name]) correct += 1;
-    }
-  }
-  return correct / (observations.length * questions.length);
+  const scores = scoredAnswers(observations, examples, questions, checkpoint);
+  return scores.reduce((sum, score) => sum + score.correct, 0) / scores.length;
 }
 
-/**
- * Expected calibration error over binned confidence.
- *
- * Standard reliability framing: every answer's confidence is the calibrated
- * probability of the predicted option, correctness is whether that option is
- * the true answer, and the error is the count-weighted absolute gap between
- * bin confidence and bin accuracy. A head can be accurate but badly
- * calibrated; this number is how the live acceptance shows calibration
- * actually moved, not just accuracy.
- *
- * @param observations - The decisions to score.
- * @param examples - The labelled examples the decisions name.
- * @param questions - The question specifications.
- * @param checkpoint - The head whose calibration is measured.
- * @param bins - Confidence bin count; at least one.
- * @returns The expected calibration error in [0, 1].
- */
+/** Compute count-weighted absolute confidence/accuracy gaps over reliability bins. */
 export function systemOneCalibrationError(observations: readonly SystemOneObservation[], examples: readonly SystemOneExample[], questions: readonly SystemOneChoiceSpec[], checkpoint: SystemOneCheckpoint, bins: number): number {
-  const labels = new Map(examples.map((example) => [example.id, example]));
-  if (!Number.isInteger(bins) || bins < 1) {
-    expectedFail("Calibration error requires at least one confidence bin.", "systemone_invalid_bins");
-  }
+  if (!Number.isInteger(bins) || bins < 1) expectedFail("Calibration error requires at least one confidence bin.", "systemone_invalid_bins");
+  const scores = scoredAnswers(observations, examples, questions, checkpoint);
   const counts = new Array<number>(bins).fill(0);
   const confidences = new Array<number>(bins).fill(0);
   const accuracies = new Array<number>(bins).fill(0);
-  for (const observation of observations) {
-    const example = labels.get(observation.example);
-    if (example === undefined) {
-      expectedFail(`Decision names unknown example ${observation.example}.`, "systemone_decision_example");
-    }
-    for (const question of questions) {
-      const calibrated = calibratedProbabilities(observationQuestion(observation, question), checkpoint.parameters.logTemperature[question.name], checkpoint.parameters.biases[question.name]);
-      const [top, confidence] = Object.entries(calibrated).reduce((best, entry) => (entry[1] > best[1] ? entry : best), ["", Number.NaN]);
-      const bin = Math.min(bins - 1, Math.floor(confidence * bins));
-      counts[bin] += 1;
-      confidences[bin] += confidence;
-      accuracies[bin] += top === example.labels[question.name] ? 1 : 0;
-    }
+  for (const score of scores) {
+    const bin = Math.min(bins - 1, Math.floor(score.confidence * bins));
+    counts[bin] += 1;
+    confidences[bin] += score.confidence;
+    accuracies[bin] += score.correct;
   }
-  const total = observations.length * questions.length;
   let error = 0;
   for (let bin = 0; bin < bins; bin += 1) {
-    if (counts[bin] === 0) continue;
-    error += (counts[bin] / total) * Math.abs(accuracies[bin] / counts[bin] - confidences[bin] / counts[bin]);
+    if (counts[bin] > 0) error += counts[bin] / scores.length * Math.abs(accuracies[bin] / counts[bin] - confidences[bin] / counts[bin]);
   }
   return error;
 }
@@ -833,12 +802,9 @@ function sampledHeldOutMean(observations: readonly SystemOneObservation[], examp
   for (let episode = 0; episode < episodes; episode += 1) {
     const observation = observations[episode % observations.length];
     const example = labels.get(observation.example);
-    if (example === undefined) {
-      expectedFail(`Decision names unknown example ${observation.example}.`, "systemone_decision_example");
-    }
     const { answers } = sampleObservationAnswers(observation, questions, checkpoint, state);
     state = (Math.imul(LCG_MULTIPLIER, state) + LCG_INCREMENT) >>> 0;
-    total += sampledAnswerReward(answers, example, questions);
+    total += sampledAnswerReward(answers, example!, questions);
   }
   return total / episodes;
 }
@@ -970,6 +936,10 @@ function systemOneCollectionDigest(source: SystemOneCheckpoint, trainingDigest: 
  * @returns The generation's complete receipt, including its terminal condition.
  */
 export function executeSystemOneStep(config: SystemOneLoopConfig, step: LoopStepConfig, generation: number, source: SystemOneCheckpoint, collection: readonly SystemOneObservation[], heldOut: readonly SystemOneObservation[], usageTokens: number): SystemOneGeneration {
+  const validatedSource = parseSystemOneHeadParameters(jsonHeadParameters(source.parameters, config.questions), config.questions, "Source checkpoint");
+  if (source.digest !== systemOneCheckpoint(validatedSource, config.questions).digest) {
+    expectedFail("Source checkpoint digest does not match its parameters.", "systemone_invalid_checkpoint");
+  }
   const fit = fitSystemOneHead(collection, config.training, config.questions, source.parameters, step.learningRate, config.fitSteps);
   const candidate = systemOneCheckpoint(fit.parameters, config.questions);
   const collectionDigest = systemOneCollectionDigest(source, config.trainingDigest, collection);
@@ -994,36 +964,11 @@ export function executeSystemOneStep(config: SystemOneLoopConfig, step: LoopStep
     candidateHeldOutMean,
     usageTokens,
   };
-  if (candidate.digest === source.digest) {
-    return { ...evidence, promoted: false,
-      refusalReason: "candidate checkpoint unchanged; no calibration update to promote", stopReason: "unchanged_checkpoint" };
-  }
-  if (trainingScore - evaluationScore > config.maximumGap) {
-    return { ...evidence, promoted: false,
-      refusalReason: `training-to-evaluation gap ${Math.max(0, trainingScore - evaluationScore).toFixed(6)} exceeds the maximum ${config.maximumGap}`,
-      stopReason: "gap_rejected" };
-  }
-  if (evaluationScore <= baselineScore) {
-    return { ...evidence, promoted: false,
-      refusalReason: "candidate does not improve held-out expected reward; statistically better sampled evidence cannot promote a regression or tie",
-      stopReason: "evaluation_rejected" };
-  }
-  const candidateEvidence: PromotionEvidence = {
-    generation: `gen-${generation}`, objective: "expected_reward", objective_version: "pm-rl/systemone/1",
-    evaluation_context: config.evaluationDigest, direction: "maximize",
-    samples: step.evaluationSamples, mean: candidateHeldOutMean, rewardBounds: [SYSTEMONE_REWARD_BOUNDS[0], SYSTEMONE_REWARD_BOUNDS[1]],
-  };
-  const incumbentEvidence: PromotionEvidence = {
-    generation: generation === 1 ? "seed" : `gen-${generation - 1}`, objective: "expected_reward", objective_version: "pm-rl/systemone/1",
-    evaluation_context: config.evaluationDigest, direction: "maximize",
-    samples: step.evaluationSamples, mean: incumbentHeldOutMean, rewardBounds: [SYSTEMONE_REWARD_BOUNDS[0], SYSTEMONE_REWARD_BOUNDS[1]],
-  };
-  const criterion: PromotionCriterion = { confidence: config.confidence, minSamples: config.minSamples, effectThreshold: config.minimumImprovement };
-  const verdict = decidePromotion({ candidate: candidateEvidence, incumbent: incumbentEvidence, criterion, contaminationPath: null, expectedGeneration: `gen-${generation}` });
-  if (verdict.decision === "promote") {
-    return { ...evidence, promoted: true, refusalReason: null, stopReason: null };
-  }
-  return { ...evidence, promoted: false, refusalReason: verdict.reason, stopReason: "evaluation_rejected" };
+  const verdict = decideTrainerPromotion({ changed: source.digest !== candidate.digest, generation, training: trainingScore,
+    evaluation: evaluationScore, baseline: baselineScore, maximumGap: config.maximumGap, version: "pm-rl/systemone/1", context: config.evaluationDigest,
+    samples: step.evaluationSamples, candidateMean: candidateHeldOutMean, incumbentMean: incumbentHeldOutMean,
+    criterion: { confidence: config.confidence, minSamples: config.minSamples, effectThreshold: config.minimumImprovement } });
+  return { ...evidence, ...verdict };
 }
 
 /** Build the run item's pre-collection configuration for one decision-model generation. */
@@ -1086,24 +1031,6 @@ export function systemOneSeedTrainingConfig(config: SystemOneLoopConfig): JsonVa
   };
 }
 
-/** Read one required finite number from a persisted decision-model training configuration. */
-function storedGenerationNumber(record: Readonly<Record<string, unknown>>, key: string, source: string, code: string): number {
-  const value = record[key];
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    expectedFail(`${source} requires a finite number ${key}; the persisted checkpoint is invalid.`, code);
-  }
-  return value;
-}
-
-/** Read one required content-addressed digest from a persisted decision-model training configuration. */
-function storedGenerationDigest(record: Readonly<Record<string, unknown>>, key: string, source: string, code: string): string {
-  const value = record[key];
-  if (typeof value !== "string" || !/^sha256:[a-f0-9]{64}$/.test(value)) {
-    expectedFail(`${source} requires a content-addressed digest ${key}; the persisted checkpoint is invalid.`, code);
-  }
-  return value;
-}
-
 /**
  * Parse and validate one persisted decision-model generation training configuration.
  *
@@ -1124,27 +1051,27 @@ export function parseStoredSystemOneGeneration(value: JsonValue, questions: read
   if (record["format"] !== SYSTEMONE_GENERATION_FORMAT) {
     expectedFail(`${source} must carry the ${SYSTEMONE_GENERATION_FORMAT} format marker.`, "systemone_invalid_training_config");
   }
-  const generation = storedGenerationNumber(record, "generation", source, "systemone_invalid_training_config");
+  const generation = storedCheckpointNumber(record, "generation", source, "systemone_invalid_training_config");
   if (!Number.isInteger(generation) || generation < 1) {
     expectedFail(`${source} requires a positive integer generation.`, "systemone_invalid_training_config");
   }
   const candidateParameters = parseSystemOneHeadParameters(record["candidate_parameters"], questions, `${source} candidate_parameters`);
   const stored: StoredSystemOneGeneration = {
     generation,
-    learningRate: storedGenerationNumber(record, "learning_rate", source, "systemone_invalid_training_config"),
-    evaluationSamples: storedGenerationNumber(record, "evaluation_samples", source, "systemone_invalid_training_config"),
-    fitSteps: storedGenerationNumber(record, "fit_steps", source, "systemone_invalid_training_config"),
-    samples: storedGenerationNumber(record, "samples", source, "systemone_invalid_training_config"),
-    heldOutSamples: storedGenerationNumber(record, "held_out_samples", source, "systemone_invalid_training_config"),
-    collectionDigest: storedGenerationDigest(record, "collection_digest", source, "systemone_invalid_checkpoint"),
-    sourceCheckpoint: storedGenerationDigest(record, "source_checkpoint", source, "systemone_invalid_checkpoint"),
-    candidateCheckpoint: storedGenerationDigest(record, "candidate_checkpoint", source, "systemone_invalid_checkpoint"),
+    learningRate: storedCheckpointNumber(record, "learning_rate", source, "systemone_invalid_training_config"),
+    evaluationSamples: storedCheckpointNumber(record, "evaluation_samples", source, "systemone_invalid_training_config"),
+    fitSteps: storedCheckpointNumber(record, "fit_steps", source, "systemone_invalid_training_config"),
+    samples: storedCheckpointNumber(record, "samples", source, "systemone_invalid_training_config"),
+    heldOutSamples: storedCheckpointNumber(record, "held_out_samples", source, "systemone_invalid_training_config"),
+    collectionDigest: storedCheckpointDigest(record, "collection_digest", source, "systemone_invalid_checkpoint"),
+    sourceCheckpoint: storedCheckpointDigest(record, "source_checkpoint", source, "systemone_invalid_checkpoint"),
+    candidateCheckpoint: storedCheckpointDigest(record, "candidate_checkpoint", source, "systemone_invalid_checkpoint"),
     candidateParameters,
-    trainingScore: storedGenerationNumber(record, "training_score", source, "systemone_invalid_training_config"),
-    evaluationScore: storedGenerationNumber(record, "evaluation_score", source, "systemone_invalid_training_config"),
-    incumbentHeldOutMean: storedGenerationNumber(record, "incumbent_held_out_mean", source, "systemone_invalid_training_config"),
-    candidateHeldOutMean: storedGenerationNumber(record, "candidate_held_out_mean", source, "systemone_invalid_training_config"),
-    usageTokens: storedGenerationNumber(record, "usage_tokens", source, "systemone_invalid_training_config"),
+    trainingScore: storedCheckpointNumber(record, "training_score", source, "systemone_invalid_training_config"),
+    evaluationScore: storedCheckpointNumber(record, "evaluation_score", source, "systemone_invalid_training_config"),
+    incumbentHeldOutMean: storedCheckpointNumber(record, "incumbent_held_out_mean", source, "systemone_invalid_training_config"),
+    candidateHeldOutMean: storedCheckpointNumber(record, "candidate_held_out_mean", source, "systemone_invalid_training_config"),
+    usageTokens: storedCheckpointNumber(record, "usage_tokens", source, "systemone_invalid_training_config"),
   };
   if (!Number.isInteger(stored.samples) || stored.samples < 1
     || !Number.isInteger(stored.heldOutSamples) || stored.heldOutSamples < 1
@@ -1187,18 +1114,9 @@ export function verifyStoredSystemOneGeneration(config: SystemOneLoopConfig, ste
     ["samples", stored.samples, config.samplesPerGeneration],
     ["held_out_samples", stored.heldOutSamples, config.evaluation.length],
     ["collection_digest", stored.collectionDigest, receipt.collectionDigest],
-    ["source_checkpoint", stored.sourceCheckpoint, receipt.source.digest],
-    ["candidate_checkpoint", stored.candidateCheckpoint, receipt.candidate.digest],
-    ["training_score", stored.trainingScore, receipt.trainingScore],
-    ["evaluation_score", stored.evaluationScore, receipt.evaluationScore],
-    ["incumbent_held_out_mean", stored.incumbentHeldOutMean, receipt.incumbentHeldOutMean],
-    ["candidate_held_out_mean", stored.candidateHeldOutMean, receipt.candidateHeldOutMean],
   ];
-  const differences = expected.filter(([, storedValue, replayedValue]) => storedValue !== replayedValue);
-  if (differences.length > 0) {
-    const rendered = differences.map(([field, storedValue, replayedValue]) => `${field}: persisted ${String(storedValue)} != replayed ${String(replayedValue)}`).join("; ");
-    expectedFail(`SystemOne loop generation ${stored.generation} does not replay against its persisted training configuration (${rendered}). The recorded evidence must reproduce before the chain can advance.`, "loop_generation_drift", EXIT_CODE.CONFLICT);
-  }
+  verifyReplayFields(expected, stored.generation);
+  verifyTrainerReceipt(stored, receipt, stored.generation);
   return receipt;
 }
 
@@ -1260,11 +1178,11 @@ function jsonAnswers(answers: Readonly<Record<string, Readonly<Record<string, nu
  * @param usage - Token counts the endpoint reported for this one query.
  * @returns The validated metric event.
  */
-export function systemOneDecisionEvent(metric: string, step: number, observation: SystemOneObservation, usage: { readonly input_tokens: number; readonly output_tokens: number }): MetricEvent {
+export function systemOneDecisionEvent(metric: string, step: number, observation: SystemOneObservation, usage: { readonly input_tokens: number; readonly output_tokens: number; readonly latency_ms?: number }): MetricEvent {
   if (metric !== SYSTEMONE_COLLECTION_METRIC && metric !== SYSTEMONE_HELD_OUT_METRIC) {
     expectedFail("A decision event must use the collection or held-out metric name.", "systemone_invalid_metric");
   }
-  return { step, metric, value: observation.reward, tags: { example: observation.example, answers: jsonAnswers(observation.answers), tokens: String(usage.input_tokens + usage.output_tokens) } };
+  return { step, metric, value: observation.reward, tags: { example: observation.example, answers: jsonAnswers(observation.answers), tokens: String(usage.input_tokens + usage.output_tokens), latency_ms: String(usage.latency_ms ?? 0) } };
 }
 
 /**
@@ -1321,7 +1239,7 @@ export function parseSystemOneDecisionEvent(event: MetricEvent, metric: string, 
       }
       probabilities[option] = value;
     }
-    answers[question.name] = probabilities;
+    answers[question.name] = observationQuestion({ example, reward: event.value, answers: { [question.name]: probabilities } }, question);
   }
   if (!Number.isFinite(event.value) || event.value < 0 || event.value > 1) {
     expectedFail(`${source} must record a bounded correctness value.`, "systemone_event_value");
@@ -1334,7 +1252,7 @@ export interface SystemOneDecisionResponse {
   /** Raw answer probabilities per question name and option. */
   readonly answers: Readonly<Record<string, Readonly<Record<string, number>>>>;
   /** Tokens the endpoint reported for the request. */
-  readonly usage: { readonly input_tokens: number; readonly output_tokens: number };
+  readonly usage: { readonly input_tokens: number; readonly output_tokens: number; readonly latency_ms: number };
 }
 
 /**
@@ -1363,6 +1281,7 @@ export async function requestSystemOneDecision(endpoint: SystemOneEndpointSpec, 
     state,
     questions: Object.fromEntries(questions.map((question) => [question.name, { type: CHOICE_QUESTION_TYPE, instructions: question.instructions, criteria: { ...question.criteria } }])),
   });
+  const started = performance.now();
   let response: Response;
   try {
     response = await fetch(`${endpoint.baseURL.replace(/\/+$/, "")}/v1/systemone`, {
@@ -1376,7 +1295,7 @@ export async function requestSystemOneDecision(endpoint: SystemOneEndpointSpec, 
     if (error instanceof Error && error.name === "TimeoutError") {
       expectedFail(`The decision model at ${endpoint.baseURL} did not answer within ${endpoint.timeoutMs}ms.`, "systemone_endpoint_timeout", EXIT_CODE.GENERIC_FAILURE);
     }
-    expectedFail(`The decision model at ${endpoint.baseURL} could not be reached: ${String(error instanceof Error ? error.message : error)}.`, "systemone_endpoint_unreachable", EXIT_CODE.GENERIC_FAILURE);
+    expectedFail(`The decision model at ${endpoint.baseURL} could not be reached: ${String(error)}.`, "systemone_endpoint_unreachable", EXIT_CODE.GENERIC_FAILURE);
   }
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
@@ -1385,7 +1304,8 @@ export async function requestSystemOneDecision(endpoint: SystemOneEndpointSpec, 
   let parsed: unknown;
   try {
     parsed = await response.json();
-  } catch {
+  } catch (error) {
+    if (signal?.aborted === true) throw error;
     expectedFail(`The decision model at ${endpoint.baseURL} returned a body that is not JSON.`, "systemone_endpoint_response_invalid", EXIT_CODE.GENERIC_FAILURE);
   }
   const record = asJsonObject(parsed, "Decision model response", "systemone_endpoint_response_invalid", EXIT_CODE.GENERIC_FAILURE);
@@ -1404,7 +1324,7 @@ export async function requestSystemOneDecision(endpoint: SystemOneEndpointSpec, 
   const answers: Record<string, Record<string, number>> = {};
   for (const question of questions) {
     const answer = asJsonObject(answersRecord[question.name], `Decision model answer ${question.name}`, "systemone_endpoint_answers_invalid", EXIT_CODE.GENERIC_FAILURE);
-    if (answer["type"] !== CHOICE_QUESTION_TYPE) {
+    if (answer["type"] !== undefined && answer["type"] !== CHOICE_QUESTION_TYPE) {
       expectedFail(`Decision model answer ${question.name} is not a choice answer.`, "systemone_endpoint_answers_invalid", EXIT_CODE.GENERIC_FAILURE);
     }
     const probabilities = asJsonObject(answer["probabilities"] ?? null, `Decision model answer ${question.name} probabilities`, "systemone_endpoint_answers_invalid", EXIT_CODE.GENERIC_FAILURE);
@@ -1420,9 +1340,9 @@ export async function requestSystemOneDecision(endpoint: SystemOneEndpointSpec, 
       }
       values[option] = value;
     }
-    answers[question.name] = values;
+    answers[question.name] = observationQuestion({ example: "endpoint", reward: 0, answers: { [question.name]: values } }, question);
   }
-  return { answers, usage: { input_tokens: inputTokens, output_tokens: outputTokens } };
+  return { answers, usage: { input_tokens: inputTokens, output_tokens: outputTokens, latency_ms: performance.now() - started } };
 }
 
 /** Render one labelled example as the decision request state text. */

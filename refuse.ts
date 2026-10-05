@@ -84,3 +84,35 @@ export function requiredTrimmedString(record: Readonly<Record<string, unknown>>,
   }
   return value.trim();
 }
+
+/** Read a finite scalar from persisted checkpoint evidence. */
+export function storedCheckpointNumber(record: Readonly<Record<string, unknown>>, key: string, source: string, code: string): number {
+  const value = record[key];
+  if (typeof value !== "number" || !Number.isFinite(value)) expectedFail(`${source} requires a finite number ${key}; the persisted checkpoint is invalid.`, code);
+  return value;
+}
+
+/** Read a content-addressed identity from persisted checkpoint evidence. */
+export function storedCheckpointDigest(record: Readonly<Record<string, unknown>>, key: string, source: string, code: string): string {
+  const value = record[key];
+  if (typeof value !== "string" || !/^sha256:[a-f0-9]{64}$/.test(value)) expectedFail(`${source} requires a content-addressed digest ${key}; the persisted checkpoint is invalid.`, code);
+  return value;
+}
+
+/** Refuse every field that disagrees with deterministic artifact replay. */
+export function verifyReplayFields(expected: ReadonlyArray<readonly [string, unknown, unknown]>, generation: number): void {
+  const differences = expected.filter(([, storedValue, replayedValue]) => storedValue !== replayedValue);
+  if (differences.length > 0) {
+    const rendered = differences.map(([field, storedValue, replayedValue]) => `${field}: persisted ${String(storedValue)} != replayed ${String(replayedValue)}`).join("; ");
+    expectedFail(`Loop generation ${generation} does not replay against its persisted training configuration (${rendered}).`, "loop_generation_drift", EXIT_CODE.CONFLICT);
+  }
+}
+
+/** Compare the score and checkpoint fields common to trainer receipts. */
+export function verifyTrainerReceipt(stored: { sourceCheckpoint: string; candidateCheckpoint: string; trainingScore: number; evaluationScore: number; incumbentHeldOutMean: number; candidateHeldOutMean: number }, receipt: { source: { digest: string }; candidate: { digest: string }; trainingScore: number; evaluationScore: number; incumbentHeldOutMean: number; candidateHeldOutMean: number }, generation: number): void {
+  verifyReplayFields([
+    ["source_checkpoint", stored.sourceCheckpoint, receipt.source.digest], ["candidate_checkpoint", stored.candidateCheckpoint, receipt.candidate.digest],
+    ["training_score", stored.trainingScore, receipt.trainingScore], ["evaluation_score", stored.evaluationScore, receipt.evaluationScore],
+    ["incumbent_held_out_mean", stored.incumbentHeldOutMean, receipt.incumbentHeldOutMean], ["candidate_held_out_mean", stored.candidateHeldOutMean, receipt.candidateHeldOutMean],
+  ], generation);
+}

@@ -382,3 +382,43 @@ export function decidePromotion(input: PromotionGateInput): PromotionDecision {
     reason: `Promoted: candidate ${candidate.direction === "maximize" ? "lower" : "upper"} bound ${candidateBound.toFixed(6)} beats incumbent ${candidate.direction === "maximize" ? "upper" : "lower"} bound ${incumbentBound.toFixed(6)} by ${margin.toFixed(6)} above the effect threshold, with confidence ${criterion.confidence} over ${candidate.samples} candidate and ${incumbent.samples} incumbent samples.`,
   };
 }
+/** Evaluate a trainer's checkpoint change, regression guards and sampled promotion evidence. */
+export function decideTrainerPromotion(input: {
+  /** Whether fitting changed the checkpoint identity. */
+  changed: boolean;
+  /** Training expected correctness. */
+  training: number;
+  /** Candidate held-out expected correctness. */
+  evaluation: number;
+  /** Incumbent held-out expected correctness. */
+  baseline: number;
+  /** Permitted proxy/held-out gap. */
+  maximumGap: number;
+  /** Attempted generation index. */
+  generation: number;
+  /** Objective version specific to the adapter. */
+  version: string;
+  /** Isolated held-out identity. */
+  context: string;
+  /** Number of sampled answer episodes. */
+  samples: number;
+  /** Candidate's sampled mean. */
+  candidateMean: number;
+  /** Incumbent's sampled mean. */
+  incumbentMean: number;
+  /** Statistical bounds for admission. */
+  criterion: PromotionCriterion;
+}): { promoted: boolean; refusalReason: string | null; stopReason: "unchanged_checkpoint" | "gap_rejected" | "evaluation_rejected" | null } {
+  if (!input.changed) return { promoted: false, refusalReason: "candidate checkpoint unchanged; no policy update to promote", stopReason: "unchanged_checkpoint" };
+  if (input.training - input.evaluation > input.maximumGap) return { promoted: false,
+    refusalReason: `training-to-evaluation gap ${Math.max(0, input.training - input.evaluation).toFixed(6)} exceeds the maximum ${input.maximumGap}`, stopReason: "gap_rejected" };
+  if (input.evaluation <= input.baseline) return { promoted: false,
+    refusalReason: "candidate does not improve held-out expected reward; statistically better sampled evidence cannot promote a regression or tie", stopReason: "evaluation_rejected" };
+  const shared = { objective: "expected_reward", objective_version: input.version, evaluation_context: input.context,
+    direction: "maximize" as const, samples: input.samples, rewardBounds: [0, 1] as const };
+  const verdict = decidePromotion({ candidate: { ...shared, generation: `gen-${input.generation}`, mean: input.candidateMean },
+    incumbent: { ...shared, generation: input.generation === 1 ? "seed" : `gen-${input.generation - 1}`, mean: input.incumbentMean },
+    criterion: input.criterion, contaminationPath: null, expectedGeneration: `gen-${input.generation}` });
+  return verdict.decision === "promote" ? { promoted: true, refusalReason: null, stopReason: null }
+    : { promoted: false, refusalReason: verdict.reason, stopReason: "evaluation_rejected" };
+}

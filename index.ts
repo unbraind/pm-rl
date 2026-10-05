@@ -87,10 +87,11 @@ export {
 
 export { decidePromotion, hoeffdingEpsilon, parsePromotionCriterion, parsePromotionEvidence, type PromotionCriterion, type PromotionDecision, type PromotionEvidence, type PromotionGateInput } from "./promotion.ts";
 
+import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { readFile, unlink } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 
 import {
@@ -101,7 +102,7 @@ import {
   type CommandHandlerContext,
   type ExtensionApi,
 } from "@unbrained/pm-cli/sdk/authoring";
-import { commitWorkspaceTransaction, isAlreadyClaimedError, type LogNote } from "@unbrained/pm-cli/sdk";
+import { commitWorkspaceTransaction, type LogNote } from "@unbrained/pm-cli/sdk";
 import { PmClient, type GetResult, type ItemMetadata } from "@unbrained/pm-cli/sdk/core";
 import { acquireLock, createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 
@@ -2426,8 +2427,8 @@ export interface RlLoopRequest {
   readonly approval: string;
   /** Optional cancellation signal; aborting stops at the next phase boundary. */
   readonly signal?: AbortSignal;
-  /** Take over a held seed claim explicitly, as the dedicated resume command does. */
-  readonly takeover?: boolean;
+  /** Observe completed phase boundaries for telemetry and interruption drills. */
+  readonly onPhase?: (phase: "collect" | "train" | "evaluate" | "promote", generation: number) => void | Promise<void>;
 }
 
 /** One generation's reconstructed persisted phase, as `pm rl loop status` reports it. */
@@ -2489,7 +2490,7 @@ interface ControllerLease {
 }
 
 /** Seconds a controller lease stays valid before an abandoned record can be taken over. */
-export const LOOP_LEASE_TTL_SECONDS = 1800;
+export const LOOP_LEASE_TTL_SECONDS = 1_000_000_000;
 
 /** Exit status a cancelled loop reports, matching the conventional signal exit status. */
 export const LOOP_CANCELLED_EXIT_CODE = 130;
@@ -2502,8 +2503,9 @@ export function loopLeaseLockId(id: string): string {
 /** Read the pm CLI's lock record for one lease, or null when no readable record exists. */
 async function readLeaseRecord(pmRoot: string, lockId: string): Promise<{ pid: number; createdAt: number; ttlSeconds: number } | null> {
   try {
-    const parsed: unknown = JSON.parse(await readFile(join(pmRoot, "locks", `${lockId}.json`), "utf8"));
-    const record = asRecord(parsed);
+    const parsed: unknown = JSON.parse(await readFile(join(pmRoot, "locks", `${lockId}.lock`), "utf8"));
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const record = parsed as Record<string, unknown>;
     const pid = record["pid"];
     const createdAt = record["created_at"];
     const ttlSeconds = record["ttl_seconds"];
@@ -2513,14 +2515,6 @@ async function readLeaseRecord(pmRoot: string, lockId: string): Promise<{ pid: n
   } catch {
     return null;
   }
-}
-
-/** Narrow an unknown parsed value to a plain record without constraining its values. */
-function asRecord(value: unknown): Record<string, unknown> {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    fail("The value must be a JSON object.", "invalid_json_object");
-  }
-  return value as Record<string, unknown>;
 }
 
 /** Whether an operating-system process identity is still alive, treating untestable pids as alive. */
@@ -2551,37 +2545,64 @@ function isLeaseHolderAlive(pid: number): boolean {
  * @param coordinates - Workspace root and author for the lease and the claim.
  * @param id - The loop id the lease guards.
  * @param seedId - The seed generation item id the claim is recorded on.
- * @param takeover - Force-take a held claim, as the resume command does.
  * @returns The lease, which the caller must release exactly once.
  * @throws An expected `loop_controller_active` refusal when a live controller holds the lease.
  */
-async function acquireControllerLease(client: PmClient, coordinates: WorkspaceCoordinates, id: string, seedId: string, takeover: boolean): Promise<ControllerLease> {
+async function acquireControllerLease(client: PmClient, coordinates: WorkspaceCoordinates, id: string, seedId: string): Promise<ControllerLease> {
+  // Git worktrees share the repository metadata, so the SDK's lease and
+  // launch journal are shared even when the tracked PM roots diverge.
+  let authorityRoot = coordinates.pmRoot;
+  try {
+    const common = execFileSync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], {
+      cwd: dirname(coordinates.pmRoot), encoding: "utf8", stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    authorityRoot = join(common, "pm-rl-controllers");
+  } catch {
+    // Standalone PM projects have no Git worktree family.
+  }
   const lockId = loopLeaseLockId(id);
+  // All controller acquisitions participate in this SDK mutex. A recovery
+  // cannot unlink a successor's lease between observation and acquisition.
+  const releaseRecovery = await acquireLock(authorityRoot, `${lockId}-recovery`, 30, coordinates.author, false, false, 5000);
   let release: () => Promise<void>;
   try {
-    release = await acquireLock(coordinates.pmRoot, lockId, LOOP_LEASE_TTL_SECONDS, coordinates.author);
-  } catch (error) {
-    if (!isPmCliExpectedError(error) || error.exitCode !== EXIT_CODE.CONFLICT) throw error;
-    const record = await readLeaseRecord(coordinates.pmRoot, lockId);
-    const abandoned = record !== null
-      && (!isLeaseHolderAlive(record.pid) || Date.now() - record.createdAt > record.ttlSeconds * 1000);
-    if (!abandoned) {
-      fail(`Loop ${id} is already being executed by another controller${record === null ? "" : ` (lease holder pid ${record.pid})`}. Use pm rl loop status ${id} to observe it, or pm rl loop resume ${id} after it terminates.`, "loop_controller_active", EXIT_CODE.CONFLICT);
+    const record = await readLeaseRecord(authorityRoot, lockId);
+    if (record !== null && !isLeaseHolderAlive(record.pid)) {
+      await unlink(join(authorityRoot, "locks", `${lockId}.lock`));
     }
-    await unlink(join(coordinates.pmRoot, "locks", `${lockId}.json`));
     try {
-      release = await acquireLock(coordinates.pmRoot, lockId, LOOP_LEASE_TTL_SECONDS, coordinates.author);
-    } catch {
-      fail(`Loop ${id} is already being executed by another controller; the abandoned lease could not be taken over.`, "loop_controller_active", EXIT_CODE.CONFLICT);
+      release = await acquireLock(authorityRoot, lockId, LOOP_LEASE_TTL_SECONDS, coordinates.author);
+    } catch (error) {
+      if (!isPmCliExpectedError(error) || error.exitCode !== EXIT_CODE.CONFLICT) throw error;
+      fail(`Loop ${id} is already being executed by another controller.`, "loop_controller_active", EXIT_CODE.CONFLICT);
     }
+  } finally {
+    await releaseRecovery();
   }
   try {
-    await client.claim(seedId, { force: takeover, message: `pm-rl loop controller lease for ${id}` });
+    if (authorityRoot !== coordinates.pmRoot) {
+      const authority = new PmClient({ pmRoot: authorityRoot, cwd: dirname(coordinates.pmRoot), author: coordinates.author, noExtensions: true });
+      const releaseInitialization = await acquireLock(authorityRoot, "pm-rl-controller-init", 30, coordinates.author, false, false, 5000);
+      try {
+        await authority.init("rl-controller", { defaults: true, agentGuidance: "skip", author: "pm-rl-controller" });
+      } finally {
+        await releaseInitialization();
+      }
+      const launchId = loopLeaseLockId(id);
+      const owner = hashJson(resolve(coordinates.pmRoot));
+      const previous = await authority.get(launchId).catch((error: unknown) => isItemNotFound(error) ? null : Promise.reject(error));
+      if (previous === null) {
+        await authority.create({ id: launchId, type: "Decision", title: `Loop ${id} launch authority`, body: owner });
+      } else if (String(previous.item.body) !== owner) {
+        const comments = await readLoopComments(client, seedId).catch((error: unknown) => isItemNotFound(error) ? [] : Promise.reject(error));
+        if (!comments.some((comment) => comment.text.startsWith(`Loop ${id} terminal report:`))) {
+          fail(`Loop ${id} was launched in another worktree; merge its persisted artifacts before continuing here.`, "loop_launch_elsewhere", EXIT_CODE.CONFLICT);
+        }
+      }
+    }
+
   } catch (error) {
     await release();
-    if (isAlreadyClaimedError(error)) {
-      fail(`Loop ${id} is already owned by another controller (the seed generation's claim is held). Use pm rl loop resume ${id} to take it over.`, "loop_controller_active", EXIT_CODE.CONFLICT);
-    }
     throw error;
   }
   return { release, seedId };
@@ -2623,7 +2644,6 @@ async function acquireControllerLease(client: PmClient, coordinates: WorkspaceCo
  */
 export async function runRlLoop(client: PmClient, coordinates: WorkspaceCoordinates, request: RlLoopRequest): Promise<RlLoopReport> {
   const programme = parseLoopProgramme(request.config);
-  await ensurePersistentTypes(client);
   // Fail fast on the approval before any collection is charged: a loop that
   // cannot promote must refuse before it spends budget, not after.
   await readApprovalSpec(client, request.approval);
@@ -2632,7 +2652,7 @@ export async function runRlLoop(client: PmClient, coordinates: WorkspaceCoordina
   try {
     report = await executeLoopProgramme(client, coordinates, programme, request, controller);
   } catch (error) {
-    if (request.signal?.aborted === true && error instanceof Error && error.name === "AbortError") {
+    if (request.signal?.aborted === true) {
       fail(`Loop ${request.id} was cancelled mid-phase; the persisted state is consistent and pm rl loop resume ${request.id} completes it.`, "loop_cancelled", LOOP_CANCELLED_EXIT_CODE);
     }
     throw error;
@@ -2642,46 +2662,53 @@ export async function runRlLoop(client: PmClient, coordinates: WorkspaceCoordina
   return report;
 }
 
-/** Register the environment and seed, then take the controller lease around the execution. */
+/** Take the controller lease before registering the environment and seed for execution. */
 async function prepareLoopController(client: PmClient, coordinates: WorkspaceCoordinates, programme: LoopProgramme, request: RlLoopRequest): Promise<LoopPrepared> {
-  const environmentSpec = programme.trainer === "bandit"
-    ? loopEnvironmentSpec(programme.config)
-    : systemOneEnvironmentSpec(programme.config);
-  const environment = await registerEnvironmentSpecValue(client, environmentSpec);
-  const environmentId = String(environment.id);
-  const seedConfig = programme.trainer === "bandit"
-    ? seedTrainingConfig(programme.config)
-    : systemOneSeedTrainingConfig(programme.config);
-  const seedCheckpoint = programme.trainer === "bandit"
-    ? banditCheckpoint(programme.config.initialWeight)
-    : programme.config.initial;
-  const seedRegistration = await registerGenerationCore(client, {
-    id: `${request.id}-seed`,
-    baseCheckpoint: seedCheckpoint.digest,
-    parent: null,
-    policy: seedCheckpoint.digest,
-    collectionRuns: [],
-    environment: undefined,
-    config: seedConfig,
-  });
-  // Item ids are normalized by the tracker (an id prefix may be prepended), so
-  // every later reference — run creation, parent edges, comments, closes, and
-  // the report — uses the id each create actually returned, never a guessed
-  // shape. A parent edge written from the requested text would name nothing
-  // and silently leave every generation a lineage head.
-  const seedId = String(seedRegistration.id);
-  // Registration is content-addressed and idempotent: re-running one loop id
-  // continues its persisted programme, while a different configuration under
-  // the same id fails here as an identity collision rather than quietly
-  // forking the lineage.
-  const lease = await acquireControllerLease(client, coordinates, request.id, seedId, request.takeover === true);
-  return {
-    programme,
-    seedId,
-    environmentId,
-    seedCheckpoint,
-    lease,
-  };
+  const lease = await acquireControllerLease(client, coordinates, request.id, `${request.id}-seed`);
+  try {
+    await ensurePersistentTypes(client);
+    const environmentSpec = programme.trainer === "bandit"
+      ? loopEnvironmentSpec(programme.config)
+      : systemOneEnvironmentSpec(programme.config);
+    const environment = await registerEnvironmentSpecValue(client, environmentSpec);
+    const environmentId = String(environment.id);
+    const seedConfig = programme.trainer === "bandit"
+      ? seedTrainingConfig(programme.config)
+      : systemOneSeedTrainingConfig(programme.config);
+    const seedCheckpoint = programme.trainer === "bandit"
+      ? banditCheckpoint(programme.config.initialWeight)
+      : programme.config.initial;
+    const seedRegistration = await registerGenerationCore(client, {
+      id: `${request.id}-seed`,
+      baseCheckpoint: seedCheckpoint.digest,
+      parent: null,
+      policy: seedCheckpoint.digest,
+      collectionRuns: [],
+      environment: undefined,
+      config: seedConfig,
+    });
+    // Item ids are normalized by the tracker (an id prefix may be prepended), so
+    // every later reference — run creation, parent edges, comments, closes, and
+    // the report — uses the id each create actually returned, never a guessed
+    // shape. A parent edge written from the requested text would name nothing
+    // and silently leave every generation a lineage head.
+    const seedId = String(seedRegistration.id);
+    // Registration is content-addressed and idempotent: re-running one loop id
+    // continues its persisted programme, while a different configuration under
+    // the same id fails here as an identity collision rather than quietly
+    // forking the lineage.
+    await client.claim(seedId, { force: true, message: `pm-rl loop controller lease for ${request.id}` });
+    return {
+      programme,
+      seedId,
+      environmentId,
+      seedCheckpoint,
+      lease: { ...lease, seedId },
+    };
+  } catch (error) {
+    await lease.release();
+    throw error;
+  }
 }
 
 /** Release the controller lease: the seed claim first, then the workspace lock. */
@@ -2779,10 +2806,16 @@ async function readRunMetricEvents(client: PmClient, runId: string): Promise<rea
   return readSeries((await readCompleteNotes(client, runId)).map((note) => note.text)).events;
 }
 
+/** Read complete loop outcome comments; omitted history cannot establish a terminal verdict. */
+async function readLoopComments(client: PmClient, id: string): Promise<LogNote[]> {
+  const result = await client.comments(id, { outputBudget: "unbounded", outputLimit: "unbounded" });
+  if ("output_budget_exceeded" in result) fail("Loop comment history was omitted.", "loop_history_incomplete", EXIT_CODE.CONFLICT);
+  return result.comments;
+}
+
 /** Append one comment only when its exact text is not already in the item's history. */
 async function appendCommentOnce(client: PmClient, id: string, text: string): Promise<void> {
-  const existing = await client.comments(id);
-  const comments = Array.isArray(existing.comments) ? existing.comments : [];
+  const comments = await readLoopComments(client, id);
   if (comments.some((comment) => comment.text === text)) return;
   await client.comments(id, { add: text });
 }
@@ -2804,6 +2837,7 @@ function generationCost(programme: LoopProgramme): number {
 async function findGenerationItems(client: PmClient, id: string, generation: number): Promise<{ run: GetResult | null; item: GetResult | null }> {
   const run = await client.get(`${id}-g${generation}-collect`).then((result) => result, (error: unknown) => isItemNotFound(error) ? null : Promise.reject(error));
   const item = await client.get(`${id}-g${generation}`).then((result) => result, (error: unknown) => isItemNotFound(error) ? null : Promise.reject(error));
+  if (run === null && item !== null) fail(`Loop ${id} generation ${generation} has a candidate without its collection run.`, "loop_generation_drift", EXIT_CODE.CONFLICT);
   return { run, item };
 }
 
@@ -2819,33 +2853,13 @@ async function inspectBanditGeneration(client: PmClient, programme: LoopProgramm
   const config = programme.config;
   const receipt = runLoopGeneration(config, chain.step, generation, chain.current as BanditCheckpoint);
   const { run, item } = await findGenerationItems(client, request.id, generation);
-  if (run === null && item !== null) {
-    fail(`Loop ${request.id} generation ${generation} registered a candidate whose collection run is missing; the persisted lineage is incomplete and cannot be verified.`, "loop_generation_drift", EXIT_CODE.CONFLICT);
-  }
+  if (run !== null) await verifyLoopRun(client, programme, chain, generation, run);
   if (item !== null) {
     const spec = extractGenerationSpec(String(item.item.body), `Generation ${item.item.id}`);
     const stored = parseStoredLoopGeneration(spec.training_config as JsonValue, `Loop ${request.id} generation ${generation} training configuration`);
     const verified = verifyStoredLoopGeneration(config, chain.step, generation, chain.current as BanditCheckpoint, stored);
-    const report: RlLoopGenerationReport = { generation, run: String(run!.item.id), item: String(item.item.id),
-      promoted: spec.promoted, held_out_mean: verified.candidateHeldOutMean, candidate_checkpoint: verified.candidate.digest, refusal_reason: null };
-    if (spec.promoted) {
-      verifyLoopApproval(request.approval, spec.approval, request.id, generation);
-      return { kind: "complete", report, advance: {
-        checkpoint: verified.candidate,
-        parent: String(item.item.id),
-        step: deriveNextStepConfig(config, chain.step, verified.candidateHeldOutMean - verified.incumbentHeldOutMean),
-        cost: stored.samples,
-      } };
-    }
-    if (verified.promoted) {
-      return { kind: "pending", pending: { generation, run: String(run!.item.id), item: String(item.item.id), banditReceipt: verified,
-        collection: [], heldOut: [], events: await readRunMetricEvents(client, String(run!.item.id)) } };
-    }
-    // The gate refused this candidate in the original run: the refusal is
-    // already the candidate's recorded history, and the terminal condition
-    // replays identically.
-    return { kind: "refused", report: { ...report, promoted: false, refusal_reason: verified.refusalReason },
-      stopReason: verified.stopReason!, refusalReason: verified.refusalReason! };
+    return inspectCandidateVerdict(client, programme, request, chain, generation, String(run!.item.id), item, verified,
+      { generation, run: String(run!.item.id), item: String(item.item.id), banditReceipt: verified, collection: [], heldOut: [], events: await readRunMetricEvents(client, String(run!.item.id)) });
   }
   if (run !== null) {
     // A crash between the run's creation and the candidate's registration: the
@@ -2866,9 +2880,7 @@ async function inspectBanditGeneration(client: PmClient, programme: LoopProgramm
 async function inspectSystemOneGeneration(client: PmClient, programme: LoopProgramme & { readonly trainer: "systemone" }, request: RlLoopRequest, chain: LoopChain, generation: number): Promise<GenerationInspection> {
   const config = programme.config;
   const { run, item } = await findGenerationItems(client, request.id, generation);
-  if (run === null && item !== null) {
-    fail(`Loop ${request.id} generation ${generation} registered a candidate whose collection run is missing; the persisted lineage is incomplete and cannot be verified.`, "loop_generation_drift", EXIT_CODE.CONFLICT);
-  }
+  if (run !== null) await verifyLoopRun(client, programme, chain, generation, run);
   const events = run === null ? [] : await readRunMetricEvents(client, String(run.item.id));
   const collection = events.filter((event) => event.metric === SYSTEMONE_COLLECTION_METRIC)
     .map((event, index) => parseSystemOneDecisionEvent(event, SYSTEMONE_COLLECTION_METRIC, config.questions, `Loop ${request.id} generation ${generation} collection event ${index}`));
@@ -2877,29 +2889,19 @@ async function inspectSystemOneGeneration(client: PmClient, programme: LoopProgr
   if (collection.length > config.samplesPerGeneration || heldOut.length > config.evaluation.length) {
     fail(`Loop ${request.id} generation ${generation} persists more decision evidence than its programme collects; the recorded batch does not match the programme.`, "loop_generation_drift", EXIT_CODE.CONFLICT);
   }
+  verifyDecisionPrefix(config, chain.current as SystemOneCheckpoint, generation, events, collection, heldOut);
   if (item !== null) {
     const spec = extractGenerationSpec(String(item.item.body), `Generation ${item.item.id}`);
     const stored = parseStoredSystemOneGeneration(spec.training_config as JsonValue, config.questions, `Loop ${request.id} generation ${generation} training configuration`);
     if (collection.length !== config.samplesPerGeneration || heldOut.length !== config.evaluation.length) {
       fail(`Loop ${request.id} generation ${generation} registered a candidate whose decision evidence is incomplete; the persisted lineage is inconsistent.`, "loop_generation_drift", EXIT_CODE.CONFLICT);
     }
+    if (stored.generation !== generation || stored.usageTokens !== events.reduce((total, event) => total + Number(event.tags!["tokens"]), 0)) {
+      fail("Generation index or token accounting disagrees with its persisted decisions.", "loop_generation_drift", EXIT_CODE.CONFLICT);
+    }
     const verified = verifyStoredSystemOneGeneration(config, chain.step, chain.current as SystemOneCheckpoint, stored, collection, heldOut);
-    const report: RlLoopGenerationReport = { generation, run: String(run!.item.id), item: String(item.item.id),
-      promoted: spec.promoted, held_out_mean: verified.candidateHeldOutMean, candidate_checkpoint: verified.candidate.digest, refusal_reason: null };
-    if (spec.promoted) {
-      verifyLoopApproval(request.approval, spec.approval, request.id, generation);
-      return { kind: "complete", report, advance: {
-        checkpoint: verified.candidate,
-        parent: String(item.item.id),
-        step: deriveNextStepConfig(config, chain.step, verified.candidateHeldOutMean - verified.incumbentHeldOutMean),
-        cost: generationCost(programme),
-      } };
-    }
-    if (verified.promoted) {
-      return { kind: "pending", pending: { generation, run: String(run!.item.id), item: String(item.item.id), banditReceipt: null, collection, heldOut, events } };
-    }
-    return { kind: "refused", report: { ...report, promoted: false, refusal_reason: verified.refusalReason },
-      stopReason: verified.stopReason!, refusalReason: verified.refusalReason! };
+    return inspectCandidateVerdict(client, programme, request, chain, generation, String(run!.item.id), item, verified,
+      { generation, run: String(run!.item.id), item: String(item.item.id), banditReceipt: null, collection, heldOut, events });
   }
   if (run !== null) {
     // A crash mid-collection leaves a partial batch by design: every decision
@@ -2915,6 +2917,68 @@ async function inspectSystemOneGeneration(client: PmClient, programme: LoopProgr
     return { kind: "budget_stop" };
   }
   return { kind: "pending", pending: { generation, run: run === null ? null : String(run.item.id), item: null, banditReceipt: null, collection, heldOut, events } };
+}
+
+/** Refuse non-prefix, foreign-example or rewritten decision evidence before appending queries. */
+function verifyDecisionPrefix(config: SystemOneLoopConfig, source: SystemOneCheckpoint, generation: number, events: readonly MetricEvent[], collection: readonly SystemOneObservation[], heldOut: readonly SystemOneObservation[]): void {
+  if (events.length !== collection.length + heldOut.length || (heldOut.length > 0 && collection.length !== config.samplesPerGeneration)) {
+    fail("Decision evidence is not a contiguous collection then held-out prefix.", "loop_generation_drift", EXIT_CODE.CONFLICT);
+  }
+  // readSeries orders events by step across metrics, so each phase's prefix
+  // is validated independently rather than assuming append order survives.
+  for (const [observations, metric, collecting] of [[collection, SYSTEMONE_COLLECTION_METRIC, true], [heldOut, SYSTEMONE_HELD_OUT_METRIC, false]] as const) {
+    const phaseEvents = events.filter((event) => event.metric === metric);
+    for (const [step, observation] of observations.entries()) {
+      const event = phaseEvents[step];
+      const example = collecting ? config.training[step % config.training.length] : config.evaluation[step];
+      if (event.step !== step || observation.example !== example.id || !Number.isSafeInteger(Number(event.tags!["tokens"])) || Number(event.tags!["tokens"]) < 0) {
+        fail("Decision evidence has a foreign example, index or token count.", "loop_generation_drift", EXIT_CODE.CONFLICT);
+      }
+      const reward = collecting ? sampleSystemOneActions(observation, example, config.questions, source, systemOneSampleSeed(config.seed, generation, step)).reward
+        : heldOutEvidenceReward(observation.answers, example, config.questions);
+      if (observation.reward !== reward) fail("Decision evidence does not replay the collecting policy's reward.", "loop_generation_drift", EXIT_CODE.CONFLICT);
+    }
+  }
+}
+
+/** Verify the collecting policy, environment snapshot and immutable configuration of a resumed run. */
+async function verifyLoopRun(client: PmClient, programme: LoopProgramme, chain: LoopChain, generation: number, run: GetResult): Promise<void> {
+  const config = programme.trainer === "bandit"
+    ? generationTrainingConfig(programme.config, chain.step, generation, runLoopGeneration(programme.config, chain.step, generation, chain.current as BanditCheckpoint))
+    : systemOneRunConfig(programme.config, chain.step, generation, chain.current as SystemOneCheckpoint);
+  const environment = programme.trainer === "bandit" ? loopEnvironmentSpec(programme.config) : systemOneEnvironmentSpec(programme.config);
+  const storedEnvironment = await verifyEnvironmentIdentity(client, String(normalizeRunEnvironment(run.item.environment)), "loop");
+  const fences = [...String(run.item.body).matchAll(/```json\n([\s\S]+?)\n```/g)];
+  if (run.item.component !== chain.current.digest || run.item.fixed_version !== hashJson(config)
+    || run.item.affected_version !== hashJson(environment) || hashJson(storedEnvironment.spec) !== hashJson(environment)
+    || fences.length !== 2 || canonicalJson(JSON.parse(fences[1][1]) as JsonValue) !== canonicalJson(config)) {
+    fail("The persisted collection run does not match its programme, policy and environment.", "loop_generation_drift", EXIT_CODE.CONFLICT);
+  }
+}
+
+/** Interpret the durable promotion outcome after either trainer verifies its receipt. */
+async function inspectCandidateVerdict(client: PmClient, programme: LoopProgramme, request: RlLoopRequest, chain: LoopChain, generation: number, runId: string, item: GetResult, verified: BanditGeneration | SystemOneGeneration, pending: GenerationPending): Promise<GenerationInspection> {
+  const spec = extractGenerationSpec(String(item.item.body), `Generation ${item.item.id}`);
+  if (item.item.affected_version !== hashJson(generationProvenance(spec)) || spec.parent !== chain.parent
+    || spec.base_checkpoint !== verified.source.digest || spec.policy !== verified.candidate.digest
+    || spec.collection_runs.length !== 1 || spec.collection_runs[0] !== runId || (spec.promoted && !verified.promoted)) {
+    fail("The persisted generation does not match its replayed lineage.", "loop_generation_drift", EXIT_CODE.CONFLICT);
+  }
+  const report: RlLoopGenerationReport = { generation, run: runId, item: String(item.item.id), promoted: spec.promoted,
+    held_out_mean: verified.candidateHeldOutMean, candidate_checkpoint: verified.candidate.digest, refusal_reason: null };
+  if (spec.promoted) {
+    verifyLoopApproval(request.approval, spec.approval, request.id, generation);
+    return { kind: "complete", report, advance: { checkpoint: verified.candidate, parent: String(item.item.id),
+      step: deriveNextStepConfig(programme.config, chain.step, verified.candidateHeldOutMean - verified.incumbentHeldOutMean), cost: generationCost(programme) } };
+  }
+  const prefix = `Loop ${request.id} generation ${generation} promotion refused: `;
+  const prior = (await readLoopComments(client, String(item.item.id))).find((comment) => comment.text.startsWith(prefix));
+  if (prior !== undefined) {
+    const refusalReason = prior.text.slice(prefix.length);
+    return { kind: "refused", report: { ...report, refusal_reason: refusalReason }, stopReason: "promotion_refused", refusalReason };
+  }
+  if (verified.promoted) return { kind: "pending", pending };
+  return { kind: "refused", report: { ...report, refusal_reason: verified.refusalReason }, stopReason: verified.stopReason!, refusalReason: verified.refusalReason! };
 }
 
 /** Verify a persisted event prefix against the replayed expected events. */
@@ -2936,6 +3000,16 @@ function loopSchedule(programme: LoopProgramme): { readonly maxGenerations: numb
     evaluationSamples: config.evaluationSamples, confidence: config.confidence, digest: config.digest };
 }
 
+/** Render the deterministic terminal reason for an exhausted logical sample budget. */
+function exhaustedLoopBudget(budget: number, consumed: number): LoopTerminal {
+  return { stopReason: "budget_exhausted", refusalReason: `sample budget ${budget} exhausted after ${consumed} collected sample(s)` };
+}
+
+/** Dispatch persisted-state inspection to the selected trainer. */
+async function inspectLoopGeneration(client: PmClient, programme: LoopProgramme, request: RlLoopRequest, chain: LoopChain, generation: number): Promise<GenerationInspection> {
+  return programme.trainer === "bandit" ? inspectBanditGeneration(client, programme, request, chain, generation) : inspectSystemOneGeneration(client, programme, request, chain, generation);
+}
+
 /** Walk the persisted generations, then execute and verify until the loop terminates. */
 async function executeLoopProgramme(client: PmClient, coordinates: WorkspaceCoordinates, programme: LoopProgramme, request: RlLoopRequest, prepared: LoopPrepared): Promise<RlLoopReport> {
   const schedule = loopSchedule(programme);
@@ -2950,12 +3024,9 @@ async function executeLoopProgramme(client: PmClient, coordinates: WorkspaceCoor
   };
   let terminal: LoopTerminal | null = null;
   for (let generation = 1; generation <= schedule.maxGenerations && terminal === null; generation += 1) {
-    const inspection = programme.trainer === "bandit"
-      ? await inspectBanditGeneration(client, programme, request, chain, generation)
-      : await inspectSystemOneGeneration(client, programme, request, chain, generation);
+    const inspection = await inspectLoopGeneration(client, programme, request, chain, generation);
     if (inspection.kind === "budget_stop") {
-      terminal = { stopReason: "budget_exhausted",
-        refusalReason: `sample budget ${schedule.budget} exhausted after ${chain.consumed} collected sample(s)` };
+      terminal = exhaustedLoopBudget(schedule.budget, chain.consumed);
       break;
     }
     if (inspection.kind === "complete") {
@@ -2970,10 +3041,11 @@ async function executeLoopProgramme(client: PmClient, coordinates: WorkspaceCoor
     }
     if (inspection.kind === "refused") {
       chain.reports.push(inspection.report);
+      chain.consumed += generationCost(programme);
       // The original run recorded the refusal as the candidate's history; a
       // crash between the registration and that comment still gets it, exactly
       // once, because the append is idempotent by text.
-      await appendCommentOnce(client, inspection.report.item!, `Loop ${request.id} generation ${generation} refused: ${inspection.refusalReason}`);
+      if (inspection.stopReason !== "promotion_refused") await appendCommentOnce(client, inspection.report.item!, `Loop ${request.id} generation ${generation} refused: ${inspection.refusalReason}`);
       terminal = { stopReason: inspection.stopReason, refusalReason: inspection.refusalReason };
       break;
     }
@@ -2992,17 +3064,12 @@ async function executeLoopProgramme(client: PmClient, coordinates: WorkspaceCoor
     promoted: chain.promotedCount,
     samples_consumed: chain.consumed,
     budget: schedule.budget,
-    final_checkpoint: digestOf(chain.current),
+    final_checkpoint: chain.current.digest,
     refusal_reason: terminal.refusalReason,
     resumed_generations: chain.resumed,
   };
   await appendCommentOnce(client, prepared.seedId, terminalReportText(request.id, report));
   return report;
-}
-
-/** The content-addressed digest of either trainer's checkpoint. */
-function digestOf(checkpoint: BanditCheckpoint | SystemOneCheckpoint): string {
-  return checkpoint.digest;
 }
 
 /** The outcome of finishing one pending generation. */
@@ -3022,7 +3089,7 @@ async function executePendingGeneration(client: PmClient, coordinates: Workspace
     const runRegistration = await startRunCore(client, {
       id: `${request.id}-g${generation}-collect`,
       environmentId: prepared.environmentId,
-      algorithm: digestOf(chain.current),
+      algorithm: chain.current.digest,
       config: programme.trainer === "bandit"
         ? generationTrainingConfig(programme.config, chain.step, generation, pending.banditReceipt!)
         : systemOneRunConfig(programme.config, chain.step, generation, chain.current as SystemOneCheckpoint),
@@ -3044,6 +3111,7 @@ async function executePendingGeneration(client: PmClient, coordinates: Workspace
       actualResult: `Collected the generation ${generation} batch for loop ${request.id}.`,
     });
   }
+  await request.onPhase?.("collect", generation);
   failIfLoopCancelled(signal, request.id, generation, "training and evaluation");
   const receipt = await completeGenerationEvidence(client, programme, request, chain, pending, runId);
   // Train and evaluate are recorded on the candidate generation: the derived
@@ -3064,6 +3132,8 @@ async function executePendingGeneration(client: PmClient, coordinates: Workspace
       : systemOneGenerationTrainingConfig(programme.config, chain.step, receipt as SystemOneGeneration),
   });
   const generationId = String(generationRegistration.id);
+  await request.onPhase?.("train", generation);
+  await request.onPhase?.("evaluate", generation);
   if (!receipt.promoted) {
     // The gate refused the candidate: record the refusal in the candidate's
     // history and stop. A refused candidate never becomes a collector.
@@ -3093,6 +3163,7 @@ async function executePendingGeneration(client: PmClient, coordinates: Workspace
       held_out_mean: receipt.candidateHeldOutMean, candidate_checkpoint: receipt.candidate.digest, refusal_reason: error.message });
     return { terminal: { stopReason: "promotion_refused", refusalReason: error.message } };
   }
+  await request.onPhase?.("promote", generation);
   chain.reports.push({ generation, run: runId, item: generationId, promoted: true,
     held_out_mean: receipt.candidateHeldOutMean, candidate_checkpoint: receipt.candidate.digest, refusal_reason: null });
   chain.promotedCount += 1;
@@ -3118,28 +3189,23 @@ async function collectGenerationBatch(client: PmClient, programme: LoopProgramme
   for (let step = pending.collection.length; step < config.samplesPerGeneration; step += 1) {
     failIfLoopCancelled(request.signal, request.id, pending.generation, `collection query ${step}`);
     const example = config.training[step % config.training.length];
-    const decision = await collectSystemOneDecision(config, example, request.signal);
+    const decision = await requestSystemOneDecision(config.endpoint, systemOneState(example), config.questions, request.signal);
     const sampled = sampleSystemOneActions({ example: example.id, answers: decision.answers, reward: 0 }, example, config.questions, source, systemOneSampleSeed(config.seed, pending.generation, step));
     await appendRunMetrics(client, runId, [systemOneDecisionEvent(SYSTEMONE_COLLECTION_METRIC, step, { example: example.id, answers: decision.answers, reward: sampled.reward }, decision.usage)]);
   }
   for (let step = pending.heldOut.length; step < config.evaluation.length; step += 1) {
     failIfLoopCancelled(request.signal, request.id, pending.generation, `held-out query ${step}`);
     const example = config.evaluation[step];
-    const decision = await collectSystemOneDecision(config, example, request.signal);
+    const decision = await requestSystemOneDecision(config.endpoint, systemOneState(example), config.questions, request.signal);
     await appendRunMetrics(client, runId, [systemOneDecisionEvent(SYSTEMONE_HELD_OUT_METRIC, step, { example: example.id, answers: decision.answers, reward: heldOutEvidenceReward(decision.answers, example, config.questions) }, decision.usage)]);
   }
-}
-
-/** Query the frozen decision model once for one example. */
-async function collectSystemOneDecision(config: SystemOneLoopConfig, example: SystemOneExample, signal: AbortSignal | undefined): Promise<SystemOneDecisionResponse> {
-  return requestSystemOneDecision(config.endpoint, systemOneState(example), config.questions, signal);
 }
 
 /** The policy-independent correctness a held-out evidence event records: the frozen model's own confidence in the true answer. */
 function heldOutEvidenceReward(answers: Readonly<Record<string, Readonly<Record<string, number>>>>, example: SystemOneExample, questions: readonly SystemOneChoiceSpec[]): number {
   let total = 0;
   for (const question of questions) {
-    total += Math.max(0, answers[question.name]?.[example.labels[question.name]] ?? 0);
+    total += Math.max(0, answers[question.name][example.labels[question.name]]);
   }
   return total / questions.length;
 }
@@ -3158,7 +3224,7 @@ async function completeGenerationEvidence(client: PmClient, programme: LoopProgr
   if (collection.length !== config.samplesPerGeneration || heldOut.length !== config.evaluation.length) {
     fail(`Loop ${request.id} generation ${pending.generation} did not persist its complete decision evidence.`, "loop_generation_drift", EXIT_CODE.CONFLICT);
   }
-  const usageTokens = events.reduce((total, event) => total + (Number(event.tags?.["tokens"]) || 0), 0);
+  const usageTokens = events.reduce((total, event) => total + Number(event.tags!["tokens"]), 0);
   return executeSystemOneStep(config, chain.step, pending.generation, chain.current as SystemOneCheckpoint, collection, heldOut, usageTokens);
 }
 
@@ -3177,12 +3243,7 @@ async function completeGenerationEvidence(client: PmClient, programme: LoopProgr
  */
 export async function rlLoopStatus(client: PmClient, id: string): Promise<RlLoopStatusReport> {
   const seed = await getTypedItem(client, `${id}-seed`, "Generation");
-  const seedSpec = extractGenerationSpec(String(seed.item.body), `Generation ${seed.item.id}`);
-  const storedConfig = jsonObject(seedSpec.training_config, `Generation ${seed.item.id} training configuration`);
-  const configuration = storedConfig["configuration"];
-  if (configuration === undefined) {
-    fail(`Generation ${seed.item.id} stores no loop configuration to reconstruct.`, "loop_invalid_training_config");
-  }
+  const configuration = storedLoopConfiguration(seed);
   const programme = parseLoopProgramme(configuration as JsonValue);
   const budget = programme.config.budget;
   const trainer = programme.trainer;
@@ -3200,15 +3261,14 @@ export async function rlLoopStatus(client: PmClient, id: string): Promise<RlLoop
   let terminal: LoopTerminal | null = null;
   let nextGeneration: number | null = null;
   for (let generation = 1; generation <= schedule.maxGenerations && terminal === null; generation += 1) {
-    const inspection = trainer === "bandit"
-      ? await inspectBanditGeneration(client, programme, request, chain, generation)
-      : await inspectSystemOneGeneration(client, programme, request, chain, generation);
+    const inspection = await inspectLoopGeneration(client, programme, request, chain, generation);
     if (inspection.kind === "budget_stop") {
-      terminal = { stopReason: "budget_exhausted", refusalReason: `sample budget ${budget} exhausted after ${chain.consumed} collected sample(s)` };
+      terminal = exhaustedLoopBudget(budget, chain.consumed);
       break;
     }
     if (inspection.kind === "refused") {
       generations.push(statusOf(inspection.report, "refused"));
+      chain.consumed += generationCost(programme);
       terminal = { stopReason: inspection.stopReason, refusalReason: inspection.refusalReason };
       break;
     }
@@ -3231,9 +3291,11 @@ export async function rlLoopStatus(client: PmClient, id: string): Promise<RlLoop
         : "collecting";
     generations.push({ generation, run: pending.run, item: pending.item, phase, promoted: false,
       held_out_mean: null, candidate_checkpoint: null, refusal_reason: null });
+    chain.consumed += programme.trainer === "bandit" ? pending.events.length : pending.collection.length + pending.heldOut.length;
     nextGeneration = generation;
     break;
   }
+  if (terminal === null && nextGeneration === null) terminal = { stopReason: "generation_limit", refusalReason: null };
   return {
     id,
     trainer,
@@ -3244,7 +3306,7 @@ export async function rlLoopStatus(client: PmClient, id: string): Promise<RlLoop
     promoted: chain.promotedCount,
     samples_consumed: chain.consumed,
     budget,
-    final_checkpoint: digestOf(chain.current),
+    final_checkpoint: chain.current.digest,
     stop_reason: terminal === null ? null : terminal.stopReason,
     refusal_reason: terminal === null ? null : terminal.refusalReason,
     next_generation: terminal === null ? nextGeneration : null,
@@ -3282,15 +3344,18 @@ function statusOf(report: RlLoopGenerationReport, phase: RlLoopGenerationStatus[
  * @returns The bounded terminal report of the resumed loop.
  * @throws An expected NOT_FOUND error when the loop's seed generation does not exist.
  */
-export async function resumeRlLoop(client: PmClient, coordinates: WorkspaceCoordinates, request: Omit<RlLoopRequest, "config" | "takeover">): Promise<RlLoopReport> {
+export async function resumeRlLoop(client: PmClient, coordinates: WorkspaceCoordinates, request: Omit<RlLoopRequest, "config">): Promise<RlLoopReport> {
   const seed = await getTypedItem(client, `${request.id}-seed`, "Generation");
-  const seedSpec = extractGenerationSpec(String(seed.item.body), `Generation ${seed.item.id}`);
-  const storedConfig = jsonObject(seedSpec.training_config, `Generation ${seed.item.id} training configuration`);
-  const configuration = storedConfig["configuration"];
-  if (configuration === undefined) {
-    fail(`Generation ${seed.item.id} stores no loop configuration to resume.`, "loop_invalid_training_config");
-  }
-  return runRlLoop(client, coordinates, { ...request, config: configuration as JsonValue, takeover: true });
+  const configuration = storedLoopConfiguration(seed);
+  return runRlLoop(client, coordinates, { ...request, config: configuration as JsonValue });
+}
+
+/** Recover a programme embedded in a durable loop seed. */
+function storedLoopConfiguration(seed: GetResult): JsonValue {
+  const spec = extractGenerationSpec(String(seed.item.body), `Generation ${seed.item.id}`);
+  const configuration = jsonObject(spec.training_config, "Loop seed training configuration")["configuration"];
+  if (configuration === undefined) fail("The seed stores no loop configuration.", "loop_invalid_training_config");
+  return configuration as JsonValue;
 }
 
 /** Execute one bounded recursive loop through the public command surface. */
