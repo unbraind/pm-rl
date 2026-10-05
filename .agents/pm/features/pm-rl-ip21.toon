@@ -1,0 +1,16 @@
+id: pm-rl-ip21
+title: "Live acceptance: two tev1:4b generations through npm run test:live"
+description: "Add npm run test:live (excluded from CI and from the coverage gate) that runs two real training generations of the System One decision-model loop against the locally served frozen model, showing changed checkpoints and the promoted successor collecting, and paste the measured numbers (accuracy and ECE before vs after, endpoint latency, token usage) into a pm comment on the adapter feature."
+type: Feature
+status: in_progress
+priority: 1
+tags[4]: execution,live-acceptance,llm-adapter,recursive-training
+created_at: "2026-10-05T04:32:39.873Z"
+updated_at: "2026-10-05T05:01:33.920Z"
+assignee: codex-sol
+claim_principal: codex-sol
+author: pi-glm
+estimated_minutes: 180
+acceptance_criteria: "npm run test:live executes two real generations against the configured endpoint and model, asserts the candidate checkpoint changes each generation and that generation two collects with generation one's promoted checkpoint, and prints measured before/after accuracy, ECE, latency and token totals; npm test and the coverage gate never invoke the live suite; the measured numbers are recorded as a pm comment on the adapter feature item"
+parent: pm-rl-apvf
+body: ""

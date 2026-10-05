@@ -588,7 +588,10 @@ test("seed registration is idempotent while simultaneous execution of one loop i
   assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
   const loser = results.find((result) => result.status === "rejected");
   assert.ok(loser?.status === "rejected" && isPmCliExpectedError(loser.reason));
-  assert.equal(loser.reason.context.code, "loop_already_started");
+  // Durable continuation: the loser of the launch race is refused by the
+  // controller lease (the SDK workspace lock plus the seed claim), not by the
+  // seed registration, so exactly one controller executes the loop.
+  assert.equal(loser.reason.context.code, "loop_controller_active");
   const inventory = await client.listAllComplete({});
   assert.equal(inventory.items.filter((item) => item.type === "Run").length, 1);
 });
@@ -776,14 +779,33 @@ test("the loop fails closed on missing arguments, unreadable or invalid configur
   );
 });
 
-test("rerunning one loop id is refused rather than silently extending the lineage", async () => {
+test("rerunning one loop id resumes idempotently instead of extending the lineage", async () => {
   const { root, pmRoot, client, harness } = await workspace();
   const approval = await createApproval(client, "loop-approval", 10);
   const file = writeJson(root, "loop.json", LOOP_CONFIG);
-  await harness.runCommand({ command: "rl loop run", pmRoot, args: ["loop-a"], options: { file, approval } });
+  const first = resultOf(await harness.runCommand({ command: "rl loop run", pmRoot, args: ["loop-a"], options: { file, approval } }));
+  const firstReport = first.details as unknown as RlLoopReport;
+  assert.equal(firstReport.stop_reason, "generation_limit");
+  assert.equal(firstReport.promoted, 3);
+  const second = resultOf(await harness.runCommand({ command: "rl loop run", pmRoot, args: ["loop-a"], options: { file, approval } }));
+  const secondReport = second.details as unknown as RlLoopReport;
+  // The rerun replays the identical terminal report from persisted state,
+  // reporting every generation as resumed rather than re-executed.
+  assert.equal(secondReport.stop_reason, "generation_limit");
+  assert.equal(secondReport.promoted, 3);
+  assert.deepEqual(secondReport.generations, firstReport.generations);
+  assert.equal(secondReport.samples_consumed, firstReport.samples_consumed);
+  assert.equal(secondReport.resumed_generations, 3);
+  const inventory = await client.listAllComplete({});
+  assert.equal(inventory.items.filter((item) => item.type === "Run").length, 3);
+  for (const id of [firstReport.seed_generation, ...firstReport.generations.flatMap((generation) => [generation.item, generation.run])]) {
+    const history = readFileSync(join(pmRoot, "history", `${id}.jsonl`), "utf8");
+    assert.equal(history.split("\n").filter((line) => line.includes('"op":"create"')).length, 1, `${id} was created twice`);
+  }
+  // A different configuration under the same loop id still conflicts.
   await assert.rejects(
-    harness.runCommand({ command: "rl loop run", pmRoot, args: ["loop-a"], options: { file, approval } }),
-    /loop-a-seed/,
+    harness.runCommand({ command: "rl loop run", pmRoot, args: ["loop-a"], options: { file: writeJson(root, "other.json", { ...LOOP_CONFIG, seed: 43 }), approval } }),
+    (error: unknown) => isPmCliExpectedError(error) && error.exitCode === 4,
   );
 });
 

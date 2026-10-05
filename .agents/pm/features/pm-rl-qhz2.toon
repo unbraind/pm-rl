@@ -1,0 +1,18 @@
+id: pm-rl-qhz2
+title: System One decision-model calibration adapter for the recursive loop
+description: "A real bounded decision-model trainer for the recursive loop: a per-question calibration head (temperature plus per-option bias over a frozen System One decision model) served at a configurable TypeSafe-compatible endpoint POST {baseURL}/v1/systemone via plain fetch (no new runtime dependency). Environments label synthetic pm items (item type routing) from datasets with known outcomes. Each generation collects real decisions from the endpoint, fits the head with real gradient descent on the collected batch (parameters change across generations, changing the content-addressed checkpoint), evaluates on a strictly disjoint held-out split through the existing Hoeffding promotion gate, and the promoted successor collects the next generation. Held-out decisions and collected decisions are persisted per-query as merge-safe run metric events, so resume never re-queries a persisted index and never double-spends tokens. Contamination (held-out ids leaking into training) and invalid checkpoints (NaN, shape mismatch, tampered hash) stop promotion. Unit tests drive the adapter through a real in-process deterministic HTTP server; fetch is never mocked."
+type: Feature
+status: in_progress
+priority: 1
+tags[3]: execution,llm-adapter,recursive-training
+created_at: "2026-10-05T04:32:35.578Z"
+updated_at: "2026-10-05T05:05:21.442Z"
+assignee: codex-sol
+claim_principal: codex-sol
+author: pi-glm
+estimated_minutes: 960
+acceptance_criteria: "A systemone loop config parses and validates disjoint labelled datasets, question specs and decision-model endpoint bounds; the head fit performs real gradient updates so candidate checkpoints differ from their source across two generations; generation two's collection run records generation one's promoted candidate as its collecting policy; collected and held-out decisions persist as one merge-safe metric event per endpoint query and resume appends only the missing suffix; an invalid checkpoint (NaN, shape mismatch, tampered digest) or an overlapping dataset identity stops promotion with a stable refusal; the endpoint client refuses non-200 responses, malformed bodies and missing answers as expected CLI errors and honours AbortSignal and timeout; unit coverage of the adapter is exact 100/100/100/100 against a real in-process HTTP server"
+parent: pm-rl-apvf
+comments[1]{created_at,author,text}:
+  "2026-10-05T05:05:21.442Z",codex-sol,"Preserving the interrupted calibration-head implementation in a focused commit. Typecheck and eslint pass; existing loop regressions pass 33/33. Adapter tests, endpoint acceptance and exact coverage are still pending. Audit found lease-recovery races and replay budget/refusal gaps to repair before claiming durability."
+body: ""
