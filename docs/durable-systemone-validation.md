@@ -143,11 +143,11 @@ or token-budget reservation is claimed by this slice.
 
 ## Package verification
 
-`npm run release:check` passed 387 tests, zero failures/skips, and exact
+`npm run release:check` passed 393 tests, zero failures/skips, and exact
 100% statements, lines, branches and functions across all 23 authored source
 files, including operational scripts. Coverage ignores remain empty and every
 threshold remains 100. Lint and strict TypeScript passed; duplication was zero;
-all 200 declarations were documented. Identity and publish-attestation gates,
+all 202 declarations were documented. Identity and publish-attestation gates,
 production audit (zero vulnerabilities), pack dry run and changelog check passed.
 The documented changelog generator was run; open features produce no completed
 release entries, so the existing changelog remains current.
@@ -156,7 +156,15 @@ release entries, so the existing changelog remains current.
 packed npm/Node and native Bun consumers each completed two promotions, eight
 requests, eight charged logical samples, successor collection, checkpoint
 validation and status/resume without further requests. PM-linked commands
-`node --test test/durable-loop.test.ts` (15 tests),
+`node --test test/durable-loop.test.ts` (21 tests),
 `node --test test/systemone.test.ts` (6 tests) and
 `node --test test/live-systemone.test.ts` (1 test) passed. Strict `pm health` passed.
 The live command is deliberately outside CI.
+
+The PR #62 lease review regressions add real-process reused-PID recovery,
+matching live-holder refusal despite an old lock timestamp, foreign-host refusal,
+audited CLI force takeover, malformed/legacy identity recovery and preservation
+of the old lease when its audit write fails. A real symlink alias reaches the same
+Git worktree's launch authority. Portable birth-time probes and SDK acquisition
+failure paths have fixture coverage; native macOS and Windows execution was not
+performed in this Linux validation run.
