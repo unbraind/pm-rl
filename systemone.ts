@@ -1282,9 +1282,13 @@ export async function requestSystemOneDecision(endpoint: SystemOneEndpointSpec, 
     questions: Object.fromEntries(questions.map((question) => [question.name, { type: CHOICE_QUESTION_TYPE, instructions: question.instructions, criteria: { ...question.criteria } }])),
   });
   const started = performance.now();
+  // Trim trailing slashes without a regex: `/\/+$/` backtracks polynomially on
+  // long runs of "/" in caller-supplied configuration (CodeQL js/polynomial-redos).
+  let baseURL = endpoint.baseURL;
+  while (baseURL.endsWith("/")) baseURL = baseURL.slice(0, -1);
   let response: Response;
   try {
-    response = await fetch(`${endpoint.baseURL.replace(/\/+$/, "")}/v1/systemone`, {
+    response = await fetch(`${baseURL}/v1/systemone`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body,

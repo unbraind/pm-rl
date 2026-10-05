@@ -151,6 +151,8 @@ test("real HTTP requests validate protocol, status, timeout, abort and response 
   const controller = new AbortController(); controller.abort();
   await assert.rejects(requestSystemOneDecision({ ...config.endpoint, baseURL }, "state", config.questions, controller.signal), { name: "AbortError" });
   assert.ok(await requestSystemOneDecision({ ...config.endpoint, baseURL }, "state", config.questions, new AbortController().signal));
+  // Trailing slashes are trimmed before the path is appended, so "…//" still reaches /v1/systemone.
+  assert.ok(await requestSystemOneDecision({ ...config.endpoint, baseURL: `${baseURL}//` }, "state", config.questions));
 });
 
 test("choice heads reject missing records and probability mass drift and score wrong predictions", async () => {
