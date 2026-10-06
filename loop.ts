@@ -33,6 +33,7 @@ import { banditCheckpoint, executeBanditStep, validatedBanditDatasets, type Band
 import { hoeffdingEpsilon } from "./promotion.ts";
 import { asJsonObject, expectedFail, requiredTrimmedString, storedCheckpointNumber, storedCheckpointDigest, verifyReplayFields, verifyTrainerReceipt } from "./refuse.ts";
 import { canonicalJson, type EnvironmentSpec, type JsonValue } from "./index.ts";
+import { parseLmLoopConfig, type LmLoopConfig } from "./lm.ts";
 import { parseSystemOneLoopConfig, type SystemOneLoopConfig } from "./systemone.ts";
 import type { MetricEvent } from "./series.ts";
 
@@ -488,7 +489,7 @@ export function seedTrainingConfig(config: LoopConfig): JsonValue {
 
 
 /** The trainer adapters a bounded loop programme may select. */
-export const LOOP_TRAINER_VALUES = ["bandit", "systemone"] as const;
+export const LOOP_TRAINER_VALUES = ["bandit", "systemone", "lm"] as const;
 
 /** One validated trainer name for a loop configuration. */
 export type LoopTrainer = (typeof LOOP_TRAINER_VALUES)[number];
@@ -496,17 +497,19 @@ export type LoopTrainer = (typeof LOOP_TRAINER_VALUES)[number];
 /** The validated trainer programme a loop executes: one adapter plus its configuration. */
 export type LoopProgramme =
   | { readonly trainer: "bandit"; readonly config: LoopConfig }
-  | { readonly trainer: "systemone"; readonly config: SystemOneLoopConfig };
+  | { readonly trainer: "systemone"; readonly config: SystemOneLoopConfig }
+  | { readonly trainer: "lm"; readonly config: LmLoopConfig };
 
 /**
  * Read the trainer selector of a loop configuration.
  *
  * The selector is optional and defaults to the built-in bandit, so every
  * existing loop configuration keeps executing exactly as before; only the
- * literal `systemone` selects the decision-model adapter. Any other value is
- * refused rather than guessed, because silently running the wrong trainer
- * would charge a different budget and produce different checkpoints under the
- * same loop identity.
+ * literal `systemone` selects the decision-model adapter and the literal `lm`
+ * selects the causal language-model adapter. Any other value is refused
+ * rather than guessed, because silently running the wrong trainer would charge
+ * a different budget and produce different checkpoints under the same loop
+ * identity.
  *
  * @param raw - The parsed loop configuration document.
  * @returns The validated trainer name.
@@ -515,7 +518,7 @@ export type LoopProgramme =
 export function parseLoopTrainer(raw: JsonValue): LoopTrainer {
   const record = asJsonObject(raw, "Loop configuration", "loop_invalid_json");
   const trainer = record["trainer"] ?? "bandit";
-  if (trainer !== "bandit" && trainer !== "systemone") {
+  if (trainer !== "bandit" && trainer !== "systemone" && trainer !== "lm") {
     expectedFail(`Loop configuration trainer must be one of ${LOOP_TRAINER_VALUES.join(", ")}.`, "loop_invalid_trainer");
   }
   return trainer;
@@ -537,6 +540,9 @@ export function parseLoopProgramme(raw: JsonValue): LoopProgramme {
   const trainer = parseLoopTrainer(raw);
   if (trainer === "systemone") {
     return { trainer, config: parseSystemOneLoopConfig(raw) };
+  }
+  if (trainer === "lm") {
+    return { trainer, config: parseLmLoopConfig(raw) };
   }
   return { trainer, config: parseLoopConfig(raw) };
 }

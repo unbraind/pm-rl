@@ -1,0 +1,207 @@
+{
+  "trainer": "lm",
+  "environment": {
+    "name": "LM rotate",
+    "version": "1"
+  },
+  "task": "rotate",
+  "alphabet": [
+    "0",
+    "1",
+    "2",
+    "3",
+    "4"
+  ],
+  "string_length": 3,
+  "model": {
+    "d_model": 16,
+    "ffn": 32,
+    "layers": 1,
+    "rank": 4
+  },
+  "limits": {
+    "max_parameters": 512,
+    "max_checkpoint_bytes": 65536,
+    "max_steps": 64,
+    "max_wall_seconds": 60,
+    "model_license": "MIT",
+    "dataset_license": "MIT"
+  },
+  "training": [
+    {
+      "id": "t01",
+      "string": "143"
+    },
+    {
+      "id": "t02",
+      "string": "404"
+    },
+    {
+      "id": "t03",
+      "string": "100"
+    },
+    {
+      "id": "t04",
+      "string": "442"
+    },
+    {
+      "id": "t05",
+      "string": "223"
+    },
+    {
+      "id": "t06",
+      "string": "332"
+    },
+    {
+      "id": "t07",
+      "string": "241"
+    },
+    {
+      "id": "t08",
+      "string": "203"
+    },
+    {
+      "id": "t09",
+      "string": "410"
+    },
+    {
+      "id": "t10",
+      "string": "402"
+    },
+    {
+      "id": "t11",
+      "string": "200"
+    },
+    {
+      "id": "t12",
+      "string": "330"
+    },
+    {
+      "id": "t13",
+      "string": "341"
+    },
+    {
+      "id": "t14",
+      "string": "211"
+    },
+    {
+      "id": "t15",
+      "string": "231"
+    },
+    {
+      "id": "t16",
+      "string": "043"
+    },
+    {
+      "id": "t17",
+      "string": "142"
+    },
+    {
+      "id": "t18",
+      "string": "014"
+    },
+    {
+      "id": "t19",
+      "string": "220"
+    },
+    {
+      "id": "t20",
+      "string": "234"
+    },
+    {
+      "id": "t21",
+      "string": "123"
+    },
+    {
+      "id": "t22",
+      "string": "422"
+    },
+    {
+      "id": "t23",
+      "string": "411"
+    },
+    {
+      "id": "t24",
+      "string": "431"
+    }
+  ],
+  "evaluation": [
+    {
+      "id": "h01",
+      "string": "113"
+    },
+    {
+      "id": "h02",
+      "string": "132"
+    },
+    {
+      "id": "h03",
+      "string": "103"
+    },
+    {
+      "id": "h04",
+      "string": "344"
+    },
+    {
+      "id": "h05",
+      "string": "424"
+    },
+    {
+      "id": "h06",
+      "string": "131"
+    },
+    {
+      "id": "h07",
+      "string": "301"
+    },
+    {
+      "id": "h08",
+      "string": "213"
+    },
+    {
+      "id": "h09",
+      "string": "214"
+    },
+    {
+      "id": "h10",
+      "string": "224"
+    },
+    {
+      "id": "h11",
+      "string": "030"
+    },
+    {
+      "id": "h12",
+      "string": "444"
+    },
+    {
+      "id": "h13",
+      "string": "320"
+    },
+    {
+      "id": "h14",
+      "string": "144"
+    },
+    {
+      "id": "h15",
+      "string": "111"
+    },
+    {
+      "id": "h16",
+      "string": "432"
+    }
+  ],
+  "seed": 42,
+  "max_generations": 4,
+  "samples_per_generation": 64,
+  "budget": 400,
+  "learning_rate": 0.6,
+  "fit_steps": 6,
+  "kl_weight": 0.02,
+  "clip_norm": 0.5,
+  "minimum_improvement": 0.01,
+  "maximum_gap": 0.5,
+  "evaluation_samples": 1600,
+  "confidence": 0.95,
+  "min_samples": 10
+}

@@ -1,0 +1,26 @@
+id: pm-rl-upe0
+title: Bounded LM trainer adapter for the recursive loop
+description: "Implement the bounded causal-LM trainer adapter for pm rl loop run: a tiny decoder-only transformer in TypeScript (1 layer, single-head causal attention, d_model<=48, Float32Array, hand-written forward/backward with a finite-difference gradient-check test over every parameter tensor), a deterministically regenerated frozen base policy pretrained on a synthetic copy task, LoRA-style low-rank adapters (rank<=4) on Q/V and the output head trained by REINFORCE with mean baseline, KL penalty to the base policy and gradient clipping, content-addressed adapter checkpoints with canonical serialization, declared fail-closed limits (max parameters, checkpoint bytes, steps, wall seconds, licences), and held-out exact-match evaluation through the existing Hoeffding promotion gate. Reuses loop.ts machinery: one gate, one promotion path."
+type: Feature
+status: in_progress
+priority: 1
+tags[3]: execution,llm-adapter,recursive-training
+created_at: "2026-10-06T12:49:29.811Z"
+updated_at: "2026-10-06T14:38:31.080Z"
+assignee: codex-sol
+claim_principal: codex-sol
+author: pi-glm
+acceptance_criteria: "A real pm CLI acceptance run of >=3 generations where gen-1 and gen-2 checkpoints differ, gen-2 collects with gen-1's promoted adapter asserted via receipts, held-out exact-match strictly improves over the base, and a contaminated run is refused; unit, property (gradient check, seed determinism), integration and performance budget tests at exact 100/100/100/100 coverage; docs/lm-adapter.md records the measured generation table"
+parent: pm-rl-apvf
+comments[3]{created_at,author,text}:
+  "2026-10-06T12:49:36.273Z",pi-glm,"Starting the bounded LM trainer adapter slice in the package worktree on branch feat/lm-policy-adapter. Plan: (1) prototype the tiny transformer + REINFORCE offline to pick sizes that keep the acceptance run under ~20s on CPU, (2) author lm.ts mirroring systemone.ts contracts (parse/execute/verify/promotion scores/seed configs), (3) wire the lm trainer into loop.ts/index.ts dispatch without forking the controller, (4) tests: unit+property (finite-difference gradient check over every parameter tensor, seed determinism), integration + CLI acceptance + performance budget, (5) docs/lm-adapter.md + README + RECURSIVE_TRAINING status."
+  "2026-10-06T14:36:39.057Z",codex-sol,"Continuing the existing bounded LM feature: audit inherited math, trainer lineage and receipts; verify focused tests; commit logical progress early; then complete CLI evidence, full release gates and documentation."
+  "2026-10-06T14:38:31.079Z",codex-sol,"Inherited draft verification: npm ci and npm run typecheck passed; node --test test/lm.test.ts test/lm-loop.test.ts passed 20/20, including finite differences over every base and adapter tensor. The existing acceptance uses the SDK command harness, so a spawned real CLI acceptance and manual measured run are still required. Audit found missing filesystem checkpoint artifacts, differing hash/serialization payloads, squared L2 reporting, and incomplete resource enforcement; retaining this passing draft as an early progress checkpoint before corrections."
+files[6]{path,scope}:
+  examples/loop-lm.json,project
+  index.ts,project
+  lm.ts,project
+  loop.ts,project
+  test/lm-loop.test.ts,project
+  test/lm.test.ts,project
+body: ""
