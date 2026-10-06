@@ -65,7 +65,8 @@ Distinct refusals include `lm_limit_parameters_exceeded`,
 `lm_invalid_license`, `lm_dataset_overlap` and `lm_nonfinite_tensor`. Configuration
 refusals are commented on the supplied approval Decision; execution refusals are
 commented on the seed. Completed candidates record `checkpoint_limit_exceeded`
-or `wall_limit_exceeded` in their generation refusal. No refusal grants a budget
+or `wall_limit_exceeded` in their generation refusal. Oversized candidates retain
+their receipt but are not materialized as checkpoint files. No refusal grants a budget
 increase.
 
 Artifacts live under tracker-relative
@@ -151,7 +152,7 @@ npm run typecheck
 node --test test/lm.test.ts test/lm-loop.test.ts test/lm-cli.test.ts
 npm run release:check
 bun run release:check
-bun test test/lm.test.ts test/lm-loop.test.ts test/lm-cli.test.ts
+bun test --timeout 120000 test/lm.test.ts test/lm-loop.test.ts test/lm-cli.test.ts
 ```
 
 The release gate inventories every authored source under the repository root,

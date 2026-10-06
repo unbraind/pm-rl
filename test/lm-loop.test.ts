@@ -294,7 +294,7 @@ test("incomplete post-collection evidence refuses fitting", async () => {
   const approval = await createApproval(client, "incomplete-approval", 8);
   await refusalOf(() => runRlLoop(client, { pmRoot, author: "pm-rl-test" }, { id: "incomplete", approval, config: smallConfig(),
     onPhase(phase) {
-      if (phase === "collect") client.notes = async () => ({ notes: [] }) as Awaited<ReturnType<PmClient["notes"]>>;
+      if (phase === "collect") client.notes = (async (id: string) => ({ id, notes: [], count: 0 })) as PmClient["notes"];
     },
   }), "loop_generation_drift");
 });
