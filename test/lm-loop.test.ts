@@ -303,9 +303,13 @@ test("a stored candidate cannot resume after its collection evidence disappears"
   const { pmRoot, client } = await workspace();
   const approval = await createApproval(client, "lost-evidence-approval", 8);
   await assert.rejects(runRlLoop(client, { pmRoot, author: "pm-rl-test" }, { id: "lost-evidence", approval, config: smallConfig(),
-    onPhase(phase) { if (phase === "train") throw new Error("pause after candidate"); },
+    onPhase(phase) {
+      if (phase === "train") {
+        client.notes = (async (id: string) => ({ id, notes: [], count: 0 })) as PmClient["notes"];
+        throw new Error("pause after candidate");
+      }
+    },
   }), /pause after candidate/);
-  client.notes = (async (id: string) => ({ id, notes: [], count: 0 })) as PmClient["notes"];
   await refusalOf(() => rlLoopStatus(client, "lost-evidence", pmRoot), "loop_generation_drift");
 });
 
