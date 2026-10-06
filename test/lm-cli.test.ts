@@ -18,7 +18,7 @@ test("packed pm CLI performs three real LM generations and records contamination
     const client = new PmClient({ pmRoot: tracker.path, cwd: root, author: "rl-acceptance" });
     const approval = await client.create({ id: "approval", type: "Decision", title: "Bounded synthetic LM approval", body: '```json\n{"permitted_promotions":4}\n```' });
     const cli = resolve("node_modules/@unbrained/pm-cli/dist/cli.js");
-    const env = { ...process.env, PM_PATH: tracker.path, PM_AUTHOR: "rl-acceptance", PM_TELEMETRY_SOURCE_CONTEXT: "test", PM_TELEMETRY_INLINE_FLUSH: "1" };
+    const env = { ...process.env, NODE_V8_COVERAGE: undefined, PM_PATH: tracker.path, PM_AUTHOR: "rl-acceptance", PM_TELEMETRY_SOURCE_CONTEXT: "test", PM_TELEMETRY_INLINE_FLUSH: "1" };
     const pack = JSON.parse(execFileSync("npm", ["pack", "--ignore-scripts", "--json", "--pack-destination", root], { encoding: "utf8", env })) as Array<{ filename: string }>;
     execFileSync(process.execPath, [cli, "package", "install", join(root, pack[0]!.filename), "--project", "--json"], { cwd: root, env, stdio: "pipe", timeout: 60_000 });
     const config = JSON.parse(readFileSync(new URL("../examples/loop-lm.json", import.meta.url), "utf8")) as Record<string, unknown>;

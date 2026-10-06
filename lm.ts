@@ -656,10 +656,10 @@ export async function verifyLmCheckpointArtifact(pmRoot: string, checkpoint: LmC
 }
 
 /** Store a checkpoint without overwriting existing evidence, then verify its bytes. */
-export async function persistLmCheckpoint(pmRoot: string, checkpoint: LmCheckpoint, config: LmLoopConfig): Promise<void> {
+export async function persistLmCheckpoint(pmRoot: string, checkpoint: LmCheckpoint, config: LmLoopConfig, write: typeof writeFile = writeFile): Promise<void> {
   await mkdir(join(pmRoot, "extensions/pm-rl/artifacts"), { recursive: true });
   try {
-    await writeFile(join(pmRoot, lmCheckpointPath(checkpoint)), serializeLmCheckpoint(checkpoint, config).text, { flag: "wx" });
+    await write(join(pmRoot, lmCheckpointPath(checkpoint)), serializeLmCheckpoint(checkpoint, config).text, { flag: "wx" });
   } catch (error) {
     if (!(error instanceof Error) || !("code" in error) || error.code !== "EEXIST") throw error;
   }

@@ -382,8 +382,9 @@ test("immutable checkpoint artifacts refuse missing, corrupt and unwritable evid
     assert.equal(readFileSync(path, "utf8"), "corrupt");
     rmSync(path);
     mkdirSync(path);
-    await assert.rejects(persistLmCheckpoint(root, checkpoint, config), (error: unknown) => error instanceof Error && "code" in error && error.code === "EISDIR");
+    await assert.rejects(persistLmCheckpoint(root, checkpoint, config), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "lm_checkpoint_artifact_missing");
     // A filesystem failure other than EEXIST must propagate, never look successful.
+    await assert.rejects(persistLmCheckpoint(root, checkpoint, config, async () => { throw new Error("Disk full"); }), /Disk full/);
     const blocking = join(root, "blocking");
     writeFileSync(blocking, "file");
     await assert.rejects(persistLmCheckpoint(blocking, checkpoint, config));
@@ -428,6 +429,18 @@ test("causal attention cannot read future tokens and copy pretraining uses only 
   const pretraining = trainLmBasePolicy(config.shape, config.alphabet, config.seed, training);
   assert.ok(pretraining.strings.every((text) => training.includes(text)));
   assert.deepEqual(pretraining.weights, config.base);
+});
+
+test("greedy regression refuses even a changed candidate before promotion", () => {
+  const config = parseLmLoopConfig(JSON.parse(readFileSync(new URL("../examples/loop-lm.json", import.meta.url), "utf8")) as JsonValue);
+  const first = executeLmStep(config, { learningRate: 1, evaluationSamples: 1600 }, 1, config.initial, lmCollectBatch(config, 1, config.initial), 50);
+  assert.ok(first.promoted);
+  const aggressive = { ...config, fitSteps: 24, clipNorm: 2, klWeight: 0 };
+  const rejected = executeLmStep(aggressive, { learningRate: 5, evaluationSamples: 10 }, 2, first.candidate, lmCollectBatch(config, 2, first.candidate), 50);
+  assert.equal(rejected.promoted, false);
+  assert.equal(rejected.stopReason, "evaluation_rejected");
+  assert.ok(rejected.candidateExactMatch < rejected.baselineExactMatch);
+  assert.match(rejected.refusalReason ?? "", /greedy held-out exact-match/);
 });
 
 test("collection events round-trip and corrupted evidence is refused", () => {

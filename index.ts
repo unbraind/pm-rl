@@ -3101,7 +3101,7 @@ async function inspectLmGeneration(pmRoot: string, client: PmClient, programme: 
     }
     await verifyLmCheckpointArtifact(pmRoot, source, config);
     const verified = verifyStoredLmGeneration(config, chain.step, source, stored, observations);
-    await verifyLmCheckpointArtifact(pmRoot, verified.candidate, config);
+    if (verified.stopReason !== "checkpoint_limit_exceeded") await verifyLmCheckpointArtifact(pmRoot, verified.candidate, config);
     return inspectCandidateVerdict(client, programme, request, chain, generation, String(run!.item.id), item, verified,
       { generation, run: String(run!.item.id), item: String(item.item.id), banditReceipt: null, collection: [], heldOut: [], lmObservations: observations, events });
   }
@@ -3234,7 +3234,7 @@ function verifyEventPrefix(expected: readonly MetricEvent[], persisted: readonly
   }
 }
 
-/** The schedule bounds both trainers share, so one derivation serves both. */
+/** The schedule bounds every trainer shares, served by one derivation. */
 function loopSchedule(programme: LoopProgramme): { readonly maxGenerations: number; readonly budget: number; readonly learningRate: number; readonly evaluationSamples: number; readonly confidence: number; readonly digest: string } {
   const config = programme.config;
   return { maxGenerations: config.maxGenerations, budget: config.budget, learningRate: config.learningRate,
@@ -3363,7 +3363,7 @@ async function executePendingGeneration(client: PmClient, coordinates: Workspace
   // Train and evaluate are recorded on the candidate generation: the derived
   // configuration, both checkpoints, and the evaluation numbers the next
   // generation's configuration is derived from.
-  if (programme.trainer === "lm") {
+  if (programme.trainer === "lm" && receipt.stopReason !== "checkpoint_limit_exceeded") {
     await persistLmCheckpoint(coordinates.pmRoot, (receipt as LmGeneration).candidate, programme.config);
   }
   const generationRegistration = await registerGenerationCore(client, {
