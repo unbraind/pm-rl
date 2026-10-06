@@ -639,7 +639,7 @@ export function serializeLmCheckpoint(checkpoint: LmCheckpoint, config: Pick<LmL
 
 /** Tracker-relative location of immutable, content-addressed adapter artifacts. */
 export function lmCheckpointPath(checkpoint: LmCheckpoint): string {
-  return `extensions/pm-rl/artifacts/${checkpoint.digest.slice(7)}.json`;
+  return `runtime/pm-rl/artifacts/${checkpoint.digest.slice(7)}.json`;
 }
 
 /** Verify the bytes on disk against the canonical checkpoint and its identity. */
@@ -657,7 +657,7 @@ export async function verifyLmCheckpointArtifact(pmRoot: string, checkpoint: LmC
 
 /** Store a checkpoint without overwriting existing evidence, then verify its bytes. */
 export async function persistLmCheckpoint(pmRoot: string, checkpoint: LmCheckpoint, config: LmLoopConfig, write: typeof writeFile = writeFile): Promise<void> {
-  await mkdir(join(pmRoot, "extensions/pm-rl/artifacts"), { recursive: true });
+  await mkdir(join(pmRoot, "runtime/pm-rl/artifacts"), { recursive: true });
   try {
     await write(join(pmRoot, lmCheckpointPath(checkpoint)), serializeLmCheckpoint(checkpoint, config).text, { flag: "wx" });
   } catch (error) {

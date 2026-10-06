@@ -20,7 +20,8 @@ test("packed pm CLI performs three real LM generations and records contamination
     const cli = resolve("node_modules/@unbrained/pm-cli/dist/cli.js");
     const env = { ...process.env, NODE_V8_COVERAGE: undefined, PM_PATH: tracker.path, PM_AUTHOR: "rl-acceptance", PM_TELEMETRY_SOURCE_CONTEXT: "test", PM_TELEMETRY_INLINE_FLUSH: "1" };
     const pack = JSON.parse(execFileSync("npm", ["pack", "--ignore-scripts", "--json", "--pack-destination", root], { encoding: "utf8", env })) as Array<{ filename: string }>;
-    execFileSync(process.execPath, [cli, "package", "install", join(root, pack[0]!.filename), "--project", "--json"], { cwd: root, env, stdio: "pipe", timeout: 60_000 });
+    const archive = join(root, pack[0]!.filename);
+    execFileSync(process.execPath, [cli, "package", "install", archive, "--project", "--json"], { cwd: root, env, stdio: "pipe", timeout: 60_000 });
     const config = JSON.parse(readFileSync(new URL("../examples/loop-lm.json", import.meta.url), "utf8")) as Record<string, unknown>;
     const file = join(root, "cfg.json");
     writeFileSync(file, JSON.stringify(config));
@@ -35,6 +36,7 @@ test("packed pm CLI performs three real LM generations and records contamination
     assert.notEqual(report.generations[0]!.candidate_checkpoint, report.generations[1]!.candidate_checkpoint);
     let previous = "";
     const rows: Record<string, unknown>[] = [];
+    const artifacts: Array<{ path: string; bytes: Buffer }> = [];
     for (const generation of report.generations) {
       const item = await client.get(generation.item);
       const fenced = /```json\n([\s\S]+?)\n```/.exec(String(item.item.body));
@@ -45,6 +47,8 @@ test("packed pm CLI performs three real LM generations and records contamination
       assert.equal(run.item.component, receipt.source_checkpoint);
       if (generation.generation > 1) assert.equal(receipt.source_checkpoint, previous);
       const bytes = readFileSync(join(tracker.path, String(receipt.checkpoint_path)));
+      assert.match(String(receipt.checkpoint_path), /^runtime\/pm-rl\/artifacts\/[a-f0-9]{64}\.json$/);
+      artifacts.push({ path: String(receipt.checkpoint_path), bytes });
       assert.equal(bytes.byteLength, receipt.checkpoint_bytes);
       assert.equal(`sha256:${createHash("sha256").update(bytes).digest("hex")}`, generation.candidate_checkpoint);
       assert.ok(Number(receipt.parameter_delta_l2) > 0);
@@ -55,6 +59,12 @@ test("packed pm CLI performs three real LM generations and records contamination
     }
     assert.match(report.refusal_reason ?? "", /regress/i);
     assert.equal(report.final_checkpoint, report.generations[1]!.candidate_checkpoint);
+    const seedPath = `runtime/pm-rl/artifacts/${String(rows[0]!.source).slice(7)}.json`;
+    artifacts.push({ path: seedPath, bytes: readFileSync(join(tracker.path, seedPath)) });
+    execFileSync(process.execPath, [cli, "package", "uninstall", "pm-rl", "--project"], { cwd: root, env, stdio: "pipe", timeout: 60_000 });
+    for (const artifact of artifacts) assert.deepEqual(readFileSync(join(tracker.path, artifact.path)), artifact.bytes);
+    execFileSync(process.execPath, [cli, "package", "install", archive, "--project", "--json"], { cwd: root, env, stdio: "pipe", timeout: 60_000 });
+    for (const artifact of artifacts) assert.deepEqual(readFileSync(join(tracker.path, artifact.path)), artifact.bytes);
     const dirty = { ...config, evaluation: [{ id: "foreign-held-out", string: (config.training as Array<{ string: string }>)[0]!.string }] };
     writeFileSync(file, JSON.stringify(dirty));
     const refused = spawnSync(process.execPath, [cli, "rl", "loop", "run", "dirty", "--file", file, "--approval", String(approval.item.id), "--json"], { cwd: root, env, encoding: "utf8" });

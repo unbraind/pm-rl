@@ -70,7 +70,9 @@ their receipt but are not materialized as checkpoint files. No refusal grants a 
 increase.
 
 Artifacts live under tracker-relative
-`extensions/pm-rl/artifacts/<sha256>.json`. Their digest hashes exactly the
+`runtime/pm-rl/artifacts/<sha256>.json`, outside the replaceable installed
+extension directory. Uninstalling and reinstalling the package preserves them.
+Their digest hashes exactly the
 canonical stored bytes, binding format, architecture, base digest and every
 adapter tensor. Existing files are verified and never overwritten; missing or
 corrupt artifacts refuse. Generation receipts retain before/after digests,
@@ -138,7 +140,8 @@ surrogate on every adapter scalar, seed determinism, frozen base invariance,
 causality, serialization and failure paths. `test/lm-loop.test.ts` covers durable
 integration, lineage, budgets, replay, cancellation and corrupted evidence.
 `test/lm-cli.test.ts` installs a packed artifact, launches the real CLI for three
-generations, verifies disk hashes and successor use, checks regression and
+generations, verifies disk hashes and successor use, preserves every checkpoint
+through a real package uninstall/reinstall, checks regression and
 contamination refusals, and enforces a 20-second command budget.
 
 The performance child runs without V8 coverage instrumentation, which materially
