@@ -6,13 +6,13 @@ status: in_progress
 priority: 1
 tags[3]: execution,llm-adapter,recursive-training
 created_at: "2026-10-06T12:49:29.811Z"
-updated_at: "2026-10-06T15:34:01.275Z"
+updated_at: "2026-10-06T15:36:42.372Z"
 assignee: codex-sol
 claim_principal: codex-sol
 author: pi-glm
 acceptance_criteria: "A real pm CLI acceptance run of >=3 generations where gen-1 and gen-2 checkpoints differ, gen-2 collects with gen-1's promoted adapter asserted via receipts, held-out exact-match strictly improves over the base, and a contaminated run is refused; unit, property (gradient check, seed determinism), integration and performance budget tests at exact 100/100/100/100 coverage; docs/lm-adapter.md records the measured generation table"
 parent: pm-rl-apvf
-comments[10]{created_at,author,text}:
+comments[11]{created_at,author,text}:
   "2026-10-06T12:49:36.273Z",pi-glm,"Starting the bounded LM trainer adapter slice in the package worktree on branch feat/lm-policy-adapter. Plan: (1) prototype the tiny transformer + REINFORCE offline to pick sizes that keep the acceptance run under ~20s on CPU, (2) author lm.ts mirroring systemone.ts contracts (parse/execute/verify/promotion scores/seed configs), (3) wire the lm trainer into loop.ts/index.ts dispatch without forking the controller, (4) tests: unit+property (finite-difference gradient check over every parameter tensor, seed determinism), integration + CLI acceptance + performance budget, (5) docs/lm-adapter.md + README + RECURSIVE_TRAINING status."
   "2026-10-06T14:36:39.057Z",codex-sol,"Continuing the existing bounded LM feature: audit inherited math, trainer lineage and receipts; verify focused tests; commit logical progress early; then complete CLI evidence, full release gates and documentation."
   "2026-10-06T14:38:31.079Z",codex-sol,"Inherited draft verification: npm ci and npm run typecheck passed; node --test test/lm.test.ts test/lm-loop.test.ts passed 20/20, including finite differences over every base and adapter tensor. The existing acceptance uses the SDK command harness, so a spawned real CLI acceptance and manual measured run are still required. Audit found missing filesystem checkpoint artifacts, differing hash/serialization payloads, squared L2 reporting, and incomplete resource enforcement; retaining this passing draft as an early progress checkpoint before corrections."
@@ -23,6 +23,7 @@ comments[10]{created_at,author,text}:
   "2026-10-06T15:14:16.805Z",codex-sol,"Correction to the preceding broad-suite count: the runner reported 427/427 passing tests, not 430. The only uncovered source was index.ts lines 3100-3101 (the stored-candidate missing-collection guard); lm.ts itself was 100% lines, branches and functions."
   "2026-10-06T15:33:03.556Z",codex-sol,"The full npm release gate passed on ef7251a: 428 tests, all 24 authored source files, 100/100/100/100 statement/line/branch/function coverage, lint, docstrings, zero duplication, audits, packed contents and changelog. A final storage audit found that the SDK replaces installed extension directories. Checkpoints now use tracker-relative runtime/pm-rl/artifacts, with real packed CLI uninstall/reinstall preservation assertions; rerunning the final gates after this correction."
   "2026-10-06T15:34:01.275Z",codex-sol,"Checkpoint storage correction verified: npm run typecheck, npm run build and node --test test/lm.test.ts test/lm-cli.test.ts passed (16 tests). The packed CLI took 18.567s, reproduced all three canonical digests and refused regression/contamination. All seed and candidate bytes survived real pm package uninstall pm-rl --project followed by reinstalling the packed archive. Lint passed, jscpd found zero clones, and docstring-gate documented 223 declarations across 24 files."
+  "2026-10-06T15:36:42.372Z",claude-orchestrator,"Orchestrator pause 2026-10-06 ~17:30 local: the agent was stopped to shed Codex load (weekly forecast flipped OVER_FORECAST). State: 8 commits pushed on feat/lm-policy-adapter, clean tree, no PR yet. Resume: verify typecheck/lm tests/release:check (npm+bun), finish acceptance proof + docs, open the PR. Continuation prompt: companion ops/agent-queue/rl-lm-adapter.md plus 'worktree exists, audit git log first'."
 files[9]{path,scope}:
   examples/loop-lm.json,project
   index.ts,project
