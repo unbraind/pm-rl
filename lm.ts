@@ -28,14 +28,16 @@
  */
 
 import { createHash } from "node:crypto";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 
 import { EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
 
 import { canonicalJson, type EnvironmentSpec, type JsonValue } from "./index.ts";
-import type { LoopStepConfig } from "./loop.ts";
+import { trainerSampleSeed, trainerEvaluationSeeds as evaluationSeeds, type LoopStepConfig } from "./loop.ts";
 import { decideTrainerPromotion } from "./promotion.ts";
-import { asJsonObject, expectedFail, requiredTrimmedString, storedCheckpointNumber, storedCheckpointDigest, verifyReplayFields, verifyTrainerReceipt } from "./refuse.ts";
 import type { MetricEvent } from "./series.ts";
+import { asJsonObject, expectedFail, storedCheckpointDigest, requiredTrimmedString, verifyReplayFields, storedCheckpointNumber, verifyTrainerReceipt, verifyTrainerConfiguration } from "./refuse.ts";
 
 /** Format identity of one adapter checkpoint. */
 export const LM_CHECKPOINT_FORMAT = "pm-rl/lm-checkpoint/1";
@@ -86,7 +88,7 @@ export const MAX_LM_STRING_LENGTH = 6;
 export const MIN_LM_LEARNING_RATE = 0.01;
 
 /** Supervised pretraining steps the deterministic base fit takes. */
-const PRETRAIN_STEP_COUNT = 60;
+export const PRETRAIN_STEP_COUNT = 60;
 
 /** Supervised pretraining strings the deterministic base fit draws. */
 const PRETRAIN_STRING_COUNT = 24;
@@ -114,15 +116,6 @@ const LCG_MULTIPLIER = 1_664_525;
 
 /** LCG increment shared with the bandit adapter. */
 const LCG_INCREMENT = 1_013_904_223;
-
-/** Salt separating a generation's incumbent and candidate evaluation streams. */
-const CANDIDATE_SEED_SALT = 0x6d5b5b5d;
-
-/** Salt separating a generation's collection stream from its base seed. */
-const COLLECTION_SEED_SALT = 0x85ebca6b;
-
-/** Stride multiplying a sample's index into its own deterministic seed. */
-const SAMPLE_SEED_STRIDE = 0x9e3779b1;
 
 /** Numerical epsilon inside every layer norm. */
 const LAYER_NORM_EPSILON = 1e-5;
@@ -352,9 +345,9 @@ export interface LmGeneration {
   readonly collectionDigest: string;
   /** The complete ordered batch of collected completions. */
   readonly observations: readonly LmObservation[];
-  /** Mean surrogate loss over the collected batch before the fit. */
+  /** Summed surrogate loss over the collected batch before the fit. */
   readonly lossBefore: number;
-  /** Mean surrogate loss over the collected batch after the fit. */
+  /** Summed surrogate loss over the collected batch after the fit. */
   readonly lossAfter: number;
   /** L2 norm of the parameter delta between source and candidate adapters. */
   readonly parameterDeltaL2: number;
@@ -362,11 +355,11 @@ export interface LmGeneration {
   readonly baselineExactMatch: number;
   /** Greedy held-out exact-match fraction of the candidate policy. */
   readonly candidateExactMatch: number;
-  /** Expected reward under the source policy on the held-out examples. */
+  /** Teacher-forced reward proxy under the source policy on the held-out examples. */
   readonly baselineScore: number;
-  /** Expected reward under the candidate on the collected examples. */
+  /** Teacher-forced reward proxy under the candidate on the collected examples. */
   readonly trainingScore: number;
-  /** Expected reward under the candidate on the held-out examples. */
+  /** Teacher-forced reward proxy under the candidate on the held-out examples. */
   readonly evaluationScore: number;
   /** Empirical mean reward of the incumbent on the sampled held-out episodes. */
   readonly incumbentHeldOutMean: number;
@@ -392,11 +385,11 @@ export interface LmCheckpoint {
 
 /** The declared resource and licence limits, validated fail-closed before collection. */
 export interface LmLimits {
-  /** Maximum trainable parameters the adapter may carry. */
+  /** Maximum parameters in the frozen base plus the shared adapter. */
   readonly maxParameters: number;
   /** Maximum serialized checkpoint bytes one candidate may occupy. */
   readonly maxCheckpointBytes: number;
-  /** Maximum gradient steps one generation's fit may take. */
+  /** Maximum optimizer steps across pretraining and all declared generations. */
   readonly maxSteps: number;
   /** Maximum wall seconds one generation's fit and evaluation may take. */
   readonly maxWallSeconds: number;
@@ -464,6 +457,10 @@ export interface LmLoopConfig {
 
 /** The persisted training configuration of one completed language-model generation. */
 export interface StoredLmGeneration {
+  /** Measured surrogate before fitting. */
+  readonly lossBefore: number;
+  /** Measured surrogate after fitting. */
+  readonly lossAfter: number;
   /** One-based generation number. */
   readonly generation: number;
   /** The derived learning rate this generation ran under. */
@@ -488,9 +485,9 @@ export interface StoredLmGeneration {
   readonly baselineExactMatch: number;
   /** Greedy held-out exact-match fraction of the candidate policy. */
   readonly candidateExactMatch: number;
-  /** Expected reward under the candidate on the collected completions. */
+  /** Teacher-forced reward proxy under the candidate on the collected completions. */
   readonly trainingScore: number;
-  /** Expected reward under the candidate on the held-out examples. */
+  /** Teacher-forced reward proxy under the candidate on the held-out examples. */
   readonly evaluationScore: number;
   /** The incumbent's sampled held-out mean this generation was judged against. */
   readonly incumbentHeldOutMean: number;
@@ -512,21 +509,30 @@ function lcgStep(state: number): number {
 
 /** Render one weights tensor as the canonical JSON array artifacts persist. */
 function jsonTensor(tensor: Readonly<Float32Array>): number[] {
+  for (const value of tensor) {
+    if (!Number.isFinite(value)) expectedFail("LM tensor contains a non-finite parameter.", "lm_nonfinite_tensor");
+  }
   return [...tensor];
 }
 
-/** Read one required finite number from a language-model configuration record. */
-function requiredConfigNumber(record: Readonly<Record<string, unknown>>, key: string, code: string): number {
-  const value = record[key];
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    expectedFail(`LM loop configuration requires a finite number ${key}.`, code);
+/** Stop CPU work at phase boundaries when the declared clock is exhausted. */
+function checkLmDeadline(started: number, maxWallSeconds: number): void {
+  if (performance.now() - started > maxWallSeconds * 1000) {
+    expectedFail("LM phase exceeded the declared wall seconds; no candidate may promote.", "lm_limit_wall_seconds");
   }
-  return value;
 }
 
 /** The number of trainable parameters one adapter carries. */
 export function lmAdapterParameterCount(shape: LmModelShape): number {
   return shape.rank * shape.dModel * 4 + shape.vocab * shape.rank + shape.dModel * shape.rank;
+}
+
+/** Count every frozen and trainable scalar before allocating model tensors. */
+export function lmParameterCount(shape: LmModelShape): number {
+  const { vocab, dModel, ffn, layers, maxPositions } = shape;
+  return 2 * vocab * dModel + maxPositions * dModel
+    + layers * (4 * dModel * dModel + 2 * dModel * ffn + 5 * dModel + ffn)
+    + lmAdapterParameterCount(shape);
 }
 
 /** Allocate one zeroed adapter over the declared shape. */
@@ -607,12 +613,7 @@ function jsonLmWeights(shape: LmModelShape, weights: LmWeights): JsonValue {
 export function lmCheckpoint(adapter: LmAdapter, config: Pick<LmLoopConfig, "baseDigest" | "shape">): LmCheckpoint {
   return {
     adapter,
-    digest: lmDigest({
-      format: LM_CHECKPOINT_FORMAT,
-      base: config.baseDigest,
-      shape: { vocab: config.shape.vocab, d_model: config.shape.dModel, ffn: config.shape.ffn, layers: config.shape.layers, rank: config.shape.rank },
-      adapter: jsonLmAdapter(adapter),
-    }),
+    digest: `sha256:${createHash("sha256").update(serializeLmCheckpoint({ adapter, digest: "" }, config).text).digest("hex")}`,
   };
 }
 
@@ -627,13 +628,42 @@ export function lmCheckpoint(adapter: LmAdapter, config: Pick<LmLoopConfig, "bas
  * @returns The canonical JSON text and its length in UTF-8 bytes.
  */
 export function serializeLmCheckpoint(checkpoint: LmCheckpoint, config: Pick<LmLoopConfig, "baseDigest" | "shape">): { readonly text: string; readonly bytes: number } {
-  const text = JSON.stringify({
+  const text = canonicalJson({
     format: LM_CHECKPOINT_FORMAT,
     base: config.baseDigest,
-    shape: { vocab: config.shape.vocab, d_model: config.shape.dModel, ffn: config.shape.ffn, layers: config.shape.layers, rank: config.shape.rank },
+    shape: { vocab: config.shape.vocab, d_model: config.shape.dModel, ffn: config.shape.ffn, layers: config.shape.layers, rank: config.shape.rank, string_length: config.shape.stringLength, max_positions: config.shape.maxPositions },
     tensors: jsonLmAdapter(checkpoint.adapter),
   });
   return { text, bytes: Buffer.byteLength(text, "utf8") };
+}
+
+/** Tracker-relative location of immutable, content-addressed adapter artifacts. */
+export function lmCheckpointPath(checkpoint: LmCheckpoint): string {
+  return `extensions/pm-rl/artifacts/${checkpoint.digest.slice(7)}.json`;
+}
+
+/** Verify the bytes on disk against the canonical checkpoint and its identity. */
+export async function verifyLmCheckpointArtifact(pmRoot: string, checkpoint: LmCheckpoint, config: LmLoopConfig): Promise<void> {
+  let text: string;
+  try {
+    text = await readFile(join(pmRoot, lmCheckpointPath(checkpoint)), "utf8");
+  } catch {
+    expectedFail("LM checkpoint artifact is missing or unreadable.", "lm_checkpoint_artifact_missing", EXIT_CODE.CONFLICT);
+  }
+  if (text !== serializeLmCheckpoint(checkpoint, config).text) {
+    expectedFail("LM checkpoint artifact bytes disagree with the receipt.", "lm_checkpoint_artifact_corrupt", EXIT_CODE.CONFLICT);
+  }
+}
+
+/** Store a checkpoint without overwriting existing evidence, then verify its bytes. */
+export async function persistLmCheckpoint(pmRoot: string, checkpoint: LmCheckpoint, config: LmLoopConfig): Promise<void> {
+  await mkdir(join(pmRoot, "extensions/pm-rl/artifacts"), { recursive: true });
+  try {
+    await writeFile(join(pmRoot, lmCheckpointPath(checkpoint)), serializeLmCheckpoint(checkpoint, config).text, { flag: "wx" });
+  } catch (error) {
+    if (!(error instanceof Error) || !("code" in error) || error.code !== "EEXIST") throw error;
+  }
+  await verifyLmCheckpointArtifact(pmRoot, checkpoint, config);
 }
 
 /** Softmax over one logits vector. */
@@ -648,6 +678,15 @@ function softmax(logits: Readonly<Float64Array>): Float64Array {
   }
   for (let index = 0; index < logits.length; index += 1) out[index] /= total;
   return out;
+}
+
+/** Apply a low-rank input projection in both forward and backward kernels. */
+function rankProjection(matrix: Readonly<Float32Array>, value: Readonly<Float64Array>, rank: number, width: number): Float64Array {
+  const projected = new Float64Array(rank);
+  for (let row = 0; row < rank; row += 1) {
+    for (let column = 0; column < width; column += 1) projected[row] += matrix[row * width + column]! * value[column]!;
+  }
+  return projected;
 }
 
 /** One layer-norm forward, caching the statistics the backward pass needs. */
@@ -819,14 +858,7 @@ export function lmForward(shape: LmModelShape, weights: LmWeights, adapter: LmAd
   for (let t = 0; t < length; t += 1) {
     const out = current[t]!;
     top.push(out);
-    const reduced = new Float64Array(adapter === null ? 0 : shape.rank);
-    if (adapter !== null) {
-      for (let r = 0; r < shape.rank; r += 1) {
-        let sum = 0;
-        for (let i = 0; i < dModel; i += 1) sum += adapter.ah[r * dModel + i] * out[i];
-        reduced[r] = sum;
-      }
-    }
+    const reduced = adapter === null ? new Float64Array(0) : rankProjection(adapter.ah, out, shape.rank, dModel);
     const row = new Float64Array(shape.vocab);
     for (let o = 0; o < shape.vocab; o += 1) {
       let sum = 0;
@@ -937,12 +969,7 @@ export function lmBackward(shape: LmModelShape, weights: LmWeights, adapter: LmA
     const dLogit = logitGradients[t];
     if (dLogit === null || adapter === null) continue;
     const out = cache.top[t]!;
-    const reduced = new Float64Array(rank);
-    for (let r = 0; r < rank; r += 1) {
-      let sum = 0;
-      for (let i = 0; i < dModel; i += 1) sum += adapter.ah[r * dModel + i] * out[i];
-      reduced[r] = sum;
-    }
+    const reduced = rankProjection(adapter.ah, out, rank, dModel);
     const dReduced = new Float64Array(rank);
     for (let o = 0; o < vocab; o += 1) {
       for (let r = 0; r < rank; r += 1) {
@@ -1166,7 +1193,7 @@ function uniform(state: number): { readonly draw: number; readonly state: number
 /** Sample one token from a probability vector under a uniform draw. */
 function sampleFromProbabilities(probabilities: Readonly<Float64Array>, draw: number): number {
   let cumulative = 0;
-  for (let index = 0; index < probabilities.length; index += 1) {
+  for (let index = 0; index < probabilities.length - 1; index += 1) {
     cumulative += probabilities[index];
     if (draw < cumulative) return index;
   }
@@ -1373,7 +1400,8 @@ function seededLmWeights(shape: LmModelShape, seed: number): LmWeights {
  * @param seed - Unsigned 32-bit seed for every deterministic draw.
  * @returns The frozen base weights and the identity of the pretraining strings.
  */
-export function trainLmBasePolicy(shape: LmModelShape, alphabet: readonly string[], seed: number): { readonly weights: LmWeights; readonly strings: readonly string[] } {
+export function trainLmBasePolicy(shape: LmModelShape, alphabet: readonly string[], seed: number, trainingStrings?: readonly string[], maxWallSeconds: number = 3600): { readonly weights: LmWeights; readonly strings: readonly string[] } {
+  const started = performance.now();
   const strings: string[] = [];
   let state = seed;
   for (let index = 0; index < PRETRAIN_STRING_COUNT; index += 1) {
@@ -1382,7 +1410,7 @@ export function trainLmBasePolicy(shape: LmModelShape, alphabet: readonly string
       text += alphabet[state % alphabet.length]!;
       state = lcgStep(state);
     }
-    strings.push(text);
+    strings.push(trainingStrings === undefined ? text : trainingStrings[index % trainingStrings.length]!);
   }
   const copyTargets = strings.map((text) => [...text].map((symbol) => FIRST_SYMBOL_TOKEN + alphabet.indexOf(symbol)).concat([EOS_TOKEN]));
   const weights = seededLmWeights(shape, (Math.imul(seed, 0x9e3779b1) ^ 0x51ed270b) >>> 0);
@@ -1397,6 +1425,7 @@ export function trainLmBasePolicy(shape: LmModelShape, alphabet: readonly string
     moments.set(tensor, { first: new Float64Array(tensor.length), second: new Float64Array(tensor.length) });
   }
   for (let step = 0; step < PRETRAIN_STEP_COUNT; step += 1) {
+    checkLmDeadline(started, maxWallSeconds);
     const gradients = lmSupervisedGradient(shape, weights, null, strings, alphabet, copyTargets, PRETRAIN_LABEL_SMOOTHING);
     for (const [tensor, gradient] of gradientTensors(weights, gradients)) {
       const moment = moments.get(tensor)!;
@@ -1410,6 +1439,7 @@ export function trainLmBasePolicy(shape: LmModelShape, alphabet: readonly string
       }
     }
   }
+  checkLmDeadline(started, maxWallSeconds);
   return { weights, strings };
 }
 
@@ -1426,8 +1456,8 @@ function gradientTensors(weights: LmWeights, gradients: LmGradients): Array<read
   return pairs;
 }
 
-/** The expected reward of one example's completion under a policy, without sampling. */
-function expectedCompletionReward(shape: LmModelShape, weights: LmWeights, adapter: LmAdapter | null, example: string, alphabet: readonly string[]): number {
+/** Teacher-forced reward proxy; only the exact-match term is an exact sequence probability. */
+function teacherForcedRewardProxy(shape: LmModelShape, weights: LmWeights, adapter: LmAdapter | null, example: string, alphabet: readonly string[]): number {
   const target = rotateTargetTokens(example, alphabet);
   const tokens = fullTokens(example, alphabet, target);
   const { logits } = lmForward(shape, weights, adapter, tokens);
@@ -1481,11 +1511,11 @@ export function lmGreedyExactMatch(shape: LmModelShape, weights: LmWeights, adap
   return examples.length === 0 ? 0 : matches / examples.length;
 }
 
-/** The mean expected reward of a policy over a set of examples. */
+/** Average teacher-forced proxy, distinct from the sampled verifier reward and greedy accuracy. */
 function meanExpectedReward(shape: LmModelShape, weights: LmWeights, adapter: LmAdapter | null, examples: readonly string[], alphabet: readonly string[]): number {
   let total = 0;
-  for (const example of examples) total += expectedCompletionReward(shape, weights, adapter, example, alphabet);
-  return examples.length === 0 ? 0 : total / examples.length;
+  for (const example of examples) total += teacherForcedRewardProxy(shape, weights, adapter, example, alphabet);
+  return total / examples.length;
 }
 
 /** One collected completion the REINFORCE fit trains on. */
@@ -1496,15 +1526,13 @@ export interface LmFitSample {
   readonly tokens: readonly number[];
   /** The exact verifier's reward. */
   readonly reward: number;
-  /** Per-position reward shares, filled by the first surrogate evaluation. */
-  positionRewards: number[];
 }
 
 /**
  * The REINFORCE surrogate objective over a collected batch, with its KL anchor.
  *
- * The surrogate each fit step descends: the exact verifier's reward splits
- * over the answer positions, the mean-baselined per-position advantage
+ * The surrogate each fit step descends: the exact verifier's sequence reward minus its batch mean
+ * gives the advantage that
  * weights the sampled tokens' log-probabilities, and the KL penalty to the
  * frozen base policy anchors the fit. The returned loss differentiates to the
  * returned gradient exactly, which the finite-difference property test proves
@@ -1516,37 +1544,15 @@ export interface LmFitSample {
  * @param samples - The collected completions the fit trains on.
  * @param alphabet - The declared task alphabet.
  * @param klWeight - The weight of the KL penalty to the base policy.
+ * @param deadline - Optional wall allowance checked between sampled sequences.
  * @returns The surrogate loss and its gradient over every tensor.
  */
-export function lmReinforceSurrogate(shape: LmModelShape, weights: LmWeights, adapter: LmAdapter | null, samples: readonly LmFitSample[], alphabet: readonly string[], klWeight: number): { loss: number; gradient: LmGradients } {
+export function lmReinforceSurrogate(shape: LmModelShape, weights: LmWeights, adapter: LmAdapter | null, samples: readonly LmFitSample[], alphabet: readonly string[], klWeight: number, deadline?: { readonly started: number; readonly seconds: number }): { loss: number; gradient: LmGradients } {
   const gradient = zeroGradients(shape, adapter !== null);
-  // Per-position credit assignment of the exact verifier's reward: the
-  // sequence reward splits evenly over its answer positions (the exact-match
-  // bonus included), and the baseline is the mean per-position reward over
-  // the batch. Each sampled token is then reinforced by its own position's
-  // advantage, so a correct token in an otherwise wrong completion is not
-  // drowned out by the positions that failed around it.
-  const answerLength = samples[0]!.tokens.length;
-  let rewardTotal = 0;
-  let rewardCount = 0;
-  for (const sample of samples) {
-    const target = rotateTargetTokens(sample.example, alphabet);
-    let correct = 0;
-    for (let i = 0; i < sample.tokens.length; i += 1) if (sample.tokens[i] === target[i]) correct += 1;
-    const exact = correct === sample.tokens.length ? 1 : 0;
-    if (sample.positionRewards.length === 0) {
-      for (let i = 0; i < sample.tokens.length; i += 1) {
-        sample.positionRewards.push((0.5 * (sample.tokens[i] === target[i] ? 1 : 0) + 0.5 * exact) / answerLength);
-      }
-    }
-    for (let i = 0; i < sample.tokens.length; i += 1) {
-      rewardTotal += sample.positionRewards[i]!;
-      rewardCount += 1;
-    }
-  }
-  const baseline = rewardTotal / rewardCount;
+  const baseline = samples.reduce((total, sample) => total + sample.reward, 0) / samples.length;
   let loss = 0;
   for (const sample of samples) {
+    if (deadline !== undefined) checkLmDeadline(deadline.started, deadline.seconds);
     const tokens = fullTokens(sample.example, alphabet, [...sample.tokens, EOS_TOKEN]);
     const baseRun = lmForward(shape, weights, null, tokens);
     const { logits, cache } = lmForward(shape, weights, adapter, tokens);
@@ -1557,7 +1563,7 @@ export function lmReinforceSurrogate(shape: LmModelShape, weights: LmWeights, ad
       const probabilities = softmax(logits[position]!);
       const baseProbabilities = softmax(baseRun.logits[position]!);
       const sampled = sample.tokens[i]!;
-      const advantage = sample.positionRewards[i]! - baseline;
+      const advantage = sample.reward - baseline;
       loss -= advantage * Math.log(Math.max(probabilities[sampled]!, LOG_PROBABILITY_FLOOR));
       let kl = 0;
       for (let c = 0; c < shape.vocab; c += 1) {
@@ -1604,7 +1610,7 @@ function stepAdapter(adapter: LmAdapter, gradient: LmAdapterGradients, learningR
   }
 }
 
-/** The squared L2 distance between two adapters' tensors. */
+/** The L2 norm of the difference between two adapters' tensors. */
 function adapterDeltaL2(source: LmAdapter, candidate: LmAdapter): number {
   let sum = 0;
   for (const key of ["aq", "bq", "av", "bv", "ah", "bh"] as const) {
@@ -1613,19 +1619,15 @@ function adapterDeltaL2(source: LmAdapter, candidate: LmAdapter): number {
       sum += delta * delta;
     }
   }
-  return sum;
+  return Math.sqrt(sum);
 }
 
 /** Derive the deterministic seed of one collection sample's completion stream. */
 export function lmSampleSeed(base: number, generation: number, sample: number): number {
-  return (Math.imul(generation, SAMPLE_SEED_STRIDE) + Math.imul(sample, LCG_MULTIPLIER) + base + COLLECTION_SEED_SALT) >>> 0;
+  return trainerSampleSeed(base, generation, sample);
 }
 
-/** Derive a generation's incumbent and candidate held-out evaluation stream seeds. */
-function evaluationSeeds(base: number, generation: number): readonly [number, number] {
-  const incumbent = (Math.imul(generation, SAMPLE_SEED_STRIDE) + base) >>> 0;
-  return [incumbent, (incumbent + CANDIDATE_SEED_SALT) >>> 0];
-}
+
 
 /**
  * Collect one generation's on-policy completion batch from the source policy.
@@ -1643,8 +1645,10 @@ function evaluationSeeds(base: number, generation: number): readonly [number, nu
  * @returns The complete ordered batch of collected completions.
  */
 export function lmCollectBatch(config: LmLoopConfig, generation: number, source: LmCheckpoint): readonly LmObservation[] {
+  const started = performance.now();
   const observations: LmObservation[] = [];
   for (let sample = 0; sample < config.samplesPerGeneration; sample += 1) {
+    checkLmDeadline(started, config.limits.maxWallSeconds);
     const example = config.training[sample % config.training.length]!;
     const completion = sampleLmCompletion(config.shape, config.base, source.adapter, example.string, config.alphabet, lmSampleSeed(config.seed, generation, sample));
     const expected = rotateTargetTokens(example.string, config.alphabet);
@@ -1722,10 +1726,11 @@ export function parseLmCollectionEvent(event: MetricEvent, config: LmLoopConfig,
 }
 
 /** Sample one policy's held-out completions and return the empirical mean reward. */
-function sampledHeldOutMean(config: LmLoopConfig, generation: number, adapter: LmAdapter | null, episodes: number, seed: number): number {
+function sampledHeldOutMean(config: LmLoopConfig, generation: number, adapter: LmAdapter | null, episodes: number, seed: number, started: number | null): number {
   let state = seed;
   let total = 0;
   for (let episode = 0; episode < episodes; episode += 1) {
+    if (started !== null) checkLmDeadline(started, config.limits.maxWallSeconds);
     const example = config.evaluation[episode % config.evaluation.length]!;
     const completion = sampleLmCompletion(config.shape, config.base, adapter, example.string, config.alphabet, state);
     state = completion.state;
@@ -1763,15 +1768,17 @@ export function executeLmStep(config: LmLoopConfig, step: LoopStepConfig, genera
     if (example === undefined) {
       expectedFail(`Collected completion names training example ${observation.example}, which this programme does not declare.`, "lm_collection_example");
     }
-    return { example: example.string, tokens: observation.tokens, reward: observation.reward, positionRewards: [] };
+    return { example: example.string, tokens: observation.tokens, reward: observation.reward };
   });
+  const deadline = wallMs === null ? { started: startedAt, seconds: config.limits.maxWallSeconds } : undefined;
   const adapter = copyLmAdapter(source.adapter);
-  const before = lmReinforceSurrogate(config.shape, config.base, source.adapter, samples, config.alphabet, config.klWeight);
+  const before = lmReinforceSurrogate(config.shape, config.base, source.adapter, samples, config.alphabet, config.klWeight, deadline);
   for (let fitStep = 0; fitStep < config.fitSteps; fitStep += 1) {
-    const { gradient } = lmReinforceSurrogate(config.shape, config.base, adapter, samples, config.alphabet, config.klWeight);
+    if (wallMs === null) checkLmDeadline(startedAt, config.limits.maxWallSeconds);
+    const { gradient } = lmReinforceSurrogate(config.shape, config.base, adapter, samples, config.alphabet, config.klWeight, deadline);
     stepAdapter(adapter, gradient.adapter!, step.learningRate, config.clipNorm);
   }
-  const after = lmReinforceSurrogate(config.shape, config.base, adapter, samples, config.alphabet, config.klWeight);
+  const after = lmReinforceSurrogate(config.shape, config.base, adapter, samples, config.alphabet, config.klWeight, deadline);
   const candidate = lmCheckpoint(adapter, config);
   const collectionDigest = lmDigest({
     source: source.digest,
@@ -1782,12 +1789,11 @@ export function executeLmStep(config: LmLoopConfig, step: LoopStepConfig, genera
   const trainingScore = meanExpectedReward(config.shape, config.base, adapter, config.training.map((example) => example.string), config.alphabet);
   const evaluationScore = meanExpectedReward(config.shape, config.base, adapter, config.evaluation.map((example) => example.string), config.alphabet);
   const [incumbentSeed, candidateSeed] = evaluationSeeds(config.seed, generation);
-  const incumbentHeldOutMean = sampledHeldOutMean(config, generation, source.adapter, step.evaluationSamples, incumbentSeed);
-  const candidateHeldOutMean = sampledHeldOutMean(config, generation, adapter, step.evaluationSamples, candidateSeed);
+  const incumbentHeldOutMean = sampledHeldOutMean(config, generation, source.adapter, step.evaluationSamples, incumbentSeed, wallMs === null ? startedAt : null);
+  const candidateHeldOutMean = sampledHeldOutMean(config, generation, adapter, step.evaluationSamples, candidateSeed, wallMs === null ? startedAt : null);
   // The wall clock stops after the last unit of charged work: the fit, the
   // expected-reward and exact-match evaluations, and the gate's sampled
   // episodes. A replay passes the persisted value and skips this measurement.
-  const measured = wallMs === null ? performance.now() - startedAt : wallMs;
   const evidence: Omit<LmGeneration, "promoted" | "refusalReason" | "stopReason"> = {
     generation,
     source,
@@ -1804,7 +1810,7 @@ export function executeLmStep(config: LmLoopConfig, step: LoopStepConfig, genera
     evaluationScore,
     incumbentHeldOutMean,
     candidateHeldOutMean,
-    wallMs: measured,
+    wallMs: wallMs === null ? performance.now() - startedAt : wallMs,
   };
   // The declared limits are fail-closed bounds on the artifacts themselves: a
   // candidate whose serialized checkpoint exceeds the declared byte budget,
@@ -1816,16 +1822,20 @@ export function executeLmStep(config: LmLoopConfig, step: LoopStepConfig, genera
       refusalReason: `serialized checkpoint occupies ${serialized.bytes} bytes, exceeding the declared maximum ${config.limits.maxCheckpointBytes}`,
       stopReason: "checkpoint_limit_exceeded" };
   }
-  if (measured > config.limits.maxWallSeconds * 1000) {
+  if (evidence.wallMs > config.limits.maxWallSeconds * 1000) {
     return { ...evidence, promoted: false,
-      refusalReason: `fit and evaluation took ${measured.toFixed(0)}ms, exceeding the declared maximum ${config.limits.maxWallSeconds}s`,
+      refusalReason: `fit and evaluation took ${evidence.wallMs.toFixed(0)}ms, exceeding the declared maximum ${config.limits.maxWallSeconds}s`,
       stopReason: "wall_limit_exceeded" };
   }
-  const verdict = decideTrainerPromotion({ changed: source.digest !== candidate.digest, generation, training: trainingScore,
+  if (evidence.candidateExactMatch < evidence.baselineExactMatch) {
+    return { ...evidence, promoted: false, stopReason: "evaluation_rejected",
+      refusalReason: "cannot promote a regression in greedy held-out exact-match" };
+  }
+  return { ...evidence, ...decideTrainerPromotion({ changed: source.digest !== candidate.digest, generation, training: trainingScore,
     evaluation: evaluationScore, baseline: baselineScore, maximumGap: config.maximumGap, version: "pm-rl/lm/1", context: config.evaluationDigest,
     samples: step.evaluationSamples, candidateMean: candidateHeldOutMean, incumbentMean: incumbentHeldOutMean,
-    criterion: { confidence: config.confidence, minSamples: config.minSamples, effectThreshold: config.minimumImprovement } });
-  return { ...evidence, ...verdict };
+    criterion: { confidence: config.confidence, minSamples: config.minSamples, effectThreshold: config.minimumImprovement } }) };
+
 }
 
 /** Render one example as the plain JSON value the environment spec stores. */
@@ -1936,11 +1946,11 @@ export function parseLmLoopConfig(raw: JsonValue): LmLoopConfig {
   }
   const alphabet = validatedAlphabet(record["alphabet"]);
   const model = asJsonObject(record["model"] ?? null, "LM loop configuration model", "lm_invalid_model");
-  const dModel = requiredConfigNumber(model, "d_model", "lm_invalid_d_model");
-  const ffn = requiredConfigNumber(model, "ffn", "lm_invalid_ffn");
-  const layers = requiredConfigNumber(model, "layers", "lm_invalid_layers");
-  const rank = requiredConfigNumber(model, "rank", "lm_invalid_rank");
-  const stringLength = requiredConfigNumber(record, "string_length", "lm_invalid_string_length");
+  const dModel = storedCheckpointNumber(model, "d_model", "LM loop configuration", "lm_invalid_d_model");
+  const ffn = storedCheckpointNumber(model, "ffn", "LM loop configuration", "lm_invalid_ffn");
+  const layers = storedCheckpointNumber(model, "layers", "LM loop configuration", "lm_invalid_layers");
+  const rank = storedCheckpointNumber(model, "rank", "LM loop configuration", "lm_invalid_rank");
+  const stringLength = storedCheckpointNumber(record, "string_length", "LM loop configuration", "lm_invalid_string_length");
   if (!Number.isInteger(dModel) || dModel < 4 || dModel > MAX_LM_MODEL_DIM) {
     expectedFail(`LM loop configuration model d_model must be an integer from 4 to ${MAX_LM_MODEL_DIM}.`, "lm_invalid_d_model");
   }
@@ -1962,9 +1972,6 @@ export function parseLmLoopConfig(raw: JsonValue): LmLoopConfig {
     stringLength,
     maxPositions: 2 * stringLength + 3,
   };
-  if (shape.maxPositions > MAX_LM_POSITIONS) {
-    expectedFail(`LM loop configuration string_length ${stringLength} needs ${shape.maxPositions} positions, above the declared maximum ${MAX_LM_POSITIONS}.`, "lm_invalid_string_length");
-  }
   const trainingField = record["training"];
   const evaluationField = record["evaluation"];
   if (!Array.isArray(trainingField) || !Array.isArray(evaluationField)) {
@@ -1972,10 +1979,10 @@ export function parseLmLoopConfig(raw: JsonValue): LmLoopConfig {
   }
   const datasets = validatedLmDatasets(trainingField, evaluationField, alphabet, stringLength);
   const limitsRecord = asJsonObject(record["limits"] ?? null, "LM loop configuration limits", "lm_invalid_limits");
-  const maxParameters = requiredConfigNumber(limitsRecord, "max_parameters", "lm_invalid_max_parameters");
-  const maxCheckpointBytes = requiredConfigNumber(limitsRecord, "max_checkpoint_bytes", "lm_invalid_max_checkpoint_bytes");
-  const maxSteps = requiredConfigNumber(limitsRecord, "max_steps", "lm_invalid_max_steps");
-  const maxWallSeconds = requiredConfigNumber(limitsRecord, "max_wall_seconds", "lm_invalid_max_wall_seconds");
+  const maxParameters = storedCheckpointNumber(limitsRecord, "max_parameters", "LM loop configuration", "lm_invalid_max_parameters");
+  const maxCheckpointBytes = storedCheckpointNumber(limitsRecord, "max_checkpoint_bytes", "LM loop configuration", "lm_invalid_max_checkpoint_bytes");
+  const maxSteps = storedCheckpointNumber(limitsRecord, "max_steps", "LM loop configuration", "lm_invalid_max_steps");
+  const maxWallSeconds = storedCheckpointNumber(limitsRecord, "max_wall_seconds", "LM loop configuration", "lm_invalid_max_wall_seconds");
   const modelLicense = requiredTrimmedString(limitsRecord, "model_license", "LM loop configuration limits", "lm_limits_");
   const datasetLicense = requiredTrimmedString(limitsRecord, "dataset_license", "LM loop configuration limits", "lm_limits_");
   if (modelLicense !== LM_SUPPORTED_LICENCE || datasetLicense !== LM_SUPPORTED_LICENCE) {
@@ -1984,9 +1991,9 @@ export function parseLmLoopConfig(raw: JsonValue): LmLoopConfig {
   if (!Number.isInteger(maxParameters) || maxParameters < 1 || maxParameters > 100_000) {
     expectedFail("LM loop configuration limits max_parameters must be a positive integer up to 100000.", "lm_invalid_max_parameters");
   }
-  const adapterParameters = lmAdapterParameterCount(shape);
-  if (adapterParameters > maxParameters) {
-    expectedFail(`LM loop configuration limits max_parameters ${maxParameters} is below the ${adapterParameters} trainable parameters the declared model carries.`, "lm_limit_parameters_exceeded");
+  const modelParameters = lmParameterCount(shape);
+  if (modelParameters > maxParameters) {
+    expectedFail(`LM loop configuration limits max_parameters ${maxParameters} is below the ${modelParameters} total parameters the declared model carries.`, "lm_limit_parameters_exceeded");
   }
   if (!Number.isInteger(maxCheckpointBytes) || maxCheckpointBytes < 1) {
     expectedFail("LM loop configuration limits max_checkpoint_bytes must be a positive integer.", "lm_invalid_max_checkpoint_bytes");
@@ -1998,19 +2005,19 @@ export function parseLmLoopConfig(raw: JsonValue): LmLoopConfig {
     expectedFail("LM loop configuration limits max_wall_seconds must be a positive number up to 3600.", "lm_invalid_max_wall_seconds");
   }
   const limits: LmLimits = { maxParameters, maxCheckpointBytes, maxSteps, maxWallSeconds, modelLicense, datasetLicense };
-  const seed = requiredConfigNumber(record, "seed", "lm_invalid_seed");
-  const maxGenerations = requiredConfigNumber(record, "max_generations", "lm_invalid_max_generations");
-  const samplesPerGeneration = requiredConfigNumber(record, "samples_per_generation", "lm_invalid_samples_per_generation");
-  const budget = requiredConfigNumber(record, "budget", "lm_invalid_budget");
-  const learningRate = requiredConfigNumber(record, "learning_rate", "lm_invalid_learning_rate");
-  const fitSteps = requiredConfigNumber(record, "fit_steps", "lm_invalid_fit_steps");
-  const klWeight = requiredConfigNumber(record, "kl_weight", "lm_invalid_kl_weight");
-  const clipNorm = requiredConfigNumber(record, "clip_norm", "lm_invalid_clip_norm");
-  const minimumImprovement = requiredConfigNumber(record, "minimum_improvement", "lm_invalid_minimum_improvement");
-  const maximumGap = requiredConfigNumber(record, "maximum_gap", "lm_invalid_maximum_gap");
-  const evaluationSamples = requiredConfigNumber(record, "evaluation_samples", "lm_invalid_evaluation_samples");
-  const confidence = requiredConfigNumber(record, "confidence", "lm_invalid_confidence");
-  const minSamples = requiredConfigNumber(record, "min_samples", "lm_invalid_min_samples");
+  const seed = storedCheckpointNumber(record, "seed", "LM loop configuration", "lm_invalid_seed");
+  const maxGenerations = storedCheckpointNumber(record, "max_generations", "LM loop configuration", "lm_invalid_max_generations");
+  const samplesPerGeneration = storedCheckpointNumber(record, "samples_per_generation", "LM loop configuration", "lm_invalid_samples_per_generation");
+  const budget = storedCheckpointNumber(record, "budget", "LM loop configuration", "lm_invalid_budget");
+  const learningRate = storedCheckpointNumber(record, "learning_rate", "LM loop configuration", "lm_invalid_learning_rate");
+  const fitSteps = storedCheckpointNumber(record, "fit_steps", "LM loop configuration", "lm_invalid_fit_steps");
+  const klWeight = storedCheckpointNumber(record, "kl_weight", "LM loop configuration", "lm_invalid_kl_weight");
+  const clipNorm = storedCheckpointNumber(record, "clip_norm", "LM loop configuration", "lm_invalid_clip_norm");
+  const minimumImprovement = storedCheckpointNumber(record, "minimum_improvement", "LM loop configuration", "lm_invalid_minimum_improvement");
+  const maximumGap = storedCheckpointNumber(record, "maximum_gap", "LM loop configuration", "lm_invalid_maximum_gap");
+  const evaluationSamples = storedCheckpointNumber(record, "evaluation_samples", "LM loop configuration", "lm_invalid_evaluation_samples");
+  const confidence = storedCheckpointNumber(record, "confidence", "LM loop configuration", "lm_invalid_confidence");
+  const minSamples = storedCheckpointNumber(record, "min_samples", "LM loop configuration", "lm_invalid_min_samples");
   if (!Number.isInteger(seed) || seed < 0 || seed > 0xffff_ffff) {
     expectedFail("LM loop configuration seed must be an unsigned 32-bit integer.", "lm_invalid_seed");
   }
@@ -2050,13 +2057,16 @@ export function parseLmLoopConfig(raw: JsonValue): LmLoopConfig {
   if (!Number.isInteger(minSamples) || minSamples < 1) {
     expectedFail("LM loop configuration min_samples must be a positive integer.", "lm_invalid_min_samples");
   }
+  if (PRETRAIN_STEP_COUNT + maxGenerations * fitSteps > maxSteps) {
+    expectedFail("Declared optimizer step limit cannot cover pretraining and the bounded generations.", "lm_limit_steps_exceeded");
+  }
   // The frozen base is regenerated deterministically from the seed and its
   // content identity is what every checkpoint binds; the starting adapter is
   // the seeded low-rank draw whose output projections are zero, so the initial
   // policy IS the base. The declared byte budget must already fit that seed
   // checkpoint: a programme whose own seed exceeds its declared limit never
   // starts collecting.
-  const base = trainLmBasePolicy(shape, alphabet, seed);
+  const base = trainLmBasePolicy(shape, alphabet, seed, datasets.training.map((example) => example.string), maxWallSeconds);
   const baseDigest = lmDigest(jsonLmWeights(shape, base.weights));
   const initial = lmCheckpoint(seededLmAdapter(shape, (Math.imul(seed, 0x85ebca6b) ^ 0xc2b2ae35) >>> 0), { baseDigest, shape });
   if (serializeLmCheckpoint(initial, { baseDigest, shape }).bytes > maxCheckpointBytes) {
@@ -2204,6 +2214,10 @@ export function lmGenerationTrainingConfig(config: LmLoopConfig, step: LoopStepC
     source_checkpoint: receipt.source.digest,
     candidate_checkpoint: receipt.candidate.digest,
     candidate_adapter: jsonLmAdapter(receipt.candidate.adapter),
+    checkpoint_path: lmCheckpointPath(receipt.candidate),
+    checkpoint_bytes: serializeLmCheckpoint(receipt.candidate, config).bytes,
+    total_parameters: lmParameterCount(config.shape),
+    optimizer_steps_reserved: PRETRAIN_STEP_COUNT + config.maxGenerations * config.fitSteps,
     parameter_delta_l2: receipt.parameterDeltaL2,
     loss_before: receipt.lossBefore,
     loss_after: receipt.lossAfter,
@@ -2223,6 +2237,7 @@ export function lmSeedTrainingConfig(config: LmLoopConfig): JsonValue {
     format: LM_SEED_FORMAT,
     programme: config.digest,
     base_checkpoint: config.baseDigest,
+    pretraining_digest: lmDigest(config.training.map((example) => example.string)),
     initial_checkpoint: config.initial.digest,
     initial_adapter: jsonLmAdapter(config.initial.adapter),
     configuration: lmConfigurationJson(config),
@@ -2242,6 +2257,9 @@ function storedTensor(record: Readonly<Record<string, unknown>>, key: string, le
       expectedFail(`${source} requires finite values in its ${key} tensor; the persisted checkpoint is invalid.`, "lm_invalid_checkpoint");
     }
     tensor[index] = entry;
+    if (tensor[index] !== entry) {
+      expectedFail("LM checkpoint tensor values must be exactly representable as Float32.", "lm_invalid_checkpoint");
+    }
   }
   return tensor;
 }
@@ -2285,6 +2303,8 @@ export function parseStoredLmGeneration(value: JsonValue, config: LmLoopConfig, 
   }
   const candidateAdapter = parseLmAdapter(record["candidate_adapter"], config.shape, `${source} candidate_adapter`);
   const stored: StoredLmGeneration = {
+    lossBefore: storedCheckpointNumber(record, "loss_before", source, "lm_invalid_training_config"),
+    lossAfter: storedCheckpointNumber(record, "loss_after", source, "lm_invalid_training_config"),
     generation,
     learningRate: storedCheckpointNumber(record, "learning_rate", source, "lm_invalid_training_config"),
     evaluationSamples: storedCheckpointNumber(record, "evaluation_samples", source, "lm_invalid_training_config"),
@@ -2308,7 +2328,14 @@ export function parseStoredLmGeneration(value: JsonValue, config: LmLoopConfig, 
     || !Number.isInteger(stored.fitSteps) || stored.fitSteps < 1) {
     expectedFail(`${source} requires positive integer sample bounds.`, "lm_invalid_training_config");
   }
-  if (stored.candidateCheckpoint !== lmCheckpoint(candidateAdapter, config).digest) {
+  const checkpoint = lmCheckpoint(candidateAdapter, config);
+  if (record["checkpoint_path"] !== lmCheckpointPath(checkpoint)
+    || record["checkpoint_bytes"] !== serializeLmCheckpoint(checkpoint, config).bytes
+    || record["total_parameters"] !== lmParameterCount(config.shape)
+    || record["optimizer_steps_reserved"] !== PRETRAIN_STEP_COUNT + config.maxGenerations * config.fitSteps) {
+    expectedFail("LM stored resource or artifact receipt disagrees with the programme.", "lm_invalid_checkpoint");
+  }
+  if (stored.candidateCheckpoint !== checkpoint.digest) {
     expectedFail(`${source} records candidate checkpoint ${stored.candidateCheckpoint}, which does not match the digest of its own persisted tensors; the persisted checkpoint is invalid.`, "lm_invalid_checkpoint");
   }
   return stored;
@@ -2335,16 +2362,15 @@ export function parseStoredLmGeneration(value: JsonValue, config: LmLoopConfig, 
 export function verifyStoredLmGeneration(config: LmLoopConfig, step: LoopStepConfig, source: LmCheckpoint, stored: StoredLmGeneration, observations: readonly LmObservation[]): LmGeneration {
   const receipt = executeLmStep(config, step, stored.generation, source, observations, stored.wallMs);
   const expected: Array<[string, unknown, unknown]> = [
+    ["loss_before", stored.lossBefore, receipt.lossBefore],
+    ["loss_after", stored.lossAfter, receipt.lossAfter],
     ["generation", stored.generation, receipt.generation],
-    ["learning_rate", stored.learningRate, step.learningRate],
-    ["evaluation_samples", stored.evaluationSamples, step.evaluationSamples],
-    ["fit_steps", stored.fitSteps, config.fitSteps],
-    ["samples", stored.samples, config.samplesPerGeneration],
     ["collection_digest", stored.collectionDigest, receipt.collectionDigest],
     ["parameter_delta_l2", stored.parameterDeltaL2, receipt.parameterDeltaL2],
     ["baseline_exact_match", stored.baselineExactMatch, receipt.baselineExactMatch],
     ["candidate_exact_match", stored.candidateExactMatch, receipt.candidateExactMatch],
   ];
+  verifyTrainerConfiguration(stored, step, config);
   verifyReplayFields(expected, stored.generation);
   verifyTrainerReceipt(stored, receipt, stored.generation);
   return receipt;
@@ -2353,7 +2379,7 @@ export function verifyStoredLmGeneration(config: LmLoopConfig, step: LoopStepCon
 /**
  * Build the promotion score records for one gate-promoted language-model generation.
  *
- * The proxy score is the candidate's exact expected reward over the collected
+ * The proxy score is the candidate's teacher-forced reward proxy over the collected
  * examples; the held-out score is the sampled mean the gate actually bounded.
  * Both carry content-addressed seed-set identities and the dataset digest they
  * were measured on, so the persisted promotion's contamination walk can verify

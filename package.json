@@ -26,7 +26,8 @@
     "CHANGELOG.md",
     "examples/",
     "RECURSIVE_TRAINING.md",
-    "docs/durable-systemone-validation.md"
+    "docs/durable-systemone-validation.md",
+    "docs/lm-adapter.md"
   ],
   "engines": {
     "node": ">=22.18.0"
@@ -82,7 +83,8 @@
       "test/sweep.test.ts",
       "test/systemone.test.ts",
       "test/transfer.test.ts",
-      "test/verify-release-publish-attestation.test.ts"
+      "test/verify-release-publish-attestation.test.ts",
+      "test/lm-cli.test.ts"
     ],
     "thresholds": {
       "statements": 100,

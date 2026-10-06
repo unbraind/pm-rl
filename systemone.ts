@@ -28,9 +28,9 @@ import { createHash } from "node:crypto";
 import { EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
 
 import { canonicalJson, hashJson, type EnvironmentSpec, type JsonValue } from "./index.ts";
-import type { LoopStepConfig } from "./loop.ts";
+import { trainerSampleSeed, trainerEvaluationSeeds as evaluationSeeds, type LoopStepConfig } from "./loop.ts";
 import { decideTrainerPromotion } from "./promotion.ts";
-import { asJsonObject, expectedFail, requiredTrimmedString, storedCheckpointNumber, storedCheckpointDigest, verifyReplayFields, verifyTrainerReceipt } from "./refuse.ts";
+import { asJsonObject, expectedFail, requiredTrimmedString, storedCheckpointNumber, storedCheckpointDigest, verifyReplayFields, verifyTrainerReceipt, verifyTrainerConfiguration } from "./refuse.ts";
 import type { MetricEvent } from "./series.ts";
 
 /** Format identity of one calibration head checkpoint. */
@@ -83,15 +83,6 @@ const LCG_MULTIPLIER = 1_664_525;
 
 /** LCG increment shared with the bandit adapter. */
 const LCG_INCREMENT = 1_013_904_223;
-
-/** Salt separating a generation's incumbent and candidate evaluation streams. */
-const CANDIDATE_SEED_SALT = 0x6d5b5b5d;
-
-/** Salt separating a generation's collection stream from its base seed. */
-const COLLECTION_SEED_SALT = 0x85ebca6b;
-
-/** Stride multiplying a sample's index into its own deterministic seed. */
-const SAMPLE_SEED_STRIDE = 0x9e3779b1;
 
 /** One choice question the frozen decision model is asked about every item. */
 export interface SystemOneChoiceSpec {
@@ -754,14 +745,10 @@ function sampleObservationAnswers(observation: SystemOneObservation, questions: 
 
 /** Derive the deterministic seed of one collection sample's answer stream. */
 export function systemOneSampleSeed(base: number, generation: number, step: number): number {
-  return (Math.imul(generation, SAMPLE_SEED_STRIDE) + Math.imul(step, LCG_MULTIPLIER) + base + COLLECTION_SEED_SALT) >>> 0;
+  return trainerSampleSeed(base, generation, step);
 }
 
-/** Derive a generation's incumbent and candidate held-out evaluation stream seeds. */
-function evaluationSeeds(base: number, generation: number): readonly [number, number] {
-  const incumbent = (Math.imul(generation, SAMPLE_SEED_STRIDE) + base) >>> 0;
-  return [incumbent, (incumbent + CANDIDATE_SEED_SALT) >>> 0];
-}
+
 
 /** Mean correctness of one sampled answer set against an example's true labels. */
 function sampledAnswerReward(answers: Readonly<Record<string, string>>, example: SystemOneExample, questions: readonly SystemOneChoiceSpec[]): number {
@@ -1108,13 +1095,10 @@ export function verifyStoredSystemOneGeneration(config: SystemOneLoopConfig, ste
   const receipt = executeSystemOneStep(config, step, stored.generation, source, collection, heldOut, stored.usageTokens);
   const expected: Array<[string, unknown, unknown]> = [
     ["generation", stored.generation, receipt.generation],
-    ["learning_rate", stored.learningRate, step.learningRate],
-    ["evaluation_samples", stored.evaluationSamples, step.evaluationSamples],
-    ["fit_steps", stored.fitSteps, config.fitSteps],
-    ["samples", stored.samples, config.samplesPerGeneration],
     ["held_out_samples", stored.heldOutSamples, config.evaluation.length],
     ["collection_digest", stored.collectionDigest, receipt.collectionDigest],
   ];
+  verifyTrainerConfiguration(stored, step, config);
   verifyReplayFields(expected, stored.generation);
   verifyTrainerReceipt(stored, receipt, stored.generation);
   return receipt;

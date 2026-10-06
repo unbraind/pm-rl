@@ -33,13 +33,13 @@ function smallConfig(overrides: Record<string, unknown> = {}): Record<string, Js
     alphabet: ["0", "1", "2"],
     string_length: 2,
     model: { d_model: 8, ffn: 12, layers: 1, rank: 2 },
-    limits: { max_parameters: 256, max_checkpoint_bytes: 8192, max_steps: 64, max_wall_seconds: 60, model_license: "MIT", dataset_license: "MIT" },
+    limits: { max_parameters: 1024, max_checkpoint_bytes: 8192, max_steps: 256, max_wall_seconds: 60, model_license: "MIT", dataset_license: "MIT" },
     training: [{ id: "t0", string: "00" }, { id: "t1", string: "12" }, { id: "t2", string: "21" }, { id: "t3", string: "02" }, { id: "t4", string: "11" }],
     evaluation: [{ id: "h0", string: "01" }, { id: "h1", string: "22" }, { id: "h2", string: "10" }, { id: "h3", string: "20" }],
     seed: 11,
     max_generations: 2,
-    samples_per_generation: 16,
-    budget: 32,
+    samples_per_generation: 32,
+    budget: 64,
     learning_rate: 0.8,
     fit_steps: 12,
     kl_weight: 0.01,
@@ -228,7 +228,7 @@ test("rerunning one loop id resumes idempotently instead of extending the lineag
   const repeat = await runLoopCommand(harness, pmRoot, root, "lmsmall", smallConfig() as JsonValue, approval);
   assert.deepEqual(stable(repeat), stable(first));
   assert.ok(repeat.resumed_generations >= 1);
-  assert.equal((await rlLoopStatus(client, "lmsmall")).promoted, first.promoted);
+  assert.equal((await rlLoopStatus(client, "lmsmall", pmRoot)).promoted, first.promoted);
 });
 
 test("a contaminated programme is refused before any completion is collected", async () => {
@@ -252,17 +252,17 @@ test("an exhausted promotion budget refuses the persisted promotion and records 
   assert.ok(report.refusal_reason !== null);
   const comments = await client.comments(report.generations[1]!.item);
   assert.ok(JSON.stringify(comments).includes("promotion refused"));
-  assert.equal((await rlLoopStatus(client, "lmsingle")).stop_reason, "promotion_refused");
+  assert.equal((await rlLoopStatus(client, "lmsingle", pmRoot)).stop_reason, "promotion_refused");
 });
 
 test("an exhausted sample budget stops the loop before collecting past its bound", async () => {
   const { root, pmRoot, client, harness } = await workspace();
   const approval = await createApproval(client, "lm-budget-approval", 8);
-  const report = await runLoopCommand(harness, pmRoot, root, "lmbudget", smallConfig({ budget: 16, max_generations: 3 }) as JsonValue, approval);
+  const report = await runLoopCommand(harness, pmRoot, root, "lmbudget", smallConfig({ budget: 32, max_generations: 3 }) as JsonValue, approval);
   assert.equal(report.stop_reason, "budget_exhausted");
   assert.ok(report.generations.length >= 1);
-  assert.ok(report.samples_consumed <= 16);
-  assert.match(report.refusal_reason ?? "", /sample budget 16 exhausted/);
+  assert.ok(report.samples_consumed <= 32);
+  assert.match(report.refusal_reason ?? "", /sample budget 32 exhausted/);
 });
 
 test("a cancellation at the collection boundary resumes from persisted evidence", async () => {
@@ -277,16 +277,16 @@ test("a cancellation at the collection boundary resumes from persisted evidence"
   });
   // The interrupted loop stands with a complete, closed collection run whose
   // fit never executed; the status view names that exact phase.
-  const status = await rlLoopStatus(client, "partial");
+  const status = await rlLoopStatus(client, "partial", pmRoot);
   assert.equal(status.trainer, "lm");
   assert.equal(status.generations[0]?.phase, "collected");
-  assert.equal(status.samples_consumed, 16);
+  assert.equal(status.samples_consumed, 32);
   const report = await resumeRlLoop(client, { pmRoot, author: "pm-rl-test" }, { id: "partial", approval });
   assert.ok(report.promoted >= 1, `expected a promotion, got ${report.stop_reason}`);
-  assert.ok(report.samples_consumed <= 32);
+  assert.ok(report.samples_consumed <= 64);
   const repeated = await resumeRlLoop(client, { pmRoot, author: "pm-rl-test" }, { id: "partial", approval });
   assert.deepEqual(stable(repeated), stable(report));
-  assert.equal((await rlLoopStatus(client, "partial")).stop_reason, report.stop_reason);
+  assert.equal((await rlLoopStatus(client, "partial", pmRoot)).stop_reason, report.stop_reason);
 });
 
 test("collection evidence corruption and tampered lineage refuse advancement", async () => {
@@ -309,7 +309,7 @@ test("collection evidence corruption and tampered lineage refuse advancement", a
       }
       return { ...result, notes: encodeEventSegments(events).map((text) => ({ text, author: "test", created_at: "2026-01-01T00:00:00.000Z" })) } as Awaited<ReturnType<PmClient["notes"]>>;
     }) as PmClient["notes"];
-    await refusalOf(() => rlLoopStatus(client, "drift"), "loop_generation_drift");
+    await refusalOf(() => rlLoopStatus(client, "drift", pmRoot), "loop_generation_drift");
   }
   // A tampered run component is refused before any evidence is read.
   const { pmRoot, client } = await workspace();
@@ -318,7 +318,7 @@ test("collection evidence corruption and tampered lineage refuse advancement", a
     onPhase(phase) { if (phase === "train") throw new Error("pause"); } }), /pause/);
   const run = await client.get("component-g1-collect");
   await client.update(String(run.item.id), { component: `sha256:${"a".repeat(64)}` });
-  await refusalOf(() => rlLoopStatus(client, "component"), "loop_generation_drift");
+  await refusalOf(() => rlLoopStatus(client, "component", pmRoot), "loop_generation_drift");
 });
 
 test("a tampered candidate checkpoint is refused as invalid before the chain advances", async () => {
@@ -336,5 +336,5 @@ test("a tampered candidate checkpoint is refused as invalid before the chain adv
   const rewritten = body.replace(String(tensors.aq![0]), "2");
   assert.notEqual(rewritten, body);
   await client.update(String(candidate.item.id), { body: rewritten });
-  await refusalOf(() => rlLoopStatus(client, "tamper"), "lm_invalid_checkpoint");
+  await refusalOf(() => rlLoopStatus(client, "tamper", pmRoot), "lm_invalid_checkpoint");
 });

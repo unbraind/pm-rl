@@ -684,3 +684,14 @@ export function verifyStoredLoopGeneration(config: LoopConfig, step: LoopStepCon
   verifyTrainerReceipt(stored, receipt, generation);
   return receipt;
 }
+
+/** Derive independent deterministic per-sample streams for numerical trainer adapters. */
+export function trainerSampleSeed(base: number, generation: number, sample: number): number {
+  return (Math.imul(generation, 0x9e3779b1) + Math.imul(sample, 1_664_525) + base + 0x85ebca6b) >>> 0;
+}
+
+/** Independent incumbent and candidate held-out sampling streams shared by numerical trainers. */
+export function trainerEvaluationSeeds(base: number, generation: number): readonly [number, number] {
+  const incumbent = (Math.imul(generation, 0x9e3779b1) + base) >>> 0;
+  return [incumbent, (incumbent + 0x6d5b5b5d) >>> 0];
+}

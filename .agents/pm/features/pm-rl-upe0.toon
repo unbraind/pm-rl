@@ -6,21 +6,27 @@ status: in_progress
 priority: 1
 tags[3]: execution,llm-adapter,recursive-training
 created_at: "2026-10-06T12:49:29.811Z"
-updated_at: "2026-10-06T14:38:31.080Z"
+updated_at: "2026-10-06T14:51:13.556Z"
 assignee: codex-sol
 claim_principal: codex-sol
 author: pi-glm
 acceptance_criteria: "A real pm CLI acceptance run of >=3 generations where gen-1 and gen-2 checkpoints differ, gen-2 collects with gen-1's promoted adapter asserted via receipts, held-out exact-match strictly improves over the base, and a contaminated run is refused; unit, property (gradient check, seed determinism), integration and performance budget tests at exact 100/100/100/100 coverage; docs/lm-adapter.md records the measured generation table"
 parent: pm-rl-apvf
-comments[3]{created_at,author,text}:
+comments[4]{created_at,author,text}:
   "2026-10-06T12:49:36.273Z",pi-glm,"Starting the bounded LM trainer adapter slice in the package worktree on branch feat/lm-policy-adapter. Plan: (1) prototype the tiny transformer + REINFORCE offline to pick sizes that keep the acceptance run under ~20s on CPU, (2) author lm.ts mirroring systemone.ts contracts (parse/execute/verify/promotion scores/seed configs), (3) wire the lm trainer into loop.ts/index.ts dispatch without forking the controller, (4) tests: unit+property (finite-difference gradient check over every parameter tensor, seed determinism), integration + CLI acceptance + performance budget, (5) docs/lm-adapter.md + README + RECURSIVE_TRAINING status."
   "2026-10-06T14:36:39.057Z",codex-sol,"Continuing the existing bounded LM feature: audit inherited math, trainer lineage and receipts; verify focused tests; commit logical progress early; then complete CLI evidence, full release gates and documentation."
   "2026-10-06T14:38:31.079Z",codex-sol,"Inherited draft verification: npm ci and npm run typecheck passed; node --test test/lm.test.ts test/lm-loop.test.ts passed 20/20, including finite differences over every base and adapter tensor. The existing acceptance uses the SDK command harness, so a spawned real CLI acceptance and manual measured run are still required. Audit found missing filesystem checkpoint artifacts, differing hash/serialization payloads, squared L2 reporting, and incomplete resource enforcement; retaining this passing draft as an early progress checkpoint before corrections."
-files[6]{path,scope}:
+  "2026-10-06T14:51:13.556Z",codex-sol,"Corrected the draft to sequence-reward REINFORCE with the batch mean baseline. Copy pretraining is restricted to declared training content. Checkpoint digests now hash the exact canonical stored bytes; immutable artifacts are persisted and checked before replay advances. Parameters include the frozen base, optimizer limits reserve pretraining plus every declared generation, and clock guards stop CPU work between batches and sampled episodes. Focused suite passed 20/20 after fixture correction; the first packed real CLI proof ran three generations in 9.03s with two promotions and a third-generation regression refusal. Full source coverage remains in progress."
+files[9]{path,scope}:
   examples/loop-lm.json,project
   index.ts,project
   lm.ts,project
   loop.ts,project
+  refuse.ts,project
+  systemone.ts,project
+  test/lm-cli.test.ts,project
   test/lm-loop.test.ts,project
   test/lm.test.ts,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  npm run typecheck,project,codex-sol,"2026-10-06T14:50:14.700Z",local_mutation,feat/lm-policy-adapter
 body: ""

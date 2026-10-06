@@ -1,5 +1,9 @@
 /** Causal language model: numerical proofs, checkpoints, refusals and replay. */
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { parseLoopProgramme, parseLoopTrainer } from "../loop.ts";
@@ -11,7 +15,8 @@ import {
   lmReinforceSurrogate, lmRunConfig, lmSampleSeed, lmSeedTrainingConfig, lmSupervisedGradient,
   lmSupervisedLoss, parseLmAdapter, parseLmCollectionEvent, parseLmLoopConfig, parseStoredLmGeneration,
   rotateTargetTokens, sampleLmCompletion, seededLmAdapter, serializeLmCheckpoint, trainLmBasePolicy,
-  verifyStoredLmGeneration,
+  verifyStoredLmGeneration, persistLmCheckpoint, verifyLmCheckpointArtifact, lmCheckpointPath,
+  jsonLmAdapter, lmForward, lmParameterCount,
   MAX_LM_ALPHABET, MAX_LM_EXAMPLES, MAX_LM_FFN_DIM, MAX_LM_FIT_STEPS, MAX_LM_LORA_RANK,
   MAX_LM_MODEL_DIM, MAX_LM_POSITIONS, MAX_LM_STRING_LENGTH, MIN_LM_LEARNING_RATE,
   LM_CHECKPOINT_FORMAT, LM_COLLECTION_METRIC, LM_GENERATION_FORMAT, LM_RUN_FORMAT, LM_SEED_FORMAT,
@@ -40,13 +45,13 @@ function configValue(overrides: Record<string, unknown> = {}): Record<string, Js
     alphabet: ALPHABET,
     string_length: 2,
     model: { d_model: 8, ffn: 12, layers: 1, rank: 2 },
-    limits: { max_parameters: 256, max_checkpoint_bytes: 8192, max_steps: 64, max_wall_seconds: 60, model_license: "MIT", dataset_license: "MIT" },
+    limits: { max_parameters: 1024, max_checkpoint_bytes: 8192, max_steps: 256, max_wall_seconds: 60, model_license: "MIT", dataset_license: "MIT" },
     training: [{ id: "t0", string: "00" }, { id: "t1", string: "12" }, { id: "t2", string: "21" }, { id: "t3", string: "02" }, { id: "t4", string: "11" }],
     evaluation: [{ id: "h0", string: "01" }, { id: "h1", string: "22" }, { id: "h2", string: "10" }, { id: "h3", string: "20" }],
     seed: 11,
     max_generations: 3,
-    samples_per_generation: 16,
-    budget: 64,
+    samples_per_generation: 32,
+    budget: 96,
     learning_rate: 0.8,
     fit_steps: 12,
     kl_weight: 0.01,
@@ -102,13 +107,15 @@ function finiteDifferenceGradient(tensors: ReadonlyArray<readonly [Float32Array,
     for (let i = 0; i < tensor.length; i += 1) {
       const value = tensor[i]!;
       tensor[i] = value + step;
+      const plusAt = tensor[i]!;
       const plus = loss();
       tensor[i] = value - step;
+      const minusAt = tensor[i]!;
       const minus = loss();
       tensor[i] = value;
-      numeric[i] = (plus - minus) / (2 * step);
+      numeric[i] = (plus - minus) / (plusAt - minusAt);
     }
-    const error = relativeError(numeric, gradient as unknown as Float64Array);
+    const error = relativeError(numeric, gradient);
     assert.ok(error < 1e-3, `${name} relative error ${error}`);
   }
 }
@@ -138,7 +145,7 @@ test("the REINFORCE surrogate differentiates to its gradient over every adapter 
   }
   const samples: LmFitSample[] = ["01", "20", "12"].map((example, index) => {
     const completion = sampleLmCompletion(SHAPE, weights, adapter, example, ALPHABET, 700 + index);
-    return { example, tokens: completion.tokens, reward: lmCompletionReward(completion.tokens, rotateTargetTokens(example, ALPHABET)), positionRewards: [] };
+    return { example, tokens: completion.tokens, reward: lmCompletionReward(completion.tokens, rotateTargetTokens(example, ALPHABET)) };
   });
   const klWeight = 0.05;
   const loss = (): number => lmReinforceSurrogate(SHAPE, weights, adapter, samples, ALPHABET, klWeight).loss;
@@ -206,7 +213,7 @@ test("the declared limits stop a candidate with their own recorded refusals", ()
   assert.match(slowWall.refusalReason ?? "", /exceeding the declared maximum/);
   assert.equal(slowWall.promoted, false);
   // A widening training-to-evaluation gap is refused before the statistics.
-  const overfit = parseLmLoopConfig(configValue({ maximum_gap: 0, fit_steps: 40, learning_rate: 2, kl_weight: 0 }));
+  const overfit = parseLmLoopConfig(configValue({ maximum_gap: 0 }));
   const gapped = executeLmStep(overfit, { learningRate: overfit.learningRate, evaluationSamples: overfit.evaluationSamples }, 1, overfit.initial, lmCollectBatch(overfit, 1, overfit.initial), 50);
   assert.equal(gapped.stopReason, "gap_rejected");
   assert.match(gapped.refusalReason ?? "", /training-to-evaluation gap/);
@@ -223,7 +230,7 @@ test("a regressing candidate is refused and never becomes the collection policy"
   // loop keeps generation one's checkpoint as the collecting policy.
   const second = executeLmStep(config, step, 2, first.candidate, lmCollectBatch(config, 2, first.candidate), 50);
   assert.equal(second.stopReason, "evaluation_rejected");
-  assert.match(second.refusalReason ?? "", /cannot promote a regression/);
+  assert.match(second.refusalReason ?? "", /regress/);
   assert.ok(second.candidateHeldOutMean < second.incumbentHeldOutMean);
   assert.notEqual(second.candidate.digest, first.candidate.digest);
 });
@@ -287,15 +294,15 @@ test("parseLmLoopConfig refuses every missing, mistyped or out-of-bounds field",
     [{ training: [] }, "lm_invalid_dataset_size"],
     [{ limits: null }, "lm_invalid_limits"],
     [{ limits: {} }, "lm_invalid_max_parameters"],
-    [{ limits: { max_parameters: 0, max_checkpoint_bytes: 8192, max_steps: 64, max_wall_seconds: 60, model_license: "MIT", dataset_license: "MIT" } }, "lm_invalid_max_parameters"],
-    [{ limits: { max_parameters: 1, max_checkpoint_bytes: 8192, max_steps: 64, max_wall_seconds: 60, model_license: "MIT", dataset_license: "MIT" } }, "lm_limit_parameters_exceeded"],
-    [{ limits: { max_parameters: 256, max_checkpoint_bytes: 0, max_steps: 64, max_wall_seconds: 60, model_license: "MIT", dataset_license: "MIT" } }, "lm_invalid_max_checkpoint_bytes"],
-    [{ limits: { max_parameters: 256, max_checkpoint_bytes: 1, max_steps: 64, max_wall_seconds: 60, model_license: "MIT", dataset_license: "MIT" } }, "lm_limit_checkpoint_bytes"],
-    [{ limits: { max_parameters: 256, max_checkpoint_bytes: 8192, max_steps: 0, max_wall_seconds: 60, model_license: "MIT", dataset_license: "MIT" } }, "lm_invalid_max_steps"],
-    [{ limits: { max_parameters: 256, max_checkpoint_bytes: 8192, max_steps: MAX_LM_FIT_STEPS + 1, max_wall_seconds: 60, model_license: "MIT", dataset_license: "MIT" } }, "lm_invalid_max_steps"],
-    [{ limits: { max_parameters: 256, max_checkpoint_bytes: 8192, max_steps: 64, max_wall_seconds: 0, model_license: "MIT", dataset_license: "MIT" } }, "lm_invalid_max_wall_seconds"],
-    [{ limits: { max_parameters: 256, max_checkpoint_bytes: 8192, max_steps: 64, max_wall_seconds: 60, model_license: "GPL", dataset_license: "MIT" } }, "lm_invalid_license"],
-    [{ limits: { max_parameters: 256, max_checkpoint_bytes: 8192, max_steps: 64, max_wall_seconds: 60, model_license: "MIT", dataset_license: "Apache-2.0" } }, "lm_invalid_license"],
+    [{ limits: { max_parameters: 0, max_checkpoint_bytes: 8192, max_steps: 256, max_wall_seconds: 60, model_license: "MIT", dataset_license: "MIT" } }, "lm_invalid_max_parameters"],
+    [{ limits: { max_parameters: 1, max_checkpoint_bytes: 8192, max_steps: 256, max_wall_seconds: 60, model_license: "MIT", dataset_license: "MIT" } }, "lm_limit_parameters_exceeded"],
+    [{ limits: { max_parameters: 1024, max_checkpoint_bytes: 0, max_steps: 256, max_wall_seconds: 60, model_license: "MIT", dataset_license: "MIT" } }, "lm_invalid_max_checkpoint_bytes"],
+    [{ limits: { max_parameters: 1024, max_checkpoint_bytes: 1, max_steps: 256, max_wall_seconds: 60, model_license: "MIT", dataset_license: "MIT" } }, "lm_limit_checkpoint_bytes"],
+    [{ limits: { max_parameters: 1024, max_checkpoint_bytes: 8192, max_steps: 0, max_wall_seconds: 60, model_license: "MIT", dataset_license: "MIT" } }, "lm_invalid_max_steps"],
+    [{ limits: { max_parameters: 1024, max_checkpoint_bytes: 8192, max_steps: MAX_LM_FIT_STEPS + 1, max_wall_seconds: 60, model_license: "MIT", dataset_license: "MIT" } }, "lm_invalid_max_steps"],
+    [{ limits: { max_parameters: 1024, max_checkpoint_bytes: 8192, max_steps: 256, max_wall_seconds: 0, model_license: "MIT", dataset_license: "MIT" } }, "lm_invalid_max_wall_seconds"],
+    [{ limits: { max_parameters: 1024, max_checkpoint_bytes: 8192, max_steps: 256, max_wall_seconds: 60, model_license: "GPL", dataset_license: "MIT" } }, "lm_invalid_license"],
+    [{ limits: { max_parameters: 1024, max_checkpoint_bytes: 8192, max_steps: 256, max_wall_seconds: 60, model_license: "MIT", dataset_license: "Apache-2.0" } }, "lm_invalid_license"],
     [{ seed: -1 }, "lm_invalid_seed"],
     [{ seed: 2 ** 32 }, "lm_invalid_seed"],
     [{ max_generations: 0 }, "lm_invalid_max_generations"],
@@ -305,7 +312,7 @@ test("parseLmLoopConfig refuses every missing, mistyped or out-of-bounds field",
     [{ budget: 100_001 }, "lm_invalid_budget"],
     [{ learning_rate: MIN_LM_LEARNING_RATE / 10 }, "lm_invalid_learning_rate"],
     [{ learning_rate: 5.1 }, "lm_invalid_learning_rate"],
-    [{ fit_steps: 65 }, "lm_invalid_fit_steps"],
+    [{ fit_steps: 257 }, "lm_invalid_fit_steps"],
     [{ kl_weight: -0.1 }, "lm_invalid_kl_weight"],
     [{ kl_weight: 1.1 }, "lm_invalid_kl_weight"],
     [{ clip_norm: 0 }, "lm_invalid_clip_norm"],
@@ -343,6 +350,7 @@ test("adapter checkpoints serialize canonically, round-trip and bind their diges
   const serialized = serializeLmCheckpoint(checkpoint, config);
   assert.ok(serialized.bytes > 0);
   assert.equal(serialized.bytes, Buffer.byteLength(serialized.text, "utf8"));
+  assert.equal(checkpoint.digest, `sha256:${createHash("sha256").update(serialized.text).digest("hex")}`);
   const parsed = JSON.parse(serialized.text) as { format: string };
   assert.equal(parsed.format, LM_CHECKPOINT_FORMAT);
   // The persisted tensors round-trip through the adapter parser.
@@ -356,6 +364,70 @@ test("adapter checkpoints serialize canonically, round-trip and bind their diges
   tensors.aq = [...(decoded.aq as unknown as number[]), Number.NaN];
   refuses(() => parseLmAdapter(tensors, config.shape, "stored"), "lm_invalid_checkpoint");
   void adapter;
+});
+
+test("immutable checkpoint artifacts refuse missing, corrupt and unwritable evidence", async () => {
+  const root = mkdtempSync(join(tmpdir(), "pm-rl-lm-artifact-"));
+  const config = parseLmLoopConfig(configValue());
+  const checkpoint = config.initial;
+  try {
+    await assert.rejects(verifyLmCheckpointArtifact(root, checkpoint, config), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "lm_checkpoint_artifact_missing");
+    await persistLmCheckpoint(root, checkpoint, config);
+    const path = join(root, lmCheckpointPath(checkpoint));
+    const original = readFileSync(path, "utf8");
+    await persistLmCheckpoint(root, checkpoint, config);
+    assert.equal(readFileSync(path, "utf8"), original);
+    writeFileSync(path, "corrupt");
+    await assert.rejects(persistLmCheckpoint(root, checkpoint, config), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "lm_checkpoint_artifact_corrupt");
+    assert.equal(readFileSync(path, "utf8"), "corrupt");
+    rmSync(path);
+    mkdirSync(path);
+    await assert.rejects(persistLmCheckpoint(root, checkpoint, config), (error: unknown) => error instanceof Error && "code" in error && error.code === "EISDIR");
+    // A filesystem failure other than EEXIST must propagate, never look successful.
+    const blocking = join(root, "blocking");
+    writeFileSync(blocking, "file");
+    await assert.rejects(persistLmCheckpoint(blocking, checkpoint, config));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("resource declarations account for the full model and bound real CPU work", () => {
+  const value = configValue();
+  const limits = value.limits as Record<string, JsonValue>;
+  refuses(() => parseLmLoopConfig({ ...value, limits: { ...limits, max_parameters: 100 } }), "lm_limit_parameters_exceeded");
+  refuses(() => parseLmLoopConfig({ ...value, limits: { ...limits, max_steps: 60 } }), "lm_limit_steps_exceeded");
+  refuses(() => parseLmLoopConfig({ ...value, limits: { ...limits, max_wall_seconds: 1e-12 } }), "lm_limit_wall_seconds");
+  const config = parseLmLoopConfig(value);
+  assert.equal(lmParameterCount(config.shape), 744);
+  const frozen = JSON.stringify(config.base);
+  const batch = lmCollectBatch(config, 1, config.initial);
+  const step = { learningRate: config.learningRate, evaluationSamples: config.evaluationSamples };
+  const constrained = { ...config, limits: { ...config.limits, maxWallSeconds: 1e-12 } };
+  refuses(() => lmCollectBatch(constrained, 1, constrained.initial), "lm_limit_wall_seconds");
+  refuses(() => executeLmStep(constrained, step, 1, constrained.initial, batch, null), "lm_limit_wall_seconds");
+  executeLmStep(config, step, 1, config.initial, batch, 50);
+  assert.equal(JSON.stringify(config.base), frozen, "RL cannot mutate the pretrained base");
+  const tensors = jsonLmAdapter(config.initial.adapter) as Record<string, JsonValue>;
+  refuses(() => parseLmAdapter({ ...tensors, aq: [Number.MAX_VALUE, ...(tensors.aq as number[]).slice(1)] }, config.shape, "overflow"), "lm_invalid_checkpoint");
+  refuses(() => parseLmAdapter({ ...tensors, aq: [Number.NaN, ...(tensors.aq as number[]).slice(1)] }, config.shape, "NaN"), "lm_invalid_checkpoint");
+  const invalid = copyLmAdapter(config.initial.adapter);
+  invalid.aq[0] = Number.NaN;
+  refuses(() => lmCheckpoint(invalid, config), "lm_nonfinite_tensor");
+  refuses(() => executeLmStep(config, step, 1, config.initial, [{ ...batch[0]!, example: "foreign" }], 50), "lm_collection_example");
+  refuses(() => lmReinforceSurrogate(config.shape, config.base, config.initial.adapter,
+    [{ example: "00", tokens: [3, 3], reward: 0 }], config.alphabet, 0, { started: 0, seconds: 1e-12 }), "lm_limit_wall_seconds");
+});
+
+test("causal attention cannot read future tokens and copy pretraining uses only supplied content", () => {
+  const config = parseLmLoopConfig(configValue());
+  const first = lmForward(config.shape, config.base, config.initial.adapter, [0, 3, 4, 1]);
+  const changed = lmForward(config.shape, config.base, config.initial.adapter, [0, 3, 5, 2]);
+  assert.deepEqual(first.logits.slice(0, 2), changed.logits.slice(0, 2));
+  const training = config.training.map((example) => example.string);
+  const pretraining = trainLmBasePolicy(config.shape, config.alphabet, config.seed, training);
+  assert.ok(pretraining.strings.every((text) => training.includes(text)));
+  assert.deepEqual(pretraining.weights, config.base);
 });
 
 test("collection events round-trip and corrupted evidence is refused", () => {
@@ -403,6 +475,9 @@ test("stored generations replay exactly and tampered evidence fails closed", () 
   refuses(() => parseStoredLmGeneration({ ...tampered, generation: 0 } as unknown as JsonValue, config, "stored"), "lm_invalid_training_config");
   refuses(() => parseStoredLmGeneration({ ...tampered, samples: 0 } as unknown as JsonValue, config, "stored"), "lm_invalid_training_config");
   refuses(() => parseStoredLmGeneration({ ...tampered, collection_digest: "sha256:0" } as unknown as JsonValue, config, "stored"), "lm_invalid_checkpoint");
+  const original = lmGenerationTrainingConfig(config, step, receipt) as Record<string, JsonValue>;
+  refuses(() => parseStoredLmGeneration({ ...original, candidate_checkpoint: `sha256:${"0".repeat(64)}` }, config, "stored"), "lm_invalid_checkpoint");
+  refuses(() => parseStoredLmGeneration({ ...original, checkpoint_bytes: 0 }, config, "stored"), "lm_invalid_checkpoint");
 });
 
 test("the environment spec, run, seed and promotion score records carry the full contract", () => {

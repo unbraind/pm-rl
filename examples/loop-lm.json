@@ -20,9 +20,9 @@
     "rank": 4
   },
   "limits": {
-    "max_parameters": 512,
+    "max_parameters": 4096,
     "max_checkpoint_bytes": 65536,
-    "max_steps": 64,
+    "max_steps": 256,
     "max_wall_seconds": 60,
     "model_license": "MIT",
     "dataset_license": "MIT"
@@ -195,7 +195,7 @@
   "max_generations": 4,
   "samples_per_generation": 64,
   "budget": 400,
-  "learning_rate": 0.6,
+  "learning_rate": 1,
   "fit_steps": 6,
   "kl_weight": 0.02,
   "clip_norm": 0.5,
