@@ -299,6 +299,16 @@ test("incomplete post-collection evidence refuses fitting", async () => {
   }), "loop_generation_drift");
 });
 
+test("a stored candidate cannot resume after its collection evidence disappears", async () => {
+  const { pmRoot, client } = await workspace();
+  const approval = await createApproval(client, "lost-evidence-approval", 8);
+  await assert.rejects(runRlLoop(client, { pmRoot, author: "pm-rl-test" }, { id: "lost-evidence", approval, config: smallConfig(),
+    onPhase(phase) { if (phase === "train") throw new Error("pause after candidate"); },
+  }), /pause after candidate/);
+  client.notes = (async (id: string) => ({ id, notes: [], count: 0 })) as PmClient["notes"];
+  await refusalOf(() => rlLoopStatus(client, "lost-evidence", pmRoot), "loop_generation_drift");
+});
+
 test("an exhausted promotion budget refuses the persisted promotion and records the refusal", async () => {
   const { root, pmRoot, client, harness } = await workspace();
   const approval = await createApproval(client, "lm-single-approval", 1);

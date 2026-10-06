@@ -1184,12 +1184,6 @@ export function lmCompletionReward(sampled: readonly number[], expected: readonl
   return 0.5 * (correct / answerLength) + 0.5 * exact;
 }
 
-/** Draw one uint32 LCG step and return it as a uniform draw in [0, 1). */
-function uniform(state: number): { readonly draw: number; readonly state: number } {
-  const next = lcgStep(state);
-  return { draw: next / 0x1_0000_0000, state: next };
-}
-
 /** Sample one token from a probability vector under a uniform draw. */
 function sampleFromProbabilities(probabilities: Readonly<Float64Array>, draw: number): number {
   let cumulative = 0;
@@ -1225,9 +1219,8 @@ export function sampleLmCompletion(shape: LmModelShape, weights: LmWeights, adap
   for (let step = 0; step < answerLength; step += 1) {
     const { logits } = lmForward(shape, weights, adapter, [...prefix, ...tokens]);
     const probabilities = softmax(logits[logits.length - 1]!);
-    const draw = uniform(cursor);
-    cursor = draw.state;
-    tokens.push(sampleFromProbabilities(probabilities, draw.draw));
+    cursor = lcgStep(cursor);
+    tokens.push(sampleFromProbabilities(probabilities, cursor / 0x1_0000_0000));
   }
   return { tokens, state: cursor };
 }
