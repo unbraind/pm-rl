@@ -95,8 +95,10 @@ The response must contain exactly the requested choice answers, finite normalize
 `usage.input_tokens`/`usage.output_tokens`. A response may include a `type` marker;
 a foreign type refuses. `noul` and `score` are not trainable by this choice head.
 Errors and timeouts leave completed decision notes intact. Caller AbortSignal,
-SIGINT and SIGTERM stop progression. Endpoint latency is measured through body
+SIGINT and SIGTERM stop progression. Legacy endpoint latency is measured through body
 receipt and persisted per decision, separately from controller wall time.
+Receipt mode persists the endpoint's original inference latency, including on
+retrieval.
 
 `training` and `evaluation` contain `{id,title,description,labels}` items. Labels
 map each question name to a declared option. Identities must be unique and disjoint;
@@ -249,6 +251,19 @@ input-leading-zero`. Restoring the canonical validator rejects padded token
 strings before any further HTTP request.
 
 ## Package verification
+
+The receipt recovery implementation and tests at `fe69f39` passed both
+`npm run release:check` and `bun run release:check`: **439/439 tests per gate**,
+zero failures/skips and exact **100% statements, lines, branches and functions**
+across all **24 authored source files**, including operational scripts. Coverage
+ignores remain empty and all thresholds remain 100. Both gates also passed strict
+TypeScript, lint, zero duplication, all 227 documented declarations, identity
+and publish-attestation checks, production audit with zero vulnerabilities,
+pack dry run and changelog validation. The latest PM-linked recovery and adapter
+commands passed 6/6 and 8/8 tests. Both behavioral revert proofs are documented
+above. Receipt guarantees are conditional on the supported endpoint contract;
+these tests contact local synthetic servers only.
+
 
 The earlier continuation slice passed 398 tests with `npm run release:check`, zero failures/skips, and exact
 100% statements, lines, branches and functions across all 23 authored source
