@@ -20,7 +20,8 @@
  * URL — no new runtime dependency — and every collected or held-out decision
  * is persisted as one merge-safe metric event, so a crashed controller
  * resumes by appending only the missing queries rather than re-spending the
- * endpoint budget.
+ * endpoint budget when immutable receipt recovery is enabled. Legacy endpoints
+ * recover committed decisions only.
  */
 
 import { createHash } from "node:crypto";
@@ -1254,13 +1255,16 @@ export function systemOneDecisionRequestId(config: SystemOneLoopConfig, source: 
 
 /** Validate persisted receipt identity and reconcile the individual token counts with their total. */
 export function verifySystemOneReceiptEvent(event: MetricEvent, requestId: string): void {
-  const tags = event.tags!;
+  const tags = event.tags ?? {};
   const input = Number(tags["input_tokens"]); const output = Number(tags["output_tokens"]);
+  const latency = Number(tags["latency_ms"]);
   if (tags["request_id"] !== requestId || typeof tags["decision_id"] !== "string" || tags["decision_id"].trim().length === 0
-    || tags["decision_id"].length > 256 || tags["physical_requests"] !== "1"
+    || tags["decision_id"] !== tags["decision_id"].trim() || tags["decision_id"].length > 256 || tags["physical_requests"] !== "1"
     || tags["input_tokens"] === undefined || tags["output_tokens"] === undefined
     || !Number.isSafeInteger(input) || input < 0 || !Number.isSafeInteger(output) || output < 0
-    || !Number.isSafeInteger(input + output) || input + output !== Number(tags["tokens"])) {
+    || !Number.isSafeInteger(input + output) || String(input + output) !== tags["tokens"]
+    || String(input) !== tags["input_tokens"] || String(output) !== tags["output_tokens"]
+    || !Number.isFinite(latency) || latency < 0 || String(latency) !== tags["latency_ms"]) {
     expectedFail("Persisted decision receipt identity or physical/token accounting disagrees with its request.", "loop_generation_drift", EXIT_CODE.CONFLICT);
   }
 }

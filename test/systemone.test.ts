@@ -226,7 +226,11 @@ test("idempotency protocol validates immutable endpoint receipts and persisted a
   refuses(() => parseSystemOneLoopConfig({ ...configValue(), decision_model: { base_url: "http://127.0.0.1", model: "tev1:4b", timeout_ms: 1, receipt_protocol: "other" } }), "systemone_invalid_receipt_protocol");
   const event = systemOneDecisionEvent(SYSTEMONE_COLLECTION_METRIC, 0, observations("train")[0], decision.usage);
   verifySystemOneReceiptEvent(event, requestId);
-  for (const tags of [{ ...event.tags, decision_id: undefined }, { ...event.tags, decision_id: "x".repeat(257) },
+  refuses(() => verifySystemOneReceiptEvent({ ...event, tags: undefined }, requestId), "loop_generation_drift");
+  for (const tags of [{ ...event.tags, decision_id: " padded " },
+    { ...event.tags, input_tokens: "010" }, { ...event.tags, output_tokens: "01" }, { ...event.tags, tokens: "011" },
+    ...[undefined, "", "-1", "NaN", "12.0"].map((latency_ms) => ({ ...event.tags, latency_ms })),
+    { ...event.tags, decision_id: undefined }, { ...event.tags, decision_id: "x".repeat(257) },
     { ...event.tags, input_tokens: undefined }, { ...event.tags, output_tokens: undefined },
     { ...event.tags, input_tokens: "-1" }, { ...event.tags, input_tokens: "0.5" },
     { ...event.tags, output_tokens: "-1" }, { ...event.tags, output_tokens: "0.5" },

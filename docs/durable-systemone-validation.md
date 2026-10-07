@@ -196,7 +196,9 @@ nonnegative. Responses missing or disagreeing with this contract refuse before
 PM persistence. The metric event retains both identities, `physical_requests`,
 individual input/output counts, their total and original latency. Status and
 resume verify the content-bound key, accounting and unique decision identities
-within each run before advancing. Sum `physical_requests`, `input_tokens` and
+within each run before advancing. Stored counts and latency must use the
+canonical strings written by the package; padded or malformed representations
+refuse. Sum `physical_requests`, `input_tokens` and
 `output_tokens` over the run's receipt events to reconcile inference spending;
 HTTP retries are transport attempts and are not additional inferences. A
 partial run can have an unresolved remote receipt that status cannot yet count:
@@ -241,6 +243,10 @@ accounting: **9 actual versus 8 expected**, including a real SIGKILL after remot
 completion. Restore the fixed bodies and rebuild before running the full suite.
 The proof changes behavior without deleting test seams or causing load/type
 failures. The initial unmodified-package reproduction also failed at 9 versus 8.
+Restoring only the earlier `verifySystemOneReceiptEvent` body also builds and
+makes the real-tracker corruption test fail with `Missing expected rejection:
+input-leading-zero`. Restoring the canonical validator rejects padded token
+strings before any further HTTP request.
 
 ## Package verification
 
@@ -258,7 +264,7 @@ Earlier adapter acceptance passed `bun run check`, `bun run build:test` and
 packed npm/Node and native Bun consumers each completed two promotions, eight
 requests, eight charged logical samples, successor collection, checkpoint
 validation and status/resume without further requests. The current release gate
-includes 25 durable-loop tests and 7 adapter tests. PM-linked commands
+includes 25 durable-loop tests, 8 adapter tests and 6 receipt-recovery tests. PM-linked commands
 `node --test --test-name-pattern="terminal bandit candidates" test/durable-loop.test.ts`,
 `node --test --test-name-pattern="real HTTP usage" test/systemone.test.ts` and
 `node --test test/systemone.test.ts` passed. Earlier PM-linked full durability

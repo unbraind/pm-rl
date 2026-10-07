@@ -133,7 +133,7 @@ test("SIGKILL at every HTTP-to-PM receipt boundary replays one decision per quer
 });
 
 test("receipt resume rejects rewritten namespaces, identities and token accounting before HTTP", async () => {
-  for (const fault of ["missing", "malformed", "duplicate-namespace", "request_id", "decision_id", "physical_requests", "input_tokens", "output_tokens", "duplicate-decision"]) {
+  for (const fault of ["missing", "malformed", "duplicate-namespace", "request_id", "decision_id", "physical_requests", "input_tokens", "output_tokens", "input-leading-zero", "output-leading-zero", "duplicate-decision"]) {
     const endpoint = await receiptServer(); const { root, pmRoot, client } = await workspace();
     const config = configValue(endpoint.baseURL);
     config.decision_model = { base_url: endpoint.baseURL, model: "tev1:4b", timeout_ms: 10000, receipt_protocol: "idempotency-v1" };
@@ -148,7 +148,9 @@ test("receipt resume rejects rewritten namespaces, identities and token accounti
         const notes = await client.notes(runId, { outputBudget: "unbounded", outputLimit: "unbounded" }); assert.ok(!("output_budget_exceeded" in notes));
         const events = [...readSeries([notes.notes[0].text]).events];
         const tags = { ...events[0].tags };
-        if (fault === "duplicate-decision") tags.decision_id = "decision-2";
+        if (fault === "input-leading-zero") tags.input_tokens = "010";
+        else if (fault === "output-leading-zero") tags.output_tokens = "01";
+        else if (fault === "duplicate-decision") tags.decision_id = "decision-2";
         else tags[fault] = fault === "input_tokens" ? "12" : "";
         await client.notes(runId, { edit: 1, add: encodeEventSegments([{ ...events[0], tags }])[0] });
       }
