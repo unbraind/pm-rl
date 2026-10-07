@@ -2,11 +2,13 @@ id: pm-rl-upe0
 title: Bounded LM trainer adapter for the recursive loop
 description: "Implement the bounded causal-LM trainer adapter for pm rl loop run: a tiny decoder-only transformer in TypeScript (1 layer, single-head causal attention, d_model<=48, Float32Array, hand-written forward/backward with a finite-difference gradient-check test over every parameter tensor), a deterministically regenerated frozen base policy pretrained on a synthetic copy task, LoRA-style low-rank adapters (rank<=4) on Q/V and the output head trained by REINFORCE with mean baseline, KL penalty to the base policy and gradient clipping, content-addressed adapter checkpoints with canonical serialization, declared fail-closed limits (max parameters, checkpoint bytes, steps, wall seconds, licences), and held-out exact-match evaluation through the existing Hoeffding promotion gate. Reuses loop.ts machinery: one gate, one promotion path."
 type: Feature
-status: in_progress
+status: closed
 priority: 1
 tags[3]: execution,llm-adapter,recursive-training
 created_at: "2026-10-06T12:49:29.811Z"
-updated_at: "2026-10-07T11:13:14.167Z"
+updated_at: "2026-10-07T12:30:04.013Z"
+closed_at: "2026-10-07T12:30:03.472Z"
+completed_at: "2026-10-07T12:30:03.472Z"
 author: pi-glm
 acceptance_criteria: "A real pm CLI acceptance run of >=3 generations where gen-1 and gen-2 checkpoints differ, gen-2 collects with gen-1's promoted adapter asserted via receipts, held-out exact-match strictly improves over the base, and a contaminated run is refused; unit, property (gradient check, seed determinism), integration and performance budget tests at exact 100/100/100/100 coverage; docs/lm-adapter.md records the measured generation table"
 parent: pm-rl-apvf
@@ -69,4 +71,5 @@ docs[3]{path,scope}:
   docs/lm-adapter.md,project
   README.md,project
   RECURSIVE_TRAINING.md,project
+close_reason: "Merged in #63 (40c01c4): TypeScript causal-LM adapter (trainer: lm) for the recursive loop with content-addressed immutable checkpoints, refusal audit comments that never replace the refusal, and crash-safe checkpoint publication (temp file + link). Final CodeRabbit full review of all 19 files at 14f281b: no actionable comments. npm+Bun release:check passed (432 tests). Each review fix carries a regression test verified to fail on revert."
 body: ""

@@ -6,6 +6,7 @@
 
 - Environment registration and versioning, immutable once referenced ([pm-rl-et5b](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-et5b.toon))
 - Run lifecycle ingests NDJSON in bounded pm-rl/2 segments, reads pm-rl/1, and measures sustained storage ([pm-rl-dyho](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-dyho.toon))
+- Bounded LM trainer adapter for the recursive loop ([pm-rl-upe0](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-upe0.toon))
 - Persisted bounded recursive self-improvement loop (pm rl loop run) ([pm-rl-hjg1](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-hjg1.toon))
 - Execute deterministic bandit policy updates across promoted generations ([pm-rl-s44k](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-s44k.toon))
 - Fail-closed statistically bounded promotion gate for the recursive loop ([pm-rl-gr7j](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-gr7j.toon))
