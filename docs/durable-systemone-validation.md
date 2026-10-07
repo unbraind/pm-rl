@@ -133,7 +133,8 @@ The pure SDK surface includes `parseSystemOneLoopConfig`, `validatedSystemOneDat
 `systemOneRunConfig`, `systemOneGenerationTrainingConfig`, `systemOneSeedTrainingConfig`,
 `systemOnePromotionScores`, `parseStoredSystemOneGeneration`,
 `verifyStoredSystemOneGeneration`, `systemOneDecisionEvent`,
-`parseSystemOneDecisionEvent`, `systemOneState` and `requestSystemOneDecision`.
+`parseSystemOneDecisionEvent`, `systemOneState`, `systemOneDecisionRequestId`,
+`verifySystemOneReceiptEvent` and `requestSystemOneDecision`.
 Trainer selection uses `parseLoopTrainer`/`parseLoopProgramme`; bandit replay uses
 `parseStoredLoopGeneration`/`verifyStoredLoopGeneration`.
 
@@ -190,6 +191,9 @@ never silently execute a new inference. Its successful JSON response contains:
   "usage":{"input_tokens":10,"output_tokens":1,"latency_ms":12}
 }
 ```
+
+The SDK exposes these identities at `SystemOneDecisionResponse.usage.receipt`
+as `SystemOneDecisionReceipt`.
 
 `decision_id` is a nonblank trimmed string of at most 256 characters. Usage and
 latency describe the original inference, including on a retry. Token counts and
