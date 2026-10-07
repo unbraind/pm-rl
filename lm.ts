@@ -27,8 +27,8 @@
  * run fits in seconds.
  */
 
-import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { link, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
@@ -655,13 +655,23 @@ export async function verifyLmCheckpointArtifact(pmRoot: string, checkpoint: LmC
   }
 }
 
-/** Store a checkpoint without overwriting existing evidence, then verify its bytes. */
+/**
+ * Store a checkpoint without overwriting existing evidence, then verify its bytes.
+ * The bytes go to a private temporary file first and are published with `link`,
+ * which refuses an existing target: a crash mid-write never leaves a partial
+ * artifact at the content-addressed path, so a resumed loop can still persist it.
+ */
 export async function persistLmCheckpoint(pmRoot: string, checkpoint: LmCheckpoint, config: LmLoopConfig, write: typeof writeFile = writeFile): Promise<void> {
   await mkdir(join(pmRoot, "runtime/pm-rl/artifacts"), { recursive: true });
+  const target = join(pmRoot, lmCheckpointPath(checkpoint));
+  const temporary = `${target}.${randomUUID()}.tmp`;
   try {
-    await write(join(pmRoot, lmCheckpointPath(checkpoint)), serializeLmCheckpoint(checkpoint, config).text, { flag: "wx" });
+    await write(temporary, serializeLmCheckpoint(checkpoint, config).text, { flag: "wx" });
+    await link(temporary, target);
   } catch (error) {
     if (!(error instanceof Error) || !("code" in error) || error.code !== "EEXIST") throw error;
+  } finally {
+    await rm(temporary, { force: true });
   }
   await verifyLmCheckpointArtifact(pmRoot, checkpoint, config);
 }

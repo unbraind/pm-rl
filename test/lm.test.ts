@@ -1,7 +1,8 @@
 /** Causal language model: numerical proofs, checkpoints, refusals and replay. */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -364,6 +365,27 @@ test("adapter checkpoints serialize canonically, round-trip and bind their diges
   tensors.aq = [...(decoded.aq as unknown as number[]), Number.NaN];
   refuses(() => parseLmAdapter(tensors, config.shape, "stored"), "lm_invalid_checkpoint");
   void adapter;
+});
+
+test("a write that crashes mid-artifact leaves no partial checkpoint, so the resumed loop persists it", async () => {
+  const root = mkdtempSync(join(tmpdir(), "pm-rl-lm-crash-"));
+  const config = parseLmLoopConfig(configValue());
+  const checkpoint = config.initial;
+  const path = join(root, lmCheckpointPath(checkpoint));
+  try {
+    // The process dies after half the bytes reached disk.
+    const crashing: typeof writeFile = async (file, data) => {
+      await writeFile(file, String(data).slice(0, Math.floor(String(data).length / 2)));
+      throw new Error("Process killed mid-write");
+    };
+    await assert.rejects(persistLmCheckpoint(root, checkpoint, config, crashing), /Process killed mid-write/);
+    assert.equal(existsSync(path), false);
+    assert.deepEqual(readdirSync(join(root, "runtime/pm-rl/artifacts")), []);
+    await persistLmCheckpoint(root, checkpoint, config);
+    await verifyLmCheckpointArtifact(root, checkpoint, config);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("immutable checkpoint artifacts refuse missing, corrupt and unwritable evidence", async () => {
