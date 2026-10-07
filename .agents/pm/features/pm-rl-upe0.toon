@@ -6,13 +6,11 @@ status: in_progress
 priority: 1
 tags[3]: execution,llm-adapter,recursive-training
 created_at: "2026-10-06T12:49:29.811Z"
-updated_at: "2026-10-07T10:27:49.232Z"
-assignee: pi-claude
-claim_principal: pi-claude
+updated_at: "2026-10-07T10:46:42.597Z"
 author: pi-glm
 acceptance_criteria: "A real pm CLI acceptance run of >=3 generations where gen-1 and gen-2 checkpoints differ, gen-2 collects with gen-1's promoted adapter asserted via receipts, held-out exact-match strictly improves over the base, and a contaminated run is refused; unit, property (gradient check, seed determinism), integration and performance budget tests at exact 100/100/100/100 coverage; docs/lm-adapter.md records the measured generation table"
 parent: pm-rl-apvf
-comments[19]{created_at,author,text}:
+comments[20]{created_at,author,text}:
   "2026-10-06T12:49:36.273Z",pi-glm,"Starting the bounded LM trainer adapter slice in the package worktree on branch feat/lm-policy-adapter. Plan: (1) prototype the tiny transformer + REINFORCE offline to pick sizes that keep the acceptance run under ~20s on CPU, (2) author lm.ts mirroring systemone.ts contracts (parse/execute/verify/promotion scores/seed configs), (3) wire the lm trainer into loop.ts/index.ts dispatch without forking the controller, (4) tests: unit+property (finite-difference gradient check over every parameter tensor, seed determinism), integration + CLI acceptance + performance budget, (5) docs/lm-adapter.md + README + RECURSIVE_TRAINING status."
   "2026-10-06T14:36:39.057Z",codex-sol,"Continuing the existing bounded LM feature: audit inherited math, trainer lineage and receipts; verify focused tests; commit logical progress early; then complete CLI evidence, full release gates and documentation."
   "2026-10-06T14:38:31.079Z",codex-sol,"Inherited draft verification: npm ci and npm run typecheck passed; node --test test/lm.test.ts test/lm-loop.test.ts passed 20/20, including finite differences over every base and adapter tensor. The existing acceptance uses the SDK command harness, so a spawned real CLI acceptance and manual measured run are still required. Audit found missing filesystem checkpoint artifacts, differing hash/serialization payloads, squared L2 reporting, and incomplete resource enforcement; retaining this passing draft as an early progress checkpoint before corrections."
@@ -32,6 +30,7 @@ comments[19]{created_at,author,text}:
   "2026-10-07T10:22:32.469Z",pi-claude,"Review follow-up (PR #63): the refusal audit comment writes in runRlLoop can replace the refusal error when the tracker write rejects, and on the execution path a failed write also bypasses the loop_cancelled conversion when the signal is aborted. Plan: keep throwing the original lm_* expected error and attach the write failure to its context (audit_comment_error), keep loop_cancelled when the signal aborted, add regression tests with a real client wrapped so only comment writes reject."
   "2026-10-07T10:25:34.894Z",pi-claude,"Fix implemented in runRlLoop: both refusal-comment writes go through a small documented helper (appendRefusalAuditComment) that returns the write failure instead of throwing it; the original lm_* expected error is always rethrown with the failure attached in its context (audit_comment_error, a structural widening of the SDK error context, no casts), and a failLoopCancelled helper keeps the loop_cancelled conversion when the signal is aborted while retaining the write failure on the cancellation error. Three regression tests with the real client wrapped so only comment writes reject: programme refusal, execution refusal, and aborted-signal cases; each fails on the reverted source (verified with a temporary file copy, never git stash)."
   "2026-10-07T10:27:49.232Z",pi-claude,"Linked test verified: pm test pm-rl-upe0 --run --only-last --pm-context none --workspace-context snapshot passes (3/3 audit tests). Note: the default schema context redirects the test's tracker init into the pre-seeded sandbox and fails with init_existing_settings_requires_force — the known sandbox limitation already tracked as pm-rl-warf, so the linked run uses the snapshot workspace context instead."
+  "2026-10-07T10:46:42.107Z",pi-claude,"Committed and pushed to feat/lm-policy-adapter: 88253fe 'Never let a failed refusal audit comment replace the refusal (pm-rl-upe0)'. Gates: npm run release:check and bun run release:check both pass (431/431 tests, coverage 100/100/100/100, typecheck, lint, duplicates, docstring, identities, audit:prod, pack dry-run, changelog check)."
 files[9]{path,scope}:
   examples/loop-lm.json,project
   index.ts,project
