@@ -95,7 +95,7 @@ pm create Decision "Allow four synthetic LM promotions" --id lm-approval \
   --body '```json
 {"permitted_promotions":4}
 ```'
-pm rl loop run lm-demo --file examples/loop-lm.json --approval lm-approval --json
+pm rl loop run lm-demo --file node_modules/pm-rl/examples/loop-lm.json --approval lm-approval --json
 pm rl loop status lm-demo --json
 ```
 

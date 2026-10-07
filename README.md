@@ -264,7 +264,7 @@ required datasets, optimizer settings, seed and loop bounds. Create an approval
 Decision whose JSON body declares `{"permitted_promotions":4}`, then run:
 
 ```sh
-pm rl loop run lm-demo --file examples/loop-lm.json --approval lm-approval --json
+pm rl loop run lm-demo --file node_modules/pm-rl/examples/loop-lm.json --approval lm-approval --json
 ```
 
 The example has 2,912 total parameters (352 trainable), persists canonical
