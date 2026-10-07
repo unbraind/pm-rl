@@ -1,0 +1,13 @@
+id: pm-rl-warf
+title: pm test --run sandbox redirects tracker-spawning test commands into a pre-seeded sandbox tracker
+description: ""
+type: Issue
+status: open
+priority: 2
+tags[2]: agents,tooling
+created_at: "2026-10-07T07:39:53.099Z"
+updated_at: "2026-10-07T07:39:59.932Z"
+author: pi-glm
+comments[1]{created_at,author,text}:
+  "2026-10-07T07:39:59.932Z",pi-glm,"Discovered while resuming pm-rl-upe0: linked commands 'node --test test/lm.test.ts test/lm-loop.test.ts test/lm-cli.test.ts', 'npm run release:check', 'bun run release:check' and 'bun test --timeout 120000 test/lm.test.ts test/lm-loop.test.ts test/lm-cli.test.ts' all pass directly in the source workspace but fail under 'pm test --run' with init_existing_settings_requires_force at the sandbox project settings. Recorded here so the harness limitation is tracked instead of being rediscovered per agent window."
+body: "The pm test linked-test harness runs each linked command with a sandboxed pm context (schema or tracker) whose env redirects PM paths to a sandbox project that it pre-seeds with settings and extensions. Repository test commands that themselves spawn the real pm CLI in fresh trackers (the packed CLI acceptance in test/lm-cli.test.ts, the durable loop tests in test/lm-loop.test.ts, and the full release:check suites which run all test files) then hit pm init refusing the pre-seeded settings with init_existing_settings_requires_force and fail under the harness while passing green in the source workspace. --pm-context none additionally requires workspace-context isolated/snapshot. Because project policy disables test-result tracking, heavy commands are linked nowhere and their green runs are recorded in pm comments on pm-rl-upe0. A harness mode that supports commands spawning fresh trackers (for example by not pre-seeding settings.json in the sandbox project) would let the full acceptance suite run under pm test --run."
