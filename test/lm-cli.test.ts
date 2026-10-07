@@ -19,7 +19,11 @@ test("packed pm CLI performs three real LM generations and records contamination
     const approval = await client.create({ id: "approval", type: "Decision", title: "Bounded synthetic LM approval", body: '```json\n{"permitted_promotions":4}\n```' });
     const cli = resolve("node_modules/@unbrained/pm-cli/dist/cli.js");
     const env = { ...process.env, NODE_V8_COVERAGE: undefined, PM_PATH: tracker.path, PM_AUTHOR: "rl-acceptance", PM_TELEMETRY_SOURCE_CONTEXT: "test", PM_TELEMETRY_INLINE_FLUSH: "1" };
-    const pack = JSON.parse(execFileSync("npm", ["pack", "--ignore-scripts", "--json", "--pack-destination", root], { encoding: "utf8", env })) as Array<{ filename: string }>;
+    // npm 10 still runs `prepare` during `npm pack --ignore-scripts`; that hook
+    // runs `pm merge install`, which must not see the fixture's PM_PATH, and its
+    // output must stay out of the --json receipt (--foreground-scripts=false).
+    const { PM_PATH: _fixtureTracker, ...packEnv } = env;
+    const pack = JSON.parse(execFileSync("npm", ["pack", "--ignore-scripts", "--foreground-scripts=false", "--json", "--pack-destination", root], { encoding: "utf8", env: { ...packEnv, npm_config_ignore_scripts: "true" } })) as Array<{ filename: string }>;
     const archive = join(root, pack[0]!.filename);
     execFileSync(process.execPath, [cli, "package", "install", archive, "--project", "--json"], { cwd: root, env, stdio: "pipe", timeout: 60_000 });
     const config = JSON.parse(readFileSync(new URL("../examples/loop-lm.json", import.meta.url), "utf8")) as Record<string, unknown>;
