@@ -2,14 +2,33 @@ id: pm-rl-9nlg
 title: Recover external decision receipts across the HTTP-to-PM commit window
 description: "A hard kill after a frozen decision endpoint executes but before the local PM metric note commits can lose the response and require reissuing the unresolved request. Local persisted decisions and logical samples replay once, but physical request and unknown token accounting require endpoint-side idempotency or receipt retrieval. Add a supported endpoint contract and kill-in-window acceptance before claiming exactly-once remote request spending."
 type: Issue
-status: open
+status: in_progress
 priority: 1
 tags: []
 created_at: "2026-10-05T05:29:43.601Z"
-updated_at: "2026-10-05T06:03:04.984Z"
+updated_at: "2026-10-07T20:28:48.043Z"
+assignee: codex-sol
+claim_principal: codex-sol
 author: codex-sol
 acceptance_criteria: An endpoint supplies stable request-id idempotency or retrievable immutable receipts; a hard kill after remote completion before local receipt persistence resumes without a second physical inference; physical request and token accounting are reconciled from receipts
 parent: pm-rl-apvf
-docs[1]{path,scope}:
+comments[4]{created_at,author,text}:
+  "2026-10-07T20:00:55.671Z",codex-sol,"Built-package reproduction confirmed with a real scratch tracker and a local receipt server: the server completed the first inference then dropped the HTTP response. Resume consumed eight logical samples and promoted twice, but performed nine physical inferences (expected eight). Test loads and executes the built package successfully; the behavioral assertion fails. Plan: opt-in immutable idempotency-v1 receipts, a durable per-loop namespace and content-bound per-query keys, receipt identity and physical/token accounting in metric events, plus hard-kill and network-window drills."
+  "2026-10-07T20:13:46.178Z",codex-sol,"Implemented opt-in idempotency-v1: durable per-run UUID namespaces, programme/checkpoint/phase/index-bound request keys in body and Idempotency-Key header, validated immutable response identities and original physical/token/latency accounting in PM events. Eight real SIGKILL drills passed across both query phases at pre-dispatch, remote-completion, parsed-response and committed-note boundaries. Resume preserves eight physical inferences, eight logical decisions and 88 tokens. Legacy endpoints preserve their explicit non-idempotent boundary. Namespace/evidence corruption is refused before further HTTP requests. Full npm and Bun release gates and behavioral revert proof are pending."
+  "2026-10-07T20:27:55.293Z",codex-sol,"Behavioral revert proof PASS: restored only the pre-fix bodies of requestSystemOneDecision (systemone.ts) and verifyDecisionPrefix (index.ts), retaining current signatures, exports, namespace persistence, crash hooks and all test files. npm run build succeeded. node --test --test-name-pattern=\"built receipt recovery|SIGKILL|received headers\" test/decision-recovery.test.ts executed three tests; each FAILED on physical inference accounting (9 actual versus 8 expected), including SIGKILL after remote completion. Fixed source was restored byte-for-byte and rebuilt. PM-linked recovery (6/6) and adapter (8/8) commands passed with no skips. Project policy disables automatic test-result recording, so this comment preserves the receipts. The initial full gate was stopped after new coverage cases were added; the final frozen-source gates will follow."
+  "2026-10-07T20:28:48.043Z",codex-sol,"Restored-source validation PASS: npm run build:test and node --test test/decision-recovery.test.ts test/systemone.test.ts passed 14/14 tests, zero failures/skips after the behavioral revert proof. The implementation, tests and documentation are frozen for the required npm and Bun release gates; no PM SDK bug was observed in this recovery slice. Scratch trackers use explicit cwd and pmRoot to avoid inherited tracker context."
+files[6]{path,scope}:
+  index.ts,project
+  package.json,project
+  systemone.ts,project
+  test/decision-recovery.test.ts,project
+  test/fixtures/decision-controller.ts,project
+  test/systemone.test.ts,project
+tests[2]{command,scope,timeout_seconds,pm_context_mode,workspace_context_mode,provenance{author,created_at,source_kind,source_ref}}:
+  node --test test/decision-recovery.test.ts,project,300,none,snapshot,codex-sol,"2026-10-07T20:13:51.174Z",local_mutation,fix/decision-receipt-recovery
+  node --test test/systemone.test.ts,project,300,none,snapshot,codex-sol,"2026-10-07T20:13:53.417Z",local_mutation,fix/decision-receipt-recovery
+docs[3]{path,scope}:
   docs/durable-systemone-validation.md,project
+  README.md,project
+  RECURSIVE_TRAINING.md,project
 body: ""

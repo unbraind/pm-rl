@@ -153,19 +153,98 @@ softens model probabilities (log temperature 2), making the bounded calibration
 experiment explicit. The held-out split contains two synthetic items and repeated
 selection is adaptive validation; it is not an independent final benchmark.
 
-An external decision request and a local PM note cannot commit atomically. A hard
-kill after the endpoint executes but before its note commits can require reissuing
-that unresolved request. Persisted decisions are never queried again; logical
-sample budget is charged once, but physical endpoint invocations and unknown token
-use in that window cannot be guaranteed exactly once without provider-side
-idempotency/receipt retrieval. This limitation is distinct from the proven single
-controller/job launch and transactional promotion. No GPU scheduling, base-model
-fine-tuning, distributed clone coordination, independent benchmark, storage cap
-or token-budget reservation is claimed by this slice.
+## Recoverable external decision receipts
+
+[pm-rl-9nlg](../.agents/pm/issues/pm-rl-9nlg.toon) implements the HTTP-to-PM
+recovery contract. Enable it only for an endpoint that supports:
+
+```json
+{"decision_model":{"base_url":"http://127.0.0.1:8080","model":"tev1:4b","timeout_ms":10000,"receipt_protocol":"idempotency-v1"}}
+```
+
+Before inference, the controller commits a random UUID namespace as a Run
+comment. Retain this comment with the run and its history. Each query key is a
+SHA-256 digest of the namespace, programme digest, collecting checkpoint, metric
+(collection or held-out) and query index. The programme binds the endpoint,
+model, questions and datasets. Independent tracker runs receive separate
+namespaces; resumed or moved/copied tracked runs reuse their persisted namespace.
+The namespace is established under the existing controller lease. The POST
+includes `receipt_protocol: "idempotency-v1"`, `request_id` and the same value in
+the `Idempotency-Key` header, alongside the existing request fields.
+
+The endpoint must atomically register a key before executing inference, serialize
+concurrent submissions of that key, and retain its immutable result for the full
+lifetime of resumable runs. A repeated identical request returns that result
+without another physical inference or charge. A reused key with different inputs
+must fail with HTTP 409; an expired or unavailable receipt must fail closed,
+never silently execute a new inference. Its successful JSON response contains:
+
+```json
+{
+  "request_id":"sha256:<the request digest>",
+  "decision_id":"<unique immutable inference identity>",
+  "physical_requests":1,
+  "answers":{"kind":{"probabilities":{"Bug":0.6,"Feature":0.4}}},
+  "usage":{"input_tokens":10,"output_tokens":1,"latency_ms":12}
+}
+```
+
+`decision_id` is a nonblank trimmed string of at most 256 characters. Usage and
+latency describe the original inference, including on a retry. Token counts and
+their sum must be nonnegative safe integers; latency must be finite and
+nonnegative. Responses missing or disagreeing with this contract refuse before
+PM persistence. The metric event retains both identities, `physical_requests`,
+individual input/output counts, their total and original latency. Status and
+resume verify the content-bound key, accounting and unique decision identities
+within each run before advancing. Sum `physical_requests`, `input_tokens` and
+`output_tokens` over the run's receipt events to reconcile inference spending;
+HTTP retries are transport attempts and are not additional inferences. A
+partial run can have an unresolved remote receipt that status cannot yet count:
+resume retrieves it and commits the missing event before advancing.
+
+A crash before dispatch spends nothing. A lost response, timeout, cancellation,
+or hard kill after remote completion leaves the key recoverable at the endpoint.
+A kill after receiving the receipt but before PM persistence retrieves the same
+receipt on resume. A kill after PM persistence skips the existing event. No local
+response cache or invented tracker lock is needed. `RlLoopRequest.onDecision`
+observes `request`, `response` and `commit` boundaries for interruption drills.
+
+`test/decision-recovery.test.ts` uses the built package, real temporary SDK
+trackers and local HTTP servers. SIGKILL drills cover both collection and
+held-out queries at each boundary: before dispatch, remote completion before
+body delivery, parsed response before PM commit and committed PM event. Separate
+tests drop the HTTP connection/body, time out and cancel completed remote work,
+reject corrupted receipt evidence, and distinguish independent run namespaces.
+Eight decisions retain eight physical inferences and 88 tokens, with zero new
+requests on terminal resume. Legacy endpoints remain supported by omitting
+`receipt_protocol`; their unresolved HTTP-to-PM window still permits repeated
+inference and cannot establish exactly-once remote spending. The guarantee for
+opted-in endpoints depends on their durable atomic idempotency contract, not on
+an arbitrary service accepting the header. No real external service is invoked
+by these tests. No GPU scheduling, base-model fine-tuning, distributed clone
+coordination, independent benchmark, storage cap or token-budget reservation is
+claimed here.
+
+## Behavioral regression proof
+
+Restore only the pre-fix bodies of `requestSystemOneDecision` in `systemone.ts`
+and `verifyDecisionPrefix` in `index.ts` from the base revision. Retain current
+API signatures, namespace persistence, decision boundary callbacks, exports and
+all tests. Build the package, then run:
+
+```sh
+node --test --test-name-pattern="built receipt recovery|SIGKILL|received headers" test/decision-recovery.test.ts
+```
+
+The build succeeds and all three tests execute and fail on physical request
+accounting: **9 actual versus 8 expected**, including a real SIGKILL after remote
+completion. Restore the fixed bodies and rebuild before running the full suite.
+The proof changes behavior without deleting test seams or causing load/type
+failures. The initial unmodified-package reproduction also failed at 9 versus 8.
 
 ## Package verification
 
-`npm run release:check` passed 398 tests, zero failures/skips, and exact
+The earlier continuation slice passed 398 tests with `npm run release:check`, zero failures/skips, and exact
 100% statements, lines, branches and functions across all 23 authored source
 files, including operational scripts. Coverage ignores remain empty and every
 threshold remains 100. Lint and strict TypeScript passed; duplication was zero;

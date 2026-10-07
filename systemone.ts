@@ -114,6 +114,8 @@ export interface SystemOneEndpointSpec {
   readonly model: string;
   /** Per-request timeout in milliseconds. */
   readonly timeoutMs: number;
+  /** Opt in to durable immutable endpoint receipts; omission retains the legacy protocol. */
+  readonly receiptProtocol?: "idempotency-v1";
 }
 
 /** Per-question calibration parameters: one temperature and per-option biases. */
@@ -484,6 +486,12 @@ export function parseSystemOneLoopConfig(raw: JsonValue): SystemOneLoopConfig {
     expectedFail("SystemOne decision model base_url must be an http(s) URL without credentials, query or fragment.", "systemone_decision_model_base_url");
   }
   const endpointModel = requiredTrimmedString(model, "model", "SystemOne decision model", "systemone_decision_model_");
+  const receiptProtocol = model["receipt_protocol"];
+  if (receiptProtocol !== undefined && receiptProtocol !== "idempotency-v1") {
+    expectedFail("SystemOne receipt_protocol must be idempotency-v1 when supplied.", "systemone_invalid_receipt_protocol");
+  }
+  const receiptConfig = receiptProtocol === undefined ? {} : { receiptProtocol } as const;
+  const receiptJson: Record<string, JsonValue> = receiptProtocol === undefined ? {} : { receipt_protocol: receiptProtocol };
   const timeoutMs = requiredConfigNumber(model, "timeout_ms", "systemone_invalid_timeout_ms");
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 600_000) {
     expectedFail("SystemOne decision model timeout_ms must be an integer from 1 to 600000 milliseconds.", "systemone_invalid_timeout_ms");
@@ -555,7 +563,7 @@ export function parseSystemOneLoopConfig(raw: JsonValue): SystemOneLoopConfig {
     trainingDigest: datasets.trainingDigest,
     evaluationDigest: datasets.evaluationDigest,
     questionsDigest,
-    endpoint: { baseURL, model: endpointModel, timeoutMs },
+    endpoint: { baseURL, model: endpointModel, timeoutMs, ...receiptConfig },
     initial: head,
     seed,
     maxGenerations,
@@ -576,7 +584,7 @@ export function parseSystemOneLoopConfig(raw: JsonValue): SystemOneLoopConfig {
     trainingDigest: datasets.trainingDigest,
     evaluationDigest: datasets.evaluationDigest,
     questionsDigest,
-    endpoint: { base_url: baseURL, model: endpointModel, timeout_ms: timeoutMs },
+    endpoint: { base_url: baseURL, model: endpointModel, timeout_ms: timeoutMs, ...receiptJson },
     initial_checkpoint: head.digest,
     seed, maxGenerations, samplesPerGeneration, budget, learningRate, fitSteps,
     minimumImprovement, maximumGap, evaluationSamples, confidence, minSamples,
@@ -589,7 +597,7 @@ export function systemOneConfigurationJson(config: SystemOneLoopConfig): JsonVal
     trainer: "systemone",
     environment: { name: config.environmentName, version: config.environmentVersion },
     questions: Object.fromEntries(config.questions.map((question) => [question.name, { instructions: question.instructions, criteria: { ...question.criteria } }])),
-    decision_model: { base_url: config.endpoint.baseURL, model: config.endpoint.model, timeout_ms: config.endpoint.timeoutMs },
+    decision_model: { base_url: config.endpoint.baseURL, model: config.endpoint.model, timeout_ms: config.endpoint.timeoutMs, ...(config.endpoint.receiptProtocol === undefined ? {} : { receipt_protocol: config.endpoint.receiptProtocol }) },
     training: config.training.map(jsonExample),
     evaluation: config.evaluation.map(jsonExample),
     initial_head: jsonHeadParameters(config.initial.parameters, config.questions),
@@ -1162,11 +1170,11 @@ function jsonAnswers(answers: Readonly<Record<string, Readonly<Record<string, nu
  * @param usage - Token counts the endpoint reported for this one query.
  * @returns The validated metric event.
  */
-export function systemOneDecisionEvent(metric: string, step: number, observation: SystemOneObservation, usage: { readonly input_tokens: number; readonly output_tokens: number; readonly latency_ms?: number }): MetricEvent {
+export function systemOneDecisionEvent(metric: string, step: number, observation: SystemOneObservation, usage: { readonly input_tokens: number; readonly output_tokens: number; readonly latency_ms?: number; readonly receipt?: SystemOneDecisionReceipt }): MetricEvent {
   if (metric !== SYSTEMONE_COLLECTION_METRIC && metric !== SYSTEMONE_HELD_OUT_METRIC) {
     expectedFail("A decision event must use the collection or held-out metric name.", "systemone_invalid_metric");
   }
-  return { step, metric, value: observation.reward, tags: { example: observation.example, answers: jsonAnswers(observation.answers), tokens: String(usage.input_tokens + usage.output_tokens), latency_ms: String(usage.latency_ms ?? 0) } };
+  return { step, metric, value: observation.reward, tags: { example: observation.example, answers: jsonAnswers(observation.answers), tokens: String(usage.input_tokens + usage.output_tokens), latency_ms: String(usage.latency_ms ?? 0), ...(usage.receipt === undefined ? {} : { request_id: usage.receipt.requestId, decision_id: usage.receipt.decisionId, physical_requests: "1", input_tokens: String(usage.input_tokens), output_tokens: String(usage.output_tokens) }) } };
 }
 
 /**
@@ -1231,12 +1239,38 @@ export function parseSystemOneDecisionEvent(event: MetricEvent, metric: string, 
   return { example, answers, reward: event.value };
 }
 
+/** Immutable provider receipt identity; usage belongs to the original inference, never the retry. */
+export interface SystemOneDecisionReceipt {
+  /** Content-bound idempotency key echoed by the endpoint. */
+  readonly requestId: string;
+  /** Provider-assigned immutable inference identity. */
+  readonly decisionId: string;
+}
+
+/** Derive a replay-stable query key scoped to a durable run namespace and all decision inputs. */
+export function systemOneDecisionRequestId(config: SystemOneLoopConfig, source: SystemOneCheckpoint, namespace: string, metric: string, step: number): string {
+  return systemOneDigest({ format: "pm-rl/systemone-request/1", namespace, programme: config.digest, source: source.digest, metric, step });
+}
+
+/** Validate persisted receipt identity and reconcile the individual token counts with their total. */
+export function verifySystemOneReceiptEvent(event: MetricEvent, requestId: string): void {
+  const tags = event.tags!;
+  const input = Number(tags["input_tokens"]); const output = Number(tags["output_tokens"]);
+  if (tags["request_id"] !== requestId || typeof tags["decision_id"] !== "string" || tags["decision_id"].trim().length === 0
+    || tags["decision_id"].length > 256 || tags["physical_requests"] !== "1"
+    || tags["input_tokens"] === undefined || tags["output_tokens"] === undefined
+    || !Number.isSafeInteger(input) || input < 0 || !Number.isSafeInteger(output) || output < 0
+    || !Number.isSafeInteger(input + output) || input + output !== Number(tags["tokens"])) {
+    expectedFail("Persisted decision receipt identity or physical/token accounting disagrees with its request.", "loop_generation_drift", EXIT_CODE.CONFLICT);
+  }
+}
+
 /** The frozen decision model's parsed answer for one request. */
 export interface SystemOneDecisionResponse {
   /** Raw answer probabilities per question name and option. */
   readonly answers: Readonly<Record<string, Readonly<Record<string, number>>>>;
   /** Tokens the endpoint reported for the request. */
-  readonly usage: { readonly input_tokens: number; readonly output_tokens: number; readonly latency_ms: number };
+  readonly usage: { readonly input_tokens: number; readonly output_tokens: number; readonly latency_ms: number; readonly receipt?: SystemOneDecisionReceipt };
 }
 
 /**
@@ -1257,11 +1291,17 @@ export interface SystemOneDecisionResponse {
  * @param state - The rendered decision request state.
  * @param questions - The questions to ask about the state.
  * @param signal - Optional caller cancellation signal.
+ * @param requestId - Stable content-bound key required by the opted-in receipt protocol.
  * @returns The validated answer probabilities and token usage.
  * @throws An expected CLI endpoint error, or the caller's AbortError when the caller aborted.
  */
-export async function requestSystemOneDecision(endpoint: SystemOneEndpointSpec, state: string, questions: readonly SystemOneChoiceSpec[], signal?: AbortSignal): Promise<SystemOneDecisionResponse> {
+export async function requestSystemOneDecision(endpoint: SystemOneEndpointSpec, state: string, questions: readonly SystemOneChoiceSpec[], signal?: AbortSignal, requestId?: string): Promise<SystemOneDecisionResponse> {
+  const recoverable = endpoint.receiptProtocol === "idempotency-v1";
+  if (recoverable && (typeof requestId !== "string" || !/^sha256:[a-f0-9]{64}$/.test(requestId))) {
+    expectedFail("Receipt requests require a content-bound request id.", "systemone_request_id_invalid");
+  }
   const body = canonicalJson({
+    ...(recoverable ? { request_id: requestId, receipt_protocol: "idempotency-v1" } : {}),
     model: endpoint.model,
     state,
     questions: Object.fromEntries(questions.map((question) => [question.name, { type: CHOICE_QUESTION_TYPE, instructions: question.instructions, criteria: { ...question.criteria } }])),
@@ -1275,7 +1315,7 @@ export async function requestSystemOneDecision(endpoint: SystemOneEndpointSpec, 
   try {
     response = await fetch(`${baseURL}/v1/systemone`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...(recoverable ? { "idempotency-key": requestId! } : {}) },
       body,
       signal: signal === undefined ? AbortSignal.timeout(endpoint.timeoutMs) : AbortSignal.any([signal, AbortSignal.timeout(endpoint.timeoutMs)]),
     });
@@ -1307,6 +1347,19 @@ export async function requestSystemOneDecision(endpoint: SystemOneEndpointSpec, 
     || !Number.isSafeInteger(inputTokens + outputTokens)) {
     expectedFail("Decision model usage must report non-negative safe integer token counts whose sum is also a safe integer.", "systemone_endpoint_usage_invalid", EXIT_CODE.GENERIC_FAILURE);
   }
+  let receipt: SystemOneDecisionReceipt | undefined;
+  let latency = performance.now() - started;
+  if (recoverable) {
+    const decisionId = record["decision_id"];
+    const reportedLatency = usageRecord["latency_ms"];
+    if (record["request_id"] !== requestId || typeof decisionId !== "string" || decisionId.trim().length === 0
+      || decisionId !== decisionId.trim() || decisionId.length > 256 || record["physical_requests"] !== 1
+      || typeof reportedLatency !== "number" || !Number.isFinite(reportedLatency) || reportedLatency < 0) {
+      expectedFail("The endpoint must return an immutable receipt for this request with one physical inference and original latency.", "systemone_endpoint_receipt_invalid", EXIT_CODE.GENERIC_FAILURE);
+    }
+    receipt = { requestId: requestId!, decisionId };
+    latency = reportedLatency;
+  }
   const names = questions.map((question) => question.name);
   if (Object.keys(answersRecord).length !== names.length || names.some((name) => !(name in answersRecord))) {
     expectedFail(`Decision model answers must cover exactly the requested questions: ${names.join(", ")}.`, "systemone_endpoint_answers_invalid", EXIT_CODE.GENERIC_FAILURE);
@@ -1332,7 +1385,7 @@ export async function requestSystemOneDecision(endpoint: SystemOneEndpointSpec, 
     }
     answers[question.name] = observationQuestion({ example: "endpoint", reward: 0, answers: { [question.name]: values } }, question);
   }
-  return { answers, usage: { input_tokens: inputTokens, output_tokens: outputTokens, latency_ms: performance.now() - started } };
+  return { answers, usage: { input_tokens: inputTokens, output_tokens: outputTokens, latency_ms: latency, ...(receipt === undefined ? {} : { receipt }) } };
 }
 
 /** Render one labelled example as the decision request state text. */
