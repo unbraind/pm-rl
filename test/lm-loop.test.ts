@@ -4,7 +4,7 @@ import { readFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
-import { PmClient } from "@unbrained/pm-cli/sdk/core";
+import { PmClient, type CommentsCommandOptions } from "@unbrained/pm-cli/sdk/core";
 import { init, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness, type ExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import { encodeEventSegments, readSeries, type MetricEvent } from "../series.ts";
@@ -12,7 +12,7 @@ import { parseGenerationSpec } from "../lineage.ts";
 import { lmCollectBatch, parseLmCollectionEvent, parseLmLoopConfig, serializeLmCheckpoint, LM_COLLECTION_METRIC, type LmLoopConfig, type LmObservation } from "../lm.ts";
 import extension, {
   runRlLoop, resumeRlLoop, rlLoopStatus,
-  RL_ITEM_TYPES, type JsonValue, type RlCommandResult, type RlLoopReport,
+  RL_ITEM_TYPES, type JsonValue, type RlCommandResult, type RefusalAuditContext, type RlLoopReport,
 } from "../index.ts";
 
 const roots: string[] = [];
@@ -263,6 +263,100 @@ test("configuration limits and runtime clock refusals are recorded without promo
     performance.now = now;
   }
   assert.ok(JSON.stringify(await client.comments("clock-seed")).includes("execution refused (lm_limit_wall_seconds)"));
+});
+
+/** Wrap a real client so every comment write rejects with the given failure while comment reads still work. */
+function withFailingCommentWrites(client: PmClient, failure: unknown): PmClient {
+  return new Proxy(client, {
+    get(target, property) {
+      if (property === "comments") {
+        return (id: string, options?: CommentsCommandOptions) => options?.add !== undefined
+          ? Promise.reject(failure)
+          : target.comments(id, options);
+      }
+      const value: unknown = Reflect.get(target, property);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
+/** The audit-comment write failure attached to a refusal error, or undefined when the trail persisted. */
+function auditCommentErrorOf(error: unknown): string | undefined {
+  if (!isPmCliExpectedError(error)) return undefined;
+  const context: RefusalAuditContext = error.context;
+  return context.audit_comment_error;
+}
+
+test("a programme refusal survives a failing audit comment write", async () => {
+  const { pmRoot, client } = await workspace();
+  const approval = await createApproval(client, "lm-audit-approval", 8);
+  // The held-out set reuses training string content, so the programme is refused.
+  const contaminated = smallConfig({ evaluation: [{ id: "h0", string: "12" }, { id: "h1", string: "22" }, { id: "h2", string: "10" }, { id: "h3", string: "20" }] });
+  await assert.rejects(runRlLoop(withFailingCommentWrites(client, "tracker comment writes are down"), { pmRoot, author: "pm-rl-test" },
+    { id: "audit-refused", approval, config: contaminated as JsonValue }), (error: unknown) => {
+    assert.ok(isPmCliExpectedError(error), String(error));
+    assert.equal(error.context.code, "lm_dataset_overlap");
+    assert.equal(error.exitCode, 2);
+    // The failed audit write is attached to the refusal, never replacing it.
+    assert.equal(auditCommentErrorOf(error), "tracker comment writes are down");
+    return true;
+  });
+  // The refusal itself never reached the approval's history: the write failed.
+  assert.ok(!JSON.stringify(await client.comments(approval)).includes("lm_dataset_overlap"));
+});
+
+test("an execution refusal survives a failing audit comment write", async () => {
+  const { pmRoot, client } = await workspace();
+  const approval = await createApproval(client, "lm-audit-clock-approval", 8);
+  const value = smallConfig();
+  const now = performance.now.bind(performance);
+  try {
+    await assert.rejects(runRlLoop(withFailingCommentWrites(client, new Error("tracker comment write rejected")), { pmRoot, author: "pm-rl-test" }, {
+      id: "audit-clock", approval, config: value,
+      onPhase(phase) {
+        if (phase === "collect") {
+          let elapsed = now();
+          performance.now = () => { elapsed += 61_000; return elapsed; };
+        }
+      },
+    }), (error: unknown) => {
+      assert.ok(isPmCliExpectedError(error), String(error));
+      assert.equal(error.context.code, "lm_limit_wall_seconds");
+      assert.equal(error.exitCode, 2);
+      assert.equal(auditCommentErrorOf(error), "tracker comment write rejected");
+      return true;
+    });
+  } finally {
+    performance.now = now;
+  }
+});
+
+test("an aborted signal still refuses with loop_cancelled when the audit comment write fails", async () => {
+  const { pmRoot, client } = await workspace();
+  const approval = await createApproval(client, "lm-audit-cancel-approval", 8);
+  const controller = new AbortController();
+  const now = performance.now.bind(performance);
+  try {
+    await assert.rejects(runRlLoop(withFailingCommentWrites(client, new Error("tracker comment write rejected")), { pmRoot, author: "pm-rl-test" }, {
+      id: "audit-cancel", approval, config: smallConfig() as JsonValue, signal: controller.signal,
+      onPhase(phase) {
+        if (phase === "collect") {
+          let elapsed = now();
+          // The phase clock both exhausts the wall limit and aborts the signal,
+          // so the refusal and the cancellation coincide on one error path.
+          performance.now = () => { elapsed += 61_000; controller.abort(); return elapsed; };
+        }
+      },
+    }), (error: unknown) => {
+      assert.ok(isPmCliExpectedError(error), String(error));
+      assert.equal(error.context.code, "loop_cancelled");
+      assert.equal(error.exitCode, 130);
+      assert.equal(auditCommentErrorOf(error), "tracker comment write rejected");
+      return true;
+    });
+  } finally {
+    performance.now = now;
+  }
 });
 
 test("LM status requires artifact authority and refuses missing disk evidence", async () => {

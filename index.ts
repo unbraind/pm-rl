@@ -185,7 +185,7 @@ import {
 } from "@unbrained/pm-cli/sdk/authoring";
 import { commitWorkspaceTransaction, type LogNote } from "@unbrained/pm-cli/sdk";
 import { PmClient, type GetResult, type ItemMetadata } from "@unbrained/pm-cli/sdk/core";
-import { acquireLock, createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
+import { acquireLock, createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError, type PmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 
 import { parseJsonRecord } from "./refuse.ts";
 
@@ -2810,7 +2810,8 @@ export async function runRlLoop(client: PmClient, coordinates: WorkspaceCoordina
     programme = parseLoopProgramme(request.config);
   } catch (error) {
     if (isPmCliExpectedError(error) && String(error.context.code).startsWith("lm_")) {
-      await client.comments(request.approval, { add: `Loop ${request.id} programme refused (${String(error.context.code)}): ${error.message}` });
+      const writeFailure = await appendRefusalAuditComment(client, request.approval, `Loop ${request.id} programme refused (${String(error.context.code)}): ${error.message}`);
+      if (writeFailure !== undefined) attachAuditCommentError(error, writeFailure);
     }
     throw error;
   }
@@ -2822,17 +2823,64 @@ export async function runRlLoop(client: PmClient, coordinates: WorkspaceCoordina
   try {
     report = await executeLoopProgramme(client, coordinates, programme, request, controller);
   } catch (error) {
+    let auditWriteFailure: string | undefined;
     if (isPmCliExpectedError(error) && String(error.context.code).startsWith("lm_")) {
-      await client.comments(controller.seedId, { add: `Loop ${request.id} execution refused (${String(error.context.code)}): ${error.message}` });
+      auditWriteFailure = await appendRefusalAuditComment(client, controller.seedId, `Loop ${request.id} execution refused (${String(error.context.code)}): ${error.message}`);
+      if (auditWriteFailure !== undefined) attachAuditCommentError(error, auditWriteFailure);
     }
     if (request.signal?.aborted === true) {
-      fail(`Loop ${request.id} was cancelled mid-phase; the persisted state is consistent and pm rl loop resume ${request.id} completes it.`, "loop_cancelled", LOOP_CANCELLED_EXIT_CODE);
+      failLoopCancelled(request.id, auditWriteFailure);
     }
     throw error;
   } finally {
     await releaseControllerLease(client, controller);
   }
   return report;
+}
+
+/**
+ * The context of an expected loop error that also records a failed refusal-
+ * comment write. The SDK error context is structurally open for additional
+ * secret-free diagnostic fields, so this widening adds one without casting.
+ */
+export type RefusalAuditContext = PmCliExpectedError["context"] & { audit_comment_error?: string };
+
+/**
+ * Append the refusal audit comment without ever replacing the refusal itself.
+ *
+ * The comment is the loop's audit trail, but its write can fail — for example
+ * when the tracker is briefly unwritable. A failure is returned as a
+ * diagnostic string instead of being thrown, so the caller can attach it to
+ * the original expected error and keep throwing that error unchanged.
+ *
+ * @param client - Client bound to the target workspace.
+ * @param id - Item that should carry the refusal comment.
+ * @param text - The exact refusal comment to append.
+ * @returns The write failure description, or undefined when the comment was persisted.
+ */
+async function appendRefusalAuditComment(client: PmClient, id: string, text: string): Promise<string | undefined> {
+  try {
+    await client.comments(id, { add: text });
+    return undefined;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
+/** Attach a failed refusal-comment write to the expected error it must never replace. */
+function attachAuditCommentError(error: PmCliExpectedError, writeFailure: string): void {
+  const context: RefusalAuditContext = error.context;
+  context.audit_comment_error = writeFailure;
+}
+
+/** Throw the mid-phase cancellation refusal, retaining a failed refusal-comment write. */
+function failLoopCancelled(id: string, auditWriteFailure: string | undefined): never {
+  const cancellation = createPmCliExpectedError(
+    `Loop ${id} was cancelled mid-phase; the persisted state is consistent and pm rl loop resume ${id} completes it.`,
+    { exitCode: LOOP_CANCELLED_EXIT_CODE, context: { code: "loop_cancelled" } },
+  );
+  if (auditWriteFailure !== undefined) attachAuditCommentError(cancellation, auditWriteFailure);
+  throw cancellation;
 }
 
 /** Take the controller lease before registering the environment and seed for execution. */
