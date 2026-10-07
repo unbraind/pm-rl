@@ -116,3 +116,13 @@ export function verifyTrainerReceipt(stored: { sourceCheckpoint: string; candida
     ["incumbent_held_out_mean", stored.incumbentHeldOutMean, receipt.incumbentHeldOutMean], ["candidate_held_out_mean", stored.candidateHeldOutMean, receipt.candidateHeldOutMean],
   ], generation);
 }
+
+/** Verify the shared optimizer and evidence bounds of a persisted trainer generation. */
+export function verifyTrainerConfiguration(stored: { generation: number; learningRate: number; evaluationSamples: number; fitSteps: number; samples: number }, step: { learningRate: number; evaluationSamples: number }, config: { fitSteps: number; samplesPerGeneration: number }): void {
+  verifyReplayFields([
+    ["learning_rate", stored.learningRate, step.learningRate],
+    ["evaluation_samples", stored.evaluationSamples, step.evaluationSamples],
+    ["fit_steps", stored.fitSteps, config.fitSteps],
+    ["samples", stored.samples, config.samplesPerGeneration],
+  ], stored.generation);
+}

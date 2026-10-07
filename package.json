@@ -8,6 +8,7 @@
     "dist/index.*",
     "dist/lineage.*",
     "dist/bandit.*",
+    "dist/lm.*",
     "dist/series.*",
     "dist/invalidate.*",
     "dist/compare.*",
@@ -25,7 +26,8 @@
     "CHANGELOG.md",
     "examples/",
     "RECURSIVE_TRAINING.md",
-    "docs/durable-systemone-validation.md"
+    "docs/durable-systemone-validation.md",
+    "docs/lm-adapter.md"
   ],
   "engines": {
     "node": ">=22.18.0"
@@ -59,27 +61,30 @@
       "."
     ],
     "tests": [
-      "test/series.test.ts",
-      "test/index.test.ts",
-      "test/gatesim.test.ts",
-      "test/receipt.test.ts",
-      "test/sweep.test.ts",
-      "test/transfer.test.ts",
       "test/audit-git-identities.test.ts",
-      "test/lineage.test.ts",
-      "test/invalidate.test.ts",
-      "test/compare.test.ts",
-      "test/leaderboard.test.ts",
-      "test/quality-scripts.test.ts",
-      "test/prepare-merge-driver.test.ts",
-      "test/coverage-gate.test.ts",
-      "test/verify-release-publish-attestation.test.ts",
       "test/bandit.test.ts",
-      "test/promotion.test.ts",
-      "test/loop.test.ts",
-      "test/systemone.test.ts",
+      "test/compare.test.ts",
+      "test/coverage-gate.test.ts",
       "test/durable-loop.test.ts",
-      "test/live-systemone.test.ts"
+      "test/gatesim.test.ts",
+      "test/index.test.ts",
+      "test/invalidate.test.ts",
+      "test/leaderboard.test.ts",
+      "test/lineage.test.ts",
+      "test/live-systemone.test.ts",
+      "test/lm-loop.test.ts",
+      "test/lm.test.ts",
+      "test/loop.test.ts",
+      "test/prepare-merge-driver.test.ts",
+      "test/promotion.test.ts",
+      "test/quality-scripts.test.ts",
+      "test/receipt.test.ts",
+      "test/series.test.ts",
+      "test/sweep.test.ts",
+      "test/systemone.test.ts",
+      "test/transfer.test.ts",
+      "test/verify-release-publish-attestation.test.ts",
+      "test/lm-cli.test.ts"
     ],
     "thresholds": {
       "statements": 100,
@@ -158,7 +163,8 @@
       "README.md",
       "CHANGELOG.md",
       "RECURSIVE_TRAINING.md",
-      "docs/durable-systemone-validation.md"
+      "docs/durable-systemone-validation.md",
+      "docs/lm-adapter.md"
     ],
     "examples": [
       "README.md",
@@ -166,7 +172,8 @@
       "examples/ppo.json",
       "examples/loop-bandit.json",
       "examples/metrics.ndjson",
-      "examples/loop-systemone.json"
+      "examples/loop-systemone.json",
+      "examples/loop-lm.json"
     ]
   }
 }
