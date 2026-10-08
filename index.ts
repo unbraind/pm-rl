@@ -3573,6 +3573,7 @@ async function completeGenerationEvidence(client: PmClient, programme: LoopProgr
     fail(`Loop ${request.id} generation ${pending.generation} did not persist its complete decision evidence.`, "loop_generation_drift", EXIT_CODE.CONFLICT);
   }
   const namespace = config.endpoint.receiptProtocol === undefined ? null : await systemOneReceiptNamespace(client, runId, false);
+  if (config.endpoint.receiptProtocol !== undefined && namespace === null) fail("Decision receipt namespace is missing.", "loop_generation_drift", EXIT_CODE.CONFLICT);
   verifyDecisionPrefix(config, chain.current as SystemOneCheckpoint, pending.generation, events, collection, heldOut, namespace);
   const usageTokens = events.reduce((total, event) => total + Number(event.tags!["tokens"]), 0);
   return executeSystemOneStep(config, chain.step, pending.generation, chain.current as SystemOneCheckpoint, collection, heldOut, usageTokens);

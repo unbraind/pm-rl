@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
-import { init, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
+import { init, isPmCliExpectedError, EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
 import { runRlLoop, resumeRlLoop } from "../dist/index.js";
 import { runRlLoop as runSource, resumeRlLoop as resumeSource, rlLoopStatus, type JsonValue } from "../index.ts";
 import { readSeries, encodeEventSegments } from "../series.ts";
@@ -163,6 +163,40 @@ test("receipt resume rejects rewritten namespaces, identities and token accounti
   }
 });
 
+
+test("evidence completion refuses a receipt namespace removed after the final decision commit", async () => {
+  const endpoint = await receiptServer(); const { root, pmRoot, client } = await workspace();
+  const config = configValue(endpoint.baseURL);
+  config.max_generations = 1; config.budget = 4;
+  config.decision_model = { base_url: endpoint.baseURL, model: "tev1:4b", timeout_ms: 10000, receipt_protocol: "idempotency-v1" };
+  const runId = "recovery-g1-collect";
+  const phases: string[] = []; let beforeNotes: unknown; let beforeIds: string[] = [];
+  try {
+    await assert.rejects(runSource(client, { pmRoot, author: "receipt-test" }, { id: "recovery", config, approval: "approval",
+      async onDecision(stage, metric, step) {
+        if (stage === "commit" && metric === "systemone_held_out_decision" && step === 1) {
+          const comments = await client.comments(runId);
+          assert.equal(comments.comments[0].text.startsWith("SystemOne receipt namespace: "), true);
+          await client.comments(runId, { delete: 1 });
+        }
+      },
+      async onPhase(phase) {
+        phases.push(phase);
+        beforeNotes = await client.notes(runId, { outputBudget: "unbounded", outputLimit: "unbounded" });
+        beforeIds = (await client.listAllComplete()).items.map((item) => String(item.id)).sort();
+      },
+    }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_generation_drift"
+      && error.exitCode === EXIT_CODE.CONFLICT && error.message === "Decision receipt namespace is missing.");
+    assert.deepEqual(phases, ["collect"], "refusal must precede training, evaluation and promotion");
+    assert.equal(endpoint.physical(), 4); assert.equal(endpoint.attempts(), 4);
+    const notes = await client.notes(runId, { outputBudget: "unbounded", outputLimit: "unbounded" });
+    assert.ok(!("output_budget_exceeded" in notes));
+    assert.equal(readSeries(notes.notes.map((note) => note.text)).events.length, 4, "the complete batch reached evidence completion");
+    assert.deepEqual(notes, beforeNotes, "refusal must not append or rewrite evidence");
+    assert.deepEqual((await client.listAllComplete()).items.map((item) => String(item.id)).sort(), beforeIds, "no candidate or evaluation item may be written");
+    await assert.rejects(client.get("recovery-g1"), (error: unknown) => isPmCliExpectedError(error) && error.exitCode === EXIT_CODE.NOT_FOUND);
+  } finally { endpoint.server.closeAllConnections(); endpoint.server.close(); rmSync(root, { recursive: true, force: true }); }
+});
 
 test("received headers, timeout and cancellation recover the remote receipt with original accounting", async () => {
   for (const fault of ["body", "timeout", "cancel"]) {

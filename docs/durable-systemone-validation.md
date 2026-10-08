@@ -256,6 +256,20 @@ strings before any further HTTP request.
 
 ## Package verification
 
+PR #65 review comment 4213484429 adds a real-tracker completion regression:
+the final held-out decision's commit callback removes the receipt namespace
+after all four events have persisted. Completion refuses with
+`loop_generation_drift` and `EXIT_CODE.CONFLICT` before prefix verification,
+training, evaluation or promotion. The test verifies the event notes remain
+unchanged and no candidate or evaluation item is created. Endpoints without
+`receipt_protocol` keep their existing behavior.
+
+Reverting only the new completion guard builds successfully and makes
+`node --test --test-name-pattern="evidence completion refuses" test/decision-recovery.test.ts`
+fail with `Missing expected rejection`; restoring the guard makes it pass.
+The fixture is bounded to one generation so the revert reaches successful
+completion rather than a later fault-injection callback.
+
 The receipt recovery implementation and tests at `fe69f39` passed both
 `npm run release:check` and `bun run release:check`: **439/439 tests per gate**,
 zero failures/skips and exact **100% statements, lines, branches and functions**
