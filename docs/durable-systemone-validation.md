@@ -277,10 +277,19 @@ across all **24 authored source files**, including operational scripts. Coverage
 ignores remain empty and all thresholds remain 100. Both gates also passed strict
 TypeScript, lint, zero duplication, all 227 documented declarations, identity
 and publish-attestation checks, production audit with zero vulnerabilities,
-pack dry run and changelog validation. The latest PM-linked recovery and adapter
-commands passed 6/6 and 8/8 tests. Both behavioral revert proofs are documented
+pack dry run and changelog validation. The final guard correction then passed
+440/440 tests per npm and Bun release gate on 2026-10-08. That day's PM-linked recovery and adapter
+commands passed 7/7 and 8/8 tests. Both behavioral revert proofs are documented
 above. Receipt guarantees are conditional on the supported endpoint contract;
 these tests contact local synthetic servers only.
+
+A documentation-only rerun on 2026-10-10 executed all seven recovery cases under
+concurrent host load: five passed, one exceeded its existing 300-second deadline,
+and one was cancelled after a missing temporary tracker caused an `ENOENT` error.
+The worker retained handles after reporting the cases and was terminated after
+26 minutes. This is a failed fresh receipt, not a replacement for the historical
+passing gates. Source, tests and deadlines were unchanged; the recovery owner
+remains open for a successful fresh run and required review.
 
 
 The earlier continuation slice passed 398 tests with `npm run release:check`, zero failures/skips, and exact
@@ -297,7 +306,7 @@ Earlier adapter acceptance passed `bun run check`, `bun run build:test` and
 packed npm/Node and native Bun consumers each completed two promotions, eight
 requests, eight charged logical samples, successor collection, checkpoint
 validation and status/resume without further requests. The current release gate
-includes 25 durable-loop tests, 8 adapter tests and 6 receipt-recovery tests. PM-linked commands
+includes 25 durable-loop tests, 8 adapter tests and 7 receipt-recovery tests. PM-linked commands
 `node --test --test-name-pattern="terminal bandit candidates" test/durable-loop.test.ts`,
 `node --test --test-name-pattern="real HTTP usage" test/systemone.test.ts` and
 `node --test test/systemone.test.ts` passed. Earlier PM-linked full durability
