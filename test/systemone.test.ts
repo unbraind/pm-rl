@@ -13,6 +13,7 @@ import {
   systemOnePromotionScores, systemOneRunConfig, systemOneSampleSeed, systemOneSeedTrainingConfig,
   systemOneState, validatedSystemOneDatasets, verifyStoredSystemOneGeneration,
   SYSTEMONE_COLLECTION_METRIC, SYSTEMONE_HELD_OUT_METRIC, MAX_SYSTEMONE_EXAMPLES,
+  verifySystemOneReceiptEvent, systemOneDecisionRequestId,
   type SystemOneObservation,
 } from "../systemone.ts";
 import type { JsonValue } from "../index.ts";
@@ -201,4 +202,42 @@ test("choice heads reject missing records and probability mass drift and score w
   const pending = requestSystemOneDecision({ ...config.endpoint, baseURL: `http://127.0.0.1:${bodyAddress.port}` }, "state", config.questions, controller.signal);
   setTimeout(() => controller.abort(), 50);
   await assert.rejects(pending, { name: "AbortError" });
+});
+
+
+test("idempotency protocol validates immutable endpoint receipts and persisted accounting", async () => {
+  const config = parseSystemOneLoopConfig({ ...configValue(), decision_model: { base_url: "http://127.0.0.1", model: "tev1:4b", timeout_ms: 10000, receipt_protocol: "idempotency-v1" } });
+  const requestId = systemOneDecisionRequestId(config, config.initial, "namespace", SYSTEMONE_COLLECTION_METRIC, 0);
+  const good = { request_id: requestId, decision_id: "decision-1", physical_requests: 1,
+    answers: { kind: { probabilities: { Bug: 0.6, Feature: 0.4 } } }, usage: { input_tokens: 10, output_tokens: 1, latency_ms: 12 } };
+  const baseURL = await endpoint(good);
+  const decision = await requestSystemOneDecision({ ...config.endpoint, baseURL }, "state", config.questions, undefined, requestId);
+  assert.deepEqual(decision.usage, { input_tokens: 10, output_tokens: 1, latency_ms: 12, receipt: { requestId, decisionId: "decision-1" } });
+  for (const id of [undefined, "bad"]) await assert.rejects(requestSystemOneDecision(config.endpoint, "state", config.questions, undefined, id),
+    (error: unknown) => isPmCliExpectedError(error) && error.context.code === "systemone_request_id_invalid");
+  for (const receipt of [{ ...good, request_id: "foreign" }, { ...good, decision_id: null }, { ...good, decision_id: "" },
+    { ...good, decision_id: " padded " }, { ...good, decision_id: "x".repeat(257) }, { ...good, physical_requests: 2 },
+    JSON.stringify(good).replace('"latency_ms":12', '"latency_ms":1e309'),
+    ...[undefined, "12", -1].map((latency_ms) => ({ ...good, usage: { ...good.usage, latency_ms } }))]) {
+    const baseURL = await endpoint(receipt);
+    await assert.rejects(requestSystemOneDecision({ ...config.endpoint, baseURL }, "state", config.questions, undefined, requestId),
+      (error: unknown) => isPmCliExpectedError(error) && error.context.code === "systemone_endpoint_receipt_invalid");
+  }
+  refuses(() => parseSystemOneLoopConfig({ ...configValue(), decision_model: { base_url: "http://127.0.0.1", model: "tev1:4b", timeout_ms: 1, receipt_protocol: "other" } }), "systemone_invalid_receipt_protocol");
+  const event = systemOneDecisionEvent(SYSTEMONE_COLLECTION_METRIC, 0, observations("train")[0], decision.usage);
+  verifySystemOneReceiptEvent(event, requestId);
+  refuses(() => verifySystemOneReceiptEvent({ ...event, tags: undefined }, requestId), "loop_generation_drift");
+  for (const tags of [{ ...event.tags, decision_id: " padded " },
+    { ...event.tags, input_tokens: "010" }, { ...event.tags, output_tokens: "01" }, { ...event.tags, tokens: "011" },
+    ...[undefined, "", "-1", "NaN", "12.0"].map((latency_ms) => ({ ...event.tags, latency_ms })),
+    { ...event.tags, decision_id: undefined }, { ...event.tags, decision_id: "x".repeat(257) },
+    { ...event.tags, input_tokens: undefined }, { ...event.tags, output_tokens: undefined },
+    { ...event.tags, input_tokens: "-1" }, { ...event.tags, input_tokens: "0.5" },
+    { ...event.tags, output_tokens: "-1" }, { ...event.tags, output_tokens: "0.5" },
+    { ...event.tags, input_tokens: String(Number.MAX_SAFE_INTEGER), output_tokens: "1" }]) {
+    // Undefined represents an absent tag in the serialized metric event.
+    const cleaned: Record<string, string> = {};
+    for (const [name, value] of Object.entries(tags)) if (value !== undefined) cleaned[name] = value;
+    refuses(() => verifySystemOneReceiptEvent({ ...event, tags: cleaned }, requestId), "loop_generation_drift");
+  }
 });

@@ -54,6 +54,8 @@ export {
   systemOneCalibrationError,
   systemOneCheckpoint,
   systemOneDecisionEvent,
+  systemOneDecisionRequestId,
+  verifySystemOneReceiptEvent,
   systemOneEnvironmentSpec,
   systemOneGenerationTrainingConfig,
   systemOnePromotionScores,
@@ -76,6 +78,7 @@ export {
   type SystemOneCheckpoint,
   type SystemOneChoiceSpec,
   type SystemOneDecisionResponse,
+  type SystemOneDecisionReceipt,
   type SystemOneEndpointSpec,
   type SystemOneExample,
   type SystemOneGeneration,
@@ -296,6 +299,8 @@ import {
   requestSystemOneDecision,
   sampleSystemOneActions,
   systemOneDecisionEvent,
+  systemOneDecisionRequestId,
+  verifySystemOneReceiptEvent,
   systemOneEnvironmentSpec,
   systemOneGenerationTrainingConfig,
   systemOnePromotionScores,
@@ -2512,6 +2517,8 @@ export interface RlLoopRequest {
   readonly forceTakeover?: boolean;
   /** Inject OS birth-time reads for controller identity failure drills. @internal */
   readonly processIdentityIO?: LoopProcessIdentityIO;
+  /** Observe request, received receipt and committed PM event boundaries for interruption drills. */
+  readonly onDecision?: (stage: "request" | "response" | "commit", metric: string, step: number) => void | Promise<void>;
   /** Observe completed phase boundaries for telemetry and interruption drills. */
   readonly onPhase?: (phase: "collect" | "train" | "evaluate" | "promote", generation: number) => void | Promise<void>;
 }
@@ -3172,7 +3179,9 @@ async function inspectSystemOneGeneration(client: PmClient, programme: LoopProgr
   if (collection.length > config.samplesPerGeneration || heldOut.length > config.evaluation.length) {
     fail(`Loop ${request.id} generation ${generation} persists more decision evidence than its programme collects; the recorded batch does not match the programme.`, "loop_generation_drift", EXIT_CODE.CONFLICT);
   }
-  verifyDecisionPrefix(config, chain.current as SystemOneCheckpoint, generation, events, collection, heldOut);
+  const namespace = config.endpoint.receiptProtocol === undefined || run === null ? null : await systemOneReceiptNamespace(client, String(run.item.id), false);
+  if (config.endpoint.receiptProtocol !== undefined && namespace === null && events.length > 0) fail("Decision receipt namespace is missing.", "loop_generation_drift", EXIT_CODE.CONFLICT);
+  verifyDecisionPrefix(config, chain.current as SystemOneCheckpoint, generation, events, collection, heldOut, namespace);
   if (item !== null) {
     const spec = extractGenerationSpec(String(item.item.body), `Generation ${item.item.id}`);
     const stored = parseStoredSystemOneGeneration(spec.training_config as JsonValue, config.questions, `Loop ${request.id} generation ${generation} training configuration`);
@@ -3203,10 +3212,11 @@ async function inspectSystemOneGeneration(client: PmClient, programme: LoopProgr
 }
 
 /** Refuse non-prefix, foreign-example or rewritten decision evidence before appending queries. */
-function verifyDecisionPrefix(config: SystemOneLoopConfig, source: SystemOneCheckpoint, generation: number, events: readonly MetricEvent[], collection: readonly SystemOneObservation[], heldOut: readonly SystemOneObservation[]): void {
+function verifyDecisionPrefix(config: SystemOneLoopConfig, source: SystemOneCheckpoint, generation: number, events: readonly MetricEvent[], collection: readonly SystemOneObservation[], heldOut: readonly SystemOneObservation[], namespace: string | null): void {
   if (events.length !== collection.length + heldOut.length || (heldOut.length > 0 && collection.length !== config.samplesPerGeneration)) {
     fail("Decision evidence is not a contiguous collection then held-out prefix.", "loop_generation_drift", EXIT_CODE.CONFLICT);
   }
+  const decisionIds = new Set<string>();
   // readSeries orders events by step across metrics, so each phase's prefix
   // is validated independently rather than assuming append order survives.
   for (const [observations, metric, collecting] of [[collection, SYSTEMONE_COLLECTION_METRIC, true], [heldOut, SYSTEMONE_HELD_OUT_METRIC, false]] as const) {
@@ -3216,6 +3226,12 @@ function verifyDecisionPrefix(config: SystemOneLoopConfig, source: SystemOneChec
       const example = collecting ? config.training[step % config.training.length] : config.evaluation[step];
       if (event.step !== step || observation.example !== example.id || !Number.isSafeInteger(Number(event.tags!["tokens"])) || Number(event.tags!["tokens"]) < 0) {
         fail("Decision evidence has a foreign example, index or token count.", "loop_generation_drift", EXIT_CODE.CONFLICT);
+      }
+      if (namespace !== null) {
+        verifySystemOneReceiptEvent(event, systemOneDecisionRequestId(config, source, namespace, metric, step));
+        const decisionId = event.tags!["decision_id"];
+        if (decisionIds.has(decisionId)) fail("A physical decision receipt was applied more than once.", "loop_generation_drift", EXIT_CODE.CONFLICT);
+        decisionIds.add(decisionId);
       }
       const reward = collecting ? sampleSystemOneActions(observation, example, config.questions, source, systemOneSampleSeed(config.seed, generation, step)).reward
         : heldOutEvidenceReward(observation.answers, example, config.questions);
@@ -3474,6 +3490,20 @@ async function executePendingGeneration(client: PmClient, coordinates: Workspace
   return { terminal: null };
 }
 
+/** Read or establish a run's immutable request namespace before spending remote inference; the controller lease serializes creation. */
+async function systemOneReceiptNamespace(client: PmClient, runId: string, create: boolean): Promise<string | null> {
+  const prefix = "SystemOne receipt namespace: ";
+  const entries = (await readLoopComments(client, runId)).map((comment) => comment.text).filter((text) => text.startsWith(prefix));
+  if (entries.length > 1 || (entries.length === 1 && !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(entries[0].slice(prefix.length)))) {
+    fail("Decision receipt namespace is ambiguous or malformed.", "loop_generation_drift", EXIT_CODE.CONFLICT);
+  }
+  if (entries.length === 1) return entries[0].slice(prefix.length);
+  if (!create) return null;
+  const namespace = randomUUID();
+  await client.update(runId, { comment: [prefix + namespace] });
+  return namespace;
+}
+
 /** Complete one generation's collection batch, appending only its missing suffix. */
 async function collectGenerationBatch(client: PmClient, programme: LoopProgramme, request: RlLoopRequest, chain: LoopChain, pending: GenerationPending, runId: string): Promise<void> {
   if (programme.trainer !== "systemone") {
@@ -3487,18 +3517,23 @@ async function collectGenerationBatch(client: PmClient, programme: LoopProgramme
   }
   const config = programme.config;
   const source = chain.current as SystemOneCheckpoint;
-  for (let step = pending.collection.length; step < config.samplesPerGeneration; step += 1) {
-    failIfLoopCancelled(request.signal, request.id, pending.generation, `collection query ${step}`);
-    const example = config.training[step % config.training.length];
-    const decision = await requestSystemOneDecision(config.endpoint, systemOneState(example), config.questions, request.signal);
-    const sampled = sampleSystemOneActions({ example: example.id, answers: decision.answers, reward: 0 }, example, config.questions, source, systemOneSampleSeed(config.seed, pending.generation, step));
-    await appendRunMetrics(client, runId, [systemOneDecisionEvent(SYSTEMONE_COLLECTION_METRIC, step, { example: example.id, answers: decision.answers, reward: sampled.reward }, decision.usage)]);
-  }
-  for (let step = pending.heldOut.length; step < config.evaluation.length; step += 1) {
-    failIfLoopCancelled(request.signal, request.id, pending.generation, `held-out query ${step}`);
-    const example = config.evaluation[step];
-    const decision = await requestSystemOneDecision(config.endpoint, systemOneState(example), config.questions, request.signal);
-    await appendRunMetrics(client, runId, [systemOneDecisionEvent(SYSTEMONE_HELD_OUT_METRIC, step, { example: example.id, answers: decision.answers, reward: heldOutEvidenceReward(decision.answers, example, config.questions) }, decision.usage)]);
+  const namespace = config.endpoint.receiptProtocol === undefined ? null : await systemOneReceiptNamespace(client, runId, true);
+  for (const [metric, completed, count] of [[SYSTEMONE_COLLECTION_METRIC, pending.collection.length, config.samplesPerGeneration],
+    [SYSTEMONE_HELD_OUT_METRIC, pending.heldOut.length, config.evaluation.length]] as const) {
+    for (let step = completed; step < count; step += 1) {
+      failIfLoopCancelled(request.signal, request.id, pending.generation, `${metric} query ${step}`);
+      const collecting = metric === SYSTEMONE_COLLECTION_METRIC;
+      const example = collecting ? config.training[step % config.training.length] : config.evaluation[step];
+      const requestId = namespace === null ? undefined : systemOneDecisionRequestId(config, source, namespace, metric, step);
+      await request.onDecision?.("request", metric, step);
+      const decision = await requestSystemOneDecision(config.endpoint, systemOneState(example), config.questions, request.signal, requestId);
+      await request.onDecision?.("response", metric, step);
+      const reward = collecting
+        ? sampleSystemOneActions({ example: example.id, answers: decision.answers, reward: 0 }, example, config.questions, source, systemOneSampleSeed(config.seed, pending.generation, step)).reward
+        : heldOutEvidenceReward(decision.answers, example, config.questions);
+      await appendRunMetrics(client, runId, [systemOneDecisionEvent(metric, step, { example: example.id, answers: decision.answers, reward }, decision.usage)]);
+      await request.onDecision?.("commit", metric, step);
+    }
   }
 }
 
@@ -3537,6 +3572,9 @@ async function completeGenerationEvidence(client: PmClient, programme: LoopProgr
   if (collection.length !== config.samplesPerGeneration || heldOut.length !== config.evaluation.length) {
     fail(`Loop ${request.id} generation ${pending.generation} did not persist its complete decision evidence.`, "loop_generation_drift", EXIT_CODE.CONFLICT);
   }
+  const namespace = config.endpoint.receiptProtocol === undefined ? null : await systemOneReceiptNamespace(client, runId, false);
+  if (config.endpoint.receiptProtocol !== undefined && namespace === null) fail("Decision receipt namespace is missing.", "loop_generation_drift", EXIT_CODE.CONFLICT);
+  verifyDecisionPrefix(config, chain.current as SystemOneCheckpoint, pending.generation, events, collection, heldOut, namespace);
   const usageTokens = events.reduce((total, event) => total + Number(event.tags!["tokens"]), 0);
   return executeSystemOneStep(config, chain.step, pending.generation, chain.current as SystemOneCheckpoint, collection, heldOut, usageTokens);
 }
