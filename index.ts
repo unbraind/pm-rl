@@ -3323,9 +3323,7 @@ async function inspectLmGeneration(pmRoot: string, client: PmClient, programme: 
   const source = chain.current as LmCheckpoint;
   const input = loopStepInput(programme, chain, generation);
   const collectionStep = await readLoopStep(client, `${request.id}-g${generation}`, "collect", input);
-  const { run, item } = await findGenerationItems(client, request.id, generation);
-  if (run !== null) await verifyLoopRun(client, programme, chain, generation, run, null);
-  const events = run === null ? [] : await readRunMetricEvents(client, String(run.item.id));
+  const { run, item, events } = await verifiedGenerationEvidence(client, programme, request, chain, generation);
   // A completed collect receipt names its evidence even when the Run is gone, so a deleted Run is drift, not "unfinished".
   const expected = collectionStep !== null ? collectionReceipt(collectionStep).events
     : run === null ? [] : lmCollectionEvents(lmCollectBatch(config, generation, source));
@@ -3359,9 +3357,7 @@ async function inspectLmGeneration(pmRoot: string, client: PmClient, programme: 
 /** Inspect one decision-model generation's persisted state against its persisted evidence. */
 async function inspectSystemOneGeneration(client: PmClient, programme: LoopProgramme & { readonly trainer: "systemone" }, request: RlLoopRequest, chain: LoopChain, generation: number): Promise<GenerationInspection> {
   const config = programme.config;
-  const { run, item } = await findGenerationItems(client, request.id, generation);
-  if (run !== null) await verifyLoopRun(client, programme, chain, generation, run, null);
-  const events = run === null ? [] : await readRunMetricEvents(client, String(run.item.id));
+  const { run, item, events } = await verifiedGenerationEvidence(client, programme, request, chain, generation);
   const collected = await readLoopStep(client, `${request.id}-g${generation}`, "collect", loopStepInput(programme, chain, generation));
   if (collected !== null) {
     const expected = collectionReceipt(collected).events;
@@ -3439,6 +3435,13 @@ function verifyDecisionPrefix(config: SystemOneLoopConfig, source: SystemOneChec
       if (observation.reward !== reward) fail("Decision evidence does not replay the collecting policy's reward.", "loop_generation_drift", EXIT_CODE.CONFLICT);
     }
   }
+}
+
+/** Read a generation's collection Run and candidate, verify the Run's policy, and return its metric events. */
+async function verifiedGenerationEvidence(client: PmClient, programme: LoopProgramme, request: RlLoopRequest, chain: LoopChain, generation: number): Promise<{ run: GetResult | null; item: GetResult | null; events: readonly MetricEvent[] }> {
+  const { run, item } = await findGenerationItems(client, request.id, generation);
+  if (run !== null) await verifyLoopRun(client, programme, chain, generation, run, null);
+  return { run, item, events: run === null ? [] : await readRunMetricEvents(client, String(run.item.id)) };
 }
 
 /** Verify a resumed run; bandit callers supply their already verified receipt, other trainers supply null. */
