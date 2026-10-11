@@ -10,6 +10,7 @@
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { setTimeout as delay } from "node:timers/promises";
 import { writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { afterEach, test } from "node:test";
@@ -352,6 +353,35 @@ test("stream transport escalates a SIGTERM-ignoring child to SIGKILL after the t
     ),
     /timed out after 200ms/,
   );
+});
+
+test("stream transport kills a ready SIGTERM-ignoring child after consumer rejection", async () => {
+  dir = makeTempDir();
+  let pid = 0;
+  let output = "";
+  await assert.rejects(streamProcess(process.execPath, ["-e", "process.on('SIGTERM', () => {}); console.log(process.pid); setInterval(() => {}, 1000)"], {
+    cwd: dir.root,
+    timeoutMs: 10_000,
+    escalationMs: 100,
+  }, (chunk) => {
+    output += chunk.toString("utf8");
+    if (!output.includes("\n")) return;
+    pid = Number(output.trim());
+    throw new Error("ready child refusal");
+  }), /ready child refusal/);
+  assert.ok(pid > 0);
+  const deadline = performance.now() + 5_000;
+  let alive = true;
+  while (alive && performance.now() < deadline) {
+    await delay(25);
+    try {
+      process.kill(pid, 0);
+    } catch (error) {
+      assert.equal((error as NodeJS.ErrnoException).code, "ESRCH");
+      alive = false;
+    }
+  }
+  assert.equal(alive, false, "a rejected consumer must not leave its child alive");
 });
 
 test("maskAddress elides the local part and masks malformed input", () => {
