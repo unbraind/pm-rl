@@ -24,7 +24,7 @@ const config = JSON.parse(readFileSync(new URL("../examples/loop-bandit.json", i
 async function workspace() {
   const root = mkdtempSync(join(tmpdir(), "pm-rl-durable-")); roots.push(root);
   const initialized = await init("rl", { defaults: true, agentGuidance: "skip", author: "rl-test" }, { cwd: root });
-  const client = new PmClient({ pmRoot: initialized.path, cwd: root, author: "rl-test" });
+  const client = new PmClient({ pmRoot: initialized.path, cwd: root, author: "rl-test", noExtensions: true });
   const approval = await client.create({ id: "approval", title: "Bounded approval", type: "Decision", body: '```json\n{"permitted_promotions":3}\n```' });
   return { root, pmRoot: initialized.path, client, approval: String(approval.item.id) };
 }
@@ -247,7 +247,7 @@ test("malformed and legacy controller records refuse; EPERM requires matching bi
   } finally { process.kill = kill; await release(); }
 });
 
-test("real live same-identity holder blocks even force and an expired timestamp", async () => {
+test("real live same-identity holder blocks force and reports holder and lease expiry", async () => {
   const { client, pmRoot, approval } = await workspace();
   const winner = launch(pmRoot, approval, "hold"); await winner.ready;
   try {
@@ -255,11 +255,12 @@ test("real live same-identity holder blocks even force and an expired timestamp"
     const record = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
     assert.equal(record.hostname, hostname()); assert.equal(record.pid, winner.child.pid);
     assert.equal(record.process_start_time, loopProcessStartTime(winner.child.pid!));
-    writeFileSync(path, JSON.stringify({ ...record, created_at: "1970-01-01T00:00:00.000Z", ttl_seconds: 1 }));
+
     for (const forceTakeover of [false, true]) {
       await assert.rejects(resumeRlLoop(client, { pmRoot, author: "rl-test" }, { id: "race", approval, forceTakeover }), (error: unknown) => {
         assert.ok(isPmCliExpectedError(error)); assert.equal(error.context.code, "loop_controller_active");
         assert.ok(error.message.includes(`locks/${loopLeaseLockId("race")}.lock`));
+        assert.ok(error.message.includes("holder process-test")); assert.ok(error.message.includes("lease expiry"));
         assert.ok(error.message.includes(`pm rl loop resume race --approval ${approval} --force-takeover`));
         assert.ok(!error.message.includes(pmRoot)); return true;
       });

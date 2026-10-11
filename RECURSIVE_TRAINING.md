@@ -2,6 +2,38 @@
 
 Status: the persisted bounded loop is implemented as `pm rl loop run` ([`pm-rl-hjg1`](.agents/pm/features/pm-rl-hjg1.toon)): one command executes collect → train → evaluate → compare against the promoted baseline → promote or reject over the built-in deterministic contextual bandit, records every generation as real tracker items (a collection Run with per-sample metric notes, a Generation item with the derived configuration and full provenance, refusal reasons as item history), promotes only through the existing transactional contamination- and budget-checked gate, derives the next generation's learning rate and evaluation episode count deterministically from the previous evaluation results, and terminates on its own hard bounds — generation limit, total sample budget, unchanged checkpoint, training-to-evaluation gap above `maximum_gap`, statistical gate refusal, or an exhausted approved promotion budget. Durable continuation is implemented in [pm-rl-od32](.agents/pm/features/pm-rl-od32.toon): SDK controller leases, shared worktree launch authority, persisted replay, status/resume commands and signal recovery. [pm-rl-qhz2](.agents/pm/features/pm-rl-qhz2.toon) adds real per-question temperature/bias gradient updates over a frozen System One model; [pm-rl-ip21](.agents/pm/features/pm-rl-ip21.toon) records two real tev1 generations. See [the measured adapter contract](docs/durable-systemone-validation.md). [pm-rl-upe0](.agents/pm/features/pm-rl-upe0.toon) adds a real bounded TypeScript causal LM with frozen copy-pretrained weights, REINFORCE LoRA updates, canonical disk checkpoints and verified successor collection. [LM validation](docs/lm-adapter.md) records three real CLI generations and held-out improvement; criterion 2 is met for this CPU adapter. Docker Compose adapters, storage/compute reservations and remote endpoint idempotency remain separate work.
 
+## Durable local continuation
+
+Every generation has stable PM Decision keys `<loop>-g<N>-step-collect`,
+`-step-train`, `-step-evaluate`, and `-step-promote`. Each records `running` before
+work and commits a content-digested `complete` receipt bound to the programme,
+source checkpoint, generation and derived configuration. Resume adopts completed
+receipts; unfinished collection appends only its missing metric suffix. The LM
+fit commits its actual adapter tensors before checkpoint materialization and
+held-out evaluation, so a kill after the fit receipt can recover the artifact
+without fitting again. The seed retains the frozen base weights; status and
+resume restore them without repeating pretraining. Older loop records retain their
+original replay verification path.
+
+The SDK controller lease lasts 60 seconds, renews at phase entry and exit, and heartbeats every 20 seconds while idle between phases.
+The SDK phase mutex serializes a step's effects and receipt with takeover; a live
+controller executing a phase retains that mutex through the commit. A contender
+receives the holder and expiry. Expired idle leases and demonstrably dead local
+holders can be taken over. A displaced controller's token is fenced before every
+write and before claim release, including when both controllers use the same
+author. Lease renewal publishes atomic JSON, and abandoned phase mutex recovery
+expires the dead holder's open inode for the SDK's own stale-lock cleanup.
+
+SIGINT, SIGTERM or an AbortSignal stop at the next durable step boundary and
+append a cancellation comment to the seed. `pm rl loop resume <loop> --approval
+<decision>` continues unfinished steps using the persisted configuration. Work
+killed before a completion receipt is durable may execute again; completed steps
+are adopted once. The synthetic tiny-LM process drills cover SIGKILL inside metric
+and fit writes, a committed fit before materialization, committed evaluation,
+a promotion body committed before item close, simultaneous lease contenders,
+expired live-holder fencing and SIGTERM during
+collection. These local receipts do not provide remote endpoint idempotency.
+
 ## The next production slice
 
 A persisted programme names its initial policy checkpoint, training and evaluation datasets, environment and reward revisions, trainer adapter, seed, and an approved resource-budget Decision. Every artifact has a content digest. The evaluator's held-out dataset remains inaccessible to collection and training. Each promoted successor supplies the policy for the next collection cycle, so a successful demonstration must change a real checkpoint and use it in the next generation.

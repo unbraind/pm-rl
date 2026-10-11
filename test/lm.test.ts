@@ -10,6 +10,7 @@ import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { parseLoopProgramme, parseLoopTrainer } from "../loop.ts";
 import { parseScoreRecord } from "../lineage.ts";
 import {
+  trainLmStep, evaluateLmStep, lmTrainingJson, restoreLmTraining, restoreLmGeneration,
   copyLmAdapter, executeLmStep, lmAdapterParameterCount, lmCheckpoint, lmCollectBatch,
   lmCollectionEvents, lmCompletionReward, lmConfigurationJson, lmEnvironmentSpec,
   lmGenerationTrainingConfig, lmGreedyExactMatch, lmPromptTokens, lmPromotionScores,
@@ -546,4 +547,24 @@ test("the environment spec, run, seed and promotion score records carry the full
   assert.equal(parseScoreRecord(scores.held_out_score, "held_out").value, receipt.candidateHeldOutMean);
   // The serialized checkpoint bytes stay inside the declared budget.
   assert.ok(serializeLmCheckpoint(receipt.candidate, config).bytes <= config.limits.maxCheckpointBytes);
+});
+
+
+test("durable LM fit and evaluation restore actual tensors without another update", () => {
+  const config = parseLmLoopConfig(configValue());
+  const step = { learningRate: config.learningRate, evaluationSamples: config.evaluationSamples };
+  const observations = lmCollectBatch(config, 1, config.initial);
+  const fit = trainLmStep(config, step, 1, config.initial, observations, 12);
+  const saved = lmTrainingJson(fit);
+  assert.deepEqual(restoreLmTraining(saved, config, 1, config.initial, observations), fit);
+  const evaluated = evaluateLmStep(config, step, fit, 21);
+  assert.deepEqual(restoreLmGeneration(lmGenerationTrainingConfig(config, step, evaluated), config, step, fit), evaluated);
+  refuses(() => restoreLmTraining({ ...(saved as Record<string, JsonValue>), generation: 2 }, config, 1, config.initial, observations), "lm_invalid_checkpoint");
+  refuses(() => restoreLmGeneration({ ...(lmGenerationTrainingConfig(config, step, evaluated) as Record<string, JsonValue>), collection_digest: `sha256:${"a".repeat(64)}` }, config, step, fit), "loop_generation_drift");
+  const frozen = lmConfigurationJson(config) as Record<string, JsonValue>;
+  assert.deepEqual(parseLmLoopConfig(frozen).base, config.base);
+  const envelope = frozen.frozen_base as Record<string, JsonValue>;
+  const weights = envelope.weights as Record<string, JsonValue>;
+  refuses(() => parseLmLoopConfig({ ...frozen, frozen_base: { ...envelope, weights: { ...weights, layers: [] } } }), "lm_invalid_checkpoint");
+  refuses(() => parseLmLoopConfig({ ...frozen, frozen_base: { ...envelope, digest: "wrong" } }), "lm_invalid_checkpoint");
 });

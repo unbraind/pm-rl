@@ -64,6 +64,7 @@
       "test/audit-git-identities.test.ts",
       "test/bandit.test.ts",
       "test/compare.test.ts",
+      "test/continuation-faults.test.ts",
       "test/coverage-gate.test.ts",
       "test/durable-loop.test.ts",
       "test/gatesim.test.ts",

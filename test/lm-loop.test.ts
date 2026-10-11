@@ -1,4 +1,5 @@
 /** The persisted language-model loop: real CLI acceptance, receipts, resume and refusals. */
+import { fork } from "node:child_process";
 import assert from "node:assert/strict";
 import { readFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -11,7 +12,7 @@ import { encodeEventSegments, readSeries, type MetricEvent } from "../series.ts"
 import { parseGenerationSpec } from "../lineage.ts";
 import { lmCollectBatch, parseLmCollectionEvent, parseLmLoopConfig, serializeLmCheckpoint, LM_COLLECTION_METRIC, type LmLoopConfig, type LmObservation } from "../lm.ts";
 import extension, {
-  runRlLoop, resumeRlLoop, rlLoopStatus,
+  runRlLoop, resumeRlLoop, rlLoopStatus, loopLeaseLockId,
   RL_ITEM_TYPES, type JsonValue, type RlCommandResult, type RefusalAuditContext, type RlLoopReport,
 } from "../index.ts";
 
@@ -63,7 +64,7 @@ async function workspace(): Promise<{
   const root = mkdtempSync(join(tmpdir(), "pm-rl-lm-loop-test-"));
   roots.push(root);
   const initialized = await init("rl", { defaults: true, author: "pm-rl-test", agentGuidance: "skip" }, { cwd: root });
-  const client = new PmClient({ pmRoot: initialized.path, author: "pm-rl-test" });
+  const client = new PmClient({ pmRoot: initialized.path, cwd: root, author: "pm-rl-test", noExtensions: true });
   for (const itemType of RL_ITEM_TYPES) {
     await client.schemaAddType(itemType.name, {
       folder: itemType.folder,
@@ -398,7 +399,7 @@ test("a stored candidate cannot resume after its collection evidence disappears"
   const approval = await createApproval(client, "lost-evidence-approval", 8);
   await assert.rejects(runRlLoop(client, { pmRoot, author: "pm-rl-test" }, { id: "lost-evidence", approval, config: smallConfig(),
     onPhase(phase) {
-      if (phase === "train") {
+      if (phase === "evaluate") {
         client.notes = (async (id: string) => ({ id, notes: [], count: 0 })) as PmClient["notes"];
         throw new Error("pause after candidate");
       }
@@ -479,7 +480,7 @@ test("collection evidence corruption and tampered lineage refuse advancement", a
   const { pmRoot, client } = await workspace();
   const approval = await createApproval(client, "lm-drift-component", 8);
   await assert.rejects(runRlLoop(client, { pmRoot, author: "pm-rl-test" }, { id: "component", config: smallConfig() as JsonValue, approval,
-    onPhase(phase) { if (phase === "train") throw new Error("pause"); } }), /pause/);
+    onPhase(phase) { if (phase === "evaluate") throw new Error("pause"); } }), /pause/);
   const run = await client.get("component-g1-collect");
   await client.update(String(run.item.id), { component: `sha256:${"a".repeat(64)}` });
   await refusalOf(() => rlLoopStatus(client, "component", pmRoot), "loop_generation_drift");
@@ -489,7 +490,7 @@ test("a tampered candidate checkpoint is refused as invalid before the chain adv
   const { pmRoot, client } = await workspace();
   const approval = await createApproval(client, "lm-tamper-approval", 8);
   await assert.rejects(runRlLoop(client, { pmRoot, author: "pm-rl-test" }, { id: "tamper", config: smallConfig() as JsonValue, approval,
-    onPhase(phase) { if (phase === "train") throw new Error("pause"); } }), /pause/);
+    onPhase(phase) { if (phase === "evaluate") throw new Error("pause"); } }), /pause/);
   const candidate = await client.get("tamper-g1");
   const body = String(candidate.item.body);
   const spec = generationSpecOf(body);
@@ -501,4 +502,114 @@ test("a tampered candidate checkpoint is refused as invalid before the chain adv
   assert.notEqual(rewritten, body);
   await client.update(String(candidate.item.id), { body: rewritten });
   await refusalOf(() => rlLoopStatus(client, "tamper", pmRoot), "lm_invalid_checkpoint");
+});
+
+/** Fork a real tiny-LM controller and expose bounded IPC barriers and its terminal result. */
+function lmController(pmRoot: string, approval: string, mode: string, configuration: JsonValue = smallConfig({ max_generations: 1, budget: 32 })) {
+  const child = fork(new URL("./fixtures/durable-lm-controller.ts", import.meta.url), [pmRoot, approval, JSON.stringify(configuration), mode], { silent: true });
+  let stderr = "";
+  child.stderr!.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
+  const messages: unknown[] = [];
+  let readyResolve: () => void;
+  let startingResolve: () => void;
+  const ready = new Promise<void>((resolve, reject) => { readyResolve = resolve; child.on("exit", () => { if (mode !== "race" || !JSON.stringify(messages).includes("loop_controller_active")) reject(new Error(stderr + JSON.stringify(messages))); }); });
+  const starting = new Promise<void>((resolve) => { startingResolve = resolve; });
+  child.on("message", (message) => { messages.push(message); if (message === "ready") readyResolve(); if (message === "starting") startingResolve(); });
+  const result = new Promise<{ code: number | null; messages: unknown[] }>((resolve, reject) => {
+    child.on("error", reject);
+    child.on("exit", (code, signal) => { if (code !== 0 && signal !== "SIGKILL" && messages.length === 0) reject(new Error(stderr)); else resolve({ code, messages }); });
+  });
+  return { child, ready, starting, result };
+}
+
+/** Return the complete PM history bytes of one generation-step key. */
+async function stepHistory(client: PmClient, pmRoot: string, phase: string): Promise<string> {
+  const item = await client.get(`lm-drill-g1-step-${phase}`);
+  return readFileSync(join(pmRoot, "history", `${item.item.id}.jsonl`), "utf8");
+}
+
+test("SIGKILL inside real LM collect and fit writes resumes only unfinished generation steps", { timeout: 600_000 }, async () => {
+  const reference = await workspace();
+  const approved = await createApproval(reference.client, "reference-approval", 8);
+  const baseline = await runRlLoop(reference.client, { pmRoot: reference.pmRoot, author: "pm-rl-test" }, { id: "lm-drill", config: smallConfig({ max_generations: 1, budget: 32 }), approval: approved });
+  for (const mode of ["mid-collect", "mid-train", "train", "evaluate", "mid-promote"] as const) {
+    const { pmRoot, client } = await workspace();
+    const approval = await createApproval(client, "drill-approval", 8);
+    const process = lmController(pmRoot, approval, mode);
+    try {
+      await process.ready;
+      const completed = mode === "train" ? ["collect", "train"] : (mode === "evaluate" || mode === "mid-promote") ? ["collect", "train", "evaluate"] : mode === "mid-train" ? ["collect"] : [];
+      const before = await Promise.all(completed.map((phase) => stepHistory(client, pmRoot, phase)));
+      process.child.kill("SIGKILL"); await process.result;
+      const phases: string[] = [];
+      const resumed = await resumeRlLoop(client, { pmRoot, author: "pm-rl-test" }, { id: "lm-drill", approval,
+        onPhase(phase, generation) { if (generation === 1) phases.push(phase); } });
+      for (const phase of completed) assert.ok(!phases.includes(phase), `completed ${phase} was repeated after ${mode}`);
+      assert.deepEqual(await Promise.all(completed.map((phase) => stepHistory(client, pmRoot, phase))), before);
+      assert.deepEqual(stable(resumed), stable(baseline));
+      assert.equal((await client.get("lm-drill-g1")).item.status, "closed");
+      const status = await rlLoopStatus(client, "lm-drill", pmRoot);
+      assert.equal(status.samples_consumed, baseline.samples_consumed);
+      assert.equal(status.final_checkpoint, baseline.final_checkpoint);
+      assert.notEqual(baseline.generations[0]!.candidate_checkpoint, parseLmLoopConfig(smallConfig()).initial.digest);
+      for (const phase of ["collect", "train", "evaluate", "promote"]) {
+        const history = await stepHistory(client, pmRoot, phase);
+        assert.equal(history.split("\n").filter((line) => line && JSON.parse(line).op === "create").length, 1);
+      }
+    } finally { if (process.child.exitCode === null && process.child.signalCode === null) { process.child.kill("SIGKILL"); await process.result; } }
+  }
+});
+
+test("two real tiny-LM processes racing acquire exactly one lease and publish one collection", { timeout: 300_000 }, async () => {
+  const { pmRoot, client } = await workspace();
+  const approval = await createApproval(client, "race-approval", 8);
+  const first = lmController(pmRoot, approval, "race"); const second = lmController(pmRoot, approval, "race");
+  try {
+    await Promise.all([first.starting, second.starting]); first.child.send("start"); second.child.send("start");
+    const winner = await Promise.race([first.ready.then(() => first), second.ready.then(() => second)]);
+    const loser = winner === first ? second : first;
+    const refused = await loser.result;
+    assert.ok(JSON.stringify(refused.messages).includes("loop_controller_active"));
+    assert.ok(JSON.stringify(refused.messages).includes("lease expiry"));
+    winner.child.send("continue"); assert.equal((await winner.result).code, 0);
+    const report = await rlLoopStatus(client, "lm-drill", pmRoot);
+    assert.equal(report.promoted, 1); assert.equal(report.samples_consumed, 32);
+    const history = await stepHistory(client, pmRoot, "collect");
+    assert.equal(history.split("\n").filter((line) => line && JSON.parse(line).op === "create").length, 1);
+  } finally { for (const process of [first, second]) if (process.child.exitCode === null && process.child.signalCode === null) { process.child.kill("SIGKILL"); await process.result; } }
+});
+
+test("expired live-controller takeover fences its later writes and claim cleanup", { timeout: 300_000 }, async () => {
+  const { pmRoot, client } = await workspace();
+  const approval = await createApproval(client, "expiry-approval", 8);
+  const old = lmController(pmRoot, approval, "race", smallConfig());
+  try {
+    await old.starting; old.child.send("start"); await old.ready;
+    old.child.kill("SIGSTOP");
+    const lockPath = join(pmRoot, "locks", `${loopLeaseLockId("lm-drill")}.lock`);
+    const lease = JSON.parse(readFileSync(lockPath, "utf8")) as Record<string, unknown>;
+    writeFileSync(lockPath, JSON.stringify({ ...lease, created_at: "1970-01-01T00:00:00.000Z" }));
+    const successor = await resumeRlLoop(client, { pmRoot, author: "lm-process-test" }, { id: "lm-drill", approval });
+    const before = await stepHistory(client, pmRoot, "train");
+    old.child.kill("SIGCONT"); old.child.send("continue");
+    assert.ok(JSON.stringify((await old.result).messages).includes("loop_lease_lost"));
+    assert.equal(await stepHistory(client, pmRoot, "train"), before);
+    assert.equal(successor.promoted, 2);
+  } finally { if (old.child.exitCode === null && old.child.signalCode === null) { old.child.kill("SIGKILL"); await old.result; } }
+});
+
+test("SIGTERM inside LM collection commits the boundary, records cancellation and resumes", { timeout: 300_000 }, async () => {
+  const { pmRoot, client } = await workspace();
+  const approval = await createApproval(client, "cancel-drill-approval", 8);
+  const process = lmController(pmRoot, approval, "mid-collect");
+  try {
+    await process.ready; process.child.kill("SIGTERM");
+    assert.ok(JSON.stringify((await process.result).messages).includes("loop_cancelled"));
+    assert.ok(JSON.stringify(await client.comments("lm-drill-seed")).includes("cancellation recorded"));
+    const status = await rlLoopStatus(client, "lm-drill", pmRoot);
+    assert.equal(status.generations[0]!.phase, "collected"); assert.equal(status.samples_consumed, 32);
+    const before = await stepHistory(client, pmRoot, "collect");
+    assert.equal((await resumeRlLoop(client, { pmRoot, author: "pm-rl-test" }, { id: "lm-drill", approval })).promoted, 1);
+    assert.equal(await stepHistory(client, pmRoot, "collect"), before);
+  } finally { if (process.child.exitCode === null && process.child.signalCode === null) { process.child.kill("SIGKILL"); await process.result; } }
 });

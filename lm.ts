@@ -375,6 +375,9 @@ export interface LmGeneration {
   readonly wallMs: number;
 }
 
+/** A completed parameter update, persisted before held-out evaluation begins. */
+export type LmTraining = Pick<LmGeneration, "generation" | "source" | "candidate" | "collectionDigest" | "observations" | "lossBefore" | "lossAfter" | "parameterDeltaL2" | "wallMs">;
+
 /** A reproducible adapter checkpoint whose digest binds the frozen base and the real tensors. */
 export interface LmCheckpoint {
   /** The adapter's actual tensors; changed by the REINFORCE update. */
@@ -597,6 +600,25 @@ function jsonLmWeights(shape: LmModelShape, weights: LmWeights): JsonValue {
     })),
     shape: { vocab: shape.vocab, d_model: shape.dModel, ffn: shape.ffn, layers: shape.layers, rank: shape.rank, max_positions: shape.maxPositions },
   };
+}
+
+/** Restore declared frozen weights with exact Float32 shapes and their content identity. */
+function restoreLmBase(value: JsonValue, shape: LmModelShape): LmWeights {
+  const envelope = asJsonObject(value, "LM frozen base", "lm_invalid_checkpoint");
+  const record = asJsonObject(envelope["weights"], "LM frozen weights", "lm_invalid_checkpoint");
+  const rawLayers = record["layers"];
+  if (!Array.isArray(rawLayers) || rawLayers.length !== shape.layers) expectedFail("LM frozen base has invalid layer dimensions.", "lm_invalid_checkpoint");
+  const tensor = (item: Readonly<Record<string, unknown>>, key: string, size: number): Float32Array => storedTensor(item, key, size, "LM frozen base");
+  const weights: LmWeights = { emb: tensor(record, "emb", shape.vocab * shape.dModel), pos: tensor(record, "pos", shape.maxPositions * shape.dModel),
+    head: tensor(record, "head", shape.vocab * shape.dModel), layers: rawLayers.map((raw) => {
+      const layer = asJsonObject(raw, "LM frozen layer", "lm_invalid_checkpoint");
+      const square = shape.dModel * shape.dModel;
+      return { ln1g: tensor(layer, "ln1g", shape.dModel), ln1b: tensor(layer, "ln1b", shape.dModel), ln2g: tensor(layer, "ln2g", shape.dModel), ln2b: tensor(layer, "ln2b", shape.dModel),
+        wq: tensor(layer, "wq", square), wk: tensor(layer, "wk", square), wv: tensor(layer, "wv", square), wo: tensor(layer, "wo", square),
+        w1: tensor(layer, "w1", shape.ffn * shape.dModel), b1: tensor(layer, "b1", shape.ffn), w2: tensor(layer, "w2", shape.dModel * shape.ffn), b2: tensor(layer, "b2", shape.dModel) };
+    }) };
+  if (envelope["digest"] !== lmDigest(jsonLmWeights(shape, weights))) expectedFail("LM frozen base content identity is invalid.", "lm_invalid_checkpoint");
+  return weights;
 }
 
 /**
@@ -1764,7 +1786,7 @@ function sampledHeldOutMean(config: LmLoopConfig, generation: number, adapter: L
  * @param wallMs - The persisted wall milliseconds to replay, or null to measure this execution.
  * @returns The generation's complete receipt, including its terminal condition.
  */
-export function executeLmStep(config: LmLoopConfig, step: LoopStepConfig, generation: number, source: LmCheckpoint, observations: readonly LmObservation[], wallMs: number | null): LmGeneration {
+export function trainLmStep(config: LmLoopConfig, step: LoopStepConfig, generation: number, source: LmCheckpoint, observations: readonly LmObservation[], wallMs: number | null): LmTraining {
   const startedAt = wallMs === null ? performance.now() : 0;
   const samples: LmFitSample[] = observations.map((observation) => {
     const example = config.training.find((candidate) => candidate.id === observation.example);
@@ -1783,29 +1805,27 @@ export function executeLmStep(config: LmLoopConfig, step: LoopStepConfig, genera
   }
   const after = lmReinforceSurrogate(config.shape, config.base, adapter, samples, config.alphabet, config.klWeight, deadline);
   const candidate = lmCheckpoint(adapter, config);
-  const collectionDigest = lmDigest({
-    source: source.digest,
-    trainingDigest: config.trainingDigest,
-    collection: observations.map((observation) => ({ example: observation.example, tokens: [...observation.tokens], reward: observation.reward })),
-  });
+  const collectionDigest = lmCollectionDigest(config, source, observations);
+  return { generation, source, candidate, observations, collectionDigest, lossBefore: before.loss, lossAfter: after.loss,
+    parameterDeltaL2: adapterDeltaL2(source.adapter, adapter), wallMs: wallMs === null ? performance.now() - startedAt : wallMs };
+}
+
+/** Evaluate a persisted fit on held-out data without applying another parameter update. */
+export function evaluateLmStep(config: LmLoopConfig, step: LoopStepConfig, training: LmTraining, wallMs: number | null): LmGeneration {
+  const startedAt = wallMs === null ? performance.now() : 0;
+  const { generation, source, candidate } = training;
+  const adapter = candidate.adapter;
   const baselineScore = meanExpectedReward(config.shape, config.base, source.adapter, config.evaluation.map((example) => example.string), config.alphabet);
   const trainingScore = meanExpectedReward(config.shape, config.base, adapter, config.training.map((example) => example.string), config.alphabet);
   const evaluationScore = meanExpectedReward(config.shape, config.base, adapter, config.evaluation.map((example) => example.string), config.alphabet);
   const [incumbentSeed, candidateSeed] = evaluationSeeds(config.seed, generation);
-  const incumbentHeldOutMean = sampledHeldOutMean(config, generation, source.adapter, step.evaluationSamples, incumbentSeed, wallMs === null ? startedAt : null);
-  const candidateHeldOutMean = sampledHeldOutMean(config, generation, adapter, step.evaluationSamples, candidateSeed, wallMs === null ? startedAt : null);
+  const incumbentHeldOutMean = sampledHeldOutMean(config, generation, source.adapter, step.evaluationSamples, incumbentSeed, wallMs === null ? startedAt - training.wallMs : null);
+  const candidateHeldOutMean = sampledHeldOutMean(config, generation, adapter, step.evaluationSamples, candidateSeed, wallMs === null ? startedAt - training.wallMs : null);
   // The wall clock stops after the last unit of charged work: the fit, the
   // expected-reward and exact-match evaluations, and the gate's sampled
   // episodes. A replay passes the persisted value and skips this measurement.
   const evidence: Omit<LmGeneration, "promoted" | "refusalReason" | "stopReason"> = {
-    generation,
-    source,
-    candidate,
-    collectionDigest,
-    observations,
-    lossBefore: before.loss,
-    lossAfter: after.loss,
-    parameterDeltaL2: adapterDeltaL2(source.adapter, adapter),
+    ...training,
     baselineExactMatch: lmGreedyExactMatch(config.shape, config.base, source.adapter, config.evaluation.map((example) => example.string), config.alphabet),
     candidateExactMatch: lmGreedyExactMatch(config.shape, config.base, adapter, config.evaluation.map((example) => example.string), config.alphabet),
     baselineScore,
@@ -1813,8 +1833,14 @@ export function executeLmStep(config: LmLoopConfig, step: LoopStepConfig, genera
     evaluationScore,
     incumbentHeldOutMean,
     candidateHeldOutMean,
-    wallMs: wallMs === null ? performance.now() - startedAt : wallMs,
+    wallMs: wallMs === null ? training.wallMs + performance.now() - startedAt : wallMs,
   };
+  return lmGenerationVerdict(config, step, evidence);
+}
+
+/** Derive a fail-closed promotion verdict from durable evaluation evidence. */
+function lmGenerationVerdict(config: LmLoopConfig, step: LoopStepConfig, evidence: Omit<LmGeneration, "promoted" | "refusalReason" | "stopReason">): LmGeneration {
+  const { source, candidate, generation, trainingScore, evaluationScore, baselineScore, candidateHeldOutMean, incumbentHeldOutMean } = evidence;
   // The declared limits are fail-closed bounds on the artifacts themselves: a
   // candidate whose serialized checkpoint exceeds the declared byte budget,
   // or a fit that exceeded the declared wall budget, is refused with its own
@@ -1839,6 +1865,55 @@ export function executeLmStep(config: LmLoopConfig, step: LoopStepConfig, genera
     samples: step.evaluationSamples, candidateMean: candidateHeldOutMean, incumbentMean: incumbentHeldOutMean,
     criterion: { confidence: config.confidence, minSamples: config.minSamples, effectThreshold: config.minimumImprovement } }) };
 
+}
+
+/** Run a fit and held-out evaluation together for the numerical adapter API. */
+export function executeLmStep(config: LmLoopConfig, step: LoopStepConfig, generation: number, source: LmCheckpoint, observations: readonly LmObservation[], wallMs: number | null): LmGeneration {
+  return evaluateLmStep(config, step, trainLmStep(config, step, generation, source, observations, wallMs === null ? null : 0), wallMs);
+}
+
+/** Serialize a completed fit independently of held-out evaluation. */
+export function lmTrainingJson(training: LmTraining): JsonValue {
+  return { generation: training.generation, source_checkpoint: training.source.digest, candidate_checkpoint: training.candidate.digest,
+    candidate_adapter: jsonLmAdapter(training.candidate.adapter), collection_digest: training.collectionDigest,
+    loss_before: training.lossBefore, loss_after: training.lossAfter, parameter_delta_l2: training.parameterDeltaL2, wall_ms: training.wallMs };
+}
+
+/** Bind the collected completions to the policy and declared training dataset. */
+function lmCollectionDigest(config: LmLoopConfig, source: LmCheckpoint, observations: readonly LmObservation[]): string {
+  return lmDigest({ source: source.digest, trainingDigest: config.trainingDigest,
+    collection: observations.map((observation) => ({ example: observation.example, tokens: [...observation.tokens], reward: observation.reward })) });
+}
+
+/** Restore a durable fit, verifying checkpoint, collection and parameter-delta identities without fitting. */
+export function restoreLmTraining(value: JsonValue, config: LmLoopConfig, generation: number, source: LmCheckpoint, observations: readonly LmObservation[]): LmTraining {
+  const record = asJsonObject(value, "LM training step", "lm_invalid_training_config");
+  const candidate = lmCheckpoint(parseLmAdapter(record["candidate_adapter"], config.shape, "LM training step"), config);
+  const collectionDigest = lmCollectionDigest(config, source, observations);
+  const delta = adapterDeltaL2(source.adapter, candidate.adapter);
+  if (record["generation"] !== generation || record["source_checkpoint"] !== source.digest || record["candidate_checkpoint"] !== candidate.digest
+    || record["collection_digest"] !== collectionDigest || record["parameter_delta_l2"] !== delta) {
+    expectedFail("LM training step identities disagree with the persisted batch and checkpoint.", "lm_invalid_checkpoint");
+  }
+  return { generation, source, candidate, observations, collectionDigest, parameterDeltaL2: delta,
+    lossBefore: storedCheckpointNumber(record, "loss_before", "LM training step", "lm_invalid_training_config"),
+    lossAfter: storedCheckpointNumber(record, "loss_after", "LM training step", "lm_invalid_training_config"),
+    wallMs: storedCheckpointNumber(record, "wall_ms", "LM training step", "lm_invalid_training_config") };
+}
+
+/** Restore a durable evaluation and derive its verdict without training or evaluating again. */
+export function restoreLmGeneration(value: JsonValue, config: LmLoopConfig, step: LoopStepConfig, training: LmTraining): LmGeneration {
+  const stored = parseStoredLmGeneration(value, config, "LM evaluation step");
+  const record = asJsonObject(value, "LM evaluation step", "lm_invalid_training_config");
+  verifyTrainerConfiguration(stored, step, config);
+  verifyReplayFields([["generation", stored.generation, training.generation], ["collection_digest", stored.collectionDigest, training.collectionDigest],
+    ["source_checkpoint", stored.sourceCheckpoint, training.source.digest], ["candidate_checkpoint", stored.candidateCheckpoint, training.candidate.digest],
+    ["loss_before", stored.lossBefore, training.lossBefore], ["loss_after", stored.lossAfter, training.lossAfter],
+    ["parameter_delta_l2", stored.parameterDeltaL2, training.parameterDeltaL2]], training.generation);
+  return lmGenerationVerdict(config, step, { ...training, baselineExactMatch: stored.baselineExactMatch, candidateExactMatch: stored.candidateExactMatch,
+    baselineScore: storedCheckpointNumber(record, "baseline_score", "LM evaluation step", "lm_invalid_training_config"),
+    trainingScore: stored.trainingScore, evaluationScore: stored.evaluationScore, incumbentHeldOutMean: stored.incumbentHeldOutMean,
+    candidateHeldOutMean: stored.candidateHeldOutMean, wallMs: stored.wallMs });
 }
 
 /** Render one example as the plain JSON value the environment spec stores. */
@@ -2069,8 +2144,10 @@ export function parseLmLoopConfig(raw: JsonValue): LmLoopConfig {
   // policy IS the base. The declared byte budget must already fit that seed
   // checkpoint: a programme whose own seed exceeds its declared limit never
   // starts collecting.
-  const base = trainLmBasePolicy(shape, alphabet, seed, datasets.training.map((example) => example.string), maxWallSeconds);
-  const baseDigest = lmDigest(jsonLmWeights(shape, base.weights));
+  const frozen = record["frozen_base"];
+  const base = frozen === undefined ? trainLmBasePolicy(shape, alphabet, seed, datasets.training.map((example) => example.string), maxWallSeconds).weights
+    : restoreLmBase(frozen as JsonValue, shape);
+  const baseDigest = lmDigest(jsonLmWeights(shape, base));
   const initial = lmCheckpoint(seededLmAdapter(shape, (Math.imul(seed, 0x85ebca6b) ^ 0xc2b2ae35) >>> 0), { baseDigest, shape });
   if (serializeLmCheckpoint(initial, { baseDigest, shape }).bytes > maxCheckpointBytes) {
     expectedFail(`LM loop configuration limits max_checkpoint_bytes ${maxCheckpointBytes} cannot hold the serialized seed checkpoint; the programme is unbounded as declared.`, "lm_limit_checkpoint_bytes");
@@ -2083,7 +2160,7 @@ export function parseLmLoopConfig(raw: JsonValue): LmLoopConfig {
     evaluation: datasets.evaluation,
     trainingDigest: datasets.trainingDigest,
     evaluationDigest: datasets.evaluationDigest,
-    base: base.weights,
+    base,
     baseDigest,
     shape,
     initial,
@@ -2123,6 +2200,7 @@ export function parseLmLoopConfig(raw: JsonValue): LmLoopConfig {
 export function lmConfigurationJson(config: LmLoopConfig): JsonValue {
   return {
     trainer: "lm",
+    frozen_base: { weights: jsonLmWeights(config.shape, config.base), digest: config.baseDigest },
     environment: { name: config.environmentName, version: config.environmentVersion },
     task: "rotate",
     alphabet: [...config.alphabet],
@@ -2226,6 +2304,7 @@ export function lmGenerationTrainingConfig(config: LmLoopConfig, step: LoopStepC
     loss_after: receipt.lossAfter,
     baseline_exact_match: receipt.baselineExactMatch,
     candidate_exact_match: receipt.candidateExactMatch,
+    baseline_score: receipt.baselineScore,
     training_score: receipt.trainingScore,
     evaluation_score: receipt.evaluationScore,
     incumbent_held_out_mean: receipt.incumbentHeldOutMean,
