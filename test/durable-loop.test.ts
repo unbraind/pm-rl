@@ -553,23 +553,26 @@ test("decision receipt corruption, incomplete phases and exhausted query budgets
         const body = String(item.item.body).replace(fault === "generation-index" ? '"generation": 1' : '"usage_tokens": 44', fault === "generation-index" ? '"generation": 2' : '"usage_tokens": 0');
         await client.update(String(item.item.id), { body });
       } else {
-        const notes = client.notes.bind(client);
-        client.notes = (async (id, options) => {
-          const result = await notes(id, options); assert.ok(!("output_budget_exceeded" in result));
-          let events: MetricEvent[] = [...readSeries(result.notes.map((note) => note.text)).events];
-          const collection = events.filter((event) => event.metric === "systemone_decision");
-          const held = events.filter((event) => event.metric === "systemone_held_out_decision");
-          const first = collection[0];
-          if (fault === "collection-overflow") events.push({ ...first, step: 2 });
-          if (fault === "held-overflow") events.push({ ...held[0], step: 2 });
-          if (fault === "foreign-metric") events.push({ step: 0, metric: "foreign", value: 0 });
-          if (fault === "foreign-example") events[events.indexOf(first)] = { ...first, tags: { ...first.tags, example: "foreign" } };
-          if (fault === "bad-index") events[events.indexOf(first)] = { ...first, step: 7 };
-          if (fault === "negative-tokens") events[events.indexOf(first)] = { ...first, tags: { ...first.tags, tokens: "-1" } };
-          if (fault === "rewritten-reward") events[events.indexOf(first)] = { ...first, value: first.value === 0 ? 1 : 0 };
-          if (fault === "incomplete-candidate" || fault === "closed-incomplete") events = [...collection, held[0]];
-          return { ...result, notes: encodeEventSegments(events).map((text) => ({ text, author: "test", created_at: "2026-01-01T00:00:00.000Z" })) };
-        }) as PmClient["notes"];
+        // Legacy records have no completed collection receipt; exercise their
+        // actual evidence checks as well as the receipt checks in newer loops.
+        const step = await client.get("decision-fault-g1-step-collect");
+        const envelope = JSON.parse(String(step.item.body)) as Record<string, JsonValue>;
+        await client.update(String(step.item.id), { body: JSON.stringify({ ...envelope, state: "running" }) });
+        const result = await client.notes("decision-fault-g1-collect", { outputBudget: "unbounded", outputLimit: "unbounded" }); assert.ok(!("output_budget_exceeded" in result));
+        let events: MetricEvent[] = [...readSeries(result.notes.map((note) => note.text)).events];
+        const collection = events.filter((event) => event.metric === "systemone_decision");
+        const held = events.filter((event) => event.metric === "systemone_held_out_decision");
+        const first = collection[0];
+        if (fault === "collection-overflow") events.push({ ...first, step: 2 });
+        if (fault === "held-overflow") events.push({ ...held[0], step: 2 });
+        if (fault === "foreign-metric") events.push({ step: 0, metric: "foreign", value: 0 });
+        if (fault === "foreign-example") events[events.indexOf(first)] = { ...first, tags: { ...first.tags, example: "foreign" } };
+        if (fault === "bad-index") events[events.indexOf(first)] = { ...first, step: 7 };
+        if (fault === "negative-tokens") events[events.indexOf(first)] = { ...first, tags: { ...first.tags, tokens: "-1" } };
+        if (fault === "rewritten-reward") events[events.indexOf(first)] = { ...first, value: first.value === 0 ? 1 : 0 };
+        if (fault === "incomplete-candidate" || fault === "closed-incomplete") events = [...collection, held[0]];
+        for (let note = result.notes.length; note > 1; note -= 1) await client.notes("decision-fault-g1-collect", { delete: note });
+        await client.notes("decision-fault-g1-collect", { edit: 1, add: encodeEventSegments(events)[0]! });
       }
       await assert.rejects(rlLoopStatus(client, "decision-fault"), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_generation_drift", fault);
     }
@@ -579,12 +582,13 @@ test("decision receipt corruption, incomplete phases and exhausted query budgets
     const report = await runRlLoop(client, { pmRoot, author: "rl-test" }, request); assert.equal(report.stop_reason, "budget_exhausted"); assert.equal(report.samples_consumed, 4);
     assert.deepEqual(stable(await runRlLoop(client, { pmRoot, author: "rl-test" }, request)), stable(report));
     assert.equal((await rlLoopStatus(client, "query-budget")).stop_reason, "budget_exhausted");
-    const notes = client.notes.bind(client);
-    client.notes = (async (id, options) => {
-      const result = await notes(id, options); assert.ok(!("output_budget_exceeded" in result));
-      return { ...result, notes: result.notes.slice(0, 1) };
-    }) as PmClient["notes"];
-    await assert.rejects(runRlLoop(client, { pmRoot, author: "rl-test" }, { id: "finish-incomplete", config: configValue(endpoint.baseURL), approval }));
+    await assert.rejects(runRlLoop(client, { pmRoot, author: "rl-test" }, { id: "finish-incomplete", config: configValue(endpoint.baseURL), approval,
+      async onPhase(phase) {
+        if (phase !== "collect") return;
+        const notes = await client.notes("finish-incomplete-g1-collect", { outputBudget: "unbounded", outputLimit: "unbounded" });
+        assert.ok(!("output_budget_exceeded" in notes));
+        for (let note = notes.notes.length; note > 1; note -= 1) await client.notes("finish-incomplete-g1-collect", { delete: note });
+      } }));
   } finally { endpoint.server.closeAllConnections(); endpoint.server.close(); }
 });
 

@@ -2711,10 +2711,10 @@ async function expireDeadControllerMutex(root: string, id: string, io: LoopProce
 }
 
 /** Acquire the SDK phase mutex; only proven dead holders are expired for SDK cleanup. */
-async function controllerMutex(root: string, id: string, author: string, start: string, io: LoopProcessIdentityIO | undefined): Promise<() => Promise<void>> {
+async function controllerMutex(root: string, id: string, author: string, start: string, io: LoopProcessIdentityIO | undefined, waitMs = 5000): Promise<() => Promise<void>> {
   await expireDeadControllerMutex(root, id, io);
   const owner = `pm-rl-phase:${hashJson(hostname())}:${Buffer.from(start).toString("base64url")}:${author}`;
-  const release = await acquireLock(root, id, 1_000_000_000, owner, false, false, 5000);
+  const release = await acquireLock(root, id, 1_000_000_000, owner, false, false, waitMs);
   try {
     await publishControllerIdentity(join(root, "locks", `${id}.lock`), start);
   } catch (error) {
@@ -2767,9 +2767,9 @@ async function acquireControllerLease(client: PmClient, coordinates: WorkspaceCo
   }
   // All controller acquisitions participate in this SDK mutex. A recovery
   // cannot unlink a successor's lease between observation and acquisition.
-  const releaseRecovery = await controllerMutex(authorityRoot, `${lockId}-recovery`, coordinates.author, ownStart, request.processIdentityIO).catch(async (error: unknown) => {
+  const releaseRecovery = await controllerMutex(authorityRoot, `${lockId}-recovery`, coordinates.author, ownStart, request.processIdentityIO, 0).catch(async (error: unknown) => {
     if (!isPmCliExpectedError(error) || error.exitCode !== EXIT_CODE.CONFLICT) throw error;
-    const holder = await readLeaseRecord(authorityRoot, lockId);
+    const holder = await readLeaseRecord(authorityRoot, lockId) ?? await readLeaseRecord(authorityRoot, `${lockId}-recovery`);
     fail(`Loop ${id} lease recovery is contended (holder ${String(holder?.["owner"])}, lease expiry ${holder === null || !Number.isFinite(controllerExpiry(holder)) ? "unknown" : new Date(controllerExpiry(holder)).toISOString()}). ${refusal}`, "loop_controller_active", EXIT_CODE.CONFLICT);
   });
   let release: () => Promise<void>;
@@ -3632,6 +3632,10 @@ async function executePendingGeneration(client: PmClient, coordinates: Workspace
     receipt = restoreLmGeneration(evaluated.value, programme.config, chain.step, training);
     evaluationExecuted = evaluated.executed;
   } else {
+    if (programme.trainer === "systemone" && programme.config.endpoint.receiptProtocol !== undefined
+      && await systemOneReceiptNamespace(client, runId!, false) === null) {
+      fail("Decision receipt namespace is missing.", "loop_generation_drift", EXIT_CODE.CONFLICT);
+    }
     const trained = await durableLoopStep(client, prepared.lease, stepId, "train", input, async () =>
       await completeGenerationEvidence(client, programme, request, chain, pending, runId!) as unknown as JsonValue);
     receipt = trained.value as unknown as BanditGeneration | SystemOneGeneration;
