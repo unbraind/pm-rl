@@ -134,6 +134,22 @@ test("one paused tiny-LM loop refuses receipt corruption and lost collection evi
       });
     }
 
+    const payloadFaults: ReadonlyArray<readonly [string, (result: Record<string, JsonValue>) => void]> = [
+      ["missing events", (result) => { delete result.events; }],
+      ["non-array events", (result) => { result.events = { count: 1 }; }],
+      ["non-object event entry", (result) => { result.events = [1]; }],
+      ["missing run", (result) => { delete result.run; }],
+      ["empty run", (result) => { result.run = ""; }],
+    ];
+    for (const [name, change] of payloadFaults) {
+      await context.test(`rehashed collection receipt with ${name} is typed step drift`, async () => {
+        await withBody(client, collectId, changedResult(collectBody, change), async () => {
+          await refuses(status, ["loop_step_drift"]);
+          await refuses(resume, ["loop_step_drift"]);
+        });
+      });
+    }
+
     const training = object(receipt(trainBody).result!);
     const trainingFaults: ReadonlyArray<readonly [string, JsonValue]> = [
       ["generation", 2], ["source_checkpoint", FOREIGN_DIGEST],

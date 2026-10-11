@@ -590,6 +590,19 @@ function jsonObject(value: unknown, source: string): Record<string, JsonValue> {
   return value as Record<string, JsonValue>;
 }
 
+/** Parse a completed collection receipt into a typed run id and event list; malformed payloads are step drift. */
+function collectionReceipt(value: JsonValue): { run: string; events: readonly MetricEvent[] } {
+  const record = jsonObject(value, "Loop collection step");
+  const run = record["run"];
+  const events = record["events"];
+  if (typeof run !== "string" || run.length === 0 || !Array.isArray(events)
+    || events.some((event) => event === null || typeof event !== "object" || Array.isArray(event))) {
+    fail("Loop collection receipt payload is malformed.", "loop_step_drift", EXIT_CODE.CONFLICT);
+  }
+  return { run, events: events as unknown as readonly MetricEvent[] };
+}
+
+
 /** Parse one JSON object while preserving a domain-specific machine error code. */
 function parseJsonObject(text: string, source: string, code: string, exitCode: number = EXIT_CODE.USAGE): Record<string, JsonValue> {
   try {
@@ -3306,7 +3319,7 @@ async function inspectLmGeneration(pmRoot: string, client: PmClient, programme: 
   if (run !== null) await verifyLoopRun(client, programme, chain, generation, run, null);
   const events = run === null ? [] : await readRunMetricEvents(client, String(run.item.id));
   const expected = run === null ? [] : collectionStep === null ? lmCollectionEvents(lmCollectBatch(config, generation, source))
-    : jsonObject(collectionStep, "Loop collection step")["events"] as unknown as readonly MetricEvent[];
+    : collectionReceipt(collectionStep).events;
   verifyEventPrefix(expected, events, request.id, generation);
   if (collectionStep !== null && events.length !== expected.length) fail("Completed LM collection evidence is missing.", "loop_generation_drift", EXIT_CODE.CONFLICT);
   const observations = events.map((event, index) => parseLmCollectionEvent(event, config, `Loop ${request.id} generation ${generation} collection event ${index}`));
@@ -3342,7 +3355,7 @@ async function inspectSystemOneGeneration(client: PmClient, programme: LoopProgr
   const events = run === null ? [] : await readRunMetricEvents(client, String(run.item.id));
   const collected = await readLoopStep(client, `${request.id}-g${generation}`, "collect", loopStepInput(programme, chain, generation));
   if (collected !== null) {
-    const expected = jsonObject(collected, "Decision collection step")["events"] as unknown as readonly MetricEvent[];
+    const expected = collectionReceipt(collected).events;
     verifyEventPrefix(expected, events, request.id, generation);
     if (events.length !== expected.length) fail("Completed decision collection evidence is missing.", "loop_generation_drift", EXIT_CODE.CONFLICT);
   }
@@ -3608,7 +3621,7 @@ async function executePendingGeneration(client: PmClient, coordinates: Workspace
       }
       return { run: collectingRun, events: await readRunMetricEvents(client, collectingRun) as unknown as JsonValue };
     });
-    runId = String(jsonObject(collected.value, "Collection receipt")["run"]);
+    runId = collectionReceipt(collected.value).run;
     if (collected.executed) await request.onPhase?.("collect", generation);
   }
   chain.consumed += generationCost(programme);

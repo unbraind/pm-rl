@@ -149,15 +149,16 @@ test("a successor phase token survives replacement between observation and open"
     const before = domainFiles(pmRoot);
     const successor = { ...readNativeLock(mutex.path), token: randomUUID(), owner: "successor-phase-holder", process_start_time: loopProcessStartTime(process.pid) };
     const probe = duringHolderProbe(() => replaceNativeLock(mutex.path, successor));
+    let released = false;
     try {
       await assert.rejects(runRlLoop(client, { pmRoot, author }, { id, config, approval, processIdentityIO: probe.io }), refusal("loop_controller_active"));
       assert.ok(probe.probes() >= 2);
       assert.deepEqual(readNativeLock(mutex.path), successor);
       assert.deepEqual(domainFiles(pmRoot), before);
       assert.equal(existsSync(join(pmRoot, "locks", `${loopLeaseLockId(id)}.lock`)), false);
-      await mutex.release();
+      await mutex.release(); released = true;
       assert.deepEqual(readNativeLock(mutex.path), successor);
-    } finally { await mutex.release(); }
+    } finally { if (!released) await mutex.release(); }
   });
 });
 
