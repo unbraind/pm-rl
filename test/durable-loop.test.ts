@@ -203,6 +203,21 @@ test("recorded promotion refusal stays terminal on replay and governing approval
   await assert.rejects(resumeRlLoop(client, { pmRoot, author: "rl-test" }, { id: "limited-loop", approval }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_approval_mismatch");
 });
 
+test("step-machinery conflicts during promotion propagate instead of becoming a permanent promotion refusal", async () => {
+  const { client, pmRoot, approval } = await workspace();
+  const request = { id: "fenced", config, approval };
+  await assert.rejects(runRlLoop(client, { pmRoot, author: "rl-test" }, { ...request, onPhase(phase) { if (phase === "evaluate") throw new Error("pause before promotion"); } }), /pause before promotion/);
+  // A drifted promotion step receipt makes the lease-guarded step wrapper itself
+  // raise an expected pm error; that is not a promotion decision.
+  await client.create({ id: "fenced-g1-step-promote", type: "Decision", title: "Drifted step", body: "not a step envelope" });
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await assert.rejects(resumeRlLoop(client, { pmRoot, author: "rl-test" }, { id: "fenced", approval }),
+      (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_step_drift");
+  }
+  assert.ok(!JSON.stringify(await client.comments("fenced-g1")).includes("promotion refused"), "a step-machinery conflict must not be recorded as a promotion refusal");
+  assert.notEqual((await rlLoopStatus(client, "fenced")).stop_reason, "promotion_refused");
+});
+
 test("resume refuses missing seed programme, missing runs and corrupted lineage or run identity", async () => {
   const { client, pmRoot, approval } = await workspace();
   const request = { id: "corruption", config, approval };

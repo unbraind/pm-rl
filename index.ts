@@ -3689,16 +3689,25 @@ async function executePendingGeneration(client: PmClient, coordinates: Workspace
       : lmPromotionScores(programme.config, chain.step, receipt as LmGeneration);
   failIfLoopCancelled(signal, request.id, generation, "promotion");
   let promotionExecuted: boolean;
+  // Only a refusal raised by the promotion decision itself is terminal. Lease
+  // fencing, controller-mutex waits and step-receipt drift come from the guard
+  // around it and must propagate so a resume can retry them.
+  let promotionError: unknown;
   try {
     const promotion = await durableLoopStep(client, prepared.lease, stepId, "promote", { input, approval: request.approval }, async () => {
-      await promoteGenerationCore(client, coordinates, generationId, request.approval,
-        parseScoreRecord(scores.proxy_score, "proxy_score"), parseScoreRecord(scores.held_out_score, "held_out_score"),
-        `loop ${request.id} generation ${generation}: held-out mean improved from ${receipt.incumbentHeldOutMean.toFixed(4)} to ${receipt.candidateHeldOutMean.toFixed(4)} over ${chain.step.evaluationSamples} episodes at confidence ${schedule.confidence}`);
+      try {
+        await promoteGenerationCore(client, coordinates, generationId, request.approval,
+          parseScoreRecord(scores.proxy_score, "proxy_score"), parseScoreRecord(scores.held_out_score, "held_out_score"),
+          `loop ${request.id} generation ${generation}: held-out mean improved from ${receipt.incumbentHeldOutMean.toFixed(4)} to ${receipt.candidateHeldOutMean.toFixed(4)} over ${chain.step.evaluationSamples} episodes at confidence ${schedule.confidence}`);
+      } catch (error) {
+        promotionError = error;
+        throw error;
+      }
       return { item: generationId };
     });
     promotionExecuted = promotion.executed;
   } catch (error) {
-    if (!isPmCliExpectedError(error)) throw error;
+    if (error !== promotionError || !isPmCliExpectedError(error)) throw error;
     const message = `Loop ${request.id} generation ${generation} promotion refused: ${error.message}`;
     await prepared.lease.guard(() => appendCommentOnce(client, generationId, message));
     chain.reports.push({ generation, run: runId!, item: generationId, promoted: false,
