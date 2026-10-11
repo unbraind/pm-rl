@@ -1,7 +1,7 @@
 /**
  * Tests for the npm `prepare` hook `scripts/prepare-merge-driver.ts`.
  *
- * The hook must stay the canonical pm-ops launcher byte for byte, and it is
+ * The hook must execute the installed canonical pm-ops launcher, and it is
  * exercised the way npm runs it: as the entry point of a child process whose
  * working directory is a consumer checkout. Every checkout is a fresh
  * `git init` with its own local config, so the drivers this repository's own
@@ -9,7 +9,7 @@
  */
 import assert from "node:assert/strict";
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import test, { after } from "node:test";
@@ -81,9 +81,44 @@ function registeredDrivers(cwd: string): string[] {
   return config.stdout.split("\n").filter(Boolean).map((key) => key.split(".")[1]).sort();
 }
 
-test("the prepare launcher is the unmodified pm-ops template", () => {
+/** Build a consumer with the real installer and an independently versioned template. */
+function templateCheckout(name: string, template: string | undefined): string {
+  const directory = checkout(name, "absent");
+  const packageRoot = join(directory, "node_modules", "pm-ops");
+  mkdirSync(packageRoot, { recursive: true });
+  writeFileSync(join(packageRoot, "package.json"), JSON.stringify({
+    name: "pm-ops", type: "module", exports: { "./merge-driver/prepare": "./dist/merge-driver-prepare.js" },
+  }));
+  cpSync(join(root, "node_modules", "pm-ops", "dist"), join(packageRoot, "dist"), { recursive: true });
+  if (template !== undefined) {
+    mkdirSync(join(packageRoot, "templates"));
+    writeFileSync(join(packageRoot, "templates", "prepare-merge-driver.ts"), template);
+  }
+  return directory;
+}
+
+test("an upgraded dependency template runs without editing the consumer launcher", posixOnly, () => {
   const canonical = readFileSync(join(root, "node_modules", "pm-ops", "templates", "prepare-merge-driver.ts"), "utf8");
-  assert.equal(readFileSync(launcher, "utf8"), canonical);
+  const directory = templateCheckout("upgraded-template", `${canonical}\nconsole.log("upgraded template executed");\n`);
+  const result = prepare(directory, hostPath);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /upgraded template executed/);
+  assert.deepEqual(registeredDrivers(directory), declaredDrivers);
+});
+
+test("an installed package missing its canonical template fails closed", posixOnly, () => {
+  const directory = templateCheckout("missing-template", undefined);
+  const result = prepare(directory, hostPath);
+  assert.notEqual(result.status, 0);
+  assert.doesNotMatch(result.stderr, /skipping merge-driver install/);
+  assert.deepEqual(registeredDrivers(directory), []);
+});
+
+test("a signal-killed canonical template fails the consumer install", posixOnly, () => {
+  const directory = templateCheckout("killed-template", 'process.kill(process.pid, "SIGKILL");\n');
+  const result = prepare(directory, hostPath);
+  assert.equal(result.status, 1, result.stderr);
+  assert.deepEqual(registeredDrivers(directory), []);
 });
 
 test("a full install registers every merge driver .gitattributes declares", posixOnly, () => {

@@ -10,20 +10,22 @@
  * the entry, or a `pm-ops` directory whose package.json is gone) and any
  * installer failure fail the install.
  *
- * Canonical copy: `pm-ops/templates/prepare-merge-driver.ts`. Copy it
- * unchanged to `scripts/prepare-merge-driver.ts`.
+ * The installed `pm-ops/templates/prepare-merge-driver.ts` owns installer
+ * policy. Resolve its exported installer first, then run that package's
+ * template directly so dependency upgrades need no duplicate source edits.
  */
 
 import { spawnSync } from "node:child_process";
-import { lstatSync } from "node:fs";
+import { lstatSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 // npm runs `prepare` from the package root, so pm-ops is resolved from there.
 const resolver = createRequire(join(process.cwd(), "package.json"));
 let installer: string | undefined;
 try {
-  installer = resolver.resolve("pm-ops/merge-driver/prepare");
+  const entry = resolver.resolve("pm-ops/merge-driver/prepare");
+  installer = join(dirname(entry), "..", "templates", "prepare-merge-driver.ts");
 } catch (error) {
   // Only an absent pm-ops package may skip. Probing its package.json tells that
   // apart from an installed pm-ops that cannot serve the entry (exports without
@@ -61,5 +63,9 @@ try {
 if (installer === undefined) {
   console.error("pm-ops is not installed (omit-dev install); skipping merge-driver install");
 } else {
-  process.exitCode = spawnSync(process.execPath, [installer], { stdio: "inherit" }).status ?? 1;
+  // Native Node refuses TypeScript files under node_modules. Execute the exact
+  // installed template as typed module input, retaining the consumer cwd.
+  process.exitCode = spawnSync(process.execPath, ["--input-type=module-typescript"], {
+    input: readFileSync(installer, "utf8"), stdio: ["pipe", "inherit", "inherit"],
+  }).status ?? 1;
 }

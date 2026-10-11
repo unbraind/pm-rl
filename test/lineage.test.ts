@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { after, test } from "node:test";
 
 import { PmClient, type GetResult } from "@unbrained/pm-cli/sdk/core";
-import { init } from "@unbrained/pm-cli/sdk/runtime";
+import { init, isPmCliExpectedError, EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness, type ExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 
 import extension, {
@@ -1455,9 +1455,14 @@ test("concurrent promotions against a budget never let more than the permitted c
     // while a caller that exceeds the bounded 30s wait reports lock_conflict.
     // Contention is bounded, not eliminated. What must never appear is a
     // promotion that silently did not happen or one that exceeded the budget.
-    assert.match(reason.message, /Advancing past the approved promotion budget is refused|is locked \(owner /, `unexpected refusal reason: ${reason.message}`);
+    assert.ok(isPmCliExpectedError(reason), `unexpected refusal: ${reason.message}`);
+    assert.equal(reason.exitCode, EXIT_CODE.CONFLICT);
+    assert.ok(reason.context.code === "budget_exceeded" || reason.context.code === "lock_conflict", `unexpected refusal reason: ${reason.message}`);
     assert.doesNotMatch(reason.message, /lost the budget reservation/, `a promotion must never report a lost reservation: ${reason.message}`);
   }
+  const records = await Promise.all(candidateIds.map((id) => client.get(id)));
+  const promoted = records.map((record) => parseGenerationSpec(/```json\n([\s\S]+?)\n```/.exec(String(record.item.body))![1]!, "persisted promotion"));
+  assert.equal(promoted.filter((record) => record.promoted).length, 1);
 });
 
 test("a cyclic parent chain is refused on the strict path instead of truncating the contamination walk", async () => {

@@ -698,7 +698,9 @@ export function idSegment(value: string): string {
 
 /** Validate that an existing item has the expected domain type. */
 async function getTypedItem(client: PmClient, id: string, type: "Environment" | "Run" | "Generation" | "Benchmark" | "EvalResult" | "GateEpisode" | "MergeOutcome" | "Sweep" | "Transfer"): Promise<GetResult> {
-  const result = await client.get(id, { depth: "deep" });
+  // Benchmarks validate edge roles, which deep presentation reads omit.
+  // Other domain types need the body without unrelated full-read rollups.
+  const result = await client.get(id, type === "Benchmark" ? { full: true } : { depth: "deep" });
   if (result.item.type !== type) fail(`pm rl expected ${type} ${id}, not ${String(result.item.type)}.`, "wrong_item_type", EXIT_CODE.CONFLICT);
   return result;
 }

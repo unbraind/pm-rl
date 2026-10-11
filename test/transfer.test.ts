@@ -225,7 +225,7 @@ test("recording links both environment versions, the run and the checkpoint; ref
     },
   }));
   assert.equal(recorded.action, "rl-transfer-record");
-  const stored = await client.get(recorded.id!, { depth: "deep" });
+  const stored = await client.get(recorded.id!, { full: true });
   assert.equal(stored.item.environment, source);
   assert.equal(stored.item.fixed_version, "sha256:abc123");
   const depIds = (stored.item.dependencies ?? []).map((dependency: { id: string }) => dependency.id).sort();

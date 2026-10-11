@@ -226,7 +226,7 @@ test("real commands register immutable benchmarks and evaluations and rank one c
   const lowerString = await evaluation(pmRoot, harness, source.run, benchmarkId, "sha-low-string", 0.6, false);
   const higher = await evaluation(pmRoot, harness, source.run, benchmarkId, "sha-high", 0.9, true);
   assert.equal((await evaluation(pmRoot, harness, source.run, benchmarkId, "sha-high", 0.9, true)).created, false);
-  const higherItem = await client.get(higher.id!, { depth: "deep" });
+  const higherItem = await client.get(higher.id!, { full: true });
   assert.deepEqual(higherItem.item.dependencies?.map((dependency) => [dependency.kind, dependency.source_kind]), [
     ["verifies", "pm-rl:eval:benchmark"],
     ["discovered_from", "pm-rl:eval:run"],
@@ -263,6 +263,34 @@ test("leaderboard refuses both mixed environment versions and declared benchmark
     harness.runCommand({ command: "rl leaderboard", pmRoot, args: [contaminated] }),
     typedRefusal("benchmark_contaminated"),
   );
+});
+
+test("benchmark re-reads preserve provenance and refuse a wrong contamination role", async () => {
+  const { root, pmRoot, client, harness } = await workspace();
+  const source = await sourceRun(root, pmRoot, harness, "1");
+  const id = await benchmark(root, pmRoot, harness, source.environment);
+  const original = (await client.get(id, { full: true })).item;
+  assert.deepEqual(original.dependencies?.map(({ id, kind, source_kind }) => ({ id, kind, source_kind })), [
+    { id: source.environment, kind: "related", source_kind: "pm-rl:benchmark:contaminated_by" },
+  ]);
+  const options = { file: join(root, "benchmark-contaminated.json"), contaminatedBy: source.environment };
+  const repeated = resultOf(await harness.runCommand({ command: "rl benchmark register", pmRoot, options }));
+  assert.equal(repeated.created, false);
+  assert.equal(repeated.id, id);
+  await client.update(id, {
+    clearDeps: true,
+    message: "Simulate missing contamination provenance",
+  });
+  await assert.rejects(harness.runCommand({ command: "rl leaderboard", pmRoot, args: [id] }),
+    typedRefusal("benchmark_contamination_graph_mismatch"));
+  await client.update(id, {
+    dep: [`id=${source.environment},kind=related,source_kind=pm-rl:wrong-role`],
+    message: "Simulate a forged contamination role",
+  });
+  await assert.rejects(harness.runCommand({ command: "rl benchmark register", pmRoot, options }),
+    typedRefusal("benchmark_contamination_graph_mismatch"));
+  await assert.rejects(harness.runCommand({ command: "rl leaderboard", pmRoot, args: [id] }),
+    typedRefusal("benchmark_contamination_graph_mismatch"));
 });
 
 test("benchmark and evaluation commands reject incomplete input and mutated identities", async () => {
