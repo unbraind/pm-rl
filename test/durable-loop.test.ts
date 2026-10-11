@@ -10,7 +10,7 @@ import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { setActiveExtensionServices, createPmCliExpectedError, type ExtensionApi } from "@unbrained/pm-cli";
 import { init, isPmCliExpectedError, acquireLock, EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import extension, { runRlLoop, resumeRlLoop, rlLoopStatus, loopLeaseLockId, loopProcessStartTime, loopProcessIdentityIO, LOOP_LEASE_TTL_SECONDS, type JsonValue } from "../index.ts";
+import extension, { hashJson, runRlLoop, resumeRlLoop, rlLoopStatus, loopLeaseLockId, loopProcessStartTime, loopProcessIdentityIO, LOOP_LEASE_TTL_SECONDS, type JsonValue } from "../index.ts";
 import { parseStoredLoopGeneration, verifyStoredLoopGeneration, parseLoopConfig, generationTrainingConfig, runLoopGeneration } from "../loop.ts";
 import { readSeries, encodeEventSegments, type MetricEvent } from "../series.ts";
 import { configValue } from "./fixtures/systemone.ts";
@@ -159,9 +159,10 @@ async function decisionServer() {
     let body = ""; request.on("data", (chunk: Buffer) => { body += chunk.toString(); });
     request.on("end", () => {
       calls += 1;
-      const state = (JSON.parse(body) as { state: string }).state;
+      const payload = JSON.parse(body) as { state: string; request_id?: string };
+      const state = payload.state;
       const bug = /[Ff]ix|[Rr]epair/.test(state);
-      reply.end(JSON.stringify({ answers: { kind: { probabilities: { Bug: bug ? 0.6 : 0.4, Feature: bug ? 0.4 : 0.6 } } }, usage: { input_tokens: 10, output_tokens: 1 } }));
+      reply.end(JSON.stringify({ ...(payload.request_id === undefined ? {} : { request_id: payload.request_id, decision_id: `decision-${calls}`, physical_requests: 1 }), answers: { kind: { probabilities: { Bug: bug ? 0.6 : 0.4, Feature: bug ? 0.4 : 0.6 } } }, usage: { input_tokens: 10, output_tokens: 1, ...(payload.request_id === undefined ? {} : { latency_ms: 12 }) } }));
     });
   });
   await new Promise<void>((resolve) => { server.listen(0, "127.0.0.1", resolve); });
@@ -620,12 +621,77 @@ test("legacy decision training verifies real evidence without queries and refuse
       recorded["training_score"] = Number(recorded["training_score"]) + 0.000001;
       const damaged = savedCandidate.replace(fenced[1], JSON.stringify(specification));
       assert.notEqual(damaged, savedCandidate);
-      await client.update(String(candidate.item.id), { body: damaged });
+      const provenance = Object.fromEntries(Object.entries(specification).filter(([key]) => !["promoted", "approval", "proxy_score", "held_out_score", "gap", "promotion_evidence"].includes(key))) as Record<string, JsonValue>;
+      await client.update(String(candidate.item.id), { body: damaged, affectedVersion: hashJson(provenance) });
+      assert.equal((await client.get(String(candidate.item.id))).item.affected_version, hashJson(provenance));
       await assert.rejects(rlLoopStatus(client, "legacy-decision"), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_step_drift");
       assert.equal(endpoint.calls(), calls);
-    } finally { await client.update(String(candidate.item.id), { body: savedCandidate }); }
+    } finally { await client.update(String(candidate.item.id), { body: savedCandidate, affectedVersion: String(candidate.item.affected_version) }); }
     assert.equal((await rlLoopStatus(client, "legacy-decision")).promoted, 1);
   } finally { endpoint.server.closeAllConnections(); endpoint.server.close(); }
+});
+
+test("legacy bandit training verifies real evidence and refuses candidate drift", async () => {
+  const { client, pmRoot, approval } = await workspace();
+  const report = await runRlLoop(client, { pmRoot, author: "rl-test" }, {
+    id: "legacy-bandit", config: { ...config, max_generations: 1 }, approval,
+  });
+  assert.equal(report.promoted, 1);
+  const training = await client.get("legacy-bandit-g1-step-train");
+  const savedTraining = String(training.item.body);
+  try {
+    await client.update(String(training.item.id), { body: JSON.stringify({ ...JSON.parse(savedTraining) as Record<string, JsonValue>, state: "running" }) });
+    assert.equal((await rlLoopStatus(client, "legacy-bandit")).promoted, 1);
+  } finally { await client.update(String(training.item.id), { body: savedTraining }); }
+  const candidate = await client.get(report.generations[0].item);
+  const savedCandidate = String(candidate.item.body);
+  try {
+    const fenced = /```json\n([\s\S]+?)\n```/.exec(savedCandidate);
+    assert.ok(fenced?.[1] !== undefined);
+    const specification = JSON.parse(fenced[1]) as Record<string, JsonValue>;
+    const recorded = specification["training_config"] as Record<string, JsonValue>;
+    recorded["training_score"] = Number(recorded["training_score"]) + 0.000001;
+    const damaged = savedCandidate.replace(fenced[1], JSON.stringify(specification));
+    assert.notEqual(damaged, savedCandidate);
+    const provenance = Object.fromEntries(Object.entries(specification).filter(([key]) => !["promoted", "approval", "proxy_score", "held_out_score", "gap", "promotion_evidence"].includes(key))) as Record<string, JsonValue>;
+    await client.update(String(candidate.item.id), { body: damaged, affectedVersion: hashJson(provenance) });
+    assert.equal((await client.get(String(candidate.item.id))).item.affected_version, hashJson(provenance));
+    await assert.rejects(rlLoopStatus(client, "legacy-bandit"), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_step_drift");
+  } finally { await client.update(String(candidate.item.id), { body: savedCandidate, affectedVersion: String(candidate.item.affected_version) }); }
+  assert.equal((await rlLoopStatus(client, "legacy-bandit")).promoted, 1);
+});
+
+test("receipt namespace loss after train marker creation refuses evidence without another query", async () => {
+  const endpoint = await decisionServer();
+  const { client, pmRoot, approval } = await workspace();
+  const runId = "namespace-drift-g1-collect";
+  const value: Record<string, JsonValue> = { ...configValue(endpoint.baseURL), max_generations: 1, budget: 4,
+    decision_model: { base_url: endpoint.baseURL, model: "tev1:4b", timeout_ms: 10000, receipt_protocol: "idempotency-v1" } };
+  const create = client.create.bind(client);
+  let savedNotes: unknown;
+  const phases: string[] = [];
+  client.create = async (options) => {
+    const result = await create(options);
+    if (options?.id === "namespace-drift-g1-step-train") {
+      savedNotes = await client.notes(runId, { outputBudget: "unbounded", outputLimit: "unbounded" });
+      const comments = await client.comments(runId);
+      assert.ok(comments.comments[0].text.startsWith("SystemOne receipt namespace: "));
+      await client.comments(runId, { delete: 1 });
+    }
+    return result;
+  };
+  try {
+    await assert.rejects(runRlLoop(client, { pmRoot, author: "rl-test" }, { id: "namespace-drift", config: value, approval,
+      onPhase(phase) { phases.push(phase); },
+    }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_generation_drift" && error.message === "Decision receipt namespace is missing.");
+    assert.deepEqual(phases, ["collect"]);
+    assert.equal(endpoint.calls(), 4);
+    assert.ok(savedNotes !== undefined);
+    assert.deepEqual(await client.notes(runId, { outputBudget: "unbounded", outputLimit: "unbounded" }), savedNotes);
+    const marker = await client.get("namespace-drift-g1-step-train");
+    assert.equal((JSON.parse(String(marker.item.body)) as Record<string, JsonValue>)["state"], "running");
+    await assert.rejects(client.get("namespace-drift-g1"), (error: unknown) => isPmCliExpectedError(error) && error.exitCode === EXIT_CODE.NOT_FOUND);
+  } finally { Object.assign(client, { create }); endpoint.server.closeAllConnections(); endpoint.server.close(); }
 });
 
 test("SDK controller lease failures propagate without creating job artifacts", async () => {

@@ -3301,7 +3301,7 @@ async function inspectLmGeneration(pmRoot: string, client: PmClient, programme: 
   const input = loopStepInput(programme, chain, generation);
   const collectionStep = await readLoopStep(client, `${request.id}-g${generation}`, "collect", input);
   const { run, item } = await findGenerationItems(client, request.id, generation);
-  if (run !== null) await verifyLoopRun(client, programme, chain, generation, run);
+  if (run !== null) await verifyLoopRun(client, programme, chain, generation, run, null);
   const events = run === null ? [] : await readRunMetricEvents(client, String(run.item.id));
   const expected = run === null ? [] : collectionStep === null ? lmCollectionEvents(lmCollectBatch(config, generation, source))
     : jsonObject(collectionStep, "Loop collection step")["events"] as unknown as readonly MetricEvent[];
@@ -3336,7 +3336,7 @@ async function inspectLmGeneration(pmRoot: string, client: PmClient, programme: 
 async function inspectSystemOneGeneration(client: PmClient, programme: LoopProgramme & { readonly trainer: "systemone" }, request: RlLoopRequest, chain: LoopChain, generation: number): Promise<GenerationInspection> {
   const config = programme.config;
   const { run, item } = await findGenerationItems(client, request.id, generation);
-  if (run !== null) await verifyLoopRun(client, programme, chain, generation, run);
+  if (run !== null) await verifyLoopRun(client, programme, chain, generation, run, null);
   const events = run === null ? [] : await readRunMetricEvents(client, String(run.item.id));
   const collected = await readLoopStep(client, `${request.id}-g${generation}`, "collect", loopStepInput(programme, chain, generation));
   if (collected !== null) {
@@ -3417,10 +3417,10 @@ function verifyDecisionPrefix(config: SystemOneLoopConfig, source: SystemOneChec
   }
 }
 
-/** Verify the collecting policy, environment snapshot and immutable configuration of a resumed run. */
-async function verifyLoopRun(client: PmClient, programme: LoopProgramme, chain: LoopChain, generation: number, run: GetResult, receipt?: BanditGeneration): Promise<void> {
+/** Verify a resumed run; bandit callers supply their already verified receipt, other trainers supply null. */
+async function verifyLoopRun(client: PmClient, programme: LoopProgramme, chain: LoopChain, generation: number, run: GetResult, receipt: BanditGeneration | null): Promise<void> {
   const config = programme.trainer === "bandit"
-    ? generationTrainingConfig(programme.config, chain.step, generation, receipt ?? runLoopGeneration(programme.config, chain.step, generation, chain.current as BanditCheckpoint))
+    ? generationTrainingConfig(programme.config, chain.step, generation, receipt!)
     : programme.trainer === "systemone"
       ? systemOneRunConfig(programme.config, chain.step, generation, chain.current as SystemOneCheckpoint)
       : lmRunConfig(programme.config, chain.step, generation, chain.current as LmCheckpoint);
