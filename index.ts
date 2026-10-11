@@ -703,7 +703,9 @@ async function readCompleteLoopItem(client: PmClient, id: string): Promise<GetRe
 
 /** Validate that an existing item has the expected domain type. */
 async function getTypedItem(client: PmClient, id: string, type: "Environment" | "Run" | "Generation" | "Benchmark" | "EvalResult" | "GateEpisode" | "MergeOutcome" | "Sweep" | "Transfer"): Promise<GetResult> {
-  const result = await readCompleteLoopItem(client, id);
+  // Benchmarks validate edge roles, which deep presentation reads omit; every
+  // other domain type uses the complete, unbounded loop read.
+  const result = type === "Benchmark" ? await client.get(id, { full: true }) : await readCompleteLoopItem(client, id);
   if (result.item.type !== type) fail(`pm rl expected ${type} ${id}, not ${String(result.item.type)}.`, "wrong_item_type", EXIT_CODE.CONFLICT);
   return result;
 }
