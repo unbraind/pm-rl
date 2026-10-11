@@ -593,6 +593,41 @@ test("decision receipt corruption, incomplete phases and exhausted query budgets
 });
 
 
+test("legacy decision training verifies real evidence without queries and refuses candidate drift", async () => {
+  const endpoint = await decisionServer();
+  try {
+    const { client, pmRoot, approval } = await workspace();
+    const report = await runRlLoop(client, { pmRoot, author: "rl-test" }, {
+      id: "legacy-decision", config: { ...configValue(endpoint.baseURL), budget: 4 }, approval,
+    });
+    assert.equal(report.promoted, 1);
+    const training = await client.get("legacy-decision-g1-step-train");
+    const savedTraining = String(training.item.body);
+    const running = { ...JSON.parse(savedTraining) as Record<string, JsonValue>, state: "running" };
+    const calls = endpoint.calls();
+    try {
+      await client.update(String(training.item.id), { body: JSON.stringify(running) });
+      assert.equal((await rlLoopStatus(client, "legacy-decision")).promoted, 1, "legacy decision generations retain deterministic verification");
+      assert.equal(endpoint.calls(), calls, "legacy verification cannot spend another remote query");
+    } finally { await client.update(String(training.item.id), { body: savedTraining }); }
+    const candidate = await client.get(report.generations[0].item);
+    const savedCandidate = String(candidate.item.body);
+    try {
+      const fenced = /```json\n([\s\S]+?)\n```/.exec(savedCandidate);
+      assert.ok(fenced?.[1] !== undefined);
+      const specification = JSON.parse(fenced[1]) as Record<string, JsonValue>;
+      const recorded = specification["training_config"] as Record<string, JsonValue>;
+      recorded["training_score"] = Number(recorded["training_score"]) + 0.000001;
+      const damaged = savedCandidate.replace(fenced[1], JSON.stringify(specification));
+      assert.notEqual(damaged, savedCandidate);
+      await client.update(String(candidate.item.id), { body: damaged });
+      await assert.rejects(rlLoopStatus(client, "legacy-decision"), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_step_drift");
+      assert.equal(endpoint.calls(), calls);
+    } finally { await client.update(String(candidate.item.id), { body: savedCandidate }); }
+    assert.equal((await rlLoopStatus(client, "legacy-decision")).promoted, 1);
+  } finally { endpoint.server.closeAllConnections(); endpoint.server.close(); }
+});
+
 test("SDK controller lease failures propagate without creating job artifacts", async () => {
   for (const error of [new Error("lease IO failure"), createPmCliExpectedError("lease usage failure")]) {
     const { client, pmRoot, approval } = await workspace();

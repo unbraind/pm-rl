@@ -9,7 +9,8 @@ import { setActiveExtensionHooks, type ExtensionApi, type OnWriteHook } from "@u
 import { PmClient, type GetResult } from "@unbrained/pm-cli/sdk/core";
 import { acquireLock, getHistoryPath, getItemPath, init, isPmCliExpectedError, normalizeItemId, readSettings, EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import { loopLeaseLockId, loopProcessIdentityIO, loopProcessStartTime, LOOP_LEASE_TTL_SECONDS, resumeRlLoop, runRlLoop, type JsonValue, type LoopProcessIdentityIO } from "../index.ts";
+import { loopLeaseLockId, loopProcessIdentityIO, loopProcessStartTime, LOOP_LEASE_TTL_SECONDS, resumeRlLoop, runRlLoop, type JsonValue, type LoopProcessIdentityIO, type RefusalAuditContext } from "../index.ts";
+import { lmConfigurationJson, parseLmLoopConfig } from "../lm.ts";
 
 const author = "native-fault-test";
 const id = "native-fault";
@@ -391,5 +392,42 @@ test("a step appearing as unreadable storage between absence checks propagates i
       assert.equal(readFileSync(join(path, "holder"), "utf8"), "unreadable concurrent step storage");
       await assert.rejects(get(`${id}-g1-collect`));
     } finally { Object.assign(client, { get, create }); }
+  });
+});
+
+test("a real LM deadline refusal survives lease loss while its audit is fenced", bounded, async () => {
+  await inWorkspace(async ({ pmRoot, client, approval }) => {
+    const declared = JSON.parse(readFileSync(new URL("../examples/loop-lm.json", import.meta.url), "utf8")) as Record<string, JsonValue>;
+    const configuration = lmConfigurationJson(parseLmLoopConfig({ ...declared, max_generations: 1, budget: declared["samples_per_generation"]! })) as Record<string, JsonValue>;
+    configuration["limits"] = { ...configuration["limits"] as Record<string, JsonValue>, max_wall_seconds: 0.000001 };
+    const collectingRun = `${id}-g1-collect`;
+    const main = join(pmRoot, "locks", `${loopLeaseLockId(id)}.lock`);
+    let successor: Record<string, unknown> | undefined;
+    let releaseSuccessor: (() => Promise<void>) | undefined;
+    let comments: unknown;
+    const create = client.create.bind(client);
+    client.create = async (options) => {
+      const result = await create(options);
+      if (options?.id === collectingRun) {
+        comments = await client.comments(`${id}-seed`);
+        replaceNativeLock(main, { ...readNativeLock(main), created_at: "1970-01-01T00:00:00.000Z" });
+        releaseSuccessor = await acquireLock(pmRoot, loopLeaseLockId(id), LOOP_LEASE_TTL_SECONDS, "refusal-successor", false, false, 0);
+        successor = readNativeLock(main);
+      }
+      return result;
+    };
+    try {
+      await assert.rejects(runRlLoop(client, { pmRoot, author }, { id, config: configuration, approval }), (error: unknown) => {
+        assert.ok(isPmCliExpectedError(error));
+        assert.equal(error.context.code, "lm_limit_wall_seconds", "lease loss must not replace the original adapter refusal");
+        const context: RefusalAuditContext = error.context;
+        assert.ok(String(context.audit_comment_error).includes("controller lease was replaced"));
+        return true;
+      });
+      assert.ok(successor !== undefined && comments !== undefined);
+      assert.deepEqual(readNativeLock(main), successor);
+      assert.deepEqual(await client.comments(`${id}-seed`), comments, "a displaced controller cannot append an audit comment");
+      await assert.rejects(client.get(`${id}-g1`));
+    } finally { Object.assign(client, { create }); await releaseSuccessor?.(); }
   });
 });
