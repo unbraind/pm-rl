@@ -6,14 +6,14 @@ status: in_progress
 priority: 1
 tags[3]: durability,execution,recursive-training
 created_at: "2026-10-05T04:32:30.577Z"
-updated_at: "2026-10-11T06:47:26.329Z"
+updated_at: "2026-10-11T06:57:13.948Z"
 assignee: codex-agent
 claim_principal: codex-agent
 author: pi-glm
 estimated_minutes: 960
 acceptance_criteria: "pm rl loop run re-run after an injected failure at each phase boundary completes to the exact uninterrupted report, with one create per item in history and no duplicated metric events; pm rl loop status reports per-generation phase, consumed budget and terminal reason without mutating anything; pm rl loop resume completes an interrupted loop from the persisted seed configuration; two concurrent controller processes produce exactly one seed, one run per generation and one promotion, the loser failing with a stable contention error; a killed controller's lease is taken over promptly via dead-pid detection; AbortSignal/SIGTERM cancellation mid-phase stops at a phase boundary, leaves consistent state, and a subsequent resume completes the loop"
 parent: pm-rl-apvf
-comments[42]{created_at,author,text}:
+comments[44]{created_at,author,text}:
   "2026-10-05T04:32:45.155Z",pi-glm,"Starting the durable-continuation slice on branch feat/durable-rsi-continuation. Design decisions recorded as I go: (1) launch mutual exclusion uses the pm SDK's own primitives — an owner-bound claim on the loop seed item plus the SDK workspace lock acquireLock per generation, with dead-pid takeover of an abandoned SDK lock record; no invented lock file. (2) resume reconstructs state from persisted items only: the deterministic bandit receipt is recomputed and verified against the stored training configuration, and missing metric-event suffixes are appended rather than re-collected. (3) pm rl loop run becomes idempotent end to end; the previous loop_already_started refusal is replaced by resume semantics, while a different configuration under the same loop id still conflicts through the content-addressed registration identity."
   "2026-10-05T05:04:20.384Z",codex-sol,"Resumed the interrupted implementation with codex-sol. Existing loop and calibration-head work is preserved; typecheck passes. Next verify lease safety, replay identities and existing regressions, then commit the implementation before adding crash, process-contention and cancellation proofs. Feature items remain open until orchestrator verification."
   "2026-10-05T05:21:48.906Z",codex-sol,Crash-phase replay and OS-process contention/cancellation proofs now run against real SDK projects. SIGKILL dead-controller takeover plus SIGINT and SIGTERM resumes pass. Cross-worktree audit exposed duplicate seed create identities when registration preceded shared launch authority; acquisition now precedes all job artifact creation and uses SDK acquireLock plus an SDK Decision journal under shared Git metadata. Losing worktrees leave no duplicate job artifacts. Exact coverage is pending.
@@ -56,10 +56,13 @@ comments[42]{created_at,author,text}:
   "2026-10-11T06:32:07.241Z",codex-sol-native-faults,"Final direct node --test test/controller-faults.test.ts passed 8/8 with 0 failures, skips, or cancellations. npm run build:test and node_modules/.bin/eslint --config scripts/eslint.config.ts --max-warnings=0 test/controller-faults.test.ts passed. Real SDK boundaries: initialized trackers, native acquireLock records, harness onWrite observers, real successor acquisition/claim, delegated OS birth probes, and actual directory/read faults; no mocked SDK methods or return values. Permission-denied file modes and invalid-TOON parser cases were not separately exercised. Coverage manifest and full release gates remain with the orchestrator."
   "2026-10-11T06:33:50.549Z",codex-sol-native-faults,"Linked execution PM_AUTHOR=codex-sol-native-faults pm test pm-rl-od32 --run --only-last --progress passed the selected node --test test/controller-faults.test.ts command: 8 tests, 8 passes, 0 failures, cancellations, or test skips; exit 0. Effective contexts were none and snapshot with timeout_seconds=900. Automatic test-result tracking is disabled, so this sanitized comment records the receipt. Both targeted scratch revert assertions failed as intended. Work is ready for orchestrator inspection, coverage-manifest inclusion, and final gates; releasing without closing."
   "2026-10-11T06:47:26.329Z",codex-agent,"Verified an additional real-tracker drift case: after a promoted generation is reverted while its completed promotion receipt remains, resume previously reported promoted=1 although the generation still had promoted=false. Continuation now refuses this disagreement with loop_step_drift and preserves both records. Added a real tiny-LM regression and included the native controller fault drills in the unchanged 100/100/100/100 coverage gate."
-files[10]{path,scope}:
+  "2026-10-11T06:51:53.818Z",codex-agent,"Additional behavioral revert proof: a real one-generation tracker passes the completed-promotion drift refusal with the guard present. Removing only that guard in an isolated source copy makes the identical assertion fail with Missing expected rejection (exit 1); no receipt, lease, numerical adapter or fixture changes were made for the revert. Existing completed-step adoption and native fencing revert proofs remain recorded above. Source validation is running at commit 5d427a5 with unchanged thresholds."
+  "2026-10-11T06:57:13.948Z",codex-agent,"Current source at 5d427a5: node --test --test-concurrency=1 test/continuation-faults.test.ts passed 39/39, zero failures, skips or cancellations, including the reverted-generation promotion refusal. The adapter-only coverage diagnostic passed 17/17 tests with 100% lines/functions and 98.52% branches; it omits process paths and is not the full coverage gate. npm run build:test, lint, docstring (24 files, 232 declarations), duplicates (zero), changelog:full and changelog:check passed. Full npm, Bun and clean-identity release checks remain running; no full-gate pass is claimed."
+files[11]{path,scope}:
   index.ts,project
   lm.ts,project
   loop.ts,project
+  package.json,project
   test/continuation-faults.test.ts,project
   test/controller-faults.test.ts,project
   test/durable-loop.test.ts,project
