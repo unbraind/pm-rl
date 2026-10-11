@@ -23,7 +23,7 @@ const config = JSON.parse(readFileSync(new URL("../examples/loop-bandit.json", i
 /** Initialize a real PM project and its approval decision. */
 async function workspace() {
   const root = mkdtempSync(join(tmpdir(), "pm-rl-durable-")); roots.push(root);
-  const initialized = await init("rl", { defaults: true, agentGuidance: "skip", author: "rl-test" }, { cwd: root });
+  const initialized = await init("rl", { defaults: true, agentGuidance: "skip", author: "rl-test" }, { cwd: root, path: join(root, ".agents", "pm") });
   const client = new PmClient({ pmRoot: initialized.path, cwd: root, author: "rl-test", noExtensions: true });
   const approval = await client.create({ id: "approval", title: "Bounded approval", type: "Decision", body: '```json\n{"permitted_promotions":3}\n```' });
   return { root, pmRoot: initialized.path, client, approval: String(approval.item.id) };

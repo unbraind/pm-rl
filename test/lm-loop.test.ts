@@ -63,7 +63,7 @@ async function workspace(): Promise<{
 }> {
   const root = mkdtempSync(join(tmpdir(), "pm-rl-lm-loop-test-"));
   roots.push(root);
-  const initialized = await init("rl", { defaults: true, author: "pm-rl-test", agentGuidance: "skip" }, { cwd: root });
+  const initialized = await init("rl", { defaults: true, author: "pm-rl-test", agentGuidance: "skip" }, { cwd: root, path: join(root, ".agents", "pm") });
   const client = new PmClient({ pmRoot: initialized.path, cwd: root, author: "pm-rl-test", noExtensions: true });
   for (const itemType of RL_ITEM_TYPES) {
     await client.schemaAddType(itemType.name, {
@@ -541,6 +541,14 @@ test("SIGKILL inside real LM collect and fit writes resumes only unfinished gene
       const completed = mode === "train" ? ["collect", "train"] : (mode === "evaluate" || mode === "mid-promote") ? ["collect", "train", "evaluate"] : mode === "mid-train" ? ["collect"] : [];
       const before = await Promise.all(completed.map((phase) => stepHistory(client, pmRoot, phase)));
       process.child.kill("SIGKILL"); await process.result;
+      if (mode === "mid-train") {
+        const phasePath = join(pmRoot, "locks", `${loopLeaseLockId("lm-drill")}-recovery.lock`);
+        const phaseLease = JSON.parse(readFileSync(phasePath, "utf8")) as Record<string, unknown>;
+        assert.ok(String(phaseLease.owner).startsWith("pm-rl-phase:"));
+        // The native SDK owner must also recover a kill before richer identity publication.
+        delete phaseLease.hostname; delete phaseLease.process_start_time;
+        writeFileSync(phasePath, JSON.stringify(phaseLease));
+      }
       const phases: string[] = [];
       const resumed = await resumeRlLoop(client, { pmRoot, author: "pm-rl-test" }, { id: "lm-drill", approval,
         onPhase(phase, generation) { if (generation === 1) phases.push(phase); } });

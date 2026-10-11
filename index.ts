@@ -2678,7 +2678,15 @@ function controllerExpiry(record: Record<string, unknown>): number {
 /** Expire a demonstrably dead SDK phase mutex through its open inode, never overwriting a successor. */
 async function expireDeadControllerMutex(root: string, id: string, io: LoopProcessIdentityIO | undefined): Promise<void> {
   const record = await readLeaseRecord(root, id);
-  if (record === null || leaseHolderState(record, io) !== "dead") return;
+  if (record === null) return;
+  const prefix = `pm-rl-phase:${hashJson(hostname())}:`;
+  // The SDK writes owner with its initial exclusive create. This identity
+  // survives a kill before the richer atomic identity publication follows.
+  const owner = record["owner"];
+  const identity = record["hostname"] === undefined && typeof owner === "string" && owner.startsWith(prefix)
+    ? { ...record, hostname: hostname(), process_start_time: Buffer.from(owner.slice(prefix.length).split(":")[0], "base64url").toString("utf8") }
+    : record;
+  if (leaseHolderState(identity, io) !== "dead") return;
   const handle = await open(join(root, "locks", `${id}.lock`), "r+").catch((error: unknown) => {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw error;
@@ -2698,7 +2706,8 @@ async function expireDeadControllerMutex(root: string, id: string, io: LoopProce
 /** Acquire the SDK phase mutex; only proven dead holders are expired for SDK cleanup. */
 async function controllerMutex(root: string, id: string, author: string, start: string, io: LoopProcessIdentityIO | undefined): Promise<() => Promise<void>> {
   await expireDeadControllerMutex(root, id, io);
-  const release = await acquireLock(root, id, 1_000_000_000, author, false, false, 5000);
+  const owner = `pm-rl-phase:${hashJson(hostname())}:${Buffer.from(start).toString("base64url")}:${author}`;
+  const release = await acquireLock(root, id, 1_000_000_000, owner, false, false, 5000);
   try {
     await publishControllerIdentity(join(root, "locks", `${id}.lock`), start);
   } catch (error) {
@@ -3158,7 +3167,8 @@ async function readLoopStep(client: PmClient, id: string, phase: string, input: 
   }
   if (record["state"] === "running") return null;
   const result = record["result"];
-  if (result === undefined || record["digest"] !== hashJson(result)) fail("Loop step receipt payload is damaged.", "loop_step_drift", EXIT_CODE.CONFLICT);
+  if (result === undefined || result === null || typeof result !== "object" || Array.isArray(result)
+    || record["digest"] !== hashJson(result)) fail("Loop step receipt payload is damaged.", "loop_step_drift", EXIT_CODE.CONFLICT);
   return result;
 }
 

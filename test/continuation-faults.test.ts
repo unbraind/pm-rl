@@ -84,7 +84,7 @@ async function refuses(action: () => unknown, codes: readonly string[]): Promise
 test("one paused tiny-LM loop refuses receipt corruption and lost collection evidence", async (context) => {
   const root = mkdtempSync(join(tmpdir(), "pm-rl-continuation-faults-"));
   try {
-    const initialized = await init("rl", { defaults: true, agentGuidance: "skip", author: AUTHOR }, { cwd: root });
+    const initialized = await init("rl", { defaults: true, agentGuidance: "skip", author: AUTHOR }, { cwd: root, path: join(root, ".agents", "pm") });
     const pmRoot = initialized.path;
     const client = new PmClient({ pmRoot, cwd: root, author: AUTHOR, noExtensions: true });
     const approval = String((await client.create({ id: "approval", title: "One bounded promotion", type: "Decision",
@@ -121,6 +121,7 @@ test("one paused tiny-LM loop refuses receipt corruption and lost collection evi
       ["foreign input identity", JSON.stringify({ ...collection, input: "0".repeat(64) })],
       ["unknown state", JSON.stringify({ ...collection, state: "finished" })],
       ["missing completed result", JSON.stringify(withoutResult)],
+      ...[null, [], true].map((result) => [`non-object result ${JSON.stringify(result)}`, JSON.stringify({ ...collection, result, digest: hashJson(result) })] as const),
       ["damaged result digest", JSON.stringify({ ...collection, digest: "0".repeat(64) })],
       ["rewritten result without a new digest", JSON.stringify({ ...collection, result: { run: "foreign", events: [] } })],
     ];
@@ -257,6 +258,19 @@ test("one paused tiny-LM loop refuses receipt corruption and lost collection evi
       assert.deepEqual(restored.notes.map((note) => note.text), savedNotes.map((note) => note.text));
       const again = await resume();
       assert.deepEqual({ ...again, resumed_generations: 0 }, { ...report, resumed_generations: 0 });
+    });
+    await context.test("legacy LM records without step receipts retain deterministic verification", async () => {
+      const legacyCollection = JSON.stringify({ ...receipt(collectBody), state: "running" });
+      const legacyTraining = JSON.stringify({ ...receipt(trainBody), state: "running" });
+      const legacyEvaluation = JSON.stringify({ ...receipt(evaluateBody), state: "running" });
+      await withBody(client, collectId, legacyCollection, async () => {
+        await withBody(client, trainId, legacyTraining, async () => {
+          await withBody(client, evaluateId, legacyEvaluation, async () => {
+            assert.equal((await status()).promoted, 1);
+            assert.equal((await resume()).promoted, 1);
+          });
+        });
+      });
     });
   } finally {
     rmSync(root, { recursive: true, force: true });

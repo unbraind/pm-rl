@@ -608,6 +608,7 @@ function restoreLmBase(value: JsonValue, shape: LmModelShape): LmWeights {
   const record = asJsonObject(envelope["weights"], "LM frozen weights", "lm_invalid_checkpoint");
   const rawLayers = record["layers"];
   if (!Array.isArray(rawLayers) || rawLayers.length !== shape.layers) expectedFail("LM frozen base has invalid layer dimensions.", "lm_invalid_checkpoint");
+  /** Restore one exact-size tensor through the checkpoint's finite Float32 parser. */
   const tensor = (item: Readonly<Record<string, unknown>>, key: string, size: number): Float32Array => storedTensor(item, key, size, "LM frozen base");
   const weights: LmWeights = { emb: tensor(record, "emb", shape.vocab * shape.dModel), pos: tensor(record, "pos", shape.maxPositions * shape.dModel),
     head: tensor(record, "head", shape.vocab * shape.dModel), layers: rawLayers.map((raw) => {
