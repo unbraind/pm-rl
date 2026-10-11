@@ -84,7 +84,7 @@ async function refuses(action: () => unknown, codes: readonly string[]): Promise
 test("one paused tiny-LM loop refuses receipt corruption and lost collection evidence", async (context) => {
   const root = mkdtempSync(join(tmpdir(), "pm-rl-continuation-faults-"));
   try {
-    const initialized = await init("rl", { defaults: true, agentGuidance: "skip", author: AUTHOR }, { cwd: root, path: join(root, ".agents", "pm") });
+    const initialized = await init("rl", { defaults: true, agentGuidance: "skip", author: AUTHOR }, { cwd: root, pmRoot: join(root, ".agents", "pm") });
     const pmRoot = initialized.path;
     const client = new PmClient({ pmRoot, cwd: root, author: AUTHOR, noExtensions: true });
     const approval = String((await client.create({ id: "approval", title: "One bounded promotion", type: "Decision",

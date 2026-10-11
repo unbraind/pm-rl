@@ -63,7 +63,7 @@ async function workspace(): Promise<{
 }> {
   const root = mkdtempSync(join(tmpdir(), "pm-rl-lm-loop-test-"));
   roots.push(root);
-  const initialized = await init("rl", { defaults: true, author: "pm-rl-test", agentGuidance: "skip" }, { cwd: root, path: join(root, ".agents", "pm") });
+  const initialized = await init("rl", { defaults: true, author: "pm-rl-test", agentGuidance: "skip" }, { cwd: root, pmRoot: join(root, ".agents", "pm") });
   const client = new PmClient({ pmRoot: initialized.path, cwd: root, author: "pm-rl-test", noExtensions: true });
   for (const itemType of RL_ITEM_TYPES) {
     await client.schemaAddType(itemType.name, {
