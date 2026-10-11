@@ -6,14 +6,14 @@ status: in_progress
 priority: 1
 tags[3]: durability,execution,recursive-training
 created_at: "2026-10-05T04:32:30.577Z"
-updated_at: "2026-10-11T07:15:48.398Z"
+updated_at: "2026-10-11T07:30:01.336Z"
 assignee: codex-agent
 claim_principal: codex-agent
 author: pi-glm
 estimated_minutes: 960
 acceptance_criteria: "pm rl loop run re-run after an injected failure at each phase boundary completes to the exact uninterrupted report, with one create per item in history and no duplicated metric events; pm rl loop status reports per-generation phase, consumed budget and terminal reason without mutating anything; pm rl loop resume completes an interrupted loop from the persisted seed configuration; two concurrent controller processes produce exactly one seed, one run per generation and one promotion, the loser failing with a stable contention error; a killed controller's lease is taken over promptly via dead-pid detection; AbortSignal/SIGTERM cancellation mid-phase stops at a phase boundary, leaves consistent state, and a subsequent resume completes the loop"
 parent: pm-rl-apvf
-comments[46]{created_at,author,text}:
+comments[47]{created_at,author,text}:
   "2026-10-05T04:32:45.155Z",pi-glm,"Starting the durable-continuation slice on branch feat/durable-rsi-continuation. Design decisions recorded as I go: (1) launch mutual exclusion uses the pm SDK's own primitives — an owner-bound claim on the loop seed item plus the SDK workspace lock acquireLock per generation, with dead-pid takeover of an abandoned SDK lock record; no invented lock file. (2) resume reconstructs state from persisted items only: the deterministic bandit receipt is recomputed and verified against the stored training configuration, and missing metric-event suffixes are appended rather than re-collected. (3) pm rl loop run becomes idempotent end to end; the previous loop_already_started refusal is replaced by resume semantics, while a different configuration under the same loop id still conflicts through the content-addressed registration identity."
   "2026-10-05T05:04:20.384Z",codex-sol,"Resumed the interrupted implementation with codex-sol. Existing loop and calibration-head work is preserved; typecheck passes. Next verify lease safety, replay identities and existing regressions, then commit the implementation before adding crash, process-contention and cancellation proofs. Feature items remain open until orchestrator verification."
   "2026-10-05T05:21:48.906Z",codex-sol,Crash-phase replay and OS-process contention/cancellation proofs now run against real SDK projects. SIGKILL dead-controller takeover plus SIGINT and SIGTERM resumes pass. Cross-worktree audit exposed duplicate seed create identities when registration preceded shared launch authority; acquisition now precedes all job artifact creation and uses SDK acquireLock plus an SDK Decision journal under shared Git metadata. Losing worktrees leave no duplicate job artifacts. Exact coverage is pending.
@@ -60,6 +60,7 @@ comments[46]{created_at,author,text}:
   "2026-10-11T06:57:13.948Z",codex-agent,"Current source at 5d427a5: node --test --test-concurrency=1 test/continuation-faults.test.ts passed 39/39, zero failures, skips or cancellations, including the reverted-generation promotion refusal. The adapter-only coverage diagnostic passed 17/17 tests with 100% lines/functions and 98.52% branches; it omits process paths and is not the full coverage gate. npm run build:test, lint, docstring (24 files, 232 declarations), duplicates (zero), changelog:full and changelog:check passed. Full npm, Bun and clean-identity release checks remain running; no full-gate pass is claimed."
   "2026-10-11T07:01:50.203Z",codex-agent,"Draft PR https://github.com/unbraind/pm-rl/pull/68 is open on feat/durable-loop-continuation. Full release validation remains pending and is labeled accordingly in the PR. Only pm-rl-od32 is mutated in this task; pm-rl-apvf is linked as its existing parent. PR #65 and pm-rl-9nlg are unchanged."
   "2026-10-11T07:15:43.181Z",codex-agent,"CI at the previous feature head against newly advanced main completed Node 26 with 487/492 passing tests. Four creation/launch fixtures collided with step Decision keys or exposed delayed launch contention; one newly merged external-receipt test observed an unwanted running train record before namespace validation. Synced current main without changing the upstream receipt implementation/tests or pm-rl-9nlg. The feature now refuses launch-mutex contention without waiting, preflights the existing namespace before starting training, and targets domain-item creation races explicitly. Converted legacy decision evidence faults to actual SDK note edits so fallback validation remains covered without mocked note results. Superseded local gate runs were stopped before modifying their source."
+  "2026-10-11T07:30:01.336Z",codex-agent,"At bd02c8d, CI Node 26 passed all 492 tests with 100% lines; branches/functions remained 99.86%/99.70%, so this is not full certification. Local targeted regressions passed 6/6, and PM-linked namespace execution passed 1/1 with none/snapshot contexts and no skips. Added two real-SDK native drills that passed 2/2: parent-process heartbeat observes active-step suppression, idle renewal and displaced-controller fencing; unreadable step storage appearing between absence checks propagates the actual SDK error without any create. No threshold changes. Existing external-receipt code/tests and its PM item are byte-identical to current main."
 files[12]{path,scope}:
   index.ts,project
   lm.ts,project
@@ -73,7 +74,7 @@ files[12]{path,scope}:
   test/lm-loop.test.ts,project
   test/lm.test.ts,project
   test/loop.test.ts,project
-tests[7]:
+tests[8]:
   - command: node --test test/durable-loop.test.ts
     scope: project
     timeout_seconds: 300
@@ -138,6 +139,16 @@ tests[7]:
     provenance:
       author: codex-sol-native-faults
       created_at: "2026-10-11T06:24:07.747Z"
+      source_kind: local_mutation
+      source_ref: feat/durable-loop-continuation
+  - command: env -u PM_PATH node --test --test-name-pattern='namespace removed' test/decision-recovery.test.ts
+    scope: project
+    timeout_seconds: 180
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-11T07:22:44.477Z"
       source_kind: local_mutation
       source_ref: feat/durable-loop-continuation
 docs[3]{path,scope}:

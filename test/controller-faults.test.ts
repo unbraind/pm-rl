@@ -7,7 +7,7 @@ import { join, relative } from "node:path";
 import { test } from "node:test";
 import { setActiveExtensionHooks, type ExtensionApi, type OnWriteHook } from "@unbrained/pm-cli";
 import { PmClient, type GetResult } from "@unbrained/pm-cli/sdk/core";
-import { acquireLock, getHistoryPath, getItemPath, init, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
+import { acquireLock, getHistoryPath, getItemPath, init, isPmCliExpectedError, normalizeItemId, readSettings, EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import { loopLeaseLockId, loopProcessIdentityIO, loopProcessStartTime, LOOP_LEASE_TTL_SECONDS, resumeRlLoop, runRlLoop, type JsonValue, type LoopProcessIdentityIO } from "../index.ts";
 
@@ -302,3 +302,94 @@ for (const phase of ["collect", "train"] as const) {
     });
   });
 }
+
+test("parent controller heartbeat skips an active step, renews idle ownership and fences a successor", { timeout: 180_000 }, async () => {
+  await inWorkspace(async ({ root, pmRoot, client, approval }) => {
+    const path = join(pmRoot, "locks", `${loopLeaseLockId(id)}.lock`);
+    const interval = LOOP_LEASE_TTL_SECONDS / 3 * 1000 + 1500;
+    const update = client.update.bind(client);
+    let held = false;
+    let successor: Record<string, unknown> | undefined;
+    let baseline: Record<string, string> | undefined;
+    let releaseSuccessor: (() => Promise<void>) | undefined;
+    client.update = async (key, options) => {
+      const result = await update(key, options);
+      if (!held && key.endsWith(`${id}-g1-step-collect`) && String(options?.body).includes('"state":"complete"')) {
+        held = true;
+        const active = readNativeLock(path);
+        await new Promise<void>((resolve) => { setTimeout(resolve, interval); });
+        assert.deepEqual(readNativeLock(path), active, "heartbeat must not run through an active effect and receipt commit");
+      }
+      return result;
+    };
+    try {
+      await assert.rejects(runRlLoop(client, { pmRoot, author }, { id, config, approval,
+        async onPhase(phase) {
+          assert.equal(phase, "collect");
+          const idle = readNativeLock(path);
+          await new Promise<void>((resolve) => { setTimeout(resolve, interval); });
+          const renewed = readNativeLock(path);
+          assert.equal(renewed["token"], idle["token"]);
+          assert.ok(Date.parse(String(renewed["created_at"])) > Date.parse(String(idle["created_at"])), "idle heartbeat must renew the lease");
+          replaceNativeLock(path, { ...renewed, created_at: "1970-01-01T00:00:00.000Z" });
+          releaseSuccessor = await acquireLock(pmRoot, loopLeaseLockId(id), LOOP_LEASE_TTL_SECONDS, "idle-successor", false, false, 0);
+          successor = readNativeLock(path);
+          const successorClient = new PmClient({ cwd: root, pmRoot, author: "idle-successor", noExtensions: true });
+          await successorClient.claim(`${id}-seed`, { force: true });
+          baseline = domainFiles(pmRoot);
+          await new Promise<void>((resolve) => { setTimeout(resolve, interval); });
+          assert.deepEqual(readNativeLock(path), successor, "failed idle heartbeat must preserve successor ownership");
+        },
+      }), refusal("loop_lease_lost"));
+      assert.ok(held && successor !== undefined && baseline !== undefined);
+      assert.deepEqual(readNativeLock(path), successor);
+      assert.deepEqual(domainFiles(pmRoot), baseline, "displaced cleanup must preserve the successor claim and completed steps");
+      await assert.rejects(client.get(`${id}-g1-step-train`));
+    } finally { Object.assign(client, { update }); await releaseSuccessor?.(); }
+  });
+});
+
+test("a step appearing as unreadable storage between absence checks propagates its real SDK error", bounded, async () => {
+  await inWorkspace(async ({ pmRoot, client, approval }) => {
+    const key = `${id}-g1-step-collect`;
+    const settings = await readSettings(pmRoot);
+    const path = getItemPath(pmRoot, "Decision", normalizeItemId(key, settings.id_prefix));
+    const get = client.get.bind(client);
+    const create = client.create.bind(client);
+    let damaged = false;
+    let stepCreates = 0;
+    let readFailure: Error | undefined;
+    client.get = (async (item, options) => {
+      try { return await get(item, options); }
+      catch (error) {
+        if (item === key && !damaged && isPmCliExpectedError(error) && error.exitCode === EXIT_CODE.NOT_FOUND) {
+          damaged = true;
+          mkdirSync(path);
+          writeFileSync(join(path, "holder"), "unreadable concurrent step storage");
+        } else if (item === key && damaged) {
+          assert.ok(error instanceof Error);
+          readFailure = error;
+        }
+        throw error;
+      }
+    }) as PmClient["get"];
+    client.create = async (options) => {
+      if (options?.id === key) stepCreates += 1;
+      return create(options);
+    };
+    const phases: string[] = [];
+    try {
+      await assert.rejects(runRlLoop(client, { pmRoot, author }, { id, config, approval,
+        onPhase(phase) { phases.push(phase); } }), (error: unknown) => {
+        assert.ok(readFailure !== undefined);
+        assert.equal(error, readFailure, "the SDK read error must survive without being treated as an absent step");
+        return true;
+      });
+      assert.ok(damaged);
+      assert.equal(stepCreates, 0, "an unreadable step must never be recreated");
+      assert.deepEqual(phases, []);
+      assert.equal(readFileSync(join(path, "holder"), "utf8"), "unreadable concurrent step storage");
+      await assert.rejects(get(`${id}-g1-collect`));
+    } finally { Object.assign(client, { get, create }); }
+  });
+});
