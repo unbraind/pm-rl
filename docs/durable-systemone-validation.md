@@ -95,8 +95,10 @@ The response must contain exactly the requested choice answers, finite normalize
 `usage.input_tokens`/`usage.output_tokens`. A response may include a `type` marker;
 a foreign type refuses. `noul` and `score` are not trainable by this choice head.
 Errors and timeouts leave completed decision notes intact. Caller AbortSignal,
-SIGINT and SIGTERM stop progression. Endpoint latency is measured through body
+SIGINT and SIGTERM stop progression. Legacy endpoint latency is measured through body
 receipt and persisted per decision, separately from controller wall time.
+Receipt mode persists the endpoint's original inference latency, including on
+retrieval.
 
 `training` and `evaluation` contain `{id,title,description,labels}` items. Labels
 map each question name to a declared option. Identities must be unique and disjoint;
@@ -131,7 +133,8 @@ The pure SDK surface includes `parseSystemOneLoopConfig`, `validatedSystemOneDat
 `systemOneRunConfig`, `systemOneGenerationTrainingConfig`, `systemOneSeedTrainingConfig`,
 `systemOnePromotionScores`, `parseStoredSystemOneGeneration`,
 `verifyStoredSystemOneGeneration`, `systemOneDecisionEvent`,
-`parseSystemOneDecisionEvent`, `systemOneState` and `requestSystemOneDecision`.
+`parseSystemOneDecisionEvent`, `systemOneState`, `systemOneDecisionRequestId`,
+`verifySystemOneReceiptEvent` and `requestSystemOneDecision`.
 Trainer selection uses `parseLoopTrainer`/`parseLoopProgramme`; bandit replay uses
 `parseStoredLoopGeneration`/`verifyStoredLoopGeneration`.
 
@@ -153,19 +156,143 @@ softens model probabilities (log temperature 2), making the bounded calibration
 experiment explicit. The held-out split contains two synthetic items and repeated
 selection is adaptive validation; it is not an independent final benchmark.
 
-An external decision request and a local PM note cannot commit atomically. A hard
-kill after the endpoint executes but before its note commits can require reissuing
-that unresolved request. Persisted decisions are never queried again; logical
-sample budget is charged once, but physical endpoint invocations and unknown token
-use in that window cannot be guaranteed exactly once without provider-side
-idempotency/receipt retrieval. This limitation is distinct from the proven single
-controller/job launch and transactional promotion. No GPU scheduling, base-model
-fine-tuning, distributed clone coordination, independent benchmark, storage cap
-or token-budget reservation is claimed by this slice.
+## Recoverable external decision receipts
+
+[pm-rl-9nlg](../.agents/pm/issues/pm-rl-9nlg.toon) implements the HTTP-to-PM
+recovery contract. Enable it only for an endpoint that supports:
+
+```json
+{"decision_model":{"base_url":"http://127.0.0.1:8080","model":"tev1:4b","timeout_ms":10000,"receipt_protocol":"idempotency-v1"}}
+```
+
+Before inference, the controller commits a random UUID namespace as a Run
+comment. Retain this comment with the run and its history. Each query key is a
+SHA-256 digest of the namespace, programme digest, collecting checkpoint, metric
+(collection or held-out) and query index. The programme binds the endpoint,
+model, questions and datasets. Independent tracker runs receive separate
+namespaces; resumed or moved/copied tracked runs reuse their persisted namespace.
+The namespace is established under the existing controller lease. The POST
+includes `receipt_protocol: "idempotency-v1"`, `request_id` and the same value in
+the `Idempotency-Key` header, alongside the existing request fields.
+
+The endpoint must atomically register a key before executing inference, serialize
+concurrent submissions of that key, and retain its immutable result for the full
+lifetime of resumable runs. A repeated identical request returns that result
+without another physical inference or charge. A reused key with different inputs
+must fail with HTTP 409; an expired or unavailable receipt must fail closed,
+never silently execute a new inference. Its successful JSON response contains:
+
+```json
+{
+  "request_id":"sha256:<the request digest>",
+  "decision_id":"<unique immutable inference identity>",
+  "physical_requests":1,
+  "answers":{"kind":{"probabilities":{"Bug":0.6,"Feature":0.4}}},
+  "usage":{"input_tokens":10,"output_tokens":1,"latency_ms":12}
+}
+```
+
+The SDK exposes these identities at `SystemOneDecisionResponse.usage.receipt`
+as `SystemOneDecisionReceipt`.
+
+`decision_id` is a nonblank trimmed string of at most 256 characters. Usage and
+latency describe the original inference, including on a retry. Token counts and
+their sum must be nonnegative safe integers; latency must be finite and
+nonnegative. Responses missing or disagreeing with this contract refuse before
+PM persistence. The metric event retains both identities, `physical_requests`,
+individual input/output counts, their total and original latency. Status and
+resume verify the content-bound key, accounting and unique decision identities
+within each run before advancing. Stored counts and latency must use the
+canonical strings written by the package; padded or malformed representations
+refuse. Sum `physical_requests`, `input_tokens` and
+`output_tokens` over the run's receipt events to reconcile inference spending;
+HTTP retries are transport attempts and are not additional inferences. A
+partial run can have an unresolved remote receipt that status cannot yet count:
+resume retrieves it and commits the missing event before advancing.
+
+A crash before dispatch spends nothing. A lost response, timeout, cancellation,
+or hard kill after remote completion leaves the key recoverable at the endpoint.
+A kill after receiving the receipt but before PM persistence retrieves the same
+receipt on resume. A kill after PM persistence skips the existing event. No local
+response cache or invented tracker lock is needed. `RlLoopRequest.onDecision`
+observes `request`, `response` and `commit` boundaries for interruption drills.
+
+`test/decision-recovery.test.ts` uses the built package, real temporary SDK
+trackers and local HTTP servers. SIGKILL drills cover both collection and
+held-out queries at each boundary: before dispatch, remote completion before
+body delivery, parsed response before PM commit and committed PM event. Separate
+tests drop the HTTP connection/body, time out and cancel completed remote work,
+reject corrupted receipt evidence, and distinguish independent run namespaces.
+Eight decisions retain eight physical inferences and 88 tokens, with zero new
+requests on terminal resume. Legacy endpoints remain supported by omitting
+`receipt_protocol`; their unresolved HTTP-to-PM window still permits repeated
+inference and cannot establish exactly-once remote spending. The guarantee for
+opted-in endpoints depends on their durable atomic idempotency contract, not on
+an arbitrary service accepting the header. No real external service is invoked
+by these tests. No GPU scheduling, base-model fine-tuning, distributed clone
+coordination, independent benchmark, storage cap or token-budget reservation is
+claimed here.
+
+## Behavioral regression proof
+
+Restore only the pre-fix bodies of `requestSystemOneDecision` in `systemone.ts`
+and `verifyDecisionPrefix` in `index.ts` from the base revision. Retain current
+API signatures, namespace persistence, decision boundary callbacks, exports and
+all tests. Build the package, then run:
+
+```sh
+node --test --test-name-pattern="built receipt recovery|SIGKILL|received headers" test/decision-recovery.test.ts
+```
+
+The build succeeds and all three tests execute and fail on physical request
+accounting: **9 actual versus 8 expected**, including a real SIGKILL after remote
+completion. Restore the fixed bodies and rebuild before running the full suite.
+The proof changes behavior without deleting test seams or causing load/type
+failures. The initial unmodified-package reproduction also failed at 9 versus 8.
+Restoring only the earlier `verifySystemOneReceiptEvent` body also builds and
+makes the real-tracker corruption test fail with `Missing expected rejection:
+input-leading-zero`. Restoring the canonical validator rejects padded token
+strings before any further HTTP request.
 
 ## Package verification
 
-`npm run release:check` passed 398 tests, zero failures/skips, and exact
+PR #65 review comment 4213484429 adds a real-tracker completion regression:
+the final held-out decision's commit callback removes the receipt namespace
+after all four events have persisted. Completion refuses with
+`loop_generation_drift` and `EXIT_CODE.CONFLICT` before prefix verification,
+training, evaluation or promotion. The test verifies the event notes remain
+unchanged and no candidate or evaluation item is created. Endpoints without
+`receipt_protocol` keep their existing behavior.
+
+Reverting only the new completion guard builds successfully and makes
+`node --test --test-name-pattern="evidence completion refuses" test/decision-recovery.test.ts`
+fail with `Missing expected rejection`; restoring the guard makes it pass.
+The fixture is bounded to one generation so the revert reaches successful
+completion rather than a later fault-injection callback.
+
+The receipt recovery implementation and tests at `fe69f39` passed both
+`npm run release:check` and `bun run release:check`: **439/439 tests per gate**,
+zero failures/skips and exact **100% statements, lines, branches and functions**
+across all **24 authored source files**, including operational scripts. Coverage
+ignores remain empty and all thresholds remain 100. Both gates also passed strict
+TypeScript, lint, zero duplication, all 227 documented declarations, identity
+and publish-attestation checks, production audit with zero vulnerabilities,
+pack dry run and changelog validation. The final guard correction then passed
+440/440 tests per npm and Bun release gate on 2026-10-08. That day's PM-linked recovery and adapter
+commands passed 7/7 and 8/8 tests. Both behavioral revert proofs are documented
+above. Receipt guarantees are conditional on the supported endpoint contract;
+these tests contact local synthetic servers only.
+
+A documentation-only rerun on 2026-10-10 executed all seven recovery cases under
+concurrent host load: five passed, one exceeded its existing 300-second deadline,
+and one was cancelled after a missing temporary tracker caused an `ENOENT` error.
+The worker retained handles after reporting the cases and was terminated after
+26 minutes. This is a failed fresh receipt, not a replacement for the historical
+passing gates. Source, tests and deadlines were unchanged; the recovery owner
+remains open for a successful fresh run and required review.
+
+
+The earlier continuation slice passed 398 tests with `npm run release:check`, zero failures/skips, and exact
 100% statements, lines, branches and functions across all 23 authored source
 files, including operational scripts. Coverage ignores remain empty and every
 threshold remains 100. Lint and strict TypeScript passed; duplication was zero;
@@ -179,7 +306,7 @@ Earlier adapter acceptance passed `bun run check`, `bun run build:test` and
 packed npm/Node and native Bun consumers each completed two promotions, eight
 requests, eight charged logical samples, successor collection, checkpoint
 validation and status/resume without further requests. The current release gate
-includes 25 durable-loop tests and 7 adapter tests. PM-linked commands
+includes 25 durable-loop tests, 8 adapter tests and 7 receipt-recovery tests. PM-linked commands
 `node --test --test-name-pattern="terminal bandit candidates" test/durable-loop.test.ts`,
 `node --test --test-name-pattern="real HTTP usage" test/systemone.test.ts` and
 `node --test test/systemone.test.ts` passed. Earlier PM-linked full durability

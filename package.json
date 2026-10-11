@@ -68,6 +68,7 @@
       "test/controller-faults.test.ts",
       "test/coverage-gate.test.ts",
       "test/durable-loop.test.ts",
+      "test/decision-recovery.test.ts",
       "test/gatesim.test.ts",
       "test/index.test.ts",
       "test/invalidate.test.ts",
