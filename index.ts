@@ -711,7 +711,11 @@ export function idSegment(value: string): string {
 
 /** Read full domain evidence with no output ceiling; the unbounded SDK result carries the complete item. */
 async function readCompleteLoopItem(client: PmClient, id: string): Promise<GetResult> {
-  return await client.get(id, { depth: "standard", outputLimit: "unbounded", outputBudget: "unbounded" }) as GetResult;
+  const result = await client.get(id, { depth: "standard", outputLimit: "unbounded", outputBudget: "unbounded" });
+  if (!("item" in result) || "output_budget_exceeded" in result) {
+    fail(`Item ${id} was omitted despite an unbounded read request.`, "loop_history_incomplete", EXIT_CODE.CONFLICT);
+  }
+  return result as GetResult;
 }
 
 /** Validate that an existing item has the expected domain type. */
@@ -2815,7 +2819,7 @@ async function acquireControllerLease(client: PmClient, coordinates: WorkspaceCo
     }
     try {
       await publishControllerIdentity(lockPath, ownStart);
-      token = (await readLeaseRecord(authorityRoot, lockId))!["token"];
+      token = (await readLeaseRecord(authorityRoot, lockId))?.["token"];
     } catch (error) {
       await release();
       throw error;
@@ -2827,7 +2831,8 @@ async function acquireControllerLease(client: PmClient, coordinates: WorkspaceCo
   /** Fence every effect and completion receipt against controller takeover. */
   const guard = async <T>(operation: () => Promise<T>): Promise<T> => {
     const observed = await readLeaseRecord(authorityRoot, lockId);
-    if (observed === null || observed["token"] !== token) fail(`Loop ${id} controller lease was replaced; this controller cannot advance.`, "loop_lease_lost", EXIT_CODE.CONFLICT);
+    // A missing or empty captured token can never fence an effect, even if the observed record is equally empty.
+    if (observed === null || typeof token !== "string" || token.length === 0 || observed["token"] !== token) fail(`Loop ${id} controller lease was replaced; this controller cannot advance.`, "loop_lease_lost", EXIT_CODE.CONFLICT);
     activePhases += 1;
     let unlock: (() => Promise<void>) | undefined;
     try {
@@ -3260,8 +3265,11 @@ function verifyLoopApproval(governing: string, recorded: string | null, id: stri
 async function inspectBanditGeneration(client: PmClient, programme: LoopProgramme & { readonly trainer: "bandit" }, request: RlLoopRequest, chain: LoopChain, generation: number): Promise<GenerationInspection> {
   const config = programme.config;
   const recorded = await readLoopStep(client, `${request.id}-g${generation}`, "train", loopStepInput(programme, chain, generation));
-  const receipt = recorded === null ? runLoopGeneration(config, chain.step, generation, chain.current as BanditCheckpoint)
-    : recorded as unknown as BanditGeneration;
+  // Bandit training is deterministic: a recorded receipt must equal its replay, so tampered verdicts cannot enter recovery.
+  const receipt = runLoopGeneration(config, chain.step, generation, chain.current as BanditCheckpoint);
+  if (recorded !== null && hashJson(recorded) !== hashJson(receipt as unknown as JsonValue)) {
+    fail("Bandit training receipt disagrees with its deterministic replay.", "loop_step_drift", EXIT_CODE.CONFLICT);
+  }
   const { run, item } = await findGenerationItems(client, request.id, generation);
   if (run !== null) await verifyLoopRun(client, programme, chain, generation, run, receipt);
   if (item !== null) {
@@ -3379,9 +3387,9 @@ async function inspectSystemOneGeneration(client: PmClient, programme: LoopProgr
       fail("Generation index or token accounting disagrees with its persisted decisions.", "loop_generation_drift", EXIT_CODE.CONFLICT);
     }
     const recorded = await readLoopStep(client, `${request.id}-g${generation}`, "train", loopStepInput(programme, chain, generation));
-    const verified = recorded === null ? verifyStoredSystemOneGeneration(config, chain.step, chain.current as SystemOneCheckpoint, stored, collection, heldOut)
-      : recorded as unknown as SystemOneGeneration;
-    if (recorded !== null && canonicalJson(spec.training_config) !== canonicalJson(systemOneGenerationTrainingConfig(config, chain.step, verified))) {
+    // Recompute from the persisted decisions; a recorded receipt (verdict and stop reason included) must match exactly.
+    const verified = verifyStoredSystemOneGeneration(config, chain.step, chain.current as SystemOneCheckpoint, stored, collection, heldOut);
+    if (recorded !== null && hashJson(recorded) !== hashJson(verified as unknown as JsonValue)) {
       fail("Decision-model candidate disagrees with its durable training receipt.", "loop_step_drift", EXIT_CODE.CONFLICT);
     }
     return inspectCandidateVerdict(client, programme, request, chain, generation, String(run!.item.id), item, verified,
@@ -3653,7 +3661,12 @@ async function executePendingGeneration(client: PmClient, coordinates: Workspace
     }
     const trained = await durableLoopStep(client, prepared.lease, stepId, "train", input, async () =>
       await completeGenerationEvidence(client, programme, request, chain, pending, runId!) as unknown as JsonValue);
-    receipt = trained.value as unknown as BanditGeneration | SystemOneGeneration;
+    // A previously recorded train receipt is evidence only if it equals the replay from persisted collection evidence.
+    const evidence = trained.executed ? trained.value : await completeGenerationEvidence(client, programme, request, chain, pending, runId!) as unknown as JsonValue;
+    if (hashJson(trained.value) !== hashJson(evidence)) {
+      fail("Recorded training receipt disagrees with its replay from persisted evidence.", "loop_step_drift", EXIT_CODE.CONFLICT);
+    }
+    receipt = evidence as unknown as BanditGeneration | SystemOneGeneration;
     trainExecuted = trained.executed;
     failIfLoopCancelled(signal, request.id, generation, "evaluation");
     const evaluated = await durableLoopStep(client, prepared.lease, stepId, "evaluate", input, async () => trained.value);

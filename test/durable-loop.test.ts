@@ -639,7 +639,8 @@ test("legacy decision training verifies real evidence without queries and refuse
       const provenance = Object.fromEntries(Object.entries(specification).filter(([key]) => !["promoted", "approval", "proxy_score", "held_out_score", "gap", "promotion_evidence"].includes(key))) as Record<string, JsonValue>;
       await client.update(String(candidate.item.id), { body: damaged, affectedVersion: hashJson(provenance) });
       assert.equal((await client.get(String(candidate.item.id))).item.affected_version, hashJson(provenance));
-      await assert.rejects(rlLoopStatus(client, "legacy-decision"), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_step_drift");
+      // The candidate's own training configuration drifted; recomputation from persisted decisions names that precisely.
+      await assert.rejects(rlLoopStatus(client, "legacy-decision"), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_generation_drift");
       assert.equal(endpoint.calls(), calls);
     } finally { await client.update(String(candidate.item.id), { body: savedCandidate, affectedVersion: String(candidate.item.affected_version) }); }
     assert.equal((await rlLoopStatus(client, "legacy-decision")).promoted, 1);
@@ -675,6 +676,70 @@ test("legacy bandit training verifies real evidence and refuses candidate drift"
   } finally { await client.update(String(candidate.item.id), { body: savedCandidate, affectedVersion: String(candidate.item.affected_version) }); }
   assert.equal((await rlLoopStatus(client, "legacy-bandit")).promoted, 1);
 });
+/** Rewrite a recorded step receipt's result and recompute its digest, as a tamperer with write access could. */
+async function rehashStepResult(client: PmClient, id: string, change: (result: Record<string, JsonValue>) => void): Promise<string> {
+  const item = await client.get(id, { depth: "standard", outputLimit: "unbounded", outputBudget: "unbounded" }) as Awaited<ReturnType<PmClient["get"]>> & { item: { id: string; body: string } };
+  const saved = String(item.item.body);
+  const envelope = JSON.parse(saved) as Record<string, JsonValue>;
+  const result = envelope["result"] as Record<string, JsonValue>;
+  change(result);
+  envelope["digest"] = hashJson(result);
+  await client.update(String(item.item.id), { body: JSON.stringify(envelope) });
+  return saved;
+}
+
+/** A refusal predicate for typed loop step drift. */
+const stepDrift = (error: unknown): boolean => isPmCliExpectedError(error) && error.context.code === "loop_step_drift";
+
+test("an omitted-output envelope from an unbounded loop read is a typed incomplete-history refusal", async () => {
+  const { client, pmRoot, approval } = await workspace();
+  await runRlLoop(client, { pmRoot, author: "rl-test" }, { id: "omitted", config: { ...config, max_generations: 1 }, approval });
+  const get = client.get.bind(client);
+  client.get = (async (id: string, options?: Parameters<PmClient["get"]>[1]) => id === "omitted-seed"
+    ? { output_budget_exceeded: true } : get(id, options)) as PmClient["get"];
+  try {
+    await assert.rejects(rlLoopStatus(client, "omitted"), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_history_incomplete");
+  } finally { client.get = get; }
+});
+
+test("rehashed trainer receipts that disagree with their replay are refused as step drift", async () => {
+  {
+    const { client, pmRoot, approval } = await workspace();
+    await runRlLoop(client, { pmRoot, author: "rl-test" }, { id: "forged-bandit", config: { ...config, max_generations: 1 }, approval });
+    const saved = await rehashStepResult(client, "forged-bandit-g1-step-train", (result) => { result["refusalReason"] = "forged verdict"; });
+    await assert.rejects(rlLoopStatus(client, "forged-bandit"), stepDrift);
+    await client.update("forged-bandit-g1-step-train", { body: saved });
+    assert.equal((await rlLoopStatus(client, "forged-bandit")).promoted, 1);
+  }
+  const endpoint = await decisionServer();
+  try {
+    {
+      const { client, pmRoot, approval } = await workspace();
+      await runRlLoop(client, { pmRoot, author: "rl-test" }, { id: "forged-decision", config: { ...configValue(endpoint.baseURL), budget: 4 }, approval });
+      const saved = await rehashStepResult(client, "forged-decision-g1-step-train", (result) => { result["refusalReason"] = "forged verdict"; });
+      await assert.rejects(rlLoopStatus(client, "forged-decision"), stepDrift);
+      await client.update("forged-decision-g1-step-train", { body: saved });
+    }
+    {
+      // A crash after training but before candidate registration resumes through the run path.
+      const { client, pmRoot, approval } = await workspace();
+      const request = { id: "forged-resume", config: { ...configValue(endpoint.baseURL), budget: 4 }, approval };
+      // Fail candidate registration so the train receipt exists without a registered candidate.
+      const create = client.create.bind(client);
+      client.create = async (options, ...rest) => {
+        if (options?.id === "forged-resume-g1") throw new Error("crash before candidate registration");
+        return create(options, ...rest);
+      };
+      await assert.rejects(runRlLoop(client, { pmRoot, author: "rl-test" }, request), /crash before candidate registration/);
+      client.create = create;
+      await rehashStepResult(client, "forged-resume-g1-step-train", (result) => { result["stopReason"] = "gap_rejected"; });
+      const calls = endpoint.calls();
+      await assert.rejects(resumeRlLoop(client, { pmRoot, author: "rl-test" }, { id: "forged-resume", approval }), stepDrift);
+      assert.equal(endpoint.calls(), calls, "receipt verification replays persisted evidence without new queries");
+    }
+  } finally { endpoint.server.closeAllConnections(); endpoint.server.close(); }
+});
+
 
 test("receipt namespace loss after train marker creation refuses evidence without another query", async () => {
   const endpoint = await decisionServer();
