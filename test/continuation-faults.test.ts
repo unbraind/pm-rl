@@ -240,6 +240,16 @@ test("one paused tiny-LM loop refuses receipt corruption and lost collection evi
     });
     await evidenceFaults("after candidate registration");
 
+    await context.test("legacy LM candidates cannot hide missing collection evidence", async () => {
+      await withBody(client, collectId, JSON.stringify({ ...receipt(collectBody), state: "running" }), async () => {
+        await client.notes(runId, { edit: 1, add: "Legacy collection evidence removed for the fault drill." });
+        try {
+          await refuses(status, ["loop_generation_drift"]);
+          await refuses(resume, ["loop_generation_drift"]);
+        } finally { await client.notes(runId, { edit: 1, add: savedNotes[0]!.text }); }
+      });
+    });
+
     await context.test("restoring all evidence permits one promotion without collecting or fitting again", async () => {
       const phases: string[] = [];
       const report = await resumeRlLoop(client, coordinates, { id: LOOP, approval,

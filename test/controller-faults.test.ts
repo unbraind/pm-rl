@@ -431,3 +431,51 @@ test("a real LM deadline refusal survives lease loss while its audit is fenced",
     } finally { Object.assign(client, { create }); await releaseSuccessor?.(); }
   });
 });
+
+for (const phase of ["LM configuration", "controller preparation"] as const) {
+  test(`real unreadable seed storage propagates the first SDK error during ${phase}`, bounded, async () => {
+    await inWorkspace(async ({ root, pmRoot, client, approval }) => {
+      await assert.rejects(runRlLoop(client, { pmRoot, author }, { id, config, approval,
+        onPhase(current) { if (current === "collect") throw new Error("pause before the seed storage drill"); },
+      }), /pause before the seed storage drill/);
+      const seed = await completeItem(client, `${id}-seed`);
+      const path = getItemPath(pmRoot, "Generation", String(seed.item.id));
+      const preserved = join(root, "original-seed");
+      const before = domainFiles(pmRoot, [`${String(seed.item.id)}.toon`]);
+      renameSync(path, preserved);
+      mkdirSync(path);
+      writeFileSync(join(path, "holder"), "unreadable seed storage");
+      const declared = JSON.parse(readFileSync(new URL("../examples/loop-lm.json", import.meta.url), "utf8")) as Record<string, JsonValue>;
+      const requestConfig = phase === "LM configuration" ? { ...declared, max_generations: 1, budget: declared["samples_per_generation"]! } : config;
+      const get = client.get.bind(client);
+      let observedFailure: unknown;
+      let reads = 0;
+      client.get = (async (key, options) => {
+        try { return await get(key, options); }
+        catch (error: unknown) {
+          if (key === `${id}-seed`) { reads += 1; observedFailure ??= error; }
+          throw error;
+        }
+      }) as PmClient["get"];
+      const phases: string[] = [];
+      try {
+        await assert.rejects(runRlLoop(client, { pmRoot, author }, { id, config: requestConfig, approval,
+          onPhase(current) { phases.push(current); },
+        }), (error: unknown) => {
+          assert.ok(error instanceof Error);
+          assert.equal(error, observedFailure, "the first real SDK failure must reach the caller without retry substitution");
+          return true;
+        });
+        assert.equal(reads, 1);
+        assert.deepEqual(phases, []);
+        assert.equal(readFileSync(join(path, "holder"), "utf8"), "unreadable seed storage");
+        assert.deepEqual(domainFiles(pmRoot, [`${String(seed.item.id)}.toon`]), before);
+        assert.deepEqual(readdirSync(join(pmRoot, "locks")), []);
+      } finally {
+        Object.assign(client, { get });
+        rmSync(path, { recursive: true });
+        renameSync(preserved, path);
+      }
+    });
+  });
+}

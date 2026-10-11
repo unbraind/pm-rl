@@ -694,6 +694,45 @@ test("receipt namespace loss after train marker creation refuses evidence withou
   } finally { Object.assign(client, { create }); endpoint.server.closeAllConnections(); endpoint.server.close(); }
 });
 
+test("completed decision evidence loss and legacy physical receipt duplication refuse advancement", async () => {
+  const endpoint = await decisionServer();
+  const { client, pmRoot, approval } = await workspace();
+  const value: Record<string, JsonValue> = { ...configValue(endpoint.baseURL), max_generations: 1, budget: 4,
+    decision_model: { base_url: endpoint.baseURL, model: "tev1:4b", timeout_ms: 10000, receipt_protocol: "idempotency-v1" } };
+  try {
+    const report = await runRlLoop(client, { pmRoot, author: "rl-test" }, { id: "decision-evidence", config: value, approval });
+    assert.equal(report.promoted, 1);
+    const runId = report.generations[0].run!;
+    const notes = await client.notes(runId, { outputBudget: "unbounded", outputLimit: "unbounded" });
+    assert.ok(!("output_budget_exceeded" in notes));
+    assert.equal(notes.notes.length, 4);
+    /** Verify both real readers refuse without spending another physical request. */
+    const assertRefused = async (message: string): Promise<void> => {
+      for (const action of [() => rlLoopStatus(client, "decision-evidence"), () => resumeRlLoop(client, { pmRoot, author: "rl-test" }, { id: "decision-evidence", approval })]) {
+        await assert.rejects(action(), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_generation_drift" && error.message === message);
+      }
+      assert.equal(endpoint.calls(), 4, "verification must not spend another physical request");
+    };
+    await client.notes(runId, { delete: 4 });
+    try { await assertRefused("Completed decision collection evidence is missing."); }
+    finally { await client.notes(runId, { add: notes.notes[3].text }); }
+    const collection = await client.get("decision-evidence-g1-step-collect");
+    const saved = String(collection.item.body);
+    const events = readSeries(notes.notes.map((note) => note.text)).events;
+    assert.ok(events[0].tags !== undefined && events[1].tags !== undefined);
+    await client.update(String(collection.item.id), { body: JSON.stringify({ ...JSON.parse(saved) as Record<string, JsonValue>, state: "running" }) });
+    const duplicated = encodeEventSegments([{ ...events[0], tags: { ...events[0].tags, decision_id: events[1].tags["decision_id"] } }])[0];
+    await client.notes(runId, { edit: 1, add: duplicated });
+    try { await assertRefused("A physical decision receipt was applied more than once."); }
+    finally {
+      await client.notes(runId, { edit: 1, add: notes.notes[0].text });
+      await client.update(String(collection.item.id), { body: saved });
+    }
+    assert.equal((await rlLoopStatus(client, "decision-evidence")).promoted, 1);
+    assert.equal(endpoint.calls(), 4);
+  } finally { endpoint.server.closeAllConnections(); endpoint.server.close(); }
+});
+
 test("SDK controller lease failures propagate without creating job artifacts", async () => {
   for (const error of [new Error("lease IO failure"), createPmCliExpectedError("lease usage failure")]) {
     const { client, pmRoot, approval } = await workspace();
