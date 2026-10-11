@@ -317,3 +317,19 @@ test("one paused tiny-LM loop refuses receipt corruption and lost collection evi
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("a completed LM collect receipt whose collection Run was deleted is generation drift, not unfinished work", async () => {
+  const root = mkdtempSync(join(tmpdir(), "pm-rl-deleted-run-"));
+  try {
+    const initialized = await init("rl", { defaults: true, agentGuidance: "skip", author: AUTHOR }, { cwd: root, pmRoot: join(root, ".agents", "pm") });
+    const pmRoot = initialized.path;
+    const client = new PmClient({ pmRoot, cwd: root, author: AUTHOR, noExtensions: true });
+    const approval = String((await client.create({ id: "approval", title: "One bounded promotion", type: "Decision",
+      body: '```json\n{"permitted_promotions":1}\n```' })).item.id);
+    await assert.rejects(runRlLoop(client, { pmRoot, author: AUTHOR }, { id: LOOP, config: CONFIG, approval,
+      onPhase(phase) { if (phase === "collect") throw new Error("pause after durable collection"); } }), /pause after durable collection/);
+    await client.delete(`${LOOP}-g1-collect`);
+    await refuses(() => rlLoopStatus(client, LOOP, pmRoot), ["loop_generation_drift"]);
+    await refuses(() => resumeRlLoop(client, { pmRoot, author: AUTHOR }, { id: LOOP, approval }), ["loop_generation_drift"]);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
