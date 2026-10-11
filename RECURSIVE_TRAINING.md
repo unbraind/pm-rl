@@ -15,6 +15,9 @@ without fitting again. The seed retains the frozen base weights; status and
 resume restore them without repeating pretraining. Older loop records retain their
 original replay verification path.
 
+A completed promotion receipt whose generation was subsequently reverted is
+refused as drift; resume preserves the records for explicit reconciliation.
+
 The SDK controller lease lasts 60 seconds, renews at phase entry and exit, and heartbeats every 20 seconds while idle between phases.
 The SDK phase mutex serializes a step's effects and receipt with takeover; a live
 controller executing a phase retains that mutex through the commit. A contender

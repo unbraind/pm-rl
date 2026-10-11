@@ -3668,13 +3668,15 @@ async function executePendingGeneration(client: PmClient, coordinates: Workspace
       ? systemOnePromotionScores(programme.config, chain.step, receipt as SystemOneGeneration)
       : lmPromotionScores(programme.config, chain.step, receipt as LmGeneration);
   failIfLoopCancelled(signal, request.id, generation, "promotion");
+  let promotionExecuted: boolean;
   try {
-    await durableLoopStep(client, prepared.lease, stepId, "promote", { input, approval: request.approval }, async () => {
+    const promotion = await durableLoopStep(client, prepared.lease, stepId, "promote", { input, approval: request.approval }, async () => {
       await promoteGenerationCore(client, coordinates, generationId, request.approval,
         parseScoreRecord(scores.proxy_score, "proxy_score"), parseScoreRecord(scores.held_out_score, "held_out_score"),
         `loop ${request.id} generation ${generation}: held-out mean improved from ${receipt.incumbentHeldOutMean.toFixed(4)} to ${receipt.candidateHeldOutMean.toFixed(4)} over ${chain.step.evaluationSamples} episodes at confidence ${schedule.confidence}`);
       return { item: generationId };
     });
+    promotionExecuted = promotion.executed;
   } catch (error) {
     if (!isPmCliExpectedError(error)) throw error;
     const message = `Loop ${request.id} generation ${generation} promotion refused: ${error.message}`;
@@ -3683,6 +3685,7 @@ async function executePendingGeneration(client: PmClient, coordinates: Workspace
       held_out_mean: receipt.candidateHeldOutMean, candidate_checkpoint: receipt.candidate.digest, refusal_reason: error.message });
     return { terminal: { stopReason: "promotion_refused", refusalReason: error.message } };
   }
+  if (!promotionExecuted) fail("Completed loop promotion disagrees with an unpromoted generation", "loop_step_drift", EXIT_CODE.CONFLICT);
   await request.onPhase?.("promote", generation);
   failIfLoopCancelled(signal, request.id, generation, "successor collection");
   chain.reports.push({ generation, run: runId!, item: generationId, promoted: true,

@@ -12,7 +12,7 @@ import { encodeEventSegments, readSeries, type MetricEvent } from "../series.ts"
 import { parseGenerationSpec } from "../lineage.ts";
 import { lmCollectBatch, parseLmCollectionEvent, parseLmLoopConfig, serializeLmCheckpoint, LM_COLLECTION_METRIC, type LmLoopConfig, type LmObservation } from "../lm.ts";
 import extension, {
-  runRlLoop, resumeRlLoop, rlLoopStatus, loopLeaseLockId,
+  runRlLoop, resumeRlLoop, rlLoopStatus, loopLeaseLockId, LOOP_LEASE_TTL_SECONDS,
   RL_ITEM_TYPES, type JsonValue, type RlCommandResult, type RefusalAuditContext, type RlLoopReport,
 } from "../index.ts";
 
@@ -579,6 +579,12 @@ test("two real tiny-LM processes racing acquire exactly one lease and publish on
     const refused = await loser.result;
     assert.ok(JSON.stringify(refused.messages).includes("loop_controller_active"));
     assert.ok(JSON.stringify(refused.messages).includes("lease expiry"));
+    const leasePath = join(pmRoot, "locks", `${loopLeaseLockId("lm-drill")}.lock`);
+    const before = JSON.parse(readFileSync(leasePath, "utf8")) as Record<string, unknown>;
+    await new Promise<void>((resolve) => { setTimeout(resolve, LOOP_LEASE_TTL_SECONDS * 1000 / 3 + 5000); });
+    const renewed = JSON.parse(readFileSync(leasePath, "utf8")) as Record<string, unknown>;
+    assert.equal(renewed.token, before.token);
+    assert.ok(Date.parse(String(renewed.created_at)) > Date.parse(String(before.created_at)), "idle controller heartbeat did not renew its lease");
     winner.child.send("continue"); assert.equal((await winner.result).code, 0);
     const report = await rlLoopStatus(client, "lm-drill", pmRoot);
     assert.equal(report.promoted, 1); assert.equal(report.samples_consumed, 32);

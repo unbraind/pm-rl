@@ -1,7 +1,7 @@
 /** Durable replay, cancellation, status and real controller contention. */
 import assert from "node:assert/strict";
 import { fork, execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync, rmSync, symlinkSync, existsSync, statSync, readdirSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync, rmSync, symlinkSync, existsSync, statSync, readdirSync, linkSync } from "node:fs";
 import { tmpdir, hostname } from "node:os";
 import { join, resolve } from "node:path";
 import { createServer } from "node:http";
@@ -402,8 +402,9 @@ test("live local PID with unavailable probing or missing recorded identity block
 });
 
 test("identity publication atomically replaces the SDK record while recovery stays serialized", async () => {
-  const { client, pmRoot, approval } = await workspace();
+  const { client, pmRoot, approval, root } = await workspace();
   const id = "atomic-identity"; const lock = loopLeaseLockId(id); const path = join(pmRoot, "locks", `${lock}.lock`);
+  const expectedStart = loopProcessStartTime(process.pid); assert.ok(expectedStart !== null);
   let oldInode = 0; let token: unknown; let capturedStart: string | null = null; let probes = 0;
   let observed!: () => void; const captured = new Promise<void>((resolve) => { observed = resolve; });
   let proceed!: () => void; const permitted = new Promise<void>((resolve) => { proceed = resolve; });
@@ -414,6 +415,8 @@ test("identity publication atomically replaces the SDK record while recovery sta
       setActiveExtensionServices(null);
       try {
         const release = await acquireLock(pmRoot, lock, LOOP_LEASE_TTL_SECONDS, "rl-test");
+        // Retain the original inode so later atomic renewals cannot reuse its number.
+        linkSync(path, join(root, "original-lease-inode"));
         oldInode = statSync(path).ino;
         const record = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>; token = record.token;
         assert.equal(record.hostname, undefined); observed(); await permitted;
@@ -430,7 +433,7 @@ test("identity publication atomically replaces the SDK record while recovery sta
       const record = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
       assert.notEqual(statSync(path).ino, oldInode); assert.equal(record.token, token);
       assert.equal(record.hostname, hostname()); assert.equal(typeof record.process_start_time, "string");
-      capturedStart = String(record.process_start_time); assert.equal(probes, 1);
+      capturedStart = String(record.process_start_time); assert.equal(capturedStart, expectedStart); assert.ok(probes >= 1);
       assert.ok(!readdirSync(join(pmRoot, "locks")).some((name) => name.startsWith(`${lock}.lock.`)));
     },
   });

@@ -272,6 +272,21 @@ test("one paused tiny-LM loop refuses receipt corruption and lost collection evi
         });
       });
     });
+    await context.test("a completed promotion receipt cannot silently repromote a reverted generation", async () => {
+      const body = await storedBody(client, candidateId);
+      const fenced = /```json\n([\s\S]+?)\n```/.exec(body);
+      assert.ok(fenced?.[1] !== undefined);
+      const spec = receipt(fenced[1]);
+      Object.assign(spec, { promoted: false, approval: null, proxy_score: null,
+        held_out_score: null, gap: null, promotion_evidence: null });
+      const reverted = body.replace(fenced[1], JSON.stringify(spec));
+      const promotionBody = await storedBody(client, `${LOOP}-g1-step-promote`);
+      await withBody(client, candidateId, reverted, async () => {
+        await refuses(resume, ["loop_step_drift"]);
+        assert.equal(await storedBody(client, candidateId), reverted);
+        assert.equal(await storedBody(client, `${LOOP}-g1-step-promote`), promotionBody);
+      });
+    });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
