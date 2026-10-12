@@ -92,7 +92,7 @@ async function workspace(): Promise<{
 }> {
   const root = mkdtempSync(join(tmpdir(), "pm-rl-loop-test-"));
   roots.push(root);
-  const initialized = await init("rl", { defaults: true, author: "pm-rl-test", agentGuidance: "skip" }, { cwd: root });
+  const initialized = await init("rl", { defaults: true, author: "pm-rl-test", agentGuidance: "skip" }, { cwd: root, pmRoot: join(root, ".agents", "pm") });
   const client = new PmClient({ pmRoot: initialized.path, author: "pm-rl-test" });
   for (const itemType of RL_ITEM_TYPES) {
     await client.schemaAddType(itemType.name, {
@@ -173,11 +173,11 @@ function synchronizeCreates(clients: readonly PmClient[], itemType: string): voi
   }
 }
 
-/** Insert a real competing SDK create immediately before the selected original create. */
+/** Race a real domain-item SDK create while leaving controller step Decisions to their lease. */
 function insertCompetingCreate(client: PmClient, target: (options: NonNullable<Parameters<PmClient["create"]>[0]>) => boolean, change: (options: NonNullable<Parameters<PmClient["create"]>[0]>) => NonNullable<Parameters<PmClient["create"]>[0]>): void {
   const create = client.create;
   client.create = async function (this: PmClient, options) {
-    if (options !== undefined && target(options)) {
+    if (options !== undefined && options.type !== "Decision" && target(options)) {
       client.create = create;
       await create.call(this, change(options));
     }
