@@ -2789,7 +2789,9 @@ async function acquireControllerLease(client: PmClient, coordinates: WorkspaceCo
   const releaseRecovery = await controllerMutex(authorityRoot, `${lockId}-recovery`, coordinates.author, ownStart, request.processIdentityIO, 0).catch(async (error: unknown) => {
     if (!isPmCliExpectedError(error) || error.exitCode !== EXIT_CODE.CONFLICT) throw error;
     const holder = await readLeaseRecord(authorityRoot, lockId) ?? await readLeaseRecord(authorityRoot, `${lockId}-recovery`);
-    fail(`Loop ${id} lease recovery is contended (holder ${String(holder?.["owner"])}, lease expiry ${holder === null || !Number.isFinite(controllerExpiry(holder)) ? "unknown" : new Date(controllerExpiry(holder)).toISOString()}). ${refusal}`, "loop_controller_active", EXIT_CODE.CONFLICT);
+    const phaseLock = relative(coordinates.pmRoot, join(authorityRoot, "locks", `${lockId}-recovery.lock`));
+    // --force-takeover cannot clear this phase mutex, so the refusal names the manual recovery instead.
+    fail(`Loop ${id} lease recovery is contended (holder ${String(holder?.["owner"])}, lease expiry ${holder === null || !Number.isFinite(controllerExpiry(holder)) ? "unknown" : new Date(controllerExpiry(holder)).toISOString()}). A controller holds the phase mutex ${phaseLock}; if its holder cannot be verified, stop that process and remove ${phaseLock} before retrying. --force-takeover does not clear the phase mutex.`, "loop_controller_active", EXIT_CODE.CONFLICT);
   });
   let release: () => Promise<void>;
   let token: unknown;

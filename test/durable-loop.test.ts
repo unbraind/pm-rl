@@ -455,7 +455,12 @@ test("identity publication atomically replaces the SDK record while recovery sta
   });
   try {
     await Promise.race([captured, running.then(() => { throw new Error("controller ended before identity publication"); })]);
-    await assert.rejects(runRlLoop(client, { pmRoot, author: "rl-test" }, { ...request, forceTakeover: true }), /lease recovery is contended/);
+    await assert.rejects(runRlLoop(client, { pmRoot, author: "rl-test" }, { ...request, forceTakeover: true }), (error: unknown) => {
+      // The refusal must name the phase mutex and must not send the operator to a flag that cannot clear it.
+      assert.match(String((error as Error).message), /lease recovery is contended[\s\S]*-recovery\.lock[\s\S]*--force-takeover does not clear the phase mutex/);
+      assert.doesNotMatch(String((error as Error).message), /operator recovery: pm rl loop resume/);
+      return true;
+    });
     proceed(); assert.equal((await running).promoted, 1);
     assert.equal(existsSync(path), false);
     const seed = await get(`${id}-seed`);
