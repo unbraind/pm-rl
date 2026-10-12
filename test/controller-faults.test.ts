@@ -361,10 +361,13 @@ test("a step appearing as unreadable storage between absence checks propagates i
     let damaged = false;
     let stepCreates = 0;
     let readFailure: Error | undefined;
+    // Inspection and durableLoopStep each check the step's absence; damage appears after the second check,
+    // immediately before the existing-step read that must propagate the real SDK error.
+    let absences = 0;
     client.get = (async (item, options) => {
       try { return await get(item, options); }
       catch (error) {
-        if (item === key && !damaged && isPmCliExpectedError(error) && error.exitCode === EXIT_CODE.NOT_FOUND) {
+        if (item === key && !damaged && isPmCliExpectedError(error) && error.exitCode === EXIT_CODE.NOT_FOUND && ++absences === 2) {
           damaged = true;
           mkdirSync(path);
           writeFileSync(join(path, "holder"), "unreadable concurrent step storage");
