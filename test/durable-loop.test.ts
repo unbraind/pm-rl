@@ -277,7 +277,9 @@ test("real live same-identity holder blocks force and reports holder and lease e
         assert.ok(isPmCliExpectedError(error)); assert.equal(error.context.code, "loop_controller_active");
         assert.ok(error.message.includes(`locks/${loopLeaseLockId("race")}.lock`));
         assert.ok(error.message.includes("holder process-test")); assert.ok(error.message.includes("lease expiry"));
-        assert.ok(error.message.includes(`pm rl loop resume race --approval ${approval} --force-takeover`));
+        // A live, verified holder is recovered by waiting for lease expiry; --force-takeover cannot apply to it.
+        assert.ok(error.message.includes("wait for its expiry"));
+        assert.ok(!error.message.includes("--force-takeover"));
         assert.ok(!error.message.includes(pmRoot)); return true;
       });
     }

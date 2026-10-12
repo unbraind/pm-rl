@@ -226,6 +226,14 @@ test("rerunning one loop id resumes idempotently instead of extending the lineag
   assert.deepEqual(stable(repeat), stable(first));
   assert.ok(repeat.resumed_generations >= 1);
   assert.equal((await rlLoopStatus(client, "lmsmall", pmRoot)).promoted, first.promoted);
+  // A changed base shape under the same loop id is a configuration conflict, never reported as checkpoint corruption.
+  const reshaped = smallConfig();
+  reshaped["model"] = { ...(reshaped["model"] as Record<string, JsonValue>), ffn: Number((reshaped["model"] as Record<string, JsonValue>)["ffn"]) - 2 };
+  await assert.rejects(runRlLoop(client, { pmRoot, author: "rl-test" }, { id: "lmsmall", config: reshaped as JsonValue, approval }), (error: unknown) => {
+    assert.ok(isPmCliExpectedError(error), String(error));
+    assert.equal(error.context.code, "generation_identity_collision", `a configuration conflict must not be reported as ${String(error.context.code)}`);
+    return true;
+  });
 });
 
 test("a contaminated programme is refused before any completion is collected", async () => {

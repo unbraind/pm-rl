@@ -2801,7 +2801,14 @@ async function acquireControllerLease(client: PmClient, coordinates: WorkspaceCo
       const state = leaseHolderState(record, request.processIdentityIO);
       if ((!Number.isFinite(controllerExpiry(record)) || controllerExpiry(record) > Date.now())
         && (state === "alive" || state === "unverifiable" || (state === "ambiguous" && request.forceTakeover !== true))) {
-        fail(`Loop ${id} controller holder is ${state} (holder ${String(record["owner"])}, PID ${String(record["pid"])}, lease expiry ${Number.isFinite(controllerExpiry(record)) ? new Date(controllerExpiry(record)).toISOString() : "unknown"}); a live PID with unverifiable identity cannot be force-taken over. Stop or exclude the holder and restore identity probing before retrying. ${refusal}`, "loop_controller_active", EXIT_CODE.CONFLICT);
+        const expiry = Number.isFinite(controllerExpiry(record)) ? new Date(controllerExpiry(record)).toISOString() : "unknown";
+        // Each holder state gets the recovery that actually works for it; only an ambiguous holder can be force-taken over.
+        const recovery = state === "alive"
+          ? `A live, verified controller holds lease ${relative(coordinates.pmRoot, lockPath)}; wait for its expiry (${expiry}), after which an ordinary resume takes over and fences it.`
+          : state === "unverifiable"
+            ? `The holder of lease ${relative(coordinates.pmRoot, lockPath)} has a live PID whose identity cannot be verified, so it cannot be force-taken over; stop or exclude the holder and restore identity probing before retrying.`
+            : `The holder's identity is ambiguous. ${refusal}`;
+        fail(`Loop ${id} controller holder is ${state} (holder ${String(record["owner"])}, PID ${String(record["pid"])}, lease expiry ${expiry}). ${recovery}`, "loop_controller_active", EXIT_CODE.CONFLICT);
       }
       if (request.forceTakeover === true) {
         // Host and owner digests identify the previous holder without publishing machine identity.
@@ -2932,7 +2939,10 @@ export async function runRlLoop(client: PmClient, coordinates: WorkspaceCoordina
       const seed = await readCompleteLoopItem(client, `${request.id}-seed`).catch((error: unknown) => isItemNotFound(error) ? null : Promise.reject(error));
       if (seed !== null) {
         const persisted = jsonObject(storedLoopConfiguration(seed), "Persisted loop configuration");
-        if (persisted["frozen_base"] !== undefined) configuration = { ...supplied, frozen_base: persisted["frozen_base"] } as JsonValue;
+        // Adopt the persisted base only when the supplied programme has the same base shape; a changed shape
+        // under this loop id is a configuration conflict that registration reports, not checkpoint corruption.
+        const sameShape = ["task", "alphabet", "string_length", "model"].every((key) => canonicalJson(supplied[key] ?? null) === canonicalJson(persisted[key] ?? null));
+        if (persisted["frozen_base"] !== undefined && sameShape) configuration = { ...supplied, frozen_base: persisted["frozen_base"] } as JsonValue;
       }
     }
     programme = parseLoopProgramme(configuration);
