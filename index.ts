@@ -2941,7 +2941,9 @@ export async function runRlLoop(client: PmClient, coordinates: WorkspaceCoordina
         const persisted = jsonObject(storedLoopConfiguration(seed), "Persisted loop configuration");
         // Adopt the persisted base only when the supplied programme has the same base shape; a changed shape
         // under this loop id is a configuration conflict that registration reports, not checkpoint corruption.
-        const sameShape = ["task", "alphabet", "string_length", "model"].every((key) => canonicalJson(supplied[key]!) === canonicalJson(persisted[key]!));
+        // A missing task means the documented default, exactly as parseLmLoopConfig reads it.
+        const normalized: Record<string, JsonValue> = { ...supplied, task: supplied["task"] ?? "rotate" };
+        const sameShape = ["task", "alphabet", "string_length", "model"].every((key) => canonicalJson(normalized[key]!) === canonicalJson(persisted[key]!));
         if (persisted["frozen_base"] !== undefined && sameShape) configuration = { ...supplied, frozen_base: persisted["frozen_base"] } as JsonValue;
       }
     }

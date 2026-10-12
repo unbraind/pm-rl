@@ -225,6 +225,10 @@ test("rerunning one loop id resumes idempotently instead of extending the lineag
   const repeat = await runLoopCommand(harness, pmRoot, root, "lmsmall", smallConfig() as JsonValue, approval);
   assert.deepEqual(stable(repeat), stable(first));
   assert.ok(repeat.resumed_generations >= 1);
+  // Omitting the defaulted task still matches the persisted shape, so the frozen base is reused and the rerun resumes.
+  const withoutTask = smallConfig();
+  delete withoutTask["task"];
+  assert.deepEqual(stable(await runLoopCommand(harness, pmRoot, root, "lmsmall", withoutTask as JsonValue, approval)), stable(first));
   assert.equal((await rlLoopStatus(client, "lmsmall", pmRoot)).promoted, first.promoted);
   // A changed base shape under the same loop id is a configuration conflict, never reported as checkpoint corruption.
   const reshaped = smallConfig();
