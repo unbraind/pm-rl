@@ -3264,7 +3264,8 @@ function verifyLoopApproval(governing: string, recorded: string | null, id: stri
 /** Inspect one bandit generation's persisted state against its deterministic replay. */
 async function inspectBanditGeneration(client: PmClient, programme: LoopProgramme & { readonly trainer: "bandit" }, request: RlLoopRequest, chain: LoopChain, generation: number): Promise<GenerationInspection> {
   const config = programme.config;
-  const recorded = await readLoopStep(client, `${request.id}-g${generation}`, "train", loopStepInput(programme, chain, generation));
+  const input = loopStepInput(programme, chain, generation);
+  const recorded = await readLoopStep(client, `${request.id}-g${generation}`, "train", input);
   // Bandit training is deterministic: a recorded receipt must equal its replay, so tampered verdicts cannot enter recovery.
   const receipt = runLoopGeneration(config, chain.step, generation, chain.current as BanditCheckpoint);
   if (recorded !== null && hashJson(recorded) !== hashJson(receipt as unknown as JsonValue)) {
@@ -3272,6 +3273,10 @@ async function inspectBanditGeneration(client: PmClient, programme: LoopProgramm
   }
   const { run, item } = await findGenerationItems(client, request.id, generation);
   if (run !== null) await verifyLoopRun(client, programme, chain, generation, run, receipt);
+  // The collection Run is created inside the collect step, so a completed collect receipt without it is lost evidence.
+  if (run === null && await readLoopStep(client, `${request.id}-g${generation}`, "collect", input) !== null) {
+    fail(`Loop ${request.id} generation ${generation} has a completed collection receipt but no collection Run.`, "loop_generation_drift", EXIT_CODE.CONFLICT);
+  }
   if (item !== null) {
     const events = await readRunMetricEvents(client, String(run!.item.id));
     const expected = collectionMetricEvents(receipt);

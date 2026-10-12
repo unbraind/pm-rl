@@ -702,6 +702,16 @@ test("an omitted-output envelope from an unbounded loop read is a typed incomple
   } finally { client.get = get; }
 });
 
+test("a completed bandit collect receipt whose collection Run was deleted is generation drift", async () => {
+  const { client, pmRoot, approval } = await workspace();
+  const request = { id: "lost-run", config: { ...config, max_generations: 1 }, approval };
+  await assert.rejects(runRlLoop(client, { pmRoot, author: "rl-test" }, { ...request, onPhase(phase) { if (phase === "collect") throw new Error("pause after collection"); } }), /pause after collection/);
+  await client.delete("lost-run-g1-collect");
+  const generationDrift = (error: unknown): boolean => isPmCliExpectedError(error) && error.context.code === "loop_generation_drift";
+  await assert.rejects(rlLoopStatus(client, "lost-run"), generationDrift);
+  await assert.rejects(resumeRlLoop(client, { pmRoot, author: "rl-test" }, { id: "lost-run", approval }), generationDrift);
+});
+
 test("rehashed trainer receipts that disagree with their replay are refused as step drift", async () => {
   {
     const { client, pmRoot, approval } = await workspace();
