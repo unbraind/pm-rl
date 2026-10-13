@@ -7,6 +7,12 @@ import { isMainInvocation } from "./script-launcher.ts";
 /** Maximum live command lifetime, including its termination grace period. */
 export const LIVE_TIMEOUT_MS = 15 * 60 * 1000;
 
+/** Headroom between the worker's own deadline and the parent watchdog's kill, so a deadline stop can still write failure.json. */
+export const LIVE_WORKER_MARGIN_MS = 30_000;
+
+/** Deadline the live worker enforces on itself; strictly earlier than the watchdog kills it (LIVE_TIMEOUT_MS minus grace). */
+export const LIVE_WORKER_DEADLINE_MS = LIVE_TIMEOUT_MS - LIVE_WORKER_MARGIN_MS;
+
 /** Launch a bounded worker and stream its transcript; a stalled SDK cannot outlive the parent deadline. */
 export async function runLiveCommand(environment: NodeJS.ProcessEnv, emit: (chunk: Buffer) => void, timeoutMs = LIVE_TIMEOUT_MS): Promise<void> {
   assert.ok(Number.isInteger(timeoutMs) && timeoutMs > 0 && timeoutMs <= LIVE_TIMEOUT_MS, "Live deadline must be within 15 minutes");

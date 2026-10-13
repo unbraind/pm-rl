@@ -16,7 +16,7 @@ import {
 import { readSeries, type MetricEvent } from "../series.ts";
 import { parseGenerationSpec } from "../lineage.ts";
 import { isMainInvocation } from "./script-launcher.ts";
-import { LIVE_TIMEOUT_MS } from "./live-watchdog.ts";
+import { LIVE_TIMEOUT_MS, LIVE_WORKER_DEADLINE_MS } from "./live-watchdog.ts";
 
 /** Shared whole-run deadline for the SDK worker and its process watchdog. */
 export { LIVE_TIMEOUT_MS } from "./live-watchdog.ts";
@@ -220,7 +220,8 @@ export async function runLiveAcceptance(value: JsonValue, timeoutMs = LIVE_TIMEO
 
 /** Execute the opt-in live script with configurable local endpoint coordinates. */
 export async function main(environment: Readonly<Record<string, string | undefined>>, print: (text: string) => void): Promise<void> {
-  const result = await runLiveAcceptance(liveConfiguration(environment["SYSTEMONE_BASE_URL"], environment["SYSTEMONE_MODEL"]));
+  // The worker stops itself before the watchdog kills it, so a deadline stop still retains failure.json.
+  const result = await runLiveAcceptance(liveConfiguration(environment["SYSTEMONE_BASE_URL"], environment["SYSTEMONE_MODEL"]), LIVE_WORKER_DEADLINE_MS);
   print(JSON.stringify(result, null, 2));
 }
 

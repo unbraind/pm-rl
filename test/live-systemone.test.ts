@@ -8,7 +8,7 @@ import { resolve, join } from "node:path";
 import { test } from "node:test";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { runRlLoop, resumeRlLoop, type JsonValue } from "../index.ts";
-import { runLiveCommand } from "../scripts/live-watchdog.ts";
+import { runLiveCommand, LIVE_WORKER_DEADLINE_MS } from "../scripts/live-watchdog.ts";
 import { parseSystemOneLoopConfig } from "../systemone.ts";
 import { configValue } from "./fixtures/systemone.ts";
 import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
@@ -235,4 +235,11 @@ test("live acceptance retains failure artifacts for preflight refusals and Git s
       else process.env.GIT_CONFIG_COUNT = previous;
     }
   } finally { server.closeAllConnections(); await new Promise<void>((done) => { server.close(() => done()); }); }
+});
+
+test("the live worker deadline expires before the watchdog kills the worker", () => {
+  // The watchdog kills at LIVE_TIMEOUT_MS minus its grace (at most 5 s); the worker must stop itself first to write failure.json.
+  const watchdogKillMs = LIVE_TIMEOUT_MS - Math.min(5000, Math.floor(LIVE_TIMEOUT_MS / 2));
+  assert.ok(LIVE_WORKER_DEADLINE_MS < watchdogKillMs, `worker deadline ${LIVE_WORKER_DEADLINE_MS} ms must precede the ${watchdogKillMs} ms kill`);
+  assert.ok(watchdogKillMs - LIVE_WORKER_DEADLINE_MS >= 10_000, "leave at least 10 s to write and flush failure evidence");
 });
