@@ -147,15 +147,15 @@ export async function runLiveAcceptance(value: JsonValue, timeoutMs = LIVE_TIMEO
   const started = performance.now();
   const signal = AbortSignal.timeout(timeoutMs);
   const config = parseSystemOneLoopConfig(value);
-  const model = await cpuModelEvidence(config, signal);
   const repoRoot = resolve(import.meta.dirname, "..");
   const parent = join(repoRoot, ".agents/pm/runtime/live");
   mkdirSync(parent, { recursive: true });
   const root = mkdtempSync(join(parent, "run-"));
-  // Own Git metadata keeps the controller's worktree authority inside these artifacts too.
-  const git = spawnSync("git", ["init", "--quiet", root], { timeout: 5000 });
-  assert.equal(git.status, 0, "Could not initialize artifact-local controller authority");
   try {
+    const model = await cpuModelEvidence(config, signal);
+    // Own Git metadata keeps the controller's worktree authority inside these artifacts too.
+    const git = spawnSync("git", ["init", "--quiet", root], { timeout: 5000 });
+    assert.equal(git.status, 0, "Could not initialize artifact-local controller authority");
     writeFileSync(join(root, "programme.json"), JSON.stringify(value, null, 2));
     writeCheckpoint(root, config, config.initial);
     const initialized = await init("rl", { defaults: true, agentGuidance: "skip", author: "codex-agent" }, { cwd: root, pmRoot: join(root, ".agents/pm") });

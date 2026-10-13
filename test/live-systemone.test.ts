@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, mkdirSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { resolve, join } from "node:path";
 import { test } from "node:test";
@@ -167,4 +167,48 @@ test("CPU validation refuses configured GPU use and drifted runner identities be
 test("live watchdog bounds startup and refuses excessive deadlines", async () => {
   for (const timeout of [0, LIVE_TIMEOUT_MS + 1]) await assert.rejects(runLiveCommand({}, () => undefined, timeout), /15 minutes/);
   await assert.rejects(runLiveCommand({ ...process.env, SYSTEMONE_BASE_URL: "http://127.0.0.1:1" }, () => undefined, 100), /timed out/);
+});
+
+
+test("live acceptance retains failure artifacts for preflight refusals and Git setup failure", async (t) => {
+  const parent = resolve(import.meta.dirname, "../.agents/pm/runtime/live");
+  mkdirSync(parent, { recursive: true });
+  const model = { name: "tev1:4b", digest: "a".repeat(64), size: 1 };
+  let models: unknown[] = [model];
+  let parameters = "num_gpu 1\nnum_thread 2";
+  let queries = 0;
+  const server = createServer((request, reply) => {
+    request.resume();
+    if (request.url === "/v1/systemone") queries++;
+    reply.setHeader("content-type", "application/json");
+    reply.end(JSON.stringify(request.url === "/api/tags" ? { models } : { parameters }));
+  });
+  await new Promise<void>((done) => { server.listen(0, "127.0.0.1", done); });
+  const address = server.address(); assert.ok(address !== null && typeof address !== "string");
+  const baseURL = `http://127.0.0.1:${address.port}`;
+  /** Verify that this refusal alone creates one retained failure receipt. */
+  async function retainedFailure(endpoint: string, message: RegExp): Promise<void> {
+    const before = new Set(readdirSync(parent));
+    await assert.rejects(runLiveAcceptance(liveConfiguration(endpoint)), message);
+    const added = readdirSync(parent).filter((dir) => !before.has(dir));
+    assert.equal(added.length, 1);
+    const failure = JSON.parse(readFileSync(join(parent, added[0], "failure.json"), "utf8")) as { failed: boolean; deadline_aborted: boolean };
+    assert.deepEqual(failure, { failed: true, deadline_aborted: false });
+    assert.equal(queries, 0);
+  }
+  try {
+    await t.test("GPU configuration", () => retainedFailure(baseURL, /CPU-only/));
+    models = [];
+    await t.test("unavailable model", () => retainedFailure(baseURL, /unavailable/));
+    await t.test("remote endpoint", () => retainedFailure("http://example.invalid", /local Ollama/));
+    models = [model];
+    parameters = "num_gpu 0\nnum_thread 2";
+    const previous = process.env.GIT_CONFIG_COUNT;
+    process.env.GIT_CONFIG_COUNT = "invalid";
+    try { await t.test("Git initialization", () => retainedFailure(baseURL, /initialize artifact-local/)); }
+    finally {
+      if (previous === undefined) delete process.env.GIT_CONFIG_COUNT;
+      else process.env.GIT_CONFIG_COUNT = previous;
+    }
+  } finally { server.closeAllConnections(); await new Promise<void>((done) => { server.close(() => done()); }); }
 });
