@@ -147,6 +147,92 @@ conditional held-out means, reported tokens, endpoint latency and wall time.
 `tev1:4b` defaults. CI calls the same controller with real deterministic HTTP
 servers. It never mocks fetch or requires Ollama.
 
+### CPU acceptance and retained receipts
+
+The live command requires a local Ollama model configured with `num_gpu 0` and
+`num_thread` from `1` to `4`. It verifies these parameters before any decision query,
+pins the model inventory digest, and checks `/api/ps` after every response for
+that digest and exactly zero GPU bytes before committing the decision. The
+[Ollama System One handler](https://github.com/ollama/ollama/blob/main/server/routes.go)
+does not pass generation options to the scheduler, so adding `num_gpu` to the
+System One request would not establish CPU execution. Use a CPU-configured model
+in an isolated local Ollama process; retain its writable model manifest and logs
+under `.agents/pm/runtime/`. Existing weight blobs may be linked read-only.
+`SYSTEMONE_BASE_URL` selects that process and `SYSTEMONE_MODEL` selects its model.
+The default endpoint is loopback and the default model is `tev1:4b`; remote
+endpoints and cloud model inventory entries refuse live acceptance.
+
+The command has a parent watchdog that terminates its worker at 895000 ms and
+escalates to SIGKILL after five seconds, enforcing the 15-minute process bound
+even if an SDK operation stalls. A whole-run AbortSignal bounds metadata checks,
+requests and controller phases
+to **900000 ms (15 minutes)**. A cold model load may use up to 600000 ms of that
+allowance; later requests inherit the same remaining whole-run deadline. The
+trainer performs two bounded full-batch head fits over two collection items each,
+with two held-out decision queries per generation and at most eight total
+queries. Held-out sampling is bounded to the configured episode count, and the
+existing statistical promotion threshold is unchanged.
+
+Every invocation retains a unique artifact directory under
+`.agents/pm/runtime/live/`, including a real SDK tracker and its append-only
+history, artifact-local Git/controller authority, `programme.json`, canonical
+checkpoint JSON files, `loop-report.json` and `summary.json`. Each checkpoint
+file's actual SHA-256 must equal the policy digest; generation two's Run must
+name generation one's promoted checkpoint as its collecting policy. The summary
+includes all eight decision metric receipts, dataset/collection identities,
+per-generation accuracy/ECE, conditional held-out means, episode counts,
+promotion decisions, tokens and latency. Failed runs retain `failure.json` and
+any partial PM evidence; a refused evaluation retains the unpromoted loop report.
+Removing only the new `num_gpu` condition from `cpuModelEvidence` builds
+successfully and makes `node --test --test-name-pattern="CPU validation"
+test/live-systemone.test.ts` fail with **Missing expected rejection**. Restoring
+the guard makes that real-HTTP test pass.
+
+The package tracker records the public synthetic summary as PM evidence; model
+weights, local process logs and runtime artifacts remain ignored.
+
+Offline acceptance uses real HTTP servers and real trackers with an explicit
+SDK `pmRoot`, avoiding ancestor discovery. It also checks GPU configuration and
+runner refusal, unavailable metadata/model, non-200 inference, a shortened
+whole-run deadline, overlapping labels, and persisted nonfinite/shape/hash
+corruption before promotion. Unit/integration and release gates never contact
+Ollama. The live command remains opt-in.
+
+### Fresh CPU transcript (2026-10-13)
+
+`SYSTEMONE_BASE_URL=http://127.0.0.1:11436 npm run test:live` completed against an
+isolated CPU service using the existing frozen `tev1:4b` Q8_0 weight blob, with
+four threads and `num_gpu 0`. All eight post-response status checks measured
+zero GPU bytes. The CPU manifest digest is
+`740fab438224f962f9f785f3b0d4479c82121980654e1e3df30499dc336d4337`;
+the weight blob remains
+`sha256:35f9281a3df58b566b24091572467001906a5a6aac879fe8005c4db19c8d4a2e`.
+
+| Generation | Source policy | Candidate checkpoint | Held-out sampled mean | ECE | Promotion |
+| --- | --- | --- | --- | --- | --- |
+| 1 | `sha256:f40ae63747108d680e70fa6b092b50473fdea6ee3a65e81d717ce48d60881e25` | `sha256:0a0eeb54d990640fbdefad6f501b30df7ff94fe0a634f9a464247770568b2718` | 0.664375 → 0.70785 | 0.3319549522 → 0.2914266552 | promoted |
+| 2 | `sha256:0a0eeb54d990640fbdefad6f501b30df7ff94fe0a634f9a464247770568b2718` | `sha256:9d499e5b1276d95e687bfafebdedca7a2820dafcd9cf94400727c2ca97621037` | 0.711 → 0.7624 | 0.2914266552 → 0.2395788277 | promoted |
+
+Accuracy remained **1.0** in both generations. The real worker took
+**838542.232476 ms (13m 58.54s)**; endpoint time was **771935.354015 ms**, or
+**96491.919252 ms per query**. Eight requests reported **1094 tokens** (547 per
+generation). Both policies used 40000 sampled held-out episodes at confidence
+0.95, unchanged minimum improvement 0.001 and the existing promotion budget of
+two. The terminal reason was `generation_limit`, with two promotions and no
+refusal. Generation two's collection Run names generation one's candidate as
+its collecting policy; its collection digest differs from generation one's.
+
+The actual canonical JSON file hashes equal the checkpoint identities in the
+table. The retained tracker contains both collection Runs, Generation artifacts,
+eight per-query metric events and all phase Decision receipts. Full synthetic
+summary receipts were copied through the PM CLI into notes on `pm-rl-ip21` and
+`pm-rl-qhz2`. The CPU service was stopped after verification. Cold-load and
+undersized CPU attempts earlier in this session failed closed before promotion;
+their partial artifacts remain ignored. This is a two-item adaptive validation
+split, with a deliberately softened initial head, and demonstrates a real
+calibration parameter update and successor use. It is not an independent
+benchmark or base-model fine-tuning result.
+
 The first live run measured accuracy 1.0 → 1.0, ECE 0.332981 → 0.292739 → 0.241165,
 held-out means 0.66375 → 0.70685 and 0.709475 → 0.761025, eight requests,
 1094 reported tokens and 23189.12 ms wall time. A repeat run produced the same
