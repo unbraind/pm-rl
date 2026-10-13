@@ -209,7 +209,11 @@ export async function runLiveAcceptance(value: JsonValue, timeoutMs = LIVE_TIMEO
     return evidence;
   } catch (error) {
     // Retain failure evidence without copying possibly private filesystem diagnostics.
-    writeFileSync(join(root, "failure.json"), JSON.stringify({ failed: true, deadline_aborted: signal.aborted }));
+    try {
+      writeFileSync(join(root, "failure.json"), JSON.stringify({ failed: true, deadline_aborted: signal.aborted }));
+    } catch {
+      // Evidence is best effort; preserve the original acceptance error.
+    }
     throw error;
   }
 }

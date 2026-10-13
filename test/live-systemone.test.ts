@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { readFileSync, readdirSync, mkdirSync } from "node:fs";
+import { readFileSync, readdirSync, mkdirSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { resolve, join } from "node:path";
 import { test } from "node:test";
@@ -167,6 +167,30 @@ test("CPU validation refuses configured GPU use and drifted runner identities be
 test("live watchdog bounds startup and refuses excessive deadlines", async () => {
   for (const timeout of [0, LIVE_TIMEOUT_MS + 1]) await assert.rejects(runLiveCommand({}, () => undefined, timeout), /15 minutes/);
   await assert.rejects(runLiveCommand({ ...process.env, SYSTEMONE_BASE_URL: "http://127.0.0.1:1" }, () => undefined, 100), /timed out/);
+});
+
+test("live acceptance preserves the original refusal when failure evidence cannot be written", async () => {
+  const parent = resolve(import.meta.dirname, "../.agents/pm/runtime/live");
+  mkdirSync(parent, { recursive: true });
+  const before = new Set(readdirSync(parent));
+  let failurePath: string | undefined;
+  const server = createServer((request, reply) => {
+    request.resume();
+    const added = readdirSync(parent).filter((dir) => !before.has(dir));
+    assert.equal(added.length, 1);
+    failurePath = join(parent, added[0], "failure.json");
+    mkdirSync(failurePath);
+    reply.statusCode = 503;
+    reply.end();
+  });
+  await new Promise<void>((done) => { server.listen(0, "127.0.0.1", done); });
+  const address = server.address(); assert.ok(address !== null && typeof address !== "string");
+  try {
+    await assert.rejects(runLiveAcceptance(liveConfiguration(`http://127.0.0.1:${address.port}`)), {
+      code: "ERR_ASSERTION", message: "Ollama metadata refused HTTP 503",
+    });
+    assert.ok(failurePath !== undefined && statSync(failurePath).isDirectory());
+  } finally { server.closeAllConnections(); await new Promise<void>((done) => { server.close(() => done()); }); }
 });
 
 
