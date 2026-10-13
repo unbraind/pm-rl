@@ -233,6 +233,25 @@ split, with a deliberately softened initial head, and demonstrates a real
 calibration parameter update and successor use. It is not an independent
 benchmark or base-model fine-tuning result.
 
+The continuation independently reverified all three canonical checkpoint files,
+the saved CPU manifest and its four-thread, zero-GPU parameter artifact, both
+package-item note copies and all eight Run decision events. Read-only SDK status
+replayed the actual head fits and held-out evaluation to the same two promotions
+and final checkpoint; no model inference was repeated. The repository PM
+CLI/SDK pin is now `2026.10.13`: the older pin could not reproduce an existing
+receipt's item hash. Existing history was preserved, and the updated host reports
+zero history drift in both strict health and validation.
+
+The CPU regression also has an independent behavioral revert proof. An isolated
+copy with only the `num_gpu 0` preflight condition removed passes strict TypeScript
+checking, then the unchanged CPU validation test fails with `Missing expected
+rejection`. Restoring the condition typechecks and passes 1/1. The offline live
+harness passes 3/3, including persisted nonfinite, malformed and tampered
+checkpoint refusal after verifying the uncorrupted candidates clear the held-out
+gate. The promotion tests pass 19/19, and adapter tests pass 8/8. These commands
+were run through the pinned PM CLI; explicit comments retain their results because
+test-result tracking is disabled.
+
 The first live run measured accuracy 1.0 → 1.0, ECE 0.332981 → 0.292739 → 0.241165,
 held-out means 0.66375 → 0.70685 and 0.709475 → 0.761025, eight requests,
 1094 reported tokens and 23189.12 ms wall time. A repeat run produced the same
