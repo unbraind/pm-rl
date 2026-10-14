@@ -12,7 +12,7 @@ import { type Resources } from "../../process.ts";
 const roots: string[] = [];
 after(() => { for (const root of roots) rmSync(root, { recursive: true, force: true }); });
 export const allowance: Resources = { training_steps: 1, wall_ms: 5000, storage_bytes: 65536, compute_units: 1000, tokens: 0 };
-export const configuration = { ...JSON.parse(readFileSync(new URL("../../examples/loop-bandit.json", import.meta.url), "utf8")) as Record<string, JsonValue>, max_generations: 2, adapter: { kind: "process-bandit", allowance: { ...allowance } } };
+export const configuration = { ...JSON.parse(readFileSync(new URL("../../examples/loop-bandit.json", import.meta.url), "utf8")) as Record<string, JsonValue>, max_generations: 2, samples_per_generation: 128, budget: 256, adapter: { kind: "process-bandit", allowance: { ...allowance } } };
 /** Initialize a real isolated tracker and its explicit, independently bounded resource approval. */
 export async function processWorkspace(budget: Resources = { training_steps: 2, wall_ms: 10000, storage_bytes: 131072, compute_units: 2000, tokens: 0 }) {
   const root = mkdtempSync(join(tmpdir(), "rl-process-")); roots.push(root);

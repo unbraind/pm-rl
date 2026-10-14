@@ -148,25 +148,26 @@ identity. Completed phases before a boundary cancellation remain resumable.
 
 ## Two-generation packed CLI measurement
 
-The real packed CLI selected `process-bandit` for both fits, used 256 collection
+The real packed CLI selected `process-bandit` for both fits, used 128 collection
 samples and 40,000 held-out evaluation episodes per policy per generation, and
-promoted both candidates. Acceptance used a 768-sample total cap; the shipped
-example tightens it to 512 for the same two generations. The measured command completed in **10.536 seconds**
-while other local validation was running. This is a synthetic contextual-bandit
+promoted both candidates. Acceptance used a 256-sample total cap; the shipped
+example declares 256 samples per generation and a 512-sample total cap. The measured
+acceptance command completed in **5.210 seconds**. The fixture keeps its 15-second
+command assertion and 20-second subprocess deadline. This is a synthetic contextual-bandit
 objective and an adaptive validation set, not a language-model capability claim.
 
 | Generation | Collecting policy SHA-256 | Candidate policy SHA-256 | Sampled held-out reward |
 | --- | --- | --- | ---: |
-| 1 | `17493680209cdf2fc86126ff2ad0b7bb6063ae24ce00f28f931224bb5ab2fd11` | `b616a657d2fbbe517dbdb321bdd56a8b9ab4c3e8c42fc2279fbc91a3f77ee7dd` | 0.523100 |
-| 2 | `b616a657d2fbbe517dbdb321bdd56a8b9ab4c3e8c42fc2279fbc91a3f77ee7dd` | `47dc9d4f8a9c39fbc8b0efee229f2d9185c09ce34cacbebb32da8a094715905c` | 0.551875 |
+| 1 | `17493680209cdf2fc86126ff2ad0b7bb6063ae24ce00f28f931224bb5ab2fd11` | `2a2616b67e223fbee4480df1716b75d7542a736f574bce0eed331ac17ad90866` | 0.524050 |
+| 2 | `2a2616b67e223fbee4480df1716b75d7542a736f574bce0eed331ac17ad90866` | `4242c0ffdd131a7c535bd18c42f6118e89f6cb27ed728485ddce43464d08b5c4` | 0.550400 |
 
 The exact stored checkpoint byte hashes were
-`b3d67d4b3edf374c470edd926dc60f203ae690fecf333e161c6e67a84fa87e81`
-and `198d964988698230b9a32448eefbdf24c7065d5daab8fa61e6e86593a9295bcc`.
+`a81ee5538f8451969dd7d22df07ea5299dff92e4267200d760c5298a418cf66f`
+and `04205767f4fefcb97c97eedc6fc7739da446f51ab7cc050f7f3f20e5f9527452`.
 Generation two's real collection Run component equals generation one's promoted
 policy digest. Each job settled one training step, zero tokens and two reported
-CPU milliseconds. Observed fit wall use was 123 / 55 ms; retained staging was
-2,184 / 2,203 bytes. The unchanged held-out environment and reward identities are
+CPU milliseconds. Observed fit wall use was 78 / 78 ms; retained staging was
+2,176 / 2,203 bytes. The unchanged held-out environment and reward identities are
 bound into each job. Rejected, missing-receipt, corrupt and oversized candidates
 never become generation two's collector.
 
