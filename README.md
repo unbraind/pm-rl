@@ -141,7 +141,7 @@ query the host can already answer, not a feature to build.
 | `pm rl loop resume <id>` | Load the seed's persisted programme; requires the governing `--approval` Decision. `--force-takeover` audits explicit recovery of an ambiguous or stale controller lease. |
 
 All commands listed above are implemented. [Recursive training execution](RECURSIVE_TRAINING.md)
-describes the remaining isolated external trainer and compute-reservation work.
+documents the local process adapter and the remaining Compose/scheduler work.
 
 ## Implemented refusals
 
@@ -340,15 +340,34 @@ than folded into a rate.
 
 `pm rl loop run` trains the bounded contextual-bandit policy, persists real checkpoint
 updates and uses each promoted successor for the next collection batch. Its resource
-bounds and provenance refusals apply to every generation. Durable continuation and calibration-head updates are implemented. GPU scheduling and isolated external trainers remain under [`pm-rl-apvf`](.agents/pm/epics/pm-rl-apvf.toon), extending the programme specified
+bounds and provenance refusals apply to every generation. Durable continuation and calibration-head updates are implemented. The local process bandit adapter and atomic resource reservations are implemented. GPU scheduling and Compose trainers remain under [`pm-rl-apvf`](.agents/pm/epics/pm-rl-apvf.toon), extending the programme specified
 under [`pm-rl-yi7j`](.agents/pm/epics/pm-rl-yi7j.toon).
+
+## Durable external process training
+
+Select `adapter: {"kind":"process-bandit","allowance":{"training_steps":1,"wall_ms":5000,"storage_bytes":65536,"compute_units":1000,"tokens":0}}`
+in a bandit programme to run the real packaged TypeScript trainer as a child
+process. The approved Decision must declare both `permitted_promotions` and an
+aggregate `resource_budget` with those five resource dimensions. The controller
+reserves atomically before launch, validates a staged checkpoint and completion
+receipt, and settles resources once. Exit code zero alone cannot promote.
+
+```sh
+pm rl loop run process-demo --file node_modules/pm-rl/examples/loop-process.json --approval process-approval --json
+pm rl loop status process-demo --json
+pm rl loop resume process-demo --approval process-approval
+```
+
+Default output is compact; `--json` includes complete jobs, receipts and charges.
+[The process contract and measured two-generation proof](docs/process-trainer.md)
+include the approval example, NDJSON protocol, crash recovery and cancellation
+semantics. Checkpoints and failed-job evidence live in tracker-owned staging.
 
 ## Not in scope
 
 - **Current execution boundary.** `run log` accepts NDJSON from an external trainer. Native
-  bounded bandit and System One calibration-head training are implemented as `pm rl loop run`. Isolated external
-  execution is planned in [Recursive training execution](RECURSIVE_TRAINING.md); the current
-  runtime does not schedule GPUs or launch external training jobs.
+  bounded bandit and System One calibration-head training are implemented as `pm rl loop run`. Local process training is implemented with atomic reservations and validated staged receipts.
+  Compose and GPU scheduling remain in [Recursive training execution](RECURSIVE_TRAINING.md).
 - **No separate metric store.** The history stream *is* the store. Retained evidence necessarily
   grows with retained measurements. Each segment is capped at 48 KiB decoded and 65 KiB
   serialized. In the representative sustained integration workload—not as a universal
@@ -429,4 +448,4 @@ It stops at the first rejected candidate and retains the last accepted checkpoin
 It does not mutate a tracker, grant a budget, execute an LLM, or launch a hosted
 job. Evaluation is an adaptive validation set; a separate final benchmark is
 needed after repeated selection. See [the execution contract](RECURSIVE_TRAINING.md)
-for isolated external trainer work still required; [the decision adapter](docs/durable-systemone-validation.md) documents the implemented frozen-model calibration trainer.
+for the local process adapter and remaining Compose work; [the decision adapter](docs/durable-systemone-validation.md) documents the implemented frozen-model calibration trainer.

@@ -1,0 +1,71 @@
+id: pm-rl-shgm
+title: Durable external process trainers with atomic resource reservations
+description: "Extend the recursive loop with an argv-only local trainer, content-bound jobs, staged completion receipts, atomic approved-budget reservations, real-process crash recovery and two-generation acceptance."
+type: Feature
+status: in_progress
+priority: 1
+tags: []
+created_at: "2026-10-14T19:45:40.240Z"
+updated_at: "2026-10-14T21:23:42.594Z"
+assignee: codex-agent
+claim_principal: codex-agent
+author: codex-agent
+acceptance_criteria: "Exactly one launch and reservation under contention; recover a completed staged checkpoint without retraining; cancel and settle resources; refuse missing receipts, corrupt checkpoints and exceeded limits; verify two promoted process generations and unchanged release gates"
+parent: pm-rl-apvf
+comments[4]{created_at,author,text}:
+  "2026-10-14T19:45:51.700Z",codex-agent,"Plan: extend the existing fenced controller with a trusted programme-selected process adapter, deterministic job identities, job-owned staging and digest-bound receipts. Reserve and settle resource vectors through the pinned SDK workspace coordinator against an existing approved Decision. Exercise real-process contention, staged crash recovery, cancellation and refusal paths; record two-generation checkpoint lineage and exact release gate results."
+  "2026-10-14T19:58:46.973Z",codex-agent,"Implemented the argv-only reference trainer, canonical input-bound jobs, durable completion validation and one workspace-transaction reservation per job. Protocol tests currently pass 6/6. Real SIGKILL testing exposed the pinned SDK writer-lock retention window; the process transaction wrapper now records OS birth identity and uses the existing guarded dead-owner recovery, without deleting or overwriting a successor lock."
+  "2026-10-14T20:32:17.995Z",codex-agent,"Real process acceptance: two promoted generations use distinct changed policy checkpoints; successor collection matches the preceding external checkpoint. Packed CLI held-out sampled rewards are 0.523100 and 0.551875. SIGKILL receipt recovery, SDK/controller contention, SIGTERM cancellation, budget and artifact refusals pass focused drills. Both-direction real worktree merges preserve independent allocations, metrics and lineage. Full release coverage is being completed at unchanged thresholds."
+  "2026-10-14T21:23:31.938Z",codex-agent,"Behavioural safeguard revert proofs passed in an isolated source snapshot. Removing only reserveProcessJob idempotency inspection and stable transaction identity makes the atomic reservation-once regression fail: 0 passed, 1 failed with approved training_steps budget exhausted. Restoring those safeguards and removing receipt-required acceptance checks only from launchTrainer and validateProcessCompletion lets a real fitted checkpoint with exit 0 and no completion receipt through: the receipt-required regression fails with Missing expected rejection (0 passed, 1 failed). Both corresponding regressions pass with the safeguards restored. New functions have no prior implementation, so these are explicit guard-removal reverts, not a claimed historical implementation rollback."
+files[13]{path,scope}:
+  bandit.ts,project
+  examples/loop-process.json,project
+  index.ts,project
+  loop.ts,project
+  package.json,project
+  process-bandit.ts,project
+  process.ts,project
+  test/fixtures/process-controller.ts,project
+  test/fixtures/process-trainer.ts,project
+  test/fixtures/process-workspace.ts,project
+  test/process-cli.test.ts,project
+  test/process-loop.test.ts,project
+  test/process.test.ts,project
+tests[4]:
+  - command: npm run typecheck
+    path: process.ts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-14T20:28:26.147Z"
+      source_kind: local_mutation
+      source_ref: feat/process-trainer-reservations
+  - command: node --test test/process.test.ts test/process-loop.test.ts test/process-cli.test.ts
+    scope: project
+    timeout_seconds: 300
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-14T21:23:35.265Z"
+      source_kind: local_mutation
+      source_ref: feat/process-trainer-reservations
+  - command: "npm run release:check"
+    scope: project
+    timeout_seconds: 3600
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-14T21:23:38.411Z"
+      source_kind: local_mutation
+      source_ref: feat/process-trainer-reservations
+  - command: "bun run release:check"
+    scope: project
+    timeout_seconds: 3600
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-14T21:23:42.493Z"
+      source_kind: local_mutation
+      source_ref: feat/process-trainer-reservations
+docs[3]{path,scope}:
+  docs/process-trainer.md,project
+  README.md,project
+  RECURSIVE_TRAINING.md,project
+body: ""

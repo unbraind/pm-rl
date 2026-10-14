@@ -1,0 +1,15 @@
+id: pm-rl-mjo5
+title: Add Docker Compose execution for the durable process trainer contract
+description: "Follow the local process adapter with a Compose launcher using the same job identity, staged receipt validation, atomic approved resource reservations and cancellation evidence. Requires isolated container lifecycle and real crash drills; no hosted data inputs."
+type: Task
+status: open
+priority: 2
+tags: []
+created_at: "2026-10-14T19:46:39.492Z"
+updated_at: "2026-10-14T20:28:25.477Z"
+author: codex-agent
+acceptance_criteria: "Compose execution preserves launch ownership and process contract, retains staging on failure, and passes real reservation and recovery drills"
+parent: pm-rl-apvf
+docs[1]{path,scope}:
+  docs/process-trainer.md,project
+body: ""
