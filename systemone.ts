@@ -366,14 +366,16 @@ export function neutralSystemOneHead(questions: readonly SystemOneChoiceSpec[]):
 export function systemOneCheckpoint(parameters: SystemOneHeadParameters, questions: readonly SystemOneChoiceSpec[]): SystemOneCheckpoint {
   return {
     parameters,
-    digest: systemOneDigest({
-      format: SYSTEMONE_CHECKPOINT_FORMAT,
-      questions: Object.fromEntries(questions.map((question) => [question.name, [...Object.keys(question.criteria)].sort()])),
-      parameters: {
-        log_temperature: { ...parameters.logTemperature },
-        biases: Object.fromEntries(questions.map((question) => [question.name, { ...parameters.biases[question.name] }])),
-      },
-    }),
+    digest: systemOneDigest(systemOneCheckpointJson(parameters, questions)),
+  };
+}
+
+/** Render the exact checkpoint payload whose canonical bytes define its content digest. */
+export function systemOneCheckpointJson(parameters: SystemOneHeadParameters, questions: readonly SystemOneChoiceSpec[]): JsonValue {
+  return {
+    format: SYSTEMONE_CHECKPOINT_FORMAT,
+    questions: Object.fromEntries(questions.map((question) => [question.name, [...Object.keys(question.criteria)].sort()])),
+    parameters: jsonHeadParameters(parameters, questions),
   };
 }
 

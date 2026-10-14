@@ -54,7 +54,7 @@
     "prepare": "node scripts/prepare-merge-driver.ts",
     "merge:install": "pm merge install",
     "coverage": "npm run build && npm run build:test && node scripts/coverage-gate.ts",
-    "test:live": "node scripts/live-systemone.ts"
+    "test:live": "node scripts/live-watchdog.ts"
   },
   "coverageGate": {
     "sources": [
@@ -126,7 +126,7 @@
     "@babel/eslint-parser": "8.0.7",
     "@babel/plugin-syntax-typescript": "8.0.3",
     "@types/node": "26.6.5",
-    "@unbrained/pm-cli": "2026.10.10",
+    "@unbrained/pm-cli": "2026.10.13",
     "eslint": "10.12.0",
     "jiti": "2.7.0",
     "jscpd": "5.4.1",
