@@ -267,3 +267,12 @@ test("renamed held-out copies are rejected before any process reservation", asyn
   await assert.rejects(runRlLoop(client, coordinates, { id: "contamination", approval, config: contaminated }), /content overlap/);
   assert.equal((await client.listAllComplete({})).items.filter((item) => item.type === "Task").length, 0);
 });
+
+
+test("identity publication failure stops the real child and settles without overwriting retained metadata", async () => {
+  const { client, coordinates, approval, pmRoot } = await processWorkspace(); const input = trainingInput(); const id = processJobId(input);
+  const directory = processStaging(pmRoot, id); mkdirSync(directory, { recursive: true }); const path = join(directory, "runner.json"); writeFileSync(path, "retained identity collision");
+  const start = performance.now(); await assert.rejects(executeProcessTrainer(client, coordinates, input, approval, adapter), /EEXIST/);
+  assert.ok(performance.now() - start < 5000); const job = (await readProcessJob(client, id))!; assert.equal(job.state, "failed"); assert.equal(job.settled, true);
+  assert.equal(readFileSync(path, "utf8"), "retained identity collision");
+});

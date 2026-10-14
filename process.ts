@@ -309,13 +309,19 @@ export async function launchTrainer(directory: string, id: string, input: Proces
   await once(child, "spawn");
   identity = loopProcessStartTime(child.pid!);
   if (identity === null) { child.kill("SIGKILL"); await closed; expectedFail("Cannot establish trainer process identity.", "process_identity_unavailable"); }
-  writeFileSync(join(directory, "runner.json"), JSON.stringify({ pid: child.pid, start: identity, started_at: startedAt }), { flag: "wx" });
   const timer = setInterval(poll, 25);
   signal?.addEventListener("abort", poll);
   child.stdin.on("error", () => undefined);
-  child.stdin.end(JSON.stringify({ job: id, input }));
-  poll();
-  try { await closed; } finally { clearInterval(timer); signal?.removeEventListener("abort", poll); }
+  try {
+    writeFileSync(join(directory, "runner.json"), JSON.stringify({ pid: child.pid, start: identity, started_at: startedAt }), { flag: "wx" });
+    child.stdin.end(JSON.stringify({ job: id, input }));
+    poll();
+    await closed;
+  } catch (error) {
+    refuse(error);
+    await closed;
+    throw error;
+  } finally { clearInterval(timer); signal?.removeEventListener("abort", poll); }
   if (failure !== undefined) throw failure;
   if (!complete || pending.length > 0) expectedFail("Trainer exited without a complete NDJSON receipt.", "process_receipt_required");
 }
