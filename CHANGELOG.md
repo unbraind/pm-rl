@@ -6,6 +6,8 @@
 
 - Environment registration and versioning, immutable once referenced ([pm-rl-et5b](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-et5b.toon))
 - Run lifecycle ingests NDJSON in bounded pm-rl/2 segments, reads pm-rl/1, and measures sustained storage ([pm-rl-dyho](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-dyho.toon))
+- System One decision-model calibration adapter for the recursive loop ([pm-rl-qhz2](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-qhz2.toon))
+- Live acceptance: two tev1:4b generations through npm run test:live ([pm-rl-ip21](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-ip21.toon))
 - Durable loop continuation: idempotent resume, controller lease, cancellation drills ([pm-rl-od32](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-od32.toon))
 - Bounded LM trainer adapter for the recursive loop ([pm-rl-upe0](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-upe0.toon))
 - Persisted bounded recursive self-improvement loop (pm rl loop run) ([pm-rl-hjg1](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-hjg1.toon))
