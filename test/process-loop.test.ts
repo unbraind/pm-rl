@@ -31,6 +31,7 @@ async function jobs(client: Awaited<ReturnType<typeof processWorkspace>>["client
 
 test("two process generations collect with the externally trained promoted successor", async () => {
   const { client, coordinates, approval, pmRoot } = await processWorkspace();
+  await client.create({ id: "ordinary-task", type: "Task", title: "Unrelated planning task", body: "Generic planning context" });
   const report = await runRlLoop(client, coordinates, { id: "recursive-process", config: configuration, approval });
   assert.equal(report.promoted, 2); assert.notEqual(report.generations[0].candidate_checkpoint, report.final_checkpoint);
   const first = await client.get(report.generations[0].item); const second = await client.get(report.generations[1].run);
@@ -40,6 +41,7 @@ test("two process generations collect with the externally trained promoted succe
   const resumed = await resumeRlLoop(client, coordinates, { id: "recursive-process", approval }); assert.equal(resumed.resumed_generations, 2);
   assert.deepEqual((await jobs(client)), retained); assert.deepEqual(retained.map((job) => readFileSync(join(processStaging(pmRoot, job.id), "checkpoint.json"), "utf8")), before);
   assert.equal((await rlLoopStatus(client, "recursive-process", pmRoot)).final_checkpoint, report.final_checkpoint);
+  await assert.rejects(rlLoopStatus(client, "recursive-process"), /tracker artifact root/);
 });
 
 test("two real controllers race for one job: one launch, one reservation and one checkpoint", async () => {
@@ -157,6 +159,7 @@ test("unrelated process jobs preserve reservations, metric notes and lineage in 
       assert.equal((await merged.get(snapshot.report.generations[0].item)).item.status, "closed");
     }
     assert.equal((await jobs(merged)).length, 2);
+    assert.equal((await rlLoopStatus(merged, `branch-${index}`, join(branch, ".agents/pm"))).process_jobs!.length, 1);
   }
 });
 
@@ -199,4 +202,16 @@ test("a self-consistent forged train step disagrees with the actual external rec
     await client.create({ id: key, type: "Decision", title: "Synthetic forged step", body: JSON.stringify({ format: "pm-rl/loop-step/1", key, input: hashJson(input), state: "complete", result, digest: hashJson(result) }) });
   } }), /Process training receipt drifted/);
   assert.equal((await client.listAllComplete({})).items.filter((item) => item.type === "Generation").length, 1);
+});
+
+
+test("parent AbortSignal during an external fit records terminal cancellation and preserves staged evidence", async () => {
+  const { client, coordinates, approval, pmRoot } = await processWorkspace(); const abort = new AbortController(); const id = "parent-cancel";
+  const argv = [process.execPath, new URL("./fixtures/process-trainer.ts", import.meta.url).pathname, "hang"];
+  const outcome = runRlLoop(client, coordinates, { id, config: configuration, approval, signal: abort.signal, processTrainerArgv: argv }).then(() => null, (error: unknown) => error);
+  let jobId = "";
+  for (let attempt = 0; attempt < 300; attempt += 1) { const retained = await jobs(client); if (retained.length > 0) jobId = retained[0].id; if (jobId.length > 0 && existsSync(join(processStaging(pmRoot, jobId), "partial.json"))) break; await new Promise<void>((resolve) => { setTimeout(resolve, 20); }); }
+  assert.ok(existsSync(join(processStaging(pmRoot, jobId), "partial.json"))); abort.abort();
+  const error = await outcome; assert.ok(error instanceof Error); assert.match(error.message, /new programme identity/);
+  const job = (await readProcessJob(client, jobId))!; assert.equal(job.state, "cancelled"); assert.equal(job.settled, true);
 });
