@@ -8,11 +8,11 @@ import { resolve, join } from "node:path";
 import { test } from "node:test";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { runRlLoop, resumeRlLoop, type JsonValue } from "../index.ts";
-import { runLiveCommand, LIVE_WORKER_DEADLINE_MS } from "../scripts/live-watchdog.ts";
+import { runLiveCommand, LIVE_WORKER_DEADLINE_MS, LIVE_WORKER_MARGIN_MS, LIVE_WORKER_TIMEOUT_ENV, liveWatchdogBudget } from "../scripts/live-watchdog.ts";
 import { parseSystemOneLoopConfig } from "../systemone.ts";
 import { configValue } from "./fixtures/systemone.ts";
 import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
-import { liveConfiguration, runLiveAcceptance, main, LIVE_TIMEOUT_MS, cpuModelEvidence, verifyCpuRunner, type LiveAcceptanceEvidence } from "../scripts/live-systemone.ts";
+import { liveConfiguration, runLiveAcceptance, main, liveWorkerDeadline, LIVE_TIMEOUT_MS, cpuModelEvidence, verifyCpuRunner, type LiveAcceptanceEvidence } from "../scripts/live-systemone.ts";
 
 test("live acceptance measures two promoted heads, successor collection, tokens and latency", async () => {
   let requests = 0;
@@ -164,9 +164,48 @@ test("CPU validation refuses configured GPU use and drifted runner identities be
 });
 
 
-test("live watchdog bounds startup and refuses excessive deadlines", async () => {
+test("live watchdog refuses excessive or headroom-less deadlines and derives the worker budget", async () => {
   for (const timeout of [0, LIVE_TIMEOUT_MS + 1]) await assert.rejects(runLiveCommand({}, () => undefined, timeout), /15 minutes/);
-  await assert.rejects(runLiveCommand({ ...process.env, SYSTEMONE_BASE_URL: "http://127.0.0.1:1" }, () => undefined, 100), /timed out/);
+  for (const timeout of [1, LIVE_WORKER_MARGIN_MS]) await assert.rejects(runLiveCommand({}, () => undefined, timeout), /evidence margin/);
+  for (const timeout of [LIVE_WORKER_MARGIN_MS + 1, 2 * LIVE_WORKER_MARGIN_MS, LIVE_TIMEOUT_MS]) {
+    const { graceMs, workerDeadlineMs } = liveWatchdogBudget(timeout);
+    assert.equal(workerDeadlineMs, timeout - LIVE_WORKER_MARGIN_MS);
+    assert.ok(timeout - graceMs - workerDeadlineMs >= 10_000, "leave at least 10 s to write and flush failure evidence");
+  }
+  // The worker validates the parent-provided deadline and keeps the standard budget without one.
+  for (const invalid of ["", "0", "-1", "1.5", "nan", String(LIVE_WORKER_DEADLINE_MS + 1)]) {
+    assert.throws(() => liveWorkerDeadline({ [LIVE_WORKER_TIMEOUT_ENV]: invalid }), /standard worker budget/);
+  }
+  assert.equal(liveWorkerDeadline({}), LIVE_WORKER_DEADLINE_MS);
+  assert.equal(liveWorkerDeadline({ [LIVE_WORKER_TIMEOUT_ENV]: "1000" }), 1000);
+});
+
+test("a short custom live budget still produces failure.json through the real watchdog", async () => {
+  const parent = resolve(import.meta.dirname, "../.agents/pm/runtime/live");
+  mkdirSync(parent, { recursive: true });
+  const before = new Set(readdirSync(parent));
+  const model = { name: "tev1:4b", digest: "a".repeat(64), size: 1 };
+  // Valid metadata that cannot answer within the watchdog kill, so only the worker's own deadline can stop it.
+  const server = createServer((request, reply) => {
+    request.resume();
+    const timer = setTimeout(() => {
+      if (reply.destroyed) return;
+      reply.setHeader("content-type", "application/json");
+      reply.end(JSON.stringify(request.url === "/api/show" ? { parameters: "num_gpu 0\nnum_thread 2" } : { models: [{ ...model, size_vram: 0 }] }));
+    }, 2 * LIVE_TIMEOUT_MS);
+    timer.unref();
+    reply.on("close", () => { clearTimeout(timer); });
+  });
+  await new Promise<void>((done) => { server.listen(0, "127.0.0.1", done); });
+  const address = server.address(); assert.ok(address !== null && typeof address !== "string");
+  try {
+    // This budget derives a 5000 ms worker deadline, so the worker stops itself and writes failure.json long before the watchdog kills it.
+    await assert.rejects(runLiveCommand({ ...process.env, SYSTEMONE_BASE_URL: `http://127.0.0.1:${address.port}`, SYSTEMONE_MODEL: "tev1:4b" }, () => undefined, LIVE_WORKER_MARGIN_MS + 5_000), /failed/);
+    const added = readdirSync(parent).filter((dir) => !before.has(dir));
+    assert.equal(added.length, 1, "the deadline-stopped worker must retain exactly one run directory");
+    const failure = JSON.parse(readFileSync(join(parent, added[0], "failure.json"), "utf8")) as { failed: boolean; deadline_aborted: boolean };
+    assert.deepEqual(failure, { failed: true, deadline_aborted: true });
+  } finally { server.closeAllConnections(); await new Promise<void>((done) => { server.close(() => done()); }); }
 });
 
 test("live acceptance preserves the original refusal when failure evidence cannot be written", async () => {

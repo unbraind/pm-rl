@@ -16,7 +16,7 @@ import {
 import { readSeries, type MetricEvent } from "../series.ts";
 import { parseGenerationSpec } from "../lineage.ts";
 import { isMainInvocation } from "./script-launcher.ts";
-import { LIVE_TIMEOUT_MS, LIVE_WORKER_DEADLINE_MS } from "./live-watchdog.ts";
+import { LIVE_TIMEOUT_MS, LIVE_WORKER_DEADLINE_MS, LIVE_WORKER_TIMEOUT_ENV } from "./live-watchdog.ts";
 
 /** Shared whole-run deadline for the SDK worker and its process watchdog. */
 export { LIVE_TIMEOUT_MS } from "./live-watchdog.ts";
@@ -218,10 +218,31 @@ export async function runLiveAcceptance(value: JsonValue, timeoutMs = LIVE_TIMEO
   }
 }
 
+/**
+ * Read the worker's whole-run deadline from the parent-provided environment.
+ *
+ * The watchdog derives the deadline from its own budget and hands it over via
+ * {@link LIVE_WORKER_TIMEOUT_ENV}; a value must be a whole number of
+ * milliseconds no later than the standard worker budget, so a tampered or
+ * stale environment variable can never push the worker deadline past the
+ * watchdog kill. Without the variable the worker keeps the standard budget.
+ *
+ * @param environment - Environment mapping to read the deadline variable from.
+ * @returns The validated worker deadline in milliseconds.
+ */
+export function liveWorkerDeadline(environment: Readonly<Record<string, string | undefined>>): number {
+  const raw = environment[LIVE_WORKER_TIMEOUT_ENV];
+  if (raw === undefined) return LIVE_WORKER_DEADLINE_MS;
+  const deadlineMs = Number(raw);
+  assert.ok(Number.isInteger(deadlineMs) && deadlineMs > 0 && deadlineMs <= LIVE_WORKER_DEADLINE_MS,
+    "Live worker deadline must be whole milliseconds no later than the standard worker budget");
+  return deadlineMs;
+}
+
 /** Execute the opt-in live script with configurable local endpoint coordinates. */
 export async function main(environment: Readonly<Record<string, string | undefined>>, print: (text: string) => void): Promise<void> {
   // The worker stops itself before the watchdog kills it, so a deadline stop still retains failure.json.
-  const result = await runLiveAcceptance(liveConfiguration(environment["SYSTEMONE_BASE_URL"], environment["SYSTEMONE_MODEL"]), LIVE_WORKER_DEADLINE_MS);
+  const result = await runLiveAcceptance(liveConfiguration(environment["SYSTEMONE_BASE_URL"], environment["SYSTEMONE_MODEL"]), liveWorkerDeadline(environment));
   print(JSON.stringify(result, null, 2));
 }
 

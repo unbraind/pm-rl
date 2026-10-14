@@ -162,11 +162,15 @@ under `.agents/pm/runtime/`. Existing weight blobs may be linked read-only.
 The default endpoint is loopback and the default model is `tev1:4b`; remote
 endpoints and cloud model inventory entries refuse live acceptance.
 
-The command has a parent watchdog that terminates its worker at 895000 ms and
-escalates to SIGKILL after five seconds, enforcing the 15-minute process bound
-even if an SDK operation stalls. A whole-run AbortSignal bounds metadata checks,
-requests and controller phases
-to **900000 ms (15 minutes)**. A cold model load may use up to 600000 ms of that
+The command has a parent watchdog with a **900000 ms (15-minute)** process
+bound: it terminates its worker at 895000 ms and escalates to SIGKILL after
+five seconds, so a stalled SDK operation cannot outlive it. The worker enforces
+its own earlier whole-run AbortSignal deadline of **870000 ms (14.5 minutes)**
+— the parent bound minus a 30000 ms evidence margin, 25000 ms before the
+watchdog's termination — so metadata checks, requests and controller phases
+stop with time to retain `failure.json`. A shorter watchdog budget derives the
+worker deadline the same way and is refused when no evidence headroom remains.
+A cold model load may use up to 600000 ms of that
 allowance; later requests inherit the same remaining whole-run deadline. The
 trainer performs two bounded full-batch head fits over two collection items each,
 with two held-out decision queries per generation and at most eight total
