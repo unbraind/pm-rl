@@ -45,8 +45,10 @@ to status so it can verify checkpoint bytes.
 
 Every resource value is a nonnegative safe integer. The reference performs one
 optimizer step per external phase. Wall time is capped at one hour and staging
-at 1 GiB; the supplied example is much smaller. Compute units are adapter-reported
-CPU milliseconds (ceil of user plus system CPU time); tokens are zero for this
+at 1 GiB; the supplied example is much smaller. Compute units are adapter-reported CPU milliseconds for fitting and checkpoint
+publication (ceil of user plus system CPU time). Runtime bootstrap and
+request/receipt processing are outside that reported compute interval; observed
+wall time covers startup through completion publication. Tokens are zero for this
 local numerical trainer. These bounds supplement existing generation, collection,
 statistical improvement and approved-promotion bounds.
 
@@ -184,6 +186,31 @@ V8 diagnostic files without excluding source or lowering thresholds.
 The full release gate inventories both new source files and retains the original
 100/100/100/100 statement/line/branch/function thresholds, docstring gate and zero
 duplication policy. Operational script sources remain in the existing gate scope.
+
+Final implementation `d06e3cb` passes both `npm run release:check` and
+`bun run release:check`: **564/564 tests each**, zero skips/cancellations,
+27 authored sources at exact **100/100/100/100** statement/line/branch/function
+coverage, 261 documented declarations, zero duplication and zero production audit
+findings. The original thresholds and existing CLI deadlines are unchanged.
+An earlier Bun attempt missed the existing LM CLI 20-second assertion at 20.436
+seconds under CPU saturation; the unchanged retry measured 11.891 seconds.
+
+The added 38 real-process tests increase the suite from 526 to 564 cases.
+Their recorded case durations total 108.298 seconds under npm
+and 127.320 seconds under Bun. The isolated `origin/main`
+baseline suite took 2,199.529 seconds; final suite times were
+1,946.330 seconds for npm (raw delta -253.199) and
+1,867.577 seconds for Bun (raw delta -331.952).
+Shared-host load varied, so these raw differences are not a controlled speedup
+claim. Both full gates used ordinary temporary trackers and isolated CI Git/home
+settings; the separate diagnostic memory-filesystem attempt is not a gate result.
+
+Final-fixture behavioural guard-removal proofs run in an isolated source snapshot:
+the restored reservation and receipt regressions pass 2/2; removing reservation-once
+inspection and stable transaction identity fails its replay regression (0/1, budget
+exhaustion); reversing receipt-required acceptance in `launchTrainer` and
+`validateProcessCompletion` fails its real checkpoint-without-receipt regression
+(0/1, missing expected rejection). The target implementation was never reverted.
 
 ```sh
 node --test test/process.test.ts test/process-loop.test.ts test/process-cli.test.ts
