@@ -324,7 +324,7 @@ import {
   type SystemOneObservation,
 } from "./systemone.ts";
 
-import { executeProcessTrainer, processJobBodyId, readProcessJob, processJobId, verifiedProcessPolicy, transitionProcessJob, verifyProcessJobBudget, type ProcessJob, type ProcessJobState } from "./process.ts";
+import { executeProcessTrainer, listProcessJobs, readProcessJob, processJobId, verifiedProcessPolicy, transitionProcessJob, verifyProcessJobBudget, type ProcessJob, type ProcessJobState } from "./process.ts";
 export { executeProcessTrainer, reserveProcessJob, readProcessJob, processJobId, processStaging, parseResources, parseProcessAdapter, validateProcessCompletion, referenceTrainerArgv, type ProcessJob, type ProcessCompletion, type ProcessAdapter, type ProcessInput, type Resources } from "./process.ts";
 
 import { banditCheckpoint, type BanditCheckpoint, type BanditGeneration } from "./bandit.ts";
@@ -2747,7 +2747,10 @@ export async function commitProcessTransaction(options: CommitWorkspaceTransacti
   await expireDeadControllerMutex(options.pmRoot, "sdk-workspace-transaction", undefined);
   const start = loopProcessStartTime(process.pid);
   if (start === null) fail("Cannot establish process transaction identity.", "process_identity_unavailable");
-  await commitWorkspaceTransaction({ ...options, lockTtlSeconds: 1_000_000_000, onTransition: async (context) => {
+  // The SDK creates the writer lock with the transaction author as its owner before "prepared". A phase identity
+  // there lets expireDeadControllerMutex prove a holder killed in that window dead instead of blocking for the TTL.
+  const author = `pm-rl-phase:${hashJson(hostname())}:${Buffer.from(start).toString("base64url")}:${options.author}`;
+  await commitWorkspaceTransaction({ ...options, author, lockTtlSeconds: 1_000_000_000, onTransition: async (context) => {
     if (context.transition === "prepared") await publishControllerIdentity(join(options.pmRoot, "locks", "sdk-workspace-transaction.lock"), start);
     await options.onTransition?.(context);
   } });
@@ -3286,16 +3289,7 @@ async function appendCommentOnce(client: PmClient, id: string, text: string): Pr
 /** Read complete process outcomes belonging to this programme instance without exposing executable paths. */
 async function loopProcessJobs(client: PmClient, id: string, programme: LoopProgramme): Promise<readonly ProcessJob[]> {
   if (programme.trainer !== "bandit" || programme.config.process === undefined) return [];
-  const items = certifyCompleteListResult(await client.listAllComplete({})).items;
-  const jobs: ProcessJob[] = [];
-  for (const item of items) {
-    if (item.type !== "Task") continue;
-    const full = await readCompleteLoopItem(client, item.id);
-    const jobId = processJobBodyId(String(full.item.body));
-    if (jobId === null) continue;
-    const job = (await readProcessJob(client, jobId))!;
-    if (jsonObject(job.binding, "Process binding")["programme_id"] === id) jobs.push(job);
-  }
+  const jobs = (await listProcessJobs(client)).filter((job) => jsonObject(job.binding, "Process binding")["programme_id"] === id);
   return jobs.sort((left, right) => Number(jsonObject(left.binding, "Process binding")["generation"]) - Number(jsonObject(right.binding, "Process binding")["generation"]));
 }
 

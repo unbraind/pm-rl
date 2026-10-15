@@ -1,6 +1,6 @@
 /** Protocol, real child execution, atomic approved reservations and evidence corruption. */
 import assert from "node:assert/strict";
-import { chmodSync, readFileSync, writeFileSync, mkdirSync, symlinkSync, lstatSync, existsSync, rmSync, renameSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, symlinkSync, lstatSync, existsSync, rmSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { commitProcessTransaction, withProcessJobFence, runRlLoop } from "../index.ts";
@@ -8,7 +8,7 @@ import { Readable, Writable } from "node:stream";
 import { runReferenceTrainer, referenceTrainerMain, writeTrainerArtifact } from "../process-bandit.ts";
 import { parseLoopProgramme, parseLoopConfig } from "../loop.ts";
 import { test } from "node:test";
-import { executeProcessTrainer, launchTrainer, transitionProcessJob, stopTrainer, parseProcessAdapter, parseResources, processJobId, processStaging, readProcessJob, referenceTrainerArgv, reserveProcessJob, stagingBytes, validateProcessCompletion, verifiedProcessPolicy, type ProcessCompletion } from "../process.ts";
+import { appendDiagnostics, executeProcessTrainer, launchTrainer, transitionProcessJob, stopTrainer, parseProcessAdapter, parseResources, processJobId, processStaging, readProcessJob, referenceTrainerArgv, reserveProcessJob, stagingBytes, validateProcessCompletion, verifiedProcessPolicy, type ProcessCompletion } from "../process.ts";
 import { allowance, configuration, processWorkspace, trainingInput } from "./fixtures/process-workspace.ts";
 // Node's parent coverage hooks remain active; SIGKILL-able children must not inherit its raw-report directory.
 delete process.env["NODE_V8_COVERAGE"];
@@ -281,11 +281,28 @@ test("identity publication failure stops the real child and settles without over
   assert.equal(readFileSync(path, "utf8"), "retained identity collision");
 });
 
-test("a diagnostics write failure refuses the launch instead of escaping the stream callback", async () => {
-  const { pmRoot } = await processWorkspace(); const input = trainingInput();
-  const directory = join(pmRoot, "runtime", "stderr-blocked"); mkdirSync(directory, { recursive: true });
-  // A read-only diagnostics file makes the append fail inside the stream callback.
-  writeFileSync(join(directory, "stderr.log"), ""); chmodSync(join(directory, "stderr.log"), 0o444);
-  await assert.rejects(launchTrainer(directory, "stderr-blocked", input, allowance,
-    [process.execPath, "-e", "process.stdin.resume();process.stderr.write('diagnostic',()=>process.exit(0))"]), /EACCES|permission denied/);
+test("a diagnostics write failure becomes a refusal instead of escaping the stream callback", () => {
+  // A missing directory fails the append even for root, which ignores file permission bits.
+  const refused: unknown[] = [];
+  appendDiagnostics(join(processStaging("/nonexistent-pm-rl-root", "absent"), "stderr.log"), Buffer.from("diagnostic"), (error) => { refused.push(error); });
+  assert.equal(refused.length, 1); assert.equal((refused[0] as NodeJS.ErrnoException).code, "ENOENT");
+});
+
+test("a job body copied into another task neither double-charges nor names a missing job", async () => {
+  const doubled = Object.fromEntries(Object.entries(allowance).map(([key, value]) => [key, value * 2])) as typeof allowance;
+  const { client, coordinates, approval } = await processWorkspace(doubled); const input = trainingInput();
+  const held = await reserveProcessJob(client, coordinates, processJobId(input), input, approval, allowance);
+  await client.create({ type: "Task", title: "Copied job", body: JSON.stringify(held) });
+  await client.create({ type: "Task", title: "Dangling job", body: JSON.stringify({ ...held, id: "process-missing" }) });
+  const second = { ...input, identity: { second: true } };
+  assert.equal((await reserveProcessJob(client, coordinates, processJobId(second), second, approval, allowance)).state, "planned");
+});
+
+test("the workspace writer lock carries a recoverable phase identity from its creation", async () => {
+  const { coordinates, pmRoot } = await processWorkspace(); let owner = "";
+  const noop = { id: "noop", async inspect() { return { state: "applied" as const }; }, async apply() { return undefined; }, async compensate() { return undefined; } };
+  await commitProcessTransaction({ ...coordinates, transactionId: "owner-probe", steps: [noop], onTransition(context) {
+    if (context.transition === "prepared") owner = String((JSON.parse(readFileSync(join(pmRoot, "locks", "sdk-workspace-transaction.lock"), "utf8")) as { owner?: unknown }).owner);
+  } });
+  assert.match(owner, /^pm-rl-phase:[0-9a-f]+:[A-Za-z0-9_-]+:/);
 });

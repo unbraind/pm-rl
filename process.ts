@@ -174,6 +174,24 @@ export function processJobBodyId(body: string): string | null {
   } catch { return null; }
 }
 
+/**
+ * Every process job in the tracker, read once through a body-inclusive certified listing.
+ *
+ * A job body counts only on the item that is that job (item ids carry the tracker prefix), so a job body
+ * copied into another item neither double-charges a reservation nor names a job that does not exist.
+ */
+export async function listProcessJobs(client: PmClient): Promise<ProcessJob[]> {
+  const listed = certifyCompleteListResult(await client.listAllComplete({ includeBody: true }));
+  const jobs: ProcessJob[] = [];
+  for (const item of listed.items) {
+    const jobId = processJobBodyId(String(item.body));
+    if (jobId === null || (!item.id.endsWith(`-${jobId}`) && item.id !== jobId)) continue;
+    // Bound to its own existing item, so the job is present.
+    jobs.push((await readProcessJob(client, jobId))!);
+  }
+  return jobs;
+}
+
 /** Reserve once under the workspace writer lock, counting every held or settled job on this approval. */
 export async function reserveProcessJob(client: PmClient, coordinates: ProcessCoordinates, id: string, input: ProcessInput, approval: string, allowance: Resources): Promise<ProcessJob> {
   const step: WorkspaceTransactionStep = {
@@ -181,14 +199,7 @@ export async function reserveProcessJob(client: PmClient, coordinates: ProcessCo
     async inspect() { return { state: await readProcessJob(client, id) === null ? "pending" : "applied" }; },
     async apply() {
       const approved = await approvedResources(client, approval);
-      const listed = certifyCompleteListResult(await client.listAllComplete({ includeBody: true }));
-      const charges: Resources[] = [];
-      for (const item of listed.items) {
-        const jobId = processJobBodyId(String(item.body));
-        if (jobId === null) continue;
-        const job = await readProcessJob(client, jobId);
-        if (job!.approval === approved.id) charges.push(job!.charge);
-      }
+      const charges = (await listProcessJobs(client)).filter((job) => job.approval === approved.id).map((job) => job.charge);
       for (const key of RESOURCE_KEYS) {
         const total = charges.reduce((sum, charge) => sum + charge[key], allowance[key]);
         if (!Number.isSafeInteger(total) || total > approved.budget[key]) expectedFail(`Approved ${key} budget exhausted.`, "process_budget_exhausted");
@@ -320,8 +331,7 @@ export async function launchTrainer(directory: string, id: string, input: Proces
   child.stderr.on("data", (chunk: Buffer) => {
     outputBytes += chunk.length;
     if (outputBytes > 65_536) { refuse(new Error("Trainer diagnostics exceeded channel allowance.")); return; }
-    // A throw here would escape the stream callback and bypass the stop-and-settle path.
-    try { writeFileSync(join(directory, "stderr.log"), chunk, { flag: "a" }); } catch (error) { refuse(error); }
+    appendDiagnostics(join(directory, "stderr.log"), chunk, refuse);
   });
   await once(child, "spawn");
   identity = loopProcessStartTime(child.pid!);
@@ -341,6 +351,10 @@ export async function launchTrainer(directory: string, id: string, input: Proces
   } finally { clearInterval(timer); signal?.removeEventListener("abort", poll); }
   if (failure !== undefined) throw failure;
   if (!complete || pending.length > 0) expectedFail("Trainer exited without a complete NDJSON receipt.", "process_receipt_required");
+}
+/** Append trainer diagnostics; a failed append becomes a refusal on the stop-and-settle path instead of an escaped throw. */
+export function appendDiagnostics(file: string, chunk: Buffer, refuse: (error: unknown) => void): void {
+  try { writeFileSync(file, chunk, { flag: "a" }); } catch (error) { refuse(error); }
 }
 /** Settle failure against reserved use and every trustworthy report, retaining observed excess consumption. */
 function failedProcessCharge(directory: string, allowance: Resources): Resources {
