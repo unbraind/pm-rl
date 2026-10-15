@@ -2,11 +2,13 @@ id: pm-rl-shgm
 title: Durable external process trainers with atomic resource reservations
 description: "Extend the recursive loop with an argv-only local trainer, content-bound jobs, staged completion receipts, atomic approved-budget reservations, real-process crash recovery and two-generation acceptance."
 type: Feature
-status: in_progress
+status: closed
 priority: 1
 tags: []
 created_at: "2026-10-14T19:45:40.240Z"
-updated_at: "2026-10-15T04:39:20.248Z"
+updated_at: "2026-10-15T06:41:12.980Z"
+closed_at: "2026-10-15T06:41:12.950Z"
+completed_at: "2026-10-15T05:24:26.000Z"
 author: codex-agent
 acceptance_criteria: "Exactly one launch and reservation under contention; recover a completed staged checkpoint without retraining; cancel and settle resources; refuse missing receipts, corrupt checkpoints and exceeded limits; verify two promoted process generations and unchanged release gates"
 parent: pm-rl-apvf
@@ -74,4 +76,5 @@ docs[3]{path,scope}:
   docs/process-trainer.md,project
   README.md,project
   RECURSIVE_TRAINING.md,project
+close_reason: "{\"pr\":76,\"url\":\"https://github.com/unbraind/pm-rl/pull/76\",\"merge_commit_sha\":\"e3fd0af3e8902e305d2c817f5651840c26fdbc08\",\"head_sha\":\"076f1cb1bf4431c433a6074418b0cd45f325117a\",\"merged_at\":\"2026-10-15T05:24:26Z\",\"checks\":[\"CodeQL\",\"CodeRabbit\",\"codeql\",\"test (22)\",\"test (26)\"]}"
 body: ""
