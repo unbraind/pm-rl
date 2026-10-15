@@ -1,0 +1,17 @@
+id: pm-rl-7c7m
+title: Stabilize packed LM CLI timing under the unchanged acceptance bound
+description: "The full release gate observed an existing packed LM CLI timing failure: measured CLI 22138 ms against its unchanged 20000 ms bound. The same unmodified test passed alone at 8955 ms. Investigate repeatable runtime and IO overhead under full coverage without hiding source or weakening the acceptance bound."
+type: Task
+status: open
+priority: 3
+tags: []
+created_at: "2026-10-15T18:17:46.948Z"
+updated_at: "2026-10-15T18:19:13.038Z"
+author: codex-agent
+acceptance_criteria: Repeated full npm and Bun gates satisfy the existing 20-second packed LM CLI acceptance on declared runner resources; coverage scope and all four thresholds remain unchanged; measurements distinguish CLI time from total test setup time.
+parent: pm-rl-mjo5
+files[1]{path,scope}:
+  test/lm-cli.test.ts,project
+docs[1]{path,scope}:
+  docs/lm-adapter.md,project
+body: ""

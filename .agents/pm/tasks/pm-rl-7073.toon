@@ -1,0 +1,17 @@
+id: pm-rl-7073
+title: Enforce kernel CPU and storage quotas for Compose trainers
+description: "The shared process contract validates trainer-reported CPU milliseconds and polls observed wall/storage use. Compose supplies filesystem and process isolation, but hard CPU-time and disk quotas remain a separate scheduler capability. Add measured kernel-enforced limits without changing the reservation and receipt schema."
+type: Task
+status: open
+priority: 3
+tags: []
+created_at: "2026-10-15T11:11:07.179Z"
+updated_at: "2026-10-15T11:13:27.360Z"
+author: codex-agent
+acceptance_criteria: A real over-consuming trainer is stopped by kernel-enforced CPU/storage limits; retained receipts settle observed use and explain the enforcement mechanism; supported host requirements are documented.
+parent: pm-rl-mjo5
+files[1]{path,scope}:
+  compose.ts,project
+docs[1]{path,scope}:
+  docs/process-trainer.md,project
+body: ""

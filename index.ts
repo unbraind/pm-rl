@@ -3332,7 +3332,7 @@ async function inspectBanditGeneration(client: PmClient, programme: LoopProgramm
   if (config.process !== undefined) {
     if (pmRoot === undefined) fail("Process replay requires its tracker artifact root.", "process_artifact_root_required");
     const processInput = banditProcessInput(config, chain.step, generation, receipt, request.id);
-    const expectedJob = processJobId(processInput, request.processTrainerArgv);
+    const expectedJob = processJobId(processInput, request.processTrainerArgv, programme.config.process);
     const related = (await loopProcessJobs(client, request.id, programme)).filter((job) => Number(jsonObject(job.binding, "Process binding")["generation"]) === generation);
     if (related.length > 1 || (related.length === 1 && related[0].id !== expectedJob && request.approval.length > 0)) fail("Trainer launcher identity changed; use the original trusted launcher or a new programme id.", "process_job_drift", EXIT_CODE.CONFLICT);
     const job = related.length === 1 ? related[0] : await readProcessJob(client, expectedJob);
@@ -3739,7 +3739,7 @@ async function executePendingGeneration(client: PmClient, coordinates: Workspace
       const job = await executeProcessTrainer(client, coordinates, processInput, request.approval, programme.config.process!, request.signal, request.processTrainerArgv);
       return runLoopGeneration(programme.config, chain.step, generation, chain.current as BanditCheckpoint, job.completion!.policy) as unknown as JsonValue;
     });
-    const job = (await readProcessJob(client, processJobId(processInput, request.processTrainerArgv)))!;
+    const job = (await readProcessJob(client, processJobId(processInput, request.processTrainerArgv, programme.config.process)))!;
     const candidate = verifiedProcessPolicy(job, coordinates.pmRoot, processInput)!;
     receipt = runLoopGeneration(programme.config, chain.step, generation, chain.current as BanditCheckpoint, candidate);
     if (hashJson(trained.value) !== hashJson(receipt as unknown as JsonValue)) fail("Process training receipt drifted.", "loop_step_drift", EXIT_CODE.CONFLICT);
@@ -3870,7 +3870,7 @@ async function finishProcessGeneration(client: PmClient, coordinates: WorkspaceC
   if (config?.process === undefined) return;
   const input = banditProcessInput(config, chain.step, generation, receipt, request.id);
   await lease.guard(async () => {
-    const job = (await readProcessJob(client, processJobId(input, request.processTrainerArgv)))!;
+    const job = (await readProcessJob(client, processJobId(input, request.processTrainerArgv, config.process)))!;
     await verifyProcessJobBudget(client, job);
     await transitionProcessJob(client, coordinates, job, state, outcome);
   });

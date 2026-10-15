@@ -12,18 +12,26 @@ import { EXIT_CODE, isPmCliExpectedError, certifyCompleteListResult } from "@unb
 import { banditCheckpoint, type BanditCheckpoint, type BanditExample, type BanditObservation } from "./bandit.ts";
 import { canonicalJson, commitProcessTransaction, loopProcessStartTime, withProcessJobFence, readCompleteLoopItem, type JsonValue } from "./index.ts";
 import { expectedFail } from "./refuse.ts";
+import { launchComposeTrainer, stopComposeTrainer } from "./compose.ts";
 
 /** Independently accounted resource dimensions; all values are nonnegative safe integers. */
 export const RESOURCE_KEYS = ["training_steps", "wall_ms", "storage_bytes", "compute_units", "tokens"] as const;
 /** A bounded allowance or measured resource vector; compute units are CPU milliseconds in the reference trainer. */
 export type Resources = Readonly<Record<(typeof RESOURCE_KEYS)[number], number>>;
 /** Programme-selected packaged trainer; commands are never read from tracker item text. */
-export interface ProcessAdapter {
+export type ProcessAdapter = {
   /** Versioned adapter selector; only the packaged bandit trainer is CLI-selectable. */
   readonly kind: "process-bandit";
   /** Maximum allowance atomically reserved before launching this generation. */
   readonly allowance: Resources;
-}
+} | {
+  /** Container execution of the identical staged bandit protocol. */
+  readonly kind: "compose-bandit";
+  /** Locally built immutable image ID; execution never pulls images. */
+  readonly image: string;
+  /** Maximum allowance atomically reserved before this generation launches. */
+  readonly allowance: Resources;
+};
 /** Domain lifecycle, independent of the tracker item's planning status. */
 export type ProcessJobState = "planned" | "running" | "materialized" | "evaluated" | "promoted" | "failed" | "cancelled" | "invalidated";
 /** Immutable inputs delivered on stdin; held-out examples are deliberately absent. */
@@ -115,10 +123,12 @@ export function parseResources(value: unknown): Resources {
 export function parseProcessAdapter(value: unknown): ProcessAdapter {
   if (value === null || typeof value !== "object" || Array.isArray(value)) expectedFail("Invalid process adapter.", "process_invalid_adapter");
   const record = value as Record<string, unknown>;
-  if (record["kind"] !== "process-bandit" || Object.keys(record).some((key) => key !== "kind" && key !== "allowance")) expectedFail("Select the packaged process-bandit adapter.", "process_invalid_adapter");
+  const compose = record["kind"] === "compose-bandit";
+  if ((!compose && record["kind"] !== "process-bandit") || Object.keys(record).some((key) => key !== "kind" && key !== "allowance" && !(compose && key === "image"))) expectedFail("Select process-bandit or compose-bandit.", "process_invalid_adapter");
+  if (compose && (typeof record["image"] !== "string" || !/^sha256:[a-f0-9]{64}$/u.test(record["image"]))) expectedFail("Compose requires a local immutable image ID.", "process_invalid_adapter");
   const allowance = parseResources(record["allowance"]);
   if (allowance.training_steps !== 1 || allowance.wall_ms < 1 || allowance.wall_ms > 3_600_000 || allowance.storage_bytes < 1 || allowance.storage_bytes > 1_073_741_824) expectedFail("Process training requires one step, bounded wall time and staging bytes.", "process_invalid_allowance");
-  return { kind: "process-bandit", allowance };
+  return compose ? { kind: "compose-bandit", image: record["image"] as string, allowance } : { kind: "process-bandit", allowance };
 }
 /** Resolve the packaged reference script for either source execution or the compiled package. */
 export function referenceTrainerArgv(moduleUrl = import.meta.url): readonly string[] {
@@ -126,8 +136,9 @@ export function referenceTrainerArgv(moduleUrl = import.meta.url): readonly stri
   return [process.execPath, fileURLToPath(new URL(`./process-bandit.${suffix}`, moduleUrl))];
 }
 /** Derive replay identity including the trusted executable selection without persisting its paths. */
-export function processJobId(input: ProcessInput, argv: readonly string[] = referenceTrainerArgv()): string {
-  return `process-${processDigest({ input, launcher: processDigest(argv) }).slice(7)}`;
+export function processJobId(input: ProcessInput, argv: readonly string[] = referenceTrainerArgv(), adapter?: ProcessAdapter): string {
+  const launcher = adapter?.kind === "compose-bandit" ? ["pm-rl/compose-bandit/1", adapter.image] : argv;
+  return `process-${processDigest({ input, launcher: processDigest(launcher) }).slice(7)}`;
 }
 /** Resolve this job's retained evidence directory under the tracker. */
 export function processStaging(root: string, id: string): string {
@@ -377,7 +388,7 @@ function failedProcessCharge(directory: string, allowance: Resources): Resources
 
 /** Recover staged work or execute exactly one reserved phase; failures settle conservatively and retain evidence. */
 export async function executeProcessTrainer(client: PmClient, coordinates: ProcessCoordinates, input: ProcessInput, approval: string, adapter: ProcessAdapter, signal?: AbortSignal, argv: readonly string[] = referenceTrainerArgv()): Promise<ProcessJob> {
-  const id = processJobId(input, argv);
+  const id = processJobId(input, argv, adapter);
   return withProcessJobFence(coordinates, id, () => executeReservedProcessJob(client, coordinates, input, approval, adapter, id, signal, argv));
 }
 
@@ -391,9 +402,11 @@ async function executeReservedProcessJob(client: PmClient, coordinates: ProcessC
     mkdirSync(directory, { recursive: true });
     if (job.state === "planned") {
       job = await transitionProcessJob(client, coordinates, job, "running", "launched");
-      await launchTrainer(directory, id, input, job.allowance, argv, signal);
+      if (adapter.kind === "compose-bandit") await launchComposeTrainer(directory, id, input, job.allowance, adapter.image, signal);
+      else await launchTrainer(directory, id, input, job.allowance, argv, signal);
     } else {
-      if (existsSync(join(directory, "runner.json"))) {
+      if (adapter.kind === "compose-bandit") await stopComposeTrainer(directory, id, adapter.image, "recovery");
+      else if (existsSync(join(directory, "runner.json"))) {
         const runner = JSON.parse(readFileSync(join(directory, "runner.json"), "utf8")) as { pid: number; start: string };
         stopTrainer(runner.pid, runner.start);
       }

@@ -141,7 +141,7 @@ query the host can already answer, not a feature to build.
 | `pm rl loop resume <id>` | Load the seed's persisted programme; requires the governing `--approval` Decision. `--force-takeover` audits explicit recovery of an ambiguous or stale controller lease. |
 
 All commands listed above are implemented. [Recursive training execution](RECURSIVE_TRAINING.md)
-documents the local process adapter and the remaining Compose/scheduler work.
+documents the local process and Docker Compose adapters and remaining scheduler work.
 
 ## Implemented refusals
 
@@ -340,10 +340,19 @@ than folded into a rate.
 
 `pm rl loop run` trains the bounded contextual-bandit policy, persists real checkpoint
 updates and uses each promoted successor for the next collection batch. Its resource
-bounds and provenance refusals apply to every generation. Durable continuation and calibration-head updates are implemented. The local process bandit adapter and atomic resource reservations are implemented. GPU scheduling and Compose trainers remain under [`pm-rl-apvf`](.agents/pm/epics/pm-rl-apvf.toon), extending the programme specified
+bounds and provenance refusals apply to every generation. Durable continuation and calibration-head updates are implemented. The local process bandit adapter and atomic resource reservations are implemented. GPU scheduling remains under [`pm-rl-apvf`](.agents/pm/epics/pm-rl-apvf.toon), extending the programme specified
 under [`pm-rl-yi7j`](.agents/pm/epics/pm-rl-yi7j.toon).
 
 ## Durable external process training
+
+| Programme selection | Execution | Training input |
+| --- | --- | --- |
+| `trainer: "bandit"` | In-process numerical policy | Synthetic on-policy samples |
+| `trainer: "systemone"` | Calibration head over a frozen decision model | Explicitly selected labelled items |
+| `trainer: "lm"` | Bounded CPU LoRA update | Programme-declared sequences |
+| Bandit with `adapter.kind: "process-bandit"` | Packaged local child process | Collected training batch |
+| Bandit with `adapter.kind: "compose-bandit"` and immutable `adapter.image` | Isolated Docker Compose trainer | Same batch and receipt contract; only job staging is mounted |
+
 
 Select `adapter: {"kind":"process-bandit","allowance":{"training_steps":1,"wall_ms":5000,"storage_bytes":65536,"compute_units":1000,"tokens":0}}`
 in a bandit programme to run the real packaged TypeScript trainer as a child
@@ -360,14 +369,14 @@ pm rl loop resume process-demo --approval process-approval
 
 Default output is compact; `--json` includes complete jobs, receipts and charges.
 [The process contract and measured two-generation proof](docs/process-trainer.md)
-include the approval example, NDJSON protocol, crash recovery and cancellation
+include the approval example, NDJSON protocol, Compose configuration, crash recovery and cancellation
 semantics. Checkpoints and failed-job evidence live in tracker-owned staging.
 
 ## Not in scope
 
 - **Current execution boundary.** `run log` accepts NDJSON from an external trainer. Native
   bounded bandit and System One calibration-head training are implemented as `pm rl loop run`. Local process training is implemented with atomic reservations and validated staged receipts.
-  Compose and GPU scheduling remain in [Recursive training execution](RECURSIVE_TRAINING.md).
+  GPU scheduling remains in [Recursive training execution](RECURSIVE_TRAINING.md).
 - **No separate metric store.** The history stream *is* the store. Retained evidence necessarily
   grows with retained measurements. Each segment is capped at 48 KiB decoded and 65 KiB
   serialized. In the representative sustained integration workload—not as a universal
@@ -448,4 +457,4 @@ It stops at the first rejected candidate and retains the last accepted checkpoin
 It does not mutate a tracker, grant a budget, execute an LLM, or launch a hosted
 job. Evaluation is an adaptive validation set; a separate final benchmark is
 needed after repeated selection. See [the execution contract](RECURSIVE_TRAINING.md)
-for the local process adapter and remaining Compose work; [the decision adapter](docs/durable-systemone-validation.md) documents the implemented frozen-model calibration trainer.
+for the local process and Compose adapters; [the decision adapter](docs/durable-systemone-validation.md) documents the implemented frozen-model calibration trainer.

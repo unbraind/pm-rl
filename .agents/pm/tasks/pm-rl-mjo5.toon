@@ -2,14 +2,51 @@ id: pm-rl-mjo5
 title: Add Docker Compose execution for the durable process trainer contract
 description: "Follow the local process adapter with a Compose launcher using the same job identity, staged receipt validation, atomic approved resource reservations and cancellation evidence. Requires isolated container lifecycle and real crash drills; no hosted data inputs."
 type: Task
-status: open
+status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-14T19:46:39.492Z"
-updated_at: "2026-10-14T20:28:25.477Z"
+updated_at: "2026-10-15T19:38:04.500Z"
 author: codex-agent
 acceptance_criteria: "Compose execution preserves launch ownership and process contract, retains staging on failure, and passes real reservation and recovery drills"
 parent: pm-rl-apvf
-docs[1]{path,scope}:
+comments[8]{created_at,author,text}:
+  "2026-10-15T10:58:38.098Z",codex-agent,"Design: reuse the process job fence, reservation transaction, receipt validator and settlement state machine. Add a trusted Compose launcher with a job-derived project identity and generated isolated staging configuration; mount only job staging and retain all protocol artifacts. Exercise real success, container death, cancellation, contention and two-generation successor collection. Behavioural revert proofs will remove only the relevant launcher or selection behaviour in an isolated snapshot."
+  "2026-10-15T11:08:14.363Z",codex-agent,"Real Docker findings: a capability-restricted container must use the invoking numeric UID/GID to write host staging. Compose down/rm omit one-off run containers on the tested version, so cleanup resolves only the exact job-named container with matching project/service labels and removes its immutable daemon ID before project-scoped down. Project names also hash staging scope to isolate identical jobs in independent trackers. Receipt validation, conservative settled charges and controller fences remain shared with local execution."
+  "2026-10-15T11:11:10.946Z",codex-agent,"Drill progress: launch/receipt/replay, container death, cancellation, two real controller contention, staged-completion SIGKILL recovery and orphan cleanup pass. The two-generation Compose run promoted both changed policies, and generation two collection identifies generation one policy. Kernel CPU/storage quotas are a distinct follow-up to the existing reported-use and polling contract. Full release gates run directly under isolated CI Git/home settings; pm test --run --progress passed the linked typecheck, but project policy reports tracking_disabled so durable gate results are recorded in comments."
+  "2026-10-15T11:15:23.815Z",codex-agent,The final launcher retains the one-off container until controller cleanup rather than using automatic removal. This removes the race between daemon auto-removal and recovery resolving the exact container ID. All trainer outputs remain host-mounted. The linked Compose suite verified successfully with pm_context_mode=none and workspace_context_mode=snapshot; linked typecheck also passed pm test --run --progress. No dependency pins or coverage thresholds changed.
+  "2026-10-15T11:19:39.886Z",codex-agent,"Per-test behavioural revert proofs used isolated source snapshots with unchanged tests importing TypeScript directly. Selection/configuration: restoring only parseProcessAdapter from origin/main fails 0/1 because Compose selection is rejected. Restoring only executeReservedProcessJob from origin/main fails each of these eight cases (0/8): launch/receipt/replay lacks container launch evidence; container death misses the required failure; cancellation misses the required refusal; staged-completion SIGKILL recovery lacks container launch evidence; orphan recovery lacks container launch evidence; two generations lack generated Compose configuration; independent trackers miss the required cancellation refusals; checkpoint-without-completion wrongly succeeds. The separate two-real-controller contention case also fails 0/1 with that function restored, lacking container launch evidence. Removing only the pre-launch missing-config guard in stopComposeTrainer fails recovery-before-config-publication 0/1 with a filesystem error instead of the durable receipt-required refusal. Every added case therefore fails under its relevant behavioural revert. Restoring the final functions passes all 11/11, zero failures/skips. Commands: node --test --test-reporter=tap --test-name-pattern=<case> test/compose.test.ts; restored run: node --test --test-reporter=tap test/compose.test.ts."
+  "2026-10-15T17:57:01.089Z",codex-agent,"Final-source npm attempt completed 578 tests: 577 passed, one existing packed LM CLI timing assertion failed (measured CLI 22138 ms against the unchanged 20000 ms bound), zero skipped/cancelled/todo. All 28 source files reported 100 percent line/branch/function coverage; the statement gate correctly did not claim success after a test failure. All 11 Compose cases passed, and the explicit pm test --run --progress --only-last snapshot run passed 11/11 in 111.389 seconds. No thresholds or deadline assertions were changed. Retrying the existing timing case and then both complete gates serially."
+  "2026-10-15T18:19:18.033Z",codex-agent,Follow-up gap pm-rl-7c7m records the existing packed LM CLI timing variability observed by the full gate. The standalone unchanged case passed at 8955 ms. This task retains the 20000 ms bound and all original coverage thresholds; kernel CPU/storage enforcement remains separately tracked by pm-rl-7073.
+  "2026-10-15T19:38:00.185Z",codex-agent,"Final unchanged-source gates PASS: npm run release:check 578/578 and bun run release:check 578/578, each zero fail/skip/cancel/todo. Both measure exact 100/100/100/100 statement/line/branch/function coverage across 28 authored sources, 266 documented declarations, zero duplication, zero production audit findings; identity, packaging and changelog checks pass under isolated CI Git/home settings. Source hashes match the final implementation. All 11 new real Compose tests pass in both full gates and through explicit pm test --run --progress using none/snapshot context. Per-test behavioural reverts and the restored 11/11 result are recorded above. Two generations retain changed checkpoint byte digests a81ee5538f8451969dd7d22df07ea5299dff92e4267200d760c5298a418cf66f and 04205767f4fefcb97c97eedc6fc7739da446f51ab7cc050f7f3f20e5f9527452; the promoted first policy collects generation two. Earlier LM timing miss is tracked by pm-rl-7c7m; passing full gates measure 9038 ms and 12907 ms within the unchanged 20000 ms limit. Kernel CPU/storage quotas remain pm-rl-7073. No new PM CLI defect was filed: result tracking is disabled by policy, so comments retain durable gate evidence; supported snapshot context avoids the known tracker-spawning sandbox collision. Items remain open for orchestrator verification."
+files[7]{path,scope}:
+  compose.ts,project
+  index.ts,project
+  package.json,project
+  process.ts,project
+  test/compose.test.ts,project
+  test/fixtures/compose-trainer.ts,project
+  test/fixtures/compose.Dockerfile,project
+tests[2]:
+  - command: npm run typecheck
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-15T11:08:21.306Z"
+      source_kind: local_mutation
+      source_ref: feat/compose-process-trainer
+  - command: node --test test/compose.test.ts
+    scope: project
+    timeout_seconds: 300
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-15T11:11:34.932Z"
+      source_kind: local_mutation
+      source_ref: feat/compose-process-trainer
+docs[3]{path,scope}:
   docs/process-trainer.md,project
+  README.md,project
+  RECURSIVE_TRAINING.md,project
 body: ""
