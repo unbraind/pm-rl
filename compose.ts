@@ -53,13 +53,14 @@ export async function stopComposeTrainer(directory: string, id: string, image: s
 }
 
 /** Run the container as the trainer; the controller owns its reservation, watchdog and cleanup. */
-export async function launchComposeTrainer(directory: string, id: string, input: ProcessInput, allowance: Resources, image: string, signal?: AbortSignal): Promise<void> {
+export async function launchComposeTrainer(directory: string, id: string, input: ProcessInput, allowance: Resources, image: string, onCleanupFailure: (error: unknown) => void, signal?: AbortSignal): Promise<void> {
   writeTrainerArtifact(join(directory, "compose.json"), composeConfiguration(image));
   let reason = "failed";
   try {
     await launchTrainer(directory, id, input, allowance, ["docker", ...composeArgs(directory, id), "run", "--no-deps", "--pull", "never", "-T", "--name", `${composeProject(id, directory)}-trainer`, "trainer"], signal);
     reason = "exited";
   } finally {
-    await stopComposeTrainer(directory, id, image, signal?.aborted === true ? "cancelled" : reason);
+    try { await stopComposeTrainer(directory, id, image, signal?.aborted === true ? "cancelled" : reason); }
+    catch (error) { onCleanupFailure(error); }
   }
 }

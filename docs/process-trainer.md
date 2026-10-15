@@ -217,6 +217,13 @@ publication and before the PM materialization commit therefore trains only once.
 A cancelled fit remains terminal. Transfer staging explicitly before resuming in
 a relocated workspace; active containers belong to their original local location.
 
+Cleanup failure is recorded independently as `cleanup: { code: "cleanup_failed", error }`
+in the durable process job body and transition history. It preserves a validated
+completion, cancellation outcome, or original trainer error. The diagnostic is
+bounded to 4,096 characters and replaces the job staging path with `<staging>`.
+Recovery uses the same separate diagnostic path; retained artifacts remain
+available for inspection when cleanup could not finish.
+
 ### Real container drills
 
 Run `node --test test/compose.test.ts` from a source checkout. Its tiny local
@@ -253,7 +260,14 @@ coverage scope or threshold is changed by those proofs.
 
 ### Compose release validation
 
-Both `npm run release:check` and `bun run release:check` pass **578/578 tests**,
+Review round 1 adds four real Compose cleanup regressions: cancellation, success,
+trainer failure and recovery of completed staging. An executable wrapper fails
+only `compose down`; container launch, training, kill and removal remain real.
+Reverting only launch cleanup handling fails the three primary-outcome cases;
+reverting only recovery cleanup handling fails the recovery case. Fixed code
+passes 4/4 through the linked PM snapshot run and both complete release gates.
+
+Both `npm run release:check` and `bun run release:check` pass **582/582 tests**,
 with zero failures, skips, cancellations or todo cases. Each gate measures exact
 **100/100/100/100** statement/line/branch/function coverage across all **28**
 authored sources, **266** documented declarations, zero duplication and zero
@@ -263,7 +277,9 @@ coverage scope and all thresholds are unchanged.
 One earlier npm attempt missed the existing packed LM CLI bound: the measured
 CLI took 22.138 seconds against its unchanged 20-second limit. The same case
 measured 9.038 seconds in the passing full npm gate and 12.907 seconds in the
-passing full Bun gate. The separate test setup time is not the timed CLI interval.
+passing full Bun gate. Review round 1 measured 12.623 seconds (npm) and 12.272
+seconds (Bun), also within the unchanged bound. The separate test setup time is
+not the timed CLI interval.
 [pm-rl-7c7m](../.agents/pm/tasks/pm-rl-7c7m.toon) tracks that existing variability.
 
 ## Two-generation packed CLI measurement

@@ -2,12 +2,12 @@
 import assert from "node:assert/strict";
 import { execFileSync, fork, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { setTimeout } from "node:timers/promises";
 import { test } from "node:test";
-import { composeConfiguration, composeProject, stopComposeTrainer } from "../compose.ts";
+import { composeConfiguration, composeProject, launchComposeTrainer, stopComposeTrainer } from "../compose.ts";
 import { resumeRlLoop, rlLoopStatus } from "../index.ts";
-import { executeProcessTrainer, listProcessJobs, parseProcessAdapter, processJobId, processStaging, readProcessJob, reserveProcessJob, type ProcessAdapter } from "../process.ts";
+import { executeProcessTrainer, listProcessJobs, parseProcessAdapter, processJobId, processStaging, readProcessJob, reserveProcessJob, transitionProcessJob, type ProcessAdapter } from "../process.ts";
 import { configuration, processWorkspace, trainingInput } from "./fixtures/process-workspace.ts";
 
 // SIGKILL-able controllers and trainers must not leave truncated V8 reports.
@@ -198,3 +198,57 @@ test("real Compose checkpoint without completion is refused and cannot collect a
   assert.equal(existsSync(join(directory, "completion.json")), false);
   assert.equal((await client.listAllComplete({})).items.filter((item) => item.type === "Run").length, 1); removed(job.id, directory);
 });
+
+/** Run the real Docker executable except for a deterministic failure at the cleanup exec boundary. */
+async function cleanupFailure(mode: string, cancelled = false, recovery = false): Promise<void> {
+  const { client, coordinates, approval, pmRoot, root } = await processWorkspace(budget);
+  const selected = adapter(mode); const input = trainingInput(); const id = processJobId(input, undefined, selected);
+  const directory = processStaging(pmRoot, id); const abort = new AbortController();
+  assert.equal(selected.kind, "compose-bandit");
+  if (selected.kind !== "compose-bandit") assert.fail("Expected Compose adapter");
+  if (recovery) {
+    const job = await reserveProcessJob(client, coordinates, id, input, approval, allowance);
+    await transitionProcessJob(client, coordinates, job, "running", "launched");
+    mkdirSync(directory, { recursive: true });
+    await launchComposeTrainer(directory, id, input, allowance, selected.image, () => assert.fail("Unexpected cleanup failure"));
+  }
+  const docker = execFileSync("which", ["docker"], { encoding: "utf8" }).trim();
+  const bin = join(root, "bin"); mkdirSync(bin);
+  writeFileSync(join(bin, "docker"), `#!/bin/sh
+case "$*" in
+  *" down --timeout 0") echo "injected Compose cleanup failure" >&2; exit 71 ;;
+esac
+exec '${docker.replaceAll("'", "'\\''")}' "$@"
+`, { mode: 0o755 });
+  const path = process.env["PATH"]; process.env["PATH"] = `${bin}${delimiter}${path}`;
+  try {
+    const run = executeProcessTrainer(client, coordinates, input, approval, selected, abort.signal);
+    const result = mode === "fit" ? run : assert.rejects(run, cancelled ? /Trainer cancelled/ : /Trainer exited unsuccessfully/);
+    if (mode === "hang") {
+      await partial(directory);
+      if (cancelled) abort.abort();
+      else execFileSync("docker", ["kill", `${composeProject(id, directory)}-trainer`], { stdio: "ignore" });
+    }
+    await result;
+    const job = (await readProcessJob(client, id))!;
+    assert.equal(job.state, mode === "fit" ? "materialized" : cancelled ? "cancelled" : "failed");
+    assert.equal(job.outcome, mode === "fit" ? "receipt_validated" : cancelled ? "process_cancelled" : "trainer_failure");
+    assert.equal(job.settled, true); assert.equal(job.cleanup!.code, "cleanup_failed");
+    assert.match(job.cleanup!.error, /injected Compose cleanup failure/);
+    assert.equal(job.cleanup!.error.includes(directory), false);
+    assert.equal(job.completion !== null, mode === "fit");
+    const history = readFileSync(join(pmRoot, "history", `rl-${id}.jsonl`), "utf8");
+    assert.ok(history.includes("cleanup_failed")); assert.ok(history.includes(job.outcome));
+    if (mode === "fit") assert.deepEqual(await executeProcessTrainer(client, coordinates, input, approval, selected), job);
+    removed(id, directory);
+  } finally {
+    process.env["PATH"] = path;
+    await stopComposeTrainer(directory, id, selected.image, "test-cleanup");
+  }
+}
+
+test("real Compose cancellation plus cleanup failure preserves process_cancelled and a durable diagnostic", { skip }, async () => { await cleanupFailure("hang", true); });
+test("real Compose success plus cleanup failure preserves completion and a durable diagnostic", { skip }, async () => { await cleanupFailure("fit"); });
+test("real Compose trainer failure plus cleanup failure preserves the original trainer error", { skip }, async () => { await cleanupFailure("hang"); });
+
+test("real Compose recovery plus cleanup failure preserves completed staging and a durable diagnostic", { skip }, async () => { await cleanupFailure("fit", false, true); });

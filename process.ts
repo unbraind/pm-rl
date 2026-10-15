@@ -96,6 +96,8 @@ export interface ProcessJob {
   readonly completion: ProcessCompletion | null;
   /** Recorded terminal outcome or phase description. */
   readonly outcome: string;
+  /** Cleanup diagnostics retained independently of the trainer outcome and validated completion. */
+  readonly cleanup?: { readonly code: "cleanup_failed"; readonly error: string };
 }
 /** Workspace coordinates for the SDK transaction journal. */
 export interface ProcessCoordinates {
@@ -398,25 +400,31 @@ async function executeReservedProcessJob(client: PmClient, coordinates: ProcessC
   const policy = verifiedProcessPolicy(job, coordinates.pmRoot, input);
   if (policy !== null) return transitionProcessJob(client, coordinates, job, job.state, job.outcome);
   const directory = processStaging(coordinates.pmRoot, id);
+  const diagnostics: { cleanup?: ProcessJob["cleanup"] } = {};
+  /** Attach bounded cleanup evidence to the same durable settlement, without exposing the staging path. */
+  const cleanupFailed = (error: unknown): void => { diagnostics.cleanup = { code: "cleanup_failed", error: String(error).replaceAll(directory, "<staging>").slice(0, 4096) }; };
   try {
     mkdirSync(directory, { recursive: true });
     if (job.state === "planned") {
       job = await transitionProcessJob(client, coordinates, job, "running", "launched");
-      if (adapter.kind === "compose-bandit") await launchComposeTrainer(directory, id, input, job.allowance, adapter.image, signal);
+      if (adapter.kind === "compose-bandit") await launchComposeTrainer(directory, id, input, job.allowance, adapter.image, cleanupFailed, signal);
       else await launchTrainer(directory, id, input, job.allowance, argv, signal);
     } else {
-      if (adapter.kind === "compose-bandit") await stopComposeTrainer(directory, id, adapter.image, "recovery");
+      if (adapter.kind === "compose-bandit") {
+        try { await stopComposeTrainer(directory, id, adapter.image, "recovery"); }
+        catch (error) { cleanupFailed(error); }
+      }
       else if (existsSync(join(directory, "runner.json"))) {
         const runner = JSON.parse(readFileSync(join(directory, "runner.json"), "utf8")) as { pid: number; start: string };
         stopTrainer(runner.pid, runner.start);
       }
     }
     const completion = validateProcessCompletion(directory, id, input, job.allowance);
-    return await transitionProcessJob(client, coordinates, job, "materialized", "receipt_validated", completion, completion.usage);
+    return await transitionProcessJob(client, coordinates, { ...job, ...diagnostics }, "materialized", "receipt_validated", completion, completion.usage);
   } catch (error) {
     const state = signal?.aborted === true ? "cancelled" : "failed";
     const charge = job.state === "planned" ? zeroResources() : failedProcessCharge(directory, job.allowance);
-    await transitionProcessJob(client, coordinates, job, state, isPmCliExpectedError(error) ? String(error.context.code) : "trainer_failure", null, charge);
+    await transitionProcessJob(client, coordinates, { ...job, ...diagnostics }, state, isPmCliExpectedError(error) ? String(error.context.code) : "trainer_failure", null, charge);
     throw error;
   }
 }
