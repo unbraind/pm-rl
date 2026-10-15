@@ -6,7 +6,9 @@ status: open
 priority: 3
 tags: []
 created_at: "2026-10-05T06:41:18.944Z"
-updated_at: "2026-10-05T06:41:18.944Z"
+updated_at: "2026-10-15T06:44:15.414Z"
 author: codex-sol
 parent: pm-rl-hncb
+comments[1]{created_at,author,text}:
+  "2026-10-15T06:44:15.413Z",codex-agent,"Batch 3 supplemental health: isolated HOME with the pinned CLI passes health --check-only --require-merge-drivers --strict-exit. The normal local environment fails only extension_host_pm_cli_version_skew (pinned host 2026.10.13 versus globally installed pm-github host requirement 2026.10.15). Existing stale-work and historical provenance advisories remain. No history repair, extension repin or CLI bump was performed; these remain separate from the rollout gates."
 body: ""

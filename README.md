@@ -408,10 +408,13 @@ npm run changelog:check
 The tracked managed-extension manifest records `pm-github`, but its installed
 code is ignored by Git. `npm ci` does not restore that project extension in a
 fresh checkout, so install the pinned package before using `pm github`.
-The import and sync commands above only preview changes. Review issue bodies,
-provenance, and the proposed PM diff for private data and duplicates before
-any import or push; scheduled issue sync remains disabled until that review can
-be enforced automatically.
+The import and sync commands above only preview changes. When you run them
+manually, review issue bodies, provenance, and the proposed PM diff for private
+data and duplicates before any import or push. The scheduled issue sync in
+`.github/workflows/pm-github-sync.yml` instead runs the pinned pm-github
+reusable workflow, whose automated privacy gate fails closed on suspicious
+content; it then opens a pull request with the proposed tracker changes, and a
+human reviews that pull request before it merges.
 
 ## License
 
