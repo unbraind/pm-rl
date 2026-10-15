@@ -35,6 +35,7 @@ import { asJsonObject, expectedFail, requiredTrimmedString, storedCheckpointNumb
 import { canonicalJson, type EnvironmentSpec, type JsonValue } from "./index.ts";
 import { parseLmLoopConfig, type LmLoopConfig } from "./lm.ts";
 import { parseSystemOneLoopConfig, type SystemOneLoopConfig } from "./systemone.ts";
+import { parseProcessAdapter, type ProcessAdapter, type ProcessInput } from "./process.ts";
 import type { MetricEvent } from "./series.ts";
 
 /** Format identity of a candidate generation's derived training configuration. */
@@ -63,6 +64,8 @@ const STRONG_IMPROVEMENT_FACTOR = 2;
 
 /** A complete bounded loop configuration with validated datasets and identities. */
 export interface LoopConfig {
+  /** Optional isolated process execution and per-job reservation bounds. */
+  readonly process?: ProcessAdapter;
   /** Human-readable environment family name for the registered environment. */
   readonly environmentName: string;
   /** Environment version; changed content must change this value. */
@@ -207,7 +210,13 @@ export function parseLoopConfig(raw: JsonValue): LoopConfig {
   if (!Number.isInteger(minSamples) || minSamples < 1) {
     expectedFail(`${source} min_samples must be a positive integer.`, "loop_invalid_min_samples");
   }
+  const processAdapter = record["adapter"] === undefined ? undefined : parseProcessAdapter(record["adapter"]);
+  if (processAdapter !== undefined) {
+    const heldOut = new Set(datasets.evaluation.map((example) => canonicalJson({ feature: example.feature, rewards: [...example.rewards] })));
+    if (datasets.training.some((example) => heldOut.has(canonicalJson({ feature: example.feature, rewards: [...example.rewards] })))) expectedFail("Process training and held-out content overlap.", "process_dataset_overlap");
+  }
   const config: LoopConfig = {
+    ...(processAdapter === undefined ? {} : { process: processAdapter }),
     environmentName,
     environmentVersion,
     training: datasets.training,
@@ -215,6 +224,7 @@ export function parseLoopConfig(raw: JsonValue): LoopConfig {
     trainingDigest: datasets.trainingDigest,
     evaluationDigest: datasets.evaluationDigest,
     digest: loopDigest({
+      ...(processAdapter === undefined ? {} : { adapter: processAdapter as unknown as JsonValue }),
       format: "pm-rl/loop-programme/1",
       environment: { name: environmentName, version: environmentVersion },
       trainingDigest: datasets.trainingDigest,
@@ -342,7 +352,7 @@ export function deriveNextStepConfig(config: LoopScheduleBounds, step: LoopStepC
  * @param source - The promoted checkpoint whose policy collects this batch.
  * @returns The generation's complete receipt, including its terminal condition.
  */
-export function runLoopGeneration(config: LoopConfig, step: LoopStepConfig, generation: number, source: BanditCheckpoint): BanditGeneration {
+export function runLoopGeneration(config: LoopConfig, step: LoopStepConfig, generation: number, source: BanditCheckpoint, materialized?: BanditCheckpoint): BanditGeneration {
   return executeBanditStep({
     training: config.training,
     evaluation: config.evaluation,
@@ -359,7 +369,7 @@ export function runLoopGeneration(config: LoopConfig, step: LoopStepConfig, gene
     evaluationSamples: step.evaluationSamples,
     confidence: config.confidence,
     minSamples: config.minSamples,
-  });
+  }, materialized);
 }
 
 /**
@@ -469,6 +479,7 @@ export function seedTrainingConfig(config: LoopConfig): JsonValue {
     programme: config.digest,
     initial_weight: config.initialWeight,
     configuration: {
+      ...(config.process === undefined ? {} : { adapter: config.process as unknown as JsonValue }),
       environment: { name: config.environmentName, version: config.environmentVersion },
       training: config.training.map(jsonExample),
       evaluation: config.evaluation.map(jsonExample),
@@ -538,6 +549,7 @@ export function parseLoopTrainer(raw: JsonValue): LoopTrainer {
  */
 export function parseLoopProgramme(raw: JsonValue): LoopProgramme {
   const trainer = parseLoopTrainer(raw);
+  if (trainer !== "bandit" && asJsonObject(raw, "Loop configuration")["adapter"] !== undefined) expectedFail("Process adapter requires the bandit trainer.", "process_invalid_adapter");
   if (trainer === "systemone") {
     return { trainer, config: parseSystemOneLoopConfig(raw) };
   }
@@ -694,4 +706,23 @@ export function trainerSampleSeed(base: number, generation: number, sample: numb
 export function trainerEvaluationSeeds(base: number, generation: number): readonly [number, number] {
   const incumbent = (Math.imul(generation, 0x9e3779b1) + base) >>> 0;
   return [incumbent, (incumbent + 0x6d5b5b5d) >>> 0];
+}
+
+/** Build a content-bound process request from collected bandit evidence; held-out examples stay in the evaluator. */
+export function banditProcessInput(config: LoopConfig, step: LoopStepConfig, generation: number, receipt: BanditGeneration, programmeId = config.digest): ProcessInput {
+  const environment = loopEnvironmentSpec(config);
+  return {
+    identity: { programme: config.digest, programme_id: programmeId, generation, input_checkpoint: receipt.source.digest, training: config.trainingDigest,
+      evaluation: config.evaluationDigest, environment: loopDigest(environment as unknown as JsonValue),
+      reward: loopDigest(environment.reward_specification), configuration: { ...step } },
+    source: receipt.source, training: config.training, observations: receipt.observations,
+    training_config: { learning_rate: step.learningRate, steps: 1 },
+    lineage: { training: config.trainingDigest, held_out: config.evaluationDigest, collection: receipt.collectionDigest },
+  };
+}
+
+/** Keep collection configuration independent of a process candidate that has not been trained yet. */
+export function banditCollectionConfig(config: LoopConfig, step: LoopStepConfig, generation: number, receipt: BanditGeneration): JsonValue {
+  return config.process === undefined ? generationTrainingConfig(config, step, generation, receipt)
+    : { format: "pm-rl/process-collection/1", identity: banditProcessInput(config, step, generation, receipt).identity, source: receipt.source.digest };
 }

@@ -1,0 +1,77 @@
+id: pm-rl-shgm
+title: Durable external process trainers with atomic resource reservations
+description: "Extend the recursive loop with an argv-only local trainer, content-bound jobs, staged completion receipts, atomic approved-budget reservations, real-process crash recovery and two-generation acceptance."
+type: Feature
+status: in_progress
+priority: 1
+tags: []
+created_at: "2026-10-14T19:45:40.240Z"
+updated_at: "2026-10-15T04:39:20.248Z"
+author: codex-agent
+acceptance_criteria: "Exactly one launch and reservation under contention; recover a completed staged checkpoint without retraining; cancel and settle resources; refuse missing receipts, corrupt checkpoints and exceeded limits; verify two promoted process generations and unchanged release gates"
+parent: pm-rl-apvf
+comments[12]{created_at,author,text}:
+  "2026-10-14T19:45:51.700Z",codex-agent,"Plan: extend the existing fenced controller with a trusted programme-selected process adapter, deterministic job identities, job-owned staging and digest-bound receipts. Reserve and settle resource vectors through the pinned SDK workspace coordinator against an existing approved Decision. Exercise real-process contention, staged crash recovery, cancellation and refusal paths; record two-generation checkpoint lineage and exact release gate results."
+  "2026-10-14T19:58:46.973Z",codex-agent,"Implemented the argv-only reference trainer, canonical input-bound jobs, durable completion validation and one workspace-transaction reservation per job. Protocol tests currently pass 6/6. Real SIGKILL testing exposed the pinned SDK writer-lock retention window; the process transaction wrapper now records OS birth identity and uses the existing guarded dead-owner recovery, without deleting or overwriting a successor lock."
+  "2026-10-14T20:32:17.995Z",codex-agent,"Real process acceptance: two promoted generations use distinct changed policy checkpoints; successor collection matches the preceding external checkpoint. Packed CLI held-out sampled rewards are 0.523100 and 0.551875. SIGKILL receipt recovery, SDK/controller contention, SIGTERM cancellation, budget and artifact refusals pass focused drills. Both-direction real worktree merges preserve independent allocations, metrics and lineage. Full release coverage is being completed at unchanged thresholds."
+  "2026-10-14T21:23:31.938Z",codex-agent,"Behavioural safeguard revert proofs passed in an isolated source snapshot. Removing only reserveProcessJob idempotency inspection and stable transaction identity makes the atomic reservation-once regression fail: 0 passed, 1 failed with approved training_steps budget exhausted. Restoring those safeguards and removing receipt-required acceptance checks only from launchTrainer and validateProcessCompletion lets a real fitted checkpoint with exit 0 and no completion receipt through: the receipt-required regression fails with Missing expected rejection (0 passed, 1 failed). Both corresponding regressions pass with the safeguards restored. New functions have no prior implementation, so these are explicit guard-removal reverts, not a claimed historical implementation rollback."
+  "2026-10-14T21:30:12.273Z",codex-agent,"Final failure-path review added a real child regression for identity publication failure: the spawned child is stopped and awaited before the reservation is settled; pre-existing metadata is retained. Additional real-tracker tests reject renamed held-out copies, lost/forged controller receipts, duplicate job bindings and terminal candidates with valid bytes. Child coverage reports are isolated in test fixtures so SIGKILL cannot corrupt the parent measurement; both new source files remain fully measured."
+  "2026-10-14T21:56:43.361Z",codex-agent,"The stable npm release suite passes all 563 tests; its unchanged exact gate reported 100 lines/functions and 99.95 branches overall. Two missing exercised branches were identified in index.ts: terminal external-fit cancellation wording and ignoring an ordinary non-job Task. Added real parent-AbortSignal and unrelated-Task regressions; the process-loop suite now passes 13/13. Full npm and Bun release gates are being rerun without changing thresholds or excluding authored source."
+  "2026-10-14T23:08:44.199Z",codex-agent,"The complete npm suite reports 563/564 passing and native 100/100/100 lines/branches/functions for all 27 authored files. The sole failure is the new packed CLI 15-second wall assertion under variable shared-host load; actual training and two promotions completed. The 37 other new process cases pass, consuming 288.865 seconds in that run. Reducing the new synthetic fixture to 128 samples per generation and a 256-sample programme budget keeps two genuine updates, 40000 held-out episodes and unchanged promotion criteria, resource ceilings and timing assertion. Smaller 64-sample batches were rejected by the existing gate, so they are not used. Final full npm and Bun gates remain required."
+  "2026-10-14T23:10:05.012Z",codex-agent,"Final bounded packed CLI acceptance passes 1/1 in the normal temporary directory. Both real external generations promote in 5.210 seconds with 128 collected samples each, 40000 held-out episodes and sampled rewards 0.524050 and 0.550400; generation two collects with generation ones verified process checkpoint. The 15-second command assertion and 20-second subprocess deadline are unchanged. Updated docs/process-trainer.md records exact source/candidate and artifact hashes, settled resources and the shipped examples larger declared collection budget. Both full release gates will validate this committed fixture."
+  "2026-10-15T00:29:18.739Z",codex-agent,"At d06e3cb, npm run release:check passes 564/564 with zero skipped or cancelled tests, exact 100/100/100/100 coverage across 27 authored sources, 261 documented declarations, zero duplication and a clean production audit. Added process cases total 108.298 seconds in that run. Repeated final-fixture guard-removal proofs in an isolated source snapshot: restored regressions 2/2 pass; reservation safeguard removal fails 0/1 with budget exhaustion; receipt-required removal fails 0/1 with Missing expected rejection. The first full Bun attempt passes all 38 added process tests and 563/564 overall; only the existing LM CLI benchmark fails at 20436ms against its unchanged 20000ms assertion under shared-host CPU saturation. A full Bun retry is running with the same source, fixtures, deadlines and thresholds."
+  "2026-10-15T01:02:03.209Z",codex-agent,"Delivery validation complete on implementation d06e3cb (code commits c60d280, eeb9460, c56b988, d06e3cb): npm run release:check and bun run release:check each pass 564/564, zero skipped/cancelled, exact 100/100/100/100 across 27 authored sources, 261 documented declarations, zero duplication and zero production audit findings. The unchanged Bun retry clears the existing LM deadline at 11891ms. The 38 new cases take 108.298s under npm and 127.320s under Bun; full suite times are 1946.330s and 1867.577s versus the isolated main baseline 2199.529s (raw deltas -253.199s and -331.952s, variable shared-host load). Two real external generations record rewards 0.524050 and 0.550400 and verified successor collection. Final-fixture guard-removal proofs are 2/2 restored passes and one expected failing regression for each removed safeguard. Docker Compose remains pm-rl-mjo5; local watchdog bounds detect overshoot rather than providing OS quotas. Final documentation and tracker-only changes record these receipts; authored implementation is unchanged."
+  "2026-10-15T03:49:32.797Z",claude-hub,"Review round 1 (PR 76, CodeRabbit on 01d1aaa), fixed by the orchestrator while codex was over its weekly forecast. (1) Major: reservations and status recognized a job only by the exact substring \"format\":\"pm-rl/process-job/1\", so a job body re-serialized with different JSON spacing escaped the budget. processJobBodyId now parses the body and checks its format field, reading the job by its own id (item ids carry the tracker prefix). The reservation test pretty-prints a held job and adds prose and foreign-JSON mentions of the format; the budget is still exhausted, and the old substring check fails the test. (2) Major: a stderr.log append failure threw inside the stream callback, outside the stop-and-settle path. It is now caught and passed to refuse. A read-only stderr.log test fails without the catch. (3) Minor: status replaced an established generation verdict (gap or evaluation refusal, promotion refusal) with the failed job's generic process_failed or process_invalidated. Status now keeps the inspection verdict, and only a cancellation, which leaves no verdict, sets process_cancelled. A failed job without a verdict is already refused by status (process_job_terminal), which the manually-failed-candidate test now asserts. The refusal test asserts status.stop_reason equals the run report, and fails with the old override. (4) Minor: the packed CLI test no longer asserts elapsed under 15 s; it logs the elapsed time and asserts outcomes. Gates: isolated npm and bun release:check each pass 565/565 with the exact coverage gate."
+  "2026-10-15T04:39:20.247Z",claude-hub,"Review round 2 (PR 76, CodeRabbit on 90aa4a1), fixed by the orchestrator. (1) Major: the SDK creates the workspace writer lock with the transaction author as owner before the prepared transition. With the generic author pm-rl and a 1e9-second TTL, a holder killed in that window was unrecoverable. commitProcessTransaction now passes the phase identity (pm-rl-phase:host-hash:start:author) as the transaction author, so expireDeadControllerMutex can prove such a holder dead. New test: the lock owner at prepared already carries the phase identity; it fails with the old author. (2) A single listProcessJobs helper (one body-inclusive certified listing) now serves reservations and status, replacing a per-Task read. It counts a job body only on the item that is that job, so a body copied into another task neither double-charges nor names a missing job. The new test fails without the binding. (3) The stderr append moved into appendDiagnostics, whose failure becomes a refusal. Its unit test uses a missing directory (ENOENT even for root) instead of chmod, which root bypasses. (4) docs/process-trainer.md no longer claims a 15-second assertion. Gates: isolated npm and bun release:check 567/567 with the exact coverage gate."
+files[13]{path,scope}:
+  bandit.ts,project
+  examples/loop-process.json,project
+  index.ts,project
+  loop.ts,project
+  package.json,project
+  process-bandit.ts,project
+  process.ts,project
+  test/fixtures/process-controller.ts,project
+  test/fixtures/process-trainer.ts,project
+  test/fixtures/process-workspace.ts,project
+  test/process-cli.test.ts,project
+  test/process-loop.test.ts,project
+  test/process.test.ts,project
+tests[4]:
+  - command: npm run typecheck
+    path: process.ts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-14T20:28:26.147Z"
+      source_kind: local_mutation
+      source_ref: feat/process-trainer-reservations
+  - command: node --test test/process.test.ts test/process-loop.test.ts test/process-cli.test.ts
+    scope: project
+    timeout_seconds: 300
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-14T21:23:35.265Z"
+      source_kind: local_mutation
+      source_ref: feat/process-trainer-reservations
+  - command: "npm run release:check"
+    scope: project
+    timeout_seconds: 3600
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-14T21:23:38.411Z"
+      source_kind: local_mutation
+      source_ref: feat/process-trainer-reservations
+  - command: "bun run release:check"
+    scope: project
+    timeout_seconds: 3600
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-14T21:23:42.493Z"
+      source_kind: local_mutation
+      source_ref: feat/process-trainer-reservations
+docs[3]{path,scope}:
+  docs/process-trainer.md,project
+  README.md,project
+  RECURSIVE_TRAINING.md,project
+body: ""

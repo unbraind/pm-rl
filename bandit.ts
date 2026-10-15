@@ -255,6 +255,17 @@ export function validatedBanditDatasets(programme: Pick<BanditProgramme, "traini
   return { training, evaluation, trainingDigest: digest(training), evaluationDigest: digest(evaluation) };
 }
 
+/** Fit one real REINFORCE step using only the collected actions and rewards. */
+export function fitBanditBatch(training: readonly BanditExample[], source: BanditCheckpoint, observations: readonly BanditObservation[], learningRate: number): BanditCheckpoint {
+  let gradient = 0;
+  for (const [index, observation] of observations.entries()) {
+    const feature = training[index % training.length].feature;
+    const probability = 1 / (1 + Math.exp(-source.weight * feature));
+    gradient += observation.reward * (observation.action - probability) * feature;
+  }
+  return banditCheckpoint(source.weight + learningRate * gradient / observations.length);
+}
+
 /**
  * Execute one bounded policy-gradient generation step.
  *
@@ -271,11 +282,10 @@ export function validatedBanditDatasets(programme: Pick<BanditProgramme, "traini
  * @param input - Validated datasets, bounds, the source checkpoint, and the incoming LCG state.
  * @returns The generation's complete receipt, including the advanced LCG state and terminal condition.
  */
-export function executeBanditStep(input: BanditStepInput): BanditGeneration {
+export function executeBanditStep(input: BanditStepInput, materialized?: BanditCheckpoint): BanditGeneration {
   const { training, evaluation, trainingDigest, evaluationDigest, source, generation, seed, samples, learningRate, minimumImprovement, maximumGap, evaluationSamples, confidence, minSamples } = input;
   const observations: BanditObservation[] = [];
   const actionCounts: [number, number] = [0, 0];
-  let gradient = 0;
   let randomState = input.randomState;
   for (let sample = 0; sample < samples; sample += 1) {
     const example = training[sample % training.length];
@@ -283,11 +293,10 @@ export function executeBanditStep(input: BanditStepInput): BanditGeneration {
     randomState = (Math.imul(1664525, randomState) + 1013904223) >>> 0;
     const action = (randomState / 0x1_0000_0000 < probability ? 1 : 0) as 0 | 1;
     const reward = example.rewards[action];
-    gradient += reward * (action - probability) * example.feature;
     actionCounts[action] += 1;
     observations.push({ example: example.id, action, reward });
   }
-  const candidate = banditCheckpoint(source.weight + learningRate * gradient / samples);
+  const candidate = materialized ?? fitBanditBatch(training, source, observations, learningRate);
   const baselineScore = evaluate(source.weight, evaluation);
   const trainingScore = evaluate(candidate.weight, training);
   const evaluationScore = evaluate(candidate.weight, evaluation);

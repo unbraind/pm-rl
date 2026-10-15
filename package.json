@@ -27,7 +27,11 @@
     "examples/",
     "RECURSIVE_TRAINING.md",
     "docs/durable-systemone-validation.md",
-    "docs/lm-adapter.md"
+    "docs/lm-adapter.md",
+    "dist/process.*",
+    "dist/process-bandit.*",
+    "dist/scripts/script-launcher.*",
+    "docs/process-trainer.md"
   ],
   "engines": {
     "node": ">=22.18.0"
@@ -87,7 +91,10 @@
       "test/systemone.test.ts",
       "test/transfer.test.ts",
       "test/verify-release-publish-attestation.test.ts",
-      "test/lm-cli.test.ts"
+      "test/lm-cli.test.ts",
+      "test/process.test.ts",
+      "test/process-loop.test.ts",
+      "test/process-cli.test.ts"
     ],
     "thresholds": {
       "statements": 100,
@@ -167,7 +174,8 @@
       "CHANGELOG.md",
       "RECURSIVE_TRAINING.md",
       "docs/durable-systemone-validation.md",
-      "docs/lm-adapter.md"
+      "docs/lm-adapter.md",
+      "docs/process-trainer.md"
     ],
     "examples": [
       "README.md",
@@ -176,7 +184,8 @@
       "examples/loop-bandit.json",
       "examples/metrics.ndjson",
       "examples/loop-systemone.json",
-      "examples/loop-lm.json"
+      "examples/loop-lm.json",
+      "examples/loop-process.json"
     ]
   }
 }
