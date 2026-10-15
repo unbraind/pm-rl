@@ -6,18 +6,20 @@ status: in_progress
 priority: 2
 tags[3]: execution,llm-adapter,recursive-training
 created_at: "2026-10-15T22:07:13.392Z"
-updated_at: "2026-10-15T22:29:39.962Z"
+updated_at: "2026-10-15T23:04:35.050Z"
 assignee: codex-agent
 claim_principal: codex-agent
 author: codex-agent
 acceptance_criteria: "Two real generations with successor collection; SIGKILL recovery, cancellation, corrupt checkpoint and limit refusals, one-launch contention; behavioural revert proofs and unchanged npm and Bun release gates."
 parent: pm-rl-apvf
-comments[4]{created_at,author,text}:
+comments[6]{created_at,author,text}:
   "2026-10-15T22:07:43.111Z",codex-agent,"Design: extend the existing process contract with a typed LM payload and checkpoint validator; share owner fences, atomic reservation, staged adoption, cancellation and settlement. Keep held-out examples in the controller. Bind immutable image, memory and CPU ceilings into programme and job identity; send only frozen weights, source adapter, training strings and collected rewards to a networkless non-root container. Add real recursive generations and crash/cancellation/limit/contention drills, then behavioural revert proofs and unchanged release gates."
   "2026-10-15T22:16:06.750Z",codex-agent,"First real Compose evidence: generation 1 checkpoint 058aa3d2c08438abd18cf0e9b455aca99ddb95492de852201c55c79a0672130d -> 37e503748a170be32e1d506997b6c0cc5c9ee256b24ab01fb49cf0564da07b4c; held-out sampled reward 0.183854, six steps, 1152 target tokens, observed wall 5567 ms, fit CPU 820 ms, peak RSS 138629120 bytes, retained staging 88930 bytes. Generation 2 collected with that promoted digest and trained -> 086f78992283cba37929321abe3961ca6132a52c332bf8a8387a52f22141cbdb; reward 0.292396, six steps, 1152 tokens, wall 5654 ms, CPU 803 ms, peak RSS 143323136 bytes, staging 92364 bytes. Both promoted through the existing gate. Real controller SIGKILL after completion before receipt commit recovered the same checkpoint and original reservation with one launch. Mid-fit cancellation retained input/events and process_cancelled. Full drills and coverage verification continue. The first linked run reached its default 120-second timeout; rerun will explicitly allow the complete integration duration."
   "2026-10-15T22:24:09.789Z",codex-agent,"Validated linked run: pm test pm-rl-whrd --run --progress --timeout 900 passed 8/8, zero failures/skips/cancellations/todo. Real kernel memory drill retained partial allocation evidence and daemon oom_killed=true at 201326592 bytes; the time drill began the real 1000-step fit before exceeding its 15000 ms allowance. Both refused promotion and successor collection. Two-generation execution took 54134.161 ms; independent verification/replay/status took 4470.981 ms. Canonical hashes and held-out objectives match the first measurement. Final fit resources: generation 1 wall 4297 ms, CPU 713 ms, RSS 138207232 bytes, staging 89057 bytes; generation 2 wall 4266 ms, CPU 759 ms, RSS 144183296 bytes, staging 92509 bytes; both six steps and 1152 target tokens. Daemon receipts verify memory=268435456, CPU=1, no network and non-root user. Existing Compose barrier variability is tracked in pm-rl-8nev. Revert proofs and complete release gates remain in progress."
   "2026-10-15T22:29:39.962Z",codex-agent,"Behavioural revert proofs in isolated source snapshots, unchanged tests: (1) restore only executePendingGeneration from origin/main, then node --test --test-name-pattern=\"real Compose LM promotes two\" test/lm-compose.test.ts: 0/1, no external process jobs. (2) Change only executeReservedProcessJob planned-branch guard to relaunch compose-lm running jobs, then node --test --test-name-pattern=\"real Compose LM staged completion\" test/lm-compose.test.ts: 0/1, exclusive staged input already exists instead of recovery. (3) Remove only the measured memory/token refusal in validateLmProcessCheckpoint, then node --test --test-name-pattern=\"LM real fit publishes\" test/lm-compose.test.ts: 0/1, missing expected exception for invalid measured use. Restore those functions, then node --test --test-name-pattern=\"real Compose LM promotes two|real Compose LM staged completion|LM real fit publishes\" test/lm-compose.test.ts: 3/3, zero failures/skips/cancellations/todo. No live source, tests, thresholds or container memory ceilings were changed by the proofs."
-files[16]{path,scope}:
+  "2026-10-15T22:41:43.334Z",codex-agent,The first full npm release attempt reached the existing decision-recovery SIGKILL-at-every-HTTP-to-PM-boundary test and hit its unchanged 300000 ms timeout. The case is outside the authored LM path; baseline attribution and a complete passing retry are still required. No deadline or coverage threshold has been raised. Focused LM 8/8 and restored behavioural proofs 3/3 remain passed.
+  "2026-10-15T23:04:35.050Z",codex-agent,"Gate follow-up pm-rl-bi4v now runs the two independent HTTP receipt datasets concurrently at each crash boundary, at most two scenarios active. No boundary, assertion, resource bound or test/coverage threshold changed. The paired covered case passed directly and through its PM-linked run (156944.936 ms, 1/1). This addresses the narrow serial timing margin observed in the first full release attempt. Complete fresh npm/Bun gates remain required."
+files[17]{path,scope}:
   .dockerignore,project
   compose.ts,project
   index.ts,project
@@ -30,6 +32,7 @@ files[16]{path,scope}:
   process-lm.ts,project
   process.ts,project
   test/compose.test.ts,project
+  test/decision-recovery.test.ts,project
   test/fixtures/compose.Dockerfile,project
   test/fixtures/lm-compose-trainer.ts,project
   test/fixtures/lm-compose.Dockerfile,project

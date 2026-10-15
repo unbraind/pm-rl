@@ -94,8 +94,8 @@ function launch(pmRoot: string, config: Record<string, JsonValue>, stage: string
 }
 
 test("SIGKILL at every HTTP-to-PM receipt boundary replays one decision per query", { timeout: 300000 }, async () => {
-  for (const metric of ["systemone_decision", "systemone_held_out_decision"]) {
-    for (const stage of ["remote", "response", "commit", "request"]) {
+  for (const stage of ["remote", "response", "commit", "request"]) {
+    await Promise.all(["systemone_decision", "systemone_held_out_decision"].map(async (metric) => {
       const endpoint = await receiptServer(false, stage === "remote" ? (metric === "systemone_decision" ? 1 : 3) : 0);
       const { root, pmRoot, client } = await workspace();
       const config = configValue(endpoint.baseURL);
@@ -128,7 +128,7 @@ test("SIGKILL at every HTTP-to-PM receipt boundary replays one decision per quer
         await resumeSource(client, { pmRoot, author: "receipt-test" }, { id: "recovery", approval: "approval" });
         assert.equal(endpoint.attempts(), attempts);
       } finally { process.child.kill("SIGKILL"); await process.result; endpoint.server.closeAllConnections(); endpoint.server.close(); rmSync(root, { recursive: true, force: true }); }
-    }
+    }));
   }
 });
 

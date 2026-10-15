@@ -1,0 +1,24 @@
+id: pm-rl-bi4v
+title: Keep the HTTP receipt crash drill within its unchanged timeout
+description: "The existing SIGKILL-at-every-HTTP-to-PM-boundary integration case exceeded its unchanged 300-second timeout during full instrumented release validation. Compare the same case against the main baseline, identify startup, I/O or ownership waits, and preserve every crash boundary and assertion while bringing execution inside the bound."
+type: Task
+status: in_progress
+priority: 2
+tags: []
+created_at: "2026-10-15T22:41:40.256Z"
+updated_at: "2026-10-15T23:04:28.665Z"
+assignee: codex-agent
+claim_principal: codex-agent
+author: codex-agent
+acceptance_criteria: A baseline/candidate timing reproduction identifies the cause; the real eight-boundary drill and complete release gates pass with the existing 300-second timeout and unchanged coverage thresholds.
+parent: pm-rl-apvf
+comments[4]{created_at,author,text}:
+  "2026-10-15T22:50:30.933Z",codex-agent,"Diagnostic baseline: an isolated origin/main source archive, using the same pinned dependencies, passed node --test --test-concurrency=1 --experimental-test-coverage --test-coverage-include=*.ts --test-coverage-include=scripts/*.ts --test-name-pattern=\"SIGKILL at every HTTP-to-PM\" test/decision-recovery.test.ts in 276105.853 ms (1/1). The candidate full release run reached the unchanged 300000 ms timeout. This establishes a narrow baseline timing margin; it does not by itself attribute the full-run failure. Keep all eight boundaries and the original timeout. A complete passing candidate gate is still required."
+  "2026-10-15T22:55:58.563Z",codex-agent,"The eight crash scenarios use independent trackers and synthetic servers. Run the training/held-out pair concurrently for each of the four boundaries, with at most two scenarios active. Keep every real SIGKILL, replay, physical-request, token, identity and idempotency assertion and the original 300000 ms timeout. This changes scheduling only and avoids eight serial setup/replay intervals consuming the whole wall allowance. Verify the focused case under coverage, then require complete npm and Bun release gates."
+  "2026-10-15T23:01:06.478Z",codex-agent,"The bounded pair schedule passed all eight real boundary scenarios under coverage in 254328.583 ms (1/1 test, zero skips). The isolated serial main-source diagnostic measured 276105.853 ms; the earlier serial full candidate hit 300000 ms. These are shared-host observations, not a controlled speedup claim. The diff changes only outer loop order and Promise.all of two independent metric cases; every assertion and the 300000 ms timeout remain."
+  "2026-10-15T23:04:28.665Z",codex-agent,"PM-linked verification passed: pm test pm-rl-bi4v --run --progress executed the unchanged 300000 ms inner test successfully in 156944.936 ms, 1/1 with zero failures/skips/cancellations/todo. The outer harness permits 360 seconds for startup/reporting; the test deadline remains 300 seconds. All eight real crash scenarios retain their original assertions. Full release checks will verify the final schedule with all source coverage thresholds unchanged."
+files[1]{path,scope}:
+  test/decision-recovery.test.ts,project
+tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  "node --test --test-concurrency=1 --experimental-test-coverage --test-name-pattern=\"SIGKILL at every HTTP-to-PM\" test/decision-recovery.test.ts",project,360,codex-agent,"2026-10-15T22:56:05.659Z",local_mutation,feat/lm-compose-trainer
+body: ""
