@@ -1,0 +1,17 @@
+id: pm-rl-holderprobe
+title: Investigate intermittent live-holder identity refusal under coverage
+description: "During the batch 3 isolated Node 24.19.0 Bun release gate, the existing test live local PID with unavailable probing or missing recorded identity blocks forced takeover in test/durable-loop.test.ts failed after 32460 ms. The same unchanged test passed in the full npm gate (10715 ms), and an isolated Node 26.7.0 focused retry passed 1/1 (68967 ms including successful recovery). Cause is not established; investigate interaction of real process identity probes, heartbeat or lease timing and coverage under CPU contention. The failed full attempt was stopped after preserving its failure output. No runtime or assertion change is part of this rollout; retry the complete Bun gate on the CI Node 26 line. Keep any fix in follow-up work."
+type: Issue
+status: open
+priority: 2
+tags: []
+created_at: "2026-10-15T08:33:59.676Z"
+updated_at: "2026-10-15T09:10:03.263Z"
+author: codex-agent
+comments[1]{created_at,author,text}:
+  "2026-10-15T09:10:03.263Z",codex-agent,"The same unchanged live-holder case passes in the complete successful Node 26.7.0 Bun retry at 4476.0 ms; the full retry passes 567/567 with unchanged 100% coverage floors. The isolated focused Node 26 run also passed 1/1. The first Node 24 Bun attempt had failed this case at 32460.2 ms; full Node 24 npm had passed it at 10715.8 ms. This remains an unresolved environment/timing-sensitive test observation, not a claimed runtime fix. No assertion, fixture or controller code was changed."
+files[1]{path,scope,note}:
+  test/durable-loop.test.ts,project,Existing live-holder refusal regression
+docs[1]{path,scope,note}:
+  RECURSIVE_TRAINING.md,project,Controller lease and recovery contract
+body: ""

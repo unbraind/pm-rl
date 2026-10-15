@@ -1,20 +1,38 @@
 id: pm-rl-1bpz
 title: Enable pm-github issue sync in the pm-rl tracker
-description: "Install the published pm-github extension into this repository-owned PM tracker, verify activation, run a repository-scoped GitHub issue dry run, and record the companion rollout link pm-cli-website-377e. No public user data is imported."
+description: "Enable the audited gated GitHub issue-sync caller and verify braces-free gates. Related adoption task: pm-github-aiok. Reuse the existing issue-sync Chore; retain the recursive-training epic and open follow-ups."
 type: Chore
 status: in_progress
 priority: 1
-tags: []
+tags[1]: changed
 created_at: "2026-09-26T20:12:06.225Z"
-updated_at: "2026-09-28T20:07:04.497Z"
+updated_at: "2026-10-15T12:57:41.043Z"
 author: codex
-acceptance_criteria: Managed extension manifest tracks pm-github without vendored source; pm github sync dry run targets unbraind/pm-rl and repeats idempotently; strict tracker health remains ok; any GitHub import is checked for duplicate provenance before mutation.
+acceptance_criteria: "Pinned gated sync caller matches the batch recipe; CI supports workflow_dispatch; production and development npm trees contain no braces, fast-glob or micromatch; isolated npm and Bun release gates pass at unchanged thresholds; PR 76 closeout closes only pm-rl-shgm and leaves pm-rl-apvf and open follow-ups active. Sync execution and repository settings changes are excluded."
+comments[8]{created_at,author,text}:
+  "2026-10-15T06:40:56.101Z",codex-agent,"Batch 3: use pm-github 2026.10.14 because v2026.10.15 is not published. CI already supports workflow_dispatch. Baseline npm ls braces fast-glob micromatch is empty. Refresh pm-ops to the latest published exact pin, verify isolated npm and Bun release gates, and close only delivered pm-rl-shgm through the requested PR 76 closeout plan."
+  "2026-10-15T06:41:40.323Z",codex-agent,"PR 76 closeout dry-run selected only pm-rl-shgm; skipped epic pm-rl-apvf and open follow-up pm-rl-mjo5. Applied the same plan: closed 1. Baseline and refreshed npm ls braces fast-glob micromatch are empty. No runtime code changed, so a behavioural revert proof is not applicable to this workflow/dependency-only rollout."
+  "2026-10-15T06:45:08.709Z",codex-agent,"Verified the exact fallback reusable-workflow commit aca77d29: it gates imports and opens a review PR, but does not yet regenerate the caller changelog or dispatch CI. Those capabilities are in pm-github PR 122 and need the forthcoming 2026.10.15 repin. Retaining the explicitly prescribed 2026.10.14 fallback; no sync execution or settings changes. The rollout Chore remains in progress pending orchestrator verification and repin."
+  "2026-10-15T07:36:06.445Z",codex-agent,"Isolated npm gate PASS: env HOME=\"$(mktemp -d)\" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 npm run release:check on Node 24.19.0. Tests 567/567, zero failures/skips/cancellations; 27 authored sources at unchanged 100% statements/lines/branches/functions; 261 documented declarations; zero duplicate clones and production vulnerabilities; physical-object identity audit, package dry-run and regenerated changelog check pass. Linked pm test typecheck also passed. Starting the separate isolated Bun release gate."
+  "2026-10-15T08:27:20.005Z",codex-agent,"Found existing Bun lock drift: bun.lock still named the older exact toolchain pins despite newer package.json pins on main. Regenerated with bun install --lockfile-only --ignore-scripts and verified with bun install --frozen-lockfile --lockfile-only --ignore-scripts. The declared SDK pin remains 2026.10.13; no package.json CLI bump. package-lock.json and installed pm-ops package hashes remained unchanged, so the running gate retains its verified npm graph. The refreshed Bun lock contains no braces, fast-glob or micromatch entries."
+  "2026-10-15T08:34:13.342Z",codex-agent,"First isolated Bun attempt on Node 24 reported a failure in the existing live-holder identity refusal test after 32460 ms; stopped that failed attempt rather than calling it acceptance. Full npm had passed the same case at 10715 ms. Unchanged isolated Node 26 focused retry passes 1/1 at 68967 ms including successful recovery. New follow-up pm-rl-holderprobe tracks the unresolved cause; no runtime code, fixture, timeout or assertion is changed. Starting the complete isolated Bun retry on the CI Node 26.7.0 line after Rust gates finished. Fresh frozen Bun install separately passes: 168 packages, declared CLI 2026.10.13 and pm-ops 2026.10.14, no braces/fast-glob/micromatch."
+  "2026-10-15T09:10:00.336Z",codex-agent,"Final isolated Bun retry PASS on the CI Node 26.7.0 line: env HOME=\"$(mktemp -d)\" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 bun run release:check. Tests 567/567 with zero failed/skipped/cancelled; 27 sources at unchanged 100% statements/lines/branches/functions; lint, zero duplication, 261 documented declarations, publish attestation, physical-object identity audit, production audit, pack dry-run and changelog check pass. The packed LM CLI measures 15696.6 ms against its unchanged 20000 ms assertion. The earlier Node 24 failure remains separately recorded in pm-rl-holderprobe. Alongside the complete isolated npm 567/567 pass and fresh frozen Bun install, required rollout validation is complete. No sync workflow or repository settings mutation occurred."
+  "2026-10-15T12:57:41.041Z",claude-hub,"Review (CodeRabbit on 18eb64f): README conflated the manual pre-import review with the scheduled path. Reworded: manual import/sync commands need a human review of bodies, provenance and diff before import or push; the scheduled sync runs the pinned reusable workflow's automated privacy gate (fails closed) and then opens a PR that a human reviews before merge."
 notes[4]{created_at,author,text}:
   "2026-09-26T20:13:07.666Z",codex,"Installed pm-github 2026.9.26 in project scope; activation status ok. GitHub issue list for unbraind/pm-rl has zero issues, so pm github import --dry-run --atomic planned 0 creates/0 updates and pm github sync --dry-run planned 0. Strict PM health ok=true with one existing historical provenance warning. Companion rollout owner: pm-cli-website-377e."
   "2026-09-26T20:15:35.418Z",codex,"2026-09-26: Managed manifest is the only tracked extension file; installed code stays ignored. npm:pm-github@2026.9.26 activated nine GitHub commands. Import dry-run atomic found 0 issues; sync dry-run planned 0 writes. No GitHub issue mutation was made."
   "2026-09-26T20:16:51.178Z",codex,"PR https://github.com/unbraind/pm-rl/pull/54 proposes the managed pm-github manifest. Nonempty issue import acceptance remains part of the fleet rollout because unbraind/pm-rl currently has zero issues."
   "2026-09-28T20:07:04.479Z","harness:codex",2026-09-28 CodeRabbit on PR 54 correctly found that tracked managed-extension metadata alone cannot restore ignored pm-github code after a fresh checkout. README Development now installs exact published pm-github 2026.9.26 with the repository-pinned CLI and shows atomic import and sync dry runs. Actual issue-body import and scheduled push remain behind privacy and provenance review.
-files[2]{path,scope,note}:
+files[6]{path,scope,note}:
   .agents/pm/extensions/.managed-extensions.json,project,Managed pm-github extension metadata
+  .github/workflows/pm-github-sync.yml,project,Pinned gated sync caller
+  bun.lock,project,Align tracked Bun lock with current exact manifest pins
+  package-lock.json,project,Locked dependency graph
+  package.json,project,Exact published pm-ops refresh
   README.md,project,Fresh-checkout pm-github install and privacy-reviewed sync preview
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  npm run typecheck,project,codex-agent,"2026-10-15T06:41:34.642Z",local_mutation,chore/gated-issue-sync-and-braces-free-gates
+docs[2]{path,scope,note}:
+  CHANGELOG.md,project,Generated after closeout and tracker writes
+  README.md,project,Describe the gated scheduled caller
 body: ""

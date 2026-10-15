@@ -138,7 +138,7 @@
     "jiti": "2.7.0",
     "jscpd": "5.4.1",
     "pm-changelog": "2026.10.12",
-    "pm-ops": "2026.10.12",
+    "pm-ops": "2026.10.14",
     "typescript": "7.0.2"
   },
   "peerDependencies": {
