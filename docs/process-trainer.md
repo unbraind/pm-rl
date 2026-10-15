@@ -208,7 +208,8 @@ container removal matters because Compose `down` and `rm` omit one-off `run`
 containers on supported hosts. Cleanup never removes images or host artifacts.
 A fsynced `compose-stop.json` records job, project and exit/cancellation/recovery
 reason. The job Task and append-only history contain the durable failure or
-cancellation receipt and settled charge. A failed cleanup refuses progression.
+cancellation receipt and settled charge. A failed cleanup never changes that outcome:
+it is recorded as the separate `cleanup` diagnostic described below.
 
 Recovery never launches a previously running job. It stops any surviving owned
 container, validates staged completion, then either adopts the original checkpoint
