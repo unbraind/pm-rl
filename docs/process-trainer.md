@@ -1,11 +1,11 @@
-# Durable local process trainer
+# Durable process trainers
 
 [pm-rl-shgm](../.agents/pm/features/pm-rl-shgm.toon) implements the local-process
 slice of [pm-rl-apvf](../.agents/pm/epics/pm-rl-apvf.toon). Collection, held-out
 evaluation and promotion use the existing fenced recursive controller. The
 packaged TypeScript bandit kernel performs a real REINFORCE parameter update in
 an external child. Both the numerical implementation and synthetic data are MIT.
-Docker Compose remains [pm-rl-mjo5](../.agents/pm/tasks/pm-rl-mjo5.toon).
+[pm-rl-mjo5](../.agents/pm/tasks/pm-rl-mjo5.toon) adds Docker Compose execution using the same durable job and receipt contract.
 
 ## Programme and approved resources
 
@@ -72,7 +72,7 @@ explicitly before executing a foreign branch's artifacts.
 
 ## Execution channel and completion contract
 
-The CLI chooses a fixed packaged trainer, launching Node with the script as an
+The local-process CLI chooses a fixed packaged trainer, launching Node with the script as an
 **argv array**, `shell: false`. It accepts no command field in the programme and
 never extracts executable commands from PM item text. The SDK adapter entry point
 can receive argv selected by trusted application code; it binds the launcher
@@ -86,8 +86,8 @@ actual collected actions/rewards, `training_config`, and dataset/collection
 lineage digests. Environment and reward content identities are included. The
 held-out dataset's digest is included for attribution; its examples are absent.
 Training cannot read held-out data through this input channel. Local processes
-run as the invoking user; filesystem isolation and process-tree/cgroup quotas
-belong to the Compose follow-up.
+run as the invoking user. The Compose adapter below supplies filesystem and
+container lifecycle isolation; kernel CPU/storage quotas are tracked separately.
 
 Stdout is UTF-8 line-delimited JSON. Every event has `job` and `type`:
 
@@ -147,6 +147,141 @@ possibly active fit. SIGTERM/AbortSignal stops the owned child, records
 `cancelled`, retains partial artifacts and settles its reservation. A cancelled
 external fit is terminal; another attempt requires a newly authorized programme
 identity. Completed phases before a boundary cancellation remain resumable.
+
+## Docker Compose execution
+
+A bandit programme can select the container adapter for every generation:
+
+```json
+{
+  "kind": "compose-bandit",
+  "image": "sha256:<64 lowercase hexadecimal digits from docker build --quiet>",
+  "allowance": {
+    "training_steps": 1,
+    "wall_ms": 30000,
+    "storage_bytes": 65536,
+    "compute_units": 1000,
+    "tokens": 0
+  }
+}
+```
+
+The image must already exist in the local Docker daemon and implement the stdin,
+NDJSON and staged bandit checkpoint protocol above. Mutable tags, repository
+names, arbitrary commands and extra adapter fields refuse at configuration parse.
+`docker compose run --pull never --no-deps -T` runs the image's entrypoint. The
+image identity is part of the trusted launcher digest; source-policy, dataset,
+programme and generation identities retain the existing process job schema.
+The CLI, SDK and persisted resume/status paths use the same selection. Switching
+images requires a new programme identity. The SDK's local-process argv override
+does not override a Compose image's entrypoint.
+
+The controller reserves before launch and retains launch ownership. A project
+name hashes the complete job ID and its staging location, isolating independent
+trackers even when they have identical synthetic inputs. The controller fsyncs
+an exclusive `compose.json` in the job directory and explicitly passes its file,
+project and directory on every Compose call. Ambient Compose discovery and dotenv
+loading are disabled. Only this job directory is mounted at the container's
+working directory. The generated file is additionally mounted read-only to
+prevent the trainer changing cleanup instructions. There are no host ports,
+networks, Docker socket mounts, hosted inputs or host environment forwarding.
+The root filesystem is read-only, capabilities are dropped, privilege escalation
+is disabled and the trainer uses the invoking user's numeric UID/GID. Image
+entrypoints must work within those restrictions.
+
+The container is the trainer process. The controller supplies input, applies the
+existing wall/storage watchdog and validates its stream against durable host
+files. Compute units retain the trainer-reported CPU-millisecond meaning; these
+checks do not promise CPU scheduling, a cgroup CPU-time ceiling or an OS disk quota.
+Kernel-enforced CPU/storage ceilings are tracked in
+[pm-rl-7073](../.agents/pm/tasks/pm-rl-7073.toon).
+The reservation and settlement transaction is shared with local execution.
+Failure/cancellation releases the active hold, retaining the conservative settled
+charge and original artifacts rather than assuming unknown consumption is zero.
+
+On normal exit, container death, watchdog refusal or cancellation, cleanup removes
+only the exact job-named container with matching Compose project/service labels,
+using its immutable daemon ID, then runs project-scoped `compose down`. The trainer
+is created without automatic removal so recovery and daemon auto-removal cannot
+race over container ownership. Explicit
+container removal matters because Compose `down` and `rm` omit one-off `run`
+containers on supported hosts. Cleanup never removes images or host artifacts.
+A fsynced `compose-stop.json` records job, project and exit/cancellation/recovery
+reason. The job Task and append-only history contain the durable failure or
+cancellation receipt and settled charge. A failed cleanup never changes that outcome:
+it is recorded as the separate `cleanup` diagnostic described below.
+
+Recovery never launches a previously running job. It stops any surviving owned
+container, validates staged completion, then either adopts the original checkpoint
+and settles once or commits failure with retained staging. A kill after completion
+publication and before the PM materialization commit therefore trains only once.
+A cancelled fit remains terminal. Transfer staging explicitly before resuming in
+a relocated workspace; active containers belong to their original local location.
+
+Cleanup failure is recorded independently as `cleanup: { code: "cleanup_failed", error }`
+in the durable process job body and transition history. It preserves a validated
+completion, cancellation outcome, or original trainer error. The diagnostic is
+bounded to 4,096 characters and replaces the job staging path with `<staging>`.
+Recovery uses the same separate diagnostic path; retained artifacts remain
+available for inspection when cleanup could not finish.
+
+### Real container drills
+
+Run `node --test test/compose.test.ts` from a source checkout. Its tiny local
+`test/fixtures/compose.Dockerfile` uses `node:22-alpine`, copies only the actual
+TypeScript numerical trainer and fixture entrypoint, and installs no dependencies.
+Only the base image may need a pull; trainer execution has no network and never
+pulls. The fixture performs the real REINFORCE update rather than emitting a
+prewritten checkpoint. A second locally built image publishes a partial artifact
+and waits, providing a deterministic kill/cancel barrier.
+
+The suite skips real Docker drills only when `docker compose version` fails and
+prints an explicit `SKIPPED` reason. A working Compose CLI with a failed daemon,
+image build or drill is a failure. It checks launch/receipt/replay, container kill,
+cancellation, competing real controllers, controller SIGKILL before receipt commit,
+orphan cleanup and two bounded generations with retained receipts. The second
+collection Run must identify the first promoted checkpoint; both checkpoint byte
+hashes must change. The same full coverage thresholds include the Compose source.
+
+The measured two-generation Compose drill promoted policy digests
+`2a2616b67e223fbee4480df1716b75d7542a736f574bce0eed331ac17ad90866`
+and `4242c0ffdd131a7c535bd18c42f6118e89f6cb27ed728485ddce43464d08b5c4`.
+Their exact checkpoint byte digests were
+`a81ee5538f8451969dd7d22df07ea5299dff92e4267200d760c5298a418cf66f`
+and `04205767f4fefcb97c97eedc6fc7739da446f51ab7cc050f7f3f20e5f9527452`.
+The second collection Run identifies the first promoted policy. Each job charged
+one training step and zero tokens; completion and stop receipts remained under
+its job directory. These are synthetic numerical-policy results.
+
+All 11 added cases fail with their relevant behaviour reverted in isolated source
+snapshots: the previous adapter parser (one case), previous reserved execution
+function (nine cases), or removal of the pre-launch recovery guard (one case).
+The restored implementation passes 11/11 with zero skips. No test fixture,
+coverage scope or threshold is changed by those proofs.
+
+### Compose release validation
+
+Review round 1 adds four real Compose cleanup regressions: cancellation, success,
+trainer failure and recovery of completed staging. An executable wrapper fails
+only `compose down`; container launch, training, kill and removal remain real.
+Reverting only launch cleanup handling fails the three primary-outcome cases;
+reverting only recovery cleanup handling fails the recovery case. Fixed code
+passes 4/4 through the linked PM snapshot run and both complete release gates.
+
+Both `npm run release:check` and `bun run release:check` pass **582/582 tests**,
+with zero failures, skips, cancellations or todo cases. Each gate measures exact
+**100/100/100/100** statement/line/branch/function coverage across all **28**
+authored sources, **266** documented declarations, zero duplication and zero
+production audit findings. Packaging and changelog checks pass. Dependency pins,
+coverage scope and all thresholds are unchanged.
+
+One earlier npm attempt missed the existing packed LM CLI bound: the measured
+CLI took 22.138 seconds against its unchanged 20-second limit. The same case
+measured 9.038 seconds in the passing full npm gate and 12.907 seconds in the
+passing full Bun gate. Review round 1 measured 12.623 seconds (npm) and 12.272
+seconds (Bun), also within the unchanged bound. The separate test setup time is
+not the timed CLI interval.
+[pm-rl-7c7m](../.agents/pm/tasks/pm-rl-7c7m.toon) tracks that existing variability.
 
 ## Two-generation packed CLI measurement
 
