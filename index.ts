@@ -324,7 +324,7 @@ import {
   type SystemOneObservation,
 } from "./systemone.ts";
 
-import { executeProcessTrainer, readProcessJob, processJobId, verifiedProcessPolicy, transitionProcessJob, verifyProcessJobBudget, type ProcessJob, type ProcessJobState } from "./process.ts";
+import { executeProcessTrainer, processJobBodyId, readProcessJob, processJobId, verifiedProcessPolicy, transitionProcessJob, verifyProcessJobBudget, type ProcessJob, type ProcessJobState } from "./process.ts";
 export { executeProcessTrainer, reserveProcessJob, readProcessJob, processJobId, processStaging, parseResources, parseProcessAdapter, validateProcessCompletion, referenceTrainerArgv, type ProcessJob, type ProcessCompletion, type ProcessAdapter, type ProcessInput, type Resources } from "./process.ts";
 
 import { banditCheckpoint, type BanditCheckpoint, type BanditGeneration } from "./bandit.ts";
@@ -3291,11 +3291,10 @@ async function loopProcessJobs(client: PmClient, id: string, programme: LoopProg
   for (const item of items) {
     if (item.type !== "Task") continue;
     const full = await readCompleteLoopItem(client, item.id);
-    const body = String(full.item.body);
-    if (!body.includes('"format":"pm-rl/process-job/1"')) continue;
-    const job = JSON.parse(body) as ProcessJob;
-    const binding = jsonObject(job.binding, "Process binding");
-    if (binding["programme_id"] === id) jobs.push((await readProcessJob(client, job.id))!);
+    const jobId = processJobBodyId(String(full.item.body));
+    if (jobId === null) continue;
+    const job = (await readProcessJob(client, jobId))!;
+    if (jsonObject(job.binding, "Process binding")["programme_id"] === id) jobs.push(job);
   }
   return jobs.sort((left, right) => Number(jsonObject(left.binding, "Process binding")["generation"]) - Number(jsonObject(right.binding, "Process binding")["generation"]));
 }
@@ -4033,9 +4032,13 @@ export async function rlLoopStatus(client: PmClient, id: string, pmRoot?: string
     nextGeneration = generation;
     break;
   }
+  // A verdict generation inspection established (gap, evaluation or promotion refusal) is the stop reason; a failed
+  // or invalidated job's generic state never overrides it, and such a job without a verdict is refused above
+  // (process_job_terminal). Only a cancellation stops a loop without any generation verdict.
+  const established = terminal;
   if (terminal === null && nextGeneration === null) terminal = { stopReason: "generation_limit", refusalReason: null };
-  const failedJob = processJobs.find((job) => ["failed", "cancelled", "invalidated"].includes(job.state));
-  if (failedJob !== undefined) terminal = { stopReason: failedJob.state === "cancelled" ? "process_cancelled" : failedJob.state === "invalidated" ? "process_invalidated" : "process_failed", refusalReason: failedJob.outcome };
+  const cancelledJob = processJobs.find((job) => job.state === "cancelled");
+  if (cancelledJob !== undefined && established === null) terminal = { stopReason: "process_cancelled", refusalReason: cancelledJob.outcome };
   return {
     ...(processJobs.length === 0 ? {} : { process_jobs: processJobs }),
     id,

@@ -161,6 +161,19 @@ export async function verifyProcessJobBudget(client: PmClient, job: ProcessJob):
   if (job.budget_digest !== approved.digest) expectedFail("Approved budget identity changed.", "process_budget_drift");
 }
 
+/**
+ * Identify a stored process job by its parsed format, independent of JSON spacing or key order.
+ *
+ * Returns the job's own id (item ids carry the tracker prefix, job ids do not), or null for any other body.
+ */
+export function processJobBodyId(body: string): string | null {
+  if (!body.includes("pm-rl/process-job/1")) return null;
+  try {
+    const parsed = Object(JSON.parse(body)) as { format?: unknown; id?: unknown };
+    return parsed.format === "pm-rl/process-job/1" && typeof parsed.id === "string" ? parsed.id : null;
+  } catch { return null; }
+}
+
 /** Reserve once under the workspace writer lock, counting every held or settled job on this approval. */
 export async function reserveProcessJob(client: PmClient, coordinates: ProcessCoordinates, id: string, input: ProcessInput, approval: string, allowance: Resources): Promise<ProcessJob> {
   const step: WorkspaceTransactionStep = {
@@ -171,10 +184,9 @@ export async function reserveProcessJob(client: PmClient, coordinates: ProcessCo
       const listed = certifyCompleteListResult(await client.listAllComplete({ includeBody: true }));
       const charges: Resources[] = [];
       for (const item of listed.items) {
-        const body = String(item.body);
-        if (!body.includes('"format":"pm-rl/process-job/1"')) continue;
-        const parsed = JSON.parse(body) as ProcessJob;
-        const job = await readProcessJob(client, parsed.id);
+        const jobId = processJobBodyId(String(item.body));
+        if (jobId === null) continue;
+        const job = await readProcessJob(client, jobId);
         if (job!.approval === approved.id) charges.push(job!.charge);
       }
       for (const key of RESOURCE_KEYS) {
@@ -305,7 +317,12 @@ export async function launchTrainer(directory: string, id: string, input: Proces
       poll();
     } catch (error) { refuse(error); }
   });
-  child.stderr.on("data", (chunk: Buffer) => { outputBytes += chunk.length; if (outputBytes <= 65_536) writeFileSync(join(directory, "stderr.log"), chunk, { flag: "a" }); else refuse(new Error("Trainer diagnostics exceeded channel allowance.")); });
+  child.stderr.on("data", (chunk: Buffer) => {
+    outputBytes += chunk.length;
+    if (outputBytes > 65_536) { refuse(new Error("Trainer diagnostics exceeded channel allowance.")); return; }
+    // A throw here would escape the stream callback and bypass the stop-and-settle path.
+    try { writeFileSync(join(directory, "stderr.log"), chunk, { flag: "a" }); } catch (error) { refuse(error); }
+  });
   await once(child, "spawn");
   identity = loopProcessStartTime(child.pid!);
   if (identity === null) { child.kill("SIGKILL"); await closed; expectedFail("Cannot establish trainer process identity.", "process_identity_unavailable"); }

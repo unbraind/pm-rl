@@ -116,6 +116,8 @@ test("process evaluation and promotion refusals retain the incumbent policy", as
     assert.equal(report.promoted, fault === "budget" ? 1 : 0); assert.equal(report.generations.at(-1)!.promoted, false);
     const retained = await jobs(client); assert.ok(retained.some((job) => job.state === (fault === "budget" ? "invalidated" : "failed")));
     const status = await rlLoopStatus(client, "process-reject", pmRoot); assert.equal(status.final_checkpoint, report.final_checkpoint); assert.equal(status.next_generation, null);
+    // Status keeps the generation verdict the run established instead of the failed job's generic state.
+    assert.equal(status.stop_reason, report.stop_reason);
     assert.equal((await resumeRlLoop(client, coordinates, { id: "process-reject", approval })).final_checkpoint, report.final_checkpoint);
   }
 });
@@ -172,6 +174,8 @@ test("a manually failed materialized or registered candidate cannot progress eve
     const [job] = await jobs(client); const full = (await readProcessJob(client, job.id))!;
     await client.update(job.id, { body: JSON.stringify({ ...full, state: "failed", outcome: "explicit_terminal_disposition" }) });
     await assert.rejects(resumeRlLoop(client, coordinates, { id: "process-drill", approval }), /terminal process candidate/);
+    // Without a generation verdict, status refuses a terminal job instead of presenting a resumable loop.
+    await assert.rejects(rlLoopStatus(client, "process-drill", pmRoot), /terminal process candidate/);
     const after = await client.listAllComplete({ includeBody: true }); assert.ok(!after.items.some((item) => item.type === "Generation" && String(item.body).includes('"promoted": true')));
   }
 });

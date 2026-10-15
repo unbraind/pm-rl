@@ -1,6 +1,6 @@
 /** Protocol, real child execution, atomic approved reservations and evidence corruption. */
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync, mkdirSync, symlinkSync, lstatSync, existsSync, rmSync, renameSync } from "node:fs";
+import { chmodSync, readFileSync, writeFileSync, mkdirSync, symlinkSync, lstatSync, existsSync, rmSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { commitProcessTransaction, withProcessJobFence, runRlLoop } from "../index.ts";
@@ -43,6 +43,10 @@ test("atomic reservation-once survives concurrent replay and exhausted approval"
   const reservations = await Promise.all([reserveProcessJob(client, coordinates, id, input, approval, allowance), reserveProcessJob(client, coordinates, id, input, approval, allowance)]);
   assert.deepEqual(reservations[0], reservations[1]); assert.equal(reservations[0].charge.training_steps, 1);
   assert.deepEqual(await reserveProcessJob(client, coordinates, id, input, approval, allowance), reservations[0]);
+  // A job body re-serialized with different JSON spacing still holds its charge, and prose naming the format is not a job.
+  await client.update(id, { body: JSON.stringify(reservations[0], null, 2) });
+  await client.create({ type: "Task", title: "Prose mention", body: "This note mentions pm-rl/process-job/1 in prose." });
+  await client.create({ type: "Task", title: "Foreign JSON", body: JSON.stringify({ note: "pm-rl/process-job/1" }) });
   await assert.rejects(reserveProcessJob(client, coordinates, processJobId({ ...input, identity: { foreign: true } }), { ...input, identity: { foreign: true } }, approval, allowance), /budget exhausted/);
   await assert.rejects(reserveProcessJob(client, coordinates, id, input, approval, { ...allowance, tokens: 1 }), /inputs changed/);
   await assert.rejects(reserveProcessJob(client, coordinates, id, { ...input, identity: { changed: true } }, approval, allowance), /inputs changed/);
@@ -275,4 +279,13 @@ test("identity publication failure stops the real child and settles without over
   const start = performance.now(); await assert.rejects(executeProcessTrainer(client, coordinates, input, approval, adapter), /EEXIST/);
   assert.ok(performance.now() - start < 5000); const job = (await readProcessJob(client, id))!; assert.equal(job.state, "failed"); assert.equal(job.settled, true);
   assert.equal(readFileSync(path, "utf8"), "retained identity collision");
+});
+
+test("a diagnostics write failure refuses the launch instead of escaping the stream callback", async () => {
+  const { pmRoot } = await processWorkspace(); const input = trainingInput();
+  const directory = join(pmRoot, "runtime", "stderr-blocked"); mkdirSync(directory, { recursive: true });
+  // A read-only diagnostics file makes the append fail inside the stream callback.
+  writeFileSync(join(directory, "stderr.log"), ""); chmodSync(join(directory, "stderr.log"), 0o444);
+  await assert.rejects(launchTrainer(directory, "stderr-blocked", input, allowance,
+    [process.execPath, "-e", "process.stdin.resume();process.stderr.write('diagnostic',()=>process.exit(0))"]), /EACCES|permission denied/);
 });
