@@ -324,7 +324,8 @@ import {
   type SystemOneObservation,
 } from "./systemone.ts";
 
-import { executeProcessTrainer, listProcessJobs, readProcessJob, processJobId, verifiedProcessPolicy, transitionProcessJob, verifyProcessJobBudget, type ProcessJob, type ProcessJobState } from "./process.ts";
+import { lmProcessInput, processLmTraining, verifyLmProcessJob } from "./process-lm.ts";
+import { executeProcessTrainer, listProcessJobs, readProcessJob, processJobId, verifiedProcessPolicy, transitionProcessJob, verifyProcessJobBudget, type ProcessJob, type ProcessJobState, type TrainerPolicy } from "./process.ts";
 export { executeProcessTrainer, reserveProcessJob, readProcessJob, processJobId, processStaging, parseResources, parseProcessAdapter, validateProcessCompletion, referenceTrainerArgv, type ProcessJob, type ProcessCompletion, type ProcessAdapter, type ProcessInput, type Resources } from "./process.ts";
 
 import { banditCheckpoint, type BanditCheckpoint, type BanditGeneration } from "./bandit.ts";
@@ -2513,7 +2514,7 @@ export interface RlLoopGenerationReport {
 /** The bounded terminal report of one executed recursive loop. */
 export interface RlLoopReport {
   /** Optional local process jobs with settled resource and durable completion evidence. */
-  readonly process_jobs?: readonly ProcessJob[];
+  readonly process_jobs?: readonly ProcessJob<TrainerPolicy>[];
   /** The exact condition that terminated the loop. */
   readonly stop_reason: "generation_limit" | "budget_exhausted" | "unchanged_checkpoint" | "gap_rejected" | "evaluation_rejected" | "promotion_refused" | "checkpoint_limit_exceeded" | "wall_limit_exceeded" | "process_failed" | "process_cancelled" | "process_invalidated";
   /** The registered environment item id every run and generation references. */
@@ -2581,7 +2582,7 @@ export interface RlLoopGenerationStatus {
 /** The read-only reconstruction `pm rl loop status` returns for one loop. */
 export interface RlLoopStatusReport {
   /** Retained local process lifecycle and resource outcomes, including failed jobs. */
-  readonly process_jobs?: readonly ProcessJob[];
+  readonly process_jobs?: readonly ProcessJob<TrainerPolicy>[];
   /** The loop id prefix the report was reconstructed for. */
   readonly id: string;
   /** The trainer adapter the persisted programme executes. */
@@ -3287,8 +3288,8 @@ async function appendCommentOnce(client: PmClient, id: string, text: string): Pr
 }
 
 /** Read complete process outcomes belonging to this programme instance without exposing executable paths. */
-async function loopProcessJobs(client: PmClient, id: string, programme: LoopProgramme): Promise<readonly ProcessJob[]> {
-  if (programme.trainer !== "bandit" || programme.config.process === undefined) return [];
+async function loopProcessJobs(client: PmClient, id: string, programme: LoopProgramme): Promise<readonly ProcessJob<TrainerPolicy>[]> {
+  if (programme.trainer === "systemone" || programme.config.process === undefined) return [];
   const jobs = (await listProcessJobs(client)).filter((job) => jsonObject(job.binding, "Process binding")["programme_id"] === id);
   return jobs.sort((left, right) => Number(jsonObject(left.binding, "Process binding")["generation"]) - Number(jsonObject(right.binding, "Process binding")["generation"]));
 }
@@ -3421,6 +3422,12 @@ async function inspectLmGeneration(pmRoot: string, client: PmClient, programme: 
       fail(`Loop ${request.id} generation ${generation} registered a candidate whose collection evidence is incomplete; the persisted lineage is inconsistent.`, "loop_generation_drift", EXIT_CODE.CONFLICT);
     }
     await verifyLmCheckpointArtifact(pmRoot, source, config);
+    if (config.process !== undefined) {
+      const externalInput = lmProcessInput(config, chain.step, generation, source, observations, request.id);
+      const job = await readProcessJob(client, processJobId(externalInput, request.processTrainerArgv, config.process));
+      verifyLmProcessJob(job, pmRoot, externalInput, { digest: stored.candidateCheckpoint });
+      await verifyProcessJobBudget(client, job!);
+    }
     const trainingStep = await readLoopStep(client, `${request.id}-g${generation}`, "train", input);
     const evaluationStep = await readLoopStep(client, `${request.id}-g${generation}`, "evaluate", input);
     const verified = trainingStep === null || evaluationStep === null ? verifyStoredLmGeneration(config, chain.step, source, stored, observations)
@@ -3643,6 +3650,10 @@ async function executeLoopProgramme(client: PmClient, coordinates: WorkspaceCoor
         const receipt = runLoopGeneration(programme.config, chain.step, generation, chain.current as BanditCheckpoint, inspection.advance.checkpoint as BanditCheckpoint);
         await finishProcessGeneration(client, coordinates, prepared.lease, programme.config, chain, generation, receipt, "promoted", "promotion_verified", request);
       }
+      if (programme.trainer === "lm" && programme.config.process !== undefined) {
+        const job = (await loopProcessJobs(client, request.id, programme)).find((entry) => jsonObject(entry.binding, "Process binding")["generation"] === generation)!;
+        await prepared.lease.guard(() => transitionProcessJob(client, coordinates, job, "promoted", "promotion_verified"));
+      }
       await durableLoopStep(client, prepared.lease, `${request.id}-g${generation}`, "promote",
         { input: loopStepInput(programme, chain, generation), approval: request.approval }, async () => ({ item: inspection.report.item }));
       chain.reports.push(inspection.report);
@@ -3750,8 +3761,16 @@ async function executePendingGeneration(client: PmClient, coordinates: Workspace
   } else if (programme.trainer === "lm") {
     const observations = (await readRunMetricEvents(client, runId!)).map((event, index) => parseLmCollectionEvent(event, programme.config, `Loop collection event ${index}`));
     if (observations.length !== programme.config.samplesPerGeneration) fail("LM collection evidence is incomplete.", "loop_generation_drift", EXIT_CODE.CONFLICT);
-    const trained = await durableLoopStep(client, prepared.lease, stepId, "train", input, async () =>
-      lmTrainingJson(trainLmStep(programme.config, chain.step, generation, chain.current as LmCheckpoint, observations, null)));
+    const externalInput = programme.config.process === undefined ? null : lmProcessInput(programme.config, chain.step, generation, chain.current as LmCheckpoint, observations, request.id);
+    const trained = await durableLoopStep(client, prepared.lease, stepId, "train", input, async () => {
+      if (externalInput === null) return lmTrainingJson(trainLmStep(programme.config, chain.step, generation, chain.current as LmCheckpoint, observations, null));
+      const job = await executeProcessTrainer(client, coordinates, externalInput, request.approval, programme.config.process!, request.signal);
+      return lmTrainingJson(processLmTraining(externalInput, job.completion!));
+    });
+    if (externalInput !== null) {
+      const job = (await readProcessJob(client, processJobId(externalInput, undefined, programme.config.process)))!;
+      verifyLmProcessJob(job, coordinates.pmRoot, externalInput, { digest: String(jsonObject(trained.value, "LM fit")["candidate_checkpoint"]), training: trained.value });
+    }
     const training = restoreLmTraining(trained.value, programme.config, generation, chain.current as LmCheckpoint, observations);
     if (serializeLmCheckpoint(training.candidate, programme.config).bytes <= programme.config.limits.maxCheckpointBytes) {
       await prepared.lease.guard(() => persistLmCheckpoint(coordinates.pmRoot, training.candidate, programme.config));
@@ -3761,6 +3780,7 @@ async function executePendingGeneration(client: PmClient, coordinates: Workspace
     const evaluated = await durableLoopStep(client, prepared.lease, stepId, "evaluate", input, async () =>
       lmGenerationTrainingConfig(programme.config, chain.step, evaluateLmStep(programme.config, chain.step, training, null)));
     receipt = restoreLmGeneration(evaluated.value, programme.config, chain.step, training);
+    await finishProcessGeneration(client, coordinates, prepared.lease, programme.config, chain, generation, receipt, "evaluated", "held_out_evaluated", request);
     evaluationExecuted = evaluated.executed;
   } else {
     if (programme.trainer === "systemone" && programme.config.endpoint.receiptProtocol !== undefined
@@ -3812,7 +3832,7 @@ async function executePendingGeneration(client: PmClient, coordinates: Workspace
     await prepared.lease.guard(() => appendCommentOnce(client, generationId, message));
     chain.reports.push({ generation, run: runId!, item: generationId, promoted: false,
       held_out_mean: receipt.candidateHeldOutMean, candidate_checkpoint: receipt.candidate.digest, refusal_reason: receipt.refusalReason });
-    await finishProcessGeneration(client, coordinates, prepared.lease, programme.trainer === "bandit" ? programme.config : null, chain, generation, receipt as BanditGeneration, "failed", receipt.refusalReason!, request);
+    await finishProcessGeneration(client, coordinates, prepared.lease, programme.trainer !== "systemone" ? programme.config : null, chain, generation, receipt as BanditGeneration | LmGeneration, "failed", receipt.refusalReason!, request);
     return { terminal: { stopReason: receipt.stopReason!, refusalReason: receipt.refusalReason! } };
   }
   // Promote through the existing transactional, budget-checked flow. An
@@ -3849,11 +3869,11 @@ async function executePendingGeneration(client: PmClient, coordinates: Workspace
     await prepared.lease.guard(() => appendCommentOnce(client, generationId, message));
     chain.reports.push({ generation, run: runId!, item: generationId, promoted: false,
       held_out_mean: receipt.candidateHeldOutMean, candidate_checkpoint: receipt.candidate.digest, refusal_reason: error.message });
-    await finishProcessGeneration(client, coordinates, prepared.lease, programme.trainer === "bandit" ? programme.config : null, chain, generation, receipt as BanditGeneration, "invalidated", error.message, request);
+    await finishProcessGeneration(client, coordinates, prepared.lease, programme.trainer !== "systemone" ? programme.config : null, chain, generation, receipt as BanditGeneration | LmGeneration, "invalidated", error.message, request);
     return { terminal: { stopReason: "promotion_refused", refusalReason: error.message } };
   }
   if (!promotionExecuted) fail("Completed loop promotion disagrees with an unpromoted generation", "loop_step_drift", EXIT_CODE.CONFLICT);
-  await finishProcessGeneration(client, coordinates, prepared.lease, programme.trainer === "bandit" ? programme.config : null, chain, generation, receipt as BanditGeneration, "promoted", "promotion_verified", request);
+  await finishProcessGeneration(client, coordinates, prepared.lease, programme.trainer !== "systemone" ? programme.config : null, chain, generation, receipt as BanditGeneration | LmGeneration, "promoted", "promotion_verified", request);
   await request.onPhase?.("promote", generation);
   failIfLoopCancelled(signal, request.id, generation, "successor collection");
   chain.reports.push({ generation, run: runId!, item: generationId, promoted: true,
@@ -3866,9 +3886,10 @@ async function executePendingGeneration(client: PmClient, coordinates: Workspace
 }
 
 /** Advance the process lifecycle alongside the existing held-out and promotion gates. */
-async function finishProcessGeneration(client: PmClient, coordinates: WorkspaceCoordinates, lease: ControllerLease, config: LoopConfig | null, chain: LoopChain, generation: number, receipt: BanditGeneration, state: ProcessJobState, outcome: string, request: RlLoopRequest): Promise<void> {
+async function finishProcessGeneration(client: PmClient, coordinates: WorkspaceCoordinates, lease: ControllerLease, config: LoopConfig | LmLoopConfig | null, chain: LoopChain, generation: number, receipt: BanditGeneration | LmGeneration, state: ProcessJobState, outcome: string, request: RlLoopRequest): Promise<void> {
   if (config?.process === undefined) return;
-  const input = banditProcessInput(config, chain.step, generation, receipt, request.id);
+  const input = "baseDigest" in config ? lmProcessInput(config, chain.step, generation, (receipt as LmGeneration).source, (receipt as LmGeneration).observations, request.id)
+    : banditProcessInput(config, chain.step, generation, receipt as BanditGeneration, request.id);
   await lease.guard(async () => {
     const job = (await readProcessJob(client, processJobId(input, request.processTrainerArgv, config.process)))!;
     await verifyProcessJobBudget(client, job);

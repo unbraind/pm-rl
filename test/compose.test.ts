@@ -4,7 +4,7 @@ import { execFileSync, fork, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { setTimeout } from "node:timers/promises";
-import { test } from "node:test";
+import { after, test } from "node:test";
 import { composeConfiguration, composeProject, launchComposeTrainer, stopComposeTrainer } from "../compose.ts";
 import { resumeRlLoop, rlLoopStatus } from "../index.ts";
 import { executeProcessTrainer, listProcessJobs, parseProcessAdapter, processJobId, processStaging, readProcessJob, reserveProcessJob, transitionProcessJob, type ProcessAdapter } from "../process.ts";
@@ -17,12 +17,13 @@ const skip = version.status === 0 ? false : `SKIPPED: docker compose version fai
 const allowance = { training_steps: 1, wall_ms: 30_000, storage_bytes: 65_536, compute_units: 1000, tokens: 0 };
 const budget = { ...allowance, training_steps: 2, wall_ms: 60_000, storage_bytes: 131_072, compute_units: 2000 };
 const images = new Map<string, string>();
+after(() => { for (const image of new Set(images.values())) execFileSync("docker", ["image", "rm", "--force", image], { stdio: "ignore" }); });
 
 /** Build only a local fixture plus the Node base; a build or daemon failure is a hard test failure. */
 function adapter(mode = "fit"): ProcessAdapter {
   let image = images.get(mode);
   if (image === undefined) {
-    image = execFileSync("docker", ["build", "--quiet", "--file", "test/fixtures/compose.Dockerfile", "--build-arg", `MODE=${mode}`, "."], { encoding: "utf8", timeout: 120_000 }).trim();
+    image = execFileSync("docker", ["build", "--quiet", "--tag", `pm-rl-bandit-${mode}`, "--file", "test/fixtures/compose.Dockerfile", "--build-arg", `MODE=${mode}`, "."], { encoding: "utf8", timeout: 120_000 }).trim();
     assert.match(image, /^sha256:[a-f0-9]{64}$/u); images.set(mode, image);
   }
   return { kind: "compose-bandit", image, allowance };

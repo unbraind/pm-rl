@@ -213,6 +213,7 @@ export function parseLoopConfig(raw: JsonValue): LoopConfig {
   const processAdapter = record["adapter"] === undefined ? undefined : parseProcessAdapter(record["adapter"]);
   if (processAdapter !== undefined) {
     const heldOut = new Set(datasets.evaluation.map((example) => canonicalJson({ feature: example.feature, rewards: [...example.rewards] })));
+    if (processAdapter.kind === "compose-lm") expectedFail("Bandit requires a bandit process adapter.", "process_invalid_adapter");
     if (datasets.training.some((example) => heldOut.has(canonicalJson({ feature: example.feature, rewards: [...example.rewards] })))) expectedFail("Process training and held-out content overlap.", "process_dataset_overlap");
   }
   const config: LoopConfig = {
@@ -549,7 +550,7 @@ export function parseLoopTrainer(raw: JsonValue): LoopTrainer {
  */
 export function parseLoopProgramme(raw: JsonValue): LoopProgramme {
   const trainer = parseLoopTrainer(raw);
-  if (trainer !== "bandit" && asJsonObject(raw, "Loop configuration")["adapter"] !== undefined) expectedFail("Process adapter requires the bandit trainer.", "process_invalid_adapter");
+  if (trainer === "systemone" && asJsonObject(raw, "Loop configuration")["adapter"] !== undefined) expectedFail("Process adapter requires the bandit trainer.", "process_invalid_adapter");
   if (trainer === "systemone") {
     return { trainer, config: parseSystemOneLoopConfig(raw) };
   }

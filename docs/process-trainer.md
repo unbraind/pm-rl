@@ -78,7 +78,7 @@ never extracts executable commands from PM item text. The SDK adapter entry poin
 can receive argv selected by trusted application code; it binds the launcher
 selection digest into job identity. Those argv values are not persisted in the
 tracker. Custom launchers must implement this same bandit checkpoint contract;
-additional model formats require a separately validated adapter.
+the LM adapter supplies its model-specific validator through this same execution contract (see [LM Compose validation](lm-adapter.md#external-compose-trainer-2026-10-16)).
 
 The child receives one JSON request on stdin, then EOF. It contains `job` and
 `input`: the programme/generation/input-policy identities, training examples,
@@ -228,7 +228,7 @@ available for inspection when cleanup could not finish.
 ### Real container drills
 
 Run `node --test test/compose.test.ts` from a source checkout. Its tiny local
-`test/fixtures/compose.Dockerfile` uses `node:22-alpine`, copies only the actual
+`test/fixtures/compose.Dockerfile` pins `node:24-alpine` by digest, copies only the actual
 TypeScript numerical trainer and fixture entrypoint, and installs no dependencies.
 Only the base image may need a pull; trainer execution has no network and never
 pulls. The fixture performs the real REINFORCE update rather than emitting a

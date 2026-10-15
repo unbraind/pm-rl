@@ -4,7 +4,7 @@
 [`pm-rl-apvf`](../.agents/pm/epics/pm-rl-apvf.toon), implements criterion 2 in
 [RECURSIVE_TRAINING.md](../RECURSIVE_TRAINING.md). It runs through the existing
 controller, controller lease, replay, Hoeffding gate and transactional promotion
-path. External Docker trainers remain open.
+path. The external Compose adapter shares that controller and the durable process contract described below.
 
 ## Model and learning contract
 
@@ -164,3 +164,119 @@ thresholds of 100/100/100/100, docstrings, lint, zero jscpd duplication, identit
 and production dependency audits, packed contents and generated changelog.
 `bun run release:check` runs the repository's existing Node-based quality gates;
 the direct Bun tests separately exercise the adapter and packed CLI with Bun.
+
+
+## External Compose trainer, 2026-10-16
+
+[pm-rl-whrd](../.agents/pm/features/pm-rl-whrd.toon) extends the existing
+[process contract](process-trainer.md) with `adapter.kind: "compose-lm"`.
+It uses the same job identity, SDK owner fences, atomic reservation, staged
+completion validation, cancellation, settlement and recovery. The container
+performs the real TypeScript REINFORCE update; the controller evaluates its
+candidate on held-out data and uses the existing promotion gate.
+
+Build from the source checkout with:
+
+```sh
+docker build --tag pm-rl-lm-trainer --file lm-trainer.Dockerfile .
+docker image inspect pm-rl-lm-trainer --format '{{.Id}}'
+```
+
+Put that immutable image ID in the programme's adapter before execution:
+
+```json
+{
+  "kind": "compose-lm",
+  "image": "sha256:<local immutable image ID>",
+  "memory_bytes": 268435456,
+  "cpus": 1,
+  "allowance": {
+    "training_steps": 6,
+    "wall_ms": 60000,
+    "storage_bytes": 2097152,
+    "compute_units": 60000,
+    "tokens": 100000
+  }
+}
+```
+
+The programme retains the existing explicit MIT model/data licences, 4,096
+parameter cap, 65,536-byte checkpoint cap and 256-step total optimizer bound.
+The measured programme uses two generations, 64 collected completions each,
+1,600 held-out episodes per policy and the unchanged confidence/improvement/gap
+gates. An independently created approval Decision permits two promotions and
+supplies `resource_budget` covering both complete per-job allowances. The
+controller never expands that Decision. Adapter step and wall allowances must
+agree with the LM programme; image, CPU and memory changes alter its identity.
+
+The Dockerfile pins Node's base by SHA-256 and executes a TypeScript entrypoint
+as a non-root user. Compose also sets a non-root numeric UID/GID, read-only root,
+dropped capabilities, no privilege escalation, no network, no ports, no host
+environment forwarding and a PID cap. `mem_limit` and `memswap_limit` enforce
+the declared memory ceiling with no extra swap; `cpus` limits CPU scheduling.
+The image installs only locked package dependencies during build. Training uses
+`--pull never` and has no network. It mounts only job staging; its serialized
+training request and Compose configuration are additionally mounted read-only.
+The request contains frozen tensors, source adapter, training strings and the
+actual collected completions/rewards. Held-out examples and tracker access are
+absent. Frozen weights are restored without repeating pretraining.
+
+The completion receipt binds canonical checkpoint bytes, source policy,
+training/dataset identities, losses, parameter delta and real tensors. It reports
+actual optimizer steps, fit CPU milliseconds, target tokens optimized across
+those steps, peak resident memory, wall milliseconds and checkpoint bytes.
+The controller additionally measures startup-through-completion wall time and
+all retained staging bytes. Surrogate diagnostic passes are included in CPU and
+wall use; `tokens` counts optimized collected target tokens. Bootstrap and
+protocol processing are outside the fit CPU interval. Cleanup retains a compact
+`compose-stop.json` containing daemon-observed memory/CPU configuration,
+network/user isolation, exit code and OOM status. Unknown failed-job consumption
+settles conservatively against the whole reservation and retained evidence.
+
+The validated PM-linked real run produced the following canonical checkpoint hashes.
+Each source hash equals the prior promoted candidate, and the second collection
+Run's component was independently checked against generation one's digest.
+
+| Generation | Collecting checkpoint SHA-256 | Candidate checkpoint SHA-256 | Held-out sampled reward | Fit wall ms, including startup | Fit CPU ms | Peak RSS bytes | Optimized tokens |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 1 | `058aa3d2c08438abd18cf0e9b455aca99ddb95492de852201c55c79a0672130d` | `37e503748a170be32e1d506997b6c0cc5c9ee256b24ab01fb49cf0564da07b4c` | 0.183854 | 4297 | 713 | 138207232 | 1152 |
+| 2 | `37e503748a170be32e1d506997b6c0cc5c9ee256b24ab01fb49cf0564da07b4c` | `086f78992283cba37929321abe3961ca6132a52c332bf8a8387a52f22141cbdb` | 0.292396 | 4266 | 759 | 144183296 | 1152 |
+
+Both candidates promoted. The execution took 54.134 seconds on a shared host; independent reconstruction,
+replay and status checks took another 4.471 seconds. Each fit charged six steps;
+retained staging occupied 89,057 / 92,509 bytes. These are synthetic rotate-task
+results over an adaptive validation set, with the same numerical model as the
+in-process adapter, and do not establish broad language capability.
+
+`test/lm-compose.test.ts` exercises the same trainer through real stdin/stdout
+and Docker Compose. Its Docker availability gate is identical to the existing
+Compose suite: skip only when `docker compose version` fails; a failed daemon,
+build or drill with an available CLI is a failure. All authored sources retain
+the existing exact 100/100/100/100 coverage thresholds.
+
+
+Real-container drills retained attributable evidence:
+
+- A controller SIGKILL after checkpoint/completion fsync and before the PM receipt
+  commit recovered byte-identical artifacts, promoted once and settled the
+  original six-step charge, with exactly one launch marker.
+- Cancellation after the real fit's first progress event killed only the owned
+  container, retained its read-only input and events and settled `process_cancelled`.
+- A corrupted real fit checkpoint failed digest validation; a real allocation
+  beyond a 192 MiB container ceiling recorded Docker `oom_killed: true`; a
+  1,000-step real LM fit crossed its 15-second wall allowance after its progress
+  event. Both refused promotion.
+  Each failure retained staging, settled its reservation and collected no successor.
+- Two real controllers contended for one programme: one received
+  `loop_controller_active`; the winner launched one container and created one
+  settled reservation. Resume adopted the same completed generation.
+
+Behavioural revert proofs used isolated source snapshots with unchanged tests:
+restoring only `executePendingGeneration` from the pre-feature implementation
+failed the two-generation test because external job receipts were absent (0/1);
+forcing LM jobs through the launch branch of `executeReservedProcessJob` instead
+of staged recovery failed the SIGKILL test on exclusive existing input evidence
+(0/1); removing only the measured memory/token refusal in
+`validateLmProcessCheckpoint` failed its invalid-use regression (0/1).
+The restored snapshot passed all three cases, with zero skips. These proofs
+neither removed the live container memory ceiling nor altered the package worktree.

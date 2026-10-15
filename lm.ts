@@ -31,6 +31,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { link, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import { parseProcessAdapter, type ProcessAdapter } from "./process.ts";
 import { EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
 
 import { canonicalJson, type EnvironmentSpec, type JsonValue } from "./index.ts";
@@ -402,8 +403,13 @@ export interface LmLimits {
   readonly datasetLicense: string;
 }
 
+/** Training-only numerical inputs, excluding held-out examples and evaluation configuration. */
+export type LmFitConfig = Pick<LmLoopConfig, "shape" | "base" | "baseDigest" | "alphabet" | "training" | "trainingDigest" | "fitSteps" | "klWeight" | "clipNorm" | "limits">;
+
 /** A complete validated language-model loop programme. */
 export interface LmLoopConfig {
+  /** Optional external Compose LM execution, declared before collection. */
+  readonly process?: ProcessAdapter;
   /** Human-readable environment family name for the registered environment. */
   readonly environmentName: string;
   /** Environment version; changed content must change this value. */
@@ -603,7 +609,7 @@ function jsonLmWeights(shape: LmModelShape, weights: LmWeights): JsonValue {
 }
 
 /** Restore declared frozen weights with exact Float32 shapes and their content identity. */
-function restoreLmBase(value: JsonValue, shape: LmModelShape): LmWeights {
+export function restoreLmBase(value: JsonValue, shape: LmModelShape): LmWeights {
   const envelope = asJsonObject(value, "LM frozen base", "lm_invalid_checkpoint");
   const record = asJsonObject(envelope["weights"], "LM frozen weights", "lm_invalid_checkpoint");
   const rawLayers = record["layers"];
@@ -1787,7 +1793,7 @@ function sampledHeldOutMean(config: LmLoopConfig, generation: number, adapter: L
  * @param wallMs - The persisted wall milliseconds to replay, or null to measure this execution.
  * @returns The generation's complete receipt, including its terminal condition.
  */
-export function trainLmStep(config: LmLoopConfig, step: LoopStepConfig, generation: number, source: LmCheckpoint, observations: readonly LmObservation[], wallMs: number | null): LmTraining {
+export function trainLmStep(config: LmFitConfig, step: LoopStepConfig, generation: number, source: LmCheckpoint, observations: readonly LmObservation[], wallMs: number | null): LmTraining {
   const startedAt = wallMs === null ? performance.now() : 0;
   const samples: LmFitSample[] = observations.map((observation) => {
     const example = config.training.find((candidate) => candidate.id === observation.example);
@@ -1881,13 +1887,13 @@ export function lmTrainingJson(training: LmTraining): JsonValue {
 }
 
 /** Bind the collected completions to the policy and declared training dataset. */
-function lmCollectionDigest(config: LmLoopConfig, source: LmCheckpoint, observations: readonly LmObservation[]): string {
+function lmCollectionDigest(config: Pick<LmLoopConfig, "trainingDigest">, source: LmCheckpoint, observations: readonly LmObservation[]): string {
   return lmDigest({ source: source.digest, trainingDigest: config.trainingDigest,
     collection: observations.map((observation) => ({ example: observation.example, tokens: [...observation.tokens], reward: observation.reward })) });
 }
 
 /** Restore a durable fit, verifying checkpoint, collection and parameter-delta identities without fitting. */
-export function restoreLmTraining(value: JsonValue, config: LmLoopConfig, generation: number, source: LmCheckpoint, observations: readonly LmObservation[]): LmTraining {
+export function restoreLmTraining(value: JsonValue, config: LmFitConfig, generation: number, source: LmCheckpoint, observations: readonly LmObservation[]): LmTraining {
   const record = asJsonObject(value, "LM training step", "lm_invalid_training_config");
   const candidate = lmCheckpoint(parseLmAdapter(record["candidate_adapter"], config.shape, "LM training step"), config);
   const collectionDigest = lmCollectionDigest(config, source, observations);
@@ -2153,7 +2159,10 @@ export function parseLmLoopConfig(raw: JsonValue): LmLoopConfig {
   if (serializeLmCheckpoint(initial, { baseDigest, shape }).bytes > maxCheckpointBytes) {
     expectedFail(`LM loop configuration limits max_checkpoint_bytes ${maxCheckpointBytes} cannot hold the serialized seed checkpoint; the programme is unbounded as declared.`, "lm_limit_checkpoint_bytes");
   }
+  const external = record["adapter"] === undefined ? undefined : parseProcessAdapter(record["adapter"]);
+  if (external !== undefined && (external.kind !== "compose-lm" || external.allowance.training_steps !== fitSteps || external.allowance.wall_ms > maxWallSeconds * 1000)) expectedFail("LM requires a Compose LM adapter matching its fit and wall limits.", "process_invalid_adapter");
   const config: LmLoopConfig = {
+    ...(external === undefined ? {} : { process: external }),
     environmentName,
     environmentVersion,
     alphabet,
@@ -2182,6 +2191,7 @@ export function parseLmLoopConfig(raw: JsonValue): LmLoopConfig {
     digest: "",
   };
   return { ...config, digest: lmDigest({
+    ...(external === undefined ? {} : { adapter: external as unknown as JsonValue }),
     format: LM_PROGRAMME_FORMAT,
     environment: { name: environmentName, version: environmentVersion },
     task: "rotate",
@@ -2201,6 +2211,7 @@ export function parseLmLoopConfig(raw: JsonValue): LmLoopConfig {
 export function lmConfigurationJson(config: LmLoopConfig): JsonValue {
   return {
     trainer: "lm",
+    ...(config.process === undefined ? {} : { adapter: config.process as unknown as JsonValue }),
     frozen_base: { weights: jsonLmWeights(config.shape, config.base), digest: config.baseDigest },
     environment: { name: config.environmentName, version: config.environmentVersion },
     task: "rotate",

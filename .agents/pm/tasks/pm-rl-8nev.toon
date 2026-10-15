@@ -1,0 +1,13 @@
+id: pm-rl-8nev
+title: Stabilize Compose cancellation barrier diagnostics under shared host load
+description: "The existing cancellation-plus-cleanup-failure drill missed its partial-artifact barrier during concurrent package validation, then reported the wall watchdog refusal. Preserve current bounds while making trainer startup, timeout attribution and cleanup deterministic under shared host load. This predates the LM integration; its full release gate will independently verify the unchanged case."
+type: Task
+status: open
+priority: 3
+tags: []
+created_at: "2026-10-15T22:23:36.056Z"
+updated_at: "2026-10-15T22:23:36.056Z"
+author: codex-agent
+acceptance_criteria: "Reproduce the startup/barrier timing condition with real containers, retain cleanup evidence and distinguish startup delay from a trainer cancellation failure without weakening resource or coverage limits."
+parent: pm-rl-mjo5
+body: ""
