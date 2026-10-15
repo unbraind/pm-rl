@@ -1,5 +1,6 @@
 /** Real Docker Compose contract, container death, cancellation, controller races and successor collection. */
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { execFileSync, fork, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { delimiter, join } from "node:path";
@@ -17,13 +18,15 @@ const skip = version.status === 0 ? false : `SKIPPED: docker compose version fai
 const allowance = { training_steps: 1, wall_ms: 30_000, storage_bytes: 65_536, compute_units: 1000, tokens: 0 };
 const budget = { ...allowance, training_steps: 2, wall_ms: 60_000, storage_bytes: 131_072, compute_units: 2000 };
 const images = new Map<string, string>();
+const imageRun = randomUUID();
+const imageOwner = process.env["PM_RL_VALIDATION_OWNER"] ?? `pm-rl-${imageRun}`;
 after(() => { for (const image of new Set(images.values())) execFileSync("docker", ["image", "rm", "--force", image], { stdio: "ignore" }); });
 
 /** Build only a local fixture plus the Node base; a build or daemon failure is a hard test failure. */
 function adapter(mode = "fit"): ProcessAdapter {
   let image = images.get(mode);
   if (image === undefined) {
-    image = execFileSync("docker", ["build", "--quiet", "--tag", `pm-rl-bandit-${mode}`, "--file", "test/fixtures/compose.Dockerfile", "--build-arg", `MODE=${mode}`, "."], { encoding: "utf8", timeout: 120_000 }).trim();
+    image = execFileSync("docker", ["build", "--quiet", "--tag", `pm-rl-bandit-${mode}-${imageRun}`, "--label", `pm-rl-validation-run=pm-rl-${imageRun}`, "--label", `pm-rl-validation-owner=${imageOwner}`, "--file", "test/fixtures/compose.Dockerfile", "--build-arg", `MODE=${mode}`, "."], { encoding: "utf8", timeout: 120_000 }).trim();
     assert.match(image, /^sha256:[a-f0-9]{64}$/u); images.set(mode, image);
   }
   return { kind: "compose-bandit", image, allowance };
@@ -143,14 +146,21 @@ test("real Compose completed staging survives controller SIGKILL before receipt 
 
 test("real Compose recovery terminates an orphan trainer without relaunching a running job", { skip }, async () => {
   const { client, coordinates, approval, pmRoot } = await processWorkspace(budget); const selected = adapter("hang");
-  const running = controller(pmRoot, approval, "cancel", selected);
+  const running = controller(pmRoot, approval, "running", selected);
   let id = "";
-  for (let attempt = 0; attempt < 600; attempt += 1) { const jobs = await listProcessJobs(client); if (jobs.length === 1) { id = jobs[0].id; break; } await setTimeout(25); }
-  assert.ok(id); const directory = processStaging(pmRoot, id); await partial(directory);
-  running.child.kill("SIGKILL"); await running.result;
-  await assert.rejects(resumeRlLoop(client, coordinates, { id: "process-drill", approval }), /no completion receipt/);
-  const job = (await readProcessJob(client, id))!; assert.equal(job.state, "failed"); assert.equal(job.settled, true);
-  assert.ok(existsSync(join(directory, "partial.json"))); assert.equal(readFileSync(join(directory, "launches.ndjson"), "utf8").trim().split("\n").length, 1); removed(id, directory);
+  try {
+    // Observe the real running-job write before timing trainer startup; no repeated tracker reads compete with reservation.
+    await running.ready();
+    const jobs = await listProcessJobs(client); assert.equal(jobs.length, 1); assert.equal(jobs[0].state, "running"); id = jobs[0].id;
+    const directory = processStaging(pmRoot, id); running.child.send("continue"); await partial(directory);
+    running.child.kill("SIGKILL"); await running.result;
+    await assert.rejects(resumeRlLoop(client, coordinates, { id: "process-drill", approval }), /no completion receipt/);
+    const job = (await readProcessJob(client, id))!; assert.equal(job.state, "failed"); assert.equal(job.settled, true);
+    assert.ok(existsSync(join(directory, "partial.json"))); assert.equal(readFileSync(join(directory, "launches.ndjson"), "utf8").trim().split("\n").length, 1); removed(id, directory);
+  } finally {
+    running.child.kill("SIGKILL"); await running.result;
+    if (id.length > 0 && selected.kind === "compose-bandit") await stopComposeTrainer(processStaging(pmRoot, id), id, selected.image, "test-cleanup");
+  }
 });
 
 test("real Compose two-generation run changes checkpoints and collects with the promoted successor", { skip }, async (t) => {
