@@ -265,7 +265,7 @@ Real-container drills retained attributable evidence:
 - A corrupted real fit checkpoint failed digest validation; a real allocation
   beyond a 192 MiB container ceiling recorded Docker `oom_killed: true`; a
   1,000-step real LM fit crossed its 15-second wall allowance after its progress
-  event. Both refused promotion.
+  event. All three refused promotion.
   Each failure retained staging, settled its reservation and collected no successor.
 - Two real controllers contended for one programme: one received
   `loop_controller_active`; the winner launched one container and created one
@@ -286,3 +286,39 @@ reported process wall time before held-out evaluation. Removing only that guard
 fails the unchanged real-fit invalid-time regression (0/1); restoring it passes
 1/1, including through PM-linked execution. This closes inconsistent staged
 clock evidence without expanding any allowance.
+
+
+The completed release gates ran at source/test commit `f405171` with unchanged
+thresholds and the complete authored-source inventory:
+
+| Command | Passed | Failed / skipped | Statements / lines / branches / functions |
+| --- | ---: | ---: | --- |
+| `npm run release:check` | 590 / 590 | 0 / 0 | 100 / 100 / 100 / 100 |
+| `bun run release:check` | 590 / 590 | 0 / 0 | 100 / 100 / 100 / 100 |
+
+Both runs covered all 30 authored sources, documented all 272 declarations,
+found zero duplicate clones and zero production vulnerabilities, approved the
+identity and publish-attestation audits, verified the 105-file package and
+confirmed the generated changelog. Node was 24.19.0; npm was 11.17.0 and Bun
+was 1.3.5. Each gate used a separate regular checkout, isolated HOME/Git
+configuration and executable RAM-backed temporary trackers. The measured
+PM-linked 8/8 real-container suite above used ordinary filesystem storage.
+The RAM-backed gates establish logical recovery and coverage; the separate
+drills exercise process-death recovery with fsynced files, without a physical
+power-loss claim. Final documentation and tracker receipts preserve the gated
+source and test bytes.
+
+The existing Compose orphan fixture now observes the persisted running-job
+barrier before its unchanged startup interval. The eight HTTP receipt crash
+scenarios retain every assertion and their 300-second deadline, execute in
+bounded pairs and explicitly prevent killed children from inheriting coverage.
+Validation workers own unique image names and labels. The System One and bandit
+terminal-refusal acceptance case checks that the shared lifecycle helper creates
+no external job for either in-process adapter.
+
+Earlier failed attempts are retained as diagnostic PM comments and excluded
+from the completed gate results. The unchanged 20-second packed LM CLI bound
+passed at 11.716 seconds in the completed npm run and 9.621 seconds in Bun;
+a separate same-source attempt measured 23.890 seconds and failed. This timing
+variability remains open in [pm-rl-7c7m](../.agents/pm/tasks/pm-rl-7c7m.toon).
+Storage retains the shared watchdog rather than a hard filesystem quota.
