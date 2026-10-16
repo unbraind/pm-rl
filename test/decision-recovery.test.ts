@@ -83,14 +83,23 @@ test("built receipt recovery reconciles a lost HTTP response without a second in
 
 /** Fork the built controller and fail promptly if it exits before the requested crash barrier. */
 function launch(pmRoot: string, config: Record<string, JsonValue>, stage: string, metric: string, step: number) {
-  const child = fork(new URL("./fixtures/decision-controller.ts", import.meta.url), [pmRoot, JSON.stringify(config), stage, metric, String(step)], { stdio: ["ignore", "pipe", "pipe", "ipc"] });
+  const child = fork(new URL("./fixtures/decision-controller.ts", import.meta.url), [pmRoot, JSON.stringify(config), stage, metric, String(step)], { cwd: join(pmRoot, "..", ".."), stdio: ["ignore", "pipe", "pipe", "ipc"], execArgv: [], env: { ...process.env, NODE_V8_COVERAGE: undefined } });
   let output = ""; child.stderr!.on("data", (data: Buffer) => { output += data.toString(); });
   const result = new Promise<void>((resolve) => { child.once("exit", () => resolve()); });
+  // Killed built-code children cannot flush useful source counters; the parent exercises every authored source.
+  const uninstrumented = new Promise<void>((resolve, reject) => {
+    child.on("message", (value: unknown) => {
+      if (value !== null && typeof value === "object" && "coverage" in value) {
+        if (value.coverage === false) resolve(); else reject(new Error("SIGKILL controller inherited V8 coverage"));
+      }
+    });
+    child.once("exit", () => reject(new Error(`controller ended before bootstrap: ${output}`)));
+  });
   const ready = stage === "remote" ? Promise.resolve() : new Promise<void>((resolve, reject) => {
-    child.on("message", (value: unknown) => { if (value === "ready") resolve(); else reject(new Error(JSON.stringify(value))); });
+    child.on("message", (value: unknown) => { if (value !== null && typeof value === "object" && "coverage" in value) return; if (value === "ready") resolve(); else reject(new Error(JSON.stringify(value))); });
     child.once("exit", () => reject(new Error(`controller ended before barrier: ${output}`)));
   });
-  return { child, ready, result };
+  return { child, ready, result, uninstrumented };
 }
 
 test("SIGKILL at every HTTP-to-PM receipt boundary replays one decision per query", { timeout: 300000 }, async () => {
@@ -102,8 +111,8 @@ test("SIGKILL at every HTTP-to-PM receipt boundary replays one decision per quer
       config.decision_model = { base_url: endpoint.baseURL, model: "tev1:4b", timeout_ms: 10000, receipt_protocol: "idempotency-v1" };
       const process = launch(pmRoot, config, stage, metric, 0);
       try {
-        await Promise.race([stage === "remote" ? endpoint.remote : process.ready,
-          process.result.then(() => { throw new Error("controller exited before crash injection"); })]);
+        await Promise.all([process.uninstrumented, Promise.race([stage === "remote" ? endpoint.remote : process.ready,
+          process.result.then(() => { throw new Error("controller exited before crash injection"); })])]);
         process.child.kill("SIGKILL"); await process.result;
         const before = await rlLoopStatus(client, "recovery");
         assert.equal(before.samples_consumed, (metric === "systemone_decision" ? 0 : 2) + (stage === "commit" ? 1 : 0));

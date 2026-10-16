@@ -3,6 +3,7 @@ import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { runRlLoop, type JsonValue } from "../../dist/index.js";
 
 const [pmRoot, encoded, targetStage, targetMetric, targetStep] = process.argv.slice(2);
+process.send!({ coverage: process.env["NODE_V8_COVERAGE"] !== undefined || process.execArgv.includes("--experimental-test-coverage") });
 const client = new PmClient({ pmRoot, author: "receipt-process" });
 try {
   await runRlLoop(client, { pmRoot, author: "receipt-process" }, {
