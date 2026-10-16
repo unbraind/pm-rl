@@ -14,7 +14,7 @@ import { parseGenerationSpec } from "../lineage.ts";
 test("packed pm CLI performs three real LM generations and records contamination refusal under 20 seconds", async () => {
   const root = mkdtempSync(join(tmpdir(), "pm-rl-lm-cli-"));
   try {
-    const tracker = await init("rl", { defaults: true, agentGuidance: "skip", author: "rl-acceptance" }, { cwd: root });
+    const tracker = await init("rl", { defaults: true, agentGuidance: "skip", author: "rl-acceptance" }, { cwd: root, pmRoot: join(root, ".agents/pm") });
     const client = new PmClient({ pmRoot: tracker.path, cwd: root, author: "rl-acceptance" });
     const approval = await client.create({ id: "approval", type: "Decision", title: "Bounded synthetic LM approval", body: '```json\n{"permitted_promotions":4}\n```' });
     const cli = resolve("node_modules/@unbrained/pm-cli/dist/cli.js");

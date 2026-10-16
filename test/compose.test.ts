@@ -117,16 +117,26 @@ test("real Compose cancellation stops the container and retains attributable can
   assert.ok(existsSync(join(directory, "partial.json"))); removed(id, directory);
 });
 
-test("two real Compose controllers produce exactly one launch and one reservation", { skip }, async () => {
+test("two real Compose controllers produce exactly one launch and one reservation", { skip }, async (t) => {
   const { client, coordinates, approval, pmRoot } = await processWorkspace(budget); const selected = adapter();
   const contenders = [controller(pmRoot, approval, "race", selected), controller(pmRoot, approval, "race", selected)];
+  t.after(async () => {
+    for (const entry of contenders) if (entry.child.exitCode === null) entry.child.kill("SIGKILL");
+    await Promise.all(contenders.map((entry) => entry.result));
+    for (const job of await listProcessJobs(client)) if (selected.kind === "compose-bandit") await stopComposeTrainer(processStaging(pmRoot, job.id), job.id, selected.image, "test-cleanup");
+  });
   await Promise.all(contenders.map((entry) => entry.ready("starting")));
   for (const entry of contenders) entry.child.send("start");
   const winner = await Promise.any(contenders.map(async (entry) => { await entry.ready(); return entry; }));
   const loser = contenders.find((entry) => entry !== winner)!;
   assert.equal(await loser.result, 1); assert.ok(JSON.stringify(loser.messages).includes("loop_controller_active"));
-  winner.child.send("continue"); assert.equal(await winner.result, 0);
+  // The winner holds a durable reservation before the parent permits trainer startup.
+  const reserved = await listProcessJobs(client); assert.equal(reserved.length, 1); assert.equal(reserved[0].state, "running");
+  assert.equal(reserved[0].settled, false); assert.equal(reserved[0].charge.training_steps, 1);
+  winner.child.send("continue"); assert.equal(await winner.result, 0, JSON.stringify(winner.messages));
   const jobs = await listProcessJobs(client); assert.equal(jobs.length, 1); assert.equal(jobs[0].charge.training_steps, 1);
+  assert.equal(jobs[0].id, reserved[0].id); assert.equal(jobs[0].settled, true);
+  assert.equal(readFileSync(join(pmRoot, "history", `rl-${jobs[0].id}.jsonl`), "utf8").split("\n").filter((line) => line.includes('"op":"create"')).length, 1);
   const directory = processStaging(pmRoot, jobs[0].id);
   assert.equal(readFileSync(join(directory, "launches.ndjson"), "utf8").trim().split("\n").length, 1);
   assert.equal((await resumeRlLoop(client, coordinates, { id: "process-drill", approval })).resumed_generations, 1); removed(jobs[0].id, directory);
