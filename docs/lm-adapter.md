@@ -280,3 +280,9 @@ of staged recovery failed the SIGKILL test on exclusive existing input evidence
 `validateLmProcessCheckpoint` failed its invalid-use regression (0/1).
 The restored snapshot passed all three cases, with zero skips. These proofs
 neither removed the live container memory ceiling nor altered the package worktree.
+
+A further receipt guard requires nonnegative fit wall time no greater than its
+reported process wall time before held-out evaluation. Removing only that guard
+fails the unchanged real-fit invalid-time regression (0/1); restoring it passes
+1/1, including through PM-linked execution. This closes inconsistent staged
+clock evidence without expanding any allowance.

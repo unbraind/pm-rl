@@ -50,7 +50,9 @@ export function restoreLmProcessInput(input: ProcessInput<{ readonly digest: str
 /** Restore staged numerical evidence and bind its canonical checkpoint and measured limits. */
 export function processLmTraining(input: ProcessInput<{ readonly digest: string }>, completion: ProcessCompletion<{ readonly digest: string }>): LmTraining {
   const { config, source, payload } = restoreLmProcessInput(input);
-  return restoreLmTraining(completion.training!, config, payload.generation, source, payload.observations);
+  const training = restoreLmTraining(completion.training!, config, payload.generation, source, payload.observations);
+  if (training.wallMs < 0 || training.wallMs > completion.usage.wall_ms) expectedFail("LM fit wall use is inconsistent with measured process wall.", "process_receipt_invalid");
+  return training;
 }
 
 /** Verify durable external evidence against the controller's fit or evaluated candidate without retraining. */

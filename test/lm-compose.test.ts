@@ -71,6 +71,10 @@ test("LM real fit publishes canonical tensors and rejects corrupt bytes, memory 
   assert.notEqual(receipt.policy.digest, input.source.digest);
   assert.ok(processLmTraining(input, receipt).parameterDeltaL2 > 0);
   assert.equal(validateProcessCompletion(directory, id, input, allowance).policy.digest, receipt.policy.digest);
+  for (const wallMs of [-1, receipt.usage.wall_ms + 1]) {
+    const invalid = { ...receipt, training: { ...receipt.training as Record<string, JsonValue>, wall_ms: wallMs } };
+    assert.throws(() => processLmTraining(input, invalid), /fit wall/);
+  }
   const bytes = readFileSync(join(directory, "checkpoint.json"));
   for (const altered of [{ ...receipt, policy: { digest: input.source.digest } }, { ...receipt, peak_memory_bytes: 0 }, { ...receipt, peak_memory_bytes: 2 ** 30 }, { ...receipt, peak_memory_bytes: undefined }, { ...receipt, usage: { ...receipt.usage, tokens: 0 } }]) assert.throws(() => validateLmProcessCheckpoint(bytes, altered, input));
   assert.throws(() => validateLmProcessCheckpoint(Buffer.from("corrupt"), receipt, input));
