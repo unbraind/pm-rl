@@ -194,13 +194,22 @@ test("decision-model crash replay never re-queries persisted decisions and statu
 });
 
 test("recorded promotion refusal stays terminal on replay and governing approval cannot switch", async () => {
-  const { client, pmRoot, approval } = await workspace();
-  const limited = await client.create({ id: "limited", type: "Decision", title: "One promotion", body: '```json\n{"permitted_promotions":1}\n```' });
-  const request = { id: "limited-loop", config, approval: String(limited.item.id) };
-  const first = await runRlLoop(client, { pmRoot, author: "rl-test" }, request); assert.equal(first.stop_reason, "promotion_refused");
-  assert.deepEqual(stable(await runRlLoop(client, { pmRoot, author: "rl-test" }, request)), stable(first));
-  assert.equal((await rlLoopStatus(client, "limited-loop")).samples_consumed, first.samples_consumed);
-  await assert.rejects(resumeRlLoop(client, { pmRoot, author: "rl-test" }, { id: "limited-loop", approval }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_approval_mismatch");
+  const endpoint = await decisionServer();
+  try {
+    for (const programme of [config, configValue(endpoint.baseURL)]) {
+      const { client, pmRoot, approval } = await workspace();
+      const limited = await client.create({ id: "limited", type: "Decision", title: "One promotion", body: '```json\n{"permitted_promotions":1}\n```' });
+      const request = { id: "limited-loop", config: programme, approval: String(limited.item.id) };
+      const first = await runRlLoop(client, { pmRoot, author: "rl-test" }, request); assert.equal(first.stop_reason, "promotion_refused");
+      assert.equal(first.promoted, 1); assert.equal(first.generations.at(-1)!.promoted, false);
+      assert.equal(first.process_jobs, undefined, "in-process trainers create no external job or reservation");
+      const attempts = endpoint.calls();
+      assert.deepEqual(stable(await runRlLoop(client, { pmRoot, author: "rl-test" }, request)), stable(first));
+      assert.equal(endpoint.calls(), attempts, "terminal refusal replay cannot query again");
+      assert.equal((await rlLoopStatus(client, "limited-loop")).samples_consumed, first.samples_consumed);
+      await assert.rejects(resumeRlLoop(client, { pmRoot, author: "rl-test" }, { id: "limited-loop", approval }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_approval_mismatch");
+    }
+  } finally { endpoint.server.closeAllConnections(); endpoint.server.close(); }
 });
 
 test("step-machinery conflicts during promotion propagate instead of becoming a permanent promotion refusal", async () => {
