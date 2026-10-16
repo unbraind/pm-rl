@@ -12,6 +12,7 @@ import { EXIT_CODE, isPmCliExpectedError, certifyCompleteListResult } from "@unb
 import { banditCheckpoint, type BanditCheckpoint, type BanditExample, type BanditObservation } from "./bandit.ts";
 import { canonicalJson, commitProcessTransaction, loopProcessStartTime, withProcessJobFence, readCompleteLoopItem, type JsonValue } from "./index.ts";
 import { expectedFail } from "./refuse.ts";
+import { validateLmProcessCheckpoint, type LmProcessPayload } from "./process-lm.ts";
 import { launchComposeTrainer, stopComposeTrainer } from "./compose.ts";
 
 /** Independently accounted resource dimensions; all values are nonnegative safe integers. */
@@ -31,26 +32,43 @@ export type ProcessAdapter = {
   readonly image: string;
   /** Maximum allowance atomically reserved before this generation launches. */
   readonly allowance: Resources;
+} | {
+  /** Bounded causal LM using the same external execution contract. */
+  readonly kind: "compose-lm";
+  /** Locally built immutable trainer image. */
+  readonly image: string;
+  /** Kernel-enforced memory ceiling in bytes. */
+  readonly memory_bytes: number;
+  /** Kernel-enforced CPU scheduling ceiling. */
+  readonly cpus: number;
+  /** Maximum resources reserved before launch. */
+  readonly allowance: Resources;
 };
+/** Common policy identity used by the shared execution machinery. */
+export type TrainerPolicy = BanditCheckpoint | { readonly digest: string };
+/** Bandit or LM request accepted by the shared execution machinery. */
+export type TrainerInput = ProcessInput<TrainerPolicy>;
 /** Domain lifecycle, independent of the tracker item's planning status. */
 export type ProcessJobState = "planned" | "running" | "materialized" | "evaluated" | "promoted" | "failed" | "cancelled" | "invalidated";
 /** Immutable inputs delivered on stdin; held-out examples are deliberately absent. */
-export interface ProcessInput {
+export interface ProcessInput<P extends { readonly digest: string } = BanditCheckpoint> {
   /** Programme, generation, source and dataset identities, environment, reward, collection and fit configuration. */
   readonly identity: JsonValue;
   /** The collecting policy's actual parameters. */
-  readonly source: BanditCheckpoint;
+  readonly source: P;
   /** Collection dataset only. */
-  readonly training: readonly BanditExample[];
+  readonly training: readonly (P extends BanditCheckpoint ? BanditExample : never)[];
   /** Actual source-policy samples; reward values are the training signal. */
-  readonly observations: readonly BanditObservation[];
+  readonly observations: readonly (P extends BanditCheckpoint ? BanditObservation : never)[];
   /** One bounded REINFORCE update configuration. */
-  readonly training_config: { readonly learning_rate: number; readonly steps: 1 };
+  readonly training_config: { readonly learning_rate: number; readonly steps: number };
   /** Source and dataset digests bind the receipt to this collected batch. */
   readonly lineage: JsonValue;
+  /** Training-only LM payload; held-out examples never cross this boundary. */
+  readonly lm?: LmProcessPayload;
 }
 /** Required durable completion evidence; successful process exit alone is never sufficient. */
-export interface ProcessCompletion {
+export interface ProcessCompletion<P extends { readonly digest: string } = BanditCheckpoint> {
   /** Versioned stream and disk schema. */
   readonly format: "pm-rl/process-completion/1";
   /** Content-bound job identity. */
@@ -60,7 +78,7 @@ export interface ProcessCompletion {
   /** SHA-256 over the exact readable checkpoint bytes. */
   readonly digest: string;
   /** Actual parameters whose policy identity must match the checkpoint content. */
-  readonly policy: BanditCheckpoint;
+  readonly policy: P;
   /** Immutable fit configuration, source policy and dataset lineage. */
   readonly training_config: ProcessInput["training_config"];
   /** Digest of the policy that collected the training batch. */
@@ -69,9 +87,13 @@ export interface ProcessCompletion {
   readonly lineage: JsonValue;
   /** Adapter-measured steps, elapsed milliseconds, checkpoint bytes, CPU milliseconds and tokens. */
   readonly usage: Resources;
+  /** LM fit evidence with tensors and losses, independently of held-out evaluation. */
+  readonly training?: JsonValue;
+  /** Measured peak resident memory in bytes for the LM trainer. */
+  readonly peak_memory_bytes?: number;
 }
 /** One reservation and job outcome, committed together as a real Task body. */
-export interface ProcessJob {
+export interface ProcessJob<P extends { readonly digest: string } = BanditCheckpoint> {
   /** Distinguishes execution Tasks from unrelated workspace work. */
   readonly format: "pm-rl/process-job/1";
   /** Stable requested tracker key derived from the immutable inputs and trusted launcher identity. */
@@ -93,7 +115,7 @@ export interface ProcessJob {
   /** Whether unused allowance has been released. */
   readonly settled: boolean;
   /** Staging receipt adopted after validation, or null before materialization. */
-  readonly completion: ProcessCompletion | null;
+  readonly completion: ProcessCompletion<P> | null;
   /** Recorded terminal outcome or phase description. */
   readonly outcome: string;
   /** Cleanup diagnostics retained independently of the trainer outcome and validated completion. */
@@ -125,11 +147,17 @@ export function parseResources(value: unknown): Resources {
 export function parseProcessAdapter(value: unknown): ProcessAdapter {
   if (value === null || typeof value !== "object" || Array.isArray(value)) expectedFail("Invalid process adapter.", "process_invalid_adapter");
   const record = value as Record<string, unknown>;
-  const compose = record["kind"] === "compose-bandit";
-  if ((!compose && record["kind"] !== "process-bandit") || Object.keys(record).some((key) => key !== "kind" && key !== "allowance" && !(compose && key === "image"))) expectedFail("Select process-bandit or compose-bandit.", "process_invalid_adapter");
+  const lm = record["kind"] === "compose-lm";
+  const compose = record["kind"] === "compose-bandit" || lm;
+  if ((!compose && record["kind"] !== "process-bandit") || Object.keys(record).some((key) => key !== "kind" && key !== "allowance" && !(compose && key === "image") && !(lm && ["memory_bytes", "cpus"].includes(key)))) expectedFail("Select process-bandit or compose-bandit.", "process_invalid_adapter");
   if (compose && (typeof record["image"] !== "string" || !/^sha256:[a-f0-9]{64}$/u.test(record["image"]))) expectedFail("Compose requires a local immutable image ID.", "process_invalid_adapter");
   const allowance = parseResources(record["allowance"]);
-  if (allowance.training_steps !== 1 || allowance.wall_ms < 1 || allowance.wall_ms > 3_600_000 || allowance.storage_bytes < 1 || allowance.storage_bytes > 1_073_741_824) expectedFail("Process training requires one step, bounded wall time and staging bytes.", "process_invalid_allowance");
+  if ((!lm && allowance.training_steps !== 1) || (lm && (allowance.training_steps < 1 || allowance.training_steps > 10_000)) || allowance.wall_ms < 1 || allowance.wall_ms > 3_600_000 || allowance.storage_bytes < 1 || allowance.storage_bytes > 1_073_741_824) expectedFail("Process training requires one step, bounded wall time and staging bytes.", "process_invalid_allowance");
+  if (lm) {
+    if (!Number.isSafeInteger(record["memory_bytes"]) || Number(record["memory_bytes"]) < 16_777_216 || Number(record["memory_bytes"]) > 1_073_741_824
+      || typeof record["cpus"] !== "number" || record["cpus"] < 0.1 || record["cpus"] > 4 || !Number.isFinite(record["cpus"])) expectedFail("LM requires bounded memory and CPU ceilings.", "process_invalid_allowance");
+    return { kind: "compose-lm", image: record["image"] as string, memory_bytes: Number(record["memory_bytes"]), cpus: record["cpus"], allowance };
+  }
   return compose ? { kind: "compose-bandit", image: record["image"] as string, allowance } : { kind: "process-bandit", allowance };
 }
 /** Resolve the packaged reference script for either source execution or the compiled package. */
@@ -138,8 +166,8 @@ export function referenceTrainerArgv(moduleUrl = import.meta.url): readonly stri
   return [process.execPath, fileURLToPath(new URL(`./process-bandit.${suffix}`, moduleUrl))];
 }
 /** Derive replay identity including the trusted executable selection without persisting its paths. */
-export function processJobId(input: ProcessInput, argv: readonly string[] = referenceTrainerArgv(), adapter?: ProcessAdapter): string {
-  const launcher = adapter?.kind === "compose-bandit" ? ["pm-rl/compose-bandit/1", adapter.image] : argv;
+export function processJobId(input: TrainerInput, argv: readonly string[] = referenceTrainerArgv(), adapter?: ProcessAdapter): string {
+  const launcher = adapter?.kind === "compose-lm" ? ["pm-rl/compose-lm/1", adapter] : adapter?.kind === "compose-bandit" ? ["pm-rl/compose-bandit/1", adapter.image] : argv;
   return `process-${processDigest({ input, launcher: processDigest(launcher) }).slice(7)}`;
 }
 /** Resolve this job's retained evidence directory under the tracker. */
@@ -147,13 +175,13 @@ export function processStaging(root: string, id: string): string {
   return join(root, "runtime", "pm-rl", "jobs", id);
 }
 /** Read a complete real item and reject omitted output or damaged job bodies. */
-export async function readProcessJob(client: PmClient, id: string): Promise<ProcessJob | null> {
+export async function readProcessJob<P extends TrainerPolicy = TrainerPolicy>(client: PmClient, id: string): Promise<ProcessJob<P> | null> {
   const item = await readCompleteLoopItem(client, id).catch((error: unknown) => {
     if (isPmCliExpectedError(error) && error.exitCode === EXIT_CODE.NOT_FOUND) return null;
     throw error;
   });
   if (item === null) return null;
-  const job = JSON.parse(String(item.item.body)) as ProcessJob;
+  const job = JSON.parse(String(item.item.body)) as ProcessJob<P>;
   if (item.item.type !== "Task" || job.format !== "pm-rl/process-job/1" || job.id !== id || !["planned", "running", "materialized", "evaluated", "promoted", "failed", "cancelled", "invalidated"].includes(job.state)) expectedFail("Job identity or state drifted.", "process_job_drift");
   parseResources(job.allowance); parseResources(job.charge);
   if (typeof job.settled !== "boolean" || (!job.settled && processDigest(job.charge) !== processDigest(job.allowance))
@@ -169,7 +197,7 @@ async function approvedResources(client: PmClient, approval: string): Promise<{ 
   return { budget: parseResources(spec["resource_budget"]), digest: processDigest(spec), id: String(item.item.id) };
 }
 /** Refuse a changed budget identity before adopting, evaluating or promoting a job. */
-export async function verifyProcessJobBudget(client: PmClient, job: ProcessJob): Promise<void> {
+export async function verifyProcessJobBudget(client: PmClient, job: ProcessJob<TrainerPolicy>): Promise<void> {
   const approved = await approvedResources(client, job.approval);
   if (job.budget_digest !== approved.digest) expectedFail("Approved budget identity changed.", "process_budget_drift");
 }
@@ -193,9 +221,9 @@ export function processJobBodyId(body: string): string | null {
  * A job body counts only on the item that is that job (item ids carry the tracker prefix), so a job body
  * copied into another item neither double-charges a reservation nor names a job that does not exist.
  */
-export async function listProcessJobs(client: PmClient): Promise<ProcessJob[]> {
+export async function listProcessJobs(client: PmClient): Promise<ProcessJob<TrainerPolicy>[]> {
   const listed = certifyCompleteListResult(await client.listAllComplete({ includeBody: true }));
-  const jobs: ProcessJob[] = [];
+  const jobs: ProcessJob<TrainerPolicy>[] = [];
   for (const item of listed.items) {
     const jobId = processJobBodyId(String(item.body));
     if (jobId === null || (!item.id.endsWith(`-${jobId}`) && item.id !== jobId)) continue;
@@ -206,7 +234,7 @@ export async function listProcessJobs(client: PmClient): Promise<ProcessJob[]> {
 }
 
 /** Reserve once under the workspace writer lock, counting every held or settled job on this approval. */
-export async function reserveProcessJob(client: PmClient, coordinates: ProcessCoordinates, id: string, input: ProcessInput, approval: string, allowance: Resources): Promise<ProcessJob> {
+export async function reserveProcessJob(client: PmClient, coordinates: ProcessCoordinates, id: string, input: TrainerInput, approval: string, allowance: Resources): Promise<ProcessJob<TrainerPolicy>> {
   const step: WorkspaceTransactionStep = {
     id: "reserve",
     async inspect() { return { state: await readProcessJob(client, id) === null ? "pending" : "applied" }; },
@@ -217,7 +245,7 @@ export async function reserveProcessJob(client: PmClient, coordinates: ProcessCo
         const total = charges.reduce((sum, charge) => sum + charge[key], allowance[key]);
         if (!Number.isSafeInteger(total) || total > approved.budget[key]) expectedFail(`Approved ${key} budget exhausted.`, "process_budget_exhausted");
       }
-      const job: ProcessJob = { format: "pm-rl/process-job/1", id, input: processDigest(input), binding: input.identity, approval: approved.id, budget_digest: approved.digest,
+      const job: ProcessJob<TrainerPolicy> = { format: "pm-rl/process-job/1", id, input: processDigest(input), binding: input.identity, approval: approved.id, budget_digest: approved.digest,
         state: "planned", allowance, charge: allowance, settled: false, completion: null, outcome: "reserved" };
       await client.create({ id, type: "Task", title: `Process trainer ${id.slice(-12)}`, body: JSON.stringify(job) });
     },
@@ -238,7 +266,7 @@ const JOB_TRANSITIONS: Readonly<Record<ProcessJobState, readonly ProcessJobState
   evaluated: ["promoted", "failed", "cancelled", "invalidated"], promoted: ["invalidated"], failed: [], cancelled: [], invalidated: [],
 };
 /** Commit one job transition and its receipt/accounting together, with append-only compensation. */
-export async function transitionProcessJob(client: PmClient, coordinates: ProcessCoordinates, job: ProcessJob, state: ProcessJobState, outcome: string, completion = job.completion, charge = job.charge): Promise<ProcessJob> {
+export async function transitionProcessJob<P extends TrainerPolicy>(client: PmClient, coordinates: ProcessCoordinates, job: ProcessJob<P>, state: ProcessJobState, outcome: string, completion = job.completion, charge = job.charge): Promise<ProcessJob<P>> {
   if (job.state !== state && !JOB_TRANSITIONS[job.state].includes(state)) expectedFail("Illegal process job transition.", "process_job_drift");
   const target = job.state === state ? job : { ...job, state, outcome, completion, charge, settled: state !== "running" && state !== "planned" };
   await commitProcessTransaction({ ...coordinates, transactionId: `${job.id}-${state}`, steps: [{ id: "outcome",
@@ -246,7 +274,7 @@ export async function transitionProcessJob(client: PmClient, coordinates: Proces
     async apply() { await client.update(job.id, { body: JSON.stringify(target) }); },
     async compensate() { await client.update(job.id, { body: JSON.stringify(job) }); },
   }] });
-  return (await readProcessJob(client, job.id))!;
+  return (await readProcessJob<P>(client, job.id))!;
 }
 /** Measure all retained flat staging files, rejecting links and directories rather than following them. */
 export function stagingBytes(directory: string): number {
@@ -259,19 +287,23 @@ export function stagingBytes(directory: string): number {
   return bytes;
 }
 /** Validate the staged completion against immutable input, readable bytes and every resource dimension. */
-export function validateProcessCompletion(directory: string, id: string, input: ProcessInput, allowance: Resources): ProcessCompletion {
+export function validateProcessCompletion<P extends TrainerPolicy>(directory: string, id: string, input: ProcessInput<P>, allowance: Resources): ProcessCompletion<P> {
   if (!existsSync(join(directory, "completion.json"))) expectedFail("Trainer supplied no completion receipt.", "process_receipt_required");
   const bytes = stagingBytes(directory);
   if (bytes > allowance.storage_bytes || lstatSync(join(directory, "completion.json")).size > 65_536) expectedFail("Trainer exceeded staging storage allowance.", "process_limit_exceeded");
-  const value = JSON.parse(readFileSync(join(directory, "completion.json"), "utf8")) as ProcessCompletion;
+  const value = JSON.parse(readFileSync(join(directory, "completion.json"), "utf8")) as ProcessCompletion<P>;
   if (value.format !== "pm-rl/process-completion/1" || value.job !== id || value.checkpoint !== "checkpoint.json"
     || processDigest(value.training_config) !== processDigest(input.training_config) || value.source_policy !== input.source.digest
     || processDigest(value.lineage) !== processDigest(input.lineage)) expectedFail("Completion lineage or configuration drifted.", "process_receipt_invalid");
-  if (lstatSync(join(directory, value.checkpoint)).size > 4096) expectedFail("Bandit checkpoint exceeds its schema bound.", "process_checkpoint_invalid");
+  if (lstatSync(join(directory, value.checkpoint)).size > (input.lm?.config.limits.maxCheckpointBytes ?? 4096)) expectedFail("Checkpoint exceeds its schema bound.", "process_checkpoint_invalid");
   const content = readFileSync(join(directory, value.checkpoint));
   const digest = `sha256:${createHash("sha256").update(content).digest("hex")}`;
-  const policy = JSON.parse(content.toString("utf8")) as BanditCheckpoint;
-  if (digest !== value.digest || processDigest(policy) !== processDigest(value.policy) || !Number.isFinite(policy.weight) || Math.abs(policy.weight) > 20 || policy.digest !== banditCheckpoint(policy.weight).digest) expectedFail("Checkpoint content digest or parameters are invalid.", "process_checkpoint_invalid");
+  if (digest !== value.digest) expectedFail("Checkpoint content digest or parameters are invalid.", "process_checkpoint_invalid");
+  if (input.lm !== undefined) validateLmProcessCheckpoint(content, value, input);
+  else {
+    const policy = JSON.parse(content.toString("utf8")) as BanditCheckpoint;
+    if (processDigest(policy) !== processDigest(value.policy) || !Number.isFinite(policy.weight) || Math.abs(policy.weight) > 20 || policy.digest !== banditCheckpoint(policy.weight).digest) expectedFail("Checkpoint content digest or parameters are invalid.", "process_checkpoint_invalid");
+  }
   const usage = parseResources(value.usage);
   if (usage.training_steps !== input.training_config.steps || usage.storage_bytes !== content.length) expectedFail("Completion lacks measured training or checkpoint use.", "process_receipt_invalid");
   for (const key of RESOURCE_KEYS) if (usage[key] > allowance[key]) expectedFail(`Trainer exceeded reserved ${key}.`, "process_limit_exceeded");
@@ -283,7 +315,7 @@ export function validateProcessCompletion(directory: string, id: string, input: 
   return { ...value, usage: { ...usage, wall_ms: wall, storage_bytes: bytes } };
 }
 /** Refuse terminal job reuse and verify receipts before they may supply a collection policy. */
-export function verifiedProcessPolicy(job: ProcessJob, root: string, input: ProcessInput, inspectTerminal = false): BanditCheckpoint | null {
+export function verifiedProcessPolicy<P extends TrainerPolicy>(job: ProcessJob<TrainerPolicy>, root: string, input: ProcessInput<P>, inspectTerminal = false): P | null {
   if (job.input !== processDigest(input)) expectedFail("Job input identity drifted.", "process_job_drift");
   if (!inspectTerminal && ["failed", "cancelled", "invalidated"].includes(job.state)) expectedFail(`Process job is ${job.state}: ${job.outcome}.`, "process_job_terminal");
   if (job.completion === null) return null;
@@ -296,7 +328,7 @@ export function stopTrainer(pid: number, start: string): void {
   if (loopProcessStartTime(pid) === start) process.kill(pid, "SIGKILL");
 }
 /** Launch a real child with bounded NDJSON, wall/storage polling and owner-checked cancellation. */
-export async function launchTrainer(directory: string, id: string, input: ProcessInput, allowance: Resources, argv: readonly string[], signal?: AbortSignal): Promise<void> {
+export async function launchTrainer(directory: string, id: string, input: TrainerInput, allowance: Resources, argv: readonly string[], signal?: AbortSignal): Promise<void> {
   const startedAt = Date.now();
   const started = performance.now();
   const child = spawn(argv[0], argv.slice(1), { cwd: directory, shell: false, stdio: ["pipe", "pipe", "pipe"] });
@@ -389,13 +421,14 @@ function failedProcessCharge(directory: string, allowance: Resources): Resources
 }
 
 /** Recover staged work or execute exactly one reserved phase; failures settle conservatively and retain evidence. */
-export async function executeProcessTrainer(client: PmClient, coordinates: ProcessCoordinates, input: ProcessInput, approval: string, adapter: ProcessAdapter, signal?: AbortSignal, argv: readonly string[] = referenceTrainerArgv()): Promise<ProcessJob> {
+export async function executeProcessTrainer<P extends TrainerPolicy>(client: PmClient, coordinates: ProcessCoordinates, input: ProcessInput<P>, approval: string, adapter: ProcessAdapter, signal?: AbortSignal, argv: readonly string[] = referenceTrainerArgv()): Promise<ProcessJob<P>> {
+  if ((input.lm !== undefined) !== (adapter.kind === "compose-lm") || (input.lm !== undefined && adapter.kind === "compose-lm" && (input.lm.memory_bytes !== adapter.memory_bytes || input.training_config.steps !== adapter.allowance.training_steps))) expectedFail("Trainer payload differs from the declared adapter limits.", "process_invalid_adapter");
   const id = processJobId(input, argv, adapter);
-  return withProcessJobFence(coordinates, id, () => executeReservedProcessJob(client, coordinates, input, approval, adapter, id, signal, argv));
+  return withProcessJobFence(coordinates, id, async () => await executeReservedProcessJob(client, coordinates, input, approval, adapter, id, signal, argv) as ProcessJob<P>);
 }
 
 /** Execute inside the verified owner fence; this function never re-launches a previously running job. */
-async function executeReservedProcessJob(client: PmClient, coordinates: ProcessCoordinates, input: ProcessInput, approval: string, adapter: ProcessAdapter, id: string, signal: AbortSignal | undefined, argv: readonly string[]): Promise<ProcessJob> {
+async function executeReservedProcessJob(client: PmClient, coordinates: ProcessCoordinates, input: TrainerInput, approval: string, adapter: ProcessAdapter, id: string, signal: AbortSignal | undefined, argv: readonly string[]): Promise<ProcessJob<TrainerPolicy>> {
   let job = await reserveProcessJob(client, coordinates, id, input, approval, adapter.allowance);
   const policy = verifiedProcessPolicy(job, coordinates.pmRoot, input);
   if (policy !== null) return transitionProcessJob(client, coordinates, job, job.state, job.outcome);
@@ -407,11 +440,11 @@ async function executeReservedProcessJob(client: PmClient, coordinates: ProcessC
     mkdirSync(directory, { recursive: true });
     if (job.state === "planned") {
       job = await transitionProcessJob(client, coordinates, job, "running", "launched");
-      if (adapter.kind === "compose-bandit") await launchComposeTrainer(directory, id, input, job.allowance, adapter.image, cleanupFailed, signal);
+      if (adapter.kind !== "process-bandit") await launchComposeTrainer(directory, id, input, job.allowance, adapter.image, cleanupFailed, signal, adapter.kind === "compose-lm" ? adapter : undefined);
       else await launchTrainer(directory, id, input, job.allowance, argv, signal);
     } else {
-      if (adapter.kind === "compose-bandit") {
-        try { await stopComposeTrainer(directory, id, adapter.image, "recovery"); }
+      if (adapter.kind !== "process-bandit") {
+        try { await stopComposeTrainer(directory, id, adapter.image, "recovery", adapter.kind === "compose-lm" ? adapter : undefined); }
         catch (error) { cleanupFailed(error); }
       }
       else if (existsSync(join(directory, "runner.json"))) {

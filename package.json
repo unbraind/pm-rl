@@ -32,7 +32,10 @@
     "dist/process-bandit.*",
     "dist/scripts/script-launcher.*",
     "docs/process-trainer.md",
-    "dist/compose.*"
+    "dist/compose.*",
+    "dist/process-lm.*",
+    "dist/process-lm-trainer.*",
+    "lm-trainer.Dockerfile"
   ],
   "engines": {
     "node": ">=22.18.0"
@@ -96,7 +99,8 @@
       "test/process.test.ts",
       "test/process-loop.test.ts",
       "test/process-cli.test.ts",
-      "test/compose.test.ts"
+      "test/compose.test.ts",
+      "test/lm-compose.test.ts"
     ],
     "thresholds": {
       "statements": 100,

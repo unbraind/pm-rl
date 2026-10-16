@@ -351,6 +351,7 @@ under [`pm-rl-yi7j`](.agents/pm/epics/pm-rl-yi7j.toon).
 | `trainer: "systemone"` | Calibration head over a frozen decision model | Explicitly selected labelled items |
 | `trainer: "lm"` | Bounded CPU LoRA update | Programme-declared sequences |
 | Bandit with `adapter.kind: "process-bandit"` | Packaged local child process | Collected training batch |
+| LM with `adapter.kind: "compose-lm"`, immutable `image`, `memory_bytes` and `cpus` | Networkless non-root Compose fit with kernel memory/CPU ceilings | Frozen weights, source tensors and collected rewards; held-out examples stay in the controller ([evidence](docs/lm-adapter.md#external-compose-trainer-2026-10-16)) |
 | Bandit with `adapter.kind: "compose-bandit"` and immutable `adapter.image` | Isolated Docker Compose trainer | Same batch and receipt contract; only job staging is mounted |
 
 

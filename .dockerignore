@@ -1,0 +1,11 @@
+**
+!*.ts
+!package.json
+!package-lock.json
+!scripts/
+!scripts/script-launcher.ts
+!test/
+!test/fixtures/
+!test/fixtures/*.ts
+!test/fixtures/*.Dockerfile
+!lm-trainer.Dockerfile
