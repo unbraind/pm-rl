@@ -117,6 +117,29 @@ Adapters report structured progress and completion evidence over a documented st
    recipe digest and checkpoint; regenerated synthetic evidence preserves every
    learning score and verdict. Completed historical receipts remain unchanged.
 
+8. **History-prefix learner: implemented; improvement not established.**
+   [pm-rl-prefix](.agents/pm/features/pm-rl-prefix.toon) adds a bounded logistic
+   learner over event counts/order, field changes, elapsed-time buckets, author
+   count and hashed first-title/description words. Four targets are measured only
+   on fit repositories; the selected time-to-close median is 47356 ms, with
+   472 fast / 471 slow labels (50.053% majority). Repository roles and source
+   commits remain those of the original sealed public corpus: 943 fit items,
+   225 inner-held-out, 214 meta-validation and 385 final-test. All five actual
+   process fits change parameters under the existing reservations. The best
+   candidate inner gain is 0.053333333333333344, lower confidence bound
+   -0.1277468687654159; no fit clears the unchanged gate. Two meta-generations
+   retain the seed: each outer gain is 0 with lower bound -0.21778781183411927.
+   Meta-validation matches its majority baseline, 140/214; final-test before and
+   after match its majority baseline, 220/385. Retained policies predict only
+   `slow`, and no recipe promotes. Exact paired tests against both fixed constant
+   classifiers find no final-test advantage (maximum one-sided p-value 1).
+   [Method, screening distributions and limits](docs/history-prefix.md) and
+   [the public receipt](docs/prefix-live-evidence.json) retain candidate parameter
+   changes, inner diversity, explicit refusals, process use and per-example source
+   repository/commit digests. Ten behavioural reverts fail with tests retained;
+   restored code passes. The packed CLI exercises the same evaluator and gates.
+   This is an honest null for recursive improvement, not a learned-policy win.
+
 
 ## Data boundary and capacity
 

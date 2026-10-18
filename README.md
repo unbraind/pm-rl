@@ -253,6 +253,17 @@ data boundary, confidence assumptions, idempotent resume and measured real-data
 acceptance. Start with [the bounded programme](examples/meta-trackers.json) and
 `pm rl dataset build --from-trackers <first-directory> <more-directories...> --output <new-directory>`.
 
+The [history-prefix learner](docs/history-prefix.md) adds `--task history-prefix`:
+a bounded logistic classifier reads event counts/order, field changes, elapsed time,
+author count and hashed first-title/description words. Its time-to-close target is
+balanced on fit repositories (472 fast / 471 slow; median 47.356 seconds), with
+regularisation, n-gram order, hashing width and learning rate searched over two meta
+generations under the existing process budget and unchanged promotion gate. The
+[public live receipt](docs/prefix-live-evidence.json) retains every fit and refusal,
+majority baselines, prediction diversity and the final-test comparison. Five fits
+change parameters, but none promotes; final-test remains 220/385, equal to its
+majority baseline.
+
 The current pm-rl runtime **executes, tracks and gates** a bounded numerical loop: a generation collects trajectories,
 the built-in bandit trainer produces a successor, and the successor collects the next generation's
 trajectories. `pm rl loop run` executes these steps with the built-in contextual

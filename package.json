@@ -42,7 +42,13 @@
     "docs/meta-recursive.md",
     "docs/meta-live-evidence.json",
     "docs/meta-sanity-evidence.json",
-    "dist/tracker-environment.*"
+    "dist/tracker-environment.*",
+    "dist/prefix.*",
+    "dist/prefix-data.*",
+    "dist/prefix-environment.*",
+    "dist/prefix-trainer.*",
+    "docs/prefix-live-evidence.json",
+    "docs/history-prefix.md"
   ],
   "engines": {
     "node": ">=22.18.0"
@@ -111,7 +117,8 @@
       "test/lm-compose.test.ts",
       "test/recipe.test.ts",
       "test/dataset.test.ts",
-      "test/meta.test.ts"
+      "test/meta.test.ts",
+      "test/prefix.test.ts"
     ],
     "thresholds": {
       "statements": 100,
@@ -194,7 +201,9 @@
       "docs/lm-adapter.md",
       "docs/process-trainer.md",
       "docs/meta-recursive.md",
-      "docs/meta-live-evidence.json"
+      "docs/meta-live-evidence.json",
+      "docs/history-prefix.md",
+      "docs/prefix-live-evidence.json"
     ],
     "examples": [
       "README.md",

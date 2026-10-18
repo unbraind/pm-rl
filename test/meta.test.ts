@@ -682,7 +682,7 @@ test("live entry point builds only synthetic public snapshots in ordinary accept
   await assert.rejects(runLiveMetaAcceptance([], 1000), /dataset_bounds/);
   await withTrackerSources(async (source) => {
     let result: Awaited<ReturnType<typeof runLiveMetaAcceptance>> | undefined;
-    await liveMetaMain({ PM_RL_TRACKER_ROOT: source.root }, (evidence) => { result = evidence; });
+    await liveMetaMain({ PM_RL_TRACKER_ROOT: source.root, PM_RL_TRACKER_TASK: "terminal-disposition" }, (evidence) => { result = evidence; });
     assert.equal(result!.report.generations.length, 2);
     const original = process.stdout.write; let printed = "";
     process.stdout.write = ((chunk: string | Uint8Array): boolean => { printed += String(chunk); return true; }) as typeof process.stdout.write;

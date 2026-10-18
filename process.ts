@@ -13,6 +13,7 @@ import { banditCheckpoint, type BanditCheckpoint, type BanditExample, type Bandi
 import { canonicalJson, commitProcessTransaction, loopProcessStartTime, withProcessJobFence, readCompleteLoopItem, type JsonValue } from "./index.ts";
 import { expectedFail } from "./refuse.ts";
 import { validateLmProcessCheckpoint, type LmProcessPayload } from "./process-lm.ts";
+import { validatePrefixCompletion, type PrefixPayload } from "./prefix.ts";
 import { launchComposeTrainer, stopComposeTrainer } from "./compose.ts";
 
 /** Independently accounted resource dimensions; all values are nonnegative safe integers. */
@@ -46,7 +47,7 @@ export type ProcessAdapter = {
 };
 /** Common policy identity used by the shared execution machinery. */
 export type TrainerPolicy = BanditCheckpoint | { readonly digest: string };
-/** Bandit or LM request accepted by the shared execution machinery. */
+/** Bandit, prefix or LM request accepted by the shared execution machinery. */
 export type TrainerInput = ProcessInput<TrainerPolicy>;
 /** Domain lifecycle, independent of the tracker item's planning status. */
 export type ProcessJobState = "planned" | "running" | "materialized" | "evaluated" | "promoted" | "failed" | "cancelled" | "invalidated";
@@ -60,12 +61,14 @@ export interface ProcessInput<P extends { readonly digest: string } = BanditChec
   readonly training: readonly (P extends BanditCheckpoint ? BanditExample : never)[];
   /** Actual source-policy samples; reward values are the training signal. */
   readonly observations: readonly (P extends BanditCheckpoint ? BanditObservation : never)[];
-  /** One bounded REINFORCE update configuration. */
+  /** One bounded fit configuration, interpreted by the selected packaged trainer. */
   readonly training_config: { readonly learning_rate: number; readonly steps: number };
   /** Source and dataset digests bind the receipt to this collected batch. */
   readonly lineage: JsonValue;
   /** Training-only LM payload; held-out examples never cross this boundary. */
   readonly lm?: LmProcessPayload;
+  /** Bounded training-only history observables; absent from legacy adapters. */
+  readonly prefix?: PrefixPayload;
 }
 /** Required durable completion evidence; successful process exit alone is never sufficient. */
 export interface ProcessCompletion<P extends { readonly digest: string } = BanditCheckpoint> {
@@ -300,6 +303,7 @@ export function validateProcessCompletion<P extends TrainerPolicy>(directory: st
   const digest = `sha256:${createHash("sha256").update(content).digest("hex")}`;
   if (digest !== value.digest) expectedFail("Checkpoint content digest or parameters are invalid.", "process_checkpoint_invalid");
   if (input.lm !== undefined) validateLmProcessCheckpoint(content, value, input);
+  else if (input.prefix !== undefined) validatePrefixCompletion(content, value, input);
   else {
     const policy = JSON.parse(content.toString("utf8")) as BanditCheckpoint;
     if (processDigest(policy) !== processDigest(value.policy) || !Number.isFinite(policy.weight) || Math.abs(policy.weight) > 20 || policy.digest !== banditCheckpoint(policy.weight).digest) expectedFail("Checkpoint content digest or parameters are invalid.", "process_checkpoint_invalid");
@@ -422,6 +426,7 @@ function failedProcessCharge(directory: string, allowance: Resources): Resources
 
 /** Recover staged work or execute exactly one reserved phase; failures settle conservatively and retain evidence. */
 export async function executeProcessTrainer<P extends TrainerPolicy>(client: PmClient, coordinates: ProcessCoordinates, input: ProcessInput<P>, approval: string, adapter: ProcessAdapter, signal?: AbortSignal, argv: readonly string[] = referenceTrainerArgv()): Promise<ProcessJob<P>> {
+  if (input.prefix !== undefined && (input.lm !== undefined || adapter.kind !== "process-bandit")) expectedFail("Prefix fits require the packaged process adapter.", "process_invalid_adapter");
   if ((input.lm !== undefined) !== (adapter.kind === "compose-lm") || (input.lm !== undefined && adapter.kind === "compose-lm" && (input.lm.memory_bytes !== adapter.memory_bytes || input.training_config.steps !== adapter.allowance.training_steps))) expectedFail("Trainer payload differs from the declared adapter limits.", "process_invalid_adapter");
   const id = processJobId(input, argv, adapter);
   return withProcessJobFence(coordinates, id, async () => await executeReservedProcessJob(client, coordinates, input, approval, adapter, id, signal, argv) as ProcessJob<P>);

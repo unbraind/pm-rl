@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { hashJson, type JsonValue } from "./index.ts";
+import { calibratePrefixTarget, prefixInnerExample, projectHistoryPrefix, validateHistoryPrefix, validateLifecyclePrefix, type HistoryPrefix, type PrefixProjection, type TargetDistribution } from "./prefix-data.ts";
 
 /** Repository isolation roles; inner held-out items come only from the training repositories. */
 export const TRACKER_SPLITS = ["train", "inner-held-out", "meta-validation", "final-test"] as const;
@@ -15,12 +16,14 @@ export interface TrackerExample {
   readonly repo: string;
   readonly commit: string;
   readonly prefix: readonly string[];
-  readonly label: "completed" | "cancelled";
+  readonly label: "completed" | "cancelled" | "fast" | "slow";
+  readonly history?: HistoryPrefix;
 }
 /** Snapshot manifest binds split content, repository roles and source license declarations. */
 export interface TrackerDataset {
   readonly format: "pm-rl/tracker-dataset/1";
-  readonly task: "terminal-disposition";
+  readonly task: "terminal-disposition" | "history-prefix";
+  readonly calibration?: { readonly threshold_ms: number; readonly candidates: readonly TargetDistribution[] };
   readonly seed: number;
   readonly omitted_sources: readonly { readonly repo: string; readonly commit: string; readonly reason: "no_prefixed_terminal_transition" }[];
   readonly sources: readonly { readonly repo: string; readonly commit: string; readonly license: "MIT"; readonly role: "train" | "meta-validation" | "final-test" }[];
@@ -62,16 +65,23 @@ export function trackerHistoryExample(history: string, repo: string, commit: str
         return { id: hashJson({ repo, item }), repo, commit, prefix,
           label: status === "closed" ? "completed" : "cancelled" };
       }
-      assert.ok(["open", "in_progress", "blocked"].includes(status), `dataset_unknown_status: ${status.slice(0, 32)}`);
+      validateLifecyclePrefix([status]);
       prefix.push(status);
     }
   }
   return null;
 }
 
+/** Explicit task and sealed public commit pins; default builds preserve the original environment. */
+export interface TrackerBuildOptions {
+  readonly task?: "terminal-disposition" | "history-prefix";
+  readonly pins?: readonly { readonly repo: string; readonly commit: string; readonly role: "train" | "meta-validation" | "final-test" }[];
+}
+
 /** Build only from committed public MIT tracker histories; explicitly deny hosted and excluded repositories. */
-export function buildTrackerDataset(directories: readonly string[], output: string, seed = 42): TrackerDataset {
+export function buildTrackerDataset(directories: readonly string[], output: string, seed = 42, options: TrackerBuildOptions = {}): TrackerDataset {
   assert.ok(directories.length >= 3 && directories.length <= 64 && Number.isInteger(seed) && seed >= 0 && seed <= 0xffff_ffff, "dataset_bounds");
+  assert.ok(options.task === undefined || ["terminal-disposition", "history-prefix"].includes(options.task), "dataset_task");
   const inspected = directories.map((directory) => {
     const path = realpathSync(directory);
     assert.ok(!path.split("/").some((part) => ["pm-hosted-data", "pm-web", "pm-gpt"].includes(part)), "dataset_forbidden_source");
@@ -84,19 +94,24 @@ export function buildTrackerDataset(directories: readonly string[], output: stri
     assert.ok(!["pm-web", "pm-gpt", "pm-cli"].includes(repo.split("/")[1].toLowerCase()), "dataset_excluded_repo");
     const metadata = JSON.parse(sourceCommand("gh", ["repo", "view", repo, "--json", "visibility,licenseInfo,nameWithOwner"], root)) as { visibility: string; licenseInfo: { key: string } | null; nameWithOwner: string };
     assert.ok(metadata.visibility === "PUBLIC" && metadata.licenseInfo?.key === "mit" && metadata.nameWithOwner.toLowerCase() === repo.toLowerCase(), "dataset_public_mit_required");
-    const commit = sourceCommand("git", ["rev-parse", "HEAD"], root);
+    const pin = options.pins?.find((source) => source.repo === repo);
+    assert.ok(options.pins === undefined || pin !== undefined, "dataset_pin_missing");
+    const commit = pin?.commit ?? sourceCommand("git", ["rev-parse", "HEAD"], root);
     assert.match(commit, /^[a-f0-9]{40}$/, "dataset_commit");
     assert.equal(sourceCommand("gh", ["api", `repos/${repo}/commits/${commit}`, "--jq", ".sha"], root), commit, "dataset_public_commit_required");
     const paths = sourceCommand("git", ["ls-tree", "-r", "--name-only", commit, "--", ".agents/pm/history"], root).split("\n");
     assert.ok(paths.length <= 10_000, "dataset_history_limit");
     const examples: TrackerExample[] = [];
+    const projections: PrefixProjection[] = [];
     const selected = paths.filter((name) => /^\.agents\/pm\/history\/[\w.-]+\.jsonl$/.test(name));
     const histories = historyBlobs(root, commit, selected);
     for (const [index, file] of selected.entries()) {
-      const example = trackerHistoryExample(histories[index], repo, commit, file);
+      const projection = options.task === "history-prefix" ? projectHistoryPrefix(histories[index], repo, commit, file, seed) : null;
+      if (projection !== null) projections.push(projection);
+      const example = options.task === "history-prefix" ? projection?.example ?? null : trackerHistoryExample(histories[index], repo, commit, file);
       if (example !== null) examples.push(example);
     }
-    return { repo, commit, examples };
+    return { repo, commit, examples, projections, role: pin?.role };
   });
   assert.equal(new Set(inspected.map((source) => source.repo.toLowerCase())).size, inspected.length, "dataset_duplicate_repo");
   const snapshots = inspected.filter((source) => source.examples.length > 0);
@@ -110,10 +125,13 @@ export function buildTrackerDataset(directories: readonly string[], output: stri
   // the process adapter's stricter refusal of duplicate feature/reward content across its inner split.
   const groups = [...new Set(snapshots.slice(0, trainCount).flatMap((source) => source.examples.map((example) => hashJson([...example.prefix]))))].sort();
   const innerGroups = new Set(groups.filter((_group, index) => index % 5 === 0));
+  const calibration = options.task === "history-prefix" ? calibratePrefixTarget(snapshots.flatMap((source, index) => (source.role ?? (index < trainCount ? "train" : "other")) === "train" ? source.projections.filter((row) => !prefixInnerExample(row.example.id)) : [])) : undefined;
   const sources = snapshots.map((source, index) => {
-    const role: "train" | "meta-validation" | "final-test" = index < trainCount ? "train" : index < validationEnd ? "meta-validation" : "final-test";
-    for (const example of source.examples) {
-      const split = role === "train" && innerGroups.has(hashJson([...example.prefix])) ? "inner-held-out" : role;
+    const role: "train" | "meta-validation" | "final-test" = source.role ?? (index < trainCount ? "train" : index < validationEnd ? "meta-validation" : "final-test");
+    for (const [index, original] of source.examples.entries()) {
+      const example = calibration === undefined ? original : { ...original, label: source.projections[index].remaining_ms <= calibration.threshold_ms ? "fast" as const : "slow" as const };
+      const inner = calibration === undefined ? innerGroups.has(hashJson([...example.prefix])) : prefixInnerExample(example.id);
+      const split = role === "train" && inner ? "inner-held-out" : role;
       data[split].push(example);
     }
     return { repo: source.repo, commit: source.commit, license: "MIT" as const, role };
@@ -124,7 +142,7 @@ export function buildTrackerDataset(directories: readonly string[], output: stri
     assert.ok(examples.length > 0 && examples.length <= 10_000, "dataset_split_size");
     splits[split] = { digest: hashJson(examples as unknown as JsonValue), count: examples.length };
   }
-  const record = { format: "pm-rl/tracker-dataset/1" as const, task: "terminal-disposition" as const, seed, sources, omitted_sources, splits };
+  const record = { format: "pm-rl/tracker-dataset/1" as const, task: options.task ?? "terminal-disposition", seed, sources, omitted_sources, splits, ...(calibration === undefined ? {} : { calibration }) };
   const manifest = { ...record, digest: hashJson(record as unknown as JsonValue) };
   mkdirSync(output, { recursive: true });
   for (const split of TRACKER_SPLITS) writeFileSync(join(output, `${split}.json`), JSON.stringify(data[split]), { flag: "wx" });
@@ -136,7 +154,7 @@ export function buildTrackerDataset(directories: readonly string[], output: stri
 export function readTrackerDataset(directory: string): TrackerDataset {
   const { digest, ...record } = JSON.parse(readFileSync(join(directory, "dataset.json"), "utf8")) as TrackerDataset;
   assert.equal(hashJson(record as unknown as JsonValue), digest, "dataset_manifest_identity");
-  assert.ok(record.format === "pm-rl/tracker-dataset/1" && record.task === "terminal-disposition", "dataset_format");
+  assert.ok(record.format === "pm-rl/tracker-dataset/1" && ["terminal-disposition", "history-prefix"].includes(record.task), "dataset_format");
   assert.equal(new Set(record.sources.map((source) => source.repo)).size, record.sources.length, "dataset_duplicate_repo");
   return { ...record, digest };
 }
@@ -152,8 +170,9 @@ export function readTrackerSplit(directory: string, manifest: TrackerDataset, sp
     const source = manifest.sources.find((entry) => entry.repo === example.repo);
     const role = split === "inner-held-out" ? "train" : split;
     assert.ok(source !== undefined && source.role === role && source.commit === example.commit && source.license === "MIT", "dataset_repo_leakage");
-    assert.ok(example.label === "completed" || example.label === "cancelled", "dataset_label");
-    assert.ok(example.prefix.length > 0 && example.prefix.every((status) => ["open", "in_progress", "blocked"].includes(status)), "dataset_prefix");
+    assert.ok((manifest.task === "history-prefix" ? ["fast", "slow"] : ["completed", "cancelled"]).includes(example.label), "dataset_label");
+    if (manifest.task === "history-prefix") validateHistoryPrefix(example.history!);
+    assert.ok(validateLifecyclePrefix(example.prefix), "dataset_prefix");
   }
   return examples;
 }

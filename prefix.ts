@@ -1,0 +1,79 @@
+/** Bounded logistic classifier over hashed normalized history features; no model downloads. */
+import assert from "node:assert/strict";
+import { hashJson, type JsonValue } from "./index.ts";
+import { validateHistoryPrefix, type HistoryPrefix } from "./prefix-data.ts";
+import type { ProcessCompletion, ProcessInput } from "./process.ts";
+
+/** Fixed domains form part of every fitted checkpoint and recipe identity. */
+export const PREFIX_BOUNDS = { regularisation: [0, 0.1], ngram_order: [1, 3], hashing_width: [16, 64], learning_rate: [0.01, 1] } as const;
+/** Small feature spaces and one bounded SGD pass keep fits within existing process reservations. */
+export interface PrefixKnobs { readonly regularisation: number; readonly ngram_order: number; readonly hashing_width: number }
+/** Actual parameters, with their feature recipe and content digest. */
+export interface PrefixCheckpoint { readonly digest: string; readonly weights: readonly number[]; readonly knobs: PrefixKnobs }
+/** Only training observables and binary labels cross the process boundary. */
+export interface PrefixPayload {
+  readonly rows: readonly { readonly prefix: HistoryPrefix; readonly label: 0 | 1 }[];
+  readonly knobs: PrefixKnobs;
+}
+/** Validate each declared domain before allocating weights or processing rows. */
+export function validatePrefixKnobs(knobs: PrefixKnobs): void {
+  assert.deepEqual(Object.keys(knobs).sort(), ["hashing_width", "ngram_order", "regularisation"], "prefix_knobs");
+  assert.ok(Number.isFinite(knobs.regularisation) && knobs.regularisation >= 0 && knobs.regularisation <= 0.1, "prefix_regularisation");
+  assert.ok(Number.isInteger(knobs.ngram_order) && knobs.ngram_order >= 1 && knobs.ngram_order <= 3, "prefix_ngram_order");
+  assert.ok([16, 32, 64].includes(knobs.hashing_width), "prefix_hashing_width");
+}
+/** Hash event counts, order n-grams, field changes, elapsed buckets, author count and first-text words. */
+export function prefixFeatures(prefix: HistoryPrefix, knobs: PrefixKnobs): number[] {
+  validateHistoryPrefix(prefix); validatePrefixKnobs(knobs);
+  const values = new Array<number>(knobs.hashing_width).fill(0); values[0] = 1;
+  /** Add bounded counts to signed hash buckets, leaving the intercept separate. */
+  const add = (token: string, amount = 1): void => {
+    const hash = Number.parseInt(hashJson(token).slice(0, 8), 16);
+    const index = 1 + hash % (values.length - 1);
+    values[index] += (hash % 2 === 0 ? 1 : -1) * amount;
+  };
+  for (let order = 1; order <= knobs.ngram_order; order += 1) {
+    for (let index = order - 1; index < prefix.events.length; index += 1) add(`event:${prefix.events.slice(index + 1 - order, index + 1).join(",")}`);
+  }
+  for (const field of prefix.fields) add(`field:${field}`);
+  for (const word of prefix.words) add(`word:${word}`);
+  add(`elapsed:${Math.min(24, Math.floor(Math.log2(1 + prefix.elapsed_ms / 1000)))}`);
+  add(`authors:${Math.min(8, prefix.authors)}`);
+  for (let index = 1; index < values.length; index += 1) values[index] = Math.sign(values[index]) * Math.log1p(Math.abs(values[index])) / 8;
+  return values;
+}
+/** Canonical checkpoint identity binds finite bounded parameters and the complete feature recipe. */
+export function prefixCheckpoint(weights: readonly number[], knobs: PrefixKnobs): PrefixCheckpoint {
+  validatePrefixKnobs(knobs);
+  assert.ok(weights.length === knobs.hashing_width && weights.every((weight) => Number.isFinite(weight) && Math.abs(weight) <= 20), "prefix_weights");
+  return { weights: [...weights], knobs: { ...knobs }, digest: `sha256:${hashJson({ format: "pm-rl/prefix-checkpoint/1", weights: [...weights], knobs } as unknown as JsonValue)}` };
+}
+/** Predict deterministically; seed equality is observable rather than hidden behind action sampling. */
+export function prefixPrediction(prefix: HistoryPrefix, policy: PrefixCheckpoint): "fast" | "slow" {
+  const features = prefixFeatures(prefix, policy.knobs);
+  const logit = features.reduce((total, value, index) => total + value * policy.weights[index], 0);
+  return logit >= 0 ? "slow" : "fast";
+}
+/** Perform exactly one bounded SGD pass over the explicitly budgeted training rows. */
+export function fitPrefix(payload: PrefixPayload, source: PrefixCheckpoint, learningRate: number): PrefixCheckpoint {
+  validatePrefixKnobs(payload.knobs);
+  assert.ok(hashJson(source.knobs as unknown as JsonValue) === hashJson(payload.knobs as unknown as JsonValue), "prefix_source_knobs");
+  assert.ok(payload.rows.length > 0 && payload.rows.length <= 512 && Number.isFinite(learningRate) && learningRate >= 0.01 && learningRate <= 1, "prefix_fit_bounds");
+  const weights = [...source.weights];
+  for (const row of payload.rows) {
+    assert.ok(row.label === 0 || row.label === 1, "prefix_fit_label");
+    const features = prefixFeatures(row.prefix, payload.knobs);
+    const logit = features.reduce((total, value, index) => total + value * weights[index], 0);
+    const error = row.label - 1 / (1 + Math.exp(-logit));
+    for (let index = 0; index < weights.length; index += 1) weights[index] = Math.max(-20, Math.min(20, weights[index] + learningRate * (error * features[index] - payload.knobs.regularisation * weights[index])));
+  }
+  return prefixCheckpoint(weights.map((weight) => Math.round(weight * 10_000) / 10_000), payload.knobs);
+}
+/** Verify schema, digest and feature recipe independently of the fitting process. */
+export function validatePrefixCompletion(content: Buffer, completion: Pick<ProcessCompletion<{ readonly digest: string }>, "policy">, input: Pick<ProcessInput, "prefix">): void {
+  const policy = JSON.parse(content.toString("utf8")) as PrefixCheckpoint;
+  const verified = prefixCheckpoint(policy.weights, policy.knobs);
+  assert.equal(policy.digest, verified.digest, "prefix_checkpoint_identity");
+  assert.equal(hashJson(policy as unknown as JsonValue), hashJson(completion.policy as unknown as JsonValue), "prefix_receipt_policy");
+  assert.equal(hashJson(policy.knobs as unknown as JsonValue), hashJson(input.prefix!.knobs as unknown as JsonValue), "prefix_receipt_knobs");
+}

@@ -1,5 +1,7 @@
 /** Sealed tracker evaluator capabilities: search receives scores and policies, never inner or final examples. */
 import assert from "node:assert/strict";
+import { fitHistoryPrefix, prefixMajorityComparison } from "./prefix-environment.ts";
+import { prefixPrediction } from "./prefix.ts";
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { banditCheckpoint, type BanditExample } from "./bandit.ts";
 import { hashJson, readCompleteLoopItem, runRlLoop, type JsonValue } from "./index.ts";
@@ -23,7 +25,7 @@ export function openTrackerEnvironment(client: PmClient, coordinates: ProcessCoo
   const manifest = readTrackerDataset(directory);
   return {
     digest: manifest.digest,
-    fit: async (recipe, id, signal) => fitRecipe(client, coordinates, { config, dataset: directory, approval }, manifest, recipe, id, signal),
+    fit: async (recipe, id, signal) => manifest.task === "history-prefix" ? fitHistoryPrefix(client, coordinates, directory, manifest, config, approval, recipe, id, signal) : fitRecipe(client, coordinates, { config, dataset: directory, approval }, manifest, recipe, id, signal),
     selection(candidate, incumbent, peers = []) {
       const examples = readTrackerSplit(directory, manifest, "meta-validation");
       const context = manifest.splits["meta-validation"].digest;
@@ -33,8 +35,10 @@ export function openTrackerEnvironment(client: PmClient, coordinates: ProcessCoo
     finalTest(initial, incumbent) {
       const examples = readTrackerSplit(directory, manifest, "final-test");
       const context = manifest.splits["final-test"].digest;
-      return { before: scoreTrackerPolicy(examples, initial, context, config.seed), after: scoreTrackerPolicy(examples, incumbent, context, config.seed),
-        diagnostics: trackerDiagnostics(examples, incumbent, [initial], config.seed) };
+      const before = scoreTrackerPolicy(examples, initial, context, config.seed);
+      const after = scoreTrackerPolicy(examples, incumbent, context, config.seed);
+      const diagnostics = trackerDiagnostics(examples, incumbent, [initial], config.seed);
+      return { before, after, diagnostics, ...(manifest.task === "history-prefix" ? { majority_test: prefixMajorityComparison(examples, incumbent) } : {}) };
     },
   };
 }
@@ -59,7 +63,8 @@ export function recipeExamples(examples: readonly TrackerExample[], recipe: Reci
 }
 
 /** Sample reproducible policy actions inside the evaluator; never return these vectors to outer search. */
-function trackerPredictions(examples: readonly TrackerExample[], policy: RecipePolicy, seed: number): ("completed" | "cancelled")[] {
+function trackerPredictions(examples: readonly TrackerExample[], policy: RecipePolicy, seed: number): string[] {
+  if (policy.prefix !== undefined) return examples.map((example) => prefixPrediction(example.history!, policy.prefix!));
   return examples.map((example) => {
     const draw = Number.parseInt(hashJson({ seed, id: example.id }).slice(7, 15), 16) / 0x100000000;
     const probability = 1 / (1 + Math.exp(-policy.weight * trackerFeature(example) / policy.recipe.knobs.temperature));
@@ -77,13 +82,14 @@ export function scoreTrackerPolicy(examples: readonly TrackerExample[], policy: 
 /** Measure the split's constant-majority baseline and pairwise disagreement without releasing held-out rows. */
 export function trackerDiagnostics(examples: readonly TrackerExample[], policy: RecipePolicy, peers: readonly RecipePolicy[], seed: number): TrackerDiagnostics {
   assert.ok(examples.length > 0, "meta_diagnostics_empty");
-  const completed = examples.filter((example) => example.label === "completed").length;
-  const label = completed >= examples.length - completed ? "completed" : "cancelled";
-  const correct = Math.max(completed, examples.length - completed);
+  const labels = examples[0].history === undefined ? ["completed", "cancelled"] : ["fast", "slow"];
+  const first = examples.filter((example) => example.label === labels[0]).length;
+  const label = first >= examples.length - first ? labels[0] : labels[1];
+  const correct = Math.max(first, examples.length - first);
   const predictions = trackerPredictions(examples, policy, seed);
-  const counts = { completed: predictions.filter((prediction) => prediction === "completed").length, cancelled: predictions.filter((prediction) => prediction === "cancelled").length };
+  const counts = Object.fromEntries(labels.map((label) => [label, predictions.filter((prediction) => prediction === label).length]));
   return { majority_class: { label, correct, samples: examples.length, mean: correct / examples.length },
-    predictions: { distinct_labels: Number(counts.completed > 0) + Number(counts.cancelled > 0), counts },
+    predictions: { distinct_labels: Object.values(counts).filter((count) => count > 0).length, counts },
     disagreements: peers.map((peer) => {
       const other = trackerPredictions(examples, peer, seed);
       const differing = predictions.filter((prediction, index) => prediction !== other[index]).length;

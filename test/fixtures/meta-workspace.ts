@@ -34,7 +34,7 @@ export function trackerSources() {
     git(project, ["init", "-q"]); git(project, ["remote", "add", "origin", `https://github.com/public-fixture/pm-${name}.git`]);
     for (let index = 0; index < 32; index += 1) {
       const example = fixture[index % fixture.length];
-      writeFileSync(join(history, `item-${index}.jsonl`), [...example.prefix, example.terminal].map((status) => JSON.stringify({ patch: [{ path: "/metadata/status", value: status }] })).join("\n"));
+      writeFileSync(join(history, `item-${index}.jsonl`), [...example.prefix, example.terminal].map((status, event) => JSON.stringify({ ts: new Date(1_700_000_000_000 + event * (index + 1) * 10_000).toISOString(), author: "fixture", op: event === 0 ? "create" : "update", patch: [{ path: "/metadata/status", value: status }, ...(event === 0 ? [{ path: "/metadata/title", value: index % 2 === 0 ? "short urgent fix" : "long planned feature" }, { path: "/metadata/description", value: "Synthetic first description" }, { path: "/metadata/type", value: "Task" }] : [])] })).join("\n"));
     }
     git(project, ["add", ".agents/pm/history"]);
     git(project, ["-c", "user.name=Public Fixture", "-c", "user.email=public@example.test", "commit", "-qm", "Synthetic tracker snapshot"]);

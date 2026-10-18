@@ -1,0 +1,20 @@
+id: pm-rl-a2zp
+title: "Lift the prefix learner's capacity bound: content-addressed checkpoint artifacts instead of the 4096-byte staging record"
+description: "Follow-up to pm-rl-prefix and PR 86 only; no capacity changes in that PR. Its honest null is bounded by one SGD pass, at most 512 training rows, hashing width at most 64, and quantized weights constrained by the 4096-byte staging record. Retained policies predict only slow. Separate checkpoint artifact storage from the staging receipt to permit a larger bounded learner."
+type: Feature
+status: open
+priority: 2
+tags: []
+created_at: "2026-10-18T20:01:33.655Z"
+updated_at: "2026-10-18T20:02:54.247Z"
+author: codex-agent
+acceptance_criteria: "Store the checkpoint as a content-addressed blob referenced by digest from the receipt; Keep the budget and promotion gate unchanged; Rerun live acceptance on the same sealed dataset and report majority baseline, prediction diversity, held-out gain and confidence bound, and final-test before and after honestly"
+parent: pm-rl-apvf
+comments[1]{created_at,author,text}:
+  "2026-10-18T20:02:54.247Z",codex-agent,"Tracking only, requested during PR 86 review. Same parent as pm-rl-prefix. No artifact storage, learner, budget or promotion-gate change is included in the review fix. Current null result and capacity constraints are recorded in docs/history-prefix.md and docs/prefix-live-evidence.json."
+files[2]{path,scope}:
+  prefix-trainer.ts,project
+  prefix.ts,project
+docs[1]{path,scope}:
+  docs/history-prefix.md,project
+body: ""

@@ -4182,7 +4182,7 @@ async function runLoop(context: CommandHandlerContext): Promise<RlCommandResult>
 async function buildDatasetCommand(context: CommandHandlerContext): Promise<RlCommandResult> {
   const first = stringOption(context, "from_trackers")!;
   const directories = [first, ...context.args];
-  const dataset = buildTrackerDataset(directories, stringOption(context, "output")!, Number(stringOption(context, "seed", false) ?? "42"));
+  const dataset = buildTrackerDataset(directories, stringOption(context, "output")!, Number(stringOption(context, "seed", false) ?? "42"), { task: stringOption(context, "task", false) as "history-prefix" | "terminal-disposition" | undefined });
   return { action: "rl-dataset-build", details: { ...dataset } };
 }
 
@@ -4864,6 +4864,7 @@ async function showTransferGap(context: CommandHandlerContext): Promise<RlComman
 export const RL_COMMANDS = [
   defineCommand({ name: "rl dataset build", description: "Build a public MIT tracker-history dataset with repository-isolated train, meta-validation and final-test splits.", arguments: [{ name: "directories", variadic: true, description: "Additional tracker directories." }], flags: [
     { long: "--from-trackers", value_name: "directory", value_type: "string", required: true, description: "First tracker directory; append additional directories as arguments." },
+    { long: "--task", value_name: "kind", value_type: "string", description: "terminal-disposition (default) or history-prefix time-to-close with training-only calibration." },
     { long: "--output", value_name: "directory", value_type: "string", required: true, description: "New dataset output directory." },
     { long: "--seed", value_name: "number", value_type: "string", description: "Repository split seed, default 42." },
   ], run: buildDatasetCommand }),

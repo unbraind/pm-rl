@@ -1,5 +1,6 @@
 /** Content-addressed search recipes; bounds are part of the artifact and cannot expand during search. */
 import assert from "node:assert/strict";
+import { validatePrefixKnobs, PREFIX_BOUNDS, type PrefixKnobs } from "./prefix.ts";
 import { hashJson, type JsonValue } from "./index.ts";
 
 /** Numeric and categorical domains supported by the bounded tracker trainer. */
@@ -19,6 +20,7 @@ export interface RecipeKnobs {
   readonly incorrect_weight: number;
   readonly selection: "all" | "balanced";
   readonly curriculum: "forward" | "reverse";
+  readonly prefix?: PrefixKnobs;
 }
 
 /** Versioned recipe identity binds every knob and its declared search domain. */
@@ -31,7 +33,7 @@ export interface Recipe {
 
 /** Validate and canonically address a recipe without trusting a supplied digest. */
 export function recipeArtifact(knobs: RecipeKnobs): Recipe {
-  assert.deepEqual(Object.keys(knobs).sort(), Object.keys(RECIPE_BOUNDS).sort(), "recipe_knobs");
+  assert.deepEqual(Object.keys(knobs).filter((key) => key !== "prefix").sort(), Object.keys(RECIPE_BOUNDS).sort(), "recipe_knobs");
   for (const key of ["learning_rate", "steps", "batch", "temperature", "correct_weight", "incorrect_weight"] as const) {
     const value = knobs[key];
     const [low, high] = RECIPE_BOUNDS[key];
@@ -39,7 +41,8 @@ export function recipeArtifact(knobs: RecipeKnobs): Recipe {
   }
   assert.ok(Number.isInteger(knobs.steps) && Number.isInteger(knobs.batch), "recipe_integer");
   assert.ok(RECIPE_BOUNDS.selection.includes(knobs.selection) && RECIPE_BOUNDS.curriculum.includes(knobs.curriculum), "recipe_category");
-  const record = { format: "pm-rl/recipe/1" as const, bounds: RECIPE_BOUNDS, knobs: { ...knobs } };
+  if (knobs.prefix !== undefined) validatePrefixKnobs(knobs.prefix);
+  const record = { ...(knobs.prefix === undefined ? {} : { prefix_bounds: PREFIX_BOUNDS }), format: "pm-rl/recipe/1" as const, bounds: RECIPE_BOUNDS, knobs: { ...knobs } };
   return { ...record, digest: `sha256:${hashJson(record as unknown as JsonValue)}` };
 }
 
@@ -65,6 +68,7 @@ export function seededRecipes(incumbent: Recipe, seed: number, generation: numbe
   return Array.from({ length: count }, () => recipeArtifact({
     learning_rate: 0.01 + draw() * 0.99, steps: 1 + Math.floor(draw() * 2), batch: 16 + Math.floor(draw() * 241),
     temperature: 0.5 + draw() * 1.5, correct_weight: 0.5 + draw() * 0.5, incorrect_weight: draw() * 0.25,
+    ...(incumbent.knobs.prefix === undefined ? {} : { prefix: { regularisation: draw() * 0.1, ngram_order: 1 + Math.floor(draw() * 3), hashing_width: [16, 32, 64][Math.floor(draw() * 3)] } }),
     selection: draw() < 0.5 ? "all" : "balanced", curriculum: draw() < 0.5 ? "forward" : "reverse",
   }));
 }
