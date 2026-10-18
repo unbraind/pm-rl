@@ -95,7 +95,8 @@ export function trackerDiagnostics(examples: readonly TrackerExample[], policy: 
 async function fitRecipe(client: PmClient, coordinates: ProcessCoordinates, request: Pick<MetaRequest, "config" | "dataset" | "approval">, manifest: TrackerDataset, recipe: Recipe, id: string, signal: AbortSignal): Promise<RecipePolicy> {
   const training = recipeExamples(readTrackerSplit(request.dataset, manifest, "train"), recipe, true);
   const evaluation = recipeExamples(readTrackerSplit(request.dataset, manifest, "inner-held-out"), recipe, false);
-  assert.ok(!training.some((example) => new Set(evaluation.map((held) => held.id)).has(example.id)), "meta_inner_overlap");
+  const heldOutIds = new Set(evaluation.map((held) => held.id));
+  assert.ok(!training.some((example) => heldOutIds.has(example.id)), "meta_inner_overlap");
   const config = request.config;
   const report = await runRlLoop(client, coordinates, { id, approval: request.approval, signal, config: {
     recipe: recipe as unknown as JsonValue, environment: { name: "Public tracker terminal disposition", version: manifest.digest },
