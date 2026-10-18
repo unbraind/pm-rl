@@ -4,6 +4,7 @@ import type { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { certifyCompleteListResult, EXIT_CODE, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { hashJson, commitProcessTransaction, promotedGenerationIdsUnderApproval, readApprovalSpec, readCompleteLoopItem, withRlController, type JsonValue, type RlDurableStep } from "./index.ts";
 import { parseApprovalSpec } from "./lineage.ts";
+import type { PrefixCheckpoint } from "./prefix.ts";
 import { openTrackerEnvironment } from "./tracker-environment.ts";
 import { parseProcessAdapter, type ProcessAdapter, type ProcessCoordinates } from "./process.ts";
 import { decidePromotion, hoeffdingEpsilon, parsePromotionCriterion, type PromotionCriterion, type PromotionEvidence, type PromotionDecision } from "./promotion.ts";
@@ -23,13 +24,13 @@ export interface MetaConfig {
   readonly adapter: ProcessAdapter;
 }
 /** A fitted policy is interpreted with the temperature of the recipe that produced it. */
-export interface RecipePolicy { readonly recipe: Recipe; readonly weight: number; readonly checkpoint: string }
+export interface RecipePolicy { readonly recipe: Recipe; readonly weight: number; readonly checkpoint: string; readonly prefix?: PrefixCheckpoint; readonly fit?: { readonly job: string; readonly changed: boolean; readonly accepted: boolean; readonly gain: number; readonly gain_lower_bound: number; readonly refusal: string | null; readonly candidate: PrefixCheckpoint; readonly samples: number; readonly mean: number; readonly baseline: number; readonly predictions: Readonly<Record<"fast" | "slow", number>> } }
 /** Exact-match evidence counts distinct examples, rather than repeated pseudo-replications. */
 export interface TrackerScore { readonly mean: number; readonly samples: number; readonly context: string }
 /** Aggregate held-out diagnostics expose neither examples nor prediction vectors to search. */
 export interface TrackerDiagnostics {
-  readonly majority_class: { readonly label: "completed" | "cancelled"; readonly correct: number; readonly samples: number; readonly mean: number };
-  readonly predictions: { readonly distinct_labels: number; readonly counts: Readonly<Record<"completed" | "cancelled", number>> };
+  readonly majority_class: { readonly label: string; readonly correct: number; readonly samples: number; readonly mean: number };
+  readonly predictions: { readonly distinct_labels: number; readonly counts: Readonly<Record<string, number>> };
   readonly disagreements: readonly { readonly recipe: string; readonly differing: number; readonly samples: number; readonly rate: number }[];
 }
 /** Each comparison retains the actual gate, observed gain and conservative lower confidence bound. */
@@ -48,7 +49,7 @@ export interface MetaReport {
   readonly initial: RecipePolicy;
   readonly incumbent: RecipePolicy;
   readonly generations: readonly { readonly generation: number; readonly proposer: string; readonly candidates: readonly EvaluatedRecipe[]; readonly promoted: string | null }[];
-  readonly final_test: { readonly before: TrackerScore; readonly after: TrackerScore; readonly diagnostics: TrackerDiagnostics };
+  readonly final_test: { readonly before: TrackerScore; readonly after: TrackerScore; readonly diagnostics: TrackerDiagnostics; readonly majority_test?: { readonly p_value: number; readonly beats_majority: boolean; readonly baseline_accuracy: number; readonly accuracy_lower_bound: number; readonly wins: number; readonly losses: number; readonly gain_lower_bound: number } };
   readonly dataset: string;
 }
 /** Public command request; filesystem coordinates never enter recipe or programme identities. */
@@ -206,13 +207,15 @@ async function reserveMeta(client: PmClient, coordinates: ProcessCoordinates, re
 export { recipeExamples, scoreTrackerPolicy } from "./tracker-environment.ts";
 
 /** Apply the unchanged fail-closed statistical gate to recipe selection, never to proxy reward. */
-export function compareRecipes(candidate: RecipePolicy, incumbent: RecipePolicy, score: TrackerScore, baseline: TrackerScore, criterion: PromotionCriterion): MetaComparison {
+export function compareRecipes(candidate: RecipePolicy, incumbent: RecipePolicy, score: TrackerScore, baseline: TrackerScore, criterion: PromotionCriterion, identity: "recipe" | "checkpoint" = "recipe"): MetaComparison {
+  /** Inner fits compare distinct checkpoints; outer search compares distinct recipes. */
+  const generation = (policy: RecipePolicy): string => identity === "checkpoint" ? policy.checkpoint : policy.recipe.digest;
   /** Convert sealed exact-match measurements into the existing bounded-evidence contract. */
-  const evidence = (policy: RecipePolicy, value: TrackerScore): PromotionEvidence => ({ generation: policy.recipe.digest,
-    objective: "terminal_disposition_exact_match", objective_version: "1", evaluation_context: value.context,
+  const evidence = (policy: RecipePolicy, value: TrackerScore): PromotionEvidence => ({ generation: generation(policy),
+    objective: "tracker_exact_match", objective_version: "1", evaluation_context: value.context,
     direction: "maximize", mean: value.mean, samples: value.samples, rewardBounds: [0, 1] });
   const verdict = decidePromotion({ candidate: evidence(candidate, score), incumbent: evidence(incumbent, baseline), criterion,
-    contaminationPath: null, expectedGeneration: candidate.recipe.digest });
+    contaminationPath: null, expectedGeneration: generation(candidate) });
   const gain = score.mean - baseline.mean;
   const alpha = 1 - criterion.confidence;
   return { candidate, incumbent: incumbent.recipe.digest, score, gain,
