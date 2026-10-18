@@ -359,6 +359,29 @@
               "decision": "refuse",
               "code": "no_statistical_improvement",
               "reason": "Promotion refused: the candidate is not statistically better than the incumbent. Candidate lower bound 0.391106 does not beat incumbent upper bound 0.608894 by the effect threshold 0.01 (margin -0.227788). The candidate regressed: its mean is not above the incumbent's mean."
+            },
+            "diagnostics": {
+              "majority_class": {
+                "label": "completed",
+                "correct": 211,
+                "samples": 214,
+                "mean": 0.985981308411215
+              },
+              "predictions": {
+                "distinct_labels": 2,
+                "counts": {
+                  "completed": 108,
+                  "cancelled": 106
+                }
+              },
+              "disagreements": [
+                {
+                  "recipe": "sha256:b77fdfeff48dc713d46b397ff6ea652257fe46ca09650264ba5563e4e53a34ae",
+                  "differing": 0,
+                  "samples": 214,
+                  "rate": 0
+                }
+              ]
             }
           },
           {
@@ -426,6 +449,35 @@
               "decision": "refuse",
               "code": "no_statistical_improvement",
               "reason": "Promotion refused: the candidate is not statistically better than the incumbent. Candidate lower bound 0.391106 does not beat incumbent upper bound 0.608894 by the effect threshold 0.01 (margin -0.227788). The candidate regressed: its mean is not above the incumbent's mean."
+            },
+            "diagnostics": {
+              "majority_class": {
+                "label": "completed",
+                "correct": 211,
+                "samples": 214,
+                "mean": 0.985981308411215
+              },
+              "predictions": {
+                "distinct_labels": 2,
+                "counts": {
+                  "completed": 108,
+                  "cancelled": 106
+                }
+              },
+              "disagreements": [
+                {
+                  "recipe": "sha256:b77fdfeff48dc713d46b397ff6ea652257fe46ca09650264ba5563e4e53a34ae",
+                  "differing": 0,
+                  "samples": 214,
+                  "rate": 0
+                },
+                {
+                  "recipe": "sha256:800886e9f4cd5b02c1ec5dacf8dd127649090ad0a14b8e70656df49ec5031b45",
+                  "differing": 0,
+                  "samples": 214,
+                  "rate": 0
+                }
+              ]
             }
           }
         ],
@@ -500,6 +552,41 @@
               "decision": "refuse",
               "code": "no_statistical_improvement",
               "reason": "Promotion refused: the candidate is not statistically better than the incumbent. Candidate lower bound 0.391106 does not beat incumbent upper bound 0.608894 by the effect threshold 0.01 (margin -0.227788). The candidate regressed: its mean is not above the incumbent's mean."
+            },
+            "diagnostics": {
+              "majority_class": {
+                "label": "completed",
+                "correct": 211,
+                "samples": 214,
+                "mean": 0.985981308411215
+              },
+              "predictions": {
+                "distinct_labels": 2,
+                "counts": {
+                  "completed": 108,
+                  "cancelled": 106
+                }
+              },
+              "disagreements": [
+                {
+                  "recipe": "sha256:b77fdfeff48dc713d46b397ff6ea652257fe46ca09650264ba5563e4e53a34ae",
+                  "differing": 0,
+                  "samples": 214,
+                  "rate": 0
+                },
+                {
+                  "recipe": "sha256:800886e9f4cd5b02c1ec5dacf8dd127649090ad0a14b8e70656df49ec5031b45",
+                  "differing": 0,
+                  "samples": 214,
+                  "rate": 0
+                },
+                {
+                  "recipe": "sha256:45113586500fd8a5a6f9460ef6fa902dace8faaba2d3fc69791c9bfdfc52fe56",
+                  "differing": 0,
+                  "samples": 214,
+                  "rate": 0
+                }
+              ]
             }
           },
           {
@@ -567,6 +654,47 @@
               "decision": "refuse",
               "code": "no_statistical_improvement",
               "reason": "Promotion refused: the candidate is not statistically better than the incumbent. Candidate lower bound 0.391106 does not beat incumbent upper bound 0.608894 by the effect threshold 0.01 (margin -0.227788). The candidate regressed: its mean is not above the incumbent's mean."
+            },
+            "diagnostics": {
+              "majority_class": {
+                "label": "completed",
+                "correct": 211,
+                "samples": 214,
+                "mean": 0.985981308411215
+              },
+              "predictions": {
+                "distinct_labels": 2,
+                "counts": {
+                  "completed": 108,
+                  "cancelled": 106
+                }
+              },
+              "disagreements": [
+                {
+                  "recipe": "sha256:b77fdfeff48dc713d46b397ff6ea652257fe46ca09650264ba5563e4e53a34ae",
+                  "differing": 0,
+                  "samples": 214,
+                  "rate": 0
+                },
+                {
+                  "recipe": "sha256:800886e9f4cd5b02c1ec5dacf8dd127649090ad0a14b8e70656df49ec5031b45",
+                  "differing": 0,
+                  "samples": 214,
+                  "rate": 0
+                },
+                {
+                  "recipe": "sha256:45113586500fd8a5a6f9460ef6fa902dace8faaba2d3fc69791c9bfdfc52fe56",
+                  "differing": 0,
+                  "samples": 214,
+                  "rate": 0
+                },
+                {
+                  "recipe": "sha256:4a48567235f1fbca4e4a04c4b75ee3ac9586b613ea89641db727a03ef1c8c055",
+                  "differing": 0,
+                  "samples": 214,
+                  "rate": 0
+                }
+              ]
             }
           }
         ],
@@ -583,11 +711,34 @@
         "mean": 0.5142857142857142,
         "samples": 385,
         "context": "e47eacd557d0827f487b71019f8820e84b8a41a2727baa533239acf4ca97f4de"
+      },
+      "diagnostics": {
+        "majority_class": {
+          "label": "completed",
+          "correct": 384,
+          "samples": 385,
+          "mean": 0.9974025974025974
+        },
+        "predictions": {
+          "distinct_labels": 2,
+          "counts": {
+            "completed": 199,
+            "cancelled": 186
+          }
+        },
+        "disagreements": [
+          {
+            "recipe": "sha256:b77fdfeff48dc713d46b397ff6ea652257fe46ca09650264ba5563e4e53a34ae",
+            "differing": 0,
+            "samples": 385,
+            "rate": 0
+          }
+        ]
       }
     },
     "dataset": "a4320672ba0d2f20e1aebfba7b9e91de71c95e17a9706700f79dfe163c8aae0c"
   },
   "dataset_build_and_controller_elapsed_ms": 93734.67408900001,
-  "elapsed_ms": 92238.67339099999,
-  "source_head": "c882cc2527ace62cff02af25a85b5bb30dedb2a4"
+  "elapsed_ms": 58251.420958999995,
+  "source_head": "5a142fc38a2591eb464ce63819f32f7101c2a9ef"
 }

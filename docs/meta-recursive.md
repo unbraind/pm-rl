@@ -134,7 +134,7 @@ and reward bounds [0,1]. Each side's Hoeffding half-width is
 0.10889390591705964. No recipe was promoted in either generation. The final-test
 score was **198/385 = 0.5142857142857142 before and after**. No real-data recipe
 improvement is claimed, and the gate was not relaxed. Dataset build plus controller
-execution took 92,238.673391 ms inside the command's unchanged 15-minute watchdog.
+execution took 58,251.420959 ms inside the command's unchanged 15-minute watchdog.
 
 
 ## Baseline and recipe sensitivity review
@@ -182,7 +182,7 @@ Node 26 with isolated HOME and global/system Git configuration. Each passes
 all 35 declared sources, 295 documented declarations, and zero duplicate clones
 or production audit findings. Thresholds, dependency pins and release approval
 are unchanged. The live evidence names the measured production source commit;
-the later resource-fixture changes affect acceptance tests only.
+later receipt updates do not change the measured production source.
 
 The real Compose resource faults are explicit: the deadline worker publishes
 real LM progress then pauses past its unchanged 15-second limit; the memory
