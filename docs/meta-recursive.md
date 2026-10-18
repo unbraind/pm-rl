@@ -209,8 +209,8 @@ predictions, and full disagreement.
 
 ## Release verification
 
-The [source-verification CI run](https://github.com/unbraind/pm-rl/actions/runs/39135240662)
-on `5c9ab9a2a756bf626443b53f56127738ea85ef36`
+The [source-verification CI run](https://github.com/unbraind/pm-rl/actions/runs/39139389795)
+on `29193adc638a40b04c945e657eaaadfa034a2371`
 executes `npm run release:check` on Node 22 and 26 and `bun run release:check` on
 Node 26 with isolated HOME and global/system Git configuration. Each passes
 628/628 tests, zero failures/skips, 100% statements/lines/branches/functions over
