@@ -107,6 +107,7 @@ async function fitRecipe(client: PmClient, coordinates: ProcessCoordinates, requ
     adapter: config.adapter as unknown as JsonValue,
   } });
   assert.ok(!["process_failed", "process_cancelled", "process_invalidated", "wall_limit_exceeded", "checkpoint_limit_exceeded"].includes(report.stop_reason), "meta_inner_failed");
+  assert.ok(!(report.stop_reason === "promotion_refused" && /approved promotion budget/.test(String(report.refusal_reason))), "meta_inner_promotion_budget");
   let weight = 0;
   const accepted = report.generations.filter((generation) => generation.promoted).at(-1);
   if (accepted !== undefined) {

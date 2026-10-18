@@ -1949,11 +1949,11 @@ async function buildAncestry(client: PmClient, headId: string, strict: boolean):
 }
 
 /**
- * Count promoted generations that recorded a given approval item as their
+ * List promoted generation identities that recorded a given approval item as their
  * authorization.
  *
- * This is only called on the promotion path, where the approved budget cannot be
- * established while any Generation is uncountable. A Generation whose body has
+ * Promotion and reservation accounting cannot establish the approved budget
+ * while any Generation is uncountable. A Generation whose body has
  * no JSON fence or whose spec fails to parse is therefore refused rather than
  * skipped: treating unreadable provenance as absent provenance inverts the
  * contract, since the budget exists to bound a recursive loop that promotes
@@ -1964,16 +1964,16 @@ async function buildAncestry(client: PmClient, headId: string, strict: boolean):
  *
  * @param client - Client bound to the workspace holding the generations.
  * @param approvalId - Approval Decision item whose consumed budget is counted.
- * @returns The number of generations promoted under this approval.
+ * @returns Canonical ids of generations promoted under this approval, without exposing their bodies.
  * @throws When any generation's specification cannot be read or parsed.
  */
-async function countPromotedUnderApproval(client: PmClient, approvalId: string): Promise<number> {
-  // Bodies come back with the listing. This runs inside the promotion's writer
+export async function promotedGenerationIdsUnderApproval(client: PmClient, approvalId: string): Promise<readonly string[]> {
+  // Bodies come back with the listing. Callers hold the SDK writer
   // lock, so a per-record `client.get` would make the critical section grow one
   // read per historical generation, and a large enough lineage would turn a
   // correct refusal into a lock-wait timeout for every concurrent promoter.
   const result = await client.list({ type: "Generation", status: "all", noTruncate: true, fields: "id,body" });
-  let count = 0;
+  const promoted: string[] = [];
   for (const item of result.items) {
     // The SDK types a listed item's `id` as optional; a record without one
     // carries no identity to report, so it is skipped rather than counted.
@@ -1989,9 +1989,9 @@ async function countPromotedUnderApproval(client: PmClient, approvalId: string):
     } catch (error) {
       fail(`Promotion refused: generation ${item.id} has an unparseable specification (${String(error)}), so the approved budget cannot be established.`, "budget_undecidable", EXIT_CODE.CONFLICT);
     }
-    if (spec.promoted && spec.approval === approvalId) count += 1;
+    if (spec.promoted && spec.approval === approvalId) promoted.push(item.id);
   }
-  return count;
+  return promoted;
 }
 
 
@@ -2459,7 +2459,7 @@ async function promoteGenerationCore(client: PmClient, coordinates: WorkspaceCoo
         // is a comparison between two values, and re-reading only one of them
         // leaves the comparison stale in the other direction.
         const lockedApprovalSpec = await readApprovalSpec(client, approvalId);
-        promotedCount = await countPromotedUnderApproval(client, approvalId);
+        promotedCount = (await promotedGenerationIdsUnderApproval(client, approvalId)).length;
         permittedPromotions = lockedApprovalSpec.permitted_promotions;
         if (promotedCount >= permittedPromotions) {
           fail(`Advancing past the approved promotion budget is refused. ${promotedCount} promotion(s) consumed; approval ${approvalId} permits ${permittedPromotions}. Extend approval item ${approvalId} to authorize more promotions.`, "budget_exceeded", EXIT_CODE.CONFLICT);
@@ -2803,10 +2803,11 @@ async function controllerMutex(root: string, id: string, author: string, start: 
  * @param coordinates - Workspace root and author for the lease and the claim.
  * @param request - Loop identity, approval and explicit operator recovery choice.
  * @param seedId - The seed generation item id the claim is recorded on.
+ * @param recovery - Supported outer command and existing audit item for a meta lease, including before its first receipt.
  * @returns The lease, which the caller must release exactly once.
  * @throws An expected `loop_controller_active` refusal when a live controller holds the lease.
  */
-async function acquireControllerLease(client: PmClient, coordinates: WorkspaceCoordinates, request: RlLoopRequest, seedId: string): Promise<ControllerLease> {
+async function acquireControllerLease(client: PmClient, coordinates: WorkspaceCoordinates, request: RlLoopRequest, seedId: string, recovery?: { readonly command: string; readonly auditItem: string }): Promise<ControllerLease> {
   const id = request.id;
   // Git worktrees share the repository metadata, so the SDK's lease and
   // launch journal are shared even when the tracked PM roots diverge.
@@ -2821,7 +2822,7 @@ async function acquireControllerLease(client: PmClient, coordinates: WorkspaceCo
   }
   const lockId = loopLeaseLockId(id);
   const lockPath = join(authorityRoot, "locks", `${lockId}.lock`);
-  const refusal = `Lease ${relative(coordinates.pmRoot, lockPath)}; operator recovery: pm rl loop resume ${id} --approval ${request.approval} --force-takeover.`;
+  const refusal = `Lease ${relative(coordinates.pmRoot, lockPath)}; operator recovery: ${recovery?.command ?? `pm rl loop resume ${id} --approval ${request.approval} --force-takeover`}.`;
   const ownStart = loopProcessStartTime(process.pid, process.platform, request.processIdentityIO);
   if (ownStart === null) {
     fail(`Loop ${id} cannot acquire a lease without a verifiable process start time. Restore OS process-start tooling or access before retrying; --force-takeover cannot bypass unavailable controller identity. ${refusal}`, "loop_identity_unavailable", EXIT_CODE.CONFLICT);
@@ -2854,7 +2855,7 @@ async function acquireControllerLease(client: PmClient, coordinates: WorkspaceCo
       }
       if (request.forceTakeover === true) {
         // Host and owner digests identify the previous holder without publishing machine identity.
-        await client.update(seedId, { comment: [`Loop ${id} forced lease takeover by ${coordinates.author}: ${JSON.stringify({
+        await client.update(recovery?.auditItem ?? seedId, { comment: [`Loop ${id} forced lease takeover by ${coordinates.author}: ${JSON.stringify({
           previous_holder: { pid: typeof record["pid"] === "number" ? record["pid"] : null, process_start_time_digest: hashJson(String(record["process_start_time"])),
             hostname_digest: hashJson(String(record["hostname"])), owner_digest: hashJson(String(record["owner"])) },
           lock: relative(coordinates.pmRoot, lockPath),
@@ -3277,9 +3278,10 @@ async function durableLoopStep(client: PmClient, lease: ControllerLease, id: str
 /** Durable step executor shared by inner and outer controllers. */
 export type RlDurableStep = (key: string, input: JsonValue, execute: () => Promise<JsonValue>) => Promise<JsonValue>;
 
-/** Reuse the inner loop's owner lease, worktree authority, phase fencing and digested receipts for recipe search. */
-export async function withRlController<T>(client: PmClient, coordinates: WorkspaceCoordinates, id: string, signal: AbortSignal, execute: (step: RlDurableStep) => Promise<T>): Promise<T> {
-  const lease = await acquireControllerLease(client, coordinates, { id, approval: "meta", config: null, signal }, `${id}-step-programme`);
+/** Reuse the inner lease and fenced receipts with the real approval, supported recovery command and audited operator override. */
+export async function withRlController<T>(client: PmClient, coordinates: WorkspaceCoordinates, request: Pick<RlLoopRequest, "id" | "approval" | "forceTakeover"> & { readonly recoveryCommand: string }, signal: AbortSignal, execute: (step: RlDurableStep) => Promise<T>): Promise<T> {
+  const { id } = request;
+  const lease = await acquireControllerLease(client, coordinates, { ...request, config: null, signal }, `${id}-step-programme`, { command: request.recoveryCommand, auditItem: request.approval });
   try {
     return await execute(async (key, input, operation) => {
       signal.throwIfAborted();
@@ -4180,6 +4182,7 @@ async function runMetaCommand(context: CommandHandlerContext): Promise<RlCommand
       id, config: parseMetaConfig(readJsonFile(stringOption(context, "file")!, "Meta configuration")),
       dataset: stringOption(context, "dataset")!, approval: stringOption(context, "approval")!,
       proposer: (stringOption(context, "proposer", false) ?? "seeded") as "seeded" | "decision-model", signal: cancellation.controller.signal,
+      forceTakeover: (context.options["force_takeover"] ?? context.options["forceTakeover"]) === true,
     });
   } finally {
     removeCancellationSignals(cancellation.handlers);
@@ -4855,6 +4858,7 @@ export const RL_COMMANDS = [
     { long: "--dataset", value_name: "directory", value_type: "string", required: true, description: "Sealed dataset directory." },
     { long: "--approval", value_name: "decision", value_type: "string", required: true, description: "Pre-approved shared resource and recipe budget Decision." },
     { long: "--proposer", value_name: "kind", value_type: "string", description: "seeded (default) or decision-model with local tev1:4b and seeded fallback." },
+    { long: "--force-takeover", description: "Audit recovery of an ambiguous outer lease; verified live or unverifiable holders still block." },
   ], run: runMetaCommand }),
   defineCommand({ name: "rl env register", description: "Register an immutable, content-addressed environment JSON specification.", flags: [{ long: "--file", value_name: "path", value_type: "string", required: true, description: "Environment JSON file." }], run: registerEnvironment }),
   defineCommand({ name: "rl env list", description: "List registered RL environment versions without their large bodies.", run: listEnvironments }),

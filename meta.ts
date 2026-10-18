@@ -2,7 +2,8 @@
 import assert from "node:assert/strict";
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { certifyCompleteListResult, EXIT_CODE, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
-import { hashJson, commitProcessTransaction, readCompleteLoopItem, withRlController, type JsonValue, type RlDurableStep } from "./index.ts";
+import { hashJson, commitProcessTransaction, promotedGenerationIdsUnderApproval, readCompleteLoopItem, withRlController, type JsonValue, type RlDurableStep } from "./index.ts";
+import { parseApprovalSpec } from "./lineage.ts";
 import { openTrackerEnvironment } from "./tracker-environment.ts";
 import { parseProcessAdapter, type ProcessAdapter, type ProcessCoordinates } from "./process.ts";
 import { decidePromotion, hoeffdingEpsilon, parsePromotionCriterion, type PromotionCriterion, type PromotionEvidence, type PromotionDecision } from "./promotion.ts";
@@ -58,6 +59,8 @@ export interface MetaRequest {
   readonly approval: string;
   readonly proposer: "seeded" | "decision-model";
   readonly signal?: AbortSignal;
+  /** Explicit operator recovery of an ambiguous outer lease; live and unverifiable holders still refuse. */
+  readonly forceTakeover?: boolean;
   /** Loopback endpoint override for real HTTP acceptance fixtures. @internal */
   readonly decisionEndpoint?: string;
   /** Observe committed boundaries for real cancellation and crash drills. @internal */
@@ -80,7 +83,7 @@ export function parseMetaConfig(value: unknown): MetaConfig {
 }
 
 /** Read the pre-existing Decision, binding both promotion and resource allowances to its complete body. */
-async function metaApproval(client: PmClient, id: string): Promise<{ id: string; digest: string; limits: Record<string, number> }> {
+async function metaApproval(client: PmClient, id: string): Promise<{ id: string; digest: string; limits: Record<string, number>; promotions: number }> {
   const item = await readCompleteLoopItem(client, id);
   assert.equal(item.item.type, "Decision", "meta_approval_required");
   const fence = /```json\n([\s\S]+?)\n```/.exec(String(item.item.body));
@@ -90,14 +93,16 @@ async function metaApproval(client: PmClient, id: string): Promise<{ id: string;
   for (const key of ["training_samples", "proposal_calls", "recipe_promotions"]) {
     assert.ok(Number.isSafeInteger(spec.meta_budget[key]) && spec.meta_budget[key] >= 0, "meta_budget_bound");
   }
-  return { id: String(item.item.id), digest: hashJson(spec as unknown as JsonValue), limits: spec.meta_budget };
+  const promotions = parseApprovalSpec(fence[1], "Meta approval").permitted_promotions;
+  assert.ok(Number.isSafeInteger(promotions), "meta_promotion_budget_bound");
+  return { id: String(item.item.id), digest: hashJson(spec as unknown as JsonValue), limits: spec.meta_budget, promotions };
 }
 
 /** Parse reservation envelopes independent of JSON spacing; unrelated text cannot charge or conceal an allowance. */
-export function metaReservation(body: string): { id: string; approval: string; charge: Record<string, number> } | null {
+export function metaReservation(body: string): { id: string; approval: string; charge: Record<string, number>; promotion_headroom: number } | null {
   if (!body.includes("pm-rl/meta-reservation/1")) return null;
   try {
-    const record = JSON.parse(body) as { format: string; id: string; approval: string; charge: Record<string, number> };
+    const record = JSON.parse(body) as { format: string; id: string; approval: string; charge: Record<string, number>; promotion_headroom: number };
     return record.format === "pm-rl/meta-reservation/1" ? record : null;
   } catch { return null; }
 }
@@ -116,24 +121,27 @@ async function reserveMeta(client: PmClient, coordinates: ProcessCoordinates, re
   const { config } = request;
   const charge = { training_samples: (1 + config.meta_generations * config.candidates) * RECIPE_BOUNDS.steps[1] * RECIPE_BOUNDS.batch[1],
     proposal_calls: request.proposer === "decision-model" ? 2 * config.meta_generations : 0, recipe_promotions: config.meta_generations };
+  const promotionHeadroom = (1 + config.meta_generations * config.candidates) * RECIPE_BOUNDS.steps[1];
   const key = `${request.id}-reservation`;
   await commitProcessTransaction({ ...coordinates, transactionId: `${key}-reserve`, steps: [{ id: "reserve",
     async inspect() {
       const previous = await readMetaReceipt(client, key);
       if (previous === null) return { state: "pending" };
       assert.equal(previous.item.type, "Decision", "meta_reservation_drift");
-      const record = JSON.parse(String(previous.item.body)) as { format: string; id: string; binding: string; approval: string; charge: JsonValue };
+      const record = JSON.parse(String(previous.item.body)) as { format: string; id: string; binding: string; approval: string; charge: JsonValue; promotion_headroom: number };
       assert.equal(record.binding, binding, "meta_reservation_drift");
       assert.equal(record.format, "pm-rl/meta-reservation/1", "meta_reservation_drift");
       assert.equal(record.id, key, "meta_reservation_drift");
       assert.equal(record.approval, (await metaApproval(client, request.approval)).id, "meta_reservation_drift");
       assert.equal(hashJson(record.charge), hashJson(charge), "meta_reservation_drift");
+      assert.equal(record.promotion_headroom, promotionHeadroom, "meta_reservation_drift");
       return { state: "applied" };
     },
     async apply() {
       const approval = await metaApproval(client, request.approval);
       const items = certifyCompleteListResult(await client.listAllComplete({ includeBody: false }));
       const charges: Record<string, number>[] = [];
+      const promotions: { prefix: string; headroom: number; consumed: number }[] = [];
       for (const item of items.items.filter((entry) => entry.type === "Decision" && entry.id.endsWith("-reservation"))) {
         const record = metaReservation(String((await readCompleteLoopItem(client, item.id)).item.body));
         if (record === null) continue;
@@ -143,13 +151,25 @@ async function reserveMeta(client: PmClient, coordinates: ProcessCoordinates, re
             assert.ok(Number.isSafeInteger(record.charge[key]) && record.charge[key] >= 0, "meta_reservation_charge");
           }
           charges.push(record.charge);
+          assert.ok(Number.isSafeInteger(record.promotion_headroom) && record.promotion_headroom >= 0, "meta_promotion_reservation_charge");
+          promotions.push({ prefix: item.id.slice(0, -"-reservation".length), headroom: record.promotion_headroom, consumed: 0 });
         }
       }
       for (const key of ["training_samples", "proposal_calls", "recipe_promotions"] as const) {
         const total = charges.reduce((sum, entry) => sum + entry[key], charge[key]);
         assert.ok(Number.isSafeInteger(total) && total <= approval.limits[key], `meta_budget_exhausted: ${key}`);
       }
-      await client.create({ id: key, type: "Decision", title: "Reserved bounded recipe search", body: JSON.stringify({ format: "pm-rl/meta-reservation/1", id: key, binding, approval: approval.id, charge }) });
+      let unreserved = 0;
+      const consumed = items.items.some((item) => item.type === "Generation") ? await promotedGenerationIdsUnderApproval(client, approval.id) : [];
+      for (const id of consumed) {
+        const reserved = promotions.find(({ prefix }) => id.startsWith(`${prefix}-`) && /^-(?:initial|m(?:[1-9]|10)-c[0-7])-g[12]$/.test(id.slice(prefix.length)));
+        if (reserved === undefined) unreserved += 1;
+        else reserved.consumed += 1;
+      }
+      for (const reserved of promotions) assert.ok(reserved.consumed <= reserved.headroom, "meta_promotion_reservation_exceeded");
+      const totalPromotions = promotions.reduce((sum, reserved) => sum + reserved.headroom, promotionHeadroom + unreserved);
+      assert.ok(Number.isSafeInteger(totalPromotions) && totalPromotions <= approval.promotions, "meta_promotion_budget_exhausted");
+      await client.create({ id: key, type: "Decision", title: "Reserved bounded recipe search", body: JSON.stringify({ format: "pm-rl/meta-reservation/1", id: key, binding, approval: approval.id, charge, promotion_headroom: promotionHeadroom }) });
     },
     // Conservative reservations survive transaction recovery and are never refunded by search itself.
     async compensate() {},
@@ -239,7 +259,8 @@ export async function runRlMeta(client: PmClient, coordinates: ProcessCoordinate
   const input = { format: "pm-rl/meta-programme/1", id: request.id, config: config as unknown as JsonValue, dataset: environment.digest, approval_id: approval.id, approval: approval.digest,
     proposer: request.proposer, endpoint: request.decisionEndpoint ?? "http://127.0.0.1:11434" };
   const binding = hashJson(input);
-  return withRlController(client, coordinates, request.id, signal, async (durable) => {
+  const recoveryCommand = `pm rl meta run ${request.id} --file <programme.json> --dataset <dataset-directory> --approval ${request.approval} --proposer ${request.proposer} --force-takeover`;
+  return withRlController(client, coordinates, { id: request.id, approval: request.approval, forceTakeover: request.forceTakeover, recoveryCommand }, signal, async (durable) => {
     /** Verify approval identity at every boundary, and notify observers only after the receipt is durable. */
     const step: RlDurableStep = async (key, value, execute) => {
       assert.equal((await metaApproval(client, request.approval)).digest, approval.digest, "meta_budget_drift");

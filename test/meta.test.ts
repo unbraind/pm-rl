@@ -5,10 +5,11 @@ import { once } from "node:events";
 import { fork } from "node:child_process";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { hostname } from "node:os";
 import { test } from "node:test";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import { certifyCompleteListResult } from "@unbrained/pm-cli/sdk/runtime";
-import extension, { hashJson, withRlController, type JsonValue, type RlCommandResult, loopLeaseLockId } from "../index.ts";
+import { acquireLock, certifyCompleteListResult } from "@unbrained/pm-cli/sdk/runtime";
+import extension, { hashJson, runRlLoop, promotedGenerationIdsUnderApproval, type JsonValue, type RlCommandResult, loopLeaseLockId, loopProcessStartTime, LOOP_LEASE_TTL_SECONDS, RL_COMMANDS } from "../index.ts";
 import { compareRecipes, durableRecipeProposals, metaReservation, parseMetaConfig, proposeRecipes, recipeExamples, recipeSuccessor, runRlMeta, scoreTrackerPolicy, type MetaConfig, type MetaRequest } from "../meta.ts";
 import { INITIAL_RECIPE, recipeArtifact, seededRecipes } from "../recipe.ts";
 import { banditCheckpoint } from "../bandit.ts";
@@ -23,6 +24,129 @@ import { openTrackerEnvironment, trackerDiagnostics } from "../tracker-environme
 function requestFor(workspace: Awaited<ReturnType<typeof metaWorkspace>>, id: string, config = metaConfig): MetaRequest {
   return { id, config, dataset: workspace.dataset, approval: workspace.approval, proposer: "seeded" };
 }
+
+test("ambiguous outer meta leases expose working CLI takeover and preserve live-holder refusals", { timeout: 600_000 }, async () => {
+  const w = await metaWorkspace(); const id = "meta-recovery";
+  const request = requestFor(w, id, { ...metaConfig, meta_generations: 1, candidates: 1 });
+  await assert.rejects(runRlMeta(w.client, w.coordinates, { ...request, onStep(key) { if (key === "programme") throw new Error("programme reserved"); } }), /programme reserved/);
+  const file = join(w.root, "recovery.json"); writeFileSync(file, JSON.stringify(request.config));
+  const path = join(w.coordinates.pmRoot, "locks", `${loopLeaseLockId(id)}.lock`);
+  const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
+  const command = RL_COMMANDS.find((command) => command.name === "rl meta run")!;
+  assert.ok("flags" in command && command.flags.some((flag) => flag.long === "--force-takeover"));
+  for (const option of ["force_takeover", "forceTakeover"] as const) {
+    const release = await acquireLock(w.coordinates.pmRoot, loopLeaseLockId(id), LOOP_LEASE_TTL_SECONDS, "synthetic-foreign-holder");
+    try {
+      const original = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+      writeFileSync(path, JSON.stringify({ ...original, hostname: "other-host.invalid" }));
+      await assert.rejects(runRlMeta(w.client, w.coordinates, request), (error: unknown) => {
+        const message = String(error); assert.match(message, /holder is ambiguous/);
+        assert.ok(message.includes(`pm rl meta run ${id} --file <programme.json> --dataset <dataset-directory> --approval ${w.approval} --proposer seeded --force-takeover`));
+        assert.ok(!message.includes("rl loop resume")); return true;
+      });
+      const recovered = await harness.runCommand({ command: "rl meta run", pmRoot: w.coordinates.pmRoot, args: [id],
+        options: { file, dataset: w.dataset, approval: w.approval, [option]: true }, global: { author: "operator-test" } });
+      assert.equal(recovered.handled, true, recovered.errorMessage ?? "meta takeover must succeed");
+      assert.equal((recovered.result as RlCommandResult).action, "rl-meta-run");
+    } finally { await release(); }
+  }
+  const fresh = "fresh-recovery";
+  const freshPath = join(w.coordinates.pmRoot, "locks", `${loopLeaseLockId(fresh)}.lock`);
+  const releaseFresh = await acquireLock(w.coordinates.pmRoot, loopLeaseLockId(fresh), LOOP_LEASE_TTL_SECONDS, "synthetic-unpublished-holder");
+  try {
+    const original = JSON.parse(readFileSync(freshPath, "utf8")) as Record<string, unknown>;
+    writeFileSync(freshPath, JSON.stringify({ ...original, hostname: "other-host.invalid" }));
+    await assert.rejects(runRlMeta(w.client, w.coordinates, { ...request, id: fresh, forceTakeover: true,
+      onStep(key) { if (key === "programme") throw new Error("fresh takeover reserved"); } }), /fresh takeover reserved/);
+  } finally { await releaseFresh(); }
+  const history = readFileSync(join(w.coordinates.pmRoot, "history", `${w.approval}.jsonl`), "utf8");
+  assert.ok(history.includes("forced lease takeover by operator-test"));
+  assert.ok(history.includes(`Loop ${fresh} forced lease takeover`));
+  assert.ok(history.includes("hostname_digest")); assert.ok(!history.includes("other-host.invalid"));
+  assert.ok(!history.includes(hostname())); assert.ok(!history.includes(w.coordinates.pmRoot));
+  const jobs = await listProcessJobs(w.client);
+  for (const state of ["alive", "unverifiable"] as const) {
+    const release = await acquireLock(w.coordinates.pmRoot, loopLeaseLockId(id), LOOP_LEASE_TTL_SECONDS, "synthetic-local-holder");
+    try {
+      const original = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+      const contents = JSON.stringify({ ...original, hostname: hostname(), process_start_time: state === "alive" ? loopProcessStartTime(process.pid) : undefined });
+      writeFileSync(path, contents);
+      await assert.rejects(runRlMeta(w.client, w.coordinates, { ...request, forceTakeover: true }), new RegExp(`holder is ${state}`));
+      assert.equal(readFileSync(path, "utf8"), contents);
+    } finally { await release(); }
+  }
+  assert.deepEqual(await listProcessJobs(w.client), jobs, "terminal recovery and blocked holders cannot launch extra fits");
+});
+
+test("shared inner promotion headroom refuses before training and reserves atomically once", { timeout: 600_000 }, async () => {
+  const w = await metaWorkspace(); const config = { ...metaConfig, meta_generations: 1, candidates: 1 };
+  for (const permitted of [0, 3]) {
+    await w.client.update(w.approval, { body: `\`\`\`json\n${JSON.stringify({ ...metaSpec, permitted_promotions: permitted })}\n\`\`\`` });
+    await assert.rejects(runRlMeta(w.client, w.coordinates, requestFor(w, `low-${permitted}`, config)), /meta_promotion_budget_exhausted/);
+    assert.equal((await listProcessJobs(w.client)).length, 0);
+  }
+  await w.client.update(w.approval, { body: `\`\`\`json\n${JSON.stringify({ ...metaSpec, permitted_promotions: 4 })}\n\`\`\`` });
+  const outcomes = await Promise.allSettled(["capacity-one", "capacity-two"].map((id) => runRlMeta(w.client, w.coordinates, {
+    ...requestFor(w, id, config), onStep(key) { if (key === "programme") throw new Error("headroom held"); },
+  })));
+  const reasons = outcomes.map((outcome) => String((outcome as PromiseRejectedResult).reason));
+  assert.equal(reasons.filter((reason) => reason.includes("headroom held")).length, 1, reasons.join("\n"));
+  assert.equal(reasons.filter((reason) => reason.includes("meta_promotion_budget_exhausted")).length, 1, reasons.join("\n"));
+  const [reservation] = certifyCompleteListResult(await w.client.listAllComplete({ includeBody: false })).items.filter((item) => item.id.endsWith("-reservation"));
+  const body = String((await w.client.get(reservation.id)).item.body);
+  assert.equal((JSON.parse(body) as { promotion_headroom: number }).promotion_headroom, 4);
+  const id = reasons[0].includes("headroom held") ? "capacity-one" : "capacity-two";
+  await assert.rejects(runRlMeta(w.client, w.coordinates, { ...requestFor(w, id, config), onStep() { throw new Error("same headroom adopted"); } }), /same headroom adopted/);
+  assert.equal(String((await w.client.get(reservation.id)).item.body), body);
+  for (const promotion_headroom of [undefined, -1, 0.5, Number.MAX_SAFE_INTEGER + 1]) {
+    await w.client.update(reservation.id, { body: JSON.stringify({ ...JSON.parse(body), promotion_headroom }) });
+    await assert.rejects(runRlMeta(w.client, w.coordinates, requestFor(w, "bad-capacity", config)), /meta_promotion_reservation_charge/);
+  }
+});
+
+test("promotion headroom counts outside usage without charging reserved promotions twice", { timeout: 600_000 }, async () => {
+  const w = await metaWorkspace(); const config = { ...metaConfig, meta_generations: 1, candidates: 1 };
+  const raw = JSON.parse(readFileSync(new URL("../examples/loop-bandit.json", import.meta.url), "utf8")) as Record<string, JsonValue>;
+  const loop = { ...raw, max_generations: 1 };
+  await w.client.update(w.approval, { body: `\`\`\`json\n${JSON.stringify({ ...metaSpec, permitted_promotions: 8 })}\n\`\`\`` });
+  const stop = (key: string) => { if (key === "programme") throw new Error("capacity reserved"); };
+  await assert.rejects(runRlMeta(w.client, w.coordinates, { ...requestFor(w, "first-capacity", config), onStep: stop }), /capacity reserved/);
+  for (const id of ["first-capacity-initial", "first-capacity-other"]) {
+    const report = await runRlLoop(w.client, w.coordinates, { id, config: loop, approval: w.approval });
+    assert.equal(report.promoted, 1, "real numerical generations must consume promotion capacity");
+  }
+  const ids = await promotedGenerationIdsUnderApproval(w.client, w.approval);
+  assert.equal(ids.length, 2);
+  await assert.rejects(runRlMeta(w.client, w.coordinates, requestFor(w, "outside-counted", config)), /meta_promotion_budget_exhausted/);
+  await w.client.update(w.approval, { body: `\`\`\`json\n${JSON.stringify({ ...metaSpec, permitted_promotions: 9 })}\n\`\`\`` });
+  await assert.rejects(runRlMeta(w.client, w.coordinates, { ...requestFor(w, "second-capacity", config), onStep: stop }), /capacity reserved/);
+  await assert.rejects(runRlMeta(w.client, w.coordinates, requestFor(w, "third-capacity", config)), /meta_promotion_budget_exhausted/);
+  const second = await w.client.get("second-capacity-reservation");
+  await w.client.update(second.item.id, { body: JSON.stringify({ ...JSON.parse(String(second.item.body)), promotion_headroom: 0 }) });
+  const first = await w.client.get("first-capacity-reservation");
+  await w.client.update(first.item.id, { body: JSON.stringify({ ...JSON.parse(String(first.item.body)), promotion_headroom: 0 }) });
+  await assert.rejects(runRlMeta(w.client, w.coordinates, requestFor(w, "overdrawn", config)), /meta_promotion_reservation_exceeded/);
+});
+
+test("inner promotion-budget refusals never become recipe evidence, including after an accepted generation", { timeout: 600_000 }, async () => {
+  for (const permitted of [0, 1]) {
+    const w = await metaWorkspace();
+    await w.client.update(w.approval, { body: `\`\`\`json\n${JSON.stringify({ ...metaSpec, permitted_promotions: permitted })}\n\`\`\`` });
+    const recipe = recipeArtifact({ ...metaConfig.initial_recipe.knobs, steps: 2 });
+    const environment = openTrackerEnvironment(w.client, w.coordinates, w.dataset, metaConfig, w.approval);
+    await assert.rejects(environment.fit(recipe, "budget-fit", new AbortController().signal), /meta_inner_promotion_budget/);
+    assert.equal((await promotedGenerationIdsUnderApproval(w.client, w.approval)).length, permitted);
+    const generation = await w.client.get(`budget-fit-g${permitted + 1}`);
+    const comments = await w.client.comments(generation.item.id, { outputBudget: "unbounded", outputLimit: "unbounded" });
+    assert.ok("comments" in comments);
+    const index = comments.comments.findIndex((comment) => comment.text.includes("approved promotion budget"));
+    assert.ok(index >= 0);
+    // Replay a different intentional refusal through real SDK history; it must not be classified as budget exhaustion.
+    await w.client.comments(generation.item.id, { edit: index + 1, add: `Loop budget-fit generation ${permitted + 1} promotion refused: Promotion refused: the evaluation set is reachable from the candidate's training data.` });
+    const policy = await environment.fit(recipe, "budget-fit", new AbortController().signal);
+    assert.equal(policy.weight === 0, permitted === 0);
+  }
+});
 
 test("meta programme bounds and search domains cannot tune the statistical gate or trainer command", () => {
   assert.deepEqual(parseMetaConfig(metaConfig), metaConfig);
@@ -184,7 +308,7 @@ test("canonical reservation lookup ignores another programme's suffixed receipt 
   const w = await metaWorkspace();
   const foreign = await w.client.create({ id: "a-victim-reservation", type: "Decision", title: "Other programme reservation", body: JSON.stringify({
     format: "pm-rl/meta-reservation/1", id: "a-victim-reservation", binding: "other-programme", approval: w.approval,
-    charge: { training_samples: 0, proposal_calls: 0, recipe_promotions: 0 },
+    charge: { training_samples: 0, proposal_calls: 0, recipe_promotions: 0 }, promotion_headroom: 0,
   }) });
   const foreignBody = String((await w.client.get(foreign.item.id)).item.body);
   const request = { ...requestFor(w, "victim", { ...metaConfig, meta_generations: 1, candidates: 1 }),
@@ -269,7 +393,7 @@ test("an interrupted atomic search reservation is retained once, including drift
   const item = await w.client.get("transaction-reservation"); const original = JSON.parse(String(item.item.body)) as { charge: Record<string, number> };
   await w.client.update(item.item.id, { body: JSON.stringify({ ...original, binding: "changed" }) });
   await assert.rejects(runRlMeta(w.client, w.coordinates, request), /meta_reservation_drift/);
-  for (const patch of [{ format: "foreign" }, { id: "foreign" }, { approval: "foreign" }, { charge: { ...original.charge, proposal_calls: 1 } }]) {
+  for (const patch of [{ format: "foreign" }, { id: "foreign" }, { approval: "foreign" }, { charge: { ...original.charge, proposal_calls: 1 } }, { promotion_headroom: 0 }]) {
     await w.client.update(item.item.id, { body: JSON.stringify({ ...original, ...patch }) });
     await assert.rejects(runRlMeta(w.client, w.coordinates, request), /meta_reservation_drift/);
   }
@@ -292,7 +416,7 @@ test("programme identity cannot hide approval reservations through SDK case fold
   assert.equal(certifyCompleteListResult(await w.client.listAllComplete({ includeBody: false })).items.length, 1, "invalid identities leave only the approval");
   await w.client.create({ id: "LEGACY-reservation", type: "Decision", title: "Retained case-folded allocation", body: JSON.stringify({
     format: "pm-rl/meta-reservation/1", id: "LEGACY-reservation", approval: w.approval,
-    charge: { training_samples: 1024, proposal_calls: 0, recipe_promotions: 1 },
+    charge: { training_samples: 1024, proposal_calls: 0, recipe_promotions: 1 }, promotion_headroom: 4,
   }) });
   await assert.rejects(runRlMeta(w.client, w.coordinates, { ...request, onStep() { throw new Error("retained allocation was hidden"); } }), /meta_budget_exhausted/);
 });

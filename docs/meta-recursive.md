@@ -59,7 +59,18 @@ One **existing** Decision must contain `permitted_promotions`, `resource_budget`
 and `meta_budget`. Search never creates, updates or enlarges it. Before fitting,
 an SDK workspace transaction reserves worst-case collection samples, proposal
 requests and recipe-promotion slots against all programmes using that Decision.
+It separately reserves `(1 + meta_generations * candidates) * 2` inner promotion
+slots against `permitted_promotions`, using the declared maximum recipe steps.
+The reservation records `promotion_headroom`; already-promoted generations in
+its canonical inner namespaces consume that held capacity once. Promotions
+outside matching reservations consume additional capacity. Both counts are
+checked inside the same SDK writer transaction, so competing outer programmes
+cannot reserve the same headroom. A budget refusal from an inner promotion is
+an accounting failure and never becomes recipe evidence, even if an earlier
+inner generation promoted. Other intentional promotion refusals are unchanged.
 These conservative reservations remain held after failure or cancellation.
+Legacy reservations without promotion headroom fail closed; search cannot
+reclaim or silently replace them.
 Each inner fit also uses the existing atomic process resource reservation,
 measured completion receipt and settlement. Search cannot spend above either
 allowance. The packaged process trainer is the only selectable meta trainer.
@@ -74,7 +85,9 @@ pm rl meta run tracker-search --file examples/meta-trackers.json --dataset <dire
 
 The approval's identity and complete spec digest are immutable programme inputs.
 Outer accounting reads certified metadata, then opens only stable reservation
-identities; proposal recovery opens only its exact attempt record. An unrelated
+identities. Core accounting returns only canonical promoted-generation ids;
+Generation bodies and held-out examples never enter search. Proposal recovery
+opens only its exact attempt record. An unrelated
 item body or a renamed title cannot change the approved allocation.
 
 The existing fail-closed `decidePromotion` gate compares exact-match rewards on
@@ -101,6 +114,18 @@ completed steps and resource reservation. A completed outer phase adopts its
 receipt. Inputs, approval or receipt drift refuse resume. Cancellation stops at a
 durable boundary; external fits retain their existing terminal-cancellation
 semantics. A new invocation of the same `meta run` command resumes the programme.
+An ambiguous outer lease supports explicit operator recovery with the original
+programme, dataset, approval and proposer:
+
+```sh
+pm rl meta run tracker-search --file examples/meta-trackers.json --dataset <directory> --approval <decision-id> --force-takeover
+```
+
+The refusal names this supported command, with placeholders for the original
+file and dataset. Takeover appends a digest-only holder audit to the existing
+approval Decision before replacing the lease, including before the first
+programme receipt exists. A verified live or unverifiable holder still blocks;
+force cannot bypass process identity checks or a contended phase mutex.
 The 15-minute whole-run watchdog also applies to `npm run test:live`.
 
 The synthetic committed fixture and real temporary SDK trackers exercise this
@@ -204,7 +229,7 @@ remain. Guard-only reverts for recipe lineage, public visibility, programme ids,
 retained reservation case folding and both resource fault injectors fail; restored
 implementations pass. PM-linked data/recipe, crash/promotion/budget, identity and
 resource-refusal commands pass 9/9, 3/3, 1/1 and 1/1 respectively. The expanded
-review command passes 7/7. Thirteen independent behavioral reverts fail across
+review command passes 7/7. Seventeen independent behavioral reverts fail across
 the feature and both review rounds; restoring the implementations passes.
 
 A separate local full-suite attempt hit the unchanged 300-second HTTP crash-drill
@@ -233,3 +258,11 @@ the source-verification run passes all three complete gates with every original
 resource assertion retained. Fresh-clone strict tracker health passes with merge
 drivers and isolated Git configuration. Existing telemetry and provenance
 advisories remain, and all tracker histories preserve their main-branch prefix.
+
+The subsequent full review of `39e6c5e` adds supported meta lease takeover and
+separate inner-promotion headroom, as specified above. Four new behavioral
+reverts fail independently: dropping force forwarding, restoring loop-resume
+guidance, restoring the old reservation function, and removing the specific
+promotion-budget refusal check. Restored linked regressions pass 4/4 and the
+complete meta suite passes 22/22. The complete npm/Bun release matrix must rerun
+for these changes; the preceding 617-test result is not a passing claim for them.

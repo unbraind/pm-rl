@@ -4,6 +4,9 @@ This example grants one two-generation search with two candidates per generation
 The outer controller reserves its declared worst-case plan once. Inner process
 fits reserve and settle their measured resources under this same Decision.
 Proposal calls include local model inventory and inference requests.
+The separate promotion allowance covers all five possible inner fits at the
+declared maximum of two steps each. Its headroom remains reserved across resume;
+promotions already consumed by those fits are not charged again.
 
 ```json
 {

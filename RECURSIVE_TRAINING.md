@@ -90,11 +90,14 @@ Adapters report structured progress and completion evidence over a documented st
    passes the exact npm command on Node 22 and 26 and the Bun command on Node 26:
    617/617 each, zero failures/skips, all four coverage metrics 100% across all
    35 declared sources and 295 documented declarations. Physical crash, shared
-   budget, conditional promotion and resource-refusal regressions pass; thirteen
+   budget, conditional promotion and resource-refusal regressions pass; seventeen
    behaviour-only reverts fail with tests retained and restored code passes.
    The review round fixes canonical receipt identity, bounded programme ids and
    README command syntax; the physical OOM test waits for real daemon evidence
    before its failed supervisor exits. Limits and promotion thresholds are unchanged.
+   The next review adds supported audited outer-lease recovery and atomic inner
+   promotion headroom. Budget exhaustion cannot become recipe evidence; the
+   complete meta suite passes 22/22 and four new behavioral reverts fail.
 
 
 ## Data boundary and capacity
