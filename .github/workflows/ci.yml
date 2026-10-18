@@ -11,13 +11,23 @@ permissions:
 
 jobs:
   test:
+    name: ${{ matrix.check-name }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         # 22 is the floor declared in `engines` and the first line that strips
         # TypeScript without a flag; 26 is what the fleet develops against.
-        node-version: [22, 26]
+        include:
+          - node-version: 22
+            package-manager: npm
+            check-name: test (22)
+          - node-version: 26
+            package-manager: npm
+            check-name: test (26)
+          - node-version: 26
+            package-manager: bun
+            check-name: Bun release (26)
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -61,38 +71,21 @@ jobs:
           # still exiting successfully.
           ./node_modules/.bin/pm health --strict-exit --require-merge-drivers
 
-      - name: Type check
-        run: npm run typecheck
+      - name: Run complete npm release gate with isolated identity
+        if: ${{ matrix.package-manager == 'npm' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gate_home=$(mktemp -d)
+          env HOME="$gate_home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 npm run release:check
 
-      - name: Build
-        run: npm run build
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Check for duplicated code
-        run: npm run duplicates
-
-      - name: Verify complete docstring coverage
-        run: npm run docstring
-
-      - name: Verify every publish invocation is attested
-        run: npm run verify:release-publish-attestation
-
-      - name: Test with coverage gate
-        run: npm run coverage
-
-      - name: Audit commit identities against the approved list
-        run: npm run audit:identities
-
-      - name: Production dependency audit
-        run: npm run audit:prod
-
-      - name: Verify npm package contents
-        run: npm run pack:dry-run
-
-      - name: Verify generated changelog
-        run: npm run changelog:check
+      - name: Run complete Bun release gate with isolated identity
+        if: ${{ matrix.package-manager == 'bun' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gate_home=$(mktemp -d)
+          env HOME="$gate_home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 bun run release:check
 
       - name: Verify Bun can install the package graph
         run: bun install --no-save
