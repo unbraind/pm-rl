@@ -86,11 +86,11 @@ Adapters report structured progress and completion evidence over a documented st
    0.95-confidence, ten-sample, 0.01-effect gate: gain 0.0686, lower bound
    0.036740389785077876, and final-test 5093/10000 to 5806/10000. This is a sanity
    result, not real-tracker improvement. No gate or real feature was weakened.
-   [Complete source verification](https://github.com/unbraind/pm-rl/actions/runs/39128976135)
+   [Complete source verification](https://github.com/unbraind/pm-rl/actions/runs/39135240662)
    passes the exact npm command on Node 22 and 26 and the Bun command on Node 26:
-   622/622 each, zero failures/skips, all four coverage metrics 100% across all
+   628/628 each, zero failures/skips, all four coverage metrics 100% across all
    35 declared sources and 295 documented declarations. Physical crash, shared
-   budget, conditional promotion and resource-refusal regressions pass; eighteen
+   budget, conditional promotion and resource-refusal regressions pass; twenty-four
    behaviour-only reverts fail with tests retained and restored code passes.
    The review round fixes canonical receipt identity, bounded programme ids and
    README command syntax; the physical OOM test waits for real daemon evidence
@@ -110,7 +110,10 @@ Adapters report structured progress and completion evidence over a documented st
    resolve to canonical SDK Decision identities for shared accounting and new
    promotions; existing alias records count against the same budget, and
    unreadable identities refuse. Issue #85 retains pinned-SDK alias regressions
-   and their behavior-only revert proof.
+   and their behavior-only revert proofs. The alias persistence proof forces an
+   alias caller to win; raw-ID persistence fails the retained assertion. Complete
+   source verification passes 628/628 in all three release variants, and direct
+   isolated lineage acceptance passes 51/51.
 
 
 ## Data boundary and capacity

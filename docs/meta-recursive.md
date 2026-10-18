@@ -209,11 +209,11 @@ predictions, and full disagreement.
 
 ## Release verification
 
-The [source-verification CI run](https://github.com/unbraind/pm-rl/actions/runs/39128976135)
-on `d2de7dc0a4a2cbb7f4ffef33734e5f3d39e5cde6`
+The [source-verification CI run](https://github.com/unbraind/pm-rl/actions/runs/39135240662)
+on `5c9ab9a2a756bf626443b53f56127738ea85ef36`
 executes `npm run release:check` on Node 22 and 26 and `bun run release:check` on
 Node 26 with isolated HOME and global/system Git configuration. Each passes
-622/622 tests, zero failures/skips, 100% statements/lines/branches/functions over
+628/628 tests, zero failures/skips, 100% statements/lines/branches/functions over
 all 35 declared sources, 295 documented declarations, and zero duplicate clones
 or production audit findings. Thresholds, dependency pins and release approval
 are unchanged. The live evidence names the measured production source commit;
@@ -231,7 +231,7 @@ remain. Guard-only reverts for recipe lineage, public visibility, programme ids,
 retained reservation case folding and both resource fault injectors fail; restored
 implementations pass. PM-linked data/recipe, crash/promotion/budget, identity and
 resource-refusal commands pass 9/9, 3/3, 1/1 and 1/1 respectively. The expanded
-review command passes 7/7. Eighteen independent behavioral reverts fail across
+review command passes 7/7. Twenty-four independent behavioral reverts fail across
 the feature and subsequent review rounds; restoring the implementations passes.
 
 A separate local full-suite attempt hit the unchanged 300-second HTTP crash-drill
@@ -276,9 +276,9 @@ removes or damages retained capacity, and requires refusal before any fit starts
 Restoring the valid reservation resumes without charging it again. Removing only
 the fenced retained-capacity check fails that regression; restoring it passes.
 The restored full meta suite passes 23/23 through the pinned PM test runner.
-The source-verification matrix above includes this hardening and passes 622/622
+The source-verification matrix above includes this hardening and passes 628/628
 in every variant with all four coverage metrics at 100%, 35 sources and 295
-documented declarations. Earlier 621-test receipts remain in PM history at their
+documented declarations. Earlier 621-, 622- and 626-test receipts remain in PM history at their
 exact source heads. The documentation-only handoff commit receives its own
 complete CI verification; no final-head independent review approval is claimed.
 
@@ -295,8 +295,8 @@ Repository exclusions compare names without case sensitivity before metadata or
 history reads, and the published package includes both linked evidence receipts.
 Four independent behavior-only reverts fail the new regressions; restoring the
 fixes passes 4/4. The frozen real-data and known-signal receipts are unchanged.
-Complete release-gate verification for this review head is recorded in the PR
-and PM item after CI finishes.
+The complete source-verification matrix above passes all three release variants
+with 628/628 tests and unchanged thresholds.
 
 Issue [#85](https://github.com/unbraind/pm-rl/issues/85) additionally verifies
 canonical approval identity. Full, uppercase and short SDK references identify
@@ -308,3 +308,15 @@ Pinned-SDK regressions cover ordinary/manual promotion with all capacity held,
 concurrent mixed aliases with one free slot, canonical new records, legacy alias
 records, owner resume and terminal replay without extra process charges. Restoring
 only the changed identity-handling functions fails both regressions (0/2).
+
+The alias concurrency test requires every contender to use an alias; a canonical
+caller cannot accidentally satisfy the persistence assertion. Restoring only raw
+approval persistence fails 0/1 (`RL-APPROVAL` instead of `rl-approval`); restoring
+the fix passes the linked alias command 2/2. The complete meta suite has 28 cases;
+direct isolated lineage acceptance passes 51/51. A combined PM-harness attempt
+passed its 28 meta cases but hit the known injected-PM_PATH setup collision in 39
+legacy lineage cases. That failed receipt remains in PM history, and the
+unsuitable combined link was removed. Both required complete release commands
+pass in isolated CI on the source head above. The assertion/documentation handoff
+commit receives a separate exact-head CI check; no final-head review approval,
+merge or release is implied.

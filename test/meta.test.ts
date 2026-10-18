@@ -204,7 +204,8 @@ test("mixed approval aliases share one free slot and count legacy alias records 
   const reservation = await w.client.get("mixed-owner-reservation");
   await w.client.update(reservation.item.id, { body: JSON.stringify({ ...JSON.parse(String(reservation.item.body)) as Record<string, unknown>, approval: "approval" }) });
   const raw = JSON.parse(readFileSync(new URL("../examples/loop-bandit.json", import.meta.url), "utf8")) as Record<string, JsonValue>;
-  const requests = aliases.map((approval, index) => ({ id: `mixed-out-${index}`, config: { ...raw, max_generations: 1 }, approval }));
+  // Every contender uses an alias, so canonical persistence cannot pass merely because the canonical caller won.
+  const requests = aliases.slice(1).map((approval, index) => ({ id: `mixed-out-${index}`, config: { ...raw, max_generations: 1 }, approval }));
   const reports = await Promise.all(requests.map((request) => runRlLoop(w.client, w.coordinates, request)));
   assert.equal(reports.reduce((sum, report) => sum + report.promoted, 0), 1);
   const winner = reports.findIndex((report) => report.promoted === 1);
