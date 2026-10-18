@@ -119,7 +119,9 @@ async function reserveMeta(client: PmClient, coordinates: ProcessCoordinates, re
       const charges: Record<string, number>[] = [];
       for (const item of items.items.filter((entry) => entry.type === "Decision" && entry.id.endsWith("-reservation"))) {
         const record = metaReservation(String((await readCompleteLoopItem(client, item.id)).item.body));
-        if (record !== null && (item.id === record.id || item.id.endsWith(`-${record.id}`)) && record.approval === approval.id) {
+        if (record === null) continue;
+        const identity = record.id.toLowerCase();
+        if ((item.id === identity || item.id.endsWith(`-${identity}`)) && record.approval === approval.id) {
           for (const key of ["training_samples", "proposal_calls", "recipe_promotions"]) {
             assert.ok(Number.isSafeInteger(record.charge[key]) && record.charge[key] >= 0, "meta_reservation_charge");
           }
@@ -209,6 +211,7 @@ export async function durableRecipeProposals(client: PmClient, id: string, reque
 
 /** Search and promote recipes with one shared approval; completion receipts adopt inner jobs after interruption. */
 export async function runRlMeta(client: PmClient, coordinates: ProcessCoordinates, request: MetaRequest): Promise<MetaReport> {
+  assert.match(request.id, /^[a-z0-9]+(?:-[a-z0-9]+)*$/, "meta_programme_id");
   const config = parseMetaConfig(request.config);
   assert.ok(request.proposer === "seeded" || request.proposer === "decision-model", "meta_proposer");
   const signal = request.signal === undefined ? AbortSignal.timeout(config.timeout_ms) : AbortSignal.any([request.signal, AbortSignal.timeout(config.timeout_ms)]);

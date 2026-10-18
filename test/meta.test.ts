@@ -7,6 +7,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
+import { certifyCompleteListResult } from "@unbrained/pm-cli/sdk/runtime";
 import extension, { hashJson, withRlController, type JsonValue, type RlCommandResult } from "../index.ts";
 import { compareRecipes, durableRecipeProposals, metaReservation, parseMetaConfig, proposeRecipes, recipeExamples, recipeSuccessor, runRlMeta, scoreTrackerPolicy, type MetaConfig, type MetaRequest } from "../meta.ts";
 import { INITIAL_RECIPE, recipeArtifact, seededRecipes } from "../recipe.ts";
@@ -157,6 +158,21 @@ test("an interrupted atomic search reservation is retained once, including drift
   assert.equal(String((await w.client.get(item.item.id)).item.body), JSON.stringify(original));
   const task = await w.client.create({ type: "Task", title: "Not an approval", body: '```json\n{}\n```' });
   await assert.rejects(runRlMeta(w.client, w.coordinates, { ...request, approval: task.item.id }), /meta_approval_required/);
+});
+
+test("programme identity cannot hide approval reservations through SDK case folding", { timeout: 600_000 }, async () => {
+  const w = await metaWorkspace(); const request = requestFor(w, "canonical", { ...metaConfig, meta_generations: 1, candidates: 1 });
+  const spec = { ...metaSpec, meta_budget: { training_samples: 1024, proposal_calls: 0, recipe_promotions: 1 } };
+  await w.client.update(w.approval, { body: `\`\`\`json\n${JSON.stringify(spec)}\n\`\`\`` });
+  for (const id of ["UPPER", "under_score", "", "../outside"]) {
+    await assert.rejects(runRlMeta(w.client, w.coordinates, { ...request, id, onStep() { throw new Error("noncanonical programme reached a write"); } }), /meta_programme_id/);
+  }
+  assert.equal(certifyCompleteListResult(await w.client.listAllComplete({ includeBody: false })).items.length, 1, "invalid identities leave only the approval");
+  await w.client.create({ id: "LEGACY-reservation", type: "Decision", title: "Retained case-folded allocation", body: JSON.stringify({
+    format: "pm-rl/meta-reservation/1", id: "LEGACY-reservation", approval: w.approval,
+    charge: { training_samples: 1024, proposal_calls: 0, recipe_promotions: 1 },
+  }) });
+  await assert.rejects(runRlMeta(w.client, w.coordinates, { ...request, onStep() { throw new Error("retained allocation was hidden"); } }), /meta_budget_exhausted/);
 });
 
 test("two distinct outer programmes cannot oversubscribe one approved search reservation", { timeout: 600_000 }, async () => {

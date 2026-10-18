@@ -23,7 +23,10 @@ public-history environment and a deliberately limited numerical learner; it does
 not demonstrate language-model training on tracker text.
 
 `pm rl meta run <id> --file examples/meta-trackers.json --dataset <directory>
---approval <decision>` executes or resumes the same programme. Its initial recipe
+--approval <decision>` executes or resumes the same programme. Programme ids use lowercase letters or
+digits separated by single hyphens; noncanonical ids refuse before any write.
+Retained reservation identities are compared using the SDK's case folding, so
+an older uppercase spelling cannot hide an allocation. Its initial recipe
 is a versioned content-addressed artifact. Numeric domains cover learning rate,
 inner steps, batch, temperature and correct/incorrect reward weights. Categorical
 domains cover balanced/all selection and forward/reverse curriculum. Steps bound
