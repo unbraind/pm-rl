@@ -99,9 +99,32 @@ test("shared inner promotion headroom refuses before training and reserves atomi
   await assert.rejects(runRlMeta(w.client, w.coordinates, { ...requestFor(w, id, config), onStep() { throw new Error("same headroom adopted"); } }), /same headroom adopted/);
   assert.equal(String((await w.client.get(reservation.id)).item.body), body);
   for (const promotion_headroom of [undefined, -1, 0.5, Number.MAX_SAFE_INTEGER + 1]) {
-    await w.client.update(reservation.id, { body: JSON.stringify({ ...JSON.parse(body), promotion_headroom }) });
+    await w.client.update(reservation.id, { body: JSON.stringify({ ...JSON.parse(body) as Record<string, unknown>, promotion_headroom }) });
     await assert.rejects(runRlMeta(w.client, w.coordinates, requestFor(w, "bad-capacity", config)), /meta_promotion_reservation_charge/);
   }
+});
+
+test("unfinished meta phases revalidate retained headroom after a completed programme receipt", { timeout: 600_000 }, async () => {
+  const w = await metaWorkspace(); const request = requestFor(w, "retained-capacity", { ...metaConfig, meta_generations: 1, candidates: 1 });
+  await assert.rejects(runRlMeta(w.client, w.coordinates, { ...request, onStep(key) { if (key === "programme") throw new Error("programme complete"); } }), /programme complete/);
+  const reservation = await w.client.get("retained-capacity-reservation"); const original = String(reservation.item.body);
+  for (const promotion_headroom of [undefined, 0]) {
+    await w.client.update(reservation.item.id, { body: JSON.stringify({ ...JSON.parse(original) as Record<string, unknown>, promotion_headroom }) });
+    await assert.rejects(runRlMeta(w.client, w.coordinates, request), /meta_reservation_drift/);
+    assert.equal((await listProcessJobs(w.client)).length, 0, "invalid retained capacity must refuse before a fit launches");
+  }
+  await w.client.update(reservation.item.id, { body: original });
+  const path = join(w.coordinates.pmRoot, "decisions", `${reservation.item.id}.toon`);
+  renameSync(path, `${path}.missing`);
+  try {
+    await assert.rejects(runRlMeta(w.client, w.coordinates, request), /meta_reservation_missing/);
+    assert.equal((await listProcessJobs(w.client)).length, 0);
+  } finally { renameSync(`${path}.missing`, path); }
+  const report = await runRlMeta(w.client, w.coordinates, request); const jobs = await listProcessJobs(w.client);
+  assert.equal(report.generations.length, 1);
+  assert.equal(String((await w.client.get(reservation.item.id)).item.body), original, "restored capacity is adopted, never recharged");
+  assert.deepEqual(await runRlMeta(w.client, w.coordinates, request), report);
+  assert.deepEqual(await listProcessJobs(w.client), jobs);
 });
 
 test("promotion headroom counts outside usage without charging reserved promotions twice", { timeout: 600_000 }, async () => {
@@ -122,9 +145,9 @@ test("promotion headroom counts outside usage without charging reserved promotio
   await assert.rejects(runRlMeta(w.client, w.coordinates, { ...requestFor(w, "second-capacity", config), onStep: stop }), /capacity reserved/);
   await assert.rejects(runRlMeta(w.client, w.coordinates, requestFor(w, "third-capacity", config)), /meta_promotion_budget_exhausted/);
   const second = await w.client.get("second-capacity-reservation");
-  await w.client.update(second.item.id, { body: JSON.stringify({ ...JSON.parse(String(second.item.body)), promotion_headroom: 0 }) });
+  await w.client.update(second.item.id, { body: JSON.stringify({ ...JSON.parse(String(second.item.body)) as Record<string, unknown>, promotion_headroom: 0 }) });
   const first = await w.client.get("first-capacity-reservation");
-  await w.client.update(first.item.id, { body: JSON.stringify({ ...JSON.parse(String(first.item.body)), promotion_headroom: 0 }) });
+  await w.client.update(first.item.id, { body: JSON.stringify({ ...JSON.parse(String(first.item.body)) as Record<string, unknown>, promotion_headroom: 0 }) });
   await assert.rejects(runRlMeta(w.client, w.coordinates, requestFor(w, "overdrawn", config)), /meta_promotion_reservation_exceeded/);
 });
 

@@ -116,27 +116,32 @@ async function readMetaReceipt(client: PmClient, key: string) {
   }
 }
 
-/** Atomically hold worst-case search allowances once; interrupted programmes retain their reservation. */
-async function reserveMeta(client: PmClient, coordinates: ProcessCoordinates, request: MetaRequest, binding: string): Promise<void> {
+/** Atomically hold worst-case allowances once, or verify retained capacity before an unfinished phase executes. */
+async function reserveMeta(client: PmClient, coordinates: ProcessCoordinates, request: MetaRequest, binding: string, retained = false): Promise<void> {
   const { config } = request;
   const charge = { training_samples: (1 + config.meta_generations * config.candidates) * RECIPE_BOUNDS.steps[1] * RECIPE_BOUNDS.batch[1],
     proposal_calls: request.proposer === "decision-model" ? 2 * config.meta_generations : 0, recipe_promotions: config.meta_generations };
   const promotionHeadroom = (1 + config.meta_generations * config.candidates) * RECIPE_BOUNDS.steps[1];
   const key = `${request.id}-reservation`;
-  await commitProcessTransaction({ ...coordinates, transactionId: `${key}-reserve`, steps: [{ id: "reserve",
-    async inspect() {
-      const previous = await readMetaReceipt(client, key);
-      if (previous === null) return { state: "pending" };
-      assert.equal(previous.item.type, "Decision", "meta_reservation_drift");
-      const record = JSON.parse(String(previous.item.body)) as { format: string; id: string; binding: string; approval: string; charge: JsonValue; promotion_headroom: number };
-      assert.equal(record.binding, binding, "meta_reservation_drift");
-      assert.equal(record.format, "pm-rl/meta-reservation/1", "meta_reservation_drift");
-      assert.equal(record.id, key, "meta_reservation_drift");
-      assert.equal(record.approval, (await metaApproval(client, request.approval)).id, "meta_reservation_drift");
-      assert.equal(hashJson(record.charge), hashJson(charge), "meta_reservation_drift");
-      assert.equal(record.promotion_headroom, promotionHeadroom, "meta_reservation_drift");
-      return { state: "applied" };
-    },
+  /** Read and verify an existing allocation even when the programme or SDK transaction receipt is already complete. */
+  const inspect = async (): Promise<{ state: "pending" | "applied" }> => {
+    const previous = await readMetaReceipt(client, key);
+    if (previous === null) return { state: "pending" };
+    assert.equal(previous.item.type, "Decision", "meta_reservation_drift");
+    const record = JSON.parse(String(previous.item.body)) as { format: string; id: string; binding: string; approval: string; charge: JsonValue; promotion_headroom: number };
+    assert.equal(record.binding, binding, "meta_reservation_drift");
+    assert.equal(record.format, "pm-rl/meta-reservation/1", "meta_reservation_drift");
+    assert.equal(record.id, key, "meta_reservation_drift");
+    assert.equal(record.approval, (await metaApproval(client, request.approval)).id, "meta_reservation_drift");
+    assert.equal(hashJson(record.charge), hashJson(charge), "meta_reservation_drift");
+    assert.equal(record.promotion_headroom, promotionHeadroom, "meta_reservation_drift");
+    return { state: "applied" };
+  };
+  if (retained) {
+    assert.equal((await inspect()).state, "applied", "meta_reservation_missing");
+    return;
+  }
+  await commitProcessTransaction({ ...coordinates, transactionId: `${key}-reserve`, steps: [{ id: "reserve", inspect,
     async apply() {
       const approval = await metaApproval(client, request.approval);
       const items = certifyCompleteListResult(await client.listAllComplete({ includeBody: false }));
@@ -264,7 +269,10 @@ export async function runRlMeta(client: PmClient, coordinates: ProcessCoordinate
     /** Verify approval identity at every boundary, and notify observers only after the receipt is durable. */
     const step: RlDurableStep = async (key, value, execute) => {
       assert.equal((await metaApproval(client, request.approval)).digest, approval.digest, "meta_budget_drift");
-      const result = await durable(key, { binding, value }, execute);
+      const result = await durable(key, { binding, value }, async () => {
+        if (key !== "programme") await reserveMeta(client, coordinates, request, binding, true);
+        return execute();
+      });
       await request.onStep?.(key);
       return result;
     };

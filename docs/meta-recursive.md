@@ -69,8 +69,10 @@ cannot reserve the same headroom. A budget refusal from an inner promotion is
 an accounting failure and never becomes recipe evidence, even if an earlier
 inner generation promoted. Other intentional promotion refusals are unchanged.
 These conservative reservations remain held after failure or cancellation.
-Legacy reservations without promotion headroom fail closed; search cannot
-reclaim or silently replace them.
+Unfinished phases verify the exact retained reservation inside their owner fence,
+even when the programme receipt is already complete. Missing or damaged capacity
+refuses before training and is never silently recreated. New work refuses legacy
+reservations without promotion headroom; cached completed reports remain read-only.
 Each inner fit also uses the existing atomic process resource reservation,
 measured completion receipt and settlement. Search cannot spend above either
 allowance. The packaged process trainer is the only selectable meta trainer.
@@ -229,7 +231,7 @@ remain. Guard-only reverts for recipe lineage, public visibility, programme ids,
 retained reservation case folding and both resource fault injectors fail; restored
 implementations pass. PM-linked data/recipe, crash/promotion/budget, identity and
 resource-refusal commands pass 9/9, 3/3, 1/1 and 1/1 respectively. The expanded
-review command passes 7/7. Seventeen independent behavioral reverts fail across
+review command passes 7/7. Eighteen independent behavioral reverts fail across
 the feature and subsequent review rounds; restoring the implementations passes.
 
 A separate local full-suite attempt hit the unchanged 300-second HTTP crash-drill
@@ -269,3 +271,11 @@ complete meta suite passes 22/22. The source-verification matrix above passes
 inspected both fixes at `268d04a` and resolved its own threads without executing
 the tests. No author resolution request was made. The final documentation and
 claim-release commit receives a separate exact-head CI verification.
+
+A further resume regression interrupts after the programme receipt completes,
+removes or damages retained capacity, and requires refusal before any fit starts.
+Restoring the valid reservation resumes without charging it again. Removing only
+the fenced retained-capacity check fails that regression; restoring it passes.
+The restored full meta suite passes 23/23 through the pinned PM test runner.
+This additional source change requires the complete 622-test matrix; the preceding
+621-test verification remains evidence for its named source head.

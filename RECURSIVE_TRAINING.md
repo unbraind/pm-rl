@@ -86,18 +86,21 @@ Adapters report structured progress and completion evidence over a documented st
    0.95-confidence, ten-sample, 0.01-effect gate: gain 0.0686, lower bound
    0.036740389785077876, and final-test 5093/10000 to 5806/10000. This is a sanity
    result, not real-tracker improvement. No gate or real feature was weakened.
-   [Complete release verification](https://github.com/unbraind/pm-rl/pull/84/checks)
+   [Preceding complete release verification](https://github.com/unbraind/pm-rl/actions/runs/39126701196)
    passes the exact npm command on Node 22 and 26 and the Bun command on Node 26:
    621/621 each, zero failures/skips, all four coverage metrics 100% across all
    35 declared sources and 295 documented declarations. Physical crash, shared
-   budget, conditional promotion and resource-refusal regressions pass; seventeen
+   budget, conditional promotion and resource-refusal regressions pass; eighteen
    behaviour-only reverts fail with tests retained and restored code passes.
    The review round fixes canonical receipt identity, bounded programme ids and
    README command syntax; the physical OOM test waits for real daemon evidence
    before its failed supervisor exits. Limits and promotion thresholds are unchanged.
    The next review adds supported audited outer-lease recovery and atomic inner
    promotion headroom. Budget exhaustion cannot become recipe evidence; the
-   complete meta suite passes 22/22 and four new behavioral reverts fail.
+   complete meta suite passes 23/23 and five new behavioral reverts fail.
+   An additional regression verifies retained capacity before unfinished phases
+   execute, even after a completed programme receipt; missing or damaged evidence
+   refuses without launching a fit or silently reserving capacity again.
 
 
 ## Data boundary and capacity
