@@ -84,13 +84,13 @@ Adapters report structured progress and completion evidence over a documented st
    [pm-rl-prefix](.agents/pm/features/pm-rl-prefix.toon) tracks a learner that reads
    the history prefix. A committed known-signal fixture promotes through the same
    0.95-confidence, ten-sample, 0.01-effect gate: gain 0.0686, lower bound
-   0.03899585625398397, and final-test 5093/10000 to 5806/10000. This is a sanity
+   0.036740389785077876, and final-test 5093/10000 to 5806/10000. This is a sanity
    result, not real-tracker improvement. No gate or real feature was weakened.
-   [Complete release verification](https://github.com/unbraind/pm-rl/actions/runs/39104826277)
+   [Complete release verification](https://github.com/unbraind/pm-rl/pull/84/checks)
    passes the exact npm command on Node 22 and 26 and the Bun command on Node 26:
-   612/612 each, zero failures/skips, all four coverage metrics 100% across all
+   613/613 each, zero failures/skips, all four coverage metrics 100% across all
    35 declared sources and 295 documented declarations. Physical crash, shared
-   budget, conditional promotion and resource-refusal regressions pass; six
+   budget, conditional promotion and resource-refusal regressions pass; eight
    behaviour-only reverts fail with tests retained and restored code passes.
 
 

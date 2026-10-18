@@ -161,10 +161,10 @@ last-state sign as a deterministic learnable rule. Each compartment has distinct
 prefixes and repository roles remain disjoint; its seed and weak initial recipe
 are fixed in the fixture. The actual process fits and two-generation outer loop
 use the live criterion unchanged: confidence 0.95, minimum ten samples and effect
-0.01. With one candidate in each generation, family-wise allocation gives 0.975
+0.01. With two candidates in each generation, family-wise allocation gives 0.9875
 per comparison. Generation 1 promotes recipe `30eccf433a17` with score
 **5629/10000**, incumbent **4943/10000**, gain **0.0686**, and lower gain bound
-**0.03899585625398397**. Generation 2 retains that incumbent. Final-test improves
+**0.036740389785077876**. Generation 2 retains that incumbent. Final-test improves
 from **5093/10000 to 5806/10000**, above its **5000/10000** majority baseline.
 [The complete sanity receipt](meta-sanity-evidence.json) is separate from the real
 acceptance receipt. This proves conditional promotion; it makes no claim of
@@ -175,10 +175,10 @@ predictions, and full disagreement.
 
 ## Release verification
 
-The [complete CI run](https://github.com/unbraind/pm-rl/actions/runs/39104826277)
+The [complete CI run](https://github.com/unbraind/pm-rl/pull/84/checks)
 executes `npm run release:check` on Node 22 and 26 and `bun run release:check` on
 Node 26 with isolated HOME and global/system Git configuration. Each passes
-612/612 tests, zero failures/skips, 100% statements/lines/branches/functions over
+613/613 tests, zero failures/skips, 100% statements/lines/branches/functions over
 all 35 declared sources, 295 documented declarations, and zero duplicate clones
 or production audit findings. Thresholds, dependency pins and release approval
 are unchanged. The live evidence names the measured production source commit;

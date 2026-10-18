@@ -168,13 +168,13 @@ test("a genuinely better recipe clears the unchanged gate and becomes the next m
   const { digest: _digest, ...record } = { ...w.manifest, splits };
   const manifest: TrackerDataset = { ...record, digest: hashJson(record as unknown as JsonValue) };
   writeFileSync(join(w.dataset, "dataset.json"), JSON.stringify(manifest));
-  const report = await runRlMeta(w.client, w.coordinates, requestFor(w, "improvement", { ...liveMetaConfiguration(), initial_recipe: initial, seed: fixture.seed, candidates: 1, evaluation_samples: 100_000 }));
+  const report = await runRlMeta(w.client, w.coordinates, requestFor(w, "improvement", { ...liveMetaConfiguration(), initial_recipe: initial, seed: fixture.seed }));
   context.diagnostic(JSON.stringify({ sanity: "committed tracker-signal", criterion: liveMetaConfiguration().criterion, generations: report.generations, final_test: report.final_test }));
   assert.ok(report.generations[0].promoted !== null);
   assert.equal(report.generations[1].candidates[0].incumbent, report.generations[0].promoted);
   const first = report.generations[0].candidates[0]; assert.equal(first.verdict.decision, "promote");
   assert.ok(first.gain_lower_bound >= liveMetaConfiguration().criterion.effectThreshold);
-  assert.equal(first.verdict.candidateEpsilon, Math.sqrt(Math.log(2 / (1 - 0.975)) / (2 * splits["meta-validation"].count)));
+  assert.equal(first.verdict.candidateEpsilon, Math.sqrt(Math.log(2 / (1 - 0.9875)) / (2 * splits["meta-validation"].count)));
   assert.ok(first.diagnostics.disagreements[0].rate > 0);
   assert.ok(report.final_test.after.mean > report.final_test.before.mean + liveMetaConfiguration().criterion.effectThreshold);
   assert.ok(report.final_test.after.mean > report.final_test.diagnostics.majority_class.mean);
