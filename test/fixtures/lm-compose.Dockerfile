@@ -5,8 +5,8 @@ COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts --no-audit --no-fund
 COPY *.ts ./
 COPY scripts/script-launcher.ts ./scripts/
-COPY test/fixtures/lm-compose-trainer.ts ./test/fixtures/
+COPY test/fixtures/lm-compose-trainer.ts test/fixtures/lm-compose-memory.ts ./test/fixtures/
 ARG MODE=fit
 ENV TRAINER_MODE=$MODE
 USER node
-ENTRYPOINT ["node", "/trainer/test/fixtures/lm-compose-trainer.ts"]
+ENTRYPOINT ["sh", "-c", "if [ \"$TRAINER_MODE\" = memory ]; then exec node --max-old-space-size=1024 /trainer/test/fixtures/lm-compose-memory.ts; fi; exec node /trainer/test/fixtures/lm-compose-trainer.ts"]

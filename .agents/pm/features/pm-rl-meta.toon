@@ -6,13 +6,13 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-18T03:01:18.320Z"
-updated_at: "2026-10-18T06:03:14.724Z"
+updated_at: "2026-10-18T06:39:15.630Z"
 assignee: codex-agent
 claim_principal: codex-agent
 author: codex-agent
 acceptance_criteria: "Two bounded real-data meta-generations; seeded and optional decision-model proposals; recipe lineage, fail-closed promotion, no held-out leakage, idempotent reservation and resume; regression revert proofs and unchanged npm/Bun release gates."
 parent: pm-rl-apvf
-comments[15]{created_at,author,text}:
+comments[17]{created_at,author,text}:
   "2026-10-18T03:07:08.225Z",codex-agent,"Design: recipes bind declared learning-rate, inner generation/step, batch, data-selection, curriculum, temperature and reward-weight domains. The outer controller reuses existing leases and digested phase receipts; every inner fit uses the packaged process trainer and the same approved atomic resource reservations. Separate repository roles supply training, meta-validation and untouched final-test data; training-repository items are further split for inner held-out evaluation. Only sanitized lifecycle-state prefixes leave committed public MIT histories. Statistical recipe selection uses exact-match meta-validation evidence with distinct-example counts and a comparison-wise confidence allocation; proxy rewards cannot authorize recipe promotion. Conservative search reservations are held once across resume. No release enablement or dependency pin change."
   "2026-10-18T03:24:16.558Z",codex-agent,"Initial numerical and public-dataset regressions passed 8/8. Real-data acceptance caught and corrected the installed GitHub CLI license metadata contract (MIT is licenseInfo.key=mit); public visibility and public commit checks remain mandatory. The optional proposer now persists a pre-request intent: completed results replay; an unresolved response falls back to the seeded recipes without making another physical request. The search domain is deliberately small (at most two inner steps and 256 samples per batch), and reservations derive their worst-case charge from the declared recipe domains. Shared-host deadline failures are retained; no existing acceptance timeout or coverage threshold was relaxed."
   "2026-10-18T03:31:31.203Z",codex-agent,"Behavioural revert proof in an isolated source snapshot: remove only the recipe field from generationTrainingConfig, retain all tests, and run node --test test/recipe.test.ts. Result: 2/3 pass, the lineage regression fails because its stored recipe digest is undefined; restored function passes 3/3. Separately remove only the public-visibility conjunct from the dataset source guard and run node --test --test-name-pattern=\"builder fails before\" test/dataset.test.ts: 0/1 pass, Missing expected exception for PRIVATE metadata. The restored package retains the guard. No thresholds, legacy code paths or dependency pins changed. Both tests import TypeScript sources directly, so no dist rebuild is needed for these proofs."
@@ -28,7 +28,9 @@ comments[15]{created_at,author,text}:
   "2026-10-18T05:36:06.534Z",codex-agent,"The strengthened CI uses separate literal npm and Bun steps selected by the fixed matrix. The static publish-attestation gate correctly refused an unresolved dynamic executable during development; the literal version passes the verifier and all 8/8 attestation tests, zero skips. YAML parsing confirms exactly three intended combinations. Required Node check names, the Bun install check and read-only workflow permissions are preserved. Exact release-command CI now runs on the branch; release approval remains disabled."
   "2026-10-18T05:59:59.550Z",codex-agent,"A real SDK boundary probe found a concrete accounting defect: UPPER became a lowercase item id while its reservation body retained UPPER. A second programme then reserved another 1024 samples under a 1024-sample approval, before either fit. The fix rejects noncanonical programme ids before any write and case-folds retained ledger identities, so earlier uppercase allocations remain charged. Focused ledger regressions pass 4/4. Isolated behavioural revert proofs retain the new test: remove only the runRlMeta id guard and it fails 0/1 with noncanonical programme reached a write; restore it and remove only reserveMeta case folding and it fails 0/1 with retained allocation was hidden; restore both and it passes 1/1. Exact command: node --test --test-name-pattern=\"programme identity cannot hide\" test/meta.test.ts. These are direct TypeScript source tests. Numerical training, data splits and statistical gates are unchanged. The previous three exact-command CI jobs passed 611/611 each on f622177, but that evidence predates this correction; full gates must rerun with 612 tests."
   "2026-10-18T06:03:14.724Z",codex-agent,"Pinned-PM linked verification on the corrected tree passes 9/9 for node --test test/recipe.test.ts test/dataset.test.ts and 1/1 for node --test --test-name-pattern=\"programme identity cannot hide\" test/meta.test.ts, zero failures/skips. The existing physical-kill, genuine-promotion and one-approval linked trio previously passed 3/3 and remains in the full suite. Test-result persistence remains disabled by project policy; comments retain the receipts. Build and test compilation, lint, duplicate detection and docstring verification pass: 35 source files, 295 documented declarations, zero clones. The documented approval-template CLI smoke also passes against a real tracker with a full Decision read."
-files[19]{path,scope}:
+  "2026-10-18T06:08:25.887Z",codex-agent,"Corrected-source live acceptance PASS on c882cc2527ace62cff02af25a85b5bb30dedb2a4: npm run test:live reproduced the complete real dataset manifest and report exactly. Two meta-generations, K=2, 25 public MIT repositories, 1767 examples (1023 train, 145 inner held-out, 214 meta-validation, 385 final-test). Incumbent b77fdfeff48d; candidates 800886e9f4cd, 45113586500f, 4a48567235f1 and 55539a90ca05 all score 107/214, gain 0, lower gain bound -0.21778781183411927; none promoted. Final-test before/after remains 198/385=0.5142857142857142. Dataset digest a4320672ba0d2f20e1aebfba7b9e91de71c95e17a9706700f79dfe163c8aae0c. Dataset/controller elapsed 92238.67339099999 ms within the unchanged 15-minute watchdog. Source identity is recorded in docs/meta-live-evidence.json. Recipe, bounds, seed, approvals, splits and statistical settings were not tuned after final-test exposure. Current full CI is still running with 612 tests."
+  "2026-10-18T06:39:15.630Z",codex-agent,"The corrected production source c882cc2 passed the full Bun release gate 612/612, zero failures/skips, all 35 required sources at 100/100/100/100 and 295 documented declarations. The Node 22 and Node 26 jobs each failed only the existing Compose LM resource drill, respectively missing native OOM evidence and collecting a second Run. Those fault-injection assumptions are now explicit and bounded, tracked with pm-rl-whrd: native allocator and deadline barrier with unchanged limits/assertions. Both fixture-only behavioural reverts fail 0/1; restored physical and PM-linked checks pass 1/1 each. Linked feature tests now cover 9/9 data/recipe, 3/3 core crash/promotion/budget, 1/1 canonical identity and 1/1 real resource refusal. Production training, recipe bounds, splits and statistical promotion are unchanged. The complete 612-test npm/Bun CI matrix must pass on the forthcoming commit; no passing npm result is claimed for c882cc2."
+files[23]{path,scope}:
   .github/workflows/ci.yml,project
   dataset.ts,project
   examples/meta-approval.md,project
@@ -42,16 +44,21 @@ files[19]{path,scope}:
   scripts/live-meta.ts,project
   scripts/live-watchdog.ts,project
   test/dataset.test.ts,project
+  test/fixtures/lm-compose-memory.ts,project
+  test/fixtures/lm-compose-trainer.ts,project
+  test/fixtures/lm-compose.Dockerfile,project
   test/fixtures/meta-controller.ts,project
   test/fixtures/meta-workspace.ts,project
   test/fixtures/tracker-histories.json,project
+  test/lm-compose.test.ts,project
   test/meta.test.ts,project
   test/recipe.test.ts,project
   tracker-environment.ts,project
-tests[3]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+tests[4]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
   node --test test/recipe.test.ts test/dataset.test.ts,project,600,codex-agent,"2026-10-18T03:23:50.382Z",local_mutation,feat/meta-recursive-recipe-loop
   "node --test --test-name-pattern=\"one pre-approved|genuinely better|real outer SIGKILL\" test/meta.test.ts",project,900,codex-agent,"2026-10-18T03:50:43.085Z",local_mutation,feat/meta-recursive-recipe-loop
   "node --test --test-name-pattern=\"programme identity cannot hide\" test/meta.test.ts",project,600,codex-agent,"2026-10-18T06:00:04.075Z",local_mutation,feat/meta-recursive-recipe-loop
+  "node --test --test-name-pattern=\"real Compose LM corrupt checkpoints\" test/lm-compose.test.ts",project,600,codex-agent,"2026-10-18T06:35:18.894Z",local_mutation,feat/meta-recursive-recipe-loop
 docs[6]{path,scope}:
   docs/durable-systemone-validation.md,project
   docs/meta-live-evidence.json,project

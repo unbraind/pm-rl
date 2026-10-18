@@ -134,4 +134,4 @@ and reward bounds [0,1]. Each side's Hoeffding half-width is
 0.10889390591705964. No recipe was promoted in either generation. The final-test
 score was **198/385 = 0.5142857142857142 before and after**. No real-data recipe
 improvement is claimed, and the gate was not relaxed. Dataset build plus controller
-execution took 93,734.674089 ms inside the command's unchanged 15-minute watchdog.
+execution took 92,238.67339099999 ms inside the command's unchanged 15-minute watchdog.
