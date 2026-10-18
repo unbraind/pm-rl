@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { hashJson, type JsonValue } from "./index.ts";
-import { calibratePrefixTarget, prefixInnerExample, projectHistoryPrefix, validateHistoryPrefix, type HistoryPrefix, type PrefixProjection, type TargetDistribution } from "./prefix-data.ts";
+import { calibratePrefixTarget, prefixInnerExample, projectHistoryPrefix, validateHistoryPrefix, validateLifecyclePrefix, type HistoryPrefix, type PrefixProjection, type TargetDistribution } from "./prefix-data.ts";
 
 /** Repository isolation roles; inner held-out items come only from the training repositories. */
 export const TRACKER_SPLITS = ["train", "inner-held-out", "meta-validation", "final-test"] as const;
@@ -65,7 +65,7 @@ export function trackerHistoryExample(history: string, repo: string, commit: str
         return { id: hashJson({ repo, item }), repo, commit, prefix,
           label: status === "closed" ? "completed" : "cancelled" };
       }
-      assert.ok(["open", "in_progress", "blocked"].includes(status), `dataset_unknown_status: ${status.slice(0, 32)}`);
+      validateLifecyclePrefix([status]);
       prefix.push(status);
     }
   }
@@ -172,7 +172,7 @@ export function readTrackerSplit(directory: string, manifest: TrackerDataset, sp
     assert.ok(source !== undefined && source.role === role && source.commit === example.commit && source.license === "MIT", "dataset_repo_leakage");
     assert.ok((manifest.task === "history-prefix" ? ["fast", "slow"] : ["completed", "cancelled"]).includes(example.label), "dataset_label");
     if (manifest.task === "history-prefix") validateHistoryPrefix(example.history!);
-    assert.ok(example.prefix.length > 0 && example.prefix.every((status) => ["open", "in_progress", "blocked"].includes(status)), "dataset_prefix");
+    assert.ok(validateLifecyclePrefix(example.prefix), "dataset_prefix");
   }
   return examples;
 }

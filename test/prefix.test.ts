@@ -1,13 +1,13 @@
 /** Behavioural acceptance for sealed projections, real fits, feature sensitivity and statistical refusals. */
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { Readable, Writable } from "node:stream";
 import { test } from "node:test";
 import extension, { hashJson, type JsonValue, type RlCommandResult } from "../index.ts";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import { buildTrackerDataset, readTrackerDataset, readTrackerSplit, TRACKER_SPLITS } from "../dataset.ts";
+import { buildTrackerDataset, readTrackerDataset, readTrackerSplit, trackerHistoryExample, TRACKER_SPLITS } from "../dataset.ts";
 import { calibratePrefixTarget, prefixInnerExample, projectHistoryPrefix, validateHistoryPrefix, type HistoryPrefix, type PrefixProjection } from "../prefix-data.ts";
 import { fitPrefix, prefixCheckpoint, prefixFeatures, prefixPrediction, validatePrefixCompletion, validatePrefixKnobs, type PrefixCheckpoint } from "../prefix.ts";
 import { majorityBinomial, fitHistoryPrefix, prefixAccuracy, prefixMajorityComparison } from "../prefix-environment.ts";
@@ -66,6 +66,35 @@ test("all four target distributions and calibration use only supplied fit rows a
   assert.equal(calibration.candidates.length, 4); assert.throws(() => calibratePrefixTarget([]), /samples/);
   assert.throws(() => calibratePrefixTarget(rows.map((row) => ({ ...row, remaining_ms: 1 }))), /unbalanced/);
   assert.equal(prefixInnerExample("00000000"), true); assert.equal(prefixInnerExample("00000001"), false);
+});
+
+for (const invalid of ["empty", "unknown"] as const) test(`lifecycle prefix contract: ${invalid} histories cannot seal unreadable datasets`, async () => {
+  await withTrackerSources(async ({ root, directories }) => {
+    const events = history().split("\n");
+    const malformed = invalid === "empty" ? [JSON.stringify({ ts: "2026-01-01T00:00:00Z", op: "create" }), events[2]].join("\n") : history().replace('"value":"open"', '"value":"unknown"');
+    const file = `history/${invalid}.jsonl`; const project = dirname(dirname(directories[0]));
+    writeFileSync(join(directories[0], file), malformed);
+    git(project, ["add", `.agents/pm/${file}`]);
+    git(project, ["-c", "user.name=Public Fixture", "-c", "user.email=public@example.test", "commit", "-qm", "Add malformed synthetic prefix"]);
+    const directory = join(root, "malformed-prefix");
+    if (invalid === "unknown") {
+      assert.throws(() => buildTrackerDataset(directories, directory, 42, { task: "history-prefix" }), /dataset_unknown_status: unknown/);
+      assert.equal(existsSync(join(directory, "dataset.json")), false);
+      for (let seed = 0; seed < 30; seed += 1) assert.throws(() => projectHistoryPrefix(malformed, "r", "c", "i", seed), /dataset_unknown_status: unknown/);
+      assert.throws(() => trackerHistoryExample(malformed, "r", "c", "i"), /dataset_unknown_status: unknown/);
+    } else {
+      const manifest = buildTrackerDataset(directories, directory, 42, { task: "history-prefix" });
+      const rows = TRACKER_SPLITS.flatMap((split) => readTrackerSplit(directory, manifest, split));
+      assert.equal(rows.length, 160, "the status-free cut is omitted, while every sealed split remains readable");
+      assert.equal(projectHistoryPrefix(malformed, "r", "c", "i", 42), null);
+    }
+    const valid = join(root, "valid-prefix");
+    const manifest = buildTrackerDataset(directories.slice(1), valid, 42, { task: "history-prefix" });
+    const rows = readTrackerSplit(valid, manifest, "train").map((row, index) => index === 0 ? { ...row, prefix: invalid === "empty" ? [] : ["unknown"] } : row);
+    writeFileSync(join(valid, "train.json"), JSON.stringify(rows));
+    const sealed = { ...manifest, splits: { ...manifest.splits, train: { count: rows.length, digest: hashJson(rows as unknown as JsonValue) } } };
+    assert.throws(() => readTrackerSplit(valid, sealed, "train"), invalid === "empty" ? /dataset_prefix/ : /dataset_unknown_status: unknown/);
+  });
 });
 
 test("hashed learner responds to every declared observable and actually changes bounded parameters", () => {

@@ -121,6 +121,17 @@ a final-test advantage or recursive improvement. No gate is loosened.
 
 ## Regression and diagnostic evidence
 
+Review round 1 shares lifecycle validation between the builder, terminal-disposition
+extractor and sealed reader. A seeded cut with no status is ineligible; any unknown
+status before the first terminal transition refuses with `dataset_unknown_status`.
+Two real Git-source regressions cover both inputs and explicit reader refusals.
+Reverting only the production fix makes each regression fail; restoring it passes
+both. The recorded live run and its implementation digests remain historical
+evidence from before this input-validation correction; the run has not been repeated
+or its learner capacity changed. Feature `pm-rl-a2zp` tracks content-addressed
+checkpoint blobs, unchanged budgets and gate, and an honest rerun on the same sealed
+dataset as separate work.
+
 Ten behaviour-only reverts retain the regression tests and fail: checkpoint identity
 replaced with recipe identity; prefix process validation removed; inner-held-out rows
 included in calibration; feature vectors zeroed; source returned instead of fitted

@@ -29,6 +29,12 @@ export interface TargetDistribution {
 /** Stable item assignment preserves one item per compartment, independent of its features and target. */
 export function prefixInnerExample(id: string): boolean { return Number.parseInt(id.slice(0, 8), 16) % 5 === 0; }
 
+/** Empty lifecycle prefixes are ineligible; unknown nonterminal statuses refuse before sealing or reading. */
+export function validateLifecyclePrefix(prefix: readonly string[]): boolean {
+  for (const status of prefix) assert.ok(["open", "in_progress", "blocked"].includes(status), `dataset_unknown_status: ${status.slice(0, 32)}`);
+  return prefix.length > 0;
+}
+
 /** Extract lifecycle and content changes without retaining author identities or raw public text. */
 export function projectHistoryPrefix(history: string, repo: string, commit: string, item: string, seed: number): PrefixProjection | null {
   const events = history.split("\n").filter(Boolean).map((line) => JSON.parse(line) as {
@@ -38,8 +44,11 @@ export function projectHistoryPrefix(history: string, repo: string, commit: stri
     .map((patch) => ({ index, status: String(patch.value) })));
   const terminal = states.find((state) => ["closed", "canceled", "cancelled"].includes(state.status));
   if (terminal === undefined || terminal.index === 0) return null;
+  validateLifecyclePrefix(states.slice(0, states.indexOf(terminal)).map((state) => state.status));
   const id = hashJson({ repo, item });
   const cut = Number.parseInt(hashJson({ id, seed }).slice(0, 8), 16) % terminal.index;
+  const lifecycle = states.filter((state) => state.index <= cut).map((state) => state.status);
+  if (!validateLifecyclePrefix(lifecycle)) return null;
   const visible = events.slice(0, cut + 1);
   const first = Date.parse(events[0].ts ?? "");
   const now = Date.parse(events[cut].ts ?? "");
@@ -60,7 +69,7 @@ export function projectHistoryPrefix(history: string, repo: string, commit: stri
     fields: fields.slice(-2048), words: words.slice(0, 512), elapsed_ms: now - first,
     authors: new Set(visible.map((event) => event.author).filter((author) => author !== undefined)).size,
   };
-  return { example: { id, repo, commit, prefix: states.filter((state) => state.index <= cut).map((state) => state.status), label: "fast", history: prefix },
+  return { example: { id, repo, commit, prefix: lifecycle, label: "fast", history: prefix },
     remaining_ms: end - now, next_lifecycle: states.find((state) => state.index > cut)!.status,
     reopened: String(states.some((state) => state.index > terminal.index && state.status === "open")),
     item_type: String(events.flatMap((event) => event.patch ?? []).find((patch) => patch.path === "/metadata/type")?.value ?? "unknown") };
