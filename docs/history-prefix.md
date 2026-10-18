@@ -132,6 +132,15 @@ or its learner capacity changed. Feature `pm-rl-a2zp` tracks content-addressed
 checkpoint blobs, unchanged budgets and gate, and an honest rerun on the same sealed
 dataset as separate work.
 
+Review acceptance on commit `123b585caea390243e3833bcfc58f42d5d082ad7`:
+[CI run 39161799627](https://github.com/unbraind/pm-rl/actions/runs/39161799627)
+passes unchanged `npm run release:check` on Node 22 and 26 and
+`bun run release:check` on Node 26. Each job passes 641/641 tests with zero failures,
+skips, cancellations or todos; statements, lines, branches and functions are each
+100% across 39 authored sources, and all 306 documented declarations pass.
+Strict tracker health and CodeQL also pass. Redundant local full-gate runs were
+stopped after these complete CI receipts; no local full-gate pass is claimed.
+
 Ten behaviour-only reverts retain the regression tests and fail: checkpoint identity
 replaced with recipe identity; prefix process validation removed; inner-held-out rows
 included in calibration; feature vectors zeroed; source returned instead of fitted
