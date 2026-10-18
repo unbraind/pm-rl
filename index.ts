@@ -2254,7 +2254,6 @@ export async function readApprovalSpec(client: PmClient, approvalId: string): Pr
     fail(`Approval item ${approvalId} has no JSON specification fence.`, "approval_missing_spec", EXIT_CODE.CONFLICT);
   }
   const id = approval.item.id;
-  if (typeof id !== "string" || id.length === 0) fail("The approval identity cannot be established.", "approval_identity_unreadable", EXIT_CODE.CONFLICT);
   return { ...parseApprovalSpec(approvalFenced[1], `Approval ${approvalId}`), id };
 }
 
