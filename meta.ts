@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { certifyCompleteListResult, EXIT_CODE, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
-import { hashJson, commitProcessTransaction, promotedGenerationIdsUnderApproval, readCompleteLoopItem, withRlController, type JsonValue, type RlDurableStep } from "./index.ts";
+import { hashJson, commitProcessTransaction, promotedGenerationIdsUnderApproval, readApprovalSpec, readCompleteLoopItem, withRlController, type JsonValue, type RlDurableStep } from "./index.ts";
 import { parseApprovalSpec } from "./lineage.ts";
 import { openTrackerEnvironment } from "./tracker-environment.ts";
 import { parseProcessAdapter, type ProcessAdapter, type ProcessCoordinates } from "./process.ts";
@@ -119,12 +119,13 @@ async function readMetaReceipt(client: PmClient, key: string) {
 /** Read canonical reservation records for one approval, ignoring foreign copies and unrelated Decisions. */
 async function metaReservations(client: PmClient, approval: string): Promise<readonly { prefix: string; record: NonNullable<ReturnType<typeof metaReservation>> }[]> {
   const items = certifyCompleteListResult(await client.listAllComplete({ includeBody: false }));
+  const canonical = (await readApprovalSpec(client, approval)).id;
   const reservations: { prefix: string; record: NonNullable<ReturnType<typeof metaReservation>> }[] = [];
   for (const item of items.items.filter((entry) => entry.type === "Decision" && entry.id.endsWith("-reservation"))) {
     const record = metaReservation(String((await readCompleteLoopItem(client, item.id)).item.body));
     if (record === null) continue;
     const identity = record.id.toLowerCase();
-    if ((item.id === identity || item.id.endsWith(`-${identity}`)) && record.approval === approval) {
+    if ((item.id === identity || item.id.endsWith(`-${identity}`)) && (await readApprovalSpec(client, record.approval)).id === canonical) {
       reservations.push({ prefix: item.id.slice(0, -"-reservation".length), record });
     }
   }
@@ -164,7 +165,10 @@ async function reserveMeta(client: PmClient, coordinates: ProcessCoordinates, re
     assert.equal(record.binding, binding, "meta_reservation_drift");
     assert.equal(record.format, "pm-rl/meta-reservation/1", "meta_reservation_drift");
     assert.equal(record.id, key, "meta_reservation_drift");
-    assert.equal(record.approval, (await metaApproval(client, request.approval)).id, "meta_reservation_drift");
+    let recordedApproval: string;
+    try { recordedApproval = (await readApprovalSpec(client, record.approval)).id; }
+    catch (error) { throw new Error("meta_reservation_drift", { cause: error }); }
+    assert.equal(recordedApproval, (await metaApproval(client, request.approval)).id, "meta_reservation_drift");
     assert.equal(hashJson(record.charge), hashJson(charge), "meta_reservation_drift");
     assert.equal(record.promotion_headroom, promotionHeadroom, "meta_reservation_drift");
     return { state: "applied" };

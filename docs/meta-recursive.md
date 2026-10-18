@@ -297,3 +297,14 @@ Four independent behavior-only reverts fail the new regressions; restoring the
 fixes passes 4/4. The frozen real-data and known-signal receipts are unchanged.
 Complete release-gate verification for this review head is recorded in the PR
 and PM item after CI finishes.
+
+Issue [#85](https://github.com/unbraind/pm-rl/issues/85) additionally verifies
+canonical approval identity. Full, uppercase and short SDK references identify
+one Decision for reservation matching, consumed-promotion counting and new
+promotion persistence. Historical promoted and reservation references resolve
+through that same SDK boundary; an unreadable or wrong-type reference refuses.
+Loop replay compares canonical identities without rewriting historical receipts.
+Pinned-SDK regressions cover ordinary/manual promotion with all capacity held,
+concurrent mixed aliases with one free slot, canonical new records, legacy alias
+records, owner resume and terminal replay without extra process charges. Restoring
+only the changed identity-handling functions fails both regressions (0/2).

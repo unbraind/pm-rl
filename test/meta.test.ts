@@ -10,7 +10,7 @@ import { test } from "node:test";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import { acquireLock, certifyCompleteListResult } from "@unbrained/pm-cli/sdk/runtime";
 import extension, { hashJson, runRlLoop, promotedGenerationIdsUnderApproval, type JsonValue, type RlCommandResult, loopLeaseLockId, loopProcessStartTime, LOOP_LEASE_TTL_SECONDS, RL_COMMANDS } from "../index.ts";
-import { compareRecipes, durableRecipeProposals, metaReservation, parseMetaConfig, proposeRecipes, recipeExamples, recipeSuccessor, runRlMeta, scoreTrackerPolicy, type MetaConfig, type MetaRequest } from "../meta.ts";
+import { compareRecipes, durableRecipeProposals, metaReservation, parseMetaConfig, proposeRecipes, recipeExamples, recipeSuccessor, runRlMeta, scoreTrackerPolicy, retainedMetaPromotionHeadroom, type MetaConfig, type MetaRequest } from "../meta.ts";
 import { INITIAL_RECIPE, recipeArtifact, seededRecipes } from "../recipe.ts";
 import { banditCheckpoint } from "../bandit.ts";
 import { readTrackerSplit, type TrackerDataset, type TrackerExample, TRACKER_SPLITS } from "../dataset.ts";
@@ -169,6 +169,67 @@ test("ordinary concurrent promotions preserve retained meta capacity until its o
   const jobs = await listProcessJobs(w.client);
   assert.deepEqual(await runRlMeta(w.client, w.coordinates, request), report);
   assert.deepEqual(await listProcessJobs(w.client), jobs);
+});
+
+test("approval aliases cannot spend retained meta capacity through ordinary or manual promotion", { timeout: 600_000 }, async () => {
+  const w = await metaWorkspace(); const aliases = [w.approval, w.approval.toUpperCase(), "approval"];
+  await w.client.update(w.approval, { body: `\`\`\`json\n${JSON.stringify({ ...metaSpec, permitted_promotions: 4 })}\n\`\`\`` });
+  const request = { ...requestFor(w, "alias-owner", { ...metaConfig, meta_generations: 1, candidates: 1 }), approval: "approval" };
+  await assert.rejects(runRlMeta(w.client, w.coordinates, { ...request, onStep(key) { if (key === "programme") throw new Error("alias capacity held"); } }), /alias capacity held/);
+  const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
+  const scores = join(w.root, "manual-scores.json");
+  const score = { objective: "episode_return", objective_version: "1", evaluation_context: "synthetic-manual-held-out", seed_set: "synthetic", direction: "maximize", scale: 1, value: 1 };
+  writeFileSync(scores, JSON.stringify({ proxy_score: score, held_out_score: score }));
+  const raw = JSON.parse(readFileSync(new URL("../examples/loop-bandit.json", import.meta.url), "utf8")) as Record<string, JsonValue>;
+  for (const [index, approval] of aliases.entries()) {
+    assert.equal((await w.client.get(approval)).item.id, w.approval);
+    assert.equal(await retainedMetaPromotionHeadroom(w.client, approval, []), 4);
+    const report = await runRlLoop(w.client, w.coordinates, { id: `alias-out-${index}`, config: { ...raw, max_generations: 1 }, approval });
+    assert.equal(report.promoted, 0); assert.match(report.refusal_reason!, /approved promotion budget/);
+    await assert.rejects(harness.runCommand({ command: "rl generation promote", pmRoot: w.coordinates.pmRoot,
+      args: [report.generations[0].item], options: { approval, scores, evidence: "synthetic alias budget check" } }), /approved promotion budget/);
+  }
+  const report = await runRlMeta(w.client, w.coordinates, { ...request, approval: w.approval.toUpperCase() });
+  assert.equal(report.generations.length, 1);
+  const jobs = await listProcessJobs(w.client);
+  assert.deepEqual(await runRlMeta(w.client, w.coordinates, { ...request, approval: w.approval }), report);
+  assert.deepEqual(await listProcessJobs(w.client), jobs);
+});
+
+test("mixed approval aliases share one free slot and count legacy alias records on resume", { timeout: 600_000 }, async () => {
+  const w = await metaWorkspace(); const aliases = [w.approval, w.approval.toUpperCase(), "approval"];
+  await w.client.update(w.approval, { body: `\`\`\`json\n${JSON.stringify({ ...metaSpec, permitted_promotions: 5 })}\n\`\`\`` });
+  const request = requestFor(w, "mixed-owner", { ...metaConfig, meta_generations: 1, candidates: 1 });
+  await assert.rejects(runRlMeta(w.client, w.coordinates, { ...request, onStep(key) { if (key === "programme") throw new Error("mixed capacity held"); } }), /mixed capacity held/);
+  const reservation = await w.client.get("mixed-owner-reservation");
+  await w.client.update(reservation.item.id, { body: JSON.stringify({ ...JSON.parse(String(reservation.item.body)) as Record<string, unknown>, approval: "approval" }) });
+  const raw = JSON.parse(readFileSync(new URL("../examples/loop-bandit.json", import.meta.url), "utf8")) as Record<string, JsonValue>;
+  const requests = aliases.map((approval, index) => ({ id: `mixed-out-${index}`, config: { ...raw, max_generations: 1 }, approval }));
+  const reports = await Promise.all(requests.map((request) => runRlLoop(w.client, w.coordinates, request)));
+  assert.equal(reports.reduce((sum, report) => sum + report.promoted, 0), 1);
+  const winner = reports.findIndex((report) => report.promoted === 1);
+  const generation = await w.client.get(reports[winner].generations[0].item);
+  const fence = /```json\n([\s\S]+?)\n```/.exec(String(generation.item.body))!;
+  const spec = JSON.parse(fence[1]) as Record<string, unknown>;
+  assert.equal(spec.approval, w.approval, "new promotions persist the canonical Decision identity");
+  for (const approval of aliases) {
+    await w.client.update(generation.item.id, { body: `\`\`\`json\n${JSON.stringify({ ...spec, approval })}\n\`\`\`` });
+    for (const reference of aliases) {
+      assert.deepEqual(await promotedGenerationIdsUnderApproval(w.client, reference), [generation.item.id]);
+      assert.equal(await retainedMetaPromotionHeadroom(w.client, reference, [generation.item.id]), 4);
+    }
+    assert.equal((await runRlLoop(w.client, w.coordinates, requests[winner])).promoted, 1);
+  }
+  await assert.rejects(runRlMeta(w.client, w.coordinates, { ...request, id: "aliases-exhausted", approval: "approval" }), /meta_promotion_budget_exhausted/);
+  const report = await runRlMeta(w.client, w.coordinates, { ...request, approval: "approval" });
+  assert.equal(report.generations.length, 1);
+  const jobs = await listProcessJobs(w.client);
+  assert.deepEqual(await runRlMeta(w.client, w.coordinates, request), report);
+  assert.deepEqual(await listProcessJobs(w.client), jobs);
+  for (const approval of ["missing-approval", (await w.client.create({ type: "Task", title: "Unusable legacy approval" })).item.id]) {
+    await w.client.update(generation.item.id, { body: `\`\`\`json\n${JSON.stringify({ ...spec, approval })}\n\`\`\`` });
+    await assert.rejects(promotedGenerationIdsUnderApproval(w.client, w.approval), /approved budget cannot be established/);
+  }
 });
 
 test("inner promotion-budget refusals never become recipe evidence, including after an accepted generation", { timeout: 600_000 }, async () => {

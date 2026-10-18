@@ -106,7 +106,11 @@ Adapters report structured progress and completion evidence over a documented st
    refusals cannot become recipe evidence on replay. Mixed-case excluded remotes
    refuse before metadata/history reads, and the package ships the linked sanity
    receipt. Four additional behavioral reverts fail; restored regressions pass 4/4.
-   Live receipts and promotion thresholds remain unchanged.
+   Live receipts and promotion thresholds remain unchanged. Approval references
+   resolve to canonical SDK Decision identities for shared accounting and new
+   promotions; existing alias records count against the same budget, and
+   unreadable identities refuse. Issue #85 retains pinned-SDK alias regressions
+   and their behavior-only revert proof.
 
 
 ## Data boundary and capacity

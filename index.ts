@@ -1968,10 +1968,11 @@ async function buildAncestry(client: PmClient, headId: string, strict: boolean):
  * @throws When any generation's specification cannot be read or parsed.
  */
 export async function promotedGenerationIdsUnderApproval(client: PmClient, approvalId: string): Promise<readonly string[]> {
-  // Bodies come back with the listing. Callers hold the SDK writer
-  // lock, so a per-record `client.get` would make the critical section grow one
-  // read per historical generation, and a large enough lineage would turn a
-  // correct refusal into a lock-wait timeout for every concurrent promoter.
+  // Generation bodies come back with the listing. Callers hold the writer lock;
+  // resolve each distinct recorded approval spelling once, caching its canonical
+  // identity rather than fetching an approval for every historical generation.
+  const canonical = (await readApprovalSpec(client, approvalId)).id;
+  const identities = new Map<string, string>([[canonical, canonical], [approvalId, canonical]]);
   const result = await client.list({ type: "Generation", status: "all", noTruncate: true, fields: "id,body" });
   const promoted: string[] = [];
   for (const item of result.items) {
@@ -1989,7 +1990,15 @@ export async function promotedGenerationIdsUnderApproval(client: PmClient, appro
     } catch (error) {
       fail(`Promotion refused: generation ${item.id} has an unparseable specification (${String(error)}), so the approved budget cannot be established.`, "budget_undecidable", EXIT_CODE.CONFLICT);
     }
-    if (spec.promoted && spec.approval === approvalId) promoted.push(item.id);
+    if (spec.promoted && spec.approval !== null) {
+      let identity = identities.get(spec.approval);
+      if (identity === undefined) {
+        try { identity = (await readApprovalSpec(client, spec.approval)).id; }
+        catch (error) { fail(`Promotion refused: generation ${item.id} has an unreadable approval (${String(error)}), so the approved budget cannot be established.`, "budget_undecidable", EXIT_CODE.CONFLICT); }
+        identities.set(spec.approval, identity);
+      }
+      if (identity === canonical) promoted.push(item.id);
+    }
   }
   return promoted;
 }
@@ -2233,9 +2242,9 @@ async function registerGenerationCore(client: PmClient, request: GenerationRegis
  *
  * @param client - Client bound to the target workspace.
  * @param approvalId - The approval Decision item id.
- * @returns The parsed approval specification.
+ * @returns The parsed approval specification and its canonical SDK identity.
  */
-async function readApprovalSpec(client: PmClient, approvalId: string): Promise<ApprovalSpec> {
+export async function readApprovalSpec(client: PmClient, approvalId: string): Promise<ApprovalSpec & { id: string }> {
   const approval = await client.get(approvalId, { depth: "deep" });
   if (String(approval.item.type) !== "Decision") {
     fail(`pm rl expected a Decision ${approvalId} as the approval item, not ${String(approval.item.type)}.`, "wrong_approval_type", EXIT_CODE.CONFLICT);
@@ -2244,7 +2253,9 @@ async function readApprovalSpec(client: PmClient, approvalId: string): Promise<A
   if (approvalFenced?.[1] === undefined) {
     fail(`Approval item ${approvalId} has no JSON specification fence.`, "approval_missing_spec", EXIT_CODE.CONFLICT);
   }
-  return parseApprovalSpec(approvalFenced[1], `Approval ${approvalId}`);
+  const id = approval.item.id;
+  if (typeof id !== "string" || id.length === 0) fail("The approval identity cannot be established.", "approval_identity_unreadable", EXIT_CODE.CONFLICT);
+  return { ...parseApprovalSpec(approvalFenced[1], `Approval ${approvalId}`), id };
 }
 
 /** Promote a candidate generation after contamination and budget checks pass. */
@@ -2363,11 +2374,12 @@ async function promoteGenerationCore(client: PmClient, coordinates: WorkspaceCoo
   // already-promoted guard and is then overwritten by this write, discarded on
   // the SUCCESS path with no receipt. The revert path had the same defect and
   // was fixed a round earlier; this is its other half.
+  let canonicalApprovalId = "";
   const renderPromotedBody = (base: GenerationSpec): string => {
     const promotedSpec: GenerationSpec = {
       ...base,
       promoted: true,
-      approval: approvalId,
+      approval: canonicalApprovalId,
       proxy_score: proxyScore,
       held_out_score: heldOutScore,
       gap,
@@ -2459,9 +2471,10 @@ async function promoteGenerationCore(client: PmClient, coordinates: WorkspaceCoo
         // is a comparison between two values, and re-reading only one of them
         // leaves the comparison stale in the other direction.
         const lockedApprovalSpec = await readApprovalSpec(client, approvalId);
-        const promotedIds = await promotedGenerationIdsUnderApproval(client, approvalId);
+        canonicalApprovalId = lockedApprovalSpec.id;
+        const promotedIds = await promotedGenerationIdsUnderApproval(client, canonicalApprovalId);
         promotedCount = promotedIds.length;
-        const retainedHeadroom = await retainedMetaPromotionHeadroom(client, approvalId, promotedIds, String(current.item.id));
+        const retainedHeadroom = await retainedMetaPromotionHeadroom(client, canonicalApprovalId, promotedIds, String(current.item.id));
         permittedPromotions = lockedApprovalSpec.permitted_promotions;
         if (promotedCount + retainedHeadroom >= permittedPromotions) {
           fail(`Advancing past the approved promotion budget is refused. ${promotedCount} promotion(s) consumed; ${retainedHeadroom} promotion(s) held for meta search; approval ${approvalId} permits ${permittedPromotions}. Extend approval item ${approvalId} to authorize more promotions.`, "budget_exceeded", EXIT_CODE.CONFLICT);
@@ -3342,8 +3355,8 @@ async function findGenerationItems(client: PmClient, id: string, generation: num
 }
 
 /** Verify a promoted generation's recorded approval matches the approval governing this execution. */
-function verifyLoopApproval(governing: string, recorded: string | null, id: string, generation: number): void {
-  if (governing.length > 0 && recorded !== null && recorded !== governing) {
+async function verifyLoopApproval(client: PmClient, governing: string, recorded: string | null, id: string, generation: number): Promise<void> {
+  if (governing.length > 0 && recorded !== null && (await readApprovalSpec(client, recorded)).id !== (await readApprovalSpec(client, governing)).id) {
     fail(`Loop ${id} generation ${generation} was promoted under approval ${recorded}, not the requested ${governing}; the promotion budget governing this loop cannot be switched mid-lineage.`, "loop_approval_mismatch", EXIT_CODE.CONFLICT);
   }
 }
@@ -3593,7 +3606,7 @@ async function inspectCandidateVerdict(client: PmClient, programme: LoopProgramm
   const report: RlLoopGenerationReport = { generation, run: runId, item: String(item.item.id), promoted: spec.promoted,
     held_out_mean: verified.candidateHeldOutMean, candidate_checkpoint: verified.candidate.digest, refusal_reason: null };
   if (spec.promoted) {
-    verifyLoopApproval(request.approval, spec.approval, request.id, generation);
+    await verifyLoopApproval(client, request.approval, spec.approval, request.id, generation);
     return { kind: "complete", report, advance: { checkpoint: verified.candidate, parent: String(item.item.id),
       step: deriveNextStepConfig(programme.config, chain.step, verified.candidateHeldOutMean - verified.incumbentHeldOutMean), cost: generationCost(programme) } };
   }
