@@ -134,4 +134,32 @@ and reward bounds [0,1]. Each side's Hoeffding half-width is
 0.10889390591705964. No recipe was promoted in either generation. The final-test
 score was **198/385 = 0.5142857142857142 before and after**. No real-data recipe
 improvement is claimed, and the gate was not relaxed. Dataset build plus controller
-execution took 92,238.67339099999 ms inside the command's unchanged 15-minute watchdog.
+execution took 92,238.673391 ms inside the command's unchanged 15-minute watchdog.
+
+
+## Release verification
+
+The [complete CI run](https://github.com/unbraind/pm-rl/actions/runs/39104826277)
+executes `npm run release:check` on Node 22 and 26 and `bun run release:check` on
+Node 26 with isolated HOME and global/system Git configuration. Each passes
+612/612 tests, zero failures/skips, 100% statements/lines/branches/functions over
+all 35 declared sources, 295 documented declarations, and zero duplicate clones
+or production audit findings. Thresholds, dependency pins and release approval
+are unchanged. The live evidence names the measured production source commit;
+the later resource-fixture changes affect acceptance tests only.
+
+The real Compose resource faults are explicit: the deadline worker publishes
+real LM progress then pauses past its unchanged 15-second limit; the memory
+worker has a V8 ceiling above its unchanged 192 MiB physical cgroup cap and is
+actually OOM-killed. Existing no-successor, receipt, cleanup and resume assertions
+remain. Guard-only reverts for recipe lineage, public visibility, programme ids,
+retained reservation case folding and both resource fault injectors fail; restored
+implementations pass. PM-linked data/recipe, crash/promotion/budget, identity and
+resource-refusal commands pass 9/9, 3/3, 1/1 and 1/1 respectively.
+
+A separate local full-suite attempt hit the unchanged 300-second HTTP crash-drill
+deadline under host load and was retained as failed evidence. The required complete
+commands pass in CI. External review is incomplete: CodeRabbit skips automatic
+review under its star policy, Greptile reports an expired trial, Sourcery skips
+and Cubic is neutral. Those states provide no approval. The PR remains unmerged,
+work items remain in progress, and the orchestrator owns closure.
