@@ -182,10 +182,11 @@ predictions, and full disagreement.
 
 ## Release verification
 
-The [preceding CI run](https://github.com/unbraind/pm-rl/actions/runs/39110114926)
+The [source-verification CI run](https://github.com/unbraind/pm-rl/actions/runs/39121554923)
+on `798cfe8af45371ddec478e5b8c2e79259be0fce5`
 executes `npm run release:check` on Node 22 and 26 and `bun run release:check` on
 Node 26 with isolated HOME and global/system Git configuration. Each passes
-613/613 tests, zero failures/skips, 100% statements/lines/branches/functions over
+617/617 tests, zero failures/skips, 100% statements/lines/branches/functions over
 all 35 declared sources, 295 documented declarations, and zero duplicate clones
 or production audit findings. Thresholds, dependency pins and release approval
 are unchanged. The live evidence names the measured production source commit;
@@ -202,7 +203,9 @@ revert loses the required handshake and fails the retained resource test. Existi
 remain. Guard-only reverts for recipe lineage, public visibility, programme ids,
 retained reservation case folding and both resource fault injectors fail; restored
 implementations pass. PM-linked data/recipe, crash/promotion/budget, identity and
-resource-refusal commands pass 9/9, 3/3, 1/1 and 1/1 respectively.
+resource-refusal commands pass 9/9, 3/3, 1/1 and 1/1 respectively. The expanded
+review command passes 7/7. Thirteen independent behavioral reverts fail across
+the feature and both review rounds; restoring the implementations passes.
 
 A separate local full-suite attempt hit the unchanged 300-second HTTP crash-drill
 deadline under host load and was retained as failed evidence. The required complete
@@ -214,5 +217,19 @@ programme ids at 20 characters, and executes the corrected README command in a
 regression test. Four independent behavior-only reverts fail with those tests
 retained; restoring the fixes passes. Unreadable receipt evidence propagates,
 and legacy proposal attempts without an identity refuse. Proposal bindings and
-statistical gates are unchanged. Thread resolution is left to reviewers. The PR remains unmerged, work items stay open for the orchestrator,
-and no final-head review approval is claimed.
+statistical gates are unchanged. CodeRabbit subsequently inspected the fixes at
+`54b2573` and resolved its three threads itself; it did not execute the repository tests. No author resolution
+request was made. There are no open GitHub issue findings. Greptile reports an
+expired trial; skipped or neutral reviewer checks provide no approval. The PR
+remains unmerged, work items stay open for the orchestrator, and no final-head
+review approval is claimed.
+
+The first review-round matrix correctly failed 616/617 because two existing
+budget-test programme labels exceeded the new id bound; only those labels were
+shortened, preserving every assertion. The next run passed Node 22 npm and
+Node 26 Bun at 617/617 but exposed the independent Docker OOM/exit notification
+race in Node 26 npm. The supervised native allocator above removes that race;
+the source-verification run passes all three complete gates with every original
+resource assertion retained. Fresh-clone strict tracker health passes with merge
+drivers and isolated Git configuration. Existing telemetry and provenance
+advisories remain, and all tracker histories preserve their main-branch prefix.
