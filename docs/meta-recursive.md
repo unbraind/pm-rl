@@ -209,11 +209,11 @@ predictions, and full disagreement.
 
 ## Release verification
 
-The [source-verification CI run](https://github.com/unbraind/pm-rl/actions/runs/39126701196)
-on `268d04a9fdd22960a78d9d675a6c342f29153c74`
+The [source-verification CI run](https://github.com/unbraind/pm-rl/actions/runs/39128976135)
+on `d2de7dc0a4a2cbb7f4ffef33734e5f3d39e5cde6`
 executes `npm run release:check` on Node 22 and 26 and `bun run release:check` on
 Node 26 with isolated HOME and global/system Git configuration. Each passes
-621/621 tests, zero failures/skips, 100% statements/lines/branches/functions over
+622/622 tests, zero failures/skips, 100% statements/lines/branches/functions over
 all 35 declared sources, 295 documented declarations, and zero duplicate clones
 or production audit findings. Thresholds, dependency pins and release approval
 are unchanged. The live evidence names the measured production source commit;
@@ -266,8 +266,7 @@ separate inner-promotion headroom, as specified above. Four new behavioral
 reverts fail independently: dropping force forwarding, restoring loop-resume
 guidance, restoring the old reservation function, and removing the specific
 promotion-budget refusal check. Restored linked regressions pass 4/4 and the
-complete meta suite passes 22/22. The source-verification matrix above passes
-621/621 in all three variants with all four coverage metrics at 100%. CodeRabbit
+initial complete meta suite passed 22/22. CodeRabbit
 inspected both fixes at `268d04a` and resolved its own threads without executing
 the tests. No author resolution request was made. The final documentation and
 claim-release commit receives a separate exact-head CI verification.
@@ -277,5 +276,8 @@ removes or damages retained capacity, and requires refusal before any fit starts
 Restoring the valid reservation resumes without charging it again. Removing only
 the fenced retained-capacity check fails that regression; restoring it passes.
 The restored full meta suite passes 23/23 through the pinned PM test runner.
-This additional source change requires the complete 622-test matrix; the preceding
-621-test verification remains evidence for its named source head.
+The source-verification matrix above includes this hardening and passes 622/622
+in every variant with all four coverage metrics at 100%, 35 sources and 295
+documented declarations. Earlier 621-test receipts remain in PM history at their
+exact source heads. The documentation-only handoff commit receives its own
+complete CI verification; no final-head independent review approval is claimed.
