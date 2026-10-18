@@ -95,4 +95,3 @@ async function fitRecipe(client: PmClient, coordinates: ProcessCoordinates, requ
   assert.equal(banditCheckpoint(weight).digest, report.final_checkpoint, "meta_checkpoint_identity");
   return { recipe, weight, checkpoint: report.final_checkpoint };
 }
-
