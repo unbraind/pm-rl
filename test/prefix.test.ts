@@ -15,7 +15,7 @@ import { prefixTrainerArgv, prefixTrainerMain, runPrefixTrainer } from "../prefi
 import { INITIAL_RECIPE, recipeArtifact, seededRecipes } from "../recipe.ts";
 import { metaWorkspace, withTrackerSources, metaConfig } from "./fixtures/meta-workspace.ts";
 import { compareRecipes, runRlMeta, type RecipePolicy } from "../meta.ts";
-import { executeProcessTrainer, validateProcessCompletion, type ProcessCompletion, type ProcessInput } from "../process.ts";
+import { executeProcessTrainer, validateProcessCompletion, readProcessJob, type ProcessCompletion, type ProcessInput } from "../process.ts";
 import { runLiveMetaAcceptance, liveMetaMain } from "../scripts/live-meta.ts";
 
 const knobs = { regularisation: 0.001, ngram_order: 2, hashing_width: 32 };
@@ -150,6 +150,7 @@ test("real reserved process fits are explicit even when the unchanged inner gate
     assert.ok(policy.fit!.changed); assert.ok(policy.fit!.candidate.weights.some((weight) => weight !== 0));
     assert.ok(policy.fit!.accepted || policy.fit!.refusal !== null);
     assert.equal(policy.checkpoint, policy.prefix!.digest);
+    assert.equal((await readProcessJob(w.client, policy.fit!.job))!.state, policy.fit!.accepted ? "promoted" : "evaluated");
   }
   assert.ok(report.final_test.majority_test !== undefined);
   const originalSplits = { train: readFileSync(join(directory, "train.json")), "inner-held-out": readFileSync(join(directory, "inner-held-out.json")) };
@@ -163,12 +164,14 @@ test("real reserved process fits are explicit even when the unchanged inner gate
   uniform("train", "fast"); uniform("inner-held-out", "fast");
   const accepted = await fitHistoryPrefix(w.client, w.coordinates, directory, copy, config, w.approval, recipe, "accepted", new AbortController().signal);
   assert.ok(accepted.fit!.accepted); assert.equal(accepted.fit!.refusal, null);
+  assert.equal((await readProcessJob(w.client, accepted.fit!.job))!.state, "promoted");
   assert.ok(accepted.prefix!.weights.some((weight) => weight !== 0));
   assert.deepEqual(await fitHistoryPrefix(w.client, w.coordinates, directory, copy, config, w.approval, recipe, "accepted", new AbortController().signal), accepted);
   await assert.rejects(fitHistoryPrefix(w.client, w.coordinates, directory, copy, config, w.approval, recipeArtifact({ ...recipe.knobs, selection: "balanced" }), "no-class", new AbortController().signal), /balanced_class_missing/);
   uniform("train", "slow");
   const gap = await fitHistoryPrefix(w.client, w.coordinates, directory, copy, config, w.approval, recipe, "gap", new AbortController().signal);
   assert.equal(gap.fit!.refusal, "gap_rejected");
+  assert.equal((await readProcessJob(w.client, gap.fit!.job))!.state, "evaluated");
   assert.deepEqual(await fitHistoryPrefix(w.client, w.coordinates, directory, copy, config, w.approval, recipe, "gap", new AbortController().signal), gap);
   const overlap = [...readTrackerSplit(directory, copy, "inner-held-out"), readTrackerSplit(directory, copy, "train")[0]];
   writeFileSync(join(directory, "inner-held-out.json"), JSON.stringify(overlap));
