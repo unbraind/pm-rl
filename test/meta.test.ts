@@ -317,7 +317,7 @@ test("one pre-approved Decision cannot be enlarged, replaced or oversubscribed, 
   for (const key of ["training_samples", "proposal_calls", "recipe_promotions"] as const) {
     const spec = { ...metaSpec, meta_budget: { ...metaSpec.meta_budget, [key]: 0 } };
     await w.client.update(w.approval, { body: `\`\`\`json\n${JSON.stringify(spec)}\n\`\`\`` });
-    await assert.rejects(runRlMeta(w.client, w.coordinates, { ...requestFor(w, `exhaust-${key.replaceAll("_", "-")}`), proposer: "decision-model" }), new RegExp(`meta_budget_exhausted: ${key}`));
+    await assert.rejects(runRlMeta(w.client, w.coordinates, { ...requestFor(w, `exhaust-${key.split("_")[0]}`), proposer: "decision-model" }), new RegExp(`meta_budget_exhausted: ${key}`));
   }
   await w.client.update(w.approval, { body: `\`\`\`json\n${JSON.stringify(metaSpec)}\n\`\`\`` });
   const request = requestFor(w, "bound", { ...metaConfig, meta_generations: 1, candidates: 1 });

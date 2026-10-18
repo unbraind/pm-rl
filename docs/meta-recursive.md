@@ -211,6 +211,5 @@ programme ids at 20 characters, and executes the corrected README command in a
 regression test. Four independent behavior-only reverts fail with those tests
 retained; restoring the fixes passes. Unreadable receipt evidence propagates,
 and legacy proposal attempts without an identity refuse. Proposal bindings and
-statistical gates are unchanged. Review threads stay unresolved for reviewer
-verification. The PR remains unmerged, work items stay open for the orchestrator,
+statistical gates are unchanged. Thread resolution is left to reviewers. The PR remains unmerged, work items stay open for the orchestrator,
 and no final-head review approval is claimed.
