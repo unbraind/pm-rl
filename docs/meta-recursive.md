@@ -194,8 +194,11 @@ scoring behavior; the live receipt retains its exact measured source head.
 
 The real Compose resource faults are explicit: the deadline worker publishes
 real LM progress then pauses past its unchanged 15-second limit; the memory
-worker has a V8 ceiling above its unchanged 192 MiB physical cgroup cap and is
-actually OOM-killed. Existing no-successor, receipt, cleanup and resume assertions
+worker has a V8 ceiling above its unchanged 192 MiB physical cgroup cap. Its
+allocating child is actually OOM-killed; an idle supervisor stays alive until
+Docker records that native OOM, then exits as failed. This bounded barrier avoids
+a race between independent daemon OOM and exit notifications. A fixture-only
+revert loses the required handshake and fails the retained resource test. Existing no-successor, receipt, cleanup and resume assertions
 remain. Guard-only reverts for recipe lineage, public visibility, programme ids,
 retained reservation case folding and both resource fault injectors fail; restored
 implementations pass. PM-linked data/recipe, crash/promotion/budget, identity and

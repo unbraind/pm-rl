@@ -6,11 +6,13 @@ status: in_progress
 priority: 2
 tags[3]: execution,llm-adapter,recursive-training
 created_at: "2026-10-15T22:07:13.392Z"
-updated_at: "2026-10-18T07:03:27.069Z"
+updated_at: "2026-10-18T11:00:28.454Z"
+assignee: codex-agent
+claim_principal: codex-agent
 author: codex-agent
 acceptance_criteria: "Two real generations with successor collection; SIGKILL recovery, cancellation, corrupt checkpoint and limit refusals, one-launch contention; behavioural revert proofs and unchanged npm and Bun release gates."
 parent: pm-rl-apvf
-comments[27]{created_at,author,text}:
+comments[29]{created_at,author,text}:
   "2026-10-15T22:07:43.111Z",codex-agent,"Design: extend the existing process contract with a typed LM payload and checkpoint validator; share owner fences, atomic reservation, staged adoption, cancellation and settlement. Keep held-out examples in the controller. Bind immutable image, memory and CPU ceilings into programme and job identity; send only frozen weights, source adapter, training strings and collected rewards to a networkless non-root container. Add real recursive generations and crash/cancellation/limit/contention drills, then behavioural revert proofs and unchanged release gates."
   "2026-10-15T22:16:06.750Z",codex-agent,"First real Compose evidence: generation 1 checkpoint 058aa3d2c08438abd18cf0e9b455aca99ddb95492de852201c55c79a0672130d -> 37e503748a170be32e1d506997b6c0cc5c9ee256b24ab01fb49cf0564da07b4c; held-out sampled reward 0.183854, six steps, 1152 target tokens, observed wall 5567 ms, fit CPU 820 ms, peak RSS 138629120 bytes, retained staging 88930 bytes. Generation 2 collected with that promoted digest and trained -> 086f78992283cba37929321abe3961ca6132a52c332bf8a8387a52f22141cbdb; reward 0.292396, six steps, 1152 tokens, wall 5654 ms, CPU 803 ms, peak RSS 143323136 bytes, staging 92364 bytes. Both promoted through the existing gate. Real controller SIGKILL after completion before receipt commit recovered the same checkpoint and original reservation with one launch. Mid-fit cancellation retained input/events and process_cancelled. Full drills and coverage verification continue. The first linked run reached its default 120-second timeout; rerun will explicitly allow the complete integration duration."
   "2026-10-15T22:24:09.789Z",codex-agent,"Validated linked run: pm test pm-rl-whrd --run --progress --timeout 900 passed 8/8, zero failures/skips/cancellations/todo. Real kernel memory drill retained partial allocation evidence and daemon oom_killed=true at 201326592 bytes; the time drill began the real 1000-step fit before exceeding its 15000 ms allowance. Both refused promotion and successor collection. Two-generation execution took 54134.161 ms; independent verification/replay/status took 4470.981 ms. Canonical hashes and held-out objectives match the first measurement. Final fit resources: generation 1 wall 4297 ms, CPU 713 ms, RSS 138207232 bytes, staging 89057 bytes; generation 2 wall 4266 ms, CPU 759 ms, RSS 144183296 bytes, staging 92509 bytes; both six steps and 1152 target tokens. Daemon receipts verify memory=268435456, CPU=1, no network and non-root user. Existing Compose barrier variability is tracked in pm-rl-8nev. Revert proofs and complete release gates remain in progress."
@@ -38,6 +40,8 @@ comments[27]{created_at,author,text}:
   "2026-10-18T06:19:59.564Z",codex-agent,"Current meta-feature CI exposed a timing-dependent existing fault drill: the Node 26 job observed two collection Runs instead of one in the corrupt/memory/time test, while every authored source reported 100% lines/branches/functions. The time case assumed 1000 real LM fit steps necessarily exceeded 15000 ms; that assumption depends on runner speed. The correction selects a time-only fixture that enters the actual packaged LM trainer, publishes its genuine zero-step progress, retains a barrier marker and blocks before numerical fit until the unchanged process deadline terminates the container. Corrupt and memory modes, the 15000 ms allowance, every existing failure/no-successor/cleanup/resume assertion, production training and promotion criteria remain unchanged. Focused physical verification and full gates are pending. The earlier merged acceptance audit remains historical evidence, not a passing result for this new attempt."
   "2026-10-18T06:39:11.323Z",codex-agent,"Resource-drill stabilization verified physically: the deadline fixture forwards the genuine packaged LM zero-step progress and blocks before fit; the unchanged 15000 ms guard kills it. The separate minimal allocator records its V8 heap ceiling above the unchanged 201326592-byte cgroup cap, then causes a native Docker OOM; the OOMKilled assertion is preserved. Every existing failed/settled/no-completion/one-Run/no-promoted-generation/retained-input/event/container-removal/resume-refusal assertion remains. Focused restored test passes 1/1. In an isolated source snapshot, reverting only memory-worker dispatch fails 0/1 with Missing expected rejection for memory; reverting only the time barrier fails 0/1 with missing time-barrier evidence; restoring both passes 1/1. Exact command: node --test --test-name-pattern=\"real Compose LM corrupt checkpoints\" test/lm-compose.test.ts. The PM-linked run also passes 1/1, zero skips. Build:test, lint and static publish attestation pass. Full CI must rerun; leave in progress for orchestrator verification."
   "2026-10-18T07:03:16.944Z",codex-agent,"Final current validation: CI run https://github.com/unbraind/pm-rl/actions/runs/39104826277 on 445b232 passes all three complete gates (npm Node 22, npm Node 26, Bun Node 26), 612/612 each, zero skips, all four coverage metrics 100% across 35 required sources and 295 documented declarations. The real corruption/native-OOM/15-second-deadline refusal drill passes with every original failure, no-successor, cleanup and resume assertion retained. Its two fault-guard reverts fail 0/1 each; restored physical and linked verification passes 1/1. The original merged-PR acceptance audit remains Met, now supplemented by stable current fault injection. No production trainer or promotion changes, pin bump, larger physical allowance or release enablement. Leave in progress for orchestrator closure; release the claim after these receipts."
+  "2026-10-18T10:52:07.652Z",codex-agent,"Review-round full CI exposed a physical-memory fault race: one Node 26 runner recorded OOMKilled false, while Node 22 and Bun runners passed the same strict native-OOM case. The current minimal allocator exits as soon as the kernel kills its PID 1. Docker records OOM notifications separately from task exit; terminal cleanup can observe incomplete daemon OOM evidence. The fixture will keep a minimal parent alive after a native memory-exhausting child is killed and release that parent only after the test observes Docker's real OOM flag. Preserve the 192 MiB cap, 1 GiB V8 ceiling, original deadlines, refusal/no-successor/settlement/cleanup/resume assertions; no production trainer or promotion-gate change."
+  "2026-10-18T11:00:28.454Z",codex-agent,"The Node 26 CI failure exposed a native-memory fixture race: the daemon processes kernel OOM and init exit independently. The test now keeps an idle supervisor alive while its memory-exhausting child is genuinely OOM-killed, observes Docker OOMKilled=true within the existing bounded barrier, then releases the failed supervisor. The child prefers itself via its own positive OOM score adjustment; no simulated kill is used. The physical cap remains 192 MiB, V8 ceiling remains 1 GiB, wall allowance remains 15 seconds, and all refusal, receipt, no-successor, cleanup and resume assertions remain. Focused real-container verification passed 1/1. Restoring only the old memory fixture with the new test retained fails 0/1 at the missing kernel-event handshake; the fixed fixture is restored. Exact command: node --test --test-name-pattern=\"real Compose LM corrupt checkpoints\" test/lm-compose.test.ts. Production trainer and promotion code are unchanged."
 files[21]{path,scope}:
   .dockerignore,project
   compose.ts,project
@@ -60,7 +64,7 @@ files[21]{path,scope}:
   test/fixtures/lm-compose.Dockerfile,project
   test/fixtures/process-controller.ts,project
   test/lm-compose.test.ts,project
-tests[4]:
+tests[5]:
   - command: node --test test/lm-compose.test.ts
     scope: project
     provenance:
@@ -90,8 +94,17 @@ tests[4]:
       created_at: "2026-10-16T04:27:20.119Z"
       source_kind: local_mutation
       source_ref: feat/lm-compose-trainer
-docs[4]{path,scope}:
+  - command: "node --test --test-name-pattern=\"real Compose LM corrupt checkpoints\" test/lm-compose.test.ts"
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-18T11:00:25.569Z"
+      source_kind: local_mutation
+      source_ref: feat/meta-recursive-recipe-loop
+docs[5]{path,scope}:
   docs/lm-adapter.md,project
+  docs/meta-recursive.md,project
   docs/process-trainer.md,project
   README.md,project
   RECURSIVE_TRAINING.md,project
