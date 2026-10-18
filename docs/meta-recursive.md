@@ -207,11 +207,11 @@ predictions, and full disagreement.
 
 ## Release verification
 
-The [source-verification CI run](https://github.com/unbraind/pm-rl/actions/runs/39121554923)
-on `798cfe8af45371ddec478e5b8c2e79259be0fce5`
+The [source-verification CI run](https://github.com/unbraind/pm-rl/actions/runs/39126701196)
+on `268d04a9fdd22960a78d9d675a6c342f29153c74`
 executes `npm run release:check` on Node 22 and 26 and `bun run release:check` on
 Node 26 with isolated HOME and global/system Git configuration. Each passes
-617/617 tests, zero failures/skips, 100% statements/lines/branches/functions over
+621/621 tests, zero failures/skips, 100% statements/lines/branches/functions over
 all 35 declared sources, 295 documented declarations, and zero duplicate clones
 or production audit findings. Thresholds, dependency pins and release approval
 are unchanged. The live evidence names the measured production source commit;
@@ -230,7 +230,7 @@ retained reservation case folding and both resource fault injectors fail; restor
 implementations pass. PM-linked data/recipe, crash/promotion/budget, identity and
 resource-refusal commands pass 9/9, 3/3, 1/1 and 1/1 respectively. The expanded
 review command passes 7/7. Seventeen independent behavioral reverts fail across
-the feature and both review rounds; restoring the implementations passes.
+the feature and subsequent review rounds; restoring the implementations passes.
 
 A separate local full-suite attempt hit the unchanged 300-second HTTP crash-drill
 deadline under host load and was retained as failed evidence. The required complete
@@ -264,5 +264,8 @@ separate inner-promotion headroom, as specified above. Four new behavioral
 reverts fail independently: dropping force forwarding, restoring loop-resume
 guidance, restoring the old reservation function, and removing the specific
 promotion-budget refusal check. Restored linked regressions pass 4/4 and the
-complete meta suite passes 22/22. The complete npm/Bun release matrix must rerun
-for these changes; the preceding 617-test result is not a passing claim for them.
+complete meta suite passes 22/22. The source-verification matrix above passes
+621/621 in all three variants with all four coverage metrics at 100%. CodeRabbit
+inspected both fixes at `268d04a` and resolved its own threads without executing
+the tests. No author resolution request was made. The final documentation and
+claim-release commit receives a separate exact-head CI verification.
