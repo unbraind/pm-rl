@@ -90,7 +90,7 @@ Adapters report structured progress and completion evidence over a documented st
    passes the exact npm command on Node 22 and 26 and the Bun command on Node 26:
    628/628 each, zero failures/skips, all four coverage metrics 100% across all
    35 declared sources and 295 documented declarations. Physical crash, shared
-   budget, conditional promotion and resource-refusal regressions pass; twenty-four
+   budget, conditional promotion and resource-refusal regressions pass; twenty-five
    behaviour-only reverts fail with tests retained and restored code passes.
    The review round fixes canonical receipt identity, bounded programme ids and
    README command syntax; the physical OOM test waits for real daemon evidence
@@ -113,7 +113,9 @@ Adapters report structured progress and completion evidence over a documented st
    and their behavior-only revert proofs. The alias persistence proof forces an
    alias caller to win; raw-ID persistence fails the retained assertion. Complete
    source verification passes 628/628 in all three release variants, and direct
-   isolated lineage acceptance passes 51/51.
+   isolated lineage acceptance passes 51/51. Disagreement peers are unique by
+   recipe digest and checkpoint; regenerated synthetic evidence preserves every
+   learning score and verdict. Completed historical receipts remain unchanged.
 
 
 ## Data boundary and capacity

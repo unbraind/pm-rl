@@ -311,7 +311,10 @@ export async function runRlMeta(client: PmClient, coordinates: ProcessCoordinate
         const policy = await step(`m${generation}-c${index}`, { recipe: recipe.digest }, async () =>
           await environment.fit(recipe, `${request.id}-m${generation}-c${index}`, signal) as unknown as JsonValue) as unknown as RecipePolicy;
         const comparison = await step(`m${generation}-score${index}`, { candidate: policy.checkpoint, incumbent: incumbent.recipe.digest }, async () => {
-          const { score, baseline, diagnostics } = environment.selection(policy, incumbent, [...generations.flatMap((previous) => previous.candidates), ...candidates].map((previous) => previous.candidate));
+          const seen = new Set([`${incumbent.recipe.digest}:${incumbent.checkpoint}`]);
+          const peers = [...generations.flatMap((previous) => previous.candidates), ...candidates].map((previous) => previous.candidate)
+            .filter((peer) => { const key = `${peer.recipe.digest}:${peer.checkpoint}`; if (seen.has(key)) return false; seen.add(key); return true; });
+          const { score, baseline, diagnostics } = environment.selection(policy, incumbent, peers);
           // Allocate family-wise error across all planned comparisons; search cannot relax the declared gate.
           const criterion = { ...config.criterion, confidence: 1 - (1 - config.criterion.confidence) / (config.meta_generations * config.candidates) };
           return { ...compareRecipes(policy, incumbent, score, baseline, criterion), diagnostics } as unknown as JsonValue;

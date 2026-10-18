@@ -71,7 +71,7 @@
           "score": {
             "mean": 0.5629,
             "samples": 10000,
-            "context": "db9287da5da16edda2be679e1fe67095489c8c395ca10799e6a4f7e06068c5ee"
+            "context": "ffc6fc59b23faae8aa3c27d2fc4523bb410c69aadad0aa3b34001ac968a7bf2c"
           },
           "gain": 0.06859999999999994,
           "gain_lower_bound": 0.036740389785077876,
@@ -165,7 +165,7 @@
           "score": {
             "mean": 0.5265,
             "samples": 10000,
-            "context": "db9287da5da16edda2be679e1fe67095489c8c395ca10799e6a4f7e06068c5ee"
+            "context": "ffc6fc59b23faae8aa3c27d2fc4523bb410c69aadad0aa3b34001ac968a7bf2c"
           },
           "gain": 0.03219999999999995,
           "gain_lower_bound": 0.0003403897850778881,
@@ -268,7 +268,7 @@
           "score": {
             "mean": 0.4943,
             "samples": 10000,
-            "context": "db9287da5da16edda2be679e1fe67095489c8c395ca10799e6a4f7e06068c5ee"
+            "context": "ffc6fc59b23faae8aa3c27d2fc4523bb410c69aadad0aa3b34001ac968a7bf2c"
           },
           "gain": -0.06859999999999994,
           "gain_lower_bound": -0.100459610214922,
@@ -292,12 +292,6 @@
               }
             },
             "disagreements": [
-              {
-                "recipe": "sha256:30eccf433a17801ac6d91da530ae36a7ff47e2482534ab00538c4d16bd7ca512",
-                "differing": 686,
-                "samples": 10000,
-                "rate": 0.0686
-              },
               {
                 "recipe": "sha256:30eccf433a17801ac6d91da530ae36a7ff47e2482534ab00538c4d16bd7ca512",
                 "differing": 686,
@@ -370,7 +364,7 @@
           "score": {
             "mean": 0.4943,
             "samples": 10000,
-            "context": "db9287da5da16edda2be679e1fe67095489c8c395ca10799e6a4f7e06068c5ee"
+            "context": "ffc6fc59b23faae8aa3c27d2fc4523bb410c69aadad0aa3b34001ac968a7bf2c"
           },
           "gain": -0.06859999999999994,
           "gain_lower_bound": -0.100459610214922,
@@ -401,12 +395,6 @@
                 "rate": 0.0686
               },
               {
-                "recipe": "sha256:30eccf433a17801ac6d91da530ae36a7ff47e2482534ab00538c4d16bd7ca512",
-                "differing": 686,
-                "samples": 10000,
-                "rate": 0.0686
-              },
-              {
                 "recipe": "sha256:f151f1d6fbe87b93b1ebf031e06bdb5d3c2a5446865977b4c8f75e42857865cd",
                 "differing": 322,
                 "samples": 10000,
@@ -429,12 +417,12 @@
     "before": {
       "mean": 0.5093,
       "samples": 10000,
-      "context": "7e0ba77a652c186c260bdf489aeaa0fadffaaf64a4849ec1ccf9505471359f66"
+      "context": "c21b10c9e338b51ccef33084da2e02514137c098274fe4a24ef40449d25514b4"
     },
     "after": {
       "mean": 0.5806,
       "samples": 10000,
-      "context": "7e0ba77a652c186c260bdf489aeaa0fadffaaf64a4849ec1ccf9505471359f66"
+      "context": "c21b10c9e338b51ccef33084da2e02514137c098274fe4a24ef40449d25514b4"
     },
     "diagnostics": {
       "majority_class": {

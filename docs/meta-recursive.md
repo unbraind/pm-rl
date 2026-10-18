@@ -231,7 +231,7 @@ remain. Guard-only reverts for recipe lineage, public visibility, programme ids,
 retained reservation case folding and both resource fault injectors fail; restored
 implementations pass. PM-linked data/recipe, crash/promotion/budget, identity and
 resource-refusal commands pass 9/9, 3/3, 1/1 and 1/1 respectively. The expanded
-review command passes 7/7. Twenty-four independent behavioral reverts fail across
+review command passes 7/7. Twenty-five independent behavioral reverts fail across
 the feature and subsequent review rounds; restoring the implementations passes.
 
 A separate local full-suite attempt hit the unchanged 300-second HTTP crash-drill
@@ -320,3 +320,13 @@ unsuitable combined link was removed. Both required complete release commands
 pass in isolated CI on the source head above. The assertion/documentation handoff
 commit receives a separate exact-head CI check; no final-head review approval,
 merge or release is implied.
+
+Disagreement diagnostics include each peer once by recipe digest and checkpoint,
+with the incumbent supplied once by the evaluator. The known-signal regression
+checks peer counts of `[1, 2]` and `[2, 3]` across its two generations. Restoring
+only the previous peer collection fails that assertion with `[3, 4]` in generation
+2. The regenerated synthetic receipt removes the duplicate incumbent rows;
+policies, scores, confidence bounds, promotions and final-test results are
+unchanged. Existing programmes adopt their completed score receipts without
+rewriting historical diagnostics; new programmes produce the unique peer lists.
+The real-data live receipt is unchanged.

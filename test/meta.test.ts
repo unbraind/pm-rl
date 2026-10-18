@@ -441,6 +441,12 @@ test("a genuinely better recipe clears the unchanged gate and becomes the next m
   assert.ok(first.gain_lower_bound >= liveMetaConfiguration().criterion.effectThreshold);
   assert.equal(first.verdict.candidateEpsilon, Math.sqrt(Math.log(2 / (1 - 0.9875)) / (2 * splits["meta-validation"].count)));
   assert.ok(first.diagnostics.disagreements[0].rate > 0);
+  assert.deepEqual(report.generations.map((generation) => generation.candidates.map((candidate) => candidate.diagnostics.disagreements.length)), [[1, 2], [2, 3]]);
+  for (const generation of report.generations) {
+    for (const candidate of generation.candidates) {
+      assert.equal(candidate.diagnostics.disagreements.filter((peer) => peer.recipe === candidate.incumbent).length, 1, "the incumbent appears exactly once even after promotion");
+    }
+  }
   assert.ok(report.final_test.after.mean > report.final_test.before.mean + liveMetaConfiguration().criterion.effectThreshold);
   assert.ok(report.final_test.after.mean > report.final_test.diagnostics.majority_class.mean);
 });
