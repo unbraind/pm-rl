@@ -251,7 +251,7 @@ tracker learner does not beat that baseline; the committed signal sanity case
 proves that real gain can promote under the same gate. [The meta-recursive contract](docs/meta-recursive.md) documents the
 data boundary, confidence assumptions, idempotent resume and measured real-data
 acceptance. Start with [the bounded programme](examples/meta-trackers.json) and
-`pm rl dataset build --from-trackers <directories...> --output <new-directory>`.
+`pm rl dataset build --from-trackers <first-directory> <more-directories...> --output <new-directory>`.
 
 The current pm-rl runtime **executes, tracks and gates** a bounded numerical loop: a generation collects trajectories,
 the built-in bandit trainer produces a successor, and the successor collects the next generation's

@@ -24,9 +24,16 @@ not demonstrate language-model training on tracker text.
 
 `pm rl meta run <id> --file examples/meta-trackers.json --dataset <directory>
 --approval <decision>` executes or resumes the same programme. Programme ids use lowercase letters or
-digits separated by single hyphens; noncanonical ids refuse before any write.
+digits separated by single hyphens, with at most 20 characters; invalid ids refuse
+before any read or write. The longest inner suffix is `-initial` (eight characters),
+so every outer and inner controller identity fits the existing 28-character lease
+segment without truncation or collision.
 Retained reservation identities are compared using the SDK's case folding, so
-an older uppercase spelling cannot hide an allocation. Its initial recipe
+an older uppercase spelling cannot hide an allocation. Own reservation and model
+proposal receipts use canonical SDK lookups, never suffix scans. Both require
+Decision type and their exact envelope id; unrelated programmes cannot shadow or
+supply a receipt. Proposal bindings remain independent of programme id, while
+identity-less legacy attempt records fail closed. Its initial recipe
 is a versioned content-addressed artifact. Numeric domains cover learning rate,
 inner steps, batch, temperature and correct/incorrect reward weights. Categorical
 domains cover balanced/all selection and forward/reverse curriculum. Steps bound
@@ -175,14 +182,15 @@ predictions, and full disagreement.
 
 ## Release verification
 
-The [complete CI run](https://github.com/unbraind/pm-rl/pull/84/checks)
+The [preceding CI run](https://github.com/unbraind/pm-rl/actions/runs/39110114926)
 executes `npm run release:check` on Node 22 and 26 and `bun run release:check` on
 Node 26 with isolated HOME and global/system Git configuration. Each passes
 613/613 tests, zero failures/skips, 100% statements/lines/branches/functions over
 all 35 declared sources, 295 documented declarations, and zero duplicate clones
 or production audit findings. Thresholds, dependency pins and release approval
 are unchanged. The live evidence names the measured production source commit;
-later receipt updates do not change the measured production source.
+subsequent receipt-identity and id-length validation fixes preserve training and
+scoring behavior; the live receipt retains its exact measured source head.
 
 The real Compose resource faults are explicit: the deadline worker publishes
 real LM progress then pauses past its unchanged 15-second limit; the memory
@@ -195,7 +203,14 @@ resource-refusal commands pass 9/9, 3/3, 1/1 and 1/1 respectively.
 
 A separate local full-suite attempt hit the unchanged 300-second HTTP crash-drill
 deadline under host load and was retained as failed evidence. The required complete
-commands pass in CI. External review is incomplete: CodeRabbit skips automatic
-review under its star policy, Greptile reports an expired trial, Sourcery skips
-and Cubic is neutral. Those states provide no approval. The PR remains unmerged,
-work items remain in progress, and the orchestrator owns closure.
+commands pass in CI. CodeRabbit's review of `030874d` identified three findings: suffix-based own
+receipt lookup, unbounded programme ids colliding in the lease namespace, and
+ambiguous README argument syntax. This round replaces own-receipt suffix scans
+with canonical SDK reads and validates Decision type and body identity, caps
+programme ids at 20 characters, and executes the corrected README command in a
+regression test. Four independent behavior-only reverts fail with those tests
+retained; restoring the fixes passes. Unreadable receipt evidence propagates,
+and legacy proposal attempts without an identity refuse. Proposal bindings and
+statistical gates are unchanged. Review threads stay unresolved for reviewer
+verification. The PR remains unmerged, work items stay open for the orchestrator,
+and no final-head review approval is claimed.

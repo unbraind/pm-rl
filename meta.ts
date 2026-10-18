@@ -1,7 +1,7 @@
 /** Durable recipe search over sealed tracker compartments, using the existing trainer and promotion gate. */
 import assert from "node:assert/strict";
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
-import { certifyCompleteListResult } from "@unbrained/pm-cli/sdk/runtime";
+import { certifyCompleteListResult, EXIT_CODE, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { hashJson, commitProcessTransaction, readCompleteLoopItem, withRlController, type JsonValue, type RlDurableStep } from "./index.ts";
 import { openTrackerEnvironment } from "./tracker-environment.ts";
 import { parseProcessAdapter, type ProcessAdapter, type ProcessCoordinates } from "./process.ts";
@@ -102,6 +102,15 @@ export function metaReservation(body: string): { id: string; approval: string; c
   } catch { return null; }
 }
 
+/** Read only the SDK-canonical receipt identity; unreadable evidence never becomes an absent reservation or intent. */
+async function readMetaReceipt(client: PmClient, key: string) {
+  try { return await readCompleteLoopItem(client, key); }
+  catch (error: unknown) {
+    if (isPmCliExpectedError(error) && error.exitCode === EXIT_CODE.NOT_FOUND) return null;
+    throw error;
+  }
+}
+
 /** Atomically hold worst-case search allowances once; interrupted programmes retain their reservation. */
 async function reserveMeta(client: PmClient, coordinates: ProcessCoordinates, request: MetaRequest, binding: string): Promise<void> {
   const { config } = request;
@@ -110,10 +119,10 @@ async function reserveMeta(client: PmClient, coordinates: ProcessCoordinates, re
   const key = `${request.id}-reservation`;
   await commitProcessTransaction({ ...coordinates, transactionId: `${key}-reserve`, steps: [{ id: "reserve",
     async inspect() {
-      const items = certifyCompleteListResult(await client.listAllComplete({ includeBody: false }));
-      const previous = items.items.find((item) => item.type === "Decision" && (item.id === key || item.id.endsWith(`-${key}`)));
-      if (previous === undefined) return { state: "pending" };
-      const record = JSON.parse(String((await readCompleteLoopItem(client, previous.id)).item.body)) as { format: string; id: string; binding: string; approval: string; charge: JsonValue };
+      const previous = await readMetaReceipt(client, key);
+      if (previous === null) return { state: "pending" };
+      assert.equal(previous.item.type, "Decision", "meta_reservation_drift");
+      const record = JSON.parse(String(previous.item.body)) as { format: string; id: string; binding: string; approval: string; charge: JsonValue };
       assert.equal(record.binding, binding, "meta_reservation_drift");
       assert.equal(record.format, "pm-rl/meta-reservation/1", "meta_reservation_drift");
       assert.equal(record.id, key, "meta_reservation_drift");
@@ -198,10 +207,11 @@ export async function durableRecipeProposals(client: PmClient, id: string, reque
   if (request.proposer === "seeded") return proposeRecipes(request, incumbent, generation, signal);
   const key = `${id}-m${generation}-proposal-attempt`;
   const binding = hashJson({ config: request.config as unknown as JsonValue, incumbent: incumbent.digest, generation, endpoint: request.decisionEndpoint ?? "http://127.0.0.1:11434" });
-  const items = certifyCompleteListResult(await client.listAllComplete({ includeBody: false }));
-  const previous = items.items.find((item) => item.type === "Decision" && (item.id === key || item.id.endsWith(`-${key}`)));
-  if (previous !== undefined) {
-    const record = JSON.parse(String((await readCompleteLoopItem(client, previous.id)).item.body)) as { binding: string; state: string; result: { recipes: Recipe[]; proposer: string }; digest: string };
+  const previous = await readMetaReceipt(client, key);
+  if (previous !== null) {
+    assert.equal(previous.item.type, "Decision", "meta_proposal_drift");
+    const record = JSON.parse(String(previous.item.body)) as { id: string; binding: string; state: string; result: { recipes: Recipe[]; proposer: string }; digest: string };
+    assert.equal(record.id, key, "meta_proposal_drift");
     assert.equal(record.binding, binding, "meta_proposal_drift");
     if (record.state === "complete") {
       assert.equal(hashJson(record.result as unknown as JsonValue), record.digest, "meta_proposal_receipt");
@@ -211,15 +221,15 @@ export async function durableRecipeProposals(client: PmClient, id: string, reque
     assert.equal(record.state, "intent", "meta_proposal_state");
     return { recipes: seededRecipes(incumbent, request.config.seed, generation, request.config.candidates), proposer: "seeded:unresolved-model-attempt" };
   }
-  await client.create({ id: key, type: "Decision", title: "Bounded local recipe inference intent", body: JSON.stringify({ binding, state: "intent" }) });
+  await client.create({ id: key, type: "Decision", title: "Bounded local recipe inference intent", body: JSON.stringify({ id: key, binding, state: "intent" }) });
   const result = await proposeRecipes(request, incumbent, generation, signal);
-  await client.update(key, { body: JSON.stringify({ binding, state: "complete", result, digest: hashJson(result as unknown as JsonValue) }) });
+  await client.update(key, { body: JSON.stringify({ id: key, binding, state: "complete", result, digest: hashJson(result as unknown as JsonValue) }) });
   return result;
 }
 
 /** Search and promote recipes with one shared approval; completion receipts adopt inner jobs after interruption. */
 export async function runRlMeta(client: PmClient, coordinates: ProcessCoordinates, request: MetaRequest): Promise<MetaReport> {
-  assert.match(request.id, /^[a-z0-9]+(?:-[a-z0-9]+)*$/, "meta_programme_id");
+  assert.ok(/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(request.id) && request.id.length <= 20, "meta_programme_id");
   const config = parseMetaConfig(request.config);
   assert.ok(request.proposer === "seeded" || request.proposer === "decision-model", "meta_proposer");
   const signal = request.signal === undefined ? AbortSignal.timeout(config.timeout_ms) : AbortSignal.any([request.signal, AbortSignal.timeout(config.timeout_ms)]);

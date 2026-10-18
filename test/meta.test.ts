@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import { certifyCompleteListResult } from "@unbrained/pm-cli/sdk/runtime";
-import extension, { hashJson, withRlController, type JsonValue, type RlCommandResult } from "../index.ts";
+import extension, { hashJson, withRlController, type JsonValue, type RlCommandResult, loopLeaseLockId } from "../index.ts";
 import { compareRecipes, durableRecipeProposals, metaReservation, parseMetaConfig, proposeRecipes, recipeExamples, recipeSuccessor, runRlMeta, scoreTrackerPolicy, type MetaConfig, type MetaRequest } from "../meta.ts";
 import { INITIAL_RECIPE, recipeArtifact, seededRecipes } from "../recipe.ts";
 import { banditCheckpoint } from "../bandit.ts";
@@ -178,6 +178,89 @@ test("a genuinely better recipe clears the unchanged gate and becomes the next m
   assert.ok(first.diagnostics.disagreements[0].rate > 0);
   assert.ok(report.final_test.after.mean > report.final_test.before.mean + liveMetaConfiguration().criterion.effectThreshold);
   assert.ok(report.final_test.after.mean > report.final_test.diagnostics.majority_class.mean);
+});
+
+test("canonical reservation lookup ignores another programme's suffixed receipt and rejects wrong types", { timeout: 600_000 }, async () => {
+  const w = await metaWorkspace();
+  const foreign = await w.client.create({ id: "a-victim-reservation", type: "Decision", title: "Other programme reservation", body: JSON.stringify({
+    format: "pm-rl/meta-reservation/1", id: "a-victim-reservation", binding: "other-programme", approval: w.approval,
+    charge: { training_samples: 0, proposal_calls: 0, recipe_promotions: 0 },
+  }) });
+  const foreignBody = String((await w.client.get(foreign.item.id)).item.body);
+  const request = { ...requestFor(w, "victim", { ...metaConfig, meta_generations: 1, candidates: 1 }),
+    onStep(key: string) { if (key === "programme") throw new Error("canonical reservation committed"); } };
+  await assert.rejects(runRlMeta(w.client, w.coordinates, request), /canonical reservation committed/);
+  const own = await w.client.get("victim-reservation");
+  assert.equal((JSON.parse(String(own.item.body)) as { id: string }).id, "victim-reservation");
+  await assert.rejects(runRlMeta(w.client, w.coordinates, request), /canonical reservation committed/);
+  assert.equal(String((await w.client.get(own.item.id)).item.body), String(own.item.body));
+  assert.equal(String((await w.client.get(foreign.item.id)).item.body), foreignBody);
+  await w.client.create({ id: "wrong-reservation", type: "Task", title: "Invalid reservation type", body: own.item.body });
+  await assert.rejects(runRlMeta(w.client, w.coordinates, requestFor(w, "wrong")), /meta_reservation_drift/);
+});
+
+test("canonical proposal lookup ignores matching foreign bindings and refuses damaged own envelopes", async () => {
+  const w = await metaWorkspace(); const signal = new AbortController().signal;
+  const request = { config: metaConfig, proposer: "decision-model" as const, decisionEndpoint: "http://127.0.0.1:1" };
+  const binding = hashJson({ config: request.config as unknown as JsonValue, incumbent: INITIAL_RECIPE.digest, generation: 1, endpoint: request.decisionEndpoint });
+  const result = { recipes: seededRecipes(INITIAL_RECIPE, metaConfig.seed, 1, metaConfig.candidates), proposer: "foreign-complete" };
+  const foreign = await w.client.create({ id: "a-victim-m1-proposal-attempt", type: "Decision", title: "Other programme proposal", body: JSON.stringify({
+    id: "a-victim-m1-proposal-attempt", binding, state: "complete", result, digest: hashJson(result as unknown as JsonValue),
+  }) });
+  const foreignBody = String((await w.client.get(foreign.item.id)).item.body);
+  const own = await durableRecipeProposals(w.client, "victim", request, INITIAL_RECIPE, 1, signal);
+  assert.equal(own.proposer, "seeded:model-unavailable");
+  assert.deepEqual(await durableRecipeProposals(w.client, "victim", request, INITIAL_RECIPE, 1, signal), own);
+  assert.equal(String((await w.client.get(foreign.item.id)).item.body), foreignBody);
+  const item = await w.client.get("victim-m1-proposal-attempt"); const record = JSON.parse(String(item.item.body)) as Record<string, unknown>;
+  assert.equal(record.id, "victim-m1-proposal-attempt");
+  for (const id of ["other-m1-proposal-attempt", undefined]) {
+    await w.client.update(item.item.id, { body: JSON.stringify({ ...record, id }) });
+    await assert.rejects(durableRecipeProposals(w.client, "victim", request, INITIAL_RECIPE, 1, signal), /meta_proposal_drift/);
+  }
+  await w.client.create({ id: "typed-m1-proposal-attempt", type: "Task", title: "Invalid proposal type", body: JSON.stringify({ ...record, id: "typed-m1-proposal-attempt" }) });
+  await assert.rejects(durableRecipeProposals(w.client, "typed", request, INITIAL_RECIPE, 1, signal), /meta_proposal_drift/);
+  const broken = await w.client.create({ id: "broken-m1-proposal-attempt", type: "Decision", title: "Unreadable proposal record" });
+  const path = join(w.coordinates.pmRoot, "decisions", `${broken.item.id}.toon`); const original = readFileSync(path, "utf8");
+  try {
+    writeFileSync(path, "broken: [invalid\n");
+    const failure: unknown = await w.client.get(broken.item.id).catch((error: unknown) => error);
+    assert.ok(failure instanceof Error, "damaged tracker item must fail the real SDK read");
+    await assert.rejects(durableRecipeProposals(w.client, "broken", request, INITIAL_RECIPE, 1, signal), { message: failure.message });
+  } finally { writeFileSync(path, original); }
+});
+
+test("programme id bounds prevent outer and inner lease collisions before any write", { timeout: 600_000 }, async () => {
+  const w = await metaWorkspace();
+  for (const id of ["a".repeat(21), "a".repeat(28), "tracker-search-public-fleet-v1"]) {
+    await assert.rejects(runRlMeta(w.client, w.coordinates, { ...requestFor(w, id),
+      onStep() { throw new Error("oversize programme reached a write"); } }), /meta_programme_id/);
+  }
+  assert.equal(certifyCompleteListResult(await w.client.listAllComplete({ includeBody: false })).items.length, 1);
+  const id = "abcdefghijklmnopqrst";
+  const identities = [id, `${id}-initial`, ...Array.from({ length: 10 }, (_, generation) =>
+    Array.from({ length: 8 }, (_, candidate) => `${id}-m${generation + 1}-c${candidate}`)).flat()];
+  assert.equal(new Set(identities.map(loopLeaseLockId)).size, 82, "all bounded inner leases remain distinct at the maximum accepted id length");
+  const request = requestFor(w, id, { ...metaConfig, meta_generations: 1, candidates: 1 });
+  const report = await runRlMeta(w.client, w.coordinates, request); const jobs = await listProcessJobs(w.client);
+  assert.equal(report.generations.length, 1);
+  assert.deepEqual(await runRlMeta(w.client, w.coordinates, request), report);
+  assert.deepEqual(await listProcessJobs(w.client), jobs);
+});
+
+test("README dataset command builds from its first flag value and positional tracker directories", async () => {
+  const w = await metaWorkspace(); const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
+  const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+  const usage = /`pm rl dataset build ([^`]+)`/.exec(readme); assert.ok(usage !== null);
+  await withTrackerSources(async (source) => {
+    const placeholders: Record<string, string[]> = { "<first-directory>": [source.directories[0]], "<more-directories...>": source.directories.slice(1), "<new-directory>": [join(source.root, "documented-dataset")] };
+    const words = usage[1].replace(/\.$/, "").split(/\s+/).flatMap((word) => placeholders[word] ?? [word]);
+    const trackers = words.indexOf("--from-trackers"); const output = words.indexOf("--output");
+    const result = await harness.runCommand({ command: "rl dataset build", pmRoot: w.coordinates.pmRoot,
+      args: words.slice(trackers + 2, output), options: { fromTrackers: words[trackers + 1], output: words[output + 1] } });
+    assert.equal(result.handled, true, result.errorMessage ?? "documented command must build a dataset");
+    assert.equal((result.result as RlCommandResult).action, "rl-dataset-build");
+  });
 });
 
 test("an interrupted atomic search reservation is retained once, including drift refusal on resume", { timeout: 600_000 }, async () => {
