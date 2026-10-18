@@ -43,8 +43,8 @@ export function projectHistoryPrefix(history: string, repo: string, commit: stri
   const states = events.flatMap((event, index) => (event.patch ?? []).filter((patch) => patch.path === "/metadata/status" && patch.op !== "remove")
     .map((patch) => ({ index, status: String(patch.value) })));
   const terminal = states.find((state) => ["closed", "canceled", "cancelled"].includes(state.status));
+  validateLifecyclePrefix((terminal === undefined ? states : states.slice(0, states.indexOf(terminal))).map((state) => state.status));
   if (terminal === undefined || terminal.index === 0) return null;
-  validateLifecyclePrefix(states.slice(0, states.indexOf(terminal)).map((state) => state.status));
   const id = hashJson({ repo, item });
   const cut = Number.parseInt(hashJson({ id, seed }).slice(0, 8), 16) % terminal.index;
   const lifecycle = states.filter((state) => state.index <= cut).map((state) => state.status);

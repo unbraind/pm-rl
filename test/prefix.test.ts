@@ -82,6 +82,11 @@ for (const invalid of ["empty", "unknown"] as const) test(`lifecycle prefix cont
       assert.equal(existsSync(join(directory, "dataset.json")), false);
       for (let seed = 0; seed < 30; seed += 1) assert.throws(() => projectHistoryPrefix(malformed, "r", "c", "i", seed), /dataset_unknown_status: unknown/);
       assert.throws(() => trackerHistoryExample(malformed, "r", "c", "i"), /dataset_unknown_status: unknown/);
+      for (const patches of [["unknown"], ["unknown", "closed"]]) {
+        const imported = JSON.stringify({ patch: patches.map((value) => ({ path: "/metadata/status", value })) });
+        assert.throws(() => projectHistoryPrefix(imported, "r", "c", "i", 42), /dataset_unknown_status: unknown/);
+        assert.throws(() => trackerHistoryExample(imported, "r", "c", "i"), /dataset_unknown_status: unknown/);
+      }
     } else {
       const manifest = buildTrackerDataset(directories, directory, 42, { task: "history-prefix" });
       const rows = TRACKER_SPLITS.flatMap((split) => readTrackerSplit(directory, manifest, split));
