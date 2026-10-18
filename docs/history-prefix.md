@@ -121,11 +121,12 @@ a final-test advantage or recursive improvement. No gate is loosened.
 
 ## Regression and diagnostic evidence
 
-Nine behaviour-only reverts retain the regression tests and fail: checkpoint identity
+Ten behaviour-only reverts retain the regression tests and fail: checkpoint identity
 replaced with recipe identity; prefix process validation removed; inner-held-out rows
 included in calibration; feature vectors zeroed; source returned instead of fitted
 weights; post-cut events exposed; target-balance refusal removed; positive binomial
-verdict disabled; paired exact comparison removed. Restoring each mutation passes
+verdict disabled; paired exact comparison removed; open-only history omission
+removed. Restoring each mutation passes
 its retained regression. The first eight restored cases also pass together. The actual reserved-process
 regression also demonstrates synthetic inner acceptance, gap rejection, disjointness
 refusal, cancellation and durable replay. The packed command runs in a real disposable
@@ -138,3 +139,10 @@ parameters fix storage; distinct checkpoint identities fix the comparison. The i
 runs remain local diagnostic artifacts and are excluded from improvement claims.
 The target, source roles, seed, recipe search bounds and statistical gate were fixed
 before either outer holdout and were not tuned after these diagnostics.
+
+The first Node 22 CI job passed all 639 tests and the three native coverage metrics,
+but the independent statement gate found one missing builder path (99.98%, one of
+4586 blocks): an open-only history produces no time-to-close projection. A committed
+synthetic open-only history now verifies that the builder omits that item. Removing
+only the null fallback makes this retained regression fail. No production, learner,
+target, budget or threshold change is involved in this coverage correction.

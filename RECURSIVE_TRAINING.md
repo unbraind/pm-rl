@@ -136,7 +136,7 @@ Adapters report structured progress and completion evidence over a documented st
    [Method, screening distributions and limits](docs/history-prefix.md) and
    [the public receipt](docs/prefix-live-evidence.json) retain candidate parameter
    changes, inner diversity, explicit refusals, process use and per-example source
-   repository/commit digests. Nine behavioural reverts fail with tests retained;
+   repository/commit digests. Ten behavioural reverts fail with tests retained;
    restored code passes. The packed CLI exercises the same evaluator and gates.
    This is an honest null for recursive improvement, not a learned-policy win.
 

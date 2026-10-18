@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { Readable, Writable } from "node:stream";
 import { test } from "node:test";
 import extension, { hashJson, type JsonValue, type RlCommandResult } from "../index.ts";
@@ -13,7 +13,7 @@ import { fitPrefix, prefixCheckpoint, prefixFeatures, prefixPrediction, validate
 import { majorityBinomial, fitHistoryPrefix, prefixAccuracy, prefixMajorityComparison } from "../prefix-environment.ts";
 import { prefixTrainerArgv, prefixTrainerMain, runPrefixTrainer } from "../prefix-trainer.ts";
 import { INITIAL_RECIPE, recipeArtifact, seededRecipes } from "../recipe.ts";
-import { metaWorkspace, withTrackerSources, metaConfig } from "./fixtures/meta-workspace.ts";
+import { metaWorkspace, withTrackerSources, metaConfig, git } from "./fixtures/meta-workspace.ts";
 import { compareRecipes, runRlMeta, type RecipePolicy } from "../meta.ts";
 import { executeProcessTrainer, validateProcessCompletion, readProcessJob, type ProcessCompletion, type ProcessInput } from "../process.ts";
 import { runLiveMetaAcceptance, liveMetaMain } from "../scripts/live-meta.ts";
@@ -125,6 +125,12 @@ test("public snapshot builder pins the task, calibrates only fit items and prese
     assert.equal(pinned.digest, manifest.digest);
     assert.throws(() => buildTrackerDataset(directories, join(root, "missing-pin"), 42, { pins: [] }), /pin_missing/);
     assert.throws(() => buildTrackerDataset(directories, join(root, "bad-task"), 42, { task: "other" as "history-prefix" }), /dataset_task/);
+    const project = dirname(dirname(directories[0]));
+    writeFileSync(join(directories[0], "history", "unclosed.jsonl"), JSON.stringify({ ts: "2026-01-01T00:00:00Z", op: "create", author: "fixture", patch: [{ path: "/metadata/status", value: "open" }] }) + "\n");
+    git(project, ["add", ".agents/pm/history/unclosed.jsonl"]);
+    git(project, ["-c", "user.name=Public Fixture", "-c", "user.email=public@example.test", "commit", "-qm", "Add nonterminal synthetic history"]);
+    const partial = buildTrackerDataset(directories, join(root, "with-unclosed"), 42, { task: "history-prefix" });
+    assert.equal(TRACKER_SPLITS.reduce((count, split) => count + partial.splits[split].count, 0), 160, "an open-only item has no future close label and must be omitted");
   });
 });
 
