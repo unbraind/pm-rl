@@ -116,6 +116,38 @@ async function readMetaReceipt(client: PmClient, key: string) {
   }
 }
 
+/** Read canonical reservation records for one approval, ignoring foreign copies and unrelated Decisions. */
+async function metaReservations(client: PmClient, approval: string): Promise<readonly { prefix: string; record: NonNullable<ReturnType<typeof metaReservation>> }[]> {
+  const items = certifyCompleteListResult(await client.listAllComplete({ includeBody: false }));
+  const reservations: { prefix: string; record: NonNullable<ReturnType<typeof metaReservation>> }[] = [];
+  for (const item of items.items.filter((entry) => entry.type === "Decision" && entry.id.endsWith("-reservation"))) {
+    const record = metaReservation(String((await readCompleteLoopItem(client, item.id)).item.body));
+    if (record === null) continue;
+    const identity = record.id.toLowerCase();
+    if ((item.id === identity || item.id.endsWith(`-${identity}`)) && record.approval === approval) {
+      reservations.push({ prefix: item.id.slice(0, -"-reservation".length), record });
+    }
+  }
+  return reservations;
+}
+
+/** Count unconsumed meta capacity under the writer lock, exempting only the candidate's owning reservation. */
+export async function retainedMetaPromotionHeadroom(client: PmClient, approval: string, promoted: readonly string[], candidate?: string): Promise<number> {
+  let retained = 0;
+  for (const { prefix, record } of await metaReservations(client, approval)) {
+    assert.ok(Number.isSafeInteger(record.promotion_headroom) && record.promotion_headroom >= 0, "meta_promotion_reservation_charge");
+    /** Only canonical bounded inner generation identities can consume this reservation. */
+    const owns = (id: string): boolean => id.startsWith(`${prefix}-`) && /^-(?:initial|m(?:[1-9]|10)-c[0-7])-g[12]$/.test(id.slice(prefix.length));
+    const consumed = promoted.filter(owns).length;
+    assert.ok(consumed <= record.promotion_headroom, "meta_promotion_reservation_exceeded");
+    if (candidate !== undefined && owns(candidate)) {
+      assert.ok(consumed < record.promotion_headroom, "meta_promotion_reservation_exceeded");
+    } else retained += record.promotion_headroom - consumed;
+  }
+  assert.ok(Number.isSafeInteger(retained), "meta_promotion_reservation_charge");
+  return retained;
+}
+
 /** Atomically hold worst-case allowances once, or verify retained capacity before an unfinished phase executes. */
 async function reserveMeta(client: PmClient, coordinates: ProcessCoordinates, request: MetaRequest, binding: string, retained = false): Promise<void> {
   const { config } = request;
@@ -146,33 +178,18 @@ async function reserveMeta(client: PmClient, coordinates: ProcessCoordinates, re
       const approval = await metaApproval(client, request.approval);
       const items = certifyCompleteListResult(await client.listAllComplete({ includeBody: false }));
       const charges: Record<string, number>[] = [];
-      const promotions: { prefix: string; headroom: number; consumed: number }[] = [];
-      for (const item of items.items.filter((entry) => entry.type === "Decision" && entry.id.endsWith("-reservation"))) {
-        const record = metaReservation(String((await readCompleteLoopItem(client, item.id)).item.body));
-        if (record === null) continue;
-        const identity = record.id.toLowerCase();
-        if ((item.id === identity || item.id.endsWith(`-${identity}`)) && record.approval === approval.id) {
-          for (const key of ["training_samples", "proposal_calls", "recipe_promotions"]) {
-            assert.ok(Number.isSafeInteger(record.charge[key]) && record.charge[key] >= 0, "meta_reservation_charge");
-          }
-          charges.push(record.charge);
-          assert.ok(Number.isSafeInteger(record.promotion_headroom) && record.promotion_headroom >= 0, "meta_promotion_reservation_charge");
-          promotions.push({ prefix: item.id.slice(0, -"-reservation".length), headroom: record.promotion_headroom, consumed: 0 });
+      for (const { record } of await metaReservations(client, approval.id)) {
+        for (const key of ["training_samples", "proposal_calls", "recipe_promotions"]) {
+          assert.ok(Number.isSafeInteger(record.charge[key]) && record.charge[key] >= 0, "meta_reservation_charge");
         }
+        charges.push(record.charge);
       }
       for (const key of ["training_samples", "proposal_calls", "recipe_promotions"] as const) {
         const total = charges.reduce((sum, entry) => sum + entry[key], charge[key]);
         assert.ok(Number.isSafeInteger(total) && total <= approval.limits[key], `meta_budget_exhausted: ${key}`);
       }
-      let unreserved = 0;
       const consumed = items.items.some((item) => item.type === "Generation") ? await promotedGenerationIdsUnderApproval(client, approval.id) : [];
-      for (const id of consumed) {
-        const reserved = promotions.find(({ prefix }) => id.startsWith(`${prefix}-`) && /^-(?:initial|m(?:[1-9]|10)-c[0-7])-g[12]$/.test(id.slice(prefix.length)));
-        if (reserved === undefined) unreserved += 1;
-        else reserved.consumed += 1;
-      }
-      for (const reserved of promotions) assert.ok(reserved.consumed <= reserved.headroom, "meta_promotion_reservation_exceeded");
-      const totalPromotions = promotions.reduce((sum, reserved) => sum + reserved.headroom, promotionHeadroom + unreserved);
+      const totalPromotions = consumed.length + await retainedMetaPromotionHeadroom(client, approval.id, consumed) + promotionHeadroom;
       assert.ok(Number.isSafeInteger(totalPromotions) && totalPromotions <= approval.promotions, "meta_promotion_budget_exhausted");
       await client.create({ id: key, type: "Decision", title: "Reserved bounded recipe search", body: JSON.stringify({ format: "pm-rl/meta-reservation/1", id: key, binding, approval: approval.id, charge, promotion_headroom: promotionHeadroom }) });
     },

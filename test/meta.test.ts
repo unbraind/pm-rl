@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { once } from "node:events";
-import { fork } from "node:child_process";
+import { execFileSync, fork } from "node:child_process";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { hostname } from "node:os";
@@ -151,6 +151,26 @@ test("promotion headroom counts outside usage without charging reserved promotio
   await assert.rejects(runRlMeta(w.client, w.coordinates, requestFor(w, "overdrawn", config)), /meta_promotion_reservation_exceeded/);
 });
 
+test("ordinary concurrent promotions preserve retained meta capacity until its owner consumes it", { timeout: 600_000 }, async () => {
+  const w = await metaWorkspace();
+  const request = requestFor(w, "capacity", { ...metaConfig, meta_generations: 1, candidates: 1 });
+  await w.client.update(w.approval, { body: `\`\`\`json\n${JSON.stringify({ ...metaSpec, permitted_promotions: 5 })}\n\`\`\`` });
+  await assert.rejects(runRlMeta(w.client, w.coordinates, { ...request, onStep(key) { if (key === "programme") throw new Error("reserved before training"); } }), /reserved before training/);
+  const reservation = String((await w.client.get("capacity-reservation")).item.body);
+  const raw = JSON.parse(readFileSync(new URL("../examples/loop-bandit.json", import.meta.url), "utf8")) as Record<string, JsonValue>;
+  const ordinary = await Promise.all(["outside-first", "capacity-other"].map((id) => runRlLoop(w.client, w.coordinates, { id, config: { ...raw, max_generations: 1 }, approval: w.approval })));
+  assert.equal(ordinary.reduce((sum, report) => sum + report.promoted, 0), 1, "only the single unreserved slot is available to ordinary loops");
+  const refused = ordinary.find((report) => report.promoted === 0)!;
+  assert.equal(refused.stop_reason, "promotion_refused"); assert.match(refused.refusal_reason!, /approved promotion budget/); assert.match(refused.refusal_reason!, /4 promotion\(s\) held for meta search/);
+  const report = await runRlMeta(w.client, w.coordinates, request);
+  assert.equal(report.generations.length, 1, "the owner can still use its retained capacity");
+  assert.ok((await promotedGenerationIdsUnderApproval(w.client, w.approval)).length <= 5);
+  assert.equal(String((await w.client.get("capacity-reservation")).item.body), reservation);
+  const jobs = await listProcessJobs(w.client);
+  assert.deepEqual(await runRlMeta(w.client, w.coordinates, request), report);
+  assert.deepEqual(await listProcessJobs(w.client), jobs);
+});
+
 test("inner promotion-budget refusals never become recipe evidence, including after an accepted generation", { timeout: 600_000 }, async () => {
   for (const permitted of [0, 1]) {
     const w = await metaWorkspace();
@@ -168,6 +188,42 @@ test("inner promotion-budget refusals never become recipe evidence, including af
     await w.client.comments(generation.item.id, { edit: index + 1, add: `Loop budget-fit generation ${permitted + 1} promotion refused: Promotion refused: the evaluation set is reachable from the candidate's training data.` });
     const policy = await environment.fit(recipe, "budget-fit", new AbortController().signal);
     assert.equal(policy.weight === 0, permitted === 0);
+  }
+});
+
+test("operational and unclassified inner refusals never become persisted recipe evidence", { timeout: 600_000 }, async () => {
+  const w = await metaWorkspace();
+  await w.client.update(w.approval, { body: `\`\`\`json\n${JSON.stringify({ ...metaSpec, permitted_promotions: 0 })}\n\`\`\`` });
+  const recipe = metaConfig.initial_recipe;
+  const environment = openTrackerEnvironment(w.client, w.coordinates, w.dataset, metaConfig, w.approval);
+  await assert.rejects(environment.fit(recipe, "operation-fit", new AbortController().signal), /meta_inner_promotion_budget/);
+  const generation = await w.client.get("operation-fit-g1");
+  const comments = await w.client.comments(generation.item.id, { outputBudget: "unbounded", outputLimit: "unbounded" });
+  assert.ok("comments" in comments);
+  const index = comments.comments.findIndex((comment) => comment.text.includes("approved promotion budget"));
+  assert.ok(index >= 0);
+  const jobs = await listProcessJobs(w.client);
+  for (const reason of [
+    "Promotion refused: generation broken has no JSON specification fence, so the approved budget cannot be established.",
+    "Promotion refused: generation broken has an unparseable specification, so the approved budget cannot be established.",
+    "Timed out waiting for the promotion writer lock.", "Malformed generation specification.", "Unknown operational refusal.",
+  ]) {
+    await w.client.comments(generation.item.id, { edit: index + 1, add: `Loop operation-fit generation 1 promotion refused: ${reason}` });
+    for (let replay = 0; replay < 2; replay += 1) {
+      await assert.rejects(environment.fit(recipe, "operation-fit", new AbortController().signal), /meta_inner_promotion_budget|meta_inner_promotion_unclassified/);
+    }
+  }
+  assert.deepEqual(await listProcessJobs(w.client), jobs, "refusal replay never charges a second process job");
+  await w.client.comments(generation.item.id, { edit: index + 1, add: "Loop operation-fit generation 1 promotion refused: Promotion refused: the evaluation set is reachable from the candidate's training data over provenance edges." });
+  assert.equal((await environment.fit(recipe, "operation-fit", new AbortController().signal)).weight, 0);
+});
+
+test("published meta documentation includes every linked evidence receipt", () => {
+  const packed = JSON.parse(execFileSync("npm", ["pack", "--dry-run", "--json", "--ignore-scripts"], { cwd: new URL("..", import.meta.url), encoding: "utf8", timeout: 30_000 })) as { files: { path: string }[] }[];
+  const files = new Set(packed[0].files.map((file) => file.path));
+  const documentation = readFileSync(new URL("../docs/meta-recursive.md", import.meta.url), "utf8");
+  for (const receipt of ["meta-live-evidence.json", "meta-sanity-evidence.json"]) {
+    assert.ok(documentation.includes(receipt)); assert.ok(files.has(`docs/${receipt}`), `published documentation must include ${receipt}`);
   }
 });
 

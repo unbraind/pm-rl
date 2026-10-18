@@ -107,7 +107,11 @@ async function fitRecipe(client: PmClient, coordinates: ProcessCoordinates, requ
     adapter: config.adapter as unknown as JsonValue,
   } });
   assert.ok(!["process_failed", "process_cancelled", "process_invalidated", "wall_limit_exceeded", "checkpoint_limit_exceeded"].includes(report.stop_reason), "meta_inner_failed");
-  assert.ok(!(report.stop_reason === "promotion_refused" && /approved promotion budget/.test(String(report.refusal_reason))), "meta_inner_promotion_budget");
+  if (report.stop_reason === "promotion_refused") {
+    const reason = String(report.refusal_reason);
+    assert.ok(!/approved promotion budget|approved budget cannot be established/.test(reason), "meta_inner_promotion_budget");
+    assert.ok(reason.startsWith("Promotion refused: the evaluation set is reachable from the candidate's training data"), "meta_inner_promotion_unclassified");
+  }
   let weight = 0;
   const accepted = report.generations.filter((generation) => generation.promoted).at(-1);
   if (accepted !== undefined) {

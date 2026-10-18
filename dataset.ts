@@ -81,7 +81,7 @@ export function buildTrackerDataset(directories: readonly string[], output: stri
     const match = /^(?:https:\/\/github\.com\/|git@github\.com:)([\w-]+\/pm-[\w-]+?)(?:\.git)?$/.exec(remote);
     assert.ok(match !== null, "dataset_github_source");
     const repo = match[1];
-    assert.ok(!["pm-web", "pm-gpt", "pm-cli"].includes(repo.split("/")[1]), "dataset_excluded_repo");
+    assert.ok(!["pm-web", "pm-gpt", "pm-cli"].includes(repo.split("/")[1].toLowerCase()), "dataset_excluded_repo");
     const metadata = JSON.parse(sourceCommand("gh", ["repo", "view", repo, "--json", "visibility,licenseInfo,nameWithOwner"], root)) as { visibility: string; licenseInfo: { key: string } | null; nameWithOwner: string };
     assert.ok(metadata.visibility === "PUBLIC" && metadata.licenseInfo?.key === "mit" && metadata.nameWithOwner.toLowerCase() === repo.toLowerCase(), "dataset_public_mit_required");
     const commit = sourceCommand("git", ["rev-parse", "HEAD"], root);

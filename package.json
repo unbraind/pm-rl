@@ -41,6 +41,7 @@
     "dist/meta.*",
     "docs/meta-recursive.md",
     "docs/meta-live-evidence.json",
+    "docs/meta-sanity-evidence.json",
     "dist/tracker-environment.*"
   ],
   "engines": {

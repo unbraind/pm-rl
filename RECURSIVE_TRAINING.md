@@ -101,6 +101,12 @@ Adapters report structured progress and completion evidence over a documented st
    An additional regression verifies retained capacity before unfinished phases
    execute, even after a completed programme receipt; missing or damaged evidence
    refuses without launching a fit or silently reserving capacity again.
+   The next review protects unconsumed meta headroom at the shared promotion gate,
+   including concurrent ordinary loops. Operational or unclassified promotion
+   refusals cannot become recipe evidence on replay. Mixed-case excluded remotes
+   refuse before metadata/history reads, and the package ships the linked sanity
+   receipt. Four additional behavioral reverts fail; restored regressions pass 4/4.
+   Live receipts and promotion thresholds remain unchanged.
 
 
 ## Data boundary and capacity

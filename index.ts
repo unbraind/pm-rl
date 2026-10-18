@@ -155,7 +155,7 @@ export { buildTrackerDataset, readTrackerDataset, readTrackerSplit, type Tracker
 export { runRlMeta, parseMetaConfig, type MetaConfig, type MetaRequest, type MetaReport } from "./meta.ts";
 
 import { buildTrackerDataset } from "./dataset.ts";
-import { runRlMeta, parseMetaConfig, type MetaReport } from "./meta.ts";
+import { runRlMeta, parseMetaConfig, retainedMetaPromotionHeadroom, type MetaReport } from "./meta.ts";
 
 import {
   trainLmStep, evaluateLmStep, lmTrainingJson, restoreLmTraining, restoreLmGeneration, serializeLmCheckpoint,
@@ -2459,10 +2459,12 @@ async function promoteGenerationCore(client: PmClient, coordinates: WorkspaceCoo
         // is a comparison between two values, and re-reading only one of them
         // leaves the comparison stale in the other direction.
         const lockedApprovalSpec = await readApprovalSpec(client, approvalId);
-        promotedCount = (await promotedGenerationIdsUnderApproval(client, approvalId)).length;
+        const promotedIds = await promotedGenerationIdsUnderApproval(client, approvalId);
+        promotedCount = promotedIds.length;
+        const retainedHeadroom = await retainedMetaPromotionHeadroom(client, approvalId, promotedIds, String(current.item.id));
         permittedPromotions = lockedApprovalSpec.permitted_promotions;
-        if (promotedCount >= permittedPromotions) {
-          fail(`Advancing past the approved promotion budget is refused. ${promotedCount} promotion(s) consumed; approval ${approvalId} permits ${permittedPromotions}. Extend approval item ${approvalId} to authorize more promotions.`, "budget_exceeded", EXIT_CODE.CONFLICT);
+        if (promotedCount + retainedHeadroom >= permittedPromotions) {
+          fail(`Advancing past the approved promotion budget is refused. ${promotedCount} promotion(s) consumed; ${retainedHeadroom} promotion(s) held for meta search; approval ${approvalId} permits ${permittedPromotions}. Extend approval item ${approvalId} to authorize more promotions.`, "budget_exceeded", EXIT_CODE.CONFLICT);
         }
         await client.update(id, {
           // Rendered from the IN-LOCK spec, so a peer edit to a field the

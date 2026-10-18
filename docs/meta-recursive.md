@@ -281,3 +281,19 @@ in every variant with all four coverage metrics at 100%, 35 sources and 295
 documented declarations. Earlier 621-test receipts remain in PM history at their
 exact source heads. The documentation-only handoff commit receives its own
 complete CI verification; no final-head independent review approval is claimed.
+
+The full review of `579adc7` closes the remaining shared-approval gap: every
+promotion checks unconsumed meta headroom under the same writer lock, including
+ordinary loops. Only a canonical owning inner generation can consume its own
+reservation; unused capacity remains held conservatively. A concurrent real
+tracker regression gives two ordinary loops one free slot beside four reserved
+slots, then resumes the owner without another reservation or process charge.
+Unclassified inner promotion refusals, including accounting, malformed-spec and
+lock failures, refuse recipe evidence on initial execution and replay; the
+explicit candidate-contamination refusal still retains the last accepted policy.
+Repository exclusions compare names without case sensitivity before metadata or
+history reads, and the published package includes both linked evidence receipts.
+Four independent behavior-only reverts fail the new regressions; restoring the
+fixes passes 4/4. The frozen real-data and known-signal receipts are unchanged.
+Complete release-gate verification for this review head is recorded in the PR
+and PM item after CI finishes.

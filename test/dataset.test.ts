@@ -63,6 +63,19 @@ test("builder fails before reading histories from private, unlicensed, hosted or
   });
 });
 
+test("mixed-case excluded GitHub repository names refuse before metadata or history reads", async () => {
+  await withTrackerSources(async ({ root, gh, directories }) => {
+    writeFileSync(gh, `#!${process.execPath}\nthrow new Error('excluded sources must never query GitHub');\n`);
+    const project = dirname(dirname(directories[0]));
+    for (const repo of ["pm-WEB", "pm-GpT", "pm-CLI"]) {
+      for (const remote of [`git@github.com:public-fixture/${repo}.git`, `https://github.com/public-fixture/${repo}.git`]) {
+        git(project, ["remote", "set-url", "origin", remote]);
+        assert.throws(() => buildTrackerDataset(directories, join(root, repo)), /dataset_excluded_repo/);
+      }
+    }
+  });
+});
+
 test("dataset readers refuse content drift, label leakage and forged repository assignments", async () => {
   await withTrackerSources(async ({ root, directories }) => {
     const directory = join(root, "dataset"); const manifest = buildTrackerDataset(directories, directory);
