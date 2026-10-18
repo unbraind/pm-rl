@@ -35,7 +35,13 @@
     "dist/compose.*",
     "dist/process-lm.*",
     "dist/process-lm-trainer.*",
-    "lm-trainer.Dockerfile"
+    "lm-trainer.Dockerfile",
+    "dist/recipe.*",
+    "dist/dataset.*",
+    "dist/meta.*",
+    "docs/meta-recursive.md",
+    "docs/meta-live-evidence.json",
+    "dist/tracker-environment.*"
   ],
   "engines": {
     "node": ">=22.18.0"
@@ -62,7 +68,8 @@
     "prepare": "node scripts/prepare-merge-driver.ts",
     "merge:install": "pm merge install",
     "coverage": "npm run build && npm run build:test && node scripts/coverage-gate.ts",
-    "test:live": "node scripts/live-watchdog.ts"
+    "test:live": "node scripts/live-watchdog.ts meta",
+    "test:live:systemone": "node scripts/live-watchdog.ts"
   },
   "coverageGate": {
     "sources": [
@@ -100,7 +107,10 @@
       "test/process-loop.test.ts",
       "test/process-cli.test.ts",
       "test/compose.test.ts",
-      "test/lm-compose.test.ts"
+      "test/lm-compose.test.ts",
+      "test/recipe.test.ts",
+      "test/dataset.test.ts",
+      "test/meta.test.ts"
     ],
     "thresholds": {
       "statements": 100,
@@ -181,7 +191,9 @@
       "RECURSIVE_TRAINING.md",
       "docs/durable-systemone-validation.md",
       "docs/lm-adapter.md",
-      "docs/process-trainer.md"
+      "docs/process-trainer.md",
+      "docs/meta-recursive.md",
+      "docs/meta-live-evidence.json"
     ],
     "examples": [
       "README.md",
@@ -191,7 +203,8 @@
       "examples/metrics.ndjson",
       "examples/loop-systemone.json",
       "examples/loop-lm.json",
-      "examples/loop-process.json"
+      "examples/loop-process.json",
+      "examples/meta-approval.md"
     ]
   }
 }

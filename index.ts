@@ -150,6 +150,12 @@ export {
 } from "./lm.ts";
 
 export { decidePromotion, hoeffdingEpsilon, parsePromotionCriterion, parsePromotionEvidence, type PromotionCriterion, type PromotionDecision, type PromotionEvidence, type PromotionGateInput } from "./promotion.ts";
+export { recipeArtifact, parseRecipe, seededRecipes, INITIAL_RECIPE, RECIPE_BOUNDS, type Recipe, type RecipeKnobs } from "./recipe.ts";
+export { buildTrackerDataset, readTrackerDataset, readTrackerSplit, type TrackerDataset, type TrackerExample } from "./dataset.ts";
+export { runRlMeta, parseMetaConfig, type MetaConfig, type MetaRequest, type MetaReport } from "./meta.ts";
+
+import { buildTrackerDataset } from "./dataset.ts";
+import { runRlMeta, parseMetaConfig, type MetaReport } from "./meta.ts";
 
 import {
   trainLmStep, evaluateLmStep, lmTrainingJson, restoreLmTraining, restoreLmGeneration, serializeLmCheckpoint,
@@ -3268,6 +3274,22 @@ async function durableLoopStep(client: PmClient, lease: ControllerLease, id: str
   });
 }
 
+/** Durable step executor shared by inner and outer controllers. */
+export type RlDurableStep = (key: string, input: JsonValue, execute: () => Promise<JsonValue>) => Promise<JsonValue>;
+
+/** Reuse the inner loop's owner lease, worktree authority, phase fencing and digested receipts for recipe search. */
+export async function withRlController<T>(client: PmClient, coordinates: WorkspaceCoordinates, id: string, signal: AbortSignal, execute: (step: RlDurableStep) => Promise<T>): Promise<T> {
+  const lease = await acquireControllerLease(client, coordinates, { id, approval: "meta", config: null, signal }, `${id}-step-programme`);
+  try {
+    return await execute(async (key, input, operation) => {
+      signal.throwIfAborted();
+      return (await durableLoopStep(client, lease, id, key, input, operation)).value;
+    });
+  } finally {
+    await lease.release();
+  }
+}
+
 /** Read one run's decoded metric events in order, without mutating anything. */
 async function readRunMetricEvents(client: PmClient, runId: string): Promise<readonly MetricEvent[]> {
   return readSeries((await readCompleteNotes(client, runId)).map((note) => note.text)).events;
@@ -4140,6 +4162,31 @@ async function runLoop(context: CommandHandlerContext): Promise<RlCommandResult>
   return { action: "rl-loop-run", id, details: loopCommandDetails(context, report) };
 }
 
+/** Build a commit-pinned public tracker dataset through the installed command contract. */
+async function buildDatasetCommand(context: CommandHandlerContext): Promise<RlCommandResult> {
+  const first = stringOption(context, "from_trackers")!;
+  const directories = [first, ...context.args];
+  const dataset = buildTrackerDataset(directories, stringOption(context, "output")!, Number(stringOption(context, "seed", false) ?? "42"));
+  return { action: "rl-dataset-build", details: { ...dataset } };
+}
+
+/** Execute or resume recipe search with the same cancellation boundaries as the inner loop. */
+async function runMetaCommand(context: CommandHandlerContext): Promise<RlCommandResult> {
+  const id = requiredArgument(context, "a meta-loop id");
+  const cancellation = installCancellationSignals();
+  let report: MetaReport;
+  try {
+    report = await runRlMeta(clientFor(context), { pmRoot: context.pm_root, author: authorFor(context) }, {
+      id, config: parseMetaConfig(readJsonFile(stringOption(context, "file")!, "Meta configuration")),
+      dataset: stringOption(context, "dataset")!, approval: stringOption(context, "approval")!,
+      proposer: (stringOption(context, "proposer", false) ?? "seeded") as "seeded" | "decision-model", signal: cancellation.controller.signal,
+    });
+  } finally {
+    removeCancellationSignals(cancellation.handlers);
+  }
+  return { action: "rl-meta-run", id, details: { ...report } };
+}
+
 /** Resume one interrupted loop through the public command surface. */
 async function resumeLoopCommand(context: CommandHandlerContext): Promise<RlCommandResult> {
   const id = requiredArgument(context, "a loop id");
@@ -4798,6 +4845,17 @@ async function showTransferGap(context: CommandHandlerContext): Promise<RlComman
 
 /** Commands authored separately so activation and tests share one exact contract. */
 export const RL_COMMANDS = [
+  defineCommand({ name: "rl dataset build", description: "Build a public MIT tracker-history dataset with repository-isolated train, meta-validation and final-test splits.", arguments: [{ name: "directories", variadic: true, description: "Additional tracker directories." }], flags: [
+    { long: "--from-trackers", value_name: "directory", value_type: "string", required: true, description: "First tracker directory; append additional directories as arguments." },
+    { long: "--output", value_name: "directory", value_type: "string", required: true, description: "New dataset output directory." },
+    { long: "--seed", value_name: "number", value_type: "string", description: "Repository split seed, default 42." },
+  ], run: buildDatasetCommand }),
+  defineCommand({ name: "rl meta run", description: "Execute or resume bounded recipe search under one existing approval Decision.", arguments: [{ name: "id", required: true, description: "Stable meta programme id." }], flags: [
+    { long: "--file", value_name: "path", value_type: "string", required: true, description: "Bounded meta programme JSON." },
+    { long: "--dataset", value_name: "directory", value_type: "string", required: true, description: "Sealed dataset directory." },
+    { long: "--approval", value_name: "decision", value_type: "string", required: true, description: "Pre-approved shared resource and recipe budget Decision." },
+    { long: "--proposer", value_name: "kind", value_type: "string", description: "seeded (default) or decision-model with local tev1:4b and seeded fallback." },
+  ], run: runMetaCommand }),
   defineCommand({ name: "rl env register", description: "Register an immutable, content-addressed environment JSON specification.", flags: [{ long: "--file", value_name: "path", value_type: "string", required: true, description: "Environment JSON file." }], run: registerEnvironment }),
   defineCommand({ name: "rl env list", description: "List registered RL environment versions without their large bodies.", run: listEnvironments }),
   defineCommand({ name: "rl env show", description: "Show one registered environment and its specification identity.", arguments: [{ name: "id", required: true, description: "Environment item id." }], run: showEnvironment }),

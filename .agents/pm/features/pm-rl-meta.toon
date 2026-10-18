@@ -1,0 +1,54 @@
+id: pm-rl-meta
+title: Improve bounded training recipes over public tracker histories
+description: "Content-addressed bounded recipes, deterministic outer search, isolated repository splits and durable shared-budget inner loops with honest final-test reporting."
+type: Feature
+status: in_progress
+priority: 2
+tags: []
+created_at: "2026-10-18T03:01:18.320Z"
+updated_at: "2026-10-18T04:49:36.187Z"
+assignee: codex-agent
+claim_principal: codex-agent
+author: codex-agent
+acceptance_criteria: "Two bounded real-data meta-generations; seeded and optional decision-model proposals; recipe lineage, fail-closed promotion, no held-out leakage, idempotent reservation and resume; regression revert proofs and unchanged npm/Bun release gates."
+parent: pm-rl-apvf
+comments[9]{created_at,author,text}:
+  "2026-10-18T03:07:08.225Z",codex-agent,"Design: recipes bind declared learning-rate, inner generation/step, batch, data-selection, curriculum, temperature and reward-weight domains. The outer controller reuses existing leases and digested phase receipts; every inner fit uses the packaged process trainer and the same approved atomic resource reservations. Separate repository roles supply training, meta-validation and untouched final-test data; training-repository items are further split for inner held-out evaluation. Only sanitized lifecycle-state prefixes leave committed public MIT histories. Statistical recipe selection uses exact-match meta-validation evidence with distinct-example counts and a comparison-wise confidence allocation; proxy rewards cannot authorize recipe promotion. Conservative search reservations are held once across resume. No release enablement or dependency pin change."
+  "2026-10-18T03:24:16.558Z",codex-agent,"Initial numerical and public-dataset regressions passed 8/8. Real-data acceptance caught and corrected the installed GitHub CLI license metadata contract (MIT is licenseInfo.key=mit); public visibility and public commit checks remain mandatory. The optional proposer now persists a pre-request intent: completed results replay; an unresolved response falls back to the seeded recipes without making another physical request. The search domain is deliberately small (at most two inner steps and 256 samples per batch), and reservations derive their worst-case charge from the declared recipe domains. Shared-host deadline failures are retained; no existing acceptance timeout or coverage threshold was relaxed."
+  "2026-10-18T03:31:31.203Z",codex-agent,"Behavioural revert proof in an isolated source snapshot: remove only the recipe field from generationTrainingConfig, retain all tests, and run node --test test/recipe.test.ts. Result: 2/3 pass, the lineage regression fails because its stored recipe digest is undefined; restored function passes 3/3. Separately remove only the public-visibility conjunct from the dataset source guard and run node --test --test-name-pattern=\"builder fails before\" test/dataset.test.ts: 0/1 pass, Missing expected exception for PRIVATE metadata. The restored package retains the guard. No thresholds, legacy code paths or dependency pins changed. Both tests import TypeScript sources directly, so no dist rebuild is needed for these proofs."
+  "2026-10-18T03:43:18.600Z",codex-agent,"Live acceptance PASS: npm run test:live completed two meta-generations, K=2, over 25 public MIT repositories (15 train, 5 meta-validation, 5 final-test); one verified empty source omitted. Dataset a4320672ba0d2f20e1aebfba7b9e91de71c95e17a9706700f79dfe163c8aae0c contains 1023 train, 145 inner held-out, 214 meta-validation, 385 final-test examples (1767 total). Initial recipe b77fdfeff48dc713d46b397ff6ea652257fe46ca09650264ba5563e4e53a34ae: learning_rate=0.25, steps=2, batch=128, temperature=1, reward weights=1/0, selection=all, curriculum=forward. Generation 1 candidates 800886e9f4cd and 45113586500f; generation 2 candidates 4a48567235f1 and 55539a90ca05. Every resulting policy scored 107/214=0.5 on meta-validation: gain 0, lower confidence gain bound -0.21778781183411927, refusal no_statistical_improvement. Confidence 0.95 allocated across four comparisons gives 0.9875 each; effect threshold 0.01 and minimum samples 10 unchanged. No recipe promoted: inner promotion retained seed policies. Final untouched test before/after 198/385=0.5142857142857142. Dataset build plus controller 574489.248227 ms; parent watchdog unchanged at 15 minutes. Complete public source commits, recipes and verdicts: docs/meta-live-evidence.json. No improvement claim."
+  "2026-10-18T03:47:10.210Z",codex-agent,"Further real-controller regressions PASS 3/3: a physical outer-controller SIGKILL adopts the committed initial fit and original settled reservation; a high-signal synthetic fixture promotes a statistically better recipe and uses it as the next meta-generation incumbent; one shared Decision refuses expanded/replaced/oversubscribed budgets, including differently formatted reservation bodies. The full tracker read path remains certified. Normal local health exposes a global pm-github host-version skew (pinned 2026.10.13 versus global 2026.10.17); the isolated CI HOME/Git configuration passes strict health with only pre-existing advisory provenance debt (pm-rl-9uz4). No pin bump, telemetry configuration change or history repair performed. Linked pm test selection 1 passes 8/8; result tracking is disabled by existing project policy, so this comment retains the receipt."
+  "2026-10-18T03:55:07.043Z",codex-agent,"The search now receives sealed evaluator capabilities (fit, selection scores, final-test scores and dataset digest) rather than dataset readers. Dataset coordinates and all example loading stay in tracker-environment.ts; the proposer receives a fresh recipe-only request object. Terminal replay still succeeds with inner and final files unavailable, and the final-test callback runs after all promotion receipts. Unknown recipe knobs are rejected against the declared domain keys. The CLI optional seed/proposer defaults and camel-cased tracker option are fixed; direct real-tracker CLI and synthetic live-entry regressions pass 2/2. The physical-kill/promotion/shared-budget trio also passes 3/3 through the linked PM harness; result recording remains disabled by policy."
+  "2026-10-18T03:58:51.495Z",codex-agent,"Final real-data acceptance after evaluator capability isolation passes again: the complete dataset manifest and policy/gate/final-test report are byte-equivalent as JSON to the first successful run (same 25 eligible public repos, 1767 examples, four refused recipes, gain 0 with lower bound -0.21778781183411927, final-test 198/385 before and after). No statistical or feature tuning followed final-test exposure. The governing programme now binds the canonical approval item identity as well as its spec digest; an identical replacement Decision cannot switch budgets during resume. Full npm and Bun release gates follow with unchanged thresholds and CI identity isolation."
+  "2026-10-18T04:05:27.268Z",codex-agent,"Self-review tightened the evaluator boundary before the final gates: outer accounting and proposal recovery now perform certified Decision metadata listings with bodies excluded, then open only the stable reservation namespace or exact proposal-attempt record. They no longer request every tracker body, which could include inner environment/seed datasets. Reservation discovery uses stable item identities, so a title edit cannot hide an allocation. Regression cases include unrelated prose, copied envelopes, independent approvals and replacement Decisions with identical specs. The first release-gate attempt was deliberately interrupted for this correction; no passing full-gate result is claimed from it."
+  "2026-10-18T04:49:36.187Z",codex-agent,"Final ledger regressions pass 3/3: interrupted atomic reservations retain one charge, independent programmes cannot oversubscribe, and approval replacement or copied/corrupt reservation tuples are refused. Programme identity, canonical approval ID, recipe plan and exact charge vector are bound into the durable receipt. Full npm and Bun release gates now run against the frozen implementation; thresholds and legacy deadlines remain unchanged."
+files[18]{path,scope}:
+  dataset.ts,project
+  examples/meta-approval.md,project
+  examples/meta-trackers.json,project
+  index.ts,project
+  loop.ts,project
+  manifest.json,project
+  meta.ts,project
+  package.json,project
+  recipe.ts,project
+  scripts/live-meta.ts,project
+  scripts/live-watchdog.ts,project
+  test/dataset.test.ts,project
+  test/fixtures/meta-controller.ts,project
+  test/fixtures/meta-workspace.ts,project
+  test/fixtures/tracker-histories.json,project
+  test/meta.test.ts,project
+  test/recipe.test.ts,project
+  tracker-environment.ts,project
+tests[2]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  node --test test/recipe.test.ts test/dataset.test.ts,project,600,codex-agent,"2026-10-18T03:23:50.382Z",local_mutation,feat/meta-recursive-recipe-loop
+  "node --test --test-name-pattern=\"one pre-approved|genuinely better|real outer SIGKILL\" test/meta.test.ts",project,900,codex-agent,"2026-10-18T03:50:43.085Z",local_mutation,feat/meta-recursive-recipe-loop
+docs[6]{path,scope}:
+  docs/durable-systemone-validation.md,project
+  docs/meta-live-evidence.json,project
+  docs/meta-recursive.md,project
+  examples/meta-approval.md,project
+  README.md,project
+  RECURSIVE_TRAINING.md,project
+body: ""

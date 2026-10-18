@@ -54,7 +54,7 @@ For decision-model training, select `"trainer": "systemone"` and provide a
 disjoint labelled PM items in `training`/`evaluation`, and the bounds described in
 [the adapter contract](docs/durable-systemone-validation.md). No new runtime dependency is required.
 The packaged `examples/loop-systemone.json` supplies a complete two-generation
-configuration for the same synthetic demonstration. Run `npm run test:live`
+configuration for the same synthetic demonstration. Run `npm run test:live:systemone`
 locally for two real `tev1:4b` generations. Override
 `SYSTEMONE_BASE_URL` and `SYSTEMONE_MODEL` for another TypeSafe-compatible service.
 CI uses real in-process HTTP servers and never calls Ollama.
@@ -230,6 +230,25 @@ All exit non-zero. The gap-widening check needs at least two consecutive gaps, s
 `pm rl lineage --gap-window` requires an integer of at least 2.
 
 ## Recursive self-improvement, and the four properties that make it honest
+
+`pm rl meta run` also searches the bounded recipe that trains each candidate.
+The programme names a versioned content-addressed initial recipe; every inner
+generation records its recipe digest. Seeded search can vary learning rate,
+steps, batch, data selection, curriculum, temperature and reward-shaping weights
+within declared domains. Optional local `tev1:4b` proposals use the existing
+calibration adapter and fall back to seeded search when unavailable. One existing
+Decision bounds the entire search and every inner process fit through atomic
+reservations; the loop cannot enlarge that approval.
+
+Recipe selection receives only exact-match meta-validation evidence from separate
+public tracker repositories. Inner held-out data stays in its evaluator; the
+proposer has no dataset capability. A proxy-only gain is refused by the existing
+statistical gate. The final-test repositories are opened only after all recipe
+promotions, and report the initial versus selected policy without influencing
+selection. [The meta-recursive contract](docs/meta-recursive.md) documents the
+data boundary, confidence assumptions, idempotent resume and measured real-data
+acceptance. Start with [the bounded programme](examples/meta-trackers.json) and
+`pm rl dataset build --from-trackers <directories...> --output <new-directory>`.
 
 The current pm-rl runtime **executes, tracks and gates** a bounded numerical loop: a generation collects trajectories,
 the built-in bandit trainer produces a successor, and the successor collects the next generation's

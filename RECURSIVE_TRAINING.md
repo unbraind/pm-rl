@@ -63,6 +63,16 @@ Adapters report structured progress and completion evidence over a documented st
 4. **Met for local process and Compose adapters:** real SIGKILL after staged completion and before its receipt commit recovers without retraining or double charge; planning/evaluation/promotion crashes and mid-fit SIGTERM retain evidence. Crash and cancellation drills cover every transition, including a complete checkpoint without a committed receipt. Restart is idempotent and does not overwrite prior artifacts.
 5. **Met for local process and Compose adapters:** dataset overlap, reward/environment drift, excessive gap, missing/corrupt receipts, invalid checkpoints and exceeded resource allowances refuse progression; failed candidates never collect the next generation. Contamination, a training-to-evaluation gap above `maximum_gap`, stale reward or environment identity, corrupt checkpoints, missing metrics and exceeded resource limits prevent promotion. A failed candidate cannot become the next collection policy.
 6. Unit, real-process integration, CLI acceptance, replay, performance and failure-path tests cover every authored source file at exact statement/line/branch/function thresholds. The docstring gate covers the declared source surface, and the scope inventory names anything it excludes.
+7. **Meta-recursive recipe improvement:** `pm rl meta run` names and evolves a
+   content-addressed bounded recipe, executes bounded inner loops under one
+   pre-approved Decision with atomic reservations, and promotes recipes only
+   through the existing statistical gate on repository-isolated meta-validation
+   evidence. Inner held-out examples are confined to their evaluator; final-test
+   repositories are opened only after selection. Real public MIT tracker histories
+   carry source repository and commit identity. The builder excludes hosted data,
+   pm-web and pm-gpt. [The contract and live evidence](docs/meta-recursive.md) and
+   [pm-rl-meta](.agents/pm/features/pm-rl-meta.toon) track this criterion; its
+   real-data and full-gate acceptance is pending until measured below.
 
 ## Data boundary and capacity
 
