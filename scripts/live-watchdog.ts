@@ -39,11 +39,11 @@ export function liveWatchdogBudget(timeoutMs: number): { graceMs: number; worker
 /** Launch a bounded worker and stream its transcript; a stalled SDK cannot outlive the parent deadline. */
 export async function runLiveCommand(environment: NodeJS.ProcessEnv, emit: (chunk: Buffer) => void, timeoutMs = LIVE_TIMEOUT_MS): Promise<void> {
   const { graceMs, workerDeadlineMs } = liveWatchdogBudget(timeoutMs);
-  await streamProcess(process.execPath, [resolve(import.meta.dirname, "live-systemone.ts")], {
+  await streamProcess(process.execPath, [resolve(import.meta.dirname, environment["PM_RL_LIVE_SUITE"] === "meta" ? "live-meta.ts" : "live-systemone.ts")], {
     cwd: resolve(import.meta.dirname, ".."),
     env: { ...environment, [LIVE_WORKER_TIMEOUT_ENV]: String(workerDeadlineMs) },
     timeoutMs: timeoutMs - graceMs, escalationMs: graceMs,
   }, emit);
 }
 
-if (isMainInvocation(process.argv, import.meta.url)) await runLiveCommand(process.env, (chunk) => { process.stdout.write(chunk); });
+if (isMainInvocation(process.argv, import.meta.url)) await runLiveCommand({ ...process.env, PM_RL_LIVE_SUITE: process.argv[2] }, (chunk) => { process.stdout.write(chunk); });

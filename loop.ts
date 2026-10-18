@@ -37,6 +37,7 @@ import { parseLmLoopConfig, type LmLoopConfig } from "./lm.ts";
 import { parseSystemOneLoopConfig, type SystemOneLoopConfig } from "./systemone.ts";
 import { parseProcessAdapter, type ProcessAdapter, type ProcessInput } from "./process.ts";
 import type { MetricEvent } from "./series.ts";
+import { parseRecipe, type Recipe } from "./recipe.ts";
 
 /** Format identity of a candidate generation's derived training configuration. */
 const LOOP_GENERATION_FORMAT = "pm-rl/loop-generation/1";
@@ -64,6 +65,8 @@ const STRONG_IMPROVEMENT_FACTOR = 2;
 
 /** A complete bounded loop configuration with validated datasets and identities. */
 export interface LoopConfig {
+  /** Optional content-addressed recipe named by this programme. */
+  readonly recipe?: Recipe;
   /** Optional isolated process execution and per-job reservation bounds. */
   readonly process?: ProcessAdapter;
   /** Human-readable environment family name for the registered environment. */
@@ -211,12 +214,17 @@ export function parseLoopConfig(raw: JsonValue): LoopConfig {
     expectedFail(`${source} min_samples must be a positive integer.`, "loop_invalid_min_samples");
   }
   const processAdapter = record["adapter"] === undefined ? undefined : parseProcessAdapter(record["adapter"]);
+  const recipe = record["recipe"] === undefined ? undefined : parseRecipe(record["recipe"]);
+  if (recipe !== undefined && (recipe.knobs.learning_rate !== learningRate || recipe.knobs.batch !== samplesPerGeneration || recipe.knobs.steps !== maxGenerations)) {
+    expectedFail("Recipe knobs disagree with the inner programme.", "loop_recipe_mismatch");
+  }
   if (processAdapter !== undefined) {
     const heldOut = new Set(datasets.evaluation.map((example) => canonicalJson({ feature: example.feature, rewards: [...example.rewards] })));
     if (processAdapter.kind === "compose-lm") expectedFail("Bandit requires a bandit process adapter.", "process_invalid_adapter");
     if (datasets.training.some((example) => heldOut.has(canonicalJson({ feature: example.feature, rewards: [...example.rewards] })))) expectedFail("Process training and held-out content overlap.", "process_dataset_overlap");
   }
   const config: LoopConfig = {
+    ...(recipe === undefined ? {} : { recipe }),
     ...(processAdapter === undefined ? {} : { process: processAdapter }),
     environmentName,
     environmentVersion,
@@ -225,6 +233,7 @@ export function parseLoopConfig(raw: JsonValue): LoopConfig {
     trainingDigest: datasets.trainingDigest,
     evaluationDigest: datasets.evaluationDigest,
     digest: loopDigest({
+      ...(recipe === undefined ? {} : { recipe: recipe.digest }),
       ...(processAdapter === undefined ? {} : { adapter: processAdapter as unknown as JsonValue }),
       format: "pm-rl/loop-programme/1",
       environment: { name: environmentName, version: environmentVersion },
@@ -447,6 +456,7 @@ export function loopPromotionScores(config: LoopConfig, step: LoopStepConfig, ge
  */
 export function generationTrainingConfig(config: LoopConfig, step: LoopStepConfig, generation: number, receipt: BanditGeneration): JsonValue {
   return {
+    ...(config.recipe === undefined ? {} : { recipe: config.recipe.digest }),
     format: LOOP_GENERATION_FORMAT,
     generation,
     learning_rate: step.learningRate,
@@ -476,10 +486,12 @@ export function generationTrainingConfig(config: LoopConfig, step: LoopStepConfi
  */
 export function seedTrainingConfig(config: LoopConfig): JsonValue {
   return {
+    ...(config.recipe === undefined ? {} : { recipe: config.recipe.digest }),
     format: LOOP_SEED_FORMAT,
     programme: config.digest,
     initial_weight: config.initialWeight,
     configuration: {
+      ...(config.recipe === undefined ? {} : { recipe: config.recipe as unknown as JsonValue }),
       ...(config.process === undefined ? {} : { adapter: config.process as unknown as JsonValue }),
       environment: { name: config.environmentName, version: config.environmentVersion },
       training: config.training.map(jsonExample),
@@ -569,6 +581,8 @@ export function parseLoopProgramme(raw: JsonValue): LoopProgramme {
  * deterministic replay before advancing the chain.
  */
 export interface StoredLoopGeneration {
+  /** Recipe digest whose knobs governed this generation, when declared by the programme. */
+  readonly recipeDigest?: string;
   /** One-based generation number, matching the recomputed receipt. */
   readonly generation: number;
   /** The derived learning rate this generation ran under. */
@@ -632,6 +646,7 @@ export function parseStoredLoopGeneration(value: JsonValue, source: string): Sto
     expectedFail(`${source} candidate_weight is outside the stable policy bound [-20, 20]; the persisted checkpoint is invalid.`, "loop_invalid_checkpoint");
   }
   const stored: StoredLoopGeneration = {
+    ...(record["recipe"] === undefined ? {} : { recipeDigest: storedCheckpointDigest(record, "recipe", source, "loop_invalid_checkpoint") }),
     generation,
     learningRate: storedCheckpointNumber(record, "learning_rate", source, "loop_invalid_training_config"),
     evaluationSamples: storedCheckpointNumber(record, "evaluation_samples", source, "loop_invalid_training_config"),
@@ -684,6 +699,7 @@ export function verifyStoredLoopGeneration(config: LoopConfig, step: LoopStepCon
     expectedFail(`Loop generation ${generation} records candidate checkpoint ${stored.candidateCheckpoint}, which does not match the digest of its own persisted weight; the persisted checkpoint is invalid.`, "loop_invalid_checkpoint", EXIT_CODE.CONFLICT);
   }
   const expected: Array<[string, unknown, unknown]> = [
+    ["recipe", stored.recipeDigest, config.recipe?.digest],
     ["generation", stored.generation, generation],
     ["learning_rate", stored.learningRate, step.learningRate],
     ["evaluation_samples", stored.evaluationSamples, step.evaluationSamples],

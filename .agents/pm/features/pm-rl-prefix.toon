@@ -1,0 +1,17 @@
+id: pm-rl-prefix
+title: Train a history-prefix learner on the public tracker environment
+description: "PR 84 acceptance scored 107/214 on meta-validation versus the completed-majority baseline 211/214, and 198/385 on final-test versus 384/385. All candidates retained the zero-weight seed checkpoint because inner fits were refused. Add a bounded learner that actually reads the normalized history prefix, such as the existing LM adapter, on the sealed repository-split tracker environment."
+type: Feature
+status: open
+priority: 2
+tags: []
+created_at: "2026-10-18T07:43:41.188Z"
+updated_at: "2026-10-18T07:46:52.729Z"
+author: codex-agent
+acceptance_criteria: "Train only on training repositories; preserve inner-held-out, meta-validation and final-test boundaries, fixed pre-approved budgets and unchanged promotion gate; report majority baselines, prediction diversity and final-test scores; demonstrate statistically supported improvement or explicitly report a null result without weakening the gate."
+parent: pm-rl-apvf
+files[1]{path,scope}:
+  tracker-environment.ts,project
+docs[1]{path,scope}:
+  docs/meta-live-evidence.json,project
+body: ""

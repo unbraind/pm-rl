@@ -140,7 +140,7 @@ Trainer selection uses `parseLoopTrainer`/`parseLoopProgramme`; bandit replay us
 
 ## Acceptance and limits
 
-`npm run test:live` runs two real generations on synthetic PM items, checks changed
+`npm run test:live:systemone` runs two real generations on synthetic PM items, checks changed
 checkpoints and successor collection, and prints per-generation accuracy/ECE,
 conditional held-out means, reported tokens, endpoint latency and wall time.
 `SYSTEMONE_BASE_URL` and `SYSTEMONE_MODEL` override the loopback service and

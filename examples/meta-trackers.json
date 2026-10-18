@@ -1,0 +1,71 @@
+{
+  "initial_recipe": {
+    "format": "pm-rl/recipe/1",
+    "bounds": {
+      "learning_rate": [
+        0.01,
+        1
+      ],
+      "steps": [
+        1,
+        2
+      ],
+      "batch": [
+        16,
+        256
+      ],
+      "temperature": [
+        0.5,
+        2
+      ],
+      "correct_weight": [
+        0.5,
+        1
+      ],
+      "incorrect_weight": [
+        0,
+        0.25
+      ],
+      "selection": [
+        "all",
+        "balanced"
+      ],
+      "curriculum": [
+        "forward",
+        "reverse"
+      ]
+    },
+    "knobs": {
+      "learning_rate": 0.25,
+      "steps": 2,
+      "batch": 128,
+      "temperature": 1,
+      "correct_weight": 1,
+      "incorrect_weight": 0,
+      "selection": "all",
+      "curriculum": "forward"
+    },
+    "digest": "sha256:b77fdfeff48dc713d46b397ff6ea652257fe46ca09650264ba5563e4e53a34ae"
+  },
+  "seed": 42,
+  "meta_generations": 2,
+  "candidates": 2,
+  "timeout_ms": 840000,
+  "criterion": {
+    "confidence": 0.95,
+    "minSamples": 10,
+    "effectThreshold": 0.01
+  },
+  "maximum_gap": 0.3,
+  "evaluation_samples": 40000,
+  "adapter": {
+    "kind": "process-bandit",
+    "allowance": {
+      "training_steps": 1,
+      "wall_ms": 30000,
+      "storage_bytes": 4096,
+      "compute_units": 30000,
+      "tokens": 0
+    }
+  }
+}

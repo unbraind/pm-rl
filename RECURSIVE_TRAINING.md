@@ -63,6 +63,60 @@ Adapters report structured progress and completion evidence over a documented st
 4. **Met for local process and Compose adapters:** real SIGKILL after staged completion and before its receipt commit recovers without retraining or double charge; planning/evaluation/promotion crashes and mid-fit SIGTERM retain evidence. Crash and cancellation drills cover every transition, including a complete checkpoint without a committed receipt. Restart is idempotent and does not overwrite prior artifacts.
 5. **Met for local process and Compose adapters:** dataset overlap, reward/environment drift, excessive gap, missing/corrupt receipts, invalid checkpoints and exceeded resource allowances refuse progression; failed candidates never collect the next generation. Contamination, a training-to-evaluation gap above `maximum_gap`, stale reward or environment identity, corrupt checkpoints, missing metrics and exceeded resource limits prevent promotion. A failed candidate cannot become the next collection policy.
 6. Unit, real-process integration, CLI acceptance, replay, performance and failure-path tests cover every authored source file at exact statement/line/branch/function thresholds. The docstring gate covers the declared source surface, and the scope inventory names anything it excludes.
+7. **Met: Meta-recursive recipe improvement.** `pm rl meta run` names and evolves
+   a content-addressed bounded recipe, records its digest in every inner
+   generation, and executes bounded inner loops under one pre-approved Decision
+   with atomic reservations. Recipe promotion uses the existing statistical gate
+   on repository-isolated meta-validation evidence. Inner held-out examples stay
+   in their evaluator; final-test repositories are opened after selection. Public
+   MIT histories retain repository and commit provenance; hosted data, pm-web and
+   pm-gpt are excluded. [The contract](docs/meta-recursive.md),
+   [public live evidence](docs/meta-live-evidence.json) and
+   [pm-rl-meta](.agents/pm/features/pm-rl-meta.toon) retain the implementation and
+   receipts. Live acceptance on the corrected source executes two meta-generations
+   with two candidates each over 25 repositories and 1,767 examples. All four
+   candidates score 107/214, gain 0, lower gain bound -0.21778781183411927; none
+   promotes. Final-test before/after is 198/385. The completed-majority baselines
+   are 211/214 on meta-validation and 384/385 on final-test: **the current learner
+   does not beat the majority baseline on real trackers**. Every candidate predicts
+   both labels (108 completed, 106 cancelled); all six candidate pairs disagree
+   on 0/214 examples because their accepted checkpoint is the zero-weight seed.
+   [pm-rl-prefix](.agents/pm/features/pm-rl-prefix.toon) tracks a learner that reads
+   the history prefix. A committed known-signal fixture promotes through the same
+   0.95-confidence, ten-sample, 0.01-effect gate: gain 0.0686, lower bound
+   0.036740389785077876, and final-test 5093/10000 to 5806/10000. This is a sanity
+   result, not real-tracker improvement. No gate or real feature was weakened.
+   [Complete source verification](https://github.com/unbraind/pm-rl/actions/runs/39139389795)
+   passes the exact npm command on Node 22 and 26 and the Bun command on Node 26:
+   628/628 each, zero failures/skips, all four coverage metrics 100% across all
+   35 declared sources and 295 documented declarations. Physical crash, shared
+   budget, conditional promotion and resource-refusal regressions pass; twenty-five
+   behaviour-only reverts fail with tests retained and restored code passes.
+   The review round fixes canonical receipt identity, bounded programme ids and
+   README command syntax; the physical OOM test waits for real daemon evidence
+   before its failed supervisor exits. Limits and promotion thresholds are unchanged.
+   The next review adds supported audited outer-lease recovery and atomic inner
+   promotion headroom. Budget exhaustion cannot become recipe evidence; the
+   complete meta suite passes 23/23 and five new behavioral reverts fail.
+   An additional regression verifies retained capacity before unfinished phases
+   execute, even after a completed programme receipt; missing or damaged evidence
+   refuses without launching a fit or silently reserving capacity again.
+   The next review protects unconsumed meta headroom at the shared promotion gate,
+   including concurrent ordinary loops. Operational or unclassified promotion
+   refusals cannot become recipe evidence on replay. Mixed-case excluded remotes
+   refuse before metadata/history reads, and the package ships the linked sanity
+   receipt. Four additional behavioral reverts fail; restored regressions pass 4/4.
+   Live receipts and promotion thresholds remain unchanged. Approval references
+   resolve to canonical SDK Decision identities for shared accounting and new
+   promotions; existing alias records count against the same budget, and
+   unreadable identities refuse. Issue #85 retains pinned-SDK alias regressions
+   and their behavior-only revert proofs. The alias persistence proof forces an
+   alias caller to win; raw-ID persistence fails the retained assertion. Complete
+   source verification passes 628/628 in all three release variants, and direct
+   isolated lineage acceptance passes 51/51. Disagreement peers are unique by
+   recipe digest and checkpoint; regenerated synthetic evidence preserves every
+   learning score and verdict. Completed historical receipts remain unchanged.
+
 
 ## Data boundary and capacity
 

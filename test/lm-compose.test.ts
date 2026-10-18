@@ -112,6 +112,19 @@ async function until(predicate: () => boolean): Promise<void> {
   for (let count = 0; count < 1200; count += 1) { if (predicate()) return; await setTimeout(25); }
   assert.fail("LM container barrier was not reached");
 }
+/** Observe the daemon's actual kernel-OOM flag before allowing the idle fixture supervisor to exit. */
+async function nativeOomRecorded(id: string, directory: string): Promise<void> {
+  const deadline = performance.now() + 30_000;
+  for (;;) {
+    const remaining = deadline - performance.now();
+    assert.ok(remaining > 0, "Docker did not record the native OOM within the existing barrier bound");
+    const result = spawnSync("docker", ["container", "inspect", `${composeProject(id, directory)}-trainer`, "--format", "{{.State.OOMKilled}}"],
+      { encoding: "utf8", timeout: Math.max(1, Math.floor(Math.min(1000, remaining))) });
+    assert.equal(result.status, 0, "memory fixture supervisor must remain inspectable until native OOM acknowledgement");
+    if (result.stdout.trim() === "true") return;
+    await setTimeout(25);
+  }
+}
 /** Spawn the real controller with the existing transaction-boundary barriers. */
 function controller(pmRoot: string, approval: string, cfg: JsonValue, mode: string) {
   const child = fork(new URL("./fixtures/process-controller.ts", import.meta.url), [pmRoot, approval, JSON.stringify(cfg), mode], { silent: true, execArgv: [], env: { ...process.env, NODE_V8_COVERAGE: undefined } });
@@ -186,16 +199,41 @@ test("real Compose LM mid-fit cancellation retains evidence and process_cancelle
 test("real Compose LM corrupt checkpoints and exceeded memory/time refuse promotion", { skip }, async () => {
   for (const mode of ["corrupt", "memory", "time"]) {
     const { client, coordinates, approval, pmRoot } = await processWorkspace(budget);
-    const selected = mode === "time" ? { ...adapter(), allowance: { ...allowance, training_steps: 1000, wall_ms: 15_000, tokens: 1_000_000 } } : mode === "memory" ? { ...adapter(mode), memory_bytes: 201_326_592 } : adapter(mode);
+    const selected = mode === "time" ? { ...adapter("time"), allowance: { ...allowance, training_steps: 1000, wall_ms: 15_000, tokens: 1_000_000 } } : mode === "memory" ? { ...adapter(mode), memory_bytes: 201_326_592 } : adapter(mode);
     const cfg = mode === "time" ? { ...rawConfig(selected) as Record<string, JsonValue>, fit_steps: 1000, limits: { ...example["limits"] as Record<string, JsonValue>, max_steps: 2060 } } : rawConfig(selected);
-    await assert.rejects(runRlLoop(client, coordinates, { id: "process-drill", approval, config: cfg }));
+    const refused = assert.rejects(runRlLoop(client, coordinates, { id: "process-drill", approval, config: cfg }), Error, `${mode}: the injected resource fault must refuse`);
+    try {
+      if (mode === "memory") {
+        const id = processJobId(inputFor(selected), undefined, selected); const directory = processStaging(pmRoot, id);
+        await until(() => existsSync(join(directory, "memory-child.json")));
+        const child = JSON.parse(readFileSync(join(directory, "memory-child.json"), "utf8")) as { exit_code: number | null; signal: string | null };
+        assert.deepEqual(child, { exit_code: null, signal: "SIGKILL" }, "the kernel must kill the memory-exhausting child");
+        await nativeOomRecorded(id, directory);
+      }
+    } finally {
+      if (mode === "memory") {
+        for (const job of await listProcessJobs(client)) writeFileSync(join(processStaging(pmRoot, job.id), "memory-release.json"), "{}");
+      }
+      await refused;
+    }
     const [job] = await listProcessJobs(client); assert.equal(job.state, "failed"); assert.equal(job.settled, true); assert.equal(job.completion, null);
-    assert.equal((await client.listAllComplete({})).items.filter((item) => item.type === "Run").length, 1);
+    assert.equal((await client.listAllComplete({})).items.filter((item) => item.type === "Run").length, 1, `${mode}: a failed fit cannot collect a successor`);
     assert.equal((await client.listAllComplete({})).items.filter((item) => item.type === "Generation" && item.status === "closed").length, 0);
     assert.equal(job.outcome, mode === "corrupt" ? "process_checkpoint_invalid" : mode === "time" ? "process_limit_exceeded" : "trainer_failure");
     const directory = processStaging(pmRoot, job.id); assert.ok(existsSync(join(directory, "input.json")));
-    if (mode === "memory") { assert.ok(existsSync(join(directory, "partial.json"))); assert.equal(JSON.parse(readFileSync(join(directory, "compose-stop.json"), "utf8")).resources.oom_killed, true); }
-    if (mode === "time") assert.ok(existsSync(join(directory, "events.ndjson")));
+    if (mode === "memory") {
+      assert.ok(existsSync(join(directory, "partial.json")));
+      const partial = JSON.parse(readFileSync(join(directory, "partial.json"), "utf8")) as { heap_limit_bytes: number; oom_score_adjustment: number };
+      assert.ok(partial.heap_limit_bytes > selected.memory_bytes, "the physical cgroup guard must precede the V8 heap ceiling");
+      assert.equal(partial.oom_score_adjustment, 1000);
+      const stopped = JSON.parse(readFileSync(join(directory, "compose-stop.json"), "utf8")) as { resources: { oom_killed: boolean } };
+      assert.equal(stopped.resources.oom_killed, true, JSON.stringify(stopped.resources));
+    }
+    if (mode === "time") {
+      assert.ok(existsSync(join(directory, "events.ndjson")));
+      const barrier = JSON.parse(readFileSync(join(directory, "time-barrier.json"), "utf8")) as { initial_progress_written: boolean };
+      assert.equal(barrier.initial_progress_written, true);
+    }
     removed(job.id, directory);
     await assert.rejects(resumeRlLoop(client, coordinates, { id: "process-drill", approval }));
   }

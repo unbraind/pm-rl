@@ -1,0 +1,6 @@
+[
+  {"prefix":["open","in_progress"],"terminal":"closed"},
+  {"prefix":["open","blocked"],"terminal":"canceled"},
+  {"prefix":["open","in_progress","blocked","in_progress"],"terminal":"closed"},
+  {"prefix":["open","in_progress","blocked"],"terminal":"cancelled"}
+]
