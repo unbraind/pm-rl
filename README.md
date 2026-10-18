@@ -245,7 +245,10 @@ public tracker repositories. Inner held-out data stays in its evaluator; the
 proposer has no dataset capability. A proxy-only gain is refused by the existing
 statistical gate. The final-test repositories are opened only after all recipe
 promotions, and report the initial versus selected policy without influencing
-selection. [The meta-recursive contract](docs/meta-recursive.md) documents the
+selection. Reports include constant-majority baselines, predicted-label counts and
+pairwise candidate disagreement, computed inside the evaluator. The current
+tracker learner does not beat that baseline; the committed signal sanity case
+proves that real gain can promote under the same gate. [The meta-recursive contract](docs/meta-recursive.md) documents the
 data boundary, confidence assumptions, idempotent resume and measured real-data
 acceptance. Start with [the bounded programme](examples/meta-trackers.json) and
 `pm rl dataset build --from-trackers <directories...> --output <new-directory>`.

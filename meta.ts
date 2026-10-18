@@ -25,6 +25,12 @@ export interface MetaConfig {
 export interface RecipePolicy { readonly recipe: Recipe; readonly weight: number; readonly checkpoint: string }
 /** Exact-match evidence counts distinct examples, rather than repeated pseudo-replications. */
 export interface TrackerScore { readonly mean: number; readonly samples: number; readonly context: string }
+/** Aggregate held-out diagnostics expose neither examples nor prediction vectors to search. */
+export interface TrackerDiagnostics {
+  readonly majority_class: { readonly label: "completed" | "cancelled"; readonly correct: number; readonly samples: number; readonly mean: number };
+  readonly predictions: { readonly distinct_labels: number; readonly counts: Readonly<Record<"completed" | "cancelled", number>> };
+  readonly disagreements: readonly { readonly recipe: string; readonly differing: number; readonly samples: number; readonly rate: number }[];
+}
 /** Each comparison retains the actual gate, observed gain and conservative lower confidence bound. */
 export interface MetaComparison {
   readonly candidate: RecipePolicy;
@@ -34,12 +40,14 @@ export interface MetaComparison {
   readonly gain_lower_bound: number;
   readonly verdict: PromotionDecision;
 }
+/** A sealed evaluation augments the gate evidence with descriptive baselines and diversity. */
+export interface EvaluatedRecipe extends MetaComparison { readonly diagnostics: TrackerDiagnostics }
 /** Final reports expose selection evidence and only then the untouched final-test comparison. */
 export interface MetaReport {
   readonly initial: RecipePolicy;
   readonly incumbent: RecipePolicy;
-  readonly generations: readonly { readonly generation: number; readonly proposer: string; readonly candidates: readonly MetaComparison[]; readonly promoted: string | null }[];
-  readonly final_test: { readonly before: TrackerScore; readonly after: TrackerScore };
+  readonly generations: readonly { readonly generation: number; readonly proposer: string; readonly candidates: readonly EvaluatedRecipe[]; readonly promoted: string | null }[];
+  readonly final_test: { readonly before: TrackerScore; readonly after: TrackerScore; readonly diagnostics: TrackerDiagnostics };
   readonly dataset: string;
 }
 /** Public command request; filesystem coordinates never enter recipe or programme identities. */
@@ -238,16 +246,16 @@ export async function runRlMeta(client: PmClient, coordinates: ProcessCoordinate
       const incumbent = incumbents.at(-1)!;
       const proposals = await step(`m${generation}-proposals`, { incumbent: incumbent.recipe.digest }, async () =>
         await durableRecipeProposals(client, request.id, proposalRequest, incumbent.recipe, generation, signal) as unknown as JsonValue) as unknown as Awaited<ReturnType<typeof proposeRecipes>>;
-      const candidates: MetaComparison[] = [];
+      const candidates: EvaluatedRecipe[] = [];
       for (const [index, recipe] of proposals.recipes.entries()) {
         const policy = await step(`m${generation}-c${index}`, { recipe: recipe.digest }, async () =>
           await environment.fit(recipe, `${request.id}-m${generation}-c${index}`, signal) as unknown as JsonValue) as unknown as RecipePolicy;
         const comparison = await step(`m${generation}-score${index}`, { candidate: policy.checkpoint, incumbent: incumbent.recipe.digest }, async () => {
-          const { score, baseline } = environment.selection(policy, incumbent);
+          const { score, baseline, diagnostics } = environment.selection(policy, incumbent, [...generations.flatMap((previous) => previous.candidates), ...candidates].map((previous) => previous.candidate));
           // Allocate family-wise error across all planned comparisons; search cannot relax the declared gate.
           const criterion = { ...config.criterion, confidence: 1 - (1 - config.criterion.confidence) / (config.meta_generations * config.candidates) };
-          return compareRecipes(policy, incumbent, score, baseline, criterion) as unknown as JsonValue;
-        }) as unknown as MetaComparison;
+          return { ...compareRecipes(policy, incumbent, score, baseline, criterion), diagnostics } as unknown as JsonValue;
+        }) as unknown as EvaluatedRecipe;
         candidates.push(comparison);
       }
       const promoted = await step(`m${generation}-promote`, { incumbent: incumbent.recipe.digest, candidates: candidates as unknown as JsonValue }, async () => {

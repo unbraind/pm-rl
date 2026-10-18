@@ -12,12 +12,12 @@ import extension, { hashJson, withRlController, type JsonValue, type RlCommandRe
 import { compareRecipes, durableRecipeProposals, metaReservation, parseMetaConfig, proposeRecipes, recipeExamples, recipeSuccessor, runRlMeta, scoreTrackerPolicy, type MetaConfig, type MetaRequest } from "../meta.ts";
 import { INITIAL_RECIPE, recipeArtifact, seededRecipes } from "../recipe.ts";
 import { banditCheckpoint } from "../bandit.ts";
-import { readTrackerSplit, type TrackerDataset } from "../dataset.ts";
+import { readTrackerSplit, type TrackerDataset, type TrackerExample, TRACKER_SPLITS } from "../dataset.ts";
 import { listProcessJobs } from "../process.ts";
 import { metaConfig, metaSpec, metaWorkspace, withTrackerSources } from "./fixtures/meta-workspace.ts";
 import { liveMetaConfiguration, liveMetaMain, liveMetaOptions, printLiveMetaEvidence, publicTrackerDirectories, runLiveMetaAcceptance } from "../scripts/live-meta.ts";
 import { runLiveCommand } from "../scripts/live-watchdog.ts";
-import { openTrackerEnvironment } from "../tracker-environment.ts";
+import { openTrackerEnvironment, trackerDiagnostics } from "../tracker-environment.ts";
 
 /** Bind a bounded request to the real temporary tracker and synthetic committed sources. */
 function requestFor(workspace: Awaited<ReturnType<typeof metaWorkspace>>, id: string, config = metaConfig): MetaRequest {
@@ -60,10 +60,39 @@ test("reward shaping, selection, ordering and temperature affect training only; 
   assert.equal(compareRecipes(candidate, incumbent, { ...score, context: "different" }, score, criterion).verdict.decision, "refuse");
 });
 
+test("synthetic held-out splits report majority baselines and deterministic prediction diversity", async () => {
+  const w = await metaWorkspace();
+  const environment = openTrackerEnvironment(w.client, w.coordinates, w.dataset, metaConfig, w.approval);
+  const seed = { recipe: INITIAL_RECIPE, weight: 0, checkpoint: banditCheckpoint(0).digest };
+  const same = { ...seed, recipe: recipeArtifact({ ...INITIAL_RECIPE.knobs, learning_rate: 1 }) };
+  const comparison = environment.selection(same, seed);
+  const final = environment.finalTest(seed, same);
+  for (const diagnostics of [comparison.diagnostics, final.diagnostics]) {
+    assert.deepEqual(diagnostics.majority_class, { label: "completed", correct: 16, samples: 32, mean: 0.5 });
+    assert.equal(diagnostics.predictions.distinct_labels, 2);
+    assert.equal(diagnostics.predictions.counts.completed + diagnostics.predictions.counts.cancelled, 32);
+    assert.deepEqual(diagnostics.disagreements, [{ recipe: seed.recipe.digest, differing: 0, samples: 32, rate: 0 }]);
+  }
+  assert.deepEqual(environment.selection(same, seed), comparison);
+  const examples = readTrackerSplit(w.dataset, w.manifest, "meta-validation");
+  const positive = { ...same, weight: 1000 }; const negative = { ...seed, weight: -1000 };
+  const polarized = environment.selection(positive, negative, [seed]);
+  assert.equal(polarized.diagnostics.disagreements[0].rate, 1);
+  assert.ok(polarized.diagnostics.disagreements[1].rate > 0 && polarized.diagnostics.disagreements[1].rate < 1);
+  const cancelled = examples.filter((example) => example.label === "cancelled");
+  const constant = trackerDiagnostics(cancelled, positive, [], metaConfig.seed);
+  assert.deepEqual(constant.majority_class, { label: "cancelled", correct: 16, samples: 16, mean: 1 });
+  assert.deepEqual(constant.predictions, { distinct_labels: 1, counts: { completed: 0, cancelled: 16 } });
+  const completed = trackerDiagnostics(examples.filter((example) => example.label === "completed"), positive, [], metaConfig.seed);
+  assert.deepEqual(completed.predictions, { distinct_labels: 1, counts: { completed: 16, cancelled: 0 } });
+  assert.throws(() => trackerDiagnostics([], seed, [], 42), /meta_diagnostics_empty/);
+});
+
 test("two real meta generations retain recipes and process jobs, then resume without double charge or reading inner/final splits", { timeout: 600_000 }, async () => {
   const w = await metaWorkspace(); const request = requestFor(w, "recursive"); const phases: string[] = [];
   const first = await runRlMeta(w.client, w.coordinates, { ...request, onStep(key) { phases.push(key); } });
   assert.equal(first.generations.length, 2); assert.ok(first.generations.every((generation) => generation.candidates.length === 2));
+  assert.deepEqual(first.generations.flatMap((generation) => generation.candidates.map((candidate) => candidate.diagnostics.disagreements.length)), [1, 2, 3, 4]);
   assert.equal(first.generations[1].candidates[0].incumbent, first.generations[0].promoted ?? first.initial.recipe.digest);
   assert.ok(phases.indexOf("final-test") > phases.indexOf("m2-promote"));
   const jobs = await listProcessJobs(w.client); assert.ok(jobs.length >= 5);
@@ -119,26 +148,36 @@ test("a real outer SIGKILL adopts the committed fit and its original settled res
   }
 });
 
-test("a genuinely better recipe clears the unchanged gate and becomes the next meta generation incumbent", { timeout: 600_000 }, async () => {
+test("a genuinely better recipe clears the unchanged gate and becomes the next meta generation incumbent", { timeout: 600_000 }, async (context) => {
   const w = await metaWorkspace();
-  const initial = recipeArtifact({ ...INITIAL_RECIPE.knobs, learning_rate: 0.01, steps: 1, batch: 16, temperature: 2 });
-  let seed = 0;
-  for (; seed < 1000; seed += 1) {
-    const candidate = seededRecipes(initial, seed, 1, 1)[0].knobs;
-    if (candidate.steps * candidate.learning_rate * (candidate.correct_weight - candidate.incorrect_weight) / candidate.temperature ** 2 > 4) break;
+  const fixture = JSON.parse(readFileSync(new URL("./fixtures/tracker-signal.json", import.meta.url), "utf8")) as {
+    seed: number; initial_knobs: typeof INITIAL_RECIPE.knobs;
+    splits: Record<typeof TRACKER_SPLITS[number], { repetitions: number; patterns: Pick<TrackerExample, "prefix" | "label">[] }>;
+  };
+  const initial = recipeArtifact(fixture.initial_knobs);
+  const splits = { ...w.manifest.splits };
+  for (const split of TRACKER_SPLITS) {
+    const source = readTrackerSplit(w.dataset, w.manifest, split)[0];
+    const signal = fixture.splits[split];
+    const expanded = Array.from({ length: signal.repetitions * signal.patterns.length }, (_, index) => ({
+      ...source, ...signal.patterns[index % signal.patterns.length], id: hashJson({ index, split, fixture: "known-signal" }),
+    }));
+    writeFileSync(join(w.dataset, `${split}.json`), JSON.stringify(expanded));
+    splits[split] = { count: expanded.length, digest: hashJson(expanded as unknown as JsonValue) };
   }
-  assert.ok(seed < 1000, "synthetic high-signal recipe fixture exists");
-  const examples = readTrackerSplit(w.dataset, w.manifest, "meta-validation");
-  const expanded = Array.from({ length: 10_000 }, (_, index) => ({ ...examples[index % examples.length], id: hashJson({ index, fixture: true }) }));
-  writeFileSync(join(w.dataset, "meta-validation.json"), JSON.stringify(expanded));
-  const { digest: _digest, ...record } = { ...w.manifest, splits: { ...w.manifest.splits, "meta-validation": { count: expanded.length, digest: hashJson(expanded as unknown as JsonValue) } } };
+  const { digest: _digest, ...record } = { ...w.manifest, splits };
   const manifest: TrackerDataset = { ...record, digest: hashJson(record as unknown as JsonValue) };
   writeFileSync(join(w.dataset, "dataset.json"), JSON.stringify(manifest));
-  const report = await runRlMeta(w.client, w.coordinates, requestFor(w, "improvement", { ...metaConfig, initial_recipe: initial, seed, candidates: 1, evaluation_samples: 100_000 }));
+  const report = await runRlMeta(w.client, w.coordinates, requestFor(w, "improvement", { ...liveMetaConfiguration(), initial_recipe: initial, seed: fixture.seed, candidates: 1, evaluation_samples: 100_000 }));
+  context.diagnostic(JSON.stringify({ sanity: "committed tracker-signal", criterion: liveMetaConfiguration().criterion, generations: report.generations, final_test: report.final_test }));
   assert.ok(report.generations[0].promoted !== null);
   assert.equal(report.generations[1].candidates[0].incumbent, report.generations[0].promoted);
   const first = report.generations[0].candidates[0]; assert.equal(first.verdict.decision, "promote");
-  assert.ok(first.gain_lower_bound >= metaConfig.criterion.effectThreshold);
+  assert.ok(first.gain_lower_bound >= liveMetaConfiguration().criterion.effectThreshold);
+  assert.equal(first.verdict.candidateEpsilon, Math.sqrt(Math.log(2 / (1 - 0.975)) / (2 * splits["meta-validation"].count)));
+  assert.ok(first.diagnostics.disagreements[0].rate > 0);
+  assert.ok(report.final_test.after.mean > report.final_test.before.mean + liveMetaConfiguration().criterion.effectThreshold);
+  assert.ok(report.final_test.after.mean > report.final_test.diagnostics.majority_class.mean);
 });
 
 test("an interrupted atomic search reservation is retained once, including drift refusal on resume", { timeout: 600_000 }, async () => {

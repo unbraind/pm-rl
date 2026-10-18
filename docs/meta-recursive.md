@@ -137,6 +137,42 @@ improvement is claimed, and the gate was not relaxed. Dataset build plus control
 execution took 92,238.673391 ms inside the command's unchanged 15-minute watchdog.
 
 
+## Baseline and recipe sensitivity review
+
+The majority class is `completed`: a constant predictor scores **211/214 =
+0.985981308411215** on meta-validation and **384/385 = 0.9974025974025974** on
+final-test. These are descriptive split-majority baselines, computed inside the
+evaluator; final-test statistics are released only after all selection ends.
+**The current learner does not beat the majority baseline on real trackers.**
+
+Every candidate predicts two labels: 108 `completed` and 106 `cancelled` on
+meta-validation. All six candidate pairs disagree on **0/214 = 0%** of examples,
+as does every candidate versus the incumbent. Final-test predictions are 199
+`completed` and 186 `cancelled`, also unchanged. This is not a single-class
+collapse: every inner fit was refused, so the accepted zero-weight seed policy
+remained identical across recipes. The score diagnostics expose only aggregate
+counts and disagreement rates, without held-out rows or prediction vectors.
+[pm-rl-prefix](../.agents/pm/features/pm-rl-prefix.toon) tracks a bounded learner
+that reads the history prefix, such as the existing LM adapter, while preserving
+all split, budget and promotion boundaries.
+
+The committed [known-signal fixture](../test/fixtures/tracker-signal.json) uses
+last-state sign as a deterministic learnable rule. Each compartment has distinct
+prefixes and repository roles remain disjoint; its seed and weak initial recipe
+are fixed in the fixture. The actual process fits and two-generation outer loop
+use the live criterion unchanged: confidence 0.95, minimum ten samples and effect
+0.01. With one candidate in each generation, family-wise allocation gives 0.975
+per comparison. Generation 1 promotes recipe `30eccf433a17` with score
+**5629/10000**, incumbent **4943/10000**, gain **0.0686**, and lower gain bound
+**0.03899585625398397**. Generation 2 retains that incumbent. Final-test improves
+from **5093/10000 to 5806/10000**, above its **5000/10000** majority baseline.
+[The complete sanity receipt](meta-sanity-evidence.json) is separate from the real
+acceptance receipt. This proves conditional promotion; it makes no claim of
+real-tracker learning. The synthetic baseline test also checks a balanced split,
+a cancellation-majority subset, both-label and single-label policies, identical
+predictions, and full disagreement.
+
+
 ## Release verification
 
 The [complete CI run](https://github.com/unbraind/pm-rl/actions/runs/39104826277)

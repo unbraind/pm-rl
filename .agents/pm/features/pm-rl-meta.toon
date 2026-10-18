@@ -6,11 +6,13 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-18T03:01:18.320Z"
-updated_at: "2026-10-18T07:14:46.977Z"
+updated_at: "2026-10-18T07:48:03.342Z"
+assignee: codex-agent
+claim_principal: codex-agent
 author: codex-agent
 acceptance_criteria: "Two bounded real-data meta-generations; seeded and optional decision-model proposals; recipe lineage, fail-closed promotion, no held-out leakage, idempotent reservation and resume; regression revert proofs and unchanged npm/Bun release gates."
 parent: pm-rl-apvf
-comments[19]{created_at,author,text}:
+comments[23]{created_at,author,text}:
   "2026-10-18T03:07:08.225Z",codex-agent,"Design: recipes bind declared learning-rate, inner generation/step, batch, data-selection, curriculum, temperature and reward-weight domains. The outer controller reuses existing leases and digested phase receipts; every inner fit uses the packaged process trainer and the same approved atomic resource reservations. Separate repository roles supply training, meta-validation and untouched final-test data; training-repository items are further split for inner held-out evaluation. Only sanitized lifecycle-state prefixes leave committed public MIT histories. Statistical recipe selection uses exact-match meta-validation evidence with distinct-example counts and a comparison-wise confidence allocation; proxy rewards cannot authorize recipe promotion. Conservative search reservations are held once across resume. No release enablement or dependency pin change."
   "2026-10-18T03:24:16.558Z",codex-agent,"Initial numerical and public-dataset regressions passed 8/8. Real-data acceptance caught and corrected the installed GitHub CLI license metadata contract (MIT is licenseInfo.key=mit); public visibility and public commit checks remain mandatory. The optional proposer now persists a pre-request intent: completed results replay; an unresolved response falls back to the seeded recipes without making another physical request. The search domain is deliberately small (at most two inner steps and 256 samples per batch), and reservations derive their worst-case charge from the declared recipe domains. Shared-host deadline failures are retained; no existing acceptance timeout or coverage threshold was relaxed."
   "2026-10-18T03:31:31.203Z",codex-agent,"Behavioural revert proof in an isolated source snapshot: remove only the recipe field from generationTrainingConfig, retain all tests, and run node --test test/recipe.test.ts. Result: 2/3 pass, the lineage regression fails because its stored recipe digest is undefined; restored function passes 3/3. Separately remove only the public-visibility conjunct from the dataset source guard and run node --test --test-name-pattern=\"builder fails before\" test/dataset.test.ts: 0/1 pass, Missing expected exception for PRIVATE metadata. The restored package retains the guard. No thresholds, legacy code paths or dependency pins changed. Both tests import TypeScript sources directly, so no dist rebuild is needed for these proofs."
@@ -30,7 +32,11 @@ comments[19]{created_at,author,text}:
   "2026-10-18T06:39:15.630Z",codex-agent,"The corrected production source c882cc2 passed the full Bun release gate 612/612, zero failures/skips, all 35 required sources at 100/100/100/100 and 295 documented declarations. The Node 22 and Node 26 jobs each failed only the existing Compose LM resource drill, respectively missing native OOM evidence and collecting a second Run. Those fault-injection assumptions are now explicit and bounded, tracked with pm-rl-whrd: native allocator and deadline barrier with unchanged limits/assertions. Both fixture-only behavioural reverts fail 0/1; restored physical and PM-linked checks pass 1/1 each. Linked feature tests now cover 9/9 data/recipe, 3/3 core crash/promotion/budget, 1/1 canonical identity and 1/1 real resource refusal. Production training, recipe bounds, splits and statistical promotion are unchanged. The complete 612-test npm/Bun CI matrix must pass on the forthcoming commit; no passing npm result is claimed for c882cc2."
   "2026-10-18T07:03:11.951Z",codex-agent,"Complete verification PASS on 445b2327b4f60a0b7f183e7c6195f7d883b41c53: CI https://github.com/unbraind/pm-rl/actions/runs/39104826277 executes npm run release:check on Node 22 and 26 and bun run release:check on Node 26 with isolated HOME and global/system Git configuration. Each passes 612/612, zero failures/skips/cancellations, statements/lines/branches/functions 100/100/100/100 across all 35 required sources, 295 documented declarations, zero clones and production audit findings. Publish attestation, identities, package contents, changelog and Bun graph install pass; CodeQL passes. Fresh PM-linked core run passes 3/3 on the corrected production source, alongside 9/9 data/recipe, 1/1 identity and 1/1 native resource refusal. RECURSIVE_TRAINING.md criterion 7 is Met for bounded execution and honest refusal; live source c882cc2 reproduces all real-data results exactly, with no recipe promoted or final-test gain. Six behavioural revert proofs fail with tests retained, restored implementations pass. External review provides no approval: CodeRabbit skips under its star policy, Greptile trial expired, Sourcery skipped, Cubic neutral. Recorded local HTTP timeout remains failed evidence; no deadline, threshold, dependency pin, telemetry setting or release approval changed. Leave in progress for orchestrator verification; the final receipt commit changes documentation/tracker state only and its exact-head CI will be checked before stopping."
   "2026-10-18T07:14:44.751Z",codex-agent,"Final full-branch whitespace verification found one extra blank line at the end of tracker-environment.ts. Removed only that blank line; runtime statements, knobs, data and promotion criteria are unchanged. The full diff whitespace check now passes. The prior complete code gate remains 612/612 in all three CI variants; the formatting head will receive the same exact-command matrix before stopping. Release the claim after this formatting-only handoff; leave status in progress and closure to the orchestrator."
-files[23]{path,scope}:
+  "2026-10-18T07:41:06.103Z",codex-agent,"Reopened implementation work for PR 84 orchestrator review: measure held-out majority baselines and aggregate prediction diversity, add a committed learnable-signal promotion sanity case at the unchanged live gate, and document a prefix-aware learner follow-up if real-data performance remains below baseline. Existing audits, CI evidence, and completed implementation are retained."
+  "2026-10-18T07:46:49.973Z",codex-agent,"Review diagnosis on the retained live dataset: majority completed baseline is 211/214 on meta-validation and 384/385 on final-test, versus learner 107/214 and 198/385. All accepted weights are zero because no inner candidate passed promotion; recipes therefore share the same seed policy, rather than collapsing to a single predicted label. Prefix-aware learning is tracked in pm-rl-prefix. Committed tracker-signal fixture uses a declared known signal and the unchanged live criterion confidence 0.95, minimum 10, effect 0.01: generation 1 promotes with gain 0.0686, lower bound 0.03899585625398397; final score rises 5093/10000 to 5806/10000. No real-data threshold or feature changed."
+  "2026-10-18T07:46:51.026Z",codex-agent,"Behavior-only review revert proofs: restoring only openTrackerEnvironment to its pre-review implementation makes the synthetic majority/diversity regression fail 0/1 (missing diagnostics). Disabling only recipeSuccessor promotion makes the committed learnable-signal test fail 0/1 at its promotion assertion. Both source functions were restored; tests and fixture were retained. Full restored linked run follows."
+  "2026-10-18T07:48:03.342Z",codex-agent,"Restored linked PM review run passed 2/2 with zero failures, cancellations or skips. Synthetic majority/diversity checks and the committed learnable-signal outer-loop promotion both pass. Aggregate prediction diagnostics do not expose held-out examples or prediction vectors. The retained real snapshot predicts 108 completed and 106 cancelled on meta-validation, 199 completed and 186 cancelled on final-test; candidate disagreement is zero because all accepted checkpoints are the seed."
+files[24]{path,scope}:
   .github/workflows/ci.yml,project
   dataset.ts,project
   examples/meta-approval.md,project
@@ -50,19 +56,22 @@ files[23]{path,scope}:
   test/fixtures/meta-controller.ts,project
   test/fixtures/meta-workspace.ts,project
   test/fixtures/tracker-histories.json,project
+  test/fixtures/tracker-signal.json,project
   test/lm-compose.test.ts,project
   test/meta.test.ts,project
   test/recipe.test.ts,project
   tracker-environment.ts,project
-tests[4]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+tests[5]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
   node --test test/recipe.test.ts test/dataset.test.ts,project,600,codex-agent,"2026-10-18T03:23:50.382Z",local_mutation,feat/meta-recursive-recipe-loop
   "node --test --test-name-pattern=\"one pre-approved|genuinely better|real outer SIGKILL\" test/meta.test.ts",project,900,codex-agent,"2026-10-18T03:50:43.085Z",local_mutation,feat/meta-recursive-recipe-loop
   "node --test --test-name-pattern=\"programme identity cannot hide\" test/meta.test.ts",project,600,codex-agent,"2026-10-18T06:00:04.075Z",local_mutation,feat/meta-recursive-recipe-loop
   "node --test --test-name-pattern=\"real Compose LM corrupt checkpoints\" test/lm-compose.test.ts",project,600,codex-agent,"2026-10-18T06:35:18.894Z",local_mutation,feat/meta-recursive-recipe-loop
-docs[6]{path,scope}:
+  "node --test --test-name-pattern=\"synthetic held-out|genuinely better\" test/meta.test.ts",project,600,codex-agent,"2026-10-18T07:43:42.817Z",local_mutation,feat/meta-recursive-recipe-loop
+docs[7]{path,scope}:
   docs/durable-systemone-validation.md,project
   docs/meta-live-evidence.json,project
   docs/meta-recursive.md,project
+  docs/meta-sanity-evidence.json,project
   examples/meta-approval.md,project
   README.md,project
   RECURSIVE_TRAINING.md,project

@@ -1,0 +1,247 @@
+{
+  "format": "pm-rl/meta-sanity-evidence/1",
+  "command": "node --test --test-name-pattern=\"genuinely better\" test/meta.test.ts",
+  "fixture": "test/fixtures/tracker-signal.json",
+  "fixture_sha256": "31b09d18ace85a06043bdc151003746d8d91758282344d26adb259a20a12fc42",
+  "sanity": "committed tracker-signal",
+  "criterion": {
+    "confidence": 0.95,
+    "minSamples": 10,
+    "effectThreshold": 0.01
+  },
+  "generations": [
+    {
+      "generation": 1,
+      "proposer": "seeded",
+      "candidates": [
+        {
+          "candidate": {
+            "recipe": {
+              "format": "pm-rl/recipe/1",
+              "bounds": {
+                "learning_rate": [
+                  0.01,
+                  1
+                ],
+                "steps": [
+                  1,
+                  2
+                ],
+                "batch": [
+                  16,
+                  256
+                ],
+                "temperature": [
+                  0.5,
+                  2
+                ],
+                "correct_weight": [
+                  0.5,
+                  1
+                ],
+                "incorrect_weight": [
+                  0,
+                  0.25
+                ],
+                "selection": [
+                  "all",
+                  "balanced"
+                ],
+                "curriculum": [
+                  "forward",
+                  "reverse"
+                ]
+              },
+              "knobs": {
+                "learning_rate": 0.9123291206313298,
+                "steps": 2,
+                "batch": 157,
+                "temperature": 0.5280031209113076,
+                "correct_weight": 0.9163122845347971,
+                "incorrect_weight": 0.16172463475959376,
+                "selection": "all",
+                "curriculum": "forward"
+              },
+              "digest": "sha256:30eccf433a17801ac6d91da530ae36a7ff47e2482534ab00538c4d16bd7ca512"
+            },
+            "weight": 0.3075010661567694,
+            "checkpoint": "sha256:72c93c24ecd8f92a3cfe4a458aced46b340e3beb4b102aa1d00a65fad964c2cb"
+          },
+          "incumbent": "sha256:08c751cfa829b746529aefc0e9f6cfa92aa097535b71d0e8672e916c8fcda108",
+          "score": {
+            "mean": 0.5629,
+            "samples": 10000,
+            "context": "a3eedd5b7c9fc158fcf356b6c44515bf83ae808171ca0e5dc64bb6025e0945d5"
+          },
+          "gain": 0.06859999999999994,
+          "gain_lower_bound": 0.03899585625398397,
+          "verdict": {
+            "decision": "promote",
+            "margin": 0.02899585625398394,
+            "candidateBound": 0.548097928126992,
+            "incumbentBound": 0.509102071873008,
+            "candidateEpsilon": 0.014802071873007982,
+            "incumbentEpsilon": 0.014802071873007982,
+            "reason": "Promoted: candidate lower bound 0.548098 beats incumbent upper bound 0.509102 by 0.028996 above the effect threshold, with confidence 0.975 over 10000 candidate and 10000 incumbent samples."
+          },
+          "diagnostics": {
+            "majority_class": {
+              "label": "completed",
+              "correct": 5000,
+              "samples": 10000,
+              "mean": 0.5
+            },
+            "predictions": {
+              "distinct_labels": 2,
+              "counts": {
+                "completed": 4985,
+                "cancelled": 5015
+              }
+            },
+            "disagreements": [
+              {
+                "recipe": "sha256:08c751cfa829b746529aefc0e9f6cfa92aa097535b71d0e8672e916c8fcda108",
+                "differing": 686,
+                "samples": 10000,
+                "rate": 0.0686
+              }
+            ]
+          }
+        }
+      ],
+      "promoted": "sha256:30eccf433a17801ac6d91da530ae36a7ff47e2482534ab00538c4d16bd7ca512"
+    },
+    {
+      "generation": 2,
+      "proposer": "seeded",
+      "candidates": [
+        {
+          "candidate": {
+            "recipe": {
+              "format": "pm-rl/recipe/1",
+              "bounds": {
+                "learning_rate": [
+                  0.01,
+                  1
+                ],
+                "steps": [
+                  1,
+                  2
+                ],
+                "batch": [
+                  16,
+                  256
+                ],
+                "temperature": [
+                  0.5,
+                  2
+                ],
+                "correct_weight": [
+                  0.5,
+                  1
+                ],
+                "incorrect_weight": [
+                  0,
+                  0.25
+                ],
+                "selection": [
+                  "all",
+                  "balanced"
+                ],
+                "curriculum": [
+                  "forward",
+                  "reverse"
+                ]
+              },
+              "knobs": {
+                "learning_rate": 0.968875700214412,
+                "steps": 2,
+                "batch": 110,
+                "temperature": 1.287882182514295,
+                "correct_weight": 0.9813171887071803,
+                "incorrect_weight": 0.05578340287320316,
+                "selection": "balanced",
+                "curriculum": "forward"
+              },
+              "digest": "sha256:5e3c044ca99125f38d0bc42c1628f38bf0c8eb78a998fc6e88f8e4b953b0a31e"
+            },
+            "weight": 0,
+            "checkpoint": "sha256:17493680209cdf2fc86126ff2ad0b7bb6063ae24ce00f28f931224bb5ab2fd11"
+          },
+          "incumbent": "sha256:30eccf433a17801ac6d91da530ae36a7ff47e2482534ab00538c4d16bd7ca512",
+          "score": {
+            "mean": 0.4943,
+            "samples": 10000,
+            "context": "a3eedd5b7c9fc158fcf356b6c44515bf83ae808171ca0e5dc64bb6025e0945d5"
+          },
+          "gain": -0.06859999999999994,
+          "gain_lower_bound": -0.09820414374601591,
+          "verdict": {
+            "decision": "refuse",
+            "code": "no_statistical_improvement",
+            "reason": "Promotion refused: the candidate is not statistically better than the incumbent. Candidate lower bound 0.479498 does not beat incumbent upper bound 0.577702 by the effect threshold 0.01 (margin -0.108204). The candidate regressed: its mean is not above the incumbent's mean."
+          },
+          "diagnostics": {
+            "majority_class": {
+              "label": "completed",
+              "correct": 5000,
+              "samples": 10000,
+              "mean": 0.5
+            },
+            "predictions": {
+              "distinct_labels": 2,
+              "counts": {
+                "completed": 5017,
+                "cancelled": 4983
+              }
+            },
+            "disagreements": [
+              {
+                "recipe": "sha256:30eccf433a17801ac6d91da530ae36a7ff47e2482534ab00538c4d16bd7ca512",
+                "differing": 686,
+                "samples": 10000,
+                "rate": 0.0686
+              }
+            ]
+          }
+        }
+      ],
+      "promoted": null
+    }
+  ],
+  "final_test": {
+    "before": {
+      "mean": 0.5093,
+      "samples": 10000,
+      "context": "82ae974b00902215d046957ef2cba601628408fc804b7156e4ad7f6be5bcde92"
+    },
+    "after": {
+      "mean": 0.5806,
+      "samples": 10000,
+      "context": "82ae974b00902215d046957ef2cba601628408fc804b7156e4ad7f6be5bcde92"
+    },
+    "diagnostics": {
+      "majority_class": {
+        "label": "completed",
+        "correct": 5000,
+        "samples": 10000,
+        "mean": 0.5
+      },
+      "predictions": {
+        "distinct_labels": 2,
+        "counts": {
+          "completed": 4976,
+          "cancelled": 5024
+        }
+      },
+      "disagreements": [
+        {
+          "recipe": "sha256:08c751cfa829b746529aefc0e9f6cfa92aa097535b71d0e8672e916c8fcda108",
+          "differing": 713,
+          "samples": 10000,
+          "rate": 0.0713
+        }
+      ]
+    }
+  }
+}

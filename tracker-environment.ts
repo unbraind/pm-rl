@@ -8,13 +8,13 @@ import { parseStoredLoopGeneration } from "./loop.ts";
 import { parseGenerationSpec } from "./lineage.ts";
 import type { ProcessCoordinates } from "./process.ts";
 import type { Recipe } from "./recipe.ts";
-import type { MetaConfig, MetaRequest, MetaReport, RecipePolicy, TrackerScore } from "./meta.ts";
+import type { MetaConfig, MetaRequest, MetaReport, RecipePolicy, TrackerScore, TrackerDiagnostics } from "./meta.ts";
 
 /** The outer search has no dataset coordinate or example-reading method. */
 export interface TrackerEnvironment {
   readonly digest: string;
   fit(recipe: Recipe, id: string, signal: AbortSignal): Promise<RecipePolicy>;
-  selection(candidate: RecipePolicy, incumbent: RecipePolicy): { score: TrackerScore; baseline: TrackerScore };
+  selection(candidate: RecipePolicy, incumbent: RecipePolicy, peers?: readonly RecipePolicy[]): { score: TrackerScore; baseline: TrackerScore; diagnostics: TrackerDiagnostics };
   finalTest(initial: RecipePolicy, incumbent: RecipePolicy): MetaReport["final_test"];
 }
 
@@ -24,15 +24,17 @@ export function openTrackerEnvironment(client: PmClient, coordinates: ProcessCoo
   return {
     digest: manifest.digest,
     fit: async (recipe, id, signal) => fitRecipe(client, coordinates, { config, dataset: directory, approval }, manifest, recipe, id, signal),
-    selection(candidate, incumbent) {
+    selection(candidate, incumbent, peers = []) {
       const examples = readTrackerSplit(directory, manifest, "meta-validation");
       const context = manifest.splits["meta-validation"].digest;
-      return { score: scoreTrackerPolicy(examples, candidate, context, config.seed), baseline: scoreTrackerPolicy(examples, incumbent, context, config.seed) };
+      return { score: scoreTrackerPolicy(examples, candidate, context, config.seed), baseline: scoreTrackerPolicy(examples, incumbent, context, config.seed),
+        diagnostics: trackerDiagnostics(examples, candidate, [incumbent, ...peers], config.seed) };
     },
     finalTest(initial, incumbent) {
       const examples = readTrackerSplit(directory, manifest, "final-test");
       const context = manifest.splits["final-test"].digest;
-      return { before: scoreTrackerPolicy(examples, initial, context, config.seed), after: scoreTrackerPolicy(examples, incumbent, context, config.seed) };
+      return { before: scoreTrackerPolicy(examples, initial, context, config.seed), after: scoreTrackerPolicy(examples, incumbent, context, config.seed),
+        diagnostics: trackerDiagnostics(examples, incumbent, [initial], config.seed) };
     },
   };
 }
@@ -56,16 +58,37 @@ export function recipeExamples(examples: readonly TrackerExample[], recipe: Reci
   });
 }
 
-/** Sample one action per unique prefix on a stream shared across policies, rewarding only exact class matches. */
-export function scoreTrackerPolicy(examples: readonly TrackerExample[], policy: RecipePolicy, context: string, seed: number): TrackerScore {
-  let correct = 0;
-  for (const example of examples) {
+/** Sample reproducible policy actions inside the evaluator; never return these vectors to outer search. */
+function trackerPredictions(examples: readonly TrackerExample[], policy: RecipePolicy, seed: number): ("completed" | "cancelled")[] {
+  return examples.map((example) => {
     const draw = Number.parseInt(hashJson({ seed, id: example.id }).slice(7, 15), 16) / 0x100000000;
     const probability = 1 / (1 + Math.exp(-policy.weight * trackerFeature(example) / policy.recipe.knobs.temperature));
-    const prediction = draw < probability ? "completed" : "cancelled";
-    if (prediction === example.label) correct += 1;
-  }
+    return draw < probability ? "completed" : "cancelled";
+  });
+}
+
+/** Sample one action per unique prefix on a stream shared across policies, rewarding only exact class matches. */
+export function scoreTrackerPolicy(examples: readonly TrackerExample[], policy: RecipePolicy, context: string, seed: number): TrackerScore {
+  const predictions = trackerPredictions(examples, policy, seed);
+  const correct = examples.filter((example, index) => predictions[index] === example.label).length;
   return { mean: correct / examples.length, samples: examples.length, context };
+}
+
+/** Measure the split's constant-majority baseline and pairwise disagreement without releasing held-out rows. */
+export function trackerDiagnostics(examples: readonly TrackerExample[], policy: RecipePolicy, peers: readonly RecipePolicy[], seed: number): TrackerDiagnostics {
+  assert.ok(examples.length > 0, "meta_diagnostics_empty");
+  const completed = examples.filter((example) => example.label === "completed").length;
+  const label = completed >= examples.length - completed ? "completed" : "cancelled";
+  const correct = Math.max(completed, examples.length - completed);
+  const predictions = trackerPredictions(examples, policy, seed);
+  const counts = { completed: predictions.filter((prediction) => prediction === "completed").length, cancelled: predictions.filter((prediction) => prediction === "cancelled").length };
+  return { majority_class: { label, correct, samples: examples.length, mean: correct / examples.length },
+    predictions: { distinct_labels: Number(counts.completed > 0) + Number(counts.cancelled > 0), counts },
+    disagreements: peers.map((peer) => {
+      const other = trackerPredictions(examples, peer, seed);
+      const differing = predictions.filter((prediction, index) => prediction !== other[index]).length;
+      return { recipe: peer.recipe.digest, differing, samples: examples.length, rate: differing / examples.length };
+    }) };
 }
 
 /** Run the inner loop behind a compartment boundary; its held-out examples and scores never return to search. */

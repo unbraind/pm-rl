@@ -76,7 +76,16 @@ Adapters report structured progress and completion evidence over a documented st
    receipts. Live acceptance on the corrected source executes two meta-generations
    with two candidates each over 25 repositories and 1,767 examples. All four
    candidates score 107/214, gain 0, lower gain bound -0.21778781183411927; none
-   promotes. Final-test before/after is 198/385. No real-data improvement is claimed.
+   promotes. Final-test before/after is 198/385. The completed-majority baselines
+   are 211/214 on meta-validation and 384/385 on final-test: **the current learner
+   does not beat the majority baseline on real trackers**. Every candidate predicts
+   both labels (108 completed, 106 cancelled); all six candidate pairs disagree
+   on 0/214 examples because their accepted checkpoint is the zero-weight seed.
+   [pm-rl-prefix](.agents/pm/features/pm-rl-prefix.toon) tracks a learner that reads
+   the history prefix. A committed known-signal fixture promotes through the same
+   0.95-confidence, ten-sample, 0.01-effect gate: gain 0.0686, lower bound
+   0.03899585625398397, and final-test 5093/10000 to 5806/10000. This is a sanity
+   result, not real-tracker improvement. No gate or real feature was weakened.
    [Complete release verification](https://github.com/unbraind/pm-rl/actions/runs/39104826277)
    passes the exact npm command on Node 22 and 26 and the Bun command on Node 26:
    612/612 each, zero failures/skips, all four coverage metrics 100% across all
