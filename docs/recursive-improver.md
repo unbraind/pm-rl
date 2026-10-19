@@ -115,6 +115,11 @@ is persisted, so repeated resumes cannot replenish time. Completed replay launch
 no jobs. Dataset, configuration, approval or receipt drift refuses. Ambiguous
 holders use the same command with `--force-takeover`; live holders still block.
 
+The input binding includes receipt schema `pm-rl/improver-receipts/2`.
+Earlier receipts without candidate diagnostics are incompatible: both interrupted
+resume and completed replay return typed `loop_step_drift` at the programme
+receipt before launching any fit. Use a new programme identity for a new run.
+
 Each trial now records the fitted candidate's held-out class counts (`0` and
 `1`), number of distinct predictions, training accuracy, training majority
 accuracy, and whether training accuracy exceeds that majority. These aggregates

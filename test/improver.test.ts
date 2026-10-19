@@ -6,13 +6,13 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, rename
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
-import { init } from "@unbrained/pm-cli/sdk/runtime";
+import { init, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import extension, { hashJson, type JsonValue, type RlCommandResult } from "../index.ts";
+import extension, { hashJson, readCompleteLoopItem, type JsonValue, type RlCommandResult } from "../index.ts";
 import { initialImprover, improverArtifact, parseImprover, proposeLearners, updateImprover, type ProposalOutcome } from "../improver.ts";
 import { buildImproverDataset, chronologicalTask, historyBeforePrediction, projectImproverHistory, readImproverDataset, readImproverTasks, IMPROVER_ROLES, type ImproverDataset, type ImproverTask, type ImproverProjection } from "../improver-data.ts";
 import { compareImprovers, diagnoseImproverLearner, executeImproverFit, improverProcessAttempt, improverAccuracy, improverFeatures, openImproverEnvironment, IMPROVER_CRITERION, IMPROVER_ADAPTER } from "../improver-environment.ts";
-import { improverBudget, improverConfiguration, parseImproverConfig, runRecursiveImprover, selectImprover, summarizeImproverScores, type ImproverConfig, type ImproverScore } from "../recursive-improver.ts";
+import { improverBudget, improverConfiguration, parseImproverConfig, runRecursiveImprover, selectImprover, summarizeImproverScores, type ImproverConfig, type ImproverScore, type ImproverSearch } from "../recursive-improver.ts";
 import { prefixCheckpoint, type PrefixCheckpoint } from "../prefix.ts";
 import { listProcessJobs, processJobId, processStaging, type ProcessInput } from "../process.ts";
 import { prefixTrainerArgv } from "../prefix-trainer.ts";
@@ -306,6 +306,73 @@ test("SIGKILL before exec recovers missing and partial receipts once inside the 
   const staging = processStaging(w.coordinates.pmRoot, processJobId(improverProcessAttempt(blocked, 0), prefixTrainerArgv(), IMPROVER_ADAPTER));
   mkdirSync(dirname(staging), { recursive: true }); writeFileSync(staging, 'storage fault sentinel');
   await assert.rejects(executeImproverFit(w.client, w.coordinates, blocked, w.approval, AbortSignal.timeout(60_000)), /EEXIST/);
+});
+
+test("legacy improver receipts refuse resume and replay before fits while current receipts resume", { timeout: 300_000 }, async () => {
+  const w = await workspace();
+  const config = { ...w.config, generations: 1 };
+  const request = { id: 'schema', config, dataset: w.dataset, approval: w.approval };
+  const binding = hashJson({ config: config as unknown as JsonValue, dataset: w.manifest.digest, approval: w.approval, approval_body: String((await w.client.get(w.approval)).item.body) });
+  const inputs = new Map<string, JsonValue>();
+  inputs.set('programme', { binding, budget: improverBudget(w.manifest, config) });
+  const task = readImproverTasks(w.dataset, w.manifest, 'development')[0];
+  const learner = proposeLearners(config.initial, config.seed, 1, task.id, config.candidates)[0];
+  inputs.set('g1-d-t0-proposals', { policy: config.initial.digest, task: task.id });
+  inputs.set('g1-d-t0-c0', { policy: config.initial.digest, config: learner as unknown as JsonValue, incumbent: null });
+  await assert.rejects(runRecursiveImprover(w.client, w.coordinates, { ...request, onStep(key) {
+    if (key === 'g1-d-t0-c0') throw new Error('interrupted after first fit');
+  } }), /interrupted after first fit/);
+  const original = new Map<string, string>();
+  /** Serialize the historical result shape, including nested trials in terminal receipts. */
+  const legacyResult = (result: JsonValue): JsonValue => JSON.parse(JSON.stringify(result, (key, value: unknown) =>
+    ['diagnostics', 'any_candidate_beats_train_majority'].includes(key) ? undefined : value)) as JsonValue;
+  /** Build historical receipts through audited SDK writes with valid input and payload hashes. */
+  const installLegacy = async (): Promise<void> => {
+    for (const [phase, input] of inputs) {
+      const key = `${request.id}-step-${phase}`;
+      const body = String((await readCompleteLoopItem(w.client, key)).item.body); original.set(key, body);
+      const receipt = JSON.parse(body) as Record<string, JsonValue>;
+      const result = legacyResult(receipt.result);
+      await w.client.update(key, { body: JSON.stringify({ ...receipt, input: hashJson({ binding, input }), result, digest: hashJson(result) }) });
+    }
+    const trial = JSON.parse(String((await w.client.get('schema-step-g1-d-t0-c0')).item.body)) as { result: Record<string, JsonValue> };
+    assert.equal(Object.hasOwn(trial.result, 'diagnostics'), false);
+  };
+  /** Require a typed input refusal at the first receipt with no completed phases or process launches. */
+  const refusesBeforeFits = async (): Promise<void> => {
+    const jobs = await listProcessJobs(w.client); const phases: string[] = [];
+    await assert.rejects(runRecursiveImprover(w.client, w.coordinates, { ...request, onStep(key) { phases.push(key); } }),
+      (error: unknown) => isPmCliExpectedError(error) && error.context.code === 'loop_step_drift');
+    assert.deepEqual(await listProcessJobs(w.client), jobs, 'incompatible receipts must launch zero new fits');
+    assert.deepEqual(phases, [], 'refuse at programme before adopting any phase');
+  };
+  await installLegacy();
+  await refusesBeforeFits();
+  for (const [key, body] of original) await w.client.update(key, { body });
+  const report = await runRecursiveImprover(w.client, w.coordinates, request);
+  assert.equal((await listProcessJobs(w.client)).length, 5, 'current resume adopts the first fit and runs only four remaining fits');
+  assert.deepEqual(await runRecursiveImprover(w.client, w.coordinates, request), report);
+  /** Reconstruct each historical step input from the real completed report. */
+  const searchInputs = (tag: string, search: ImproverSearch, policy: string): void => {
+    for (const [index, score] of search.scores.entries()) {
+      const trials = search.trials.filter((entry) => entry.task === score.task);
+      inputs.set(`${tag}-t${index}-proposals`, { policy, task: score.task });
+      for (const [candidate, entry] of trials.entries()) inputs.set(`${tag}-t${index}-c${candidate}`, {
+        policy, config: entry.outcome.config as unknown as JsonValue, incumbent: candidate === 0 ? null : trials[candidate - 1].trial.retained.checkpoint.digest });
+    }
+  };
+  const row = report.generations[0];
+  searchInputs('g1-d', row.development, row.policy);
+  inputs.set('g1-update', { policy: row.policy, ledger: row.development.trials.map(({ outcome }) => outcome) as unknown as JsonValue });
+  searchInputs('g1-mb', row.meta.before, row.policy); searchInputs('g1-ma', row.meta.after, row.candidate.digest);
+  inputs.set('g1-promotion', { policy: row.policy, candidate: row.candidate.digest, before: row.meta.before.scores as unknown as JsonValue, after: row.meta.after.scores as unknown as JsonValue });
+  inputs.set('g1-generation', { retained: row.retained });
+  searchInputs('audit-b', report.audit.before, report.initial.digest); searchInputs('audit-a', report.audit.after, report.retained.digest);
+  inputs.set('complete', { retained: report.retained.digest });
+  await installLegacy();
+  const complete = JSON.parse(String((await w.client.get('schema-step-complete')).item.body)) as { state: string; result: JsonValue };
+  assert.equal(complete.state, 'complete'); assert.equal(JSON.stringify(complete.result).includes('diagnostics'), false);
+  await refusesBeforeFits();
 });
 
 test("three recursive generations survive SIGKILL after update, adopt receipts and leave final audit untouched until selection", { timeout: 600_000 }, async (context) => {

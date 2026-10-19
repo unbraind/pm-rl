@@ -6,10 +6,12 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-19T12:27:11.978Z"
-updated_at: "2026-10-19T16:34:44.255Z"
+updated_at: "2026-10-19T19:44:15.921Z"
+assignee: codex-agent
+claim_principal: codex-agent
 author: codex-agent
 parent: pm-rl-apvf
-comments[23]{created_at,author,text}:
+comments[28]{created_at,author,text}:
   "2026-10-19T12:27:20.475Z",codex-agent,"Plan: retain the existing statistical promotion gate; add content-addressed finite search arms with Bayesian outcome priors, update candidates from development-only ledger outcomes, compare proposal policies on disjoint meta trackers under identical fit budgets, and open final audit trackers only after selection. Prediction features use strictly earlier history; chronological splits purge labels unavailable at their boundary. Record three generations, baselines, confidence bounds, actual kill/resume and behavioral revert proofs. Canonical sources remain read-only; dependency pins and thresholds remain unchanged."
   "2026-10-19T12:35:45.321Z",codex-agent,"Implemented two independent artifact levels: learner fits use the existing reserved process adapter and unchanged statistical gate; proposer artifacts contain bounded feature/optimizer arms with explicit outcome priors. Candidate priors are rebuilt from unique development-only proposal receipts. Meta challengers start from the same constant learner and receive identical candidate counts and optimizer updates. Confidence is allocated over planned comparisons; meta sample size is distinct trackers, averaging the related targets within each tracker. A frozen audit role remains unopened until all generations finish."
   "2026-10-19T12:46:00.699Z",codex-agent,"Behavioral revert proof: retained all regression tests and replaced only the updateImprover prior-update block with return arm, preserving candidate version/ancestry/ledger metadata. node --test --test-name-pattern=\"improver updates actual\" test/improver.test.ts failed (exit 1: prior mass 16 instead of 116). Restoring the update passes; the combined update, leakage sentinel, chronological split and gate/feature regressions pass 4/4. The regression also asserts sampled proposals change, so a metadata-only update cannot pass. Real SDK/process tests additionally prove conditional inner promotion and gap rejection."
@@ -33,6 +35,11 @@ comments[23]{created_at,author,text}:
   "2026-10-19T16:29:34.341Z",codex-agent,"The local npm release attempt hit the existing packed-LM smoke timing assertion: 26719.014172 ms against its unchanged 20000 ms bound. All improver component checks passed before that unrelated failure. The failed npm process group was stopped to remove contention while Bun finishes; it is not counted as passing evidence. The existing timing follow-up is pm-rl-7c7m. No bound, dependency or threshold is changed. A complete sequential npm retry will use the already-installed Node 26 runtime matching CI."
   "2026-10-19T16:33:39.774Z",codex-agent,"Complete CI run 39282564621 is successful for source head 3d4fb1019ca4bbb05e654ff36e5d21e7bebdd16f: npm run release:check on Node 22 and Node 26, and bun run release:check on Node 26 each report 653/653 tests, zero fail/skip/cancel/todo, 44/44 measured source files and 100.00% statements, lines, branches and functions. Full logs include successful changelog checks and job completion; all remaining release checks and Bun package graph installs complete. CI checkout 8e73d46b9408b3bb9e07bc8824f4ad5e8677fbb3 and source head have identical tree dabe25129cfc8d36dc35a2d101f8a65862ca03ec. Receipt: https://github.com/unbraind/pm-rl/actions/runs/39282564621 . GitHub incident delays individual check status delivery despite completed logs and successful aggregate conclusion. The redundant local Bun attempt was stopped after its improver checks, including the stricter constant-class assertion, passed; neither canceled local attempt is counted as a successful gate. Final verification commit adds that assertion and these receipts; numerical source hashes remain unchanged."
   "2026-10-19T16:34:44.254Z",codex-agent,"Additional strict class-key verification passes on Node 26: node --test --test-name-pattern=\"reserved fits\" test/improver.test.ts reports 1/1 with zero failures, including constant seed held-out classes exactly zero class-zero and all class-one. All nine measured implementation hashes still match current source. The final receipt commit changes only this regression assertion, documentation and append-only PM evidence; no learner, data, controller, statistical or resource code changes."
+  "2026-10-19T18:20:33.164Z",codex-agent,"Review round 2 at 345f3d4: confirmed legacy receipts omit candidate diagnostics but share the current binding. Add a receipt schema marker to the immutable digest and regress interrupted resume and completed replay using real temporary ledgers, requiring typed loop_step_drift before any new fit. Preserve current-schema resume. Latest review body contains one inline finding and no outside-diff findings. Run behavior-only revert proof and unchanged npm/Bun release gates."
+  "2026-10-19T18:22:49.533Z",codex-agent,"Regression passes 1/1 with real temporary SDK ledger and five actual process fits: a diagnostics-free interrupted ledger refuses at programme with loop_step_drift and zero new jobs; restoring current receipts resumes exactly four remaining fits; diagnostics-free completed replay also refuses before any phase or new job. Behavior-only revert removes only the receipt marker: unchanged regression exits 1 with TypeError reading beats_train_majority after adopting old receipts. Restored marker. Typecheck, test compilation, lint and zero-duplicate checks pass. Linked regression uses snapshot workspace and no PM context to avoid the existing tracker-spawning sandbox issue."
+  "2026-10-19T18:23:30.070Z",codex-agent,"Linked PM verification passed all four commands: 4/4, 2/2, 1/1 and the new schema regression 1/1 (eight tests total), zero failures. Snapshot workspace with pm_context_mode=none runs the real temporary-tracker regression successfully without the existing sandbox collision. Running release gates sequentially on installed Node 26 with isolated HOME and disabled global/system Git config."
+  "2026-10-19T18:55:39.408Z",codex-agent,"npm run release:check passed on Node 26 with isolated HOME, GIT_CONFIG_GLOBAL=/dev/null and GIT_CONFIG_NOSYSTEM=1: 654/654 tests, zero fail/skip/cancel/todo, all 44 authored source files reported, statements/lines/branches/functions each 100.00%. Typecheck, build, lint, zero duplicates, docstrings, publish-attestation verification, identity audit, production audit, pack dry run and changelog check all passed. New legacy-ledger regression also passed in the full coverage run. The unchanged packed LM 20-second bound passed with measured CLI time 9953.044 ms. Starting the separate Bun release gate sequentially."
+  "2026-10-19T19:44:15.920Z",codex-agent,"Local Bun release attempt is failed evidence: 653/654 tests, one ENOENT reading partial.json in the unrelated wall-expiry/AbortSignal test at test/process.test.ts:79. New schema regression passes within that run; reported line/branch/function coverage remains 100 percent. The unchanged failing fixture passes alone 1/1 with isolated identity. Native-fixture follow-up pm-rl-processcancel records this separately from Compose task pm-rl-8nev. No unrelated test or deadline was changed. Re-read latest review 5575756668: no outside-diff findings. Push the schema fix with this receipt and verify the complete unchanged npm/Bun CI matrix before final handoff."
 files[11]{path,scope}:
   dataset.ts,project
   improver-data.ts,project
@@ -45,10 +52,38 @@ files[11]{path,scope}:
   test/fixtures/improver-controller.ts,project
   test/fixtures/improver-intent.ts,project
   test/improver.test.ts,project
-tests[3]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
-  node --test --test-name-pattern='improver updates|leakage sentinel|chronological splits|proposal masks' test/improver.test.ts,project,codex-agent,"2026-10-19T12:43:52.661Z",local_mutation,feat/recursive-improver-policy
-  node --test --test-name-pattern='learning rate|live fixture cleanup' test/improver.test.ts,project,codex-agent,"2026-10-19T15:55:15.385Z",local_mutation,feat/recursive-improver-policy
-  node --test --test-name-pattern='repository identity' test/improver.test.ts,project,codex-agent,"2026-10-19T15:58:37.445Z",local_mutation,feat/recursive-improver-policy
+tests[4]:
+  - command: node --test --test-name-pattern='improver updates|leakage sentinel|chronological splits|proposal masks' test/improver.test.ts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-19T12:43:52.661Z"
+      source_kind: local_mutation
+      source_ref: feat/recursive-improver-policy
+  - command: node --test --test-name-pattern='learning rate|live fixture cleanup' test/improver.test.ts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-19T15:55:15.385Z"
+      source_kind: local_mutation
+      source_ref: feat/recursive-improver-policy
+  - command: node --test --test-name-pattern='repository identity' test/improver.test.ts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-19T15:58:37.445Z"
+      source_kind: local_mutation
+      source_ref: feat/recursive-improver-policy
+  - command: node --test --test-name-pattern='legacy improver receipts' test/improver.test.ts
+    scope: project
+    timeout_seconds: 300
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-19T18:22:39.249Z"
+      source_kind: local_mutation
+      source_ref: feat/recursive-improver-policy
 docs[3]{path,scope}:
   docs/improver-live-evidence.json,project
   docs/recursive-improver.md,project
