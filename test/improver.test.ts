@@ -318,6 +318,7 @@ test("public command builds chronological tasks and copied sources cannot modify
   const missingPins = join(w.root, 'missing-pins.json'); writeFileSync(missingPins, JSON.stringify({ dataset: { sources: [] } }));
   assert.throws(() => improverLivePins(missingPins), /live_pin/);
   const liveRoot = join(import.meta.dirname, '../.agents/pm/runtime/improver');
+  mkdirSync(liveRoot, { recursive: true });
   const before = new Set(readdirSync(liveRoot));
   const metadataPath = process.env.PATH; process.env.PATH = `${w.bin}:${metadataPath}`;
   try {
