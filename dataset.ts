@@ -37,7 +37,7 @@ function sourceCommand(command: string, args: string[], cwd: string): string {
 }
 
 /** Read selected committed blobs in one bounded Git process, preserving byte lengths for Unicode history. */
-function historyBlobs(root: string, commit: string, paths: readonly string[]): string[] {
+export function historyBlobs(root: string, commit: string, paths: readonly string[]): string[] {
   const bytes = execFileSync("git", ["cat-file", "--batch"], { cwd: root, input: paths.map((path) => `${commit}:${path}\n`).join(""),
     timeout: 30_000, maxBuffer: 64 * 1024 * 1024, stdio: ["pipe", "pipe", "pipe"] });
   let offset = 0;

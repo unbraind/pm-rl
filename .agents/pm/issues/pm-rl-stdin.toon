@@ -1,0 +1,14 @@
+id: pm-rl-stdin
+title: Allow SDK imports from valid Node stdin entrypoints
+description: The shared main-invocation guard resolves the stdin marker as a filesystem path during SDK import.
+type: Issue
+status: open
+priority: 3
+tags: []
+created_at: "2026-10-19T16:03:19.992Z"
+updated_at: "2026-10-19T16:03:19.992Z"
+author: codex-agent
+files[2]{path,scope}:
+  scripts/script-launcher.ts,project
+  process-bandit.ts,project
+body: "A valid Node stdin entrypoint has argv[1] equal to the literal dash. Importing the package entrypoint reaches referenceTrainerMain and isMainInvocation, which calls realpathSync on that dash and throws ENOENT. The same SDK import through node --input-type=module -e succeeds.\n\nReproduction from the package worktree:\n\n```sh\nprintf '%s\\n' \"import './index.ts';\" | node --input-type=module -\n```\n\nExpected: import completes without launching the reference trainer. Actual: import throws while resolving the stdin marker as a file. Keep the existing fail-closed behavior for genuinely missing script paths and its gate regressions. This distinct valid-stdin case was found while verifying PR 88 source hashes; it is outside the improver review fixes. The hash check succeeded through -e and all nine measured implementation hashes match."

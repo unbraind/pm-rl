@@ -229,7 +229,61 @@ The first slice fails closed when context would otherwise become misleading:
 All exit non-zero. The gap-widening check needs at least two consecutive gaps, so
 `pm rl lineage --gap-window` requires an integer of at least 2.
 
-## Recursive self-improvement, and the four properties that make it honest
+## Recursive self-improvement
+
+`pm rl improver run` adds a second recursive level: a versioned proposal policy
+learns search preferences from its own development outcome ledger. Each generation
+proposes K bounded learner configurations, fits them through the reserved CPU
+process trainer, and applies the existing learner promotion gate. The updated
+improver must then find better **promoted** learners than its incumbent on separate
+meta trackers with the same fit and optimizer budget. Every policy, proposal,
+score and decision has a durable PM receipt; a real SIGKILL after an update resumes
+without another launch of its settled jobs.
+
+The real experiment uses chronological, class-balanced time-to-close and item-type
+tasks on copied public tracker snapshots. Features use strictly earlier history;
+future-history and type-label sentinels are covered by behavioral revert proofs.
+The final audit trackers are opened after all three generations commit. Run
+`npm run build` and `npm run test:live:improver` to reproduce the fixed CPU programme.
+The [recursive improver contract](docs/recursive-improver.md) explains artifact
+schemas, data boundaries, equal budgets, confidence units and recovery.
+
+<!-- improver-measurement:start -->
+The completed public-tracker run used **34 reserved fits and 8,704 SGD updates**
+across three generations (K=1), with seed 42 and zero model tokens. Every score
+below is a retained, gate-approved learner score; class balancing makes both
+constant baselines 0.50.
+
+| Generation | Time-to-close | Item type | Majority / retained seed | Meta score (95% tracker CI) | Improver promotion | Held-out constant candidates | Beat train majority |
+| --- | ---: | ---: | ---: | --- | --- | ---: | ---: |
+| 1 | 0.50 | 0.50 | 0.50 / 0.50 | 0.50 [0.00, 1.00] | refused | 0/10 | 10/10 |
+| 2 | 0.50 | 0.50 | 0.50 / 0.50 | 0.50 [0.00, 1.00] | refused | 4/10 | 6/10 |
+| 3 | 0.50 | 0.50 | 0.50 / 0.50 | 0.50 [0.00, 1.00] | refused | 5/10 | 7/10 |
+
+The single review-fix repetition completed in **244.523 seconds** with the same
+sealed dataset. Candidate counts include development and both meta searches.
+Of 30 fitted candidates, **21 predicted both classes on held-out data** and **23
+beat the 0.50 training majority**; each generation's
+`any_candidate_beats_train_majority` is true. Candidate held-out accuracies range
+from 0.375 to 0.667. The evidence records each candidate's exact class counts,
+distinct prediction count and training scores, including rejected candidates.
+Final audit has 2/4 constant candidates and 2/4 that beat training majority.
+
+The measured 0.50 null therefore reflects **retention of the constant seed after
+learner gate refusal**, plus an underpowered outer comparison. Some candidates
+produce a constant held-out class, but uniform learner collapse or an inability
+to fit training signal does not explain the result. Training gains and varied
+predictions do not establish held-out or proposer improvement.
+
+No learner or improver was promoted. The two meta trackers are below the
+unchanged ten-sample minimum; each outer gain is 0 with conservative lower bound
+-2.701813717997259. These wide intervals establish no improvement. Final audit
+accuracy stays 0.50 for both targets (16 time-to-close and 24 item-type examples).
+The complete dataset, artifact, resource and timing receipts are in
+[the measured evidence](docs/improver-live-evidence.json).
+<!-- improver-measurement:end -->
+
+### Learner recipe search and provenance gates
 
 `pm rl meta run` also searches the bounded recipe that trains each candidate.
 The programme names a versioned content-addressed initial recipe; every inner
