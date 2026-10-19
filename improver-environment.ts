@@ -34,7 +34,27 @@ export interface LearnerTrial {
   readonly lower_bound: number;
   readonly verdict: PromotionDecision;
   readonly gap: number;
+  readonly diagnostics: LearnerDiagnostics;
 }
+/** Aggregate candidate behavior distinguishes collapse, training failure and gate refusal without exposing examples. */
+export interface LearnerDiagnostics {
+  readonly held_out_classes: Readonly<Record<"0" | "1", number>>;
+  readonly distinct_predictions: number;
+  readonly train_accuracy: number;
+  readonly train_majority: number;
+  readonly beats_train_majority: boolean;
+}
+
+/** Measure the fitted candidate, including proposals refused by the promotion gate. */
+export function diagnoseImproverLearner(task: ImproverTask, learner: ImproverLearner): LearnerDiagnostics {
+  const predictions = task.evaluation.map((row) => prefixPrediction(improverFeatures(row.prefix, learner.config), learner.checkpoint) === "slow" ? 1 : 0);
+  const train_accuracy = improverAccuracy(task.train, learner);
+  const ones = task.train.filter((row) => row.label === 1).length;
+  const train_majority = Math.max(ones, task.train.length - ones) / task.train.length;
+  return { held_out_classes: { "0": predictions.filter((value) => value === 0).length, "1": predictions.filter((value) => value === 1).length },
+    distinct_predictions: new Set(predictions).size, train_accuracy, train_majority, beats_train_majority: train_accuracy > train_majority };
+}
+
 /** Search receives task identities and aggregate outcomes, never a feature, label, or dataset path. */
 export interface ImproverEnvironment {
   tasks(role: typeof IMPROVER_ROLES[number]): readonly { readonly id: string; readonly repo: string; readonly target: ImproverTask["target"] }[];
@@ -111,7 +131,8 @@ export function openImproverEnvironment(client: PmClient, coordinates: ProcessCo
       const mean = improverAccuracy(task.evaluation, candidate);
       const baselineMean = improverAccuracy(task.evaluation, baseline);
       const comparison = compareImprovers(hashJson(candidate as unknown as JsonValue), hashJson(baseline as unknown as JsonValue), mean, baselineMean, task.evaluation.length, hashJson(task.evaluation as unknown as JsonValue), criterion);
-      const gap = improverAccuracy(task.train, candidate) - mean;
+      const diagnostics = diagnoseImproverLearner(task, candidate);
+      const gap = diagnostics.train_accuracy - mean;
       const promoted = comparison.verdict.decision === "promote" && gap <= 0.3;
       const retained = promoted ? candidate : baseline;
       const evaluated = job.state === "materialized" ? await transitionProcessJob(client, coordinates, job, "evaluated", promoted ? "inner_gate_accepted" : gap > 0.3 ? "gap_rejected" : comparison.verdict.reason) : job;
@@ -120,7 +141,7 @@ export function openImproverEnvironment(client: PmClient, coordinates: ProcessCo
       const majority = 1;
       return { job: job.id, candidate, retained, mean, retained_mean: improverAccuracy(task.evaluation, retained), baseline: baselineMean,
         majority: task.evaluation.filter((row) => row.label === majority).length / task.evaluation.length,
-        samples: task.evaluation.length, promoted, ...comparison, gap };
+        samples: task.evaluation.length, promoted, ...comparison, gap, diagnostics };
     },
   };
 }

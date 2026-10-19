@@ -40,7 +40,7 @@ export function improverArtifact(record: Omit<ImproverPolicy, "digest">): Improv
     assert.deepEqual(Object.keys(arm).sort(), ["config", "success", "failure", "gain"].sort(), "improver_arm_fields");
     assert.deepEqual(Object.keys(arm.config).sort(), ["features", "learning_rate", "prefix"].sort(), "improver_config_fields");
     validatePrefixKnobs(arm.config.prefix);
-    assert.ok(["all", "events", "words", "timing"].includes(arm.config.features) && arm.config.learning_rate >= 0.01 && arm.config.learning_rate <= 1, "improver_config");
+    assert.ok(["all", "events", "words", "timing"].includes(arm.config.features) && Number.isFinite(arm.config.learning_rate) && arm.config.learning_rate >= 0.01 && arm.config.learning_rate <= 1, "improver_config");
     assert.ok([arm.success, arm.failure].every((value) => Number.isFinite(value) && value >= 1) && Number.isFinite(arm.gain) && arm.gain >= 0, "improver_prior");
   }
   assert.equal(new Set(record.arms.map((arm) => hashJson(arm.config as unknown as JsonValue))).size, record.arms.length, "improver_duplicate_arm");

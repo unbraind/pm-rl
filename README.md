@@ -254,11 +254,26 @@ across three generations (K=1), with seed 42 and zero model tokens. Every score
 below is a retained, gate-approved learner score; class balancing makes both
 constant baselines 0.50.
 
-| Generation | Time-to-close | Item type | Majority / retained seed | Meta score (95% tracker CI) | Improver promotion |
-| --- | ---: | ---: | ---: | --- | --- |
-| 1 | 0.50 | 0.50 | 0.50 / 0.50 | 0.50 [0.00, 1.00] | refused |
-| 2 | 0.50 | 0.50 | 0.50 / 0.50 | 0.50 [0.00, 1.00] | refused |
-| 3 | 0.50 | 0.50 | 0.50 / 0.50 | 0.50 [0.00, 1.00] | refused |
+| Generation | Time-to-close | Item type | Majority / retained seed | Meta score (95% tracker CI) | Improver promotion | Held-out constant candidates | Beat train majority |
+| --- | ---: | ---: | ---: | --- | --- | ---: | ---: |
+| 1 | 0.50 | 0.50 | 0.50 / 0.50 | 0.50 [0.00, 1.00] | refused | 0/10 | 10/10 |
+| 2 | 0.50 | 0.50 | 0.50 / 0.50 | 0.50 [0.00, 1.00] | refused | 4/10 | 6/10 |
+| 3 | 0.50 | 0.50 | 0.50 / 0.50 | 0.50 [0.00, 1.00] | refused | 5/10 | 7/10 |
+
+The single review-fix repetition completed in **244.523 seconds** with the same
+sealed dataset. Candidate counts include development and both meta searches.
+Of 30 fitted candidates, **21 predicted both classes on held-out data** and **23
+beat the 0.50 training majority**; each generation's
+`any_candidate_beats_train_majority` is true. Candidate held-out accuracies range
+from 0.375 to 0.667. The evidence records each candidate's exact class counts,
+distinct prediction count and training scores, including rejected candidates.
+Final audit has 2/4 constant candidates and 2/4 that beat training majority.
+
+The measured 0.50 null therefore reflects **retention of the constant seed after
+learner gate refusal**, plus an underpowered outer comparison. Some candidates
+produce a constant held-out class, but uniform learner collapse or an inability
+to fit training signal does not explain the result. Training gains and varied
+predictions do not establish held-out or proposer improvement.
 
 No learner or improver was promoted. The two meta trackers are below the
 unchanged ten-sample minimum; each outer gain is 0 with conservative lower bound

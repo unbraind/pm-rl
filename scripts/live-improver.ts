@@ -9,7 +9,7 @@ import { hashJson, type JsonValue } from "../index.ts";
 import { buildImproverDataset } from "../improver-data.ts";
 import type { TrackerBuildOptions } from "../dataset.ts";
 import { IMPROVER_ADAPTER } from "../improver-environment.ts";
-import { improverBudget, improverConfiguration, summarizeImproverScores, type ImproverConfig, type ImproverReport } from "../recursive-improver.ts";
+import { improverBudget, improverConfiguration, summarizeImproverScores, type ImproverConfig, type ImproverReport, type ImproverSearch } from "../recursive-improver.ts";
 import { listProcessJobs } from "../process.ts";
 import { streamProcess } from "./audit-git-identities.ts";
 import { isMainInvocation } from "./script-launcher.ts";
@@ -40,9 +40,14 @@ export function liveImproverConfiguration(): ImproverConfig { return { ...improv
 /** Resolve the explicit live-only input without opening any source tracker during ordinary test imports. */
 export function improverLiveRoot(environment: NodeJS.ProcessEnv): string { return environment["PM_RL_TRACKER_ROOT"] ?? resolve(import.meta.dirname, "../../..", "fleet"); }
 
+/** Preserve per-proposal aggregate diagnostics without publishing parameters or prediction vectors. */
+function candidateDiagnostics(search: ImproverSearch) {
+  return search.trials.map(({ task, outcome, trial }) => ({ task, proposal: outcome.id, config: outcome.config, held_out_accuracy: trial.mean, promoted: trial.promoted, retained_accuracy: trial.retained_mean, ...trial.diagnostics }));
+}
+
 /** Reproduce the sealed corpus through the packed CLI; explicit synthetic pins/config also exercise this exact path in CI. */
-export async function liveImproverWorker(fleet: string, pins = improverLivePins(), config = liveImproverConfiguration()): Promise<void> {
-  const started = performance.now(); const repo = resolve(import.meta.dirname, "..");
+export async function liveImproverWorker(fleet: string, pins = improverLivePins(), config = liveImproverConfiguration(), now: () => number = () => performance.now()): Promise<void> {
+  const started = now(); const repo = resolve(import.meta.dirname, "..");
   process.stdout.write("Preparing pinned public tracker tasks.\n");
   const parent = join(repo, ".agents/pm/runtime/improver"); mkdirSync(parent, { recursive: true });
   const root = mkdtempSync(join(parent, "run-"));
@@ -56,13 +61,14 @@ export async function liveImproverWorker(fleet: string, pins = improverLivePins(
   const initialized = await init("rl", { defaults: true, agentGuidance: "skip", author: "codex-agent" }, { cwd: project, pmRoot: join(project, ".agents/pm") });
   const client = new PmClient({ cwd: project, pmRoot: initialized.path, author: "codex-agent", noExtensions: true });
   const approval = await client.create({ id: "approval", type: "Decision", title: "Approve fixed recursive improver acceptance", body: `\`\`\`json\n${JSON.stringify(spec)}\n\`\`\`` });
-  // The controller's original deadline includes dataset construction and packaging.
-  const bounded = { ...config, timeout_ms: Math.floor(config.timeout_ms - (performance.now() - started)) };
-  writeFileSync(join(root, "programme.json"), JSON.stringify(bounded, null, 2));
   const cli = join(repo, "node_modules/@unbrained/pm-cli/dist/cli.js");
   const environment = { ...process.env, PM_PATH: initialized.path, PM_AUTHOR: "codex-agent" };
   const [{ filename }] = JSON.parse(execFileSync("npm", ["pack", "--ignore-scripts", "--json", "--pack-destination", root], { cwd: repo, encoding: "utf8" })) as { filename: string }[];
   execFileSync(process.execPath, [cli, "package", "install", join(root, filename), "--project", "--json"], { cwd: project, env: environment, timeout: 60_000, stdio: "pipe" });
+  // Include dataset construction, packaging and installation in the original deadline.
+  const bounded = { ...config, timeout_ms: Math.floor(config.timeout_ms - (now() - started)) };
+  assert.ok(bounded.timeout_ms > 0, "improver_live_deadline_exhausted");
+  writeFileSync(join(root, "programme.json"), JSON.stringify(bounded, null, 2));
   const args = [cli, "--author", "codex-agent", "rl", "improver", "run", "rsi-live", "--file", join(root, "programme.json"), "--dataset", join(root, "dataset"), "--approval", String(approval.item.id), "--json"];
   const output = execFileSync(process.execPath, args, { cwd: project, env: environment, encoding: "utf8", timeout: bounded.timeout_ms, maxBuffer: 16 * 1024 * 1024 });
   const report = (JSON.parse(output) as { details: ImproverReport }).details;
@@ -73,12 +79,15 @@ export async function liveImproverWorker(fleet: string, pins = improverLivePins(
   const usage = Object.fromEntries(Object.keys(IMPROVER_ADAPTER.allowance).map((key) => [key, jobs.reduce((sum, job) => sum + job.charge[key as keyof typeof job.charge], 0)]));
   const evidence = { format: "pm-rl/improver-acceptance/1", config: bounded, dataset: manifest, report_digest: hashJson(report as unknown as JsonValue),
     implementation,
-    budget, usage, elapsed_ms: performance.now() - started,
+    budget, usage, elapsed_ms: now() - started,
     generations: report.generations.map((generation) => ({ generation: generation.generation, policy: generation.policy, candidate: generation.candidate, promoted: generation.promoted,
+      any_candidate_beats_train_majority: generation.any_candidate_beats_train_majority,
+      diagnostics: { development: candidateDiagnostics(generation.development), meta_before: candidateDiagnostics(generation.meta.before), meta_after: candidateDiagnostics(generation.meta.after) },
       development: ["time-to-close", "issue-type"].map((target) => ({ target, ...summarizeImproverScores(generation.development.scores.filter((score) => score.target === target)) })),
       meta: { before: generation.meta.baseline, after: generation.meta.candidate, gain: generation.meta.gain, lower_bound: generation.meta.lower_bound, verdict: generation.meta.verdict } })),
     audit: ["time-to-close", "issue-type"].map((target) => ({ target,
       before: summarizeImproverScores(report.audit.before.scores.filter((score) => score.target === target)), after: summarizeImproverScores(report.audit.after.scores.filter((score) => score.target === target)) })),
+    audit_diagnostics: { before: candidateDiagnostics(report.audit.before), after: candidateDiagnostics(report.audit.after) },
     retained: report.retained.digest };
   writeFileSync(join(root, "evidence.json"), JSON.stringify(evidence, null, 2));
   process.stdout.write(`${JSON.stringify({ evidence: root.slice(repo.length + 1) + "/evidence.json", elapsed_ms: evidence.elapsed_ms, fits: budget.fits, process_jobs: jobs.length, generations: evidence.generations.map((row) => ({ generation: row.generation, score: row.meta.after.mean, promoted: row.promoted })) }, null, 2)}\n`);

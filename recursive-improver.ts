@@ -25,6 +25,7 @@ export interface ImproverGeneration {
   readonly meta: { readonly before: ImproverSearch; readonly after: ImproverSearch; readonly baseline: ImproverSummary; readonly candidate: ImproverSummary } & ReturnType<typeof compareImprovers>;
   readonly promoted: boolean;
   readonly retained: string;
+  readonly any_candidate_beats_train_majority: boolean;
 }
 /** Audit results are opened once all improver selection steps are committed. */
 export interface ImproverReport {
@@ -139,7 +140,8 @@ export async function runRecursiveImprover(client: PmClient, coordinates: Proces
         return compareImprovers(candidate.digest, policy.digest, candidateSummary.mean, baseline.mean, baseline.trackers, manifest.splits.meta.digest, criterion);
       });
       const selection = selectImprover(policy, candidate, comparison);
-      const row: ImproverGeneration = { generation, policy: policy.digest, candidate, development, meta: { before, after, baseline, candidate: candidateSummary, ...comparison }, promoted: selection.promoted, retained: selection.policy.digest };
+      const row: ImproverGeneration = { generation, policy: policy.digest, candidate, development, meta: { before, after, baseline, candidate: candidateSummary, ...comparison }, promoted: selection.promoted, retained: selection.policy.digest,
+        any_candidate_beats_train_majority: [...development.trials, ...before.trials, ...after.trials].some(({ trial }) => trial.diagnostics.beats_train_majority) };
       await step(`g${generation}-generation`, { retained: row.retained }, async () => row);
       generations.push(row);
       policies.push(selection.policy);

@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { fork, execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, renameSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, renameSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
@@ -11,7 +11,7 @@ import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import extension, { hashJson, type JsonValue, type RlCommandResult } from "../index.ts";
 import { initialImprover, improverArtifact, parseImprover, proposeLearners, updateImprover, type ProposalOutcome } from "../improver.ts";
 import { buildImproverDataset, chronologicalTask, historyBeforePrediction, projectImproverHistory, readImproverDataset, readImproverTasks, IMPROVER_ROLES, type ImproverDataset, type ImproverTask, type ImproverProjection } from "../improver-data.ts";
-import { compareImprovers, executeImproverFit, improverProcessAttempt, improverAccuracy, improverFeatures, openImproverEnvironment, IMPROVER_CRITERION, IMPROVER_ADAPTER } from "../improver-environment.ts";
+import { compareImprovers, diagnoseImproverLearner, executeImproverFit, improverProcessAttempt, improverAccuracy, improverFeatures, openImproverEnvironment, IMPROVER_CRITERION, IMPROVER_ADAPTER } from "../improver-environment.ts";
 import { improverBudget, improverConfiguration, parseImproverConfig, runRecursiveImprover, selectImprover, summarizeImproverScores, type ImproverConfig, type ImproverScore } from "../recursive-improver.ts";
 import { prefixCheckpoint, type PrefixCheckpoint } from "../prefix.ts";
 import { listProcessJobs, processJobId, processStaging, type ProcessInput } from "../process.ts";
@@ -58,6 +58,56 @@ async function workspace(compact = true) {
     return { ...source, dataset, manifest, client, coordinates, project, approval: String(approval.item.id), config };
   });
 }
+
+/** Restore the executable path and remove only run entries created inside this fixture, including assertion failures. */
+async function withLiveImproverFixture(bin: string, operation: (root: string, before: ReadonlySet<string>) => Promise<void>): Promise<void> {
+  const root = join(import.meta.dirname, '../.agents/pm/runtime/improver'); mkdirSync(root, { recursive: true });
+  const before = new Set(readdirSync(root));
+  const original = process.env.PATH; process.env.PATH = `${bin}:${original}`;
+  try { await operation(root, before); }
+  finally {
+    process.env.PATH = original;
+    for (const entry of readdirSync(root)) if (!before.has(entry)) rmSync(join(root, entry), { recursive: true, force: true });
+  }
+}
+
+test("live fixture cleanup preserves existing entries on success and assertion failure", async () => {
+  const root = join(import.meta.dirname, '../.agents/pm/runtime/improver'); mkdirSync(root, { recursive: true });
+  const before = readdirSync(root); const original = process.env.PATH;
+  await withLiveImproverFixture('synthetic-bin', async (directory) => {
+    mkdirSync(join(directory, 'synthetic-cleanup-success')); writeFileSync(join(directory, 'synthetic-extra-file'), 'fixture');
+  });
+  assert.deepEqual(readdirSync(root), before); assert.equal(process.env.PATH, original);
+  await assert.rejects(withLiveImproverFixture('synthetic-bin', async (directory) => {
+    mkdirSync(join(directory, 'synthetic-cleanup-failure')); assert.fail('synthetic assertion failure');
+  }), /synthetic assertion failure/);
+  assert.deepEqual(readdirSync(root), before); assert.equal(process.env.PATH, original);
+});
+
+test("learning rate refuses numeric strings and nonfinite values before artifact addressing", () => {
+  const { digest: _digest, ...record } = initialImprover();
+  for (const rate of ['0.5', null, true, NaN, Infinity, -Infinity, 0.009, 1.001]) {
+    const invalid = { ...record, arms: record.arms.map((arm, index) => index === 0 ? { ...arm, config: { ...arm.config, learning_rate: rate } } : arm) };
+    assert.throws(() => improverArtifact(invalid as unknown as typeof record), /improver_config/);
+  }
+});
+
+test("repository identity keeps suffix-colliding owners bound to their own commit and role", async () => {
+  const w = await workspace(false);
+  await withTrackerSources(async () => {
+    const roots = w.directories.slice(0, 2).map((directory) => dirname(dirname(directory)));
+    git(roots[0], ['remote', 'set-url', 'origin', 'https://github.com/org/pm-alpha.git']);
+    git(roots[1], ['remote', 'set-url', 'origin', 'git@github.com:xorg/pm-alpha.git']);
+    writeFileSync(join(roots[1], 'unique.txt'), 'Distinct public synthetic snapshot');
+    git(roots[1], ['add', 'unique.txt']); git(roots[1], ['-c','user.name=Public Fixture','-c','user.email=public@example.test','commit','-qm','Distinct synthetic snapshot']);
+    const output = join(w.root, 'collision-data'); const manifest = buildImproverDataset(w.directories, output);
+    for (const [index, repo] of ['org/pm-alpha', 'xorg/pm-alpha'].entries()) {
+      const source = manifest.sources.find((source) => source.repo === repo)!;
+      const tasks = readImproverTasks(output, manifest, source.role).filter((task) => task.repo === repo);
+      assert.equal(tasks.length, 2); assert.ok(tasks.every((task) => task.commit === git(roots[index], ['rev-parse', 'HEAD'])));
+    }
+  });
+});
 
 test("improver updates actual proposal preferences from attributable outcomes and preserves bounds", () => {
   const policy = initialImprover(); assert.deepEqual(parseImprover(policy), policy);
@@ -193,6 +243,13 @@ test("reserved fits preserve candidate evidence on inner rejection and support r
   let env = openImproverEnvironment(w.client, w.coordinates, w.dataset, manifest, w.approval, 256, 42, IMPROVER_CRITERION);
   const accepted = await env.fit('development', 0, config, 'positive-fit', null, AbortSignal.timeout(60_000));
   assert.equal(accepted.promoted, true, JSON.stringify({ mean: accepted.mean, gain: accepted.gain, gap: accepted.gap, verdict: accepted.verdict }));
+  assert.equal(accepted.diagnostics.distinct_predictions, 2);
+  assert.deepEqual(accepted.diagnostics.held_out_classes, { '0': 1000, '1': 1000 });
+  assert.equal(accepted.diagnostics.train_accuracy, 1); assert.equal(accepted.diagnostics.train_majority, 0.5);
+  assert.equal(accepted.diagnostics.beats_train_majority, true);
+  const constant = diagnoseImproverLearner(original, { config, checkpoint: prefixCheckpoint(new Array<number>(32).fill(0), config.prefix) });
+  assert.equal(constant.distinct_predictions, 1); assert.equal(constant.beats_train_majority, false);
+  assert.equal(constant.train_accuracy, 0.5); assert.equal(constant.held_out_classes['0'] + constant.held_out_classes['1'], original.evaluation.length);
   assert.deepEqual(await env.fit('development', 0, config, 'positive-fit', null, AbortSignal.timeout(60_000)), accepted);
   const held = await env.fit('development', 0, config, 'incumbent-fit', accepted.retained, AbortSignal.timeout(60_000));
   assert.equal(held.promoted, false); assert.equal(held.retained_mean, accepted.retained_mean);
@@ -200,6 +257,8 @@ test("reserved fits preserve candidate evidence on inner rejection and support r
   env = openImproverEnvironment(w.client, w.coordinates, w.dataset, manifest, w.approval, 256, 42, IMPROVER_CRITERION);
   const gap = await env.fit('development', 0, config, 'gap-fit', null, AbortSignal.timeout(60_000));
   assert.ok(gap.gap > 0.3); assert.equal(gap.promoted, false); assert.equal(gap.retained_mean, 0.5);
+  assert.equal(gap.diagnostics.distinct_predictions, 2); assert.equal(gap.diagnostics.train_accuracy, 1);
+  assert.equal(gap.diagnostics.beats_train_majority, true, 'rejected candidate diagnostics must not describe the constant retained learner');
 });
 
 test("SIGKILL before exec recovers missing and partial receipts once inside the predeclared budget", { timeout: 300_000 }, async (context) => {
@@ -269,6 +328,7 @@ test("three recursive generations survive SIGKILL after update, adopt receipts a
   assert.ok(report.generations.every((row) => row.candidate.ledger !== report.initial.ledger && row.candidate.digest !== row.policy));
   assert.equal(report.generations[2].candidate.arms.reduce((sum, arm) => sum + arm.failure - 1, 0), 3);
   assert.ok(report.generations.every((row) => !row.promoted));
+  for (const row of report.generations) assert.equal(row.any_candidate_beats_train_majority, [...row.development.trials, ...row.meta.before.trials, ...row.meta.after.trials].some(({ trial }) => trial.diagnostics.beats_train_majority));
   const after = await listProcessJobs(w.client); assert.equal(after.length, 11); assert.equal(before.length, 9);
   assert.equal(after.filter((job) => jobs.some((prior) => prior.id === job.id)).length, 1);
   assert.deepEqual(await runRecursiveImprover(w.client, w.coordinates, request), report);
@@ -317,14 +377,31 @@ test("public command builds chronological tasks and copied sources cannot modify
   assert.throws(() => copyImproverSources(fleet, join(w.root, 'bad'), [{ repo: 'bad', commit: 'x' }]));
   const missingPins = join(w.root, 'missing-pins.json'); writeFileSync(missingPins, JSON.stringify({ dataset: { sources: [] } }));
   assert.throws(() => improverLivePins(missingPins), /live_pin/);
-  const liveRoot = join(import.meta.dirname, '../.agents/pm/runtime/improver');
-  mkdirSync(liveRoot, { recursive: true });
-  const before = new Set(readdirSync(liveRoot));
-  const metadataPath = process.env.PATH; process.env.PATH = `${w.bin}:${metadataPath}`;
-  try {
-    await liveImproverWorker(fleet, pins.slice(0, 3).map((pin, index) => ({ ...pin, role: (['train','meta-validation','final-test'] as const)[index] })), { ...w.config, generations: 1, updates: 8 });
-  } finally { process.env.PATH = metadataPath; }
-  const evidence = readdirSync(liveRoot).filter((entry) => !before.has(entry)).map((entry) => join(liveRoot, entry, 'evidence.json')).find(existsSync)!;
-  assert.equal((JSON.parse(readFileSync(evidence, 'utf8')) as { budget: { fits: number } }).budget.fits, 10);
+  await withLiveImproverFixture(w.bin, async (liveRoot, before) => {
+    const clockCalls: number[] = [];
+    /** Deterministically charge packaging and installation without sleeping or changing trainer behavior. */
+    const now = (): number => {
+      if (clockCalls.length === 1) {
+        const run = readdirSync(liveRoot).find((entry) => !before.has(entry))!;
+        assert.ok(readdirSync(join(liveRoot, run)).some((entry) => entry.endsWith('.tgz')), 'package must exist before remaining-time calculation');
+        assert.ok(existsSync(join(liveRoot, run, 'controller/.agents/pm/extensions/pm-rl/package.json')), 'installation must finish before remaining-time calculation');
+        assert.equal(existsSync(join(liveRoot, run, 'programme.json')), false);
+      }
+      const time = clockCalls.length === 0 ? 0 : 10_000; clockCalls.push(time); return time;
+    };
+    await liveImproverWorker(fleet, pins.slice(0, 3).map((pin, index) => ({ ...pin, role: (['train','meta-validation','final-test'] as const)[index] })), { ...w.config, generations: 1, updates: 8 }, now);
+    const evidence = readdirSync(liveRoot).filter((entry) => !before.has(entry)).map((entry) => join(liveRoot, entry, 'evidence.json')).find(existsSync)!;
+    const measured = JSON.parse(readFileSync(evidence, 'utf8')) as { config: ImproverConfig; budget: { fits: number }; generations: { diagnostics: { development: { distinct_predictions: number }[] }; any_candidate_beats_train_majority: boolean }[] };
+    assert.equal(measured.budget.fits, 10); assert.equal(measured.config.timeout_ms, w.config.timeout_ms - 10_000);
+    assert.ok(measured.generations[0].diagnostics.development.every((trial) => trial.distinct_predictions >= 1));
+    assert.equal(typeof measured.generations[0].any_candidate_beats_train_majority, 'boolean');
+  });
+  await withLiveImproverFixture(w.bin, async (liveRoot, before) => {
+    const times = [0, w.config.timeout_ms + 1];
+    await assert.rejects(liveImproverWorker(fleet, pins.slice(0, 3).map((pin, index) => ({ ...pin, role: (['train','meta-validation','final-test'] as const)[index] })), { ...w.config, generations: 1, updates: 8 }, () => times.shift()!), /improver_live_deadline_exhausted/);
+    const run = join(liveRoot, readdirSync(liveRoot).find((entry) => !before.has(entry))!);
+    assert.ok(readdirSync(run).some((entry) => entry.endsWith('.tgz')));
+    assert.equal(existsSync(join(run, 'programme.json')), false, 'exhaustion refuses before invoking the programme');
+  });
   assert.throws(() => execFileSync(process.execPath, [join(import.meta.dirname, '../scripts/live-improver.ts')], { env: { ...process.env, PM_RL_TRACKER_ROOT: join(w.root, 'missing-fleet') }, timeout: 30_000, stdio: 'pipe' }));
 });

@@ -111,7 +111,8 @@ export function buildImproverDataset(directories: readonly string[], output: str
   for (const directory of directories) {
     const root = dirname(dirname(directory));
     const remote = execFileSync("git", ["remote", "get-url", "origin"], { cwd: root, encoding: "utf8" }).trim();
-    const source = sources.find((entry) => remote.endsWith(`${entry.repo}.git`) || remote.endsWith(entry.repo));
+    const repo = /^(?:https:\/\/github\.com\/|git@github\.com:)([\w-]+\/pm-[\w-]+?)(?:\.git)?$/.exec(remote)![1].toLowerCase();
+    const source = sources.find((entry) => entry.repo.toLowerCase() === repo);
     if (source === undefined) continue;
     const paths = execFileSync("git", ["ls-tree", "-r", "--name-only", source.commit, "--", ".agents/pm/history"], { cwd: root, encoding: "utf8", maxBuffer: 8 * 1024 * 1024 }).trim().split("\n").filter((path) => path.endsWith(".jsonl"));
     const rows = historyBlobs(root, source.commit, paths).flatMap((history, index) => {

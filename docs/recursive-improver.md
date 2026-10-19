@@ -115,13 +115,21 @@ is persisted, so repeated resumes cannot replenish time. Completed replay launch
 no jobs. Dataset, configuration, approval or receipt drift refuses. Ambiguous
 holders use the same command with `--force-takeover`; live holders still block.
 
+Each trial now records the fitted candidate's held-out class counts (`0` and
+`1`), number of distinct predictions, training accuracy, training majority
+accuracy, and whether training accuracy exceeds that majority. These aggregates
+include rejected candidates, separately from retained learner scores. Every
+generation also reports `any_candidate_beats_train_majority` across development
+and both meta searches; audit diagnostics remain separate and open only after
+selection. Class `0` means fast/Issue and class `1` means slow/other.
+
 ## Measured result
 
-| Generation | Time-to-close | Item type | Majority / retained seed | Meta score (95% tracker CI) | Improver promotion |
-| --- | ---: | ---: | ---: | --- | --- |
-| 1 | 0.50 | 0.50 | 0.50 / 0.50 | 0.50 [0.00, 1.00] | refused |
-| 2 | 0.50 | 0.50 | 0.50 / 0.50 | 0.50 [0.00, 1.00] | refused |
-| 3 | 0.50 | 0.50 | 0.50 / 0.50 | 0.50 [0.00, 1.00] | refused |
+| Generation | Time-to-close | Item type | Majority / retained seed | Meta score (95% tracker CI) | Improver promotion | Held-out constant candidates | Beat train majority |
+| --- | ---: | ---: | ---: | --- | --- | ---: | ---: |
+| 1 | 0.50 | 0.50 | 0.50 / 0.50 | 0.50 [0.00, 1.00] | refused | 0/10 | 10/10 |
+| 2 | 0.50 | 0.50 | 0.50 / 0.50 | 0.50 [0.00, 1.00] | refused | 4/10 | 6/10 |
+| 3 | 0.50 | 0.50 | 0.50 / 0.50 | 0.50 [0.00, 1.00] | refused | 5/10 | 7/10 |
 
 All three outer gains are zero, with simultaneous lower gain bound
 -2.701813717997259. Each comparison has confidence 0.9986486486486487 after
@@ -131,15 +139,32 @@ examples across them. Development contains one tracker (36 time-to-close and
 32 item-type held-out examples); final audit contains one separate tracker
 (16 and 24 examples). Both audit scores remain 0.50 before and after.
 
+The diagnostic columns count all ten fitted proposals per generation across
+development and both meta contenders. Held-out class distributions show 21/30
+nonconstant candidates; 23/30 exceed the training majority, and the generation
+summary boolean is true in every generation. Candidate held-out accuracy spans
+0.375 to 0.666667. Audit diagnostics, opened after selection, show 2/4 constant
+candidates and 2/4 beating training majority; their candidate accuracies are
+0.375 and 0.50, while all retained audit scores stay 0.50. Exact per-candidate
+class counts, distinct prediction counts, training accuracies and majority
+comparisons are in the evidence JSON.
+
+Thus the table's null is the constant incumbent retained by the unchanged inner
+gates, followed by an outer gate with insufficient independent trackers. It is
+not uniform fitted-candidate collapse: some proposals fit training signal and
+predict both held-out classes, while other feature configurations predict a
+single held-out class. Neither training fit nor an isolated higher held-out
+point estimate establishes statistically bounded improvement.
+
 Every generation adds two development outcomes to the ledger. The candidate
 artifacts retain distinct ledger digests and changed failure priors at two, four
 and six observations, while the outer gate retains the original improver.
 This is an honest, statistically underpowered null. The small cohort cannot
 establish that an updated proposer is better. Follow-up `pm-rl-rsipower` requires
-a separately powered benchmark. The final run completed in 568.393 seconds, with
+a separately powered benchmark. The single review-fix repetition completed in 244.523 seconds, with
 34 successful reserved process jobs, zero recovery attempts and zero tokens.
-Measured process use was 161701 ms wall, 3025 CPU milliseconds
-and 92136 staging bytes. The parent watchdog covers the complete run.
+Measured process use was 71684 ms wall, 2971 CPU milliseconds
+and 92102 staging bytes. The parent watchdog covers the complete run.
 Source, dataset, policy, budget and timing receipts are recorded in
 [improver-live-evidence.json](improver-live-evidence.json).
 
@@ -162,5 +187,21 @@ resumes successfully and verifies identical terminal replay and job counts.
 Behavior-only reversions of the prior update and strict history filter fail with
 the tests retained; restoring each implementation passes. The PM item records
 exact commands and results. No SDK mocks are used.
+
+Round 1 adds four behavior-only revert proofs with the new tests retained:
+
+| Fix | Regression command (`node --test ... test/improver.test.ts`) | Reverted behavior and failure |
+| --- | --- | --- |
+| Exact parsed repository identity | `--test-name-pattern='repository identity'` | Suffix lookup chooses the other owner's commit; Git cannot read that tree. |
+| Finite numeric learning rate | `--test-name-pattern='learning rate'` | Removing `Number.isFinite` accepts a numeric string; the required rejection is missing. |
+| Deadline after pack/install | `--test-name-pattern='public command builds'` | Moving remaining-time calculation before packaging fails the package-exists timing assertion. The restored path also checks installation completion and exhausted-deadline refusal. |
+| Finally-based live fixture cleanup | `--test-name-pattern='live fixture cleanup'` | Removing cleanup leaves generated entries; the before/after inventory differs. The restored test covers success and assertion failure. |
+
+All four reverted variants exit 1. Restored focused acceptance passes 5/5,
+including actual constant and nonconstant candidate diagnostics and the packed
+worker path. Cleanup removes only entries absent from the initial inventory and
+restores the executable search path even on failure. The complete run deadline
+includes dataset preparation, packaging and package installation; an exhausted
+budget refuses before writing a programme or invoking the training CLI.
 
 Implementation digests use `hashJson` on UTF-8 source text, matching the package's canonical JSON hashing. Time-to-close uses the same all-slow zero-weight baseline retained by the previous prefix learner; class one maps to other for the new item-type target.
