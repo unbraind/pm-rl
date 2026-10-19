@@ -1,0 +1,42 @@
+id: pm-rl-rsi
+title: Promote improver policies from their own outcome ledger
+description: "Add a typed versioned proposal policy, ledger-driven successor updates, equal-budget meta-task promotion, durable resume, and a three-generation CPU experiment over public tracker histories with two prediction targets."
+type: Feature
+status: in_progress
+priority: 2
+tags: []
+created_at: "2026-10-19T12:27:11.978Z"
+updated_at: "2026-10-19T14:16:23.689Z"
+assignee: codex-agent
+claim_principal: codex-agent
+author: codex-agent
+parent: pm-rl-apvf
+comments[9]{created_at,author,text}:
+  "2026-10-19T12:27:20.475Z",codex-agent,"Plan: retain the existing statistical promotion gate; add content-addressed finite search arms with Bayesian outcome priors, update candidates from development-only ledger outcomes, compare proposal policies on disjoint meta trackers under identical fit budgets, and open final audit trackers only after selection. Prediction features use strictly earlier history; chronological splits purge labels unavailable at their boundary. Record three generations, baselines, confidence bounds, actual kill/resume and behavioral revert proofs. Canonical sources remain read-only; dependency pins and thresholds remain unchanged."
+  "2026-10-19T12:35:45.321Z",codex-agent,"Implemented two independent artifact levels: learner fits use the existing reserved process adapter and unchanged statistical gate; proposer artifacts contain bounded feature/optimizer arms with explicit outcome priors. Candidate priors are rebuilt from unique development-only proposal receipts. Meta challengers start from the same constant learner and receive identical candidate counts and optimizer updates. Confidence is allocated over planned comparisons; meta sample size is distinct trackers, averaging the related targets within each tracker. A frozen audit role remains unopened until all generations finish."
+  "2026-10-19T12:46:00.699Z",codex-agent,"Behavioral revert proof: retained all regression tests and replaced only the updateImprover prior-update block with return arm, preserving candidate version/ancestry/ledger metadata. node --test --test-name-pattern=\"improver updates actual\" test/improver.test.ts failed (exit 1: prior mass 16 instead of 116). Restoring the update passes; the combined update, leakage sentinel, chronological split and gate/feature regressions pass 4/4. The regression also asserts sampled proposals change, so a metadata-only update cannot pass. Real SDK/process tests additionally prove conditional inner promotion and gap rejection."
+  "2026-10-19T12:51:22.942Z",codex-agent,"Leakage revert proof: replaced only historyBeforePrediction filtering with all events while retaining the sentinel regression. node --test --test-name-pattern=\"leakage sentinel\" test/improver.test.ts failed (exit 1); restoring the strict timestamp filter passes 1/1. A real SIGKILL after the first durable update resumes three generations, adopts original settled reservations, and replays terminal state without new jobs. The audit compartment is absent until all three selection receipts commit. The complete synthetic acceptance passed 8/8; final coverage and release gates are being run. Runtime diagnostics motivate a fixed four-tracker, K=1 live cohort selected solely from the existing manifest ordering/roles; statistical underpower is an explicit limitation, not a claimed gain."
+  "2026-10-19T13:06:20.257Z",codex-agent,"Release diagnostics corrected scratch hygiene: the source copier now checks out only .agents/pm, with a committed-code exclusion sentinel, while retaining verified Git objects and public commit pins. Canonical checkouts remain unchanged. Strict lint passes after replacing mutable cross-await learner/policy locals with append-only incumbent arrays; this preserves phase inputs and numerical behavior. Duplicate count is zero; all 316 declarations across 44 authored files are documented. The complete isolated npm release gate is running at unchanged thresholds."
+  "2026-10-19T13:16:31.695Z",codex-agent,"Completed real public-tracker acceptance: three generations, K=1, 34 reserved CPU fits and 8704 fixed SGD updates in 878412.013029 ms (below 20 minutes), zero model tokens. Every development, meta and final audit retained score is 0.50 on the balanced time-to-close and Issue/other targets, matching majority and the retained constant seed. The outer sample unit is two independent meta trackers (100 target examples), below minSamples=10; all three improvers refuse with insufficient_samples, gain 0 and lower bound -2.701813717997259. Candidate failure priors change after 2/4/6 unique development outcomes; the incumbent artifact remains version 1. The final-code repetition and full release gates are running. The report makes no real-data improvement claim; pm-rl-rsipower tracks the required powered follow-up."
+  "2026-10-19T13:51:52.848Z",codex-agent,"Added bounded in-flight recovery: every logical fit has at most two predeclared process slots, each launched at most once. A SIGKILL after a persisted launch intent with a missing or partially written completion can consume the second slot with identical training data and source parameters; the first failed reservation and conservative charge remain audited. Complete invalid receipts refuse, cancellation does not retry, and exhausting both attempts cannot allocate a third. The real SDK/OS test passes 1/1 across missing, partial, invalid, cancellation, trainer-failure and storage-fault scenarios. Normal 34-fit runs still perform 8704 SGD updates; recovery capacity is capped at 68 process jobs and 17408 updates within the unchanged whole-run deadline. Both meta contenders receive that same cap."
+  "2026-10-19T13:59:40.012Z",codex-agent,"Final regression review also preserves learned priors when a promoted improver starts a later programme: updateImprover accepts a declared baseline, and the controller rebuilds its cumulative ledger from its immutable initial artifact. Tests prove incremental updates retain prior evidence and explicit cumulative updates count it once. Promoted ledger outcomes with nonpositive gain now refuse. All four pure policy/leakage/time/gate checks pass. The model, data splits, seeds and gate thresholds are fixed; remaining changes concern artifact accounting and bounded crash recovery."
+  "2026-10-19T14:16:23.689Z",codex-agent,"Final measured source acceptance: 568392.653785 ms (9m28s), 34 successful reserved jobs, 8704 nominal SGD updates, no recovery use, zero tokens. Fixed recovery capacity is 68 jobs/17408 updates; all nine recorded numerical implementation hashes match the final source. Meta gain remains zero in each of three generations; both task baselines and audit scores remain 0.50. Fresh isolated behavioral copies independently fail with only prior updates reverted (exit 1), only recovery reverted (exit 1), or only the strict timestamp filter reverted (exit 1); restored pure regressions pass 4/4 and restored pre-exec SIGKILL recovery passes 1/1. The local complete release attempt hit the existing packed-LM 20-second smoke at 58.5 seconds under shared host load. No bound or threshold was changed; the complete npm/Bun matrix will provide final source-head verification. Existing timing follow-up pm-rl-7c7m remains separate."
+files[11]{path,scope}:
+  dataset.ts,project
+  improver-data.ts,project
+  improver-environment.ts,project
+  improver.ts,project
+  index.ts,project
+  package.json,project
+  recursive-improver.ts,project
+  scripts/live-improver.ts,project
+  test/fixtures/improver-controller.ts,project
+  test/fixtures/improver-intent.ts,project
+  test/improver.test.ts,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test --test-name-pattern='improver updates|leakage sentinel|chronological splits|proposal masks' test/improver.test.ts,project,codex-agent,"2026-10-19T12:43:52.661Z",local_mutation,feat/recursive-improver-policy
+docs[3]{path,scope}:
+  docs/improver-live-evidence.json,project
+  docs/recursive-improver.md,project
+  README.md,project
+body: ""

@@ -1,0 +1,812 @@
+{
+  "format": "pm-rl/improver-acceptance/1",
+  "config": {
+    "initial": {
+      "format": "pm-rl/improver/1",
+      "version": 1,
+      "parent": null,
+      "strategy": "posterior-mixture",
+      "exploration": 0.25,
+      "arms": [
+        {
+          "config": {
+            "features": "all",
+            "learning_rate": 0.05,
+            "prefix": {
+              "hashing_width": 32,
+              "ngram_order": 1,
+              "regularisation": 0.001
+            }
+          },
+          "success": 1,
+          "failure": 1,
+          "gain": 0
+        },
+        {
+          "config": {
+            "features": "all",
+            "learning_rate": 0.5,
+            "prefix": {
+              "hashing_width": 32,
+              "ngram_order": 1,
+              "regularisation": 0.001
+            }
+          },
+          "success": 1,
+          "failure": 1,
+          "gain": 0
+        },
+        {
+          "config": {
+            "features": "events",
+            "learning_rate": 0.05,
+            "prefix": {
+              "hashing_width": 32,
+              "ngram_order": 3,
+              "regularisation": 0.001
+            }
+          },
+          "success": 1,
+          "failure": 1,
+          "gain": 0
+        },
+        {
+          "config": {
+            "features": "events",
+            "learning_rate": 0.5,
+            "prefix": {
+              "hashing_width": 32,
+              "ngram_order": 3,
+              "regularisation": 0.001
+            }
+          },
+          "success": 1,
+          "failure": 1,
+          "gain": 0
+        },
+        {
+          "config": {
+            "features": "words",
+            "learning_rate": 0.05,
+            "prefix": {
+              "hashing_width": 32,
+              "ngram_order": 1,
+              "regularisation": 0.001
+            }
+          },
+          "success": 1,
+          "failure": 1,
+          "gain": 0
+        },
+        {
+          "config": {
+            "features": "words",
+            "learning_rate": 0.5,
+            "prefix": {
+              "hashing_width": 32,
+              "ngram_order": 1,
+              "regularisation": 0.001
+            }
+          },
+          "success": 1,
+          "failure": 1,
+          "gain": 0
+        },
+        {
+          "config": {
+            "features": "timing",
+            "learning_rate": 0.05,
+            "prefix": {
+              "hashing_width": 32,
+              "ngram_order": 1,
+              "regularisation": 0.001
+            }
+          },
+          "success": 1,
+          "failure": 1,
+          "gain": 0
+        },
+        {
+          "config": {
+            "features": "timing",
+            "learning_rate": 0.5,
+            "prefix": {
+              "hashing_width": 32,
+              "ngram_order": 1,
+              "regularisation": 0.001
+            }
+          },
+          "success": 1,
+          "failure": 1,
+          "gain": 0
+        }
+      ],
+      "ledger": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "digest": "sha256:c3c491aeffc88995cf406dbc6dc01d670212d5de3bfe7b610cec3c6a344e17a9"
+    },
+    "seed": 42,
+    "generations": 3,
+    "candidates": 1,
+    "updates": 256,
+    "timeout_ms": 1131711
+  },
+  "dataset": {
+    "format": "pm-rl/improver-dataset/1",
+    "seed": 42,
+    "sources": [
+      {
+        "repo": "unbraind/pm-csv",
+        "commit": "31f968c5d63ac471f8df4495087c15f1809ca4d7",
+        "role": "development"
+      },
+      {
+        "repo": "unbraind/pm-beads",
+        "commit": "8919a250feb3ebb51b9aa3288f6351de1f150c70",
+        "role": "meta"
+      },
+      {
+        "repo": "unbraind/pm-rl",
+        "commit": "b255dfac6543ab178ab2720fad1de1ba49f91dd4",
+        "role": "meta"
+      },
+      {
+        "repo": "unbraind/pm-starter",
+        "commit": "be5fac027b1124def32c612dc2ca3b5496d29dd2",
+        "role": "audit"
+      }
+    ],
+    "splits": {
+      "development": {
+        "digest": "c9f763ec2cdf663140666c2b24ec89e6884916ca92c54de48ae06cf231c055a9",
+        "tasks": 2
+      },
+      "meta": {
+        "digest": "adc51f9fb83e9c63aca909bbd0cdd094ca813c87d3ef5deee58f61e893d4675c",
+        "tasks": 4
+      },
+      "audit": {
+        "digest": "eddd5fa82759481748103bfd8d661e6b09db8afce6b8352e699364e38bffc69e",
+        "tasks": 2
+      }
+    },
+    "omitted": [],
+    "digest": "2f34b38571010f21952ffaf9a571c8294012130b057a1df91d6be087ee024a0e"
+  },
+  "report_digest": "aa507cf89b6ccb236bac8411316428b292005c754d420764971f53c042f2d256",
+  "implementation": {
+    "improver.ts": "3d0f4b911271353ea2889fa95fa56fb0865247d3cd39b38c257672909bcb9ded",
+    "improver-data.ts": "c315478a0962221fced854d5fb200853410ee5f9e9103717cc66950512339bdd",
+    "improver-environment.ts": "74baaad2ba2775d44583eb8cb518290bd85a2838b8e1c0d1c95aed07adeaaea3",
+    "recursive-improver.ts": "29a96281bae2f3141c0d9ac66db1c43482587f30c2bbd0a29873df0391807c76",
+    "prefix.ts": "51d9b9eac76612da85c509cb8d351b9ecfd453d8fceb0858c9d9b8295209e705",
+    "prefix-trainer.ts": "41d3257b434b8d2b7b22f65962723411fcdafc3633326be126b673b3692ef44f",
+    "process.ts": "cc8f111cfef8b5636ae5d4df181be4347dfb5f9bb3b0e99957312c066f5cabb9",
+    "promotion.ts": "a36e0b2b565bbd5b6bdcaa83991d50b18c08c409bff218c7dd3d1e77bb901df8",
+    "index.ts": "3afbfec1479a9fbab033bd575ca7c4a02aed0393579ccb0687b6ed75e573a29d"
+  },
+  "budget": {
+    "fits": 34,
+    "updates_per_fit": 256,
+    "optimizer_updates": 8704,
+    "max_process_jobs": 68,
+    "max_optimizer_updates": 17408
+  },
+  "usage": {
+    "training_steps": 34,
+    "wall_ms": 161701,
+    "storage_bytes": 92136,
+    "compute_units": 3025,
+    "tokens": 0
+  },
+  "elapsed_ms": 568392.653785,
+  "generations": [
+    {
+      "generation": 1,
+      "policy": "sha256:c3c491aeffc88995cf406dbc6dc01d670212d5de3bfe7b610cec3c6a344e17a9",
+      "candidate": {
+        "format": "pm-rl/improver/1",
+        "version": 2,
+        "parent": "sha256:c3c491aeffc88995cf406dbc6dc01d670212d5de3bfe7b610cec3c6a344e17a9",
+        "strategy": "posterior-mixture",
+        "exploration": 0.25,
+        "arms": [
+          {
+            "config": {
+              "features": "all",
+              "learning_rate": 0.05,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 2,
+            "gain": 0
+          },
+          {
+            "config": {
+              "features": "all",
+              "learning_rate": 0.5,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 1,
+            "gain": 0
+          },
+          {
+            "config": {
+              "features": "events",
+              "learning_rate": 0.05,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 3,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 1,
+            "gain": 0
+          },
+          {
+            "config": {
+              "features": "events",
+              "learning_rate": 0.5,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 3,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 1,
+            "gain": 0
+          },
+          {
+            "config": {
+              "features": "words",
+              "learning_rate": 0.05,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 1,
+            "gain": 0
+          },
+          {
+            "config": {
+              "features": "words",
+              "learning_rate": 0.5,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 2,
+            "gain": 0
+          },
+          {
+            "config": {
+              "features": "timing",
+              "learning_rate": 0.05,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 1,
+            "gain": 0
+          },
+          {
+            "config": {
+              "features": "timing",
+              "learning_rate": 0.5,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 1,
+            "gain": 0
+          }
+        ],
+        "ledger": "be30aff9055cb76280ddb69e59a81c0cf4330a6b0fd0e865f568503666331bfc",
+        "digest": "sha256:cedd69cfb62b63c830a57742efd127a59d66c50d2aaba4ae77695b1e61756063"
+      },
+      "promoted": false,
+      "development": [
+        {
+          "target": "time-to-close",
+          "mean": 0.5,
+          "interval": [
+            0,
+            1
+          ],
+          "trackers": 1,
+          "items": 36,
+          "majority": 0.5,
+          "retained": 0.5
+        },
+        {
+          "target": "issue-type",
+          "mean": 0.5,
+          "interval": [
+            0,
+            1
+          ],
+          "trackers": 1,
+          "items": 32,
+          "majority": 0.5,
+          "retained": 0.5
+        }
+      ],
+      "meta": {
+        "before": {
+          "mean": 0.5,
+          "interval": [
+            0,
+            1
+          ],
+          "trackers": 2,
+          "items": 100,
+          "majority": 0.5,
+          "retained": 0.5
+        },
+        "after": {
+          "mean": 0.5,
+          "interval": [
+            0,
+            1
+          ],
+          "trackers": 2,
+          "items": 100,
+          "majority": 0.5,
+          "retained": 0.5
+        },
+        "gain": 0,
+        "lower_bound": -2.701813717997259,
+        "verdict": {
+          "decision": "refuse",
+          "code": "insufficient_samples",
+          "reason": "Promotion refused: the candidate evidence carries 2 sample(s), below the required minimum of 10. A noisy sample below the minimum count is not statistically bounded improvement."
+        }
+      }
+    },
+    {
+      "generation": 2,
+      "policy": "sha256:c3c491aeffc88995cf406dbc6dc01d670212d5de3bfe7b610cec3c6a344e17a9",
+      "candidate": {
+        "format": "pm-rl/improver/1",
+        "version": 2,
+        "parent": "sha256:c3c491aeffc88995cf406dbc6dc01d670212d5de3bfe7b610cec3c6a344e17a9",
+        "strategy": "posterior-mixture",
+        "exploration": 0.25,
+        "arms": [
+          {
+            "config": {
+              "features": "all",
+              "learning_rate": 0.05,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 2,
+            "gain": 0
+          },
+          {
+            "config": {
+              "features": "all",
+              "learning_rate": 0.5,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 1,
+            "gain": 0
+          },
+          {
+            "config": {
+              "features": "events",
+              "learning_rate": 0.05,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 3,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 3,
+            "gain": 0
+          },
+          {
+            "config": {
+              "features": "events",
+              "learning_rate": 0.5,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 3,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 1,
+            "gain": 0
+          },
+          {
+            "config": {
+              "features": "words",
+              "learning_rate": 0.05,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 1,
+            "gain": 0
+          },
+          {
+            "config": {
+              "features": "words",
+              "learning_rate": 0.5,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 2,
+            "gain": 0
+          },
+          {
+            "config": {
+              "features": "timing",
+              "learning_rate": 0.05,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 1,
+            "gain": 0
+          },
+          {
+            "config": {
+              "features": "timing",
+              "learning_rate": 0.5,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 1,
+            "gain": 0
+          }
+        ],
+        "ledger": "886fa9fa62a755fa4dc9336b55beeaf2f9c8af99cc88e3661c1d24571b5ddeb6",
+        "digest": "sha256:cc3994648a4d361e6f3661c0c1a5545f20b0f3dfda9cc9af970052e772a20cef"
+      },
+      "promoted": false,
+      "development": [
+        {
+          "target": "time-to-close",
+          "mean": 0.5,
+          "interval": [
+            0,
+            1
+          ],
+          "trackers": 1,
+          "items": 36,
+          "majority": 0.5,
+          "retained": 0.5
+        },
+        {
+          "target": "issue-type",
+          "mean": 0.5,
+          "interval": [
+            0,
+            1
+          ],
+          "trackers": 1,
+          "items": 32,
+          "majority": 0.5,
+          "retained": 0.5
+        }
+      ],
+      "meta": {
+        "before": {
+          "mean": 0.5,
+          "interval": [
+            0,
+            1
+          ],
+          "trackers": 2,
+          "items": 100,
+          "majority": 0.5,
+          "retained": 0.5
+        },
+        "after": {
+          "mean": 0.5,
+          "interval": [
+            0,
+            1
+          ],
+          "trackers": 2,
+          "items": 100,
+          "majority": 0.5,
+          "retained": 0.5
+        },
+        "gain": 0,
+        "lower_bound": -2.701813717997259,
+        "verdict": {
+          "decision": "refuse",
+          "code": "insufficient_samples",
+          "reason": "Promotion refused: the candidate evidence carries 2 sample(s), below the required minimum of 10. A noisy sample below the minimum count is not statistically bounded improvement."
+        }
+      }
+    },
+    {
+      "generation": 3,
+      "policy": "sha256:c3c491aeffc88995cf406dbc6dc01d670212d5de3bfe7b610cec3c6a344e17a9",
+      "candidate": {
+        "format": "pm-rl/improver/1",
+        "version": 2,
+        "parent": "sha256:c3c491aeffc88995cf406dbc6dc01d670212d5de3bfe7b610cec3c6a344e17a9",
+        "strategy": "posterior-mixture",
+        "exploration": 0.25,
+        "arms": [
+          {
+            "config": {
+              "features": "all",
+              "learning_rate": 0.05,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 2,
+            "gain": 0
+          },
+          {
+            "config": {
+              "features": "all",
+              "learning_rate": 0.5,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 1,
+            "gain": 0
+          },
+          {
+            "config": {
+              "features": "events",
+              "learning_rate": 0.05,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 3,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 3,
+            "gain": 0
+          },
+          {
+            "config": {
+              "features": "events",
+              "learning_rate": 0.5,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 3,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 1,
+            "gain": 0
+          },
+          {
+            "config": {
+              "features": "words",
+              "learning_rate": 0.05,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 1,
+            "gain": 0
+          },
+          {
+            "config": {
+              "features": "words",
+              "learning_rate": 0.5,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 3,
+            "gain": 0
+          },
+          {
+            "config": {
+              "features": "timing",
+              "learning_rate": 0.05,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 2,
+            "gain": 0
+          },
+          {
+            "config": {
+              "features": "timing",
+              "learning_rate": 0.5,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 1,
+            "gain": 0
+          }
+        ],
+        "ledger": "8c926755c943cbc69399c5ee770b6a4ff077458e883dd252161c5cc87db1bcf3",
+        "digest": "sha256:ac7f18f66d5d07dee84822201f041b591ced0709aa1daa6648c7e00d4d0514dd"
+      },
+      "promoted": false,
+      "development": [
+        {
+          "target": "time-to-close",
+          "mean": 0.5,
+          "interval": [
+            0,
+            1
+          ],
+          "trackers": 1,
+          "items": 36,
+          "majority": 0.5,
+          "retained": 0.5
+        },
+        {
+          "target": "issue-type",
+          "mean": 0.5,
+          "interval": [
+            0,
+            1
+          ],
+          "trackers": 1,
+          "items": 32,
+          "majority": 0.5,
+          "retained": 0.5
+        }
+      ],
+      "meta": {
+        "before": {
+          "mean": 0.5,
+          "interval": [
+            0,
+            1
+          ],
+          "trackers": 2,
+          "items": 100,
+          "majority": 0.5,
+          "retained": 0.5
+        },
+        "after": {
+          "mean": 0.5,
+          "interval": [
+            0,
+            1
+          ],
+          "trackers": 2,
+          "items": 100,
+          "majority": 0.5,
+          "retained": 0.5
+        },
+        "gain": 0,
+        "lower_bound": -2.701813717997259,
+        "verdict": {
+          "decision": "refuse",
+          "code": "insufficient_samples",
+          "reason": "Promotion refused: the candidate evidence carries 2 sample(s), below the required minimum of 10. A noisy sample below the minimum count is not statistically bounded improvement."
+        }
+      }
+    }
+  ],
+  "audit": [
+    {
+      "target": "time-to-close",
+      "before": {
+        "mean": 0.5,
+        "interval": [
+          0,
+          1
+        ],
+        "trackers": 1,
+        "items": 16,
+        "majority": 0.5,
+        "retained": 0.5
+      },
+      "after": {
+        "mean": 0.5,
+        "interval": [
+          0,
+          1
+        ],
+        "trackers": 1,
+        "items": 16,
+        "majority": 0.5,
+        "retained": 0.5
+      }
+    },
+    {
+      "target": "issue-type",
+      "before": {
+        "mean": 0.5,
+        "interval": [
+          0,
+          1
+        ],
+        "trackers": 1,
+        "items": 24,
+        "majority": 0.5,
+        "retained": 0.5
+      },
+      "after": {
+        "mean": 0.5,
+        "interval": [
+          0,
+          1
+        ],
+        "trackers": 1,
+        "items": 24,
+        "majority": 0.5,
+        "retained": 0.5
+      }
+    }
+  ],
+  "retained": "sha256:c3c491aeffc88995cf406dbc6dc01d670212d5de3bfe7b610cec3c6a344e17a9"
+}

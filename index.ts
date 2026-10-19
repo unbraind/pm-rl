@@ -153,6 +153,12 @@ export { decidePromotion, hoeffdingEpsilon, parsePromotionCriterion, parsePromot
 export { recipeArtifact, parseRecipe, seededRecipes, INITIAL_RECIPE, RECIPE_BOUNDS, type Recipe, type RecipeKnobs } from "./recipe.ts";
 export { buildTrackerDataset, readTrackerDataset, readTrackerSplit, type TrackerDataset, type TrackerExample } from "./dataset.ts";
 export { runRlMeta, parseMetaConfig, type MetaConfig, type MetaRequest, type MetaReport } from "./meta.ts";
+export { runRecursiveImprover, improverConfiguration, improverBudget, parseImproverConfig, type ImproverConfig, type ImproverReport, type ImproverRequest } from "./recursive-improver.ts";
+export { initialImprover, improverArtifact, parseImprover, proposeLearners, updateImprover, type ImproverPolicy, type LearnerConfig, type ProposalOutcome } from "./improver.ts";
+export { buildImproverDataset, readImproverDataset, type ImproverDataset } from "./improver-data.ts";
+export { IMPROVER_ADAPTER, IMPROVER_CRITERION, IMPROVER_MAX_ATTEMPTS } from "./improver-environment.ts";
+import { runRecursiveImprover, parseImproverConfig, type ImproverConfig } from "./recursive-improver.ts";
+import { buildImproverDataset } from "./improver-data.ts";
 
 import { buildTrackerDataset } from "./dataset.ts";
 import { runRlMeta, parseMetaConfig, retainedMetaPromotionHeadroom, type MetaReport } from "./meta.ts";
@@ -4204,6 +4210,26 @@ async function runMetaCommand(context: CommandHandlerContext): Promise<RlCommand
   return { action: "rl-meta-run", id, details: { ...report } };
 }
 
+/** Build frozen chronological tasks from verified public tracker snapshots. */
+async function buildImproverCommand(context: CommandHandlerContext): Promise<RlCommandResult> {
+  const manifest = buildImproverDataset([stringOption(context, "from_trackers")!, ...context.args], stringOption(context, "output")!);
+  return { action: "rl-improver-build", details: { ...manifest } };
+}
+
+/** Execute the two-level improver through the installed CLI with durable cancellation and takeover boundaries. */
+async function runImproverCommand(context: CommandHandlerContext): Promise<RlCommandResult> {
+  const id = requiredArgument(context, "an improver programme id");
+  const cancellation = installCancellationSignals();
+  try {
+    const report = await runRecursiveImprover(clientFor(context), { pmRoot: context.pm_root, author: authorFor(context) }, {
+      id, config: parseImproverConfig(readJsonFile(stringOption(context, "file")!, "Improver programme") as unknown as ImproverConfig),
+      dataset: stringOption(context, "dataset")!, approval: stringOption(context, "approval")!, signal: cancellation.controller.signal,
+      forceTakeover: (context.options["force_takeover"] ?? context.options["forceTakeover"]) === true,
+    });
+    return { action: "rl-improver-run", id, details: { ...report } };
+  } finally { removeCancellationSignals(cancellation.handlers); }
+}
+
 /** Resume one interrupted loop through the public command surface. */
 async function resumeLoopCommand(context: CommandHandlerContext): Promise<RlCommandResult> {
   const id = requiredArgument(context, "a loop id");
@@ -4862,6 +4888,16 @@ async function showTransferGap(context: CommandHandlerContext): Promise<RlComman
 
 /** Commands authored separately so activation and tests share one exact contract. */
 export const RL_COMMANDS = [
+  defineCommand({ name: "rl improver build", description: "Freeze chronological balanced public tracker tasks for recursive proposal-policy evaluation.", arguments: [{ name: "directories", variadic: true, description: "Additional tracker directories." }], flags: [
+    { long: "--from-trackers", value_name: "directory", value_type: "string", required: true, description: "First copied public tracker directory." },
+    { long: "--output", value_name: "directory", value_type: "string", required: true, description: "New dataset directory." },
+  ], run: buildImproverCommand }),
+  defineCommand({ name: "rl improver run", description: "Resume learner proposals and ledger-driven improver promotion under an existing resource Decision.", arguments: [{ name: "id", required: true, description: "Stable improver programme id." }], flags: [
+    { long: "--file", value_name: "path", value_type: "string", required: true, description: "Bounded improver programme JSON." },
+    { long: "--dataset", value_name: "directory", value_type: "string", required: true, description: "Frozen improver dataset." },
+    { long: "--approval", value_name: "decision", value_type: "string", required: true, description: "Existing CPU resource allowance Decision." },
+    { long: "--force-takeover", description: "Audit recovery of an ambiguous controller holder." },
+  ], run: runImproverCommand }),
   defineCommand({ name: "rl dataset build", description: "Build a public MIT tracker-history dataset with repository-isolated train, meta-validation and final-test splits.", arguments: [{ name: "directories", variadic: true, description: "Additional tracker directories." }], flags: [
     { long: "--from-trackers", value_name: "directory", value_type: "string", required: true, description: "First tracker directory; append additional directories as arguments." },
     { long: "--task", value_name: "kind", value_type: "string", description: "terminal-disposition (default) or history-prefix time-to-close with training-only calibration." },
