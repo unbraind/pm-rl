@@ -205,3 +205,12 @@ includes dataset preparation, packaging and package installation; an exhausted
 budget refuses before writing a programme or invoking the training CLI.
 
 Implementation digests use `hashJson` on UTF-8 source text, matching the package's canonical JSON hashing. Time-to-close uses the same all-slow zero-weight baseline retained by the previous prefix learner; class one maps to other for the new item-type target.
+
+
+Round 1 full release acceptance on source head `3d4fb10` passed in
+[CI run 39282564621](https://github.com/unbraind/pm-rl/actions/runs/39282564621):
+`npm run release:check` on Node 22 and Node 26, and `bun run release:check` on
+Node 26, each with 653/653 tests, zero failures/skips/cancellations/todos,
+44/44 source files present and 100.00% statements, lines, branches and
+functions. Thresholds, dependency pins and the existing runtime smoke limits
+are unchanged. The CI merge checkout and branch head have identical trees.

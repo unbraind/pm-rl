@@ -249,6 +249,7 @@ test("reserved fits preserve candidate evidence on inner rejection and support r
   assert.equal(accepted.diagnostics.beats_train_majority, true);
   const constant = diagnoseImproverLearner(original, { config, checkpoint: prefixCheckpoint(new Array<number>(32).fill(0), config.prefix) });
   assert.equal(constant.distinct_predictions, 1); assert.equal(constant.beats_train_majority, false);
+  assert.deepEqual(constant.held_out_classes, { '0': 0, '1': original.evaluation.length }, 'the zero-weight seed predicts class one on every held-out item');
   assert.equal(constant.train_accuracy, 0.5); assert.equal(constant.held_out_classes['0'] + constant.held_out_classes['1'], original.evaluation.length);
   assert.deepEqual(await env.fit('development', 0, config, 'positive-fit', null, AbortSignal.timeout(60_000)), accepted);
   const held = await env.fit('development', 0, config, 'incumbent-fit', accepted.retained, AbortSignal.timeout(60_000));
