@@ -1,0 +1,214 @@
+{
+  "format": "pm-rl/prefix-diagnosis/1",
+  "original_report": "docs/meta-live-evidence.json",
+  "original_source_head": "5a142fc38a2591eb464ce63819f32f7101c2a9ef",
+  "dataset": "a4320672ba0d2f20e1aebfba7b9e91de71c95e17a9706700f79dfe163c8aae0c",
+  "classes": {
+    "train": {
+      "completed": 1014,
+      "cancelled": 9
+    },
+    "inner-held-out": {
+      "completed": 144,
+      "cancelled": 1
+    },
+    "meta-validation": {
+      "completed": 211,
+      "cancelled": 3
+    },
+    "final-test": {
+      "completed": 384,
+      "cancelled": 1
+    }
+  },
+  "receipts": [
+    {
+      "identity": "meta-live-initial-g1-step-train",
+      "receipt_digest": "78de9456ae3245aa010b98640cdaaceedae56f3efd4e53ac726b2e17bd5fb4a6",
+      "result": {
+        "generation": 1,
+        "source": {
+          "weight": 0,
+          "digest": "sha256:17493680209cdf2fc86126ff2ad0b7bb6063ae24ce00f28f931224bb5ab2fd11"
+        },
+        "candidate": {
+          "weight": 0.022724858855320742,
+          "digest": "sha256:e7b84fe99aece2aa4630d43c854b5803db65416fa113b14b2b5f47a3e81ba8ba"
+        },
+        "collectionDigest": "sha256:7dd2964c302850a34cbd12e0679690f961b5c896180b724c33c8c3c151d6c99b",
+        "randomState": 943579846,
+        "actionCounts": [
+          68,
+          60
+        ],
+        "baselineScore": 0.5,
+        "trainingScore": 0.5021966704620956,
+        "evaluationScore": 0.5013962023613622,
+        "incumbentHeldOutMean": 0.500125,
+        "candidateHeldOutMean": 0.49925,
+        "promoted": false,
+        "refusalReason": "Promotion refused: the candidate is not statistically better than the incumbent. Candidate lower bound 0.492459 does not beat incumbent upper bound 0.506916 by the effect threshold 0.01 (margin -0.024456). The candidate regressed: its mean is not above the incumbent's mean.",
+        "stopReason": "evaluation_rejected"
+      }
+    },
+    {
+      "identity": "meta-live-m1-c0-g1-step-train",
+      "receipt_digest": "45151d0448b77b090cc7d43854b4daa54c8a48a50e9ae6a98ccb57bf66c8b86d",
+      "result": {
+        "generation": 1,
+        "source": {
+          "weight": 0,
+          "digest": "sha256:17493680209cdf2fc86126ff2ad0b7bb6063ae24ce00f28f931224bb5ab2fd11"
+        },
+        "candidate": {
+          "weight": -0.0005118528149676244,
+          "digest": "sha256:7600e30ba234b9235b7c62938706ca2326b7bbde2786c373806f7e62af107b5f"
+        },
+        "collectionDigest": "sha256:0317502e955d666f1018fd632770f9bbea0ae9b1314ab472e6b4965bf2456aa8",
+        "randomState": 1608209784,
+        "actionCounts": [
+          108,
+          102
+        ],
+        "baselineScore": 0.5,
+        "trainingScore": 0.45396249591807564,
+        "evaluationScore": 0.4999792355383067,
+        "incumbentHeldOutMean": 0.500125,
+        "candidateHeldOutMean": 0.497875,
+        "promoted": false,
+        "refusalReason": "candidate does not improve held-out expected reward; statistically better sampled evidence cannot promote a regression or tie",
+        "stopReason": "evaluation_rejected"
+      }
+    },
+    {
+      "identity": "meta-live-m1-c1-g1-step-train",
+      "receipt_digest": "7d738eb8d796f50a44d3108ab58d8cb4182d9e1ac64e2e9bf442507097625f8d",
+      "result": {
+        "generation": 1,
+        "source": {
+          "weight": 0,
+          "digest": "sha256:17493680209cdf2fc86126ff2ad0b7bb6063ae24ce00f28f931224bb5ab2fd11"
+        },
+        "candidate": {
+          "weight": 0.019174925410742977,
+          "digest": "sha256:abc93322fcd1a82c3d307a87fe32a52afebc218d0d14fe4fac1879ee7ff3732d"
+        },
+        "collectionDigest": "sha256:8b22bc11f88542e19dc6d4c29fdb32599a133db6040c8fe376d1c51cb6a7ab92",
+        "randomState": 3662618995,
+        "actionCounts": [
+          95,
+          80
+        ],
+        "baselineScore": 0.5,
+        "trainingScore": 0.48500551386515756,
+        "evaluationScore": 0.5007688304680277,
+        "incumbentHeldOutMean": 0.500125,
+        "candidateHeldOutMean": 0.498475,
+        "promoted": false,
+        "refusalReason": "Promotion refused: the candidate is not statistically better than the incumbent. Candidate lower bound 0.491684 does not beat incumbent upper bound 0.506916 by the effect threshold 0.01 (margin -0.025231). The candidate regressed: its mean is not above the incumbent's mean.",
+        "stopReason": "evaluation_rejected"
+      }
+    },
+    {
+      "identity": "meta-live-m2-c0-g1-step-train",
+      "receipt_digest": "330ece36114c20c4deaa03082cbbf212f50b4d90f5b7c5cb19ab2c87168e2b5f",
+      "result": {
+        "generation": 1,
+        "source": {
+          "weight": 0,
+          "digest": "sha256:17493680209cdf2fc86126ff2ad0b7bb6063ae24ce00f28f931224bb5ab2fd11"
+        },
+        "candidate": {
+          "weight": 0.0018127149296954983,
+          "digest": "sha256:9b3212d693fac17fea1c2dc453f5a9561776985bc2e9ddc98a0e43dc242deca4"
+        },
+        "collectionDigest": "sha256:386bca10d637f58df56711a086bfdee64e6519a8ffd7df2f27f8208fcbd60200",
+        "randomState": 1195123344,
+        "actionCounts": [
+          73,
+          65
+        ],
+        "baselineScore": 0.5,
+        "trainingScore": 0.44982787659019896,
+        "evaluationScore": 0.500067842149053,
+        "incumbentHeldOutMean": 0.500125,
+        "candidateHeldOutMean": 0.49795,
+        "promoted": false,
+        "refusalReason": "Promotion refused: the candidate is not statistically better than the incumbent. Candidate lower bound 0.491159 does not beat incumbent upper bound 0.506916 by the effect threshold 0.01 (margin -0.025756). The candidate regressed: its mean is not above the incumbent's mean.",
+        "stopReason": "evaluation_rejected"
+      }
+    },
+    {
+      "identity": "meta-live-m2-c1-g1-step-train",
+      "receipt_digest": "8a6ae6950c13c20b5c31380b8d7b93b6397461c0c5f98ab0d1936d713a0b2c7e",
+      "result": {
+        "generation": 1,
+        "source": {
+          "weight": 0,
+          "digest": "sha256:17493680209cdf2fc86126ff2ad0b7bb6063ae24ce00f28f931224bb5ab2fd11"
+        },
+        "candidate": {
+          "weight": 0.007477301212876361,
+          "digest": "sha256:f0aab3090376635cd86069ec948068f12c254a11e7e92ccf2d1239d3f556928a"
+        },
+        "collectionDigest": "sha256:3f02b9aa55a6d6985b9796bffe2d8556160e20365ca6bf70f70a32b60c7f6dd5",
+        "randomState": 2998993702,
+        "actionCounts": [
+          48,
+          48
+        ],
+        "baselineScore": 0.5,
+        "trainingScore": 0.4016640141586508,
+        "evaluationScore": 0.5003564730693058,
+        "incumbentHeldOutMean": 0.500125,
+        "candidateHeldOutMean": 0.49815,
+        "promoted": false,
+        "refusalReason": "Promotion refused: the candidate is not statistically better than the incumbent. Candidate lower bound 0.491359 does not beat incumbent upper bound 0.506916 by the effect threshold 0.01 (margin -0.025556). The candidate regressed: its mean is not above the incumbent's mean.",
+        "stopReason": "evaluation_rejected"
+      }
+    }
+  ],
+  "descriptive_accuracy": {
+    "method": "two-sided 95% item-level Hoeffding; historical sampled hard predictions",
+    "meta": {
+      "majority": {
+        "correct": 211,
+        "samples": 214,
+        "mean": 0.985981308411215,
+        "interval": [
+          0.8931434000480999,
+          1
+        ]
+      },
+      "learner": {
+        "correct": 107,
+        "samples": 214,
+        "mean": 0.5,
+        "interval": [
+          0.4071620916368848,
+          0.5928379083631151
+        ]
+      }
+    },
+    "final": {
+      "majority": {
+        "correct": 384,
+        "samples": 385,
+        "mean": 0.9974025974025974,
+        "interval": [
+          0.9281873350841585,
+          1
+        ]
+      },
+      "learner": {
+        "correct": 198,
+        "samples": 385,
+        "mean": 0.5142857142857142,
+        "interval": [
+          0.44507045196727535,
+          0.5835009766041531
+        ]
+      }
+    }
+  }
+}

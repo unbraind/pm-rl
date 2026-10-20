@@ -4,7 +4,7 @@ import type { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { certifyCompleteListResult, EXIT_CODE, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { hashJson, commitProcessTransaction, promotedGenerationIdsUnderApproval, readApprovalSpec, readCompleteLoopItem, withRlController, type JsonValue, type RlDurableStep } from "./index.ts";
 import { parseApprovalSpec } from "./lineage.ts";
-import type { PrefixCheckpoint } from "./prefix.ts";
+import type { BinaryCalibration, PrefixCheckpoint } from "./prefix.ts";
 import { openTrackerEnvironment } from "./tracker-environment.ts";
 import { parseProcessAdapter, type ProcessAdapter, type ProcessCoordinates } from "./process.ts";
 import { decidePromotion, hoeffdingEpsilon, parsePromotionCriterion, type PromotionCriterion, type PromotionEvidence, type PromotionDecision } from "./promotion.ts";
@@ -24,11 +24,12 @@ export interface MetaConfig {
   readonly adapter: ProcessAdapter;
 }
 /** A fitted policy is interpreted with the temperature of the recipe that produced it. */
-export interface RecipePolicy { readonly recipe: Recipe; readonly weight: number; readonly checkpoint: string; readonly prefix?: PrefixCheckpoint; readonly fit?: { readonly job: string; readonly changed: boolean; readonly accepted: boolean; readonly gain: number; readonly gain_lower_bound: number; readonly refusal: string | null; readonly candidate: PrefixCheckpoint; readonly samples: number; readonly mean: number; readonly baseline: number; readonly predictions: Readonly<Record<"fast" | "slow", number>> } }
+export interface RecipePolicy { readonly recipe: Recipe; readonly weight: number; readonly checkpoint: string; readonly prefix?: PrefixCheckpoint; readonly fit?: { readonly job: string; readonly changed: boolean; readonly accepted: boolean; readonly gain: number; readonly gain_lower_bound: number; readonly refusal: string | null; readonly candidate: PrefixCheckpoint; readonly samples: number; readonly mean: number; readonly baseline: number; readonly predictions: Readonly<Record<"fast" | "slow", number>>; readonly calibration: { readonly candidate: BinaryCalibration; readonly retained: BinaryCalibration; readonly training_frequency: BinaryCalibration } } }
 /** Exact-match evidence counts distinct examples, rather than repeated pseudo-replications. */
 export interface TrackerScore { readonly mean: number; readonly samples: number; readonly context: string }
 /** Aggregate held-out diagnostics expose neither examples nor prediction vectors to search. */
 export interface TrackerDiagnostics {
+  readonly calibration?: BinaryCalibration;
   readonly majority_class: { readonly label: string; readonly correct: number; readonly samples: number; readonly mean: number };
   readonly predictions: { readonly distinct_labels: number; readonly counts: Readonly<Record<string, number>> };
   readonly disagreements: readonly { readonly recipe: string; readonly differing: number; readonly samples: number; readonly rate: number }[];
@@ -285,7 +286,7 @@ export async function runRlMeta(client: PmClient, coordinates: ProcessCoordinate
   const environment = openTrackerEnvironment(client, coordinates, request.dataset, config, request.approval);
   const proposalRequest = { config, proposer: request.proposer, decisionEndpoint: request.decisionEndpoint };
   const approval = await metaApproval(client, request.approval);
-  const input = { format: "pm-rl/meta-programme/1", id: request.id, config: config as unknown as JsonValue, dataset: environment.digest, approval_id: approval.id, approval: approval.digest,
+  const input = { format: config.initial_recipe.knobs.prefix === undefined ? "pm-rl/meta-programme/1" : "pm-rl/meta-programme/2", id: request.id, config: config as unknown as JsonValue, dataset: environment.digest, approval_id: approval.id, approval: approval.digest,
     proposer: request.proposer, endpoint: request.decisionEndpoint ?? "http://127.0.0.1:11434" };
   const binding = hashJson(input);
   const recoveryCommand = `pm rl meta run ${request.id} --file <programme.json> --dataset <dataset-directory> --approval ${request.approval} --proposer ${request.proposer} --force-takeover`;

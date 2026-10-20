@@ -247,10 +247,16 @@ test("reserved fits preserve candidate evidence on inner rejection and support r
   assert.deepEqual(accepted.diagnostics.held_out_classes, { '0': 1000, '1': 1000 });
   assert.equal(accepted.diagnostics.train_accuracy, 1); assert.equal(accepted.diagnostics.train_majority, 0.5);
   assert.equal(accepted.diagnostics.beats_train_majority, true);
+  assert.ok(accepted.diagnostics.calibration, 'fitted candidate probabilities must be reported independently of retention');
+  assert.equal(accepted.diagnostics.calibration.accuracy.mean, accepted.mean);
+  assert.ok(accepted.diagnostics.calibration.brier < accepted.diagnostics.training_frequency_calibration.brier);
+  assert.deepEqual(accepted.retained_calibration, accepted.diagnostics.calibration);
   const constant = diagnoseImproverLearner(original, { config, checkpoint: prefixCheckpoint(new Array<number>(32).fill(0), config.prefix) });
   assert.equal(constant.distinct_predictions, 1); assert.equal(constant.beats_train_majority, false);
   assert.deepEqual(constant.held_out_classes, { '0': 0, '1': original.evaluation.length }, 'the zero-weight seed predicts class one on every held-out item');
   assert.equal(constant.train_accuracy, 0.5); assert.equal(constant.held_out_classes['0'] + constant.held_out_classes['1'], original.evaluation.length);
+  assert.equal(constant.calibration.brier, 0.25); assert.equal(constant.calibration.ece, 0);
+  assert.deepEqual(constant.calibration, constant.training_frequency_calibration);
   assert.deepEqual(await env.fit('development', 0, config, 'positive-fit', null, AbortSignal.timeout(60_000)), accepted);
   const held = await env.fit('development', 0, config, 'incumbent-fit', accepted.retained, AbortSignal.timeout(60_000));
   assert.equal(held.promoted, false); assert.equal(held.retained_mean, accepted.retained_mean);
@@ -260,6 +266,8 @@ test("reserved fits preserve candidate evidence on inner rejection and support r
   assert.ok(gap.gap > 0.3); assert.equal(gap.promoted, false); assert.equal(gap.retained_mean, 0.5);
   assert.equal(gap.diagnostics.distinct_predictions, 2); assert.equal(gap.diagnostics.train_accuracy, 1);
   assert.equal(gap.diagnostics.beats_train_majority, true, 'rejected candidate diagnostics must not describe the constant retained learner');
+  assert.equal(gap.retained_calibration.brier, 0.25);
+  assert.ok(gap.diagnostics.calibration.brier > gap.retained_calibration.brier);
 });
 
 test("SIGKILL before exec recovers missing and partial receipts once inside the predeclared budget", { timeout: 300_000 }, async (context) => {
@@ -312,7 +320,7 @@ test("legacy improver receipts refuse resume and replay before fits while curren
   const w = await workspace();
   const config = { ...w.config, generations: 1 };
   const request = { id: 'schema', config, dataset: w.dataset, approval: w.approval };
-  const binding = hashJson({ config: config as unknown as JsonValue, dataset: w.manifest.digest, approval: w.approval, approval_body: String((await w.client.get(w.approval)).item.body) });
+  const binding = hashJson({ receipts: "pm-rl/improver-receipts/2", config: config as unknown as JsonValue, dataset: w.manifest.digest, approval: w.approval, approval_body: String((await w.client.get(w.approval)).item.body) });
   const inputs = new Map<string, JsonValue>();
   inputs.set('programme', { binding, budget: improverBudget(w.manifest, config) });
   const task = readImproverTasks(w.dataset, w.manifest, 'development')[0];
@@ -325,7 +333,7 @@ test("legacy improver receipts refuse resume and replay before fits while curren
   const original = new Map<string, string>();
   /** Serialize the historical result shape, including nested trials in terminal receipts. */
   const legacyResult = (result: JsonValue): JsonValue => JSON.parse(JSON.stringify(result, (key, value: unknown) =>
-    ['diagnostics', 'any_candidate_beats_train_majority'].includes(key) ? undefined : value)) as JsonValue;
+    ['calibration', 'training_frequency_calibration', 'retained_calibration'].includes(key) ? undefined : value)) as JsonValue;
   /** Build historical receipts through audited SDK writes with valid input and payload hashes. */
   const installLegacy = async (): Promise<void> => {
     for (const [phase, input] of inputs) {
@@ -336,7 +344,7 @@ test("legacy improver receipts refuse resume and replay before fits while curren
       await w.client.update(key, { body: JSON.stringify({ ...receipt, input: hashJson({ binding, input }), result, digest: hashJson(result) }) });
     }
     const trial = JSON.parse(String((await w.client.get('schema-step-g1-d-t0-c0')).item.body)) as { result: Record<string, JsonValue> };
-    assert.equal(Object.hasOwn(trial.result, 'diagnostics'), false);
+    assert.equal(Object.hasOwn(trial.result, 'retained_calibration'), false);
   };
   /** Require a typed input refusal at the first receipt with no completed phases or process launches. */
   const refusesBeforeFits = async (): Promise<void> => {
@@ -371,7 +379,7 @@ test("legacy improver receipts refuse resume and replay before fits while curren
   inputs.set('complete', { retained: report.retained.digest });
   await installLegacy();
   const complete = JSON.parse(String((await w.client.get('schema-step-complete')).item.body)) as { state: string; result: JsonValue };
-  assert.equal(complete.state, 'complete'); assert.equal(JSON.stringify(complete.result).includes('diagnostics'), false);
+  assert.equal(complete.state, 'complete'); assert.equal(JSON.stringify(complete.result).includes('calibration'), false);
   await refusesBeforeFits();
 });
 

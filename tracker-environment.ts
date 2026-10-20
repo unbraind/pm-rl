@@ -1,6 +1,6 @@
 /** Sealed tracker evaluator capabilities: search receives scores and policies, never inner or final examples. */
 import assert from "node:assert/strict";
-import { fitHistoryPrefix, prefixMajorityComparison } from "./prefix-environment.ts";
+import { fitHistoryPrefix, prefixCalibration, prefixMajorityComparison } from "./prefix-environment.ts";
 import { prefixPrediction } from "./prefix.ts";
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { banditCheckpoint, type BanditExample } from "./bandit.ts";
@@ -88,7 +88,7 @@ export function trackerDiagnostics(examples: readonly TrackerExample[], policy: 
   const correct = Math.max(first, examples.length - first);
   const predictions = trackerPredictions(examples, policy, seed);
   const counts = Object.fromEntries(labels.map((label) => [label, predictions.filter((prediction) => prediction === label).length]));
-  return { majority_class: { label, correct, samples: examples.length, mean: correct / examples.length },
+  return { ...(policy.prefix === undefined ? {} : { calibration: prefixCalibration(examples, policy.prefix) }), majority_class: { label, correct, samples: examples.length, mean: correct / examples.length },
     predictions: { distinct_labels: Object.values(counts).filter((count) => count > 0).length, counts },
     disagreements: peers.map((peer) => {
       const other = trackerPredictions(examples, peer, seed);

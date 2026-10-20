@@ -5,7 +5,7 @@ import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { hashJson, type JsonValue } from "./index.ts";
 import { readImproverTasks, type ImproverDataset, type ImproverTask, type ImproverRow, type IMPROVER_ROLES } from "./improver-data.ts";
 import type { LearnerConfig } from "./improver.ts";
-import { prefixCheckpoint, prefixPrediction, type PrefixCheckpoint } from "./prefix.ts";
+import { binaryCalibration, prefixCheckpoint, prefixPrediction, prefixProbability, type BinaryCalibration, type PrefixCheckpoint } from "./prefix.ts";
 import type { HistoryPrefix } from "./prefix-data.ts";
 import { prefixTrainerArgv } from "./prefix-trainer.ts";
 import { executeProcessTrainer, processJobId, readProcessJob, transitionProcessJob, verifyProcessJobBudget, type ProcessCoordinates, type ProcessInput, type ProcessJob } from "./process.ts";
@@ -35,9 +35,12 @@ export interface LearnerTrial {
   readonly verdict: PromotionDecision;
   readonly gap: number;
   readonly diagnostics: LearnerDiagnostics;
+  readonly retained_calibration: BinaryCalibration;
 }
 /** Aggregate candidate behavior distinguishes collapse, training failure and gate refusal without exposing examples. */
 export interface LearnerDiagnostics {
+  readonly calibration: BinaryCalibration;
+  readonly training_frequency_calibration: BinaryCalibration;
   readonly held_out_classes: Readonly<Record<"0" | "1", number>>;
   readonly distinct_predictions: number;
   readonly train_accuracy: number;
@@ -51,8 +54,14 @@ export function diagnoseImproverLearner(task: ImproverTask, learner: ImproverLea
   const train_accuracy = improverAccuracy(task.train, learner);
   const ones = task.train.filter((row) => row.label === 1).length;
   const train_majority = Math.max(ones, task.train.length - ones) / task.train.length;
-  return { held_out_classes: { "0": predictions.filter((value) => value === 0).length, "1": predictions.filter((value) => value === 1).length },
+  return { calibration: improverCalibration(task.evaluation, learner),
+    training_frequency_calibration: binaryCalibration(task.evaluation.map(() => ones / task.train.length), task.evaluation.map((row) => row.label)),
+    held_out_classes: { "0": predictions.filter((value) => value === 0).length, "1": predictions.filter((value) => value === 1).length },
     distinct_predictions: new Set(predictions).size, train_accuracy, train_majority, beats_train_majority: train_accuracy > train_majority };
+}
+/** Probability reporting is evaluator-only and does not change the deterministic prediction or promotion rule. */
+function improverCalibration(rows: readonly ImproverRow[], learner: ImproverLearner): BinaryCalibration {
+  return binaryCalibration(rows.map((row) => prefixProbability(improverFeatures(row.prefix, learner.config), learner.checkpoint)), rows.map((row) => row.label));
 }
 
 /** Search receives task identities and aggregate outcomes, never a feature, label, or dataset path. */
@@ -141,7 +150,7 @@ export function openImproverEnvironment(client: PmClient, coordinates: ProcessCo
       const majority = 1;
       return { job: job.id, candidate, retained, mean, retained_mean: improverAccuracy(task.evaluation, retained), baseline: baselineMean,
         majority: task.evaluation.filter((row) => row.label === majority).length / task.evaluation.length,
-        samples: task.evaluation.length, promoted, ...comparison, gap, diagnostics };
+        samples: task.evaluation.length, promoted, ...comparison, gap, diagnostics, retained_calibration: improverCalibration(task.evaluation, retained) };
     },
   };
 }

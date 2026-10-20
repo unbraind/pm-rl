@@ -4,7 +4,7 @@ import type { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { hashJson, type JsonValue } from "./index.ts";
 import { readTrackerSplit, type TrackerDataset, type TrackerExample } from "./dataset.ts";
 import { compareRecipes, type MetaConfig, type RecipePolicy } from "./meta.ts";
-import { prefixCheckpoint, prefixPrediction } from "./prefix.ts";
+import { binaryCalibration, prefixCheckpoint, prefixPrediction, prefixProbability, type BinaryCalibration, type PrefixCheckpoint } from "./prefix.ts";
 import { prefixTrainerArgv } from "./prefix-trainer.ts";
 import { executeProcessTrainer, transitionProcessJob, type ProcessCoordinates, type ProcessInput } from "./process.ts";
 import type { Recipe } from "./recipe.ts";
@@ -13,6 +13,10 @@ import type { Recipe } from "./recipe.ts";
 export function prefixAccuracy(examples: readonly TrackerExample[], policy: RecipePolicy): number {
   assert.ok(examples.length > 0 && policy.prefix !== undefined, "prefix_score_inputs");
   return examples.filter((example) => prefixPrediction(example.history!, policy.prefix!) === example.label).length / examples.length;
+}
+/** Evaluate only aggregate probabilities inside the sealed evaluator; no probabilities enter the proposer. */
+export function prefixCalibration(examples: readonly TrackerExample[], checkpoint: PrefixCheckpoint): BinaryCalibration {
+  return binaryCalibration(examples.map((example) => prefixProbability(example.history!, checkpoint)), examples.map((example) => example.label === "slow" ? 1 : 0));
 }
 /** Materialize one actual fit inside the reserved process contract and retain every rejection explicitly. */
 export async function fitHistoryPrefix(client: PmClient, coordinates: ProcessCoordinates, directory: string, manifest: TrackerDataset, config: MetaConfig, approval: string, recipe: Recipe, id: string, signal: AbortSignal): Promise<RecipePolicy> {
@@ -53,9 +57,12 @@ export async function fitHistoryPrefix(client: PmClient, coordinates: ProcessCoo
   const refusal = gap > config.maximum_gap ? "gap_rejected" : comparison.verdict.decision === "promote" ? null : comparison.verdict.reason;
   const accepted = refusal === null;
   const predictions = evaluation.map((example) => prefixPrediction(example.history!, candidate.prefix!));
+  const prevalence = training.filter((example) => example.label === "slow").length / training.length;
   const fit = { job: job.id, changed, accepted, gain: comparison.gain, gain_lower_bound: comparison.gain_lower_bound,
     refusal, candidate: candidate.prefix!, samples: evaluation.length, mean: score.mean, baseline: baseline.mean,
-    predictions: { fast: predictions.filter((label) => label === "fast").length, slow: predictions.filter((label) => label === "slow").length } };
+    predictions: { fast: predictions.filter((label) => label === "fast").length, slow: predictions.filter((label) => label === "slow").length },
+    calibration: { candidate: prefixCalibration(evaluation, candidate.prefix!), retained: prefixCalibration(evaluation, (accepted ? candidate : seed).prefix!),
+      training_frequency: binaryCalibration(evaluation.map(() => prevalence), evaluation.map((example) => example.label === "slow" ? 1 : 0)) } };
   const evaluated = job.state === "materialized" ? await transitionProcessJob(client, coordinates, job, "evaluated", refusal ?? "inner_gate_accepted") : job;
   if (accepted && evaluated.state === "evaluated") await transitionProcessJob(client, coordinates, evaluated, "promoted", "inner_gate_accepted");
   await client.update(job.id, { comment: [`History-prefix fit ${id}: changed=${changed}, accepted=${accepted}, gain=${fit.gain}, lower_bound=${fit.gain_lower_bound}, refusal=${refusal ?? "none"}.`] });
