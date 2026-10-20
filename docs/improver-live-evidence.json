@@ -1,0 +1,1661 @@
+{
+  "format": "pm-rl/improver-acceptance/1",
+  "config": {
+    "initial": {
+      "format": "pm-rl/improver/1",
+      "version": 1,
+      "parent": null,
+      "strategy": "posterior-mixture",
+      "exploration": 0.25,
+      "arms": [
+        {
+          "config": {
+            "features": "all",
+            "learning_rate": 0.05,
+            "prefix": {
+              "hashing_width": 32,
+              "ngram_order": 1,
+              "regularisation": 0.001
+            }
+          },
+          "success": 1,
+          "failure": 1,
+          "gain": 0
+        },
+        {
+          "config": {
+            "features": "all",
+            "learning_rate": 0.5,
+            "prefix": {
+              "hashing_width": 32,
+              "ngram_order": 1,
+              "regularisation": 0.001
+            }
+          },
+          "success": 1,
+          "failure": 1,
+          "gain": 0
+        },
+        {
+          "config": {
+            "features": "events",
+            "learning_rate": 0.05,
+            "prefix": {
+              "hashing_width": 32,
+              "ngram_order": 3,
+              "regularisation": 0.001
+            }
+          },
+          "success": 1,
+          "failure": 1,
+          "gain": 0
+        },
+        {
+          "config": {
+            "features": "events",
+            "learning_rate": 0.5,
+            "prefix": {
+              "hashing_width": 32,
+              "ngram_order": 3,
+              "regularisation": 0.001
+            }
+          },
+          "success": 1,
+          "failure": 1,
+          "gain": 0
+        },
+        {
+          "config": {
+            "features": "words",
+            "learning_rate": 0.05,
+            "prefix": {
+              "hashing_width": 32,
+              "ngram_order": 1,
+              "regularisation": 0.001
+            }
+          },
+          "success": 1,
+          "failure": 1,
+          "gain": 0
+        },
+        {
+          "config": {
+            "features": "words",
+            "learning_rate": 0.5,
+            "prefix": {
+              "hashing_width": 32,
+              "ngram_order": 1,
+              "regularisation": 0.001
+            }
+          },
+          "success": 1,
+          "failure": 1,
+          "gain": 0
+        },
+        {
+          "config": {
+            "features": "timing",
+            "learning_rate": 0.05,
+            "prefix": {
+              "hashing_width": 32,
+              "ngram_order": 1,
+              "regularisation": 0.001
+            }
+          },
+          "success": 1,
+          "failure": 1,
+          "gain": 0
+        },
+        {
+          "config": {
+            "features": "timing",
+            "learning_rate": 0.5,
+            "prefix": {
+              "hashing_width": 32,
+              "ngram_order": 1,
+              "regularisation": 0.001
+            }
+          },
+          "success": 1,
+          "failure": 1,
+          "gain": 0
+        }
+      ],
+      "ledger": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "digest": "sha256:c3c491aeffc88995cf406dbc6dc01d670212d5de3bfe7b610cec3c6a344e17a9"
+    },
+    "seed": 42,
+    "generations": 3,
+    "candidates": 1,
+    "updates": 256,
+    "timeout_ms": 1116892
+  },
+  "dataset": {
+    "format": "pm-rl/improver-dataset/1",
+    "seed": 42,
+    "sources": [
+      {
+        "repo": "unbraind/pm-csv",
+        "commit": "31f968c5d63ac471f8df4495087c15f1809ca4d7",
+        "role": "development"
+      },
+      {
+        "repo": "unbraind/pm-beads",
+        "commit": "8919a250feb3ebb51b9aa3288f6351de1f150c70",
+        "role": "meta"
+      },
+      {
+        "repo": "unbraind/pm-rl",
+        "commit": "b255dfac6543ab178ab2720fad1de1ba49f91dd4",
+        "role": "meta"
+      },
+      {
+        "repo": "unbraind/pm-starter",
+        "commit": "be5fac027b1124def32c612dc2ca3b5496d29dd2",
+        "role": "audit"
+      }
+    ],
+    "splits": {
+      "development": {
+        "digest": "c9f763ec2cdf663140666c2b24ec89e6884916ca92c54de48ae06cf231c055a9",
+        "tasks": 2
+      },
+      "meta": {
+        "digest": "adc51f9fb83e9c63aca909bbd0cdd094ca813c87d3ef5deee58f61e893d4675c",
+        "tasks": 4
+      },
+      "audit": {
+        "digest": "eddd5fa82759481748103bfd8d661e6b09db8afce6b8352e699364e38bffc69e",
+        "tasks": 2
+      }
+    },
+    "omitted": [],
+    "digest": "2f34b38571010f21952ffaf9a571c8294012130b057a1df91d6be087ee024a0e"
+  },
+  "report_digest": "c5f0ecdd44fcaaac3dafb7321d25355786313a5be727fce19841b71e807c880c",
+  "implementation": {
+    "improver.ts": "177e2b3664a69021cde926643d9a5f6b1f64ff5062431b2c1e4fecc23b2242ae",
+    "improver-data.ts": "28dddb10b082669a015322086508225f151da4212c592483974ac1a0b063e783",
+    "improver-environment.ts": "6f2017581fdf20ad2e2dacd7d3cef3fdca7cd861584416453448d5b4188b4ce5",
+    "recursive-improver.ts": "01c81baf4ae5a34184c695651463ffe24c421b58fb700294e8653319c00caf11",
+    "prefix.ts": "51d9b9eac76612da85c509cb8d351b9ecfd453d8fceb0858c9d9b8295209e705",
+    "prefix-trainer.ts": "41d3257b434b8d2b7b22f65962723411fcdafc3633326be126b673b3692ef44f",
+    "process.ts": "cc8f111cfef8b5636ae5d4df181be4347dfb5f9bb3b0e99957312c066f5cabb9",
+    "promotion.ts": "a36e0b2b565bbd5b6bdcaa83991d50b18c08c409bff218c7dd3d1e77bb901df8",
+    "index.ts": "3afbfec1479a9fbab033bd575ca7c4a02aed0393579ccb0687b6ed75e573a29d"
+  },
+  "budget": {
+    "fits": 34,
+    "updates_per_fit": 256,
+    "optimizer_updates": 8704,
+    "max_process_jobs": 68,
+    "max_optimizer_updates": 17408
+  },
+  "usage": {
+    "training_steps": 34,
+    "wall_ms": 71684,
+    "storage_bytes": 92102,
+    "compute_units": 2971,
+    "tokens": 0
+  },
+  "elapsed_ms": 244523.358157,
+  "generations": [
+    {
+      "generation": 1,
+      "policy": "sha256:c3c491aeffc88995cf406dbc6dc01d670212d5de3bfe7b610cec3c6a344e17a9",
+      "candidate": {
+        "format": "pm-rl/improver/1",
+        "version": 2,
+        "parent": "sha256:c3c491aeffc88995cf406dbc6dc01d670212d5de3bfe7b610cec3c6a344e17a9",
+        "strategy": "posterior-mixture",
+        "exploration": 0.25,
+        "arms": [
+          {
+            "config": {
+              "features": "all",
+              "learning_rate": 0.05,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 2,
+            "gain": 0
+          },
+          {
+            "config": {
+              "features": "all",
+              "learning_rate": 0.5,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 1,
+            "gain": 0
+          },
+          {
+            "config": {
+              "features": "events",
+              "learning_rate": 0.05,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 3,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 1,
+            "gain": 0
+          },
+          {
+            "config": {
+              "features": "events",
+              "learning_rate": 0.5,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 3,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 1,
+            "gain": 0
+          },
+          {
+            "config": {
+              "features": "words",
+              "learning_rate": 0.05,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 1,
+            "gain": 0
+          },
+          {
+            "config": {
+              "features": "words",
+              "learning_rate": 0.5,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 2,
+            "gain": 0
+          },
+          {
+            "config": {
+              "features": "timing",
+              "learning_rate": 0.05,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 1,
+            "gain": 0
+          },
+          {
+            "config": {
+              "features": "timing",
+              "learning_rate": 0.5,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 1,
+            "gain": 0
+          }
+        ],
+        "ledger": "be30aff9055cb76280ddb69e59a81c0cf4330a6b0fd0e865f568503666331bfc",
+        "digest": "sha256:cedd69cfb62b63c830a57742efd127a59d66c50d2aaba4ae77695b1e61756063"
+      },
+      "promoted": false,
+      "any_candidate_beats_train_majority": true,
+      "diagnostics": {
+        "development": [
+          {
+            "task": "4f605e6aa8e0879b",
+            "proposal": "g1-d-t0-c0",
+            "config": {
+              "features": "all",
+              "learning_rate": 0.05,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "held_out_accuracy": 0.4722222222222222,
+            "promoted": false,
+            "retained_accuracy": 0.5,
+            "held_out_classes": {
+              "0": 29,
+              "1": 7
+            },
+            "distinct_predictions": 2,
+            "train_accuracy": 0.5961538461538461,
+            "train_majority": 0.5,
+            "beats_train_majority": true
+          },
+          {
+            "task": "c71b91ca1fca06d3",
+            "proposal": "g1-d-t1-c0",
+            "config": {
+              "features": "words",
+              "learning_rate": 0.5,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "held_out_accuracy": 0.375,
+            "promoted": false,
+            "retained_accuracy": 0.5,
+            "held_out_classes": {
+              "0": 18,
+              "1": 14
+            },
+            "distinct_predictions": 2,
+            "train_accuracy": 0.8666666666666667,
+            "train_majority": 0.5,
+            "beats_train_majority": true
+          }
+        ],
+        "meta_before": [
+          {
+            "task": "077aeccf39a4919b",
+            "proposal": "g1-mb-t0-c0",
+            "config": {
+              "features": "words",
+              "learning_rate": 0.05,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "held_out_accuracy": 0.5,
+            "promoted": false,
+            "retained_accuracy": 0.5,
+            "held_out_classes": {
+              "0": 6,
+              "1": 24
+            },
+            "distinct_predictions": 2,
+            "train_accuracy": 0.625,
+            "train_majority": 0.5,
+            "beats_train_majority": true
+          },
+          {
+            "task": "a1c90c65edf20cd7",
+            "proposal": "g1-mb-t1-c0",
+            "config": {
+              "features": "all",
+              "learning_rate": 0.05,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "held_out_accuracy": 0.5,
+            "promoted": false,
+            "retained_accuracy": 0.5,
+            "held_out_classes": {
+              "0": 12,
+              "1": 8
+            },
+            "distinct_predictions": 2,
+            "train_accuracy": 0.8571428571428571,
+            "train_majority": 0.5,
+            "beats_train_majority": true
+          },
+          {
+            "task": "c28ce9a9e4e78786",
+            "proposal": "g1-mb-t2-c0",
+            "config": {
+              "features": "all",
+              "learning_rate": 0.5,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "held_out_accuracy": 0.6,
+            "promoted": false,
+            "retained_accuracy": 0.5,
+            "held_out_classes": {
+              "0": 18,
+              "1": 2
+            },
+            "distinct_predictions": 2,
+            "train_accuracy": 0.8823529411764706,
+            "train_majority": 0.5,
+            "beats_train_majority": true
+          },
+          {
+            "task": "f31a282d0d3ed0ec",
+            "proposal": "g1-mb-t3-c0",
+            "config": {
+              "features": "words",
+              "learning_rate": 0.05,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "held_out_accuracy": 0.4666666666666667,
+            "promoted": false,
+            "retained_accuracy": 0.5,
+            "held_out_classes": {
+              "0": 19,
+              "1": 11
+            },
+            "distinct_predictions": 2,
+            "train_accuracy": 0.8333333333333334,
+            "train_majority": 0.5,
+            "beats_train_majority": true
+          }
+        ],
+        "meta_after": [
+          {
+            "task": "077aeccf39a4919b",
+            "proposal": "g1-ma-t0-c0",
+            "config": {
+              "features": "words",
+              "learning_rate": 0.05,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "held_out_accuracy": 0.5,
+            "promoted": false,
+            "retained_accuracy": 0.5,
+            "held_out_classes": {
+              "0": 6,
+              "1": 24
+            },
+            "distinct_predictions": 2,
+            "train_accuracy": 0.625,
+            "train_majority": 0.5,
+            "beats_train_majority": true
+          },
+          {
+            "task": "a1c90c65edf20cd7",
+            "proposal": "g1-ma-t1-c0",
+            "config": {
+              "features": "all",
+              "learning_rate": 0.05,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "held_out_accuracy": 0.5,
+            "promoted": false,
+            "retained_accuracy": 0.5,
+            "held_out_classes": {
+              "0": 12,
+              "1": 8
+            },
+            "distinct_predictions": 2,
+            "train_accuracy": 0.8571428571428571,
+            "train_majority": 0.5,
+            "beats_train_majority": true
+          },
+          {
+            "task": "c28ce9a9e4e78786",
+            "proposal": "g1-ma-t2-c0",
+            "config": {
+              "features": "all",
+              "learning_rate": 0.5,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "held_out_accuracy": 0.6,
+            "promoted": false,
+            "retained_accuracy": 0.5,
+            "held_out_classes": {
+              "0": 18,
+              "1": 2
+            },
+            "distinct_predictions": 2,
+            "train_accuracy": 0.8823529411764706,
+            "train_majority": 0.5,
+            "beats_train_majority": true
+          },
+          {
+            "task": "f31a282d0d3ed0ec",
+            "proposal": "g1-ma-t3-c0",
+            "config": {
+              "features": "words",
+              "learning_rate": 0.05,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "held_out_accuracy": 0.4666666666666667,
+            "promoted": false,
+            "retained_accuracy": 0.5,
+            "held_out_classes": {
+              "0": 19,
+              "1": 11
+            },
+            "distinct_predictions": 2,
+            "train_accuracy": 0.8333333333333334,
+            "train_majority": 0.5,
+            "beats_train_majority": true
+          }
+        ]
+      },
+      "development": [
+        {
+          "target": "time-to-close",
+          "mean": 0.5,
+          "interval": [
+            0,
+            1
+          ],
+          "trackers": 1,
+          "items": 36,
+          "majority": 0.5,
+          "retained": 0.5
+        },
+        {
+          "target": "issue-type",
+          "mean": 0.5,
+          "interval": [
+            0,
+            1
+          ],
+          "trackers": 1,
+          "items": 32,
+          "majority": 0.5,
+          "retained": 0.5
+        }
+      ],
+      "meta": {
+        "before": {
+          "mean": 0.5,
+          "interval": [
+            0,
+            1
+          ],
+          "trackers": 2,
+          "items": 100,
+          "majority": 0.5,
+          "retained": 0.5
+        },
+        "after": {
+          "mean": 0.5,
+          "interval": [
+            0,
+            1
+          ],
+          "trackers": 2,
+          "items": 100,
+          "majority": 0.5,
+          "retained": 0.5
+        },
+        "gain": 0,
+        "lower_bound": -2.701813717997259,
+        "verdict": {
+          "decision": "refuse",
+          "code": "insufficient_samples",
+          "reason": "Promotion refused: the candidate evidence carries 2 sample(s), below the required minimum of 10. A noisy sample below the minimum count is not statistically bounded improvement."
+        }
+      }
+    },
+    {
+      "generation": 2,
+      "policy": "sha256:c3c491aeffc88995cf406dbc6dc01d670212d5de3bfe7b610cec3c6a344e17a9",
+      "candidate": {
+        "format": "pm-rl/improver/1",
+        "version": 2,
+        "parent": "sha256:c3c491aeffc88995cf406dbc6dc01d670212d5de3bfe7b610cec3c6a344e17a9",
+        "strategy": "posterior-mixture",
+        "exploration": 0.25,
+        "arms": [
+          {
+            "config": {
+              "features": "all",
+              "learning_rate": 0.05,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 2,
+            "gain": 0
+          },
+          {
+            "config": {
+              "features": "all",
+              "learning_rate": 0.5,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 1,
+            "gain": 0
+          },
+          {
+            "config": {
+              "features": "events",
+              "learning_rate": 0.05,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 3,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 3,
+            "gain": 0
+          },
+          {
+            "config": {
+              "features": "events",
+              "learning_rate": 0.5,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 3,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 1,
+            "gain": 0
+          },
+          {
+            "config": {
+              "features": "words",
+              "learning_rate": 0.05,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 1,
+            "gain": 0
+          },
+          {
+            "config": {
+              "features": "words",
+              "learning_rate": 0.5,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 2,
+            "gain": 0
+          },
+          {
+            "config": {
+              "features": "timing",
+              "learning_rate": 0.05,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 1,
+            "gain": 0
+          },
+          {
+            "config": {
+              "features": "timing",
+              "learning_rate": 0.5,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 1,
+            "gain": 0
+          }
+        ],
+        "ledger": "886fa9fa62a755fa4dc9336b55beeaf2f9c8af99cc88e3661c1d24571b5ddeb6",
+        "digest": "sha256:cc3994648a4d361e6f3661c0c1a5545f20b0f3dfda9cc9af970052e772a20cef"
+      },
+      "promoted": false,
+      "any_candidate_beats_train_majority": true,
+      "diagnostics": {
+        "development": [
+          {
+            "task": "4f605e6aa8e0879b",
+            "proposal": "g2-d-t0-c0",
+            "config": {
+              "features": "events",
+              "learning_rate": 0.05,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 3,
+                "regularisation": 0.001
+              }
+            },
+            "held_out_accuracy": 0.5,
+            "promoted": false,
+            "retained_accuracy": 0.5,
+            "held_out_classes": {
+              "0": 36,
+              "1": 0
+            },
+            "distinct_predictions": 1,
+            "train_accuracy": 0.5,
+            "train_majority": 0.5,
+            "beats_train_majority": false
+          },
+          {
+            "task": "c71b91ca1fca06d3",
+            "proposal": "g2-d-t1-c0",
+            "config": {
+              "features": "events",
+              "learning_rate": 0.05,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 3,
+                "regularisation": 0.001
+              }
+            },
+            "held_out_accuracy": 0.5,
+            "promoted": false,
+            "retained_accuracy": 0.5,
+            "held_out_classes": {
+              "0": 32,
+              "1": 0
+            },
+            "distinct_predictions": 1,
+            "train_accuracy": 0.5,
+            "train_majority": 0.5,
+            "beats_train_majority": false
+          }
+        ],
+        "meta_before": [
+          {
+            "task": "077aeccf39a4919b",
+            "proposal": "g2-mb-t0-c0",
+            "config": {
+              "features": "words",
+              "learning_rate": 0.5,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "held_out_accuracy": 0.6666666666666666,
+            "promoted": false,
+            "retained_accuracy": 0.5,
+            "held_out_classes": {
+              "0": 17,
+              "1": 13
+            },
+            "distinct_predictions": 2,
+            "train_accuracy": 0.7291666666666666,
+            "train_majority": 0.5,
+            "beats_train_majority": true
+          },
+          {
+            "task": "a1c90c65edf20cd7",
+            "proposal": "g2-mb-t1-c0",
+            "config": {
+              "features": "all",
+              "learning_rate": 0.05,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "held_out_accuracy": 0.5,
+            "promoted": false,
+            "retained_accuracy": 0.5,
+            "held_out_classes": {
+              "0": 12,
+              "1": 8
+            },
+            "distinct_predictions": 2,
+            "train_accuracy": 0.8571428571428571,
+            "train_majority": 0.5,
+            "beats_train_majority": true
+          },
+          {
+            "task": "c28ce9a9e4e78786",
+            "proposal": "g2-mb-t2-c0",
+            "config": {
+              "features": "timing",
+              "learning_rate": 0.5,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "held_out_accuracy": 0.5,
+            "promoted": false,
+            "retained_accuracy": 0.5,
+            "held_out_classes": {
+              "0": 20,
+              "1": 0
+            },
+            "distinct_predictions": 1,
+            "train_accuracy": 0.5,
+            "train_majority": 0.5,
+            "beats_train_majority": false
+          },
+          {
+            "task": "f31a282d0d3ed0ec",
+            "proposal": "g2-mb-t3-c0",
+            "config": {
+              "features": "all",
+              "learning_rate": 0.05,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "held_out_accuracy": 0.4666666666666667,
+            "promoted": false,
+            "retained_accuracy": 0.5,
+            "held_out_classes": {
+              "0": 19,
+              "1": 11
+            },
+            "distinct_predictions": 2,
+            "train_accuracy": 0.8333333333333334,
+            "train_majority": 0.5,
+            "beats_train_majority": true
+          }
+        ],
+        "meta_after": [
+          {
+            "task": "077aeccf39a4919b",
+            "proposal": "g2-ma-t0-c0",
+            "config": {
+              "features": "words",
+              "learning_rate": 0.5,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "held_out_accuracy": 0.6666666666666666,
+            "promoted": false,
+            "retained_accuracy": 0.5,
+            "held_out_classes": {
+              "0": 17,
+              "1": 13
+            },
+            "distinct_predictions": 2,
+            "train_accuracy": 0.7291666666666666,
+            "train_majority": 0.5,
+            "beats_train_majority": true
+          },
+          {
+            "task": "a1c90c65edf20cd7",
+            "proposal": "g2-ma-t1-c0",
+            "config": {
+              "features": "all",
+              "learning_rate": 0.05,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "held_out_accuracy": 0.5,
+            "promoted": false,
+            "retained_accuracy": 0.5,
+            "held_out_classes": {
+              "0": 12,
+              "1": 8
+            },
+            "distinct_predictions": 2,
+            "train_accuracy": 0.8571428571428571,
+            "train_majority": 0.5,
+            "beats_train_majority": true
+          },
+          {
+            "task": "c28ce9a9e4e78786",
+            "proposal": "g2-ma-t2-c0",
+            "config": {
+              "features": "timing",
+              "learning_rate": 0.5,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "held_out_accuracy": 0.5,
+            "promoted": false,
+            "retained_accuracy": 0.5,
+            "held_out_classes": {
+              "0": 20,
+              "1": 0
+            },
+            "distinct_predictions": 1,
+            "train_accuracy": 0.5,
+            "train_majority": 0.5,
+            "beats_train_majority": false
+          },
+          {
+            "task": "f31a282d0d3ed0ec",
+            "proposal": "g2-ma-t3-c0",
+            "config": {
+              "features": "all",
+              "learning_rate": 0.05,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "held_out_accuracy": 0.4666666666666667,
+            "promoted": false,
+            "retained_accuracy": 0.5,
+            "held_out_classes": {
+              "0": 19,
+              "1": 11
+            },
+            "distinct_predictions": 2,
+            "train_accuracy": 0.8333333333333334,
+            "train_majority": 0.5,
+            "beats_train_majority": true
+          }
+        ]
+      },
+      "development": [
+        {
+          "target": "time-to-close",
+          "mean": 0.5,
+          "interval": [
+            0,
+            1
+          ],
+          "trackers": 1,
+          "items": 36,
+          "majority": 0.5,
+          "retained": 0.5
+        },
+        {
+          "target": "issue-type",
+          "mean": 0.5,
+          "interval": [
+            0,
+            1
+          ],
+          "trackers": 1,
+          "items": 32,
+          "majority": 0.5,
+          "retained": 0.5
+        }
+      ],
+      "meta": {
+        "before": {
+          "mean": 0.5,
+          "interval": [
+            0,
+            1
+          ],
+          "trackers": 2,
+          "items": 100,
+          "majority": 0.5,
+          "retained": 0.5
+        },
+        "after": {
+          "mean": 0.5,
+          "interval": [
+            0,
+            1
+          ],
+          "trackers": 2,
+          "items": 100,
+          "majority": 0.5,
+          "retained": 0.5
+        },
+        "gain": 0,
+        "lower_bound": -2.701813717997259,
+        "verdict": {
+          "decision": "refuse",
+          "code": "insufficient_samples",
+          "reason": "Promotion refused: the candidate evidence carries 2 sample(s), below the required minimum of 10. A noisy sample below the minimum count is not statistically bounded improvement."
+        }
+      }
+    },
+    {
+      "generation": 3,
+      "policy": "sha256:c3c491aeffc88995cf406dbc6dc01d670212d5de3bfe7b610cec3c6a344e17a9",
+      "candidate": {
+        "format": "pm-rl/improver/1",
+        "version": 2,
+        "parent": "sha256:c3c491aeffc88995cf406dbc6dc01d670212d5de3bfe7b610cec3c6a344e17a9",
+        "strategy": "posterior-mixture",
+        "exploration": 0.25,
+        "arms": [
+          {
+            "config": {
+              "features": "all",
+              "learning_rate": 0.05,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 2,
+            "gain": 0
+          },
+          {
+            "config": {
+              "features": "all",
+              "learning_rate": 0.5,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 1,
+            "gain": 0
+          },
+          {
+            "config": {
+              "features": "events",
+              "learning_rate": 0.05,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 3,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 3,
+            "gain": 0
+          },
+          {
+            "config": {
+              "features": "events",
+              "learning_rate": 0.5,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 3,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 1,
+            "gain": 0
+          },
+          {
+            "config": {
+              "features": "words",
+              "learning_rate": 0.05,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 1,
+            "gain": 0
+          },
+          {
+            "config": {
+              "features": "words",
+              "learning_rate": 0.5,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 3,
+            "gain": 0
+          },
+          {
+            "config": {
+              "features": "timing",
+              "learning_rate": 0.05,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 2,
+            "gain": 0
+          },
+          {
+            "config": {
+              "features": "timing",
+              "learning_rate": 0.5,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "success": 1,
+            "failure": 1,
+            "gain": 0
+          }
+        ],
+        "ledger": "8c926755c943cbc69399c5ee770b6a4ff077458e883dd252161c5cc87db1bcf3",
+        "digest": "sha256:ac7f18f66d5d07dee84822201f041b591ced0709aa1daa6648c7e00d4d0514dd"
+      },
+      "promoted": false,
+      "any_candidate_beats_train_majority": true,
+      "diagnostics": {
+        "development": [
+          {
+            "task": "4f605e6aa8e0879b",
+            "proposal": "g3-d-t0-c0",
+            "config": {
+              "features": "words",
+              "learning_rate": 0.5,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "held_out_accuracy": 0.4722222222222222,
+            "promoted": false,
+            "retained_accuracy": 0.5,
+            "held_out_classes": {
+              "0": 31,
+              "1": 5
+            },
+            "distinct_predictions": 2,
+            "train_accuracy": 0.5769230769230769,
+            "train_majority": 0.5,
+            "beats_train_majority": true
+          },
+          {
+            "task": "c71b91ca1fca06d3",
+            "proposal": "g3-d-t1-c0",
+            "config": {
+              "features": "timing",
+              "learning_rate": 0.05,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "held_out_accuracy": 0.5,
+            "promoted": false,
+            "retained_accuracy": 0.5,
+            "held_out_classes": {
+              "0": 32,
+              "1": 0
+            },
+            "distinct_predictions": 1,
+            "train_accuracy": 0.5,
+            "train_majority": 0.5,
+            "beats_train_majority": false
+          }
+        ],
+        "meta_before": [
+          {
+            "task": "077aeccf39a4919b",
+            "proposal": "g3-mb-t0-c0",
+            "config": {
+              "features": "events",
+              "learning_rate": 0.5,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 3,
+                "regularisation": 0.001
+              }
+            },
+            "held_out_accuracy": 0.5,
+            "promoted": false,
+            "retained_accuracy": 0.5,
+            "held_out_classes": {
+              "0": 0,
+              "1": 30
+            },
+            "distinct_predictions": 1,
+            "train_accuracy": 0.5208333333333334,
+            "train_majority": 0.5,
+            "beats_train_majority": true
+          },
+          {
+            "task": "a1c90c65edf20cd7",
+            "proposal": "g3-mb-t1-c0",
+            "config": {
+              "features": "timing",
+              "learning_rate": 0.05,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "held_out_accuracy": 0.5,
+            "promoted": false,
+            "retained_accuracy": 0.5,
+            "held_out_classes": {
+              "0": 0,
+              "1": 20
+            },
+            "distinct_predictions": 1,
+            "train_accuracy": 0.5,
+            "train_majority": 0.5,
+            "beats_train_majority": false
+          },
+          {
+            "task": "c28ce9a9e4e78786",
+            "proposal": "g3-mb-t2-c0",
+            "config": {
+              "features": "words",
+              "learning_rate": 0.5,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "held_out_accuracy": 0.6,
+            "promoted": false,
+            "retained_accuracy": 0.5,
+            "held_out_classes": {
+              "0": 18,
+              "1": 2
+            },
+            "distinct_predictions": 2,
+            "train_accuracy": 0.8823529411764706,
+            "train_majority": 0.5,
+            "beats_train_majority": true
+          },
+          {
+            "task": "f31a282d0d3ed0ec",
+            "proposal": "g3-mb-t3-c0",
+            "config": {
+              "features": "words",
+              "learning_rate": 0.05,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "held_out_accuracy": 0.4666666666666667,
+            "promoted": false,
+            "retained_accuracy": 0.5,
+            "held_out_classes": {
+              "0": 19,
+              "1": 11
+            },
+            "distinct_predictions": 2,
+            "train_accuracy": 0.8333333333333334,
+            "train_majority": 0.5,
+            "beats_train_majority": true
+          }
+        ],
+        "meta_after": [
+          {
+            "task": "077aeccf39a4919b",
+            "proposal": "g3-ma-t0-c0",
+            "config": {
+              "features": "events",
+              "learning_rate": 0.5,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 3,
+                "regularisation": 0.001
+              }
+            },
+            "held_out_accuracy": 0.5,
+            "promoted": false,
+            "retained_accuracy": 0.5,
+            "held_out_classes": {
+              "0": 0,
+              "1": 30
+            },
+            "distinct_predictions": 1,
+            "train_accuracy": 0.5208333333333334,
+            "train_majority": 0.5,
+            "beats_train_majority": true
+          },
+          {
+            "task": "a1c90c65edf20cd7",
+            "proposal": "g3-ma-t1-c0",
+            "config": {
+              "features": "timing",
+              "learning_rate": 0.05,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "held_out_accuracy": 0.5,
+            "promoted": false,
+            "retained_accuracy": 0.5,
+            "held_out_classes": {
+              "0": 0,
+              "1": 20
+            },
+            "distinct_predictions": 1,
+            "train_accuracy": 0.5,
+            "train_majority": 0.5,
+            "beats_train_majority": false
+          },
+          {
+            "task": "c28ce9a9e4e78786",
+            "proposal": "g3-ma-t2-c0",
+            "config": {
+              "features": "words",
+              "learning_rate": 0.5,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "held_out_accuracy": 0.6,
+            "promoted": false,
+            "retained_accuracy": 0.5,
+            "held_out_classes": {
+              "0": 18,
+              "1": 2
+            },
+            "distinct_predictions": 2,
+            "train_accuracy": 0.8823529411764706,
+            "train_majority": 0.5,
+            "beats_train_majority": true
+          },
+          {
+            "task": "f31a282d0d3ed0ec",
+            "proposal": "g3-ma-t3-c0",
+            "config": {
+              "features": "words",
+              "learning_rate": 0.05,
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 1,
+                "regularisation": 0.001
+              }
+            },
+            "held_out_accuracy": 0.4666666666666667,
+            "promoted": false,
+            "retained_accuracy": 0.5,
+            "held_out_classes": {
+              "0": 19,
+              "1": 11
+            },
+            "distinct_predictions": 2,
+            "train_accuracy": 0.8333333333333334,
+            "train_majority": 0.5,
+            "beats_train_majority": true
+          }
+        ]
+      },
+      "development": [
+        {
+          "target": "time-to-close",
+          "mean": 0.5,
+          "interval": [
+            0,
+            1
+          ],
+          "trackers": 1,
+          "items": 36,
+          "majority": 0.5,
+          "retained": 0.5
+        },
+        {
+          "target": "issue-type",
+          "mean": 0.5,
+          "interval": [
+            0,
+            1
+          ],
+          "trackers": 1,
+          "items": 32,
+          "majority": 0.5,
+          "retained": 0.5
+        }
+      ],
+      "meta": {
+        "before": {
+          "mean": 0.5,
+          "interval": [
+            0,
+            1
+          ],
+          "trackers": 2,
+          "items": 100,
+          "majority": 0.5,
+          "retained": 0.5
+        },
+        "after": {
+          "mean": 0.5,
+          "interval": [
+            0,
+            1
+          ],
+          "trackers": 2,
+          "items": 100,
+          "majority": 0.5,
+          "retained": 0.5
+        },
+        "gain": 0,
+        "lower_bound": -2.701813717997259,
+        "verdict": {
+          "decision": "refuse",
+          "code": "insufficient_samples",
+          "reason": "Promotion refused: the candidate evidence carries 2 sample(s), below the required minimum of 10. A noisy sample below the minimum count is not statistically bounded improvement."
+        }
+      }
+    }
+  ],
+  "audit": [
+    {
+      "target": "time-to-close",
+      "before": {
+        "mean": 0.5,
+        "interval": [
+          0,
+          1
+        ],
+        "trackers": 1,
+        "items": 16,
+        "majority": 0.5,
+        "retained": 0.5
+      },
+      "after": {
+        "mean": 0.5,
+        "interval": [
+          0,
+          1
+        ],
+        "trackers": 1,
+        "items": 16,
+        "majority": 0.5,
+        "retained": 0.5
+      }
+    },
+    {
+      "target": "issue-type",
+      "before": {
+        "mean": 0.5,
+        "interval": [
+          0,
+          1
+        ],
+        "trackers": 1,
+        "items": 24,
+        "majority": 0.5,
+        "retained": 0.5
+      },
+      "after": {
+        "mean": 0.5,
+        "interval": [
+          0,
+          1
+        ],
+        "trackers": 1,
+        "items": 24,
+        "majority": 0.5,
+        "retained": 0.5
+      }
+    }
+  ],
+  "audit_diagnostics": {
+    "before": [
+      {
+        "task": "4a183b5dfc5f2f66",
+        "proposal": "audit-b-t0-c0",
+        "config": {
+          "features": "all",
+          "learning_rate": 0.5,
+          "prefix": {
+            "hashing_width": 32,
+            "ngram_order": 1,
+            "regularisation": 0.001
+          }
+        },
+        "held_out_accuracy": 0.375,
+        "promoted": false,
+        "retained_accuracy": 0.5,
+        "held_out_classes": {
+          "0": 15,
+          "1": 9
+        },
+        "distinct_predictions": 2,
+        "train_accuracy": 0.875,
+        "train_majority": 0.5,
+        "beats_train_majority": true
+      },
+      {
+        "task": "c7379a217d1255ef",
+        "proposal": "audit-b-t1-c0",
+        "config": {
+          "features": "events",
+          "learning_rate": 0.05,
+          "prefix": {
+            "hashing_width": 32,
+            "ngram_order": 3,
+            "regularisation": 0.001
+          }
+        },
+        "held_out_accuracy": 0.5,
+        "promoted": false,
+        "retained_accuracy": 0.5,
+        "held_out_classes": {
+          "0": 16,
+          "1": 0
+        },
+        "distinct_predictions": 1,
+        "train_accuracy": 0.5,
+        "train_majority": 0.5,
+        "beats_train_majority": false
+      }
+    ],
+    "after": [
+      {
+        "task": "4a183b5dfc5f2f66",
+        "proposal": "audit-a-t0-c0",
+        "config": {
+          "features": "all",
+          "learning_rate": 0.5,
+          "prefix": {
+            "hashing_width": 32,
+            "ngram_order": 1,
+            "regularisation": 0.001
+          }
+        },
+        "held_out_accuracy": 0.375,
+        "promoted": false,
+        "retained_accuracy": 0.5,
+        "held_out_classes": {
+          "0": 15,
+          "1": 9
+        },
+        "distinct_predictions": 2,
+        "train_accuracy": 0.875,
+        "train_majority": 0.5,
+        "beats_train_majority": true
+      },
+      {
+        "task": "c7379a217d1255ef",
+        "proposal": "audit-a-t1-c0",
+        "config": {
+          "features": "events",
+          "learning_rate": 0.05,
+          "prefix": {
+            "hashing_width": 32,
+            "ngram_order": 3,
+            "regularisation": 0.001
+          }
+        },
+        "held_out_accuracy": 0.5,
+        "promoted": false,
+        "retained_accuracy": 0.5,
+        "held_out_classes": {
+          "0": 16,
+          "1": 0
+        },
+        "distinct_predictions": 1,
+        "train_accuracy": 0.5,
+        "train_majority": 0.5,
+        "beats_train_majority": false
+      }
+    ]
+  },
+  "retained": "sha256:c3c491aeffc88995cf406dbc6dc01d670212d5de3bfe7b610cec3c6a344e17a9"
+}

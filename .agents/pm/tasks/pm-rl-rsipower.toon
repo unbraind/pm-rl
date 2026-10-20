@@ -1,0 +1,12 @@
+id: pm-rl-rsipower
+title: Evaluate proposer transfer on a statistically powered tracker corpus
+description: "The bounded recursive-improver acceptance uses two distinct meta trackers, below the unchanged ten-sample outer gate minimum; item-level inner bounds are also underpowered on the small chronological cohorts. Plan a larger public tracker/task benchmark with an explicit power analysis, account for correlated fleet work, preserve chronological and meta/audit separation, and repeat equal-budget proposer comparisons without relaxing the promotion gate."
+type: Task
+status: open
+priority: 2
+tags: []
+created_at: "2026-10-19T12:52:29.061Z"
+updated_at: "2026-10-19T14:05:25.000Z"
+author: codex-agent
+parent: pm-rl-apvf
+body: ""

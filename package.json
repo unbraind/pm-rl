@@ -48,7 +48,13 @@
     "dist/prefix-environment.*",
     "dist/prefix-trainer.*",
     "docs/prefix-live-evidence.json",
-    "docs/history-prefix.md"
+    "docs/history-prefix.md",
+    "dist/improver.*",
+    "dist/improver-data.*",
+    "dist/improver-environment.*",
+    "dist/recursive-improver.*",
+    "docs/recursive-improver.md",
+    "docs/improver-live-evidence.json"
   ],
   "engines": {
     "node": ">=22.18.0"
@@ -76,7 +82,8 @@
     "merge:install": "pm merge install",
     "coverage": "npm run build && npm run build:test && node scripts/coverage-gate.ts",
     "test:live": "node scripts/live-watchdog.ts meta",
-    "test:live:systemone": "node scripts/live-watchdog.ts"
+    "test:live:systemone": "node scripts/live-watchdog.ts",
+    "test:live:improver": "node scripts/live-improver.ts"
   },
   "coverageGate": {
     "sources": [
@@ -118,7 +125,8 @@
       "test/recipe.test.ts",
       "test/dataset.test.ts",
       "test/meta.test.ts",
-      "test/prefix.test.ts"
+      "test/prefix.test.ts",
+      "test/improver.test.ts"
     ],
     "thresholds": {
       "statements": 100,
@@ -157,12 +165,12 @@
     "@babel/eslint-parser": "8.0.7",
     "@babel/plugin-syntax-typescript": "8.0.3",
     "@types/node": "26.6.5",
-    "@unbrained/pm-cli": "2026.10.13",
+    "@unbrained/pm-cli": "2026.10.15",
     "eslint": "10.12.0",
     "jiti": "2.7.0",
     "jscpd": "5.4.1",
-    "pm-changelog": "2026.10.13",
-    "pm-ops": "2026.10.14",
+    "pm-changelog": "2026.10.16",
+    "pm-ops": "2026.10.16",
     "typescript": "7.0.2"
   },
   "peerDependencies": {
@@ -203,7 +211,8 @@
       "docs/meta-recursive.md",
       "docs/meta-live-evidence.json",
       "docs/history-prefix.md",
-      "docs/prefix-live-evidence.json"
+      "docs/prefix-live-evidence.json",
+      "docs/recursive-improver.md"
     ],
     "examples": [
       "README.md",

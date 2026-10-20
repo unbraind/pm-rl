@@ -1,0 +1,19 @@
+id: pm-rl-processcancel
+title: Stabilize native process cancellation partial-artifact barrier under shared load
+description: "The full isolated-identity Bun release gate observed ENOENT reading partial.json in test/process.test.ts:79 after the wall-expiry/AbortSignal fixture. It completed 653/654 tests with no skips or cancellations; all reported line/branch/function coverage was 100 percent. The unchanged targeted test passes alone 1/1. Investigate startup/barrier and deadline interaction under shared load without weakening the 2000/5000 ms allowances or coverage thresholds. Related Compose fixture work is pm-rl-8nev; this follow-up covers the separate native-process fixture."
+type: Task
+status: open
+priority: 3
+tags: []
+created_at: "2026-10-19T19:44:07.609Z"
+updated_at: "2026-10-19T20:05:24.018Z"
+author: codex-agent
+parent: pm-rl-apvf
+comments[2]{created_at,author,text}:
+  "2026-10-19T19:45:29.047Z",codex-agent,"Control checks pass without changing the fixture: direct isolated-identity Node 26 run 1/1; linked pm test --run --progress in a snapshot workspace with pm_context_mode=none also 1/1, zero fail/skip/cancel/todo. Preserve the local full-gate ENOENT as failed evidence. This item remains open for a separate native-fixture investigation; schema review work is pm-rl-rsi."
+  "2026-10-19T20:05:24.018Z",codex-agent,"Source-head CI run 39313669811 passes the unchanged native cancellation fixture in all three complete gates: npm on Node 22/26 and Bun on Node 26, each 654/654 with four 100 percent coverage dimensions. This does not erase the local full-gate missing partial.json observation; leave the follow-up open for load/barrier investigation. No process code, fixture allowance or test bound was changed by the schema fix."
+files[1]{path,scope}:
+  test/process.test.ts,project
+tests[1]{command,scope,timeout_seconds,pm_context_mode,workspace_context_mode,provenance{author,created_at,source_kind,source_ref}}:
+  node --test --test-name-pattern='wall expiry and AbortSignal' test/process.test.ts,project,120,none,snapshot,codex-agent,"2026-10-19T19:44:59.163Z",local_mutation,feat/recursive-improver-policy
+body: ""
