@@ -167,5 +167,48 @@
         "stopReason": "evaluation_rejected"
       }
     }
-  ]
+  ],
+  "descriptive_accuracy": {
+    "method": "two-sided 95% item-level Hoeffding; historical sampled hard predictions",
+    "meta": {
+      "majority": {
+        "correct": 211,
+        "samples": 214,
+        "mean": 0.985981308411215,
+        "interval": [
+          0.8931434000480999,
+          1
+        ]
+      },
+      "learner": {
+        "correct": 107,
+        "samples": 214,
+        "mean": 0.5,
+        "interval": [
+          0.4071620916368848,
+          0.5928379083631151
+        ]
+      }
+    },
+    "final": {
+      "majority": {
+        "correct": 384,
+        "samples": 385,
+        "mean": 0.9974025974025974,
+        "interval": [
+          0.9281873350841585,
+          1
+        ]
+      },
+      "learner": {
+        "correct": 198,
+        "samples": 385,
+        "mean": 0.5142857142857142,
+        "interval": [
+          0.44507045196727535,
+          0.5835009766041531
+        ]
+      }
+    }
+  }
 }

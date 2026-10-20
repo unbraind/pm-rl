@@ -11,6 +11,15 @@ labels 384/1. A perfect final classifier could improve on majority by only
 The promotion gate compares actual incumbents; this majority headroom is a
 benchmark limitation, not the cause of the original inner refusals.
 
+| Original terminal-disposition split | Majority (descriptive 95% accuracy interval) | Learner (descriptive 95% accuracy interval) |
+| --- | --- | --- |
+| Meta-validation | 211/214 [0.893143, 1] | 107/214 [0.407162, 0.592838] |
+| Final-test | 384/385 [0.928187, 1] | 198/385 [0.445070, 0.583501] |
+
+These item-level intervals use the same two-sided Hoeffding method described
+below. The original learner's decisions are sampled from the frozen scalar
+policy; its reported hard accuracy must not be confused with argmax accuracy.
+
 The old fits were refused for measured reasons: one-step REINFORCE moved the
 single scalar weight only to -0.000512 through 0.022725. Expected inner rewards
 were 0.499979–0.501396 against 0.5, below the 0.01 effect even before confidence
@@ -252,3 +261,15 @@ end-to-end proposal/update/promotion results are documented in
 `pm-rl/improver-receipts/3`. Earlier receipts lacking calibration refuse adoption
 before fitting rather than being relabelled as current evidence. Historical
 tracker records remain append-only and are never rewritten.
+
+Full source acceptance on `c639adb7ed5d330e948eba5ddc6c7e148ec15db6` is
+[CI run 39387106691](https://github.com/unbraind/pm-rl/actions/runs/39387106691).
+Unchanged `npm run release:check` on Node 22 and 26 and `bun run release:check`
+on Node 26 each pass 655/655 tests with zero failures, skips, cancellations or
+todos. All 44 authored sources reach 100% statements, lines, branches and
+functions; all 321 declarations are documented. Strict tracker health, lint,
+duplication, release attestation, production audit, package dry-run, changelog
+and CodeQL checks pass. A fresh no-local clone independently passes strict
+health with merge drivers and isolated identity. The redundant local full suite
+was stopped after both required CI commands passed; no local full-gate pass is
+claimed. [PR 89](https://github.com/unbraind/pm-rl/pull/89) remains unmerged.
