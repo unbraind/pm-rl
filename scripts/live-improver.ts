@@ -42,7 +42,7 @@ export function improverLiveRoot(environment: NodeJS.ProcessEnv): string { retur
 
 /** Preserve per-proposal aggregate diagnostics without publishing parameters or prediction vectors. */
 function candidateDiagnostics(search: ImproverSearch) {
-  return search.trials.map(({ task, outcome, trial }) => ({ task, proposal: outcome.id, config: outcome.config, held_out_accuracy: trial.mean, promoted: trial.promoted, retained_accuracy: trial.retained_mean, ...trial.diagnostics }));
+  return search.trials.map(({ task, outcome, trial }) => ({ task, proposal: outcome.id, config: outcome.config, held_out_accuracy: trial.mean, promoted: trial.promoted, retained_accuracy: trial.retained_mean, retained_calibration: trial.retained_calibration, ...trial.diagnostics }));
 }
 
 /** Reproduce the sealed corpus through the packed CLI; explicit synthetic pins/config also exercise this exact path in CI. */

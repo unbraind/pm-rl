@@ -1,5 +1,27 @@
 # History-prefix learner
 
+The original terminal-disposition task remains reported in
+[meta-live-evidence.json](meta-live-evidence.json): 107/214 on meta-validation
+against a 211/214 majority, and 198/385 on final-test against 384/385. Its original
+inner receipts are summarized, with canonical receipt hashes, in
+[prefix-diagnosis-evidence.json](prefix-diagnosis-evidence.json). Training labels
+were 1014 completed / 9 cancelled, inner labels 144/1, meta labels 211/3 and final
+labels 384/1. A perfect final classifier could improve on majority by only
+1/385 = 0.260 percentage points, less than the existing one-point effect.
+The promotion gate compares actual incumbents; this majority headroom is a
+benchmark limitation, not the cause of the original inner refusals.
+
+The old fits were refused for measured reasons: one-step REINFORCE moved the
+single scalar weight only to -0.000512 through 0.022725. Expected inner rewards
+were 0.499979–0.501396 against 0.5, below the 0.01 effect even before confidence
+bounds; sampled candidate rewards were 0.497875–0.499250 against incumbent
+0.500125. Its feature was one hashed lifecycle signature, signed by whether the
+last status was blocked. That lossy feature and tiny stochastic updates explain
+the retained near-coin-flip seed. The gate correctly refused those fits; label
+degeneracy independently makes accuracy against majority a poor scientific
+target. The history-prefix target below has more headroom, without promising
+that this small learner can exploit it.
+
 The second tracker task predicts whether the time remaining until the first terminal
 transition is at or below a median fixed on fit items. Both `closed` and cancellation
 count as terminal. This task uses the public MIT source commits and repository roles
@@ -166,3 +188,67 @@ but the independent statement gate found one missing builder path (99.98%, one o
 synthetic open-only history now verifies that the builder omits that item. Removing
 only the null fallback makes this retained regression fail. No production, learner,
 target, budget or threshold change is involved in this coverage correction.
+
+## Calibration and repeated acceptance
+
+Probability diagnostics use the frozen sigmoid of the fitted linear score. They
+fit no calibration transform on held-out labels. Brier score, natural-log loss
+(probabilities clipped only for the logarithm at 1e-12), and ECE use five fixed
+equal-width reliability bins, including empty bins explicitly. Candidate,
+retained and fit-frequency constant forecasts are reported separately; the
+constant's probability is estimated on fit rows alone. The 95% descriptive
+accuracy intervals are two-sided Hoeffding intervals with radius
+`sqrt(log(40) / (2 * n))`. They assume independent items and are not simultaneous
+best-of-search intervals or evidence of independent-repository generalisation.
+Calibration point estimates do not enter either promotion gate.
+
+The repeated fixed-seed run used the identical sealed dataset digest
+`6eb9e7dcb22bb243b472512ce55e4c0ab1d2fa6053b5d489eea7b59240592f48`,
+source roles, five fitted checkpoint identities and hard predictions. All fits
+again refused. Runtime was 244924 ms under `nice -n 15`, affinity to two cores,
+and two-thread environment caps. The original live receipt above remains
+historical; the new aggregate receipt is
+[prefix-calibration-evidence.json](prefix-calibration-evidence.json).
+
+| Inner fit | Correct / 225 | Descriptive 95% accuracy interval | Brier | Log loss | ECE | Fast / slow |
+| --- | ---: | --- | ---: | ---: | ---: | ---: |
+| Initial | 124 | [0.460571, 0.641651] | 0.240962 | 0.674614 | 0.040556 | 111 / 114 |
+| Generation 1, candidate 0 | 121 | [0.447238, 0.628318] | 0.269641 | 0.736119 | 0.142337 | 0 / 225 |
+| Generation 1, candidate 1 | 133 | [0.500571, 0.681651] | 0.246047 | 0.685232 | 0.021214 | 26 / 199 |
+| Generation 2, candidate 0 | 115 | [0.420571, 0.601651] | 0.249457 | 0.692060 | 0.042851 | 166 / 59 |
+| Generation 2, candidate 1 | 124 | [0.460571, 0.641651] | 0.246204 | 0.685388 | 0.046842 | 3 / 222 |
+| Retained constant | 121 | [0.447238, 0.628318] | 0.250000 | 0.693147 | 0.037778 | 0 / 225 |
+
+The best inner accuracy is selected from five fits, and its promotion gain lower
+bound remains -0.127747. It is an unpromoted diagnostic, not the final policy.
+Final-test accuracy before/after is 220/385 (57.143%), matching majority, with
+descriptive 95% interval [0.502213, 0.640644]. Final Brier is 0.25, log loss
+0.693147 and ECE 0.071429; all 385 hard predictions are slow. Meta-validation
+remains 140/214 (65.421%), also matching majority. There is no statistically
+supported improvement. The unchanged paired comparison still gives p=1.
+
+The fit-frequency constant has slow probability 471/943 = 0.499470, so it predicts
+fast and scores 165/385, interval [0.359356, 0.497787], final Brier 0.250076 and
+log loss 0.693299. This training-only baseline differs from the descriptive
+final-split majority, which predicts slow. The retained seed already predicted
+slow before evaluation. Its advantage over the fit-frequency hard classifier is
+not a learned improvement, and the required comparison against both fixed
+constants remains null.
+
+Three behavior-only regressions fail with tests retained: replacing the fitted
+probability with 0.5; restoring only `diagnoseImproverLearner` from the base
+revision; and restoring only the prior improver receipt binding. Each exits 1
+with an assertion failure; restoring the implementation passes 1/1 each.
+The real prefix process regression also passes 1/1, including old-schema refusal
+before adopting any phase, inner acceptance, gap rejection and unchanged replay.
+
+The ledger-driven proposal-policy loop from PR 88 uses the same bounded prefix
+learner on its separately sealed chronological task benchmark. Its development,
+meta and audit roles are a distinct experiment from the original 25-repository
+benchmark; their scores must not be pooled. Its new calibration receipt and
+end-to-end proposal/update/promotion results are documented in
+[recursive-improver.md](recursive-improver.md). New prefix programmes bind
+`pm-rl/meta-programme/2`; improver programmes bind
+`pm-rl/improver-receipts/3`. Earlier receipts lacking calibration refuse adoption
+before fitting rather than being relabelled as current evidence. Historical
+tracker records remain append-only and are never rewritten.

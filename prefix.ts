@@ -15,6 +15,39 @@ export interface PrefixPayload {
   readonly rows: readonly { readonly prefix: HistoryPrefix; readonly label: 0 | 1 }[];
   readonly knobs: PrefixKnobs;
 }
+/** Descriptive probability diagnostics; intervals treat items as independent and never change the gate. */
+export interface BinaryCalibration {
+  readonly samples: number;
+  readonly accuracy: { readonly correct: number; readonly mean: number; readonly interval: readonly [number, number] };
+  readonly brier: number;
+  readonly log_loss: number;
+  readonly ece: number;
+  readonly bins: readonly { readonly samples: number; readonly probability: number | null; readonly frequency: number | null }[];
+}
+
+/** Score class-one probabilities with five fixed reliability bins and a two-sided 95% Hoeffding accuracy interval. */
+export function binaryCalibration(probabilities: readonly number[], labels: readonly (0 | 1)[]): BinaryCalibration {
+  assert.ok(labels.length > 0 && labels.length === probabilities.length, "prefix_calibration_samples");
+  assert.ok(labels.every((label) => label === 0 || label === 1) && probabilities.every((value) => Number.isFinite(value) && value >= 0 && value <= 1), "prefix_calibration_values");
+  const counts = Array.from({ length: 5 }, () => ({ samples: 0, probability: 0, frequency: 0 }));
+  let correct = 0; let brier = 0; let loss = 0;
+  for (const [index, probability] of probabilities.entries()) {
+    const label = labels[index];
+    if ((probability >= 0.5 ? 1 : 0) === label) correct += 1;
+    brier += (probability - label) ** 2;
+    // Fixed clipping only bounds the reporting logarithm; prediction and fitting use the original probability.
+    const clipped = Math.max(1e-12, Math.min(1 - 1e-12, probability));
+    loss -= label * Math.log(clipped) + (1 - label) * Math.log1p(-clipped);
+    const bin = counts[Math.min(4, Math.floor(probability * 5))];
+    bin.samples += 1; bin.probability += probability; bin.frequency += label;
+  }
+  const samples = labels.length; const mean = correct / samples;
+  const epsilon = Math.sqrt(Math.log(40) / (2 * samples));
+  return { samples, accuracy: { correct, mean, interval: [Math.max(0, mean - epsilon), Math.min(1, mean + epsilon)] },
+    brier: brier / samples, log_loss: loss / samples,
+    ece: counts.reduce((sum, bin) => sum + Math.abs(bin.probability - bin.frequency), 0) / samples,
+    bins: counts.map((bin) => ({ samples: bin.samples, probability: bin.samples === 0 ? null : bin.probability / bin.samples, frequency: bin.samples === 0 ? null : bin.frequency / bin.samples })) };
+}
 /** Validate each declared domain before allocating weights or processing rows. */
 export function validatePrefixKnobs(knobs: PrefixKnobs): void {
   assert.deepEqual(Object.keys(knobs).sort(), ["hashing_width", "ngram_order", "regularisation"], "prefix_knobs");
@@ -48,11 +81,18 @@ export function prefixCheckpoint(weights: readonly number[], knobs: PrefixKnobs)
   assert.ok(weights.length === knobs.hashing_width && weights.every((weight) => Number.isFinite(weight) && Math.abs(weight) <= 20), "prefix_weights");
   return { weights: [...weights], knobs: { ...knobs }, digest: `sha256:${hashJson({ format: "pm-rl/prefix-checkpoint/1", weights: [...weights], knobs } as unknown as JsonValue)}` };
 }
-/** Predict deterministically; seed equality is observable rather than hidden behind action sampling. */
-export function prefixPrediction(prefix: HistoryPrefix, policy: PrefixCheckpoint): "fast" | "slow" {
+/** Compute the shared linear score without changing the existing hard-decision tie rule. */
+function prefixLogit(prefix: HistoryPrefix, policy: PrefixCheckpoint): number {
   const features = prefixFeatures(prefix, policy.knobs);
-  const logit = features.reduce((total, value, index) => total + value * policy.weights[index], 0);
-  return logit >= 0 ? "slow" : "fast";
+  return features.reduce((total, value, index) => total + value * policy.weights[index], 0);
+}
+/** Return the uncalibrated logistic probability of slow/class one without fitting on evaluation labels. */
+export function prefixProbability(prefix: HistoryPrefix, policy: PrefixCheckpoint): number {
+  return 1 / (1 + Math.exp(-prefixLogit(prefix, policy)));
+}
+/** Keep the existing deterministic decision rule, including the zero-weight tie to slow. */
+export function prefixPrediction(prefix: HistoryPrefix, policy: PrefixCheckpoint): "fast" | "slow" {
+  return prefixLogit(prefix, policy) >= 0 ? "slow" : "fast";
 }
 /** Perform exactly one bounded SGD pass over the explicitly budgeted training rows. */
 export function fitPrefix(payload: PrefixPayload, source: PrefixCheckpoint, learningRate: number): PrefixCheckpoint {

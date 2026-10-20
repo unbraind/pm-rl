@@ -6,11 +6,13 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-18T07:43:41.188Z"
-updated_at: "2026-10-18T20:22:25.998Z"
+updated_at: "2026-10-20T07:29:10.646Z"
+assignee: codex-agent
+claim_principal: codex-agent
 author: codex-agent
 acceptance_criteria: "Train only on training repositories; preserve inner-held-out, meta-validation and final-test boundaries, fixed pre-approved budgets and unchanged promotion gate; report majority baselines, prediction diversity and final-test scores; demonstrate statistically supported improvement or explicitly report a null result without weakening the gate."
 parent: pm-rl-apvf
-comments[15]{created_at,author,text}:
+comments[20]{created_at,author,text}:
   "2026-10-18T18:18:15.113Z",codex-agent,"Plan: measure four candidate targets on training repositories only, freeze the selected task and split rules, then fit a bounded hashed prefix learner through the existing reserved process contract. Keep the 0.95 confidence, ten-sample, 0.01 effect gate and release disabled. Retain explicit fit, rejection, diversity, baseline and final-test evidence; verify behavioural reverts and both isolated release gates before opening the PR."
   "2026-10-18T18:19:57.854Z",codex-agent,"Training-repository-only screening on the original sealed commits (1168 eligible items): next lifecycle {closed:959,in_progress:195,canceled:10,open:3,blocked:1}, majority 82.106%; reopened {false:1144,true:24}, 97.945%; item type {Issue:447,Task:295,Chore:270,Feature:142,Decision:9,Epic:5}, 38.271%; median time-to-close {fast:585,slow:583}, 50.086%. Select time-to-close for a bounded binary learner: elapsed time and lifecycle activity plausibly predict remaining duration. Freeze this selection before either outer holdout is scored. Final calibration and all four distributions will use fit items only, excluding inner-held-out items, with a fixed seeded event cut and original source pins."
   "2026-10-18T18:26:53.048Z",codex-agent,"Fit-only calibration on original sealed public commits: 943 fit / 225 inner-held-out / 214 meta-validation / 385 final-test items. Median remaining duration 47356 ms. Candidate distributions on 943 fit items: next lifecycle {closed:776,in_progress:155,canceled:9,open:2,blocked:1} (82.291% majority); reopened {false:926,true:17} (98.197%); item type {Issue:368,Task:240,Chore:214,Feature:111,Decision:6,Epic:4} (39.024%); selected time-to-close {fast:472,slow:471} (50.053%). Synthetic real-process recursion passed 7/7 tests. Five behavioural reverts, with tests retained, each failed: replace feature vector with zeros; return source instead of fitted parameters; expose post-cut events; omit target-balance refusal; disable positive binomial verdict. Restore passed 5/5 focused tests. Revert transcripts retained in runtime/revert-*.log. No evaluation criterion or source role changed."
@@ -26,9 +28,15 @@ comments[15]{created_at,author,text}:
   "2026-10-18T20:03:39.981Z",codex-agent,"Review validation: real dataset regressions 2/2; existing dataset suite 7/7; all three linked pm test commands pass (5, 8 and 2 selected cases). Typecheck, lint, duplicate gate and documented-surface gate pass: 39 source files, 306 documented declarations. Full unchanged npm and Bun release gates are next, with CI identity isolation. Pinned CLI remains 2026.10.13; registry reports 2026.10.18, left unchanged by policy. Normal-environment health still hits the existing globally loaded extension host-version skew; verify tracked health in an isolated fresh clone."
   "2026-10-18T20:06:22.714Z",codex-agent,"Final boundary check extends the same unknown-status regression to imported events containing unknown then closed in one event, and unknown with no terminal event. Validate preterminal states before eligibility checks so these match terminal-disposition refusal too. The two regressions pass 2/2; reverting only production files to ed3f79c still fails each with assertions, restoring passes 2/2. A local npm gate started before this final correction was deliberately stopped and is not passing evidence; restart against the final snapshot. No statistical, learner, budget or threshold change."
   "2026-10-18T20:22:24.236Z",codex-agent,"Review acceptance on exact commit 123b585caea390243e3833bcfc58f42d5d082ad7: CI run 39161799627 passes npm run release:check on Node 22 and 26 and bun run release:check on Node 26, with identity-isolated HOME/Git settings and unchanged thresholds. Each job: 641 tests, 641 pass, zero fail/skip/cancel/todo; 39 sources at statements/lines/branches/functions 100/100/100/100; 306 documented declarations. Strict tracked health and CodeQL pass. Downloaded all three job logs and checked counts/metrics. Redundant local full-gate runs were stopped only after complete CI receipts; no local full-gate pass is claimed. The local long HTTP crash drill passed in both runs (117239 and 118053 ms). Both new behavioral revert proofs remain recorded above. Capacity expansion is tracking only in pm-rl-a2zp. Existing normal-environment host-version skew remains; gh pr edit hit a deprecated Projects field, so PR description updates use REST with published-body verification. No upstream issue was filed; no review replies/resolutions or bot mentions. Original public live evidence remains historical and unchanged."
-files[16]{path,scope}:
+  "2026-10-20T07:05:46.075Z",codex-agent,"Continuation after merged prefix PR 86 and improver PR 88: preserve the existing bounded learner, sealed source pins, budgets, data roles and promotion gate. Add evaluator-only probability calibration and two-sided descriptive accuracy intervals, including rejected fits versus retained policies and training-frequency baselines. Reproduce the original prefix benchmark and the ledger-driven improver cycle with two CPU threads at nice priority 15; report explicit nulls, behavioral revert proof and unchanged npm/Bun release gates. Existing capacity and statistical-power follow-ups remain separate."
+  "2026-10-20T07:11:45.433Z",codex-agent,"Diagnosis from the original immutable inner train receipts: scalar weights moved only from zero to -0.000512 through 0.022725. Expected held-out reward stayed 0.499979-0.501396 versus seed 0.5, less than the 0.01 effect even before uncertainty. All sampled candidate means (0.497875-0.49925) were below incumbent 0.500125, so evaluation_rejected was appropriate. The feature is a single hashed lifecycle signature, signed only by blocked state; the bounded one-step REINFORCE updates do not learn rich history. Original class counts: train completed1014/cancelled9; inner144/1; meta211/3; final384/1. Calibration and real reserved fit/replay regressions pass; all four linked pm tests pass (5/8/2/1 cases). No statistical gate or source role has changed."
+  "2026-10-20T07:18:27.469Z",codex-agent,"Fresh sealed prefix run completed in 244924 ms with the same dataset digest, five candidate checkpoints and scores as the historical run. Best inner fit133/225 has descriptive two-sided 95% accuracy interval [0.500571,0.681651], Brier0.246047, logloss0.685232, ECE0.021214; its unchanged gain lower bound remains -0.127747. Retained final220/385 equals majority, interval [0.502213,0.640644], Brier0.25, logloss0.693147, ECE0.071429; no recipe promotes. Metrics do not recalibrate probabilities or feed the gate. The Node stdin SDK-import issue reproduced during evidence extraction is already tracked by pm-rl-stdin; using a supported entrypoint succeeded. No duplicate or upstream issue was filed."
+  "2026-10-20T07:24:11.679Z",codex-agent,"Revert proof: retaining the regressions, (1) replacing prefixProbability with constant0.5 fails the probability calibration case, (2) restoring only diagnoseImproverLearner from the base revision fails the real reserved-fit candidate-calibration assertion, (3) reverting only the improver receipt binding to schema2 fails the required old-receipt refusal. All three exit1 with AssertionError; exact restorations pass1/1 each. Commands: node --test --test-name-pattern='probability calibration' test/prefix.test.ts; node --test --test-name-pattern='reserved fits preserve' test/improver.test.ts; node --test --test-name-pattern='legacy improver receipts' test/improver.test.ts. The expanded real prefix process/replay regression passes1/1, including refusing old-schema adoption before any phase. All files restored byte-for-byte; no gate, allowance or historical record changed."
+  "2026-10-20T07:29:10.644Z",codex-agent,"Fresh ledger-driven run: 3 generations,34/34 settled fits,8704 SGD updates,577722 ms elapsed,0 tokens. Development ledger grows2/4/6 outcomes; candidate proposal probabilities and ledger digests change, but all12 matched sampled configurations equal incumbent draws under the fixed seed. All outer gains0; unchanged gate refuses2 meta trackers versus min10, lower gain bound -2.701814 and tracker CI[0,1]. Final audit remains8/16 time-to-close and12/24 Issue type, each50%; descriptive item CIs[0.160475,0.839525] and[0.222779,0.777221], Brier0.25/logloss0.693147/ECE0 on balanced labels. Explicit null; no learned-policy or proposer promotion. New aggregate receipts include all phase hashes and separate rejected/retained calibration. A declaration-only return annotation fixes inferred inline type imports; measured and published evaluator JavaScript is byte-identical. Full release gates will run in fresh clones so earlier installed runtime declarations are excluded without changing any gate."
+files[20]{path,scope}:
   dataset.ts,project
   examples/meta-prefix.json,project
+  improver-environment.ts,project
   index.ts,project
   meta.ts,project
   package.json,project
@@ -38,19 +46,27 @@ files[16]{path,scope}:
   prefix.ts,project
   process.ts,project
   recipe.ts,project
+  recursive-improver.ts,project
+  scripts/live-improver.ts,project
   scripts/live-meta.ts,project
   test/fixtures/meta-workspace.ts,project
+  test/improver.test.ts,project
   test/meta.test.ts,project
   test/prefix.test.ts,project
   tracker-environment.ts,project
-tests[3]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[4]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-name-pattern='hashed learner|projection stops|all four target|classifier distinguishes|majority comparison' test/prefix.test.ts,project,codex-agent,"2026-10-18T18:25:43.540Z",local_mutation,feat/history-prefix-learner
   node --test --test-name-pattern='inner comparison|trainer IO|public snapshot builder|hashed learner|projection stops|target distributions|majority comparison|classifier distinguishes' test/prefix.test.ts,project,codex-agent,"2026-10-18T18:36:14.301Z",local_mutation,feat/history-prefix-learner
   "node --test --test-name-pattern=\"lifecycle prefix contract\" test/prefix.test.ts",project,codex-agent,"2026-10-18T20:02:50.108Z",local_mutation,feat/history-prefix-learner
-docs[5]{path,scope}:
+  "node --test --test-name-pattern=\"probability calibration\" test/prefix.test.ts",project,codex-agent,"2026-10-20T07:09:06.309Z",local_mutation,feat/history-prefix-learner
+docs[9]{path,scope}:
   docs/history-prefix.md,project
+  docs/improver-calibration-evidence.json,project
   docs/meta-live-evidence.json,project
+  docs/prefix-calibration-evidence.json,project
+  docs/prefix-diagnosis-evidence.json,project
   docs/prefix-live-evidence.json,project
+  docs/recursive-improver.md,project
   README.md,project
   RECURSIVE_TRAINING.md,project
 body: ""

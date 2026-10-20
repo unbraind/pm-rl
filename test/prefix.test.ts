@@ -7,20 +7,52 @@ import { Readable, Writable } from "node:stream";
 import { test } from "node:test";
 import extension, { hashJson, type JsonValue, type RlCommandResult } from "../index.ts";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
+import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { buildTrackerDataset, readTrackerDataset, readTrackerSplit, trackerHistoryExample, TRACKER_SPLITS } from "../dataset.ts";
 import { calibratePrefixTarget, prefixInnerExample, projectHistoryPrefix, validateHistoryPrefix, type HistoryPrefix, type PrefixProjection } from "../prefix-data.ts";
-import { fitPrefix, prefixCheckpoint, prefixFeatures, prefixPrediction, validatePrefixCompletion, validatePrefixKnobs, type PrefixCheckpoint } from "../prefix.ts";
+import { binaryCalibration, fitPrefix, prefixCheckpoint, prefixFeatures, prefixPrediction, prefixProbability, validatePrefixCompletion, validatePrefixKnobs, type PrefixCheckpoint } from "../prefix.ts";
 import { majorityBinomial, fitHistoryPrefix, prefixAccuracy, prefixMajorityComparison } from "../prefix-environment.ts";
 import { prefixTrainerArgv, prefixTrainerMain, runPrefixTrainer } from "../prefix-trainer.ts";
 import { INITIAL_RECIPE, recipeArtifact, seededRecipes } from "../recipe.ts";
 import { metaWorkspace, withTrackerSources, metaConfig, git } from "./fixtures/meta-workspace.ts";
 import { compareRecipes, runRlMeta, type RecipePolicy } from "../meta.ts";
-import { executeProcessTrainer, validateProcessCompletion, readProcessJob, type ProcessCompletion, type ProcessInput } from "../process.ts";
+import { executeProcessTrainer, validateProcessCompletion, readProcessJob, listProcessJobs, type ProcessCompletion, type ProcessInput } from "../process.ts";
 import { runLiveMetaAcceptance, liveMetaMain } from "../scripts/live-meta.ts";
 
 const knobs = { regularisation: 0.001, ngram_order: 2, hashing_width: 32 };
 const prefix: HistoryPrefix = { events: ["create", "claim", "update", "comment_add"], fields: ["status", "title", "description", "status"], words: [42, 77, 12], elapsed_ms: 80_000, authors: 2 };
 const recipe = recipeArtifact({ ...INITIAL_RECIPE.knobs, prefix: knobs });
+
+test("probability calibration exposes confidence errors even with identical hard predictions", () => {
+  const source = prefixCheckpoint(new Array<number>(32).fill(0), knobs);
+  assert.equal(prefixProbability(prefix, source), 0.5);
+  const weights = [...source.weights]; weights[0] = Math.log(3);
+  const confident = prefixCheckpoint(weights, knobs);
+  assert.ok(Math.abs(prefixProbability(prefix, confident) - 0.75) < 1e-15);
+  assert.equal(prefixPrediction(prefix, confident), prefixPrediction(prefix, source));
+  const labels = Array.from({ length: 1000 }, (_, index) => index % 4 === 0 ? 0 as const : 1 as const);
+  const calibrated = binaryCalibration(labels.map(() => 0.75), labels);
+  const uninformative = binaryCalibration(labels.map(() => 0.5), labels);
+  assert.equal(calibrated.accuracy.correct, 750); assert.deepEqual(calibrated.accuracy, uninformative.accuracy);
+  assert.ok(calibrated.accuracy.interval[0] < 0.75 && calibrated.accuracy.interval[0] > 0.7);
+  assert.ok(calibrated.accuracy.interval[1] > 0.75 && calibrated.accuracy.interval[1] < 0.8);
+  assert.equal(calibrated.brier, 0.1875); assert.equal(uninformative.brier, 0.25);
+  assert.ok(calibrated.log_loss < uninformative.log_loss); assert.equal(calibrated.ece, 0); assert.equal(uninformative.ece, 0.25);
+  assert.deepEqual(calibrated.bins[3], { samples: 1000, probability: 0.75, frequency: 0.75 });
+  assert.deepEqual(calibrated.bins[0], { samples: 0, probability: null, frequency: null });
+  const perfect = binaryCalibration([0, 1], [0, 1]);
+  assert.equal(perfect.brier, 0); assert.equal(perfect.ece, 0); assert.ok(perfect.log_loss < 2e-12);
+  assert.equal(perfect.accuracy.interval[1], 1);
+  const wrong = binaryCalibration([1, 0], [0, 1]);
+  assert.equal(wrong.brier, 1); assert.equal(wrong.ece, 1); assert.ok(wrong.log_loss > 27); assert.equal(wrong.accuracy.interval[0], 0);
+  const bins = binaryCalibration([0, 0.2, 0.4, 0.6, 0.8, 1], [0, 0, 0, 1, 1, 1]);
+  assert.deepEqual(bins.bins.map((bin) => bin.samples), [1, 1, 1, 1, 2]);
+  assert.ok(Math.abs(bins.brier - 1 / 15) < 1e-15);
+  for (const values of [[], [0.5, 0.5]]) assert.throws(() => binaryCalibration(values, [0]), /samples/);
+  assert.throws(() => binaryCalibration([], []), /samples/);
+  for (const value of [NaN, Infinity, -0.1, 1.1]) assert.throws(() => binaryCalibration([value], [1]), /values/);
+  assert.throws(() => binaryCalibration([0.5], [2 as 1]), /values/);
+});
 /** Generate a public-shaped history with deliberately distinct future-only values. */
 function history(extra: readonly Record<string, unknown>[] = []): string {
   return [
@@ -191,8 +223,26 @@ test("real reserved process fits are explicit even when the unchanged inner gate
     assert.ok(policy.fit!.accepted || policy.fit!.refusal !== null);
     assert.equal(policy.checkpoint, policy.prefix!.digest);
     assert.equal((await readProcessJob(w.client, policy.fit!.job))!.state, policy.fit!.accepted ? "promoted" : "evaluated");
+    assert.equal(policy.fit!.calibration.candidate.accuracy.mean, policy.fit!.mean);
+    assert.equal(policy.fit!.calibration.candidate.samples, policy.fit!.samples);
+    assert.equal(policy.fit!.calibration.retained.accuracy.mean, prefixAccuracy(readTrackerSplit(directory, manifest, "inner-held-out"), policy));
+    assert.ok(policy.fit!.calibration.training_frequency.brier >= 0);
   }
   assert.ok(report.final_test.majority_test !== undefined);
+  assert.ok(report.final_test.diagnostics.calibration);
+  assert.equal(report.final_test.diagnostics.calibration!.accuracy.mean, report.final_test.after.mean);
+  const programmeId = "prefix-loop-step-programme";
+  const programmeBody = String((await w.client.get(programmeId)).item.body);
+  const programme = JSON.parse(programmeBody) as Record<string, JsonValue>;
+  const legacyInput = { ...(programme.result as Record<string, JsonValue>), format: "pm-rl/meta-programme/1" };
+  const jobsBeforeLegacy = await listProcessJobs(w.client);
+  try {
+    await w.client.update(programmeId, { body: JSON.stringify({ ...programme, input: hashJson({ binding: hashJson(legacyInput), value: legacyInput }), result: legacyInput, digest: hashJson(legacyInput) }) });
+    const phases: string[] = [];
+    await assert.rejects(runRlMeta(w.client, w.coordinates, { id: "prefix-loop", config, dataset: directory, approval: w.approval, proposer: "seeded", onStep(key) { phases.push(key); } }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_step_drift");
+    assert.deepEqual(phases, [], 'pre-calibration programmes refuse before any phase is adopted');
+    assert.deepEqual(await listProcessJobs(w.client), jobsBeforeLegacy);
+  } finally { await w.client.update(programmeId, { body: programmeBody }); }
   const originalSplits = { train: readFileSync(join(directory, "train.json")), "inner-held-out": readFileSync(join(directory, "inner-held-out.json")) };
   const copy = { ...manifest, splits: { ...manifest.splits } };
   /** Rebind only disposable synthetic split content to test inner acceptance and gap rejection. */

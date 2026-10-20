@@ -115,8 +115,8 @@ is persisted, so repeated resumes cannot replenish time. Completed replay launch
 no jobs. Dataset, configuration, approval or receipt drift refuses. Ambiguous
 holders use the same command with `--force-takeover`; live holders still block.
 
-The input binding includes receipt schema `pm-rl/improver-receipts/2`.
-Earlier receipts without candidate diagnostics are incompatible: both interrupted
+The input binding includes receipt schema `pm-rl/improver-receipts/3`.
+Earlier receipts without probability calibration are incompatible: both interrupted
 resume and completed replay return typed `loop_step_drift` at the programme
 receipt before launching any fit. Use a new programme identity for a new run.
 
@@ -219,3 +219,53 @@ Node 26, each with 653/653 tests, zero failures/skips/cancellations/todos,
 44/44 source files present and 100.00% statements, lines, branches and
 functions. Thresholds, dependency pins and the existing runtime smoke limits
 are unchanged. The CI merge checkout and branch head have identical trees.
+
+## Probability-calibration repetition
+
+[improver-calibration-evidence.json](improver-calibration-evidence.json) records a
+new three-generation run of the same frozen chronological corpus and programme.
+It completed in 577722 ms under `nice -n 15`, two-core affinity and two-thread
+environment caps. All 34 reserved fits settled, with zero recovery attempts,
+8704 SGD updates and zero tokens. Measured process use was 187701 ms wall,
+2950 CPU milliseconds and 92118 staging bytes. Source hashes and the full report
+digest bind the aggregates; each durable phase's key, input and payload digest
+is included. Every fit remains under its original 30-second/4096-byte allowance.
+
+The development ledger contributes 2, 4 and 6 outcomes to the candidate policies.
+Their failure priors and proposal probabilities change before the next meta
+proposals are drawn: first-generation probabilities change from uniform 0.125
+to 0.105263 on the two failed arms and 0.131579 on the other six. All twelve
+matched sampled configurations nevertheless remain identical to the incumbent's
+draws in this fixed-seed run. The ledger informs the proposal distribution; this
+run does not show a changed sampled arm or improved proposer behavior. The
+unchanged outer gate refuses all three candidates for two meta trackers versus
+the required ten. All outer gains remain zero with lower bound -2.701814,
+and descriptive tracker-level 95% score intervals remain [0, 1].
+
+| Generation | Nonconstant fitted candidates / 10 | Beat training majority / 10 | Candidate held-out Brier range | Retained meta score | Promoted |
+| --- | ---: | ---: | --- | ---: | --- |
+| 1 | 10 | 10 | [0.243038, 0.359230] | 0.50 | no |
+| 2 | 6 | 6 | [0.236055, 0.258490] | 0.50 | no |
+| 3 | 5 | 7 | [0.226343, 0.260667] | 0.50 | no |
+
+The separate final audit again retains the original constant learner:
+
+| Target | Majority / retained correct | Descriptive item-level 95% accuracy interval | Brier | Log loss | ECE |
+| --- | ---: | --- | ---: | ---: | ---: |
+| Time-to-close | 8/16 | [0.160475, 0.839525] | 0.25 | 0.693147 | 0 |
+| Issue type | 12/24 | [0.222779, 0.777221] | 0.25 | 0.693147 | 0 |
+
+Both targets share one audit tracker, so these item-level intervals cannot be
+pooled into independent tracker evidence; its tracker-level interval is [0, 1].
+ECE is zero for a constant 0.5 forecast on the deliberately balanced sample.
+That calibration does not establish useful discrimination or performance at
+natural prevalence. All retained hard predictions are class one. Candidate,
+retained and training-frequency calibration aggregates remain separate,
+including every refused fit. The same five fixed reliability bins and descriptive
+Hoeffding accuracy intervals as the original prefix benchmark are used.
+No held-out probability recalibration, target tuning or gate change occurs.
+
+The receipt is an explicit null. The capacity and statistical-power follow-ups
+remain necessary before claiming recursive self-improvement on public trackers.
+The three new behavior-only revert proofs and supported-entrypoint limitation
+are recorded on `pm-rl-prefix`; old schema-2 receipts refuse before fitting.

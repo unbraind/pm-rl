@@ -54,7 +54,10 @@
     "dist/improver-environment.*",
     "dist/recursive-improver.*",
     "docs/recursive-improver.md",
-    "docs/improver-live-evidence.json"
+    "docs/improver-live-evidence.json",
+    "docs/prefix-diagnosis-evidence.json",
+    "docs/prefix-calibration-evidence.json",
+    "docs/improver-calibration-evidence.json"
   ],
   "engines": {
     "node": ">=22.18.0"
@@ -212,7 +215,10 @@
       "docs/meta-live-evidence.json",
       "docs/history-prefix.md",
       "docs/prefix-live-evidence.json",
-      "docs/recursive-improver.md"
+      "docs/recursive-improver.md",
+      "docs/prefix-diagnosis-evidence.json",
+      "docs/prefix-calibration-evidence.json",
+      "docs/improver-calibration-evidence.json"
     ],
     "examples": [
       "README.md",

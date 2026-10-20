@@ -85,7 +85,7 @@ export async function runRecursiveImprover(client: PmClient, coordinates: Proces
   const approval = await readCompleteLoopItem(client, request.approval);
   assert.equal(approval.item.type, "Decision", "improver_approval_required");
   const approvalBody = String(approval.item.body);
-  const binding = hashJson({ receipts: "pm-rl/improver-receipts/2", config: config as unknown as JsonValue, dataset: manifest.digest, approval: String(approval.item.id), approval_body: approvalBody });
+  const binding = hashJson({ receipts: "pm-rl/improver-receipts/3", config: config as unknown as JsonValue, dataset: manifest.digest, approval: String(approval.item.id), approval_body: approvalBody });
   const signal = request.signal ?? AbortSignal.timeout(config.timeout_ms);
   const budget = improverBudget(manifest, config);
   // Allocate the declared error budget across every planned inner fit and outer comparison.
