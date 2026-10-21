@@ -8,9 +8,9 @@ import { tmpdir } from "node:os";
 import { test } from "node:test";
 import { banditCheckpoint, banditProbability, fitBanditBatch, validatedBanditDatasets } from "../bandit.ts";
 import { itemBootstrap, pairedItemEvidence } from "../item-evaluation.ts";
-import { sealTrackerLoopCorpus, titleFeatures, verifyTrackerLoopCorpus } from "../corpus.ts";
+import { corpusHeldOut, sealTrackerLoopCorpus, titleFeatures, verifyTrackerLoopCorpus } from "../corpus.ts";
 import { generationTrainingConfig, parseLoopConfig, parseStoredLoopGeneration, runLoopGeneration, seedTrainingConfig, verifyStoredLoopGeneration } from "../loop.ts";
-import { type JsonValue } from "../index.ts";
+import { runRlLoop, rlLoopStatus, type JsonValue } from "../index.ts";
 import { executeProcessTrainer, parseProcessAdapter } from "../process.ts";
 import { baselineMain } from "../scripts/live-baseline.ts";
 import { vectorNoGit } from "./fixtures/baseline-no-git.ts";
@@ -46,7 +46,7 @@ test("vector capacity learns different actions and replays all coefficients and 
     assert.deepEqual(verifyStoredLoopGeneration(config, step, generation, source, stored), receipt);
     assert.throws(() => verifyStoredLoopGeneration(config, step, generation, source, { ...stored, itemEvidence: null }), /does not replay/);
     assert.throws(() => verifyStoredLoopGeneration(config, step, generation, source, { ...stored, candidateCoefficients: [1] }), /invalid/);
-    for (const candidate_coefficients of [[], [NaN], [21], new Array<number>(65).fill(0)]) assert.throws(() => parseStoredLoopGeneration({ ...saved as Record<string, JsonValue>, candidate_coefficients }, "bad"), /invalid/);
+    for (const candidate_coefficients of [[], [NaN], [21], new Array<number>(65).fill(0), null, "invalid"]) assert.throws(() => parseStoredLoopGeneration({ ...saved as Record<string, JsonValue>, candidate_coefficients }, "bad"), /invalid/);
     source = receipt.candidate;
   }
   assert.deepEqual(parseLoopConfig((seedTrainingConfig(config) as Record<string, JsonValue>).configuration), config);
@@ -60,7 +60,7 @@ test("title vectors have no status dependency and malformed vector seals fail be
   const corpus = original.corpus as Record<string, JsonValue>;
   const rows = corpus.rows as Record<string, JsonValue>[];
   assert.deepEqual(rows.map((row) => row.features), ((changed.corpus as Record<string, JsonValue>).rows as Record<string, JsonValue>[]).map((row) => row.features));
-  for (const features of [undefined, [], new Array<number>(64).fill(2), new Array<number>(64).fill(NaN), ["text"]]) {
+  for (const features of [undefined, [], new Array<number>(64).fill(2), new Array<number>(64).fill(NaN), new Array<string>(64).fill("text")]) {
     assert.throws(() => verifyTrackerLoopCorpus({ ...original, corpus: { ...corpus, rows: [{ ...rows[0], features }] } }), /corpus_invalid_seal/);
   }
   assert.throws(() => sealTrackerLoopCorpus(items, { ...bounds, feature_mode: "status" }), /corpus_invalid_bounds/);
@@ -104,14 +104,14 @@ test("vector checkpoint validation is enforced by the real external trainer rece
 });
 
 
-test("three item-gated attempts preserve incumbent, budget and replay without a Git executable", { timeout: 300_000 }, () => {
+test("item-gated fitting preserves incumbent, budget and replay without a Git executable", { timeout: 300_000 }, () => {
   const root = mkdtempSync(join(tmpdir(), "rl-vector-no-git-"));
   try {
     const bin = join(root, "tools"); mkdirSync(bin); symlinkSync(process.execPath, join(bin, "node"));
     for (const tool of ["ps", "getconf"]) symlinkSync(execFileSync("sh", ["-c", `command -v ${tool}`], { encoding: "utf8" }).trim(), join(bin, tool));
-    const output = execFileSync(process.execPath, [new URL("./fixtures/baseline-no-git.ts", import.meta.url).pathname, root], { encoding: "utf8", timeout: 280_000,
+    const output = execFileSync(process.execPath, [new URL("./fixtures/baseline-no-git.ts", import.meta.url).pathname, root, "1"], { encoding: "utf8", timeout: 280_000,
       env: { ...process.env, NODE_V8_COVERAGE: undefined, PATH: bin, GIT_CEILING_DIRECTORIES: dirname(root) } });
-    assert.match(output, /three refused vector proposals; sealed replay; incumbent retained/);
+    assert.match(output, /1 refused vector proposals; sealed replay; incumbent retained/);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -124,6 +124,7 @@ test("exploration requires a sealed vector corpus and defaults to stop-on-refusa
   const legacy = sealTrackerLoopCorpus(items, { ...bounds, feature_mode: undefined, retry_rejected: false } as unknown as JsonValue).programme as Record<string, JsonValue>;
   assert.throws(() => parseLoopConfig({ ...legacy, retry_rejected: true }), /Rejected-generation exploration/);
   assert.equal(parseLoopConfig(legacy).retryRejected, false);
+  assert.throws(() => parseLoopConfig({ ...programme, corpus: undefined, retry_rejected: true } as unknown as JsonValue), /Rejected-generation exploration/);
 });
 
 
@@ -149,4 +150,20 @@ test("vector promotion refuses an improving checkpoint that still loses to a con
   assert.equal(receipt.promoted, false); assert.equal(receipt.refusalReason, "item_constant_not_beaten");
   const unchanged = runLoopGeneration(config, step, 1, banditCheckpoint(0), banditCheckpoint(0));
   assert.equal(unchanged.stopReason, "unchanged_checkpoint");
+});
+
+
+test("sealed exploration stops on the original gap and sampled-evidence refusals", { timeout: 300_000 }, async () => {
+  const workspace = await processWorkspace();
+  const common = { ...bounds, adapter: undefined, fit_steps: 8, samples_per_generation: 32, budget: 96 };
+  const weak = sealTrackerLoopCorpus(items.map((item) => ({ ...item, status: "closed" })), { ...common, evaluation_samples: 1 } as unknown as JsonValue);
+  const gap = sealTrackerLoopCorpus(items.map((item) => ({ ...item, status: corpusHeldOut([...item.title].length) ? "open" : "closed" })), common as unknown as JsonValue);
+  for (const [id, corpus, reason] of [["sample-stop", weak, "evaluation_rejected"], ["gap-stop", gap, "gap_rejected"]] as const) {
+    const result = await runRlLoop(workspace.client, workspace.coordinates, { id, config: corpus.programme, approval: workspace.approval });
+    assert.equal(result.generations.length, 1); assert.equal(result.promoted, 0);
+    assert.equal(result.stop_reason, reason);
+    assert.ok(!result.generations[0].refusal_reason!.startsWith("item_"));
+    const status = await rlLoopStatus(workspace.client, id, workspace.pmRoot);
+    assert.equal(status.stop_reason, reason); assert.equal(status.generations.length, 1);
+  }
 });

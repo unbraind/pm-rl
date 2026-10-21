@@ -3754,7 +3754,7 @@ async function executeLoopProgramme(client: PmClient, coordinates: WorkspaceCoor
       // crash between the registration and that comment still gets it, exactly
       // once, because the append is idempotent by text.
       if (inspection.stopReason !== "promotion_refused") await prepared.lease.guard(() => appendCommentOnce(client, inspection.report.item!, `Loop ${request.id} generation ${generation} refused: ${inspection.refusalReason}`));
-      if (advanceRejectedProposal(programme, chain, inspection.report, inspection.stopReason)) { chain.resumed += 1; continue; }
+      if (advanceRejectedProposal(programme, chain, inspection.refusalReason, inspection.stopReason)) { chain.resumed += 1; continue; }
       terminal = { stopReason: inspection.stopReason, refusalReason: inspection.refusalReason };
       break;
     }
@@ -3916,7 +3916,7 @@ async function executePendingGeneration(client: PmClient, coordinates: Workspace
     chain.reports.push({ generation, run: runId!, item: generationId, promoted: false,
       held_out_mean: receipt.candidateHeldOutMean, candidate_checkpoint: receipt.candidate.digest, refusal_reason: receipt.refusalReason });
     await finishProcessGeneration(client, coordinates, prepared.lease, programme.trainer !== "systemone" ? programme.config : null, chain, generation, receipt as BanditGeneration | LmGeneration, "failed", receipt.refusalReason!, request);
-    if (advanceRejectedProposal(programme, chain, chain.reports.at(-1)!, receipt.stopReason!)) return { terminal: null };
+    if (advanceRejectedProposal(programme, chain, receipt.refusalReason!, receipt.stopReason!)) return { terminal: null };
     return { terminal: { stopReason: receipt.stopReason!, refusalReason: receipt.refusalReason! } };
   }
   // Promote through the existing transactional, budget-checked flow. An
@@ -3970,8 +3970,8 @@ async function executePendingGeneration(client: PmClient, coordinates: Workspace
 }
 
 /** A separately sealed exploration mode retries item refusals with a smaller step, never a refused collector. */
-function advanceRejectedProposal(programme: LoopProgramme, chain: LoopChain, report: RlLoopGenerationReport, reason: RlLoopReport["stop_reason"]): boolean {
-  if (programme.trainer !== "bandit" || !programme.config.retryRejected || reason !== "evaluation_rejected" || !report.refusal_reason?.startsWith("item_")) return false;
+function advanceRejectedProposal(programme: LoopProgramme, chain: LoopChain, refusalReason: string, reason: RlLoopReport["stop_reason"]): boolean {
+  if (programme.trainer !== "bandit" || !programme.config.retryRejected || reason !== "evaluation_rejected" || !refusalReason.startsWith("item_")) return false;
   chain.step = deriveNextStepConfig(programme.config, chain.step, -programme.config.minimumImprovement);
   return true;
 }
@@ -4112,7 +4112,7 @@ export async function rlLoopStatus(client: PmClient, id: string, pmRoot?: string
     if (inspection.kind === "refused") {
       generations.push(statusOf(inspection.report, "refused"));
       chain.consumed += generationCost(programme);
-      if (advanceRejectedProposal(programme, chain, inspection.report, inspection.stopReason)) { chain.resumed += 1; continue; }
+      if (advanceRejectedProposal(programme, chain, inspection.refusalReason, inspection.stopReason)) { chain.resumed += 1; continue; }
       terminal = { stopReason: inspection.stopReason, refusalReason: inspection.refusalReason };
       break;
     }

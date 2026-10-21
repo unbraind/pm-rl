@@ -200,16 +200,17 @@
   "replay": {
     "generations": 3,
     "unchanged_checkpoints": true,
-    "no_new_jobs": true
-  },
-  "implementation": {
-    "bandit.ts": "842b81303b9f02173dcdac954c3f8f716ec0a5b263977580a09233ecc7d286fa",
-    "corpus.ts": "74c1c4a32d41fbedbfef45110aebeb681c0ac82ba8558a7266fc950fc283663d",
-    "index.ts": "b2b26c409541b25980975691cba044d1f9f31255ec75ed69842b87286b47e867",
-    "loop.ts": "3bd56e1b8da579952edf2b480e6e91255efafe7f643fd224efdfc31a70136c63",
-    "process.ts": "2446eadc522df28a41c02546e18c6aa2b6c39d05ac1ce5dc1cb203038b54e6ee",
-    "process-bandit.ts": "2ba48e7c52c7bcc20173fb2d4cc6bc10cbad93e442ba1ed8123f1162814c7dec",
-    "item-evaluation.ts": "1db788b0523c1fa1df9cf95e662d289f5030b7dbd90c44fa9aee9cb9a7ba4be0"
+    "no_new_jobs": true,
+    "latest_source_verified": true,
+    "implementation": {
+      "bandit.ts": "bb80ed33762cf5314d175165980d9627cd2c6955dc807c0dfbe21dce34b09b8c",
+      "corpus.ts": "74c1c4a32d41fbedbfef45110aebeb681c0ac82ba8558a7266fc950fc283663d",
+      "index.ts": "b2b26c409541b25980975691cba044d1f9f31255ec75ed69842b87286b47e867",
+      "loop.ts": "3bd56e1b8da579952edf2b480e6e91255efafe7f643fd224efdfc31a70136c63",
+      "process.ts": "2446eadc522df28a41c02546e18c6aa2b6c39d05ac1ce5dc1cb203038b54e6ee",
+      "process-bandit.ts": "2ba48e7c52c7bcc20173fb2d4cc6bc10cbad93e442ba1ed8123f1162814c7dec",
+      "item-evaluation.ts": "1db788b0523c1fa1df9cf95e662d289f5030b7dbd90c44fa9aee9cb9a7ba4be0"
+    }
   },
   "execution": {
     "git_executable_available": false,

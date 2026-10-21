@@ -111,8 +111,8 @@ the builder does not infer a repository's public visibility or licence.
 `test/baseline.test.ts` exercises three promoted synthetic generations, independent
 finite differences of the vector objective, constant-policy refusal, corrupted
 vector seals/checkpoints, changed item evidence and real external receipts. The
-same three-refusal acceptance runs in-process and with a Git-free PATH plus
-`GIT_CEILING_DIRECTORIES` in SDK-initialized temporary trackers. This retains the
+three-refusal acceptance runs in-process; a separate fit and replay runs with a
+Git-free PATH plus `GIT_CEILING_DIRECTORIES` in an SDK-initialized temporary tracker. This retains the
 existing crash, cancellation, shared-budget and contamination suites.
 
 Behavior-only copies with vector fitting removed fail the three-promotion
