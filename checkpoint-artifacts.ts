@@ -108,6 +108,13 @@ export async function encodeCheckpointArtifacts(root: string, key: string, value
     if (node === null || typeof node !== "object") return node;
     const record = node as Record<string, unknown>;
     if ((Array.isArray(record.weights) && record.knobs !== undefined && typeof record.digest === "string") || record.format === "pm-rl/improver/1") {
+      try {
+        if (record.format === "pm-rl/improver/1") parseImprover(record as unknown as ImproverPolicy);
+        else {
+          const policy = record as unknown as PrefixCheckpoint;
+          if (prefixCheckpoint(policy.weights, policy.knobs).digest !== policy.digest) throw new Error("policy identity");
+        }
+      } catch { expectedFail("Checkpoint policy schema or identity is invalid; refusing to publish it.", "checkpoint_artifact_invalid"); }
       const content = Buffer.from(JSON.stringify(node));
       const ref: CheckpointArtifact = { format: "pm-rl/checkpoint-artifact/1", kind: record.format === "pm-rl/improver/1" ? "improver" : "prefix", digest: digestBytes(content), policy: String(record.digest), bytes: content.length };
       validateReference(ref);

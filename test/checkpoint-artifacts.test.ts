@@ -3,13 +3,14 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import childProcess, { fork } from "node:child_process";
 import { once } from "node:events";
-import fs, { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
+import fs, { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { dirname, join, relative } from "node:path";
 import { mock, test } from "node:test";
+import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import extension, { controllerHasGitAncestor, withRlController } from "../index.ts";
+import extension, { controllerAuthorityRoot, controllerHasGitAncestor, withRlController } from "../index.ts";
 import { checkpointArtifactPath, collectCheckpointArtifacts, decodeCheckpointArtifacts, encodeCheckpointArtifacts, inspectCheckpointArtifact, MAX_CHECKPOINT_BYTES, readCheckpointArtifact, readCheckpointLedger, type CheckpointArtifact } from "../checkpoint-artifacts.ts";
 import { prefixCheckpoint } from "../prefix.ts";
 import { initialImprover } from "../improver.ts";
@@ -24,6 +25,49 @@ import { liveMetaConfiguration } from "../scripts/live-meta.ts";
 
 /** Match stable errors instead of accepting accidental parser or filesystem exceptions. */
 function refuses(code: string): (error: unknown) => boolean { return (error) => isPmCliExpectedError(error) && error.context.code === code; }
+
+/** Build a Git-free PATH using process tools discovered before PATH is restricted. */
+function checkpointToolBin(root: string, searchPath = process.env.PATH): string {
+  const bin = join(root, "bin"); mkdirSync(bin); symlinkSync(process.execPath, join(bin, "node"));
+  for (const tool of ["ps", "getconf"]) {
+    const executable = childProcess.execFileSync("/bin/sh", ["-c", `command -v ${tool}`], { encoding: "utf8", env: { ...process.env, PATH: searchPath } }).trim();
+    symlinkSync(executable, join(bin, tool));
+  }
+  return bin;
+}
+
+test("restricted process tools follow the supplied PATH instead of platform installation paths", async () => {
+  const w = await checkpointWorkspace();
+  const tools = join(w.root, "tools"); mkdirSync(tools);
+  for (const tool of ["ps", "getconf"]) symlinkSync(process.execPath, join(tools, tool));
+  const bin = checkpointToolBin(w.root, tools);
+  for (const tool of ["ps", "getconf"]) assert.equal(readlinkSync(join(bin, tool)), join(tools, tool));
+  assert.equal(readlinkSync(join(bin, "node")), process.execPath);
+});
+
+test("README states the existing storage reservation through width 64", () => {
+  const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+  assert.match(readme, /widths\s+through 64 retain the existing 4096-byte reservation\. Widths above 64, up to 4096,\s+require an explicit larger storage approval/);
+});
+
+test("invalid policies cannot publish permanent blobs or ledger roots", async () => {
+  const w = await checkpointWorkspace();
+  const policy = prefixCheckpoint(new Array<number>(4096).fill(0.125), w.config.initial.arms[0].config.prefix);
+  const improver = initialImprover();
+  for (const invalid of [
+    { ...policy, weights: [0] }, { ...policy, weights: policy.weights.map(() => 0.25) },
+    { ...policy, knobs: { ...policy.knobs, hashing_width: 3 } },
+    { ...improver, exploration: -1 }, { ...improver, digest: policy.digest },
+  ]) {
+    await assert.rejects(encodeCheckpointArtifacts(w.pmRoot, "invalid", [policy, invalid]), refuses("checkpoint_artifact_invalid"));
+    assert.equal(existsSync(join(w.pmRoot, "artifacts")), false, "validation must precede all publication");
+  }
+  const ref = await encodeCheckpointArtifacts(w.pmRoot, "valid", policy) as CheckpointArtifact;
+  await assert.rejects(encodeCheckpointArtifacts(w.pmRoot, "invalid-after-valid", { ...policy, weights: [0] }), refuses("checkpoint_artifact_invalid"));
+  assert.deepEqual(inspectCheckpointArtifact(w.pmRoot, ref.digest).value, policy);
+  assert.deepEqual(await collectCheckpointArtifacts(w.pmRoot), { retained: 1, removed: 0 });
+  assert.equal(readCheckpointLedger(w.pmRoot).length, 1);
+});
 
 test("artifact addressing verifies bytes, schemas, ledger roots and conservative garbage collection", async () => {
   const w = await checkpointWorkspace();
@@ -93,6 +137,12 @@ test("publication failure exposes neither a partial digest file nor a ledger roo
 
 test("plain-directory controllers never invoke Git and honor discovery ceilings", async () => {
   const w = await checkpointWorkspace();
+  const ceiling = process.env.GIT_CEILING_DIRECTORIES;
+  delete process.env.GIT_CEILING_DIRECTORIES;
+  try {
+    assert.equal(controllerHasGitAncestor(w.root), false);
+    assert.equal(controllerAuthorityRoot(w.pmRoot), w.pmRoot);
+  } finally { if (ceiling !== undefined) process.env.GIT_CEILING_DIRECTORIES = ceiling; }
   assert.equal(controllerHasGitAncestor(w.root, ""), false);
   const git = join(w.root, ".git"); mkdirSync(git);
   const nested = join(w.root, "nested"); mkdirSync(nested);
@@ -109,14 +159,68 @@ test("plain-directory controllers never invoke Git and honor discovery ceilings"
     assert.deepEqual(result, { ok: true }); assert.equal(gitCalls, 0);
     mkdirSync(git);
     await withRlController(w.client, w.coordinates, { id: "unavailable", approval: w.approval, recoveryCommand: "pm rl improver run unavailable" }, AbortSignal.timeout(60_000), async (step) => step("proof", {}, async () => ({ ok: true })));
-    assert.ok(gitCalls > 0, "unavailable Git metadata must preserve standalone operations");
+    assert.equal(gitCalls, 0, "unavailable Git executable must preserve standalone operations");
     fs.rmdirSync(git);
   } finally { spy.mock.restore(); syncBuiltinESMExports(); }
 });
 
+test("mixed Git executable availability preserves shared worktree authority and launch refusal", async () => {
+  const w = await checkpointWorkspace();
+  childProcess.execFileSync("git", ["init", "-b", "main"], { cwd: w.root, stdio: "ignore" });
+  writeFileSync(join(w.root, "tracked"), "fixture");
+  childProcess.execFileSync("git", ["add", "tracked"], { cwd: w.root });
+  childProcess.execFileSync("git", ["-c", "user.name=Test Agent", "-c", "user.email=test@example.invalid", "commit", "-m", "Fixture"], { cwd: w.root, stdio: "ignore" });
+  const second = join(w.root, "peer");
+  childProcess.execFileSync("git", ["worktree", "add", second, "-b", "peer"], { cwd: w.root, stdio: "ignore" });
+  const client = new PmClient({ cwd: second, pmRoot: join(second, ".agents/pm"), author: "checkpoint-test", noExtensions: true });
+  await client.init("rl", { defaults: true, agentGuidance: "skip", author: "checkpoint-test" });
+  const coordinates = { ...w.coordinates, pmRoot: join(second, ".agents/pm") };
+  const expected = join(fs.realpathSync(join(w.root, ".git")), "pm-rl-controllers");
+  assert.equal(controllerAuthorityRoot(w.pmRoot), expected);
+  assert.equal(controllerAuthorityRoot(coordinates.pmRoot), expected);
+  const request = { id: "mixed", approval: w.approval, recoveryCommand: "pm rl improver run mixed" };
+  const runPeer = () => withRlController(client, coordinates, request, AbortSignal.timeout(60_000), async () => { throw new Error("peer executed"); });
+  const original = childProcess.execFileSync;
+  let gitCalls = 0;
+  const spy = mock.method(childProcess, "execFileSync", (...args: Parameters<typeof original>) => {
+    if (args[0] === "git") { gitCalls += 1; throw new Error("Git unavailable for peer"); }
+    return original(...args);
+  });
+  try {
+    await withRlController(w.client, w.coordinates, request, AbortSignal.timeout(60_000), async () => {
+      syncBuiltinESMExports();
+      await assert.rejects(runPeer(), refuses("loop_controller_active"));
+    });
+    await assert.rejects(runPeer(), refuses("loop_launch_elsewhere"));
+    assert.equal(gitCalls, 0, "authority selection must not depend on Git executable resolution");
+  } finally { spy.mock.restore(); syncBuiltinESMExports(); }
+  const marker = join(second, ".git");
+  const pointer = readFileSync(marker, "utf8");
+  for (const malformed of ["invalid", "gitdir: missing\n"]) {
+    writeFileSync(marker, malformed);
+    assert.throws(() => controllerAuthorityRoot(coordinates.pmRoot), refuses("loop_git_metadata_unavailable"));
+  }
+  writeFileSync(marker, pointer);
+  const metadata = pointer.trim().slice("gitdir: ".length);
+  const commonFile = join(metadata, "commondir"); const common = readFileSync(commonFile, "utf8");
+  writeFileSync(commonFile, w.root);
+  assert.throws(() => controllerAuthorityRoot(coordinates.pmRoot), refuses("loop_git_metadata_unavailable"));
+  writeFileSync(commonFile, common);
+  for (const target of [join(metadata, "HEAD"), join(w.root, ".git", "objects")]) {
+    const saved = `${target}-saved`; fs.renameSync(target, saved);
+    try {
+      if (target.endsWith("HEAD")) mkdirSync(target); else writeFileSync(target, "not a directory");
+      assert.throws(() => controllerAuthorityRoot(coordinates.pmRoot), refuses("loop_git_metadata_unavailable"));
+    } finally {
+      if (target.endsWith("HEAD")) fs.rmdirSync(target); else unlinkSync(target);
+      fs.renameSync(saved, target);
+    }
+  }
+});
+
 test("large learner trains, promotes, resumes and audits by digest with no Git executable", { timeout: 900_000 }, async () => {
   const w = await checkpointWorkspace();
-  const bin = join(w.root, "bin"); mkdirSync(bin); symlinkSync(process.execPath, join(bin, "node")); symlinkSync("/usr/bin/ps", join(bin, "ps")); symlinkSync("/usr/bin/getconf", join(bin, "getconf"));
+  const bin = checkpointToolBin(w.root);
   const originalPath = process.env.PATH; const originalCeiling = process.env.GIT_CEILING_DIRECTORIES;
   process.env.PATH = bin; process.env.GIT_CEILING_DIRECTORIES = dirname(w.root);
   try {
@@ -198,7 +302,7 @@ test("two processes promote into one plain tracker without losing roots or corru
   const w = await checkpointWorkspace();
   const file = join(w.root, "request.json"); const config = w.config.initial.arms[1].config;
   writeFileSync(file, JSON.stringify({ root: w.root, pmRoot: w.pmRoot, dataset: w.dataset, manifest: w.manifest, approval: w.approval, config }));
-  const bin = join(w.root, "bin"); mkdirSync(bin); symlinkSync(process.execPath, join(bin, "node")); symlinkSync("/usr/bin/ps", join(bin, "ps")); symlinkSync("/usr/bin/getconf", join(bin, "getconf"));
+  const bin = checkpointToolBin(w.root);
   const children = ["writer-one", "writer-two"].map((job) => fork(new URL("./fixtures/checkpoint-promoter.ts", import.meta.url), [file, job], { env: { ...process.env, PATH: bin, GIT_CEILING_DIRECTORIES: dirname(w.root), PM_LOCK_WAIT_MS: "30000" }, stdio: ["ignore", "pipe", "pipe", "ipc"] }));
   try {
     const ready = children.map((child) => once(child, "message"));

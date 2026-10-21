@@ -462,8 +462,8 @@ semantics. Checkpoints and failed-job evidence live in tracker-owned staging.
 
 Prefix checkpoints now live in SHA-256 artifacts, with small staging references,
 verified resume/replay, and reachability-based garbage collection. Hashing widths
-up to 4096 require an explicit larger storage approval; optimizer and promotion
-bounds are unchanged. See [checkpoint storage and measurements](docs/checkpoint-artifacts.md).
+through 64 retain the existing 4096-byte reservation. Widths above 64, up to 4096,
+require an explicit larger storage approval; optimizer and promotion bounds are unchanged. See [checkpoint storage and measurements](docs/checkpoint-artifacts.md).
 
 ## Without git
 

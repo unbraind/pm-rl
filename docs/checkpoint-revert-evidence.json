@@ -79,5 +79,47 @@
     }
   ],
   "restored_plain_controller_passes": 1,
-  "restored_trainer_io_passes": 1
+  "restored_trainer_io_passes": 1,
+  "review_round": {
+    "base": "d433bc9a4b18c07df94988b114dacfb5e6b81392",
+    "restored_focused_passes": 5,
+    "reverts": [
+      {
+        "variant": "policy-validation",
+        "file": "checkpoint-artifacts.ts",
+        "command": "node --test '--test-name-pattern=invalid policies' test/checkpoint-artifacts.test.ts",
+        "typecheck": 0,
+        "exit": 1,
+        "seconds": 7.86,
+        "function": "encodeCheckpointArtifacts"
+      },
+      {
+        "variant": "shared-authority",
+        "file": "index.ts",
+        "command": "node --test '--test-name-pattern=mixed Git' test/checkpoint-artifacts.test.ts",
+        "typecheck": 0,
+        "exit": 1,
+        "seconds": 7.519,
+        "function": "acquireControllerLease"
+      },
+      {
+        "variant": "portable-process-tools",
+        "file": "test/checkpoint-artifacts.test.ts",
+        "command": "node --test '--test-name-pattern=restricted process tools' test/checkpoint-artifacts.test.ts",
+        "typecheck": 0,
+        "exit": 1,
+        "seconds": 6.127,
+        "function": "checkpointToolBin"
+      },
+      {
+        "variant": "storage-documentation",
+        "file": "README.md",
+        "command": "node --test --test-name-pattern=README test/checkpoint-artifacts.test.ts",
+        "typecheck": 0,
+        "exit": 1,
+        "seconds": 6.771,
+        "function": "README storage contract"
+      }
+    ]
+  }
 }

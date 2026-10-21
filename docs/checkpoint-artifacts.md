@@ -15,7 +15,9 @@ New prefix meta programmes bind `pm-rl/meta-programme/3`; recursive improvers bi
 `pm-rl/improver-receipts/4`. Older inline-parameter programmes require a new
 programme identity and are refused before adoption, without rewriting history.
 
-Publication writes a private temporary inode, fsyncs it, links it exclusively to
+Publication validates each policy schema and semantic identity before creating any
+blob or permanent ledger root. Invalid policies raise `checkpoint_artifact_invalid`
+and leave existing audit roots usable. It writes a private temporary inode, fsyncs it, links it exclusively to
 its digest name, verifies any existing blob, and fsyncs the directory. Identical
 checkpoints deduplicate; an existing corrupt blob is refused. An SDK tracker lock
 serializes publication and ledger insertion with garbage collection. Independent
@@ -70,7 +72,10 @@ baselines, gate decisions and final-test results are retained in
 Create `scratch` first. The discovery ceiling keeps each benchmark tracker
 independent even when the scratch directory is nested in a checkout. Controllers
 inspect ancestor metadata before probing Git; plain-directory controllers launch
-no Git subprocess. Git worktrees continue to share their existing launch fence.
+no Git subprocess. Git worktrees resolve their shared launch fence directly from `.git` and
+`commondir` metadata, independent of Git executable availability. Incomplete or
+unreadable worktree metadata raises `loop_git_metadata_unavailable` before any
+lease is acquired; an empty marker directory still permits standalone operation.
 
 Regression tests initialize real temporary SDK trackers. The capacity test
 interrupts after an inner promotion, resumes without repeating that fit, replays

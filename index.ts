@@ -187,7 +187,7 @@ import {
 
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { open, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { delimiter, dirname, join, relative, resolve } from "node:path";
@@ -2807,15 +2807,44 @@ async function controllerMutex(root: string, id: string, author: string, start: 
   return release;
 }
 
-/** Detect worktree ancestry without launching Git, respecting explicit standalone discovery ceilings. @internal */
-export function controllerHasGitAncestor(start: string, ceiling = process.env["GIT_CEILING_DIRECTORIES"] ?? ""): boolean {
+/** Locate ancestor Git metadata without launching Git, respecting standalone discovery ceilings. */
+function controllerGitMarker(start: string, ceiling: string): string | null {
   const ceilings = ceiling.split(delimiter).filter(Boolean).map((path) => resolve(path));
   let directory = resolve(start);
   for (;;) {
-    if (existsSync(join(directory, ".git"))) return true;
+    const marker = join(directory, ".git");
+    if (existsSync(marker)) return marker;
     const parent = dirname(directory);
-    if (parent === directory || ceilings.includes(parent)) return false;
+    if (parent === directory || ceilings.includes(parent)) return null;
     directory = parent;
+  }
+}
+
+/** Detect worktree ancestry without launching Git, respecting explicit standalone discovery ceilings. @internal */
+export function controllerHasGitAncestor(start: string, ceiling = process.env["GIT_CEILING_DIRECTORIES"] ?? ""): boolean {
+  return controllerGitMarker(start, ceiling) !== null;
+}
+
+/** Resolve shared authority from Git's on-disk pointers even when its executable is unavailable. @internal */
+export function controllerAuthorityRoot(pmRoot: string, ceiling = process.env["GIT_CEILING_DIRECTORIES"] ?? ""): string {
+  const marker = controllerGitMarker(dirname(pmRoot), ceiling);
+  if (marker === null) return pmRoot;
+  try {
+    let metadata = marker;
+    if (statSync(marker).isFile()) {
+      const pointer = /^gitdir: (.+)\r?\n?$/.exec(readFileSync(marker, "utf8"));
+      if (pointer === null) throw new Error("invalid gitdir pointer");
+      metadata = resolve(dirname(marker), pointer[1].trim());
+    } else if (!existsSync(join(marker, "HEAD")) && !existsSync(join(marker, "objects")) && !existsSync(join(marker, "commondir"))) {
+      // An empty marker is not a Git repository; standalone trackers remain usable.
+      return pmRoot;
+    }
+    const commonFile = join(metadata, "commondir");
+    const common = existsSync(commonFile) ? resolve(metadata, readFileSync(commonFile, "utf8").trim()) : metadata;
+    if (!statSync(join(metadata, "HEAD")).isFile() || !statSync(join(common, "objects")).isDirectory()) throw new Error("incomplete Git metadata");
+    return join(realpathSync(common), "pm-rl-controllers");
+  } catch {
+    fail("Cannot resolve shared controller authority from Git metadata; restore the repository metadata before retrying.", "loop_git_metadata_unavailable", EXIT_CODE.CONFLICT);
   }
 }
 
@@ -2845,17 +2874,7 @@ async function acquireControllerLease(client: PmClient, coordinates: WorkspaceCo
   const id = request.id;
   // Git worktrees share the repository metadata, so the SDK's lease and
   // launch journal are shared even when the tracked PM roots diverge.
-  let authorityRoot = coordinates.pmRoot;
-  if (controllerHasGitAncestor(dirname(coordinates.pmRoot))) {
-    try {
-      const common = execFileSync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], {
-        cwd: dirname(coordinates.pmRoot), encoding: "utf8", stdio: ["ignore", "pipe", "ignore"],
-      }).trim();
-      authorityRoot = join(common, "pm-rl-controllers");
-    } catch {
-      // Unavailable Git metadata cannot prevent standalone tracker operation.
-    }
-  }
+  const authorityRoot = controllerAuthorityRoot(coordinates.pmRoot);
   const lockId = loopLeaseLockId(id);
   const lockPath = join(authorityRoot, "locks", `${lockId}.lock`);
   const refusal = `Lease ${relative(coordinates.pmRoot, lockPath)}; operator recovery: ${recovery?.command ?? `pm rl loop resume ${id} --approval ${request.approval} --force-takeover`}.`;
