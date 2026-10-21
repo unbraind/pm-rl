@@ -331,6 +331,37 @@
         "seconds": 2.457,
         "failed": 1
       }
-    ]
+    ],
+    "tested_source": "67b8f85bfbd427185fc3538f00ad32af761a4638",
+    "validation": {
+      "ci": "https://github.com/unbraind/pm-rl/actions/runs/39584178627",
+      "variants": [
+        {
+          "command": "npm run release:check",
+          "node": 22,
+          "tests": 676
+        },
+        {
+          "command": "npm run release:check",
+          "node": 26,
+          "tests": 676
+        },
+        {
+          "command": "bun run release:check",
+          "node": 26,
+          "tests": 676
+        }
+      ],
+      "coverage": {
+        "statements": 100,
+        "lines": 100,
+        "branches": 100,
+        "functions": 100,
+        "sources": 47
+      },
+      "documented_declarations": 336,
+      "focused_linked_tests": 6,
+      "local_full_attempts": "Two intentionally interrupted attempts: superseded source, then redundant after CI passed. Neither counted as passing; no local timeout observed."
+    }
   }
 }

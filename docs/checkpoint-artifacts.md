@@ -255,3 +255,36 @@ was observed. This final documentation/tracker update preserves the validated
 executable source, tests, dependency pins and gate settings. No new PM CLI/SDK
 defect was encountered. Review threads remain untouched; substantive final-head
 review remains pending. No merge or release.
+
+
+## Batch and launcher review validation
+
+The three findings in the latest review were valid. Thread
+`PRRT_kwDOTqJmqs6ut3Ca` now publishes one complete ledger root per encode call,
+with metadata bounded before any blob publication. Thread
+`PRRT_kwDOTqJmqs6ut3Cg` now tolerates unavailable benchmark launcher entries;
+pure configuration no longer imports live launchers, and three trainer entry
+points receive the same fix. Release gate launchers remain strict by default.
+Thread `PRRT_kwDOTqJmqs6ut3Cq` now names missing process tools and preserves
+the lookup cause. All review comments were read; the latest substantive review
+has no Outside diff range findings. No thread reply or resolution was posted.
+
+Six focused checks pass directly and through the pinned pm runner. Nine isolated
+behavioral reverts typecheck and fail retained assertions: the old per-blob writer
+fails both batch checks; the size-bound revert, tool diagnostic revert and six
+launcher/configuration reverts each fail their selected check. Exact commands and
+timings are in the batch/launcher section of the [revert receipt](checkpoint-revert-evidence.json).
+
+[CI run 39584178627](https://github.com/unbraind/pm-rl/actions/runs/39584178627)
+validates source `67b8f85bfbd427185fc3538f00ad32af761a4638`: npm release gates on
+Node 22 and 26 and the Bun gate each pass 676/676 tests, with zero failures,
+skips, cancellations or todos. All four coverage dimensions remain 100 percent
+across 47 sources, and all 336 declarations are documented. Strict CI tracker
+health, identity audit, zero duplication, zero production vulnerabilities, release
+attestation, packaging, changelog and Bun installation pass. CodeQL also passes.
+Two local full attempts were intentionally stopped: the first was superseded by
+the ledger-size correction; the second became redundant after CI passed. Neither
+is counted as passing, and no timeout was observed. The final evidence update
+changes only documentation and tracker records; executable source, tests, pins
+and gate configuration remain identical to the validated source. Local optional
+tracker-health extension/fence drift remains recorded in follow-up pm-rl-9uz4.
