@@ -154,3 +154,28 @@ Local targeted tests, typecheck and lint run before publication. The complete
 release gate runs in CI under npm on Node 22/26 and Bun on Node 26 with all four
 coverage thresholds unchanged at 100%. Final run receipts are recorded on the
 tracker and PR; a pending or failed run is not passing evidence.
+
+At code head `3b818e645e5e189fafa6d136b53a8d031ac3809c`,
+[complete CI](https://github.com/unbraind/pm-rl/actions/runs/39689016234)
+passes every release variant:
+
+| Gate | Runtime | Passed | Statements / lines / branches / functions |
+| --- | --- | --- | --- |
+| `npm run release:check` | Node 22 | 707/707 | 100/100/100/100 |
+| `npm run release:check` | Node 26 | 707/707 | 100/100/100/100 |
+| `bun run release:check` | Node 26, Bun 1.3.14 | 707/707 | 100/100/100/100 |
+
+All three completed logs were independently checked. Each has zero failures,
+skips, cancellations and todos, measures all 50 authored sources and documents
+344 declarations. Strict fresh-checkout tracker health, unchanged unscoped lint,
+identity, zero duplication, production audit, publication attestation, packaging,
+changelog and Bun installation pass. CodeQL passes. No coverage threshold or
+source exclusion changed.
+
+The latest standalone objective suite passes 7/7, tracker-linked execution
+passes 7/7, and the combined Node 26 focused suite passes 13/13. The public
+experiment also replays at the validated source head: all three generations,
+unchanged checkpoints and no additional jobs. Independently reverting only
+balanced scoring, balanced fitting or heuristic refusal fails its regression
+(one failure each); restored code passes all three. The draft has no substantive
+reviewer approval. No item is closed and no PR or package is merged or released.

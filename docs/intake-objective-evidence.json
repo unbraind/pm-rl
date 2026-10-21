@@ -330,5 +330,78 @@
     "Percentile bootstrap assumes exchangeable items within classes; related titles can make intervals optimistic.",
     "Nominal family confidence is per attempted generation, not corrected across adaptive generations.",
     "Three attempted generations, zero promoted successors; no durable self-improvement or heuristic win."
-  ]
+  ],
+  "verification": {
+    "source_head": "3b818e645e5e189fafa6d136b53a8d031ac3809c",
+    "ci": {
+      "url": "https://github.com/unbraind/pm-rl/actions/runs/39689016234",
+      "npm_node22": {
+        "passed": 707,
+        "failed": 0,
+        "skipped": 0,
+        "cancelled": 0,
+        "todo": 0
+      },
+      "npm_node26": {
+        "passed": 707,
+        "failed": 0,
+        "skipped": 0,
+        "cancelled": 0,
+        "todo": 0
+      },
+      "bun_node26": {
+        "passed": 707,
+        "failed": 0,
+        "skipped": 0,
+        "cancelled": 0,
+        "todo": 0
+      },
+      "coverage": {
+        "sources": 50,
+        "statements": 100,
+        "lines": 100,
+        "branches": 100,
+        "functions": 100
+      },
+      "documented_declarations": 344,
+      "codeql": "passed"
+    },
+    "local": {
+      "objective_tests": 7,
+      "objective_tests_failed": 0,
+      "linked_objective_tests": 7,
+      "linked_pm_context": "none",
+      "linked_workspace_context": "snapshot",
+      "legacy_focused_tests": 6,
+      "node26_combined_focused_tests": 13,
+      "typecheck": "passed",
+      "lint": "passed with ignored runtime snapshots excluded; unscoped lint passes in fresh CI",
+      "build_and_test_build": "passed"
+    },
+    "behavioral_reverts": {
+      "unbalanced_evaluator": {
+        "failed": 1,
+        "exit": 1
+      },
+      "majority_cyclic_fitting": {
+        "failed": 1,
+        "exit": 1
+      },
+      "disabled_heuristic_refusal": {
+        "failed": 1,
+        "exit": 1
+      },
+      "restored": {
+        "passed": 3,
+        "failed": 0
+      }
+    },
+    "latest_source_replay": {
+      "generations": 3,
+      "new_jobs": 0,
+      "unchanged_checkpoints": true,
+      "status_agrees": true
+    },
+    "review": "Draft review skipped; no substantive reviewer approval."
+  }
 }
