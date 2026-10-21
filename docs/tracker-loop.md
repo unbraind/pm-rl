@@ -73,6 +73,11 @@ the promoted successor's collection component, unchanged replay artifacts and
 one charge per fit. A separate inverted held-out fixture proves a changed but
 non-improving candidate is refused. Existing process/controller/Compose suites
 provide physical crash, cancellation, contention and corrupt-checkpoint drills.
+Source immutability checks hash sorted relative filenames and exact bytes for
+all regular tracker files, including settings, nested item folders and
+`search/eval-queries.json`. SDK runtime, locks, transactions, checkpoints and
+other search cache files are excluded. A focused regression checks durable-file
+additions, removals, renames and binary changes while allowing cache updates.
 
 ## Public corpus measurement
 

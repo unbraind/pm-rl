@@ -1,7 +1,7 @@
 /** Real tracker snapshots and inherited durable jobs work without Git or source mutation. */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import fs, { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import fs, { existsSync, mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import fsPromises from "node:fs/promises";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
@@ -15,6 +15,7 @@ import extension, { type JsonValue } from "../index.ts";
 import { banditCheckpoint, fitBanditBatch } from "../bandit.ts";
 import { processWorkspace, trainingInput } from "./fixtures/process-workspace.ts";
 import { executeProcessTrainer, listProcessJobs, parseProcessAdapter } from "../process.ts";
+import { sourceBytes } from "./fixtures/corpus-source-snapshot.ts";
 
 const bounds = JSON.parse(readFileSync(new URL("../examples/loop-corpus.json", import.meta.url), "utf8")) as Record<string, JsonValue>;
 const items = Array.from({ length: 80 }, (_, index) => ({ id: `source-${index}`, title: "x".repeat(index + 1), status: index % 3 === 0 ? "open" : "closed" }));
@@ -27,6 +28,38 @@ async function seedCorpusSource(client: Awaited<ReturnType<typeof processWorkspa
   const lengths = [false, true].flatMap((held) => Array.from({ length: 80 }, (_, i) => i + 1).filter((n) => corpusHeldOut(n) === held).slice(0, 2));
   for (const length of lengths) await client.create({ id: `source-${length}`, type: "Task", title: "z".repeat(length) });
 }
+
+test("corpus source snapshots detect every durable filename and byte change but allow SDK runtime updates", async () => {
+  const w = await processWorkspace();
+  const durable = ["settings.json", "tasks/source.toon", "history/source.jsonl", "decisions/nested/source.toon", "docs/nested/source.bin", "search/eval-queries.json"];
+  for (const path of durable) {
+    const file = join(w.pmRoot, path); mkdirSync(dirname(file), { recursive: true });
+    const original = existsSync(file) ? readFileSync(file) : undefined;
+    writeFileSync(file, Buffer.from([0x80]));
+    const before = sourceBytes(w.pmRoot);
+    writeFileSync(file, Buffer.from([0x81]));
+    assert.notEqual(sourceBytes(w.pmRoot), before, `${path}: binary content mutation`);
+    writeFileSync(file, Buffer.from([0x80]));
+    assert.equal(sourceBytes(w.pmRoot), before, `${path}: exact restoration`);
+    const renamed = `${file}.renamed`; renameSync(file, renamed);
+    assert.notEqual(sourceBytes(w.pmRoot), before, `${path}: same-content rename`);
+    renameSync(renamed, file);
+    rmSync(file);
+    const removed = sourceBytes(w.pmRoot);
+    assert.notEqual(removed, before, `${path}: removal`);
+    writeFileSync(file, Buffer.from([0x80]));
+    assert.notEqual(sourceBytes(w.pmRoot), removed, `${path}: addition`);
+    assert.equal(sourceBytes(w.pmRoot), before, `${path}: stable ordering`);
+    if (original === undefined) rmSync(file); else writeFileSync(file, original);
+  }
+  const before = sourceBytes(w.pmRoot);
+  for (const path of ["runtime/cache/nested/state.json", "locks/active.json", "transactions/pending.json", "checkpoints/state.json", "search/index/nested/cache.json"]) {
+    const file = join(w.pmRoot, path); mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, "cache created"); assert.equal(sourceBytes(w.pmRoot), before, `${path}: cache addition`);
+    writeFileSync(file, "cache changed"); assert.equal(sourceBytes(w.pmRoot), before, `${path}: cache mutation`);
+    rmSync(file); assert.equal(sourceBytes(w.pmRoot), before, `${path}: cache removal`);
+  }
+});
 
 test("corpus output conflicts refuse before source or bounds reads without exposing paths", async () => {
   const w = await processWorkspace();
@@ -51,11 +84,7 @@ test("corpus output inside the source refuses before inventory reads through rel
   const nested = join(w.pmRoot, "nested"); mkdirSync(nested);
   const alias = join(w.root, "source-alias"); symlinkSync(w.pmRoot, alias, "dir");
   const childAlias = join(w.root, "child-alias"); symlinkSync(nested, childAlias, "dir");
-  /** Capture every source file, so rejected commands cannot add or alter tracker bytes. */
-  const snapshot = (): [string, string][] => readdirSync(w.pmRoot, { recursive: true, withFileTypes: true }).filter((entry) => entry.isFile()).map((entry) => {
-    const path = join(entry.parentPath, entry.name); return [relative(w.pmRoot, path), readFileSync(path, "hex")];
-  });
-  const before = snapshot();
+  const before = sourceBytes(w.pmRoot);
   for (const [source, output] of [
     [w.pmRoot, join(w.pmRoot, "sealed.json")], [w.pmRoot, join(nested, "sealed.json")],
     [w.pmRoot, join(alias, "sealed.json")], [alias, join(w.pmRoot, "sealed.json")],
@@ -64,7 +93,7 @@ test("corpus output inside the source refuses before inventory reads through rel
     await assert.rejects(harness.runCommand({ command: "rl corpus build", pmRoot: w.pmRoot, args: [], options: {
       from_tracker: source, file: join(w.root, "missing-bounds"), output,
     } }), refuses("corpus_output_inside_source"));
-    assert.equal(existsSync(output), false); assert.deepEqual(snapshot(), before);
+    assert.equal(existsSync(output), false); assert.equal(sourceBytes(w.pmRoot), before);
   }
 });
 
@@ -144,9 +173,7 @@ test("corpus publication pins canonical targets and rechecks alias and canonical
   const w = await processWorkspace(); await seedCorpusSource(w.client);
   const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
   const file = new URL("../examples/loop-corpus.json", import.meta.url).pathname;
-  const sourceFiles = readdirSync(w.pmRoot, { recursive: true, withFileTypes: true }).filter((entry) => entry.isFile()).map((entry) => {
-    const path = join(entry.parentPath, entry.name); return [path, readFileSync(path, "hex")];
-  });
+  const before = sourceBytes(w.pmRoot);
   for (const mode of ["alias-inside", "canonical-inside", "alias-outside", "removed"]) {
     const parent = join(w.root, mode); mkdirSync(parent);
     const alternate = join(w.root, `${mode}-alternate`); mkdirSync(alternate);
@@ -174,7 +201,7 @@ test("corpus publication pins canonical targets and rechecks alias and canonical
       } else await assert.rejects(command, refuses(mode === "removed" ? "corpus_output_parent_missing" : "corpus_output_inside_source"));
       assert.equal(swapped, true);
       assert.equal(existsSync(join(w.pmRoot, "sealed.json")), false);
-      for (const [path, bytes] of sourceFiles) assert.equal(readFileSync(path, "hex"), bytes);
+      assert.equal(sourceBytes(w.pmRoot), before);
     } finally { injection.mock.restore(); syncBuiltinESMExports(); }
   }
 });
