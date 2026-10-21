@@ -103,3 +103,34 @@ and have meta gain 0 with lower confidence bound -0.21778781183411927. Final-tes
 gain is also 0 and the paired majority test has p=1. The synthetic real-tracker
 regression separately demonstrates a larger learner's positive inner promotion,
 resume and digest-based audit. No real-data improvement is claimed.
+
+## Complete validation
+
+[CI run 39551781806](https://github.com/unbraind/pm-rl/actions/runs/39551781806)
+validates source/test commit `f3c8e06d37e715ab4bb65d45c7cc92ed6e911582`:
+
+| Command | Runtime | Tests | Statements / lines / branches / functions |
+| --- | --- | --- | --- |
+| `npm run release:check` | Node 22 | 661/661 | 100/100/100/100 |
+| `npm run release:check` | Node 26 | 661/661 | 100/100/100/100 |
+| `bun run release:check` | Node 26, Bun | 661/661 | 100/100/100/100 |
+
+Every variant has zero failures, skips, cancellations or todos; measures all 46
+authored sources; and documents all 334 declarations. Full logs confirm strict
+fresh-checkout tracker health, typechecking, build, lint, zero duplication,
+release-attestation verification, identity audit, zero production vulnerabilities,
+pack dry-run, changelog check and Bun package-graph installation. The merge
+checkout has the same tree as the source head.
+[CodeQL](https://github.com/unbraind/pm-rl/actions/runs/39551782330) also passes.
+
+Pinned linked PM execution passes the six checkpoint regressions and the focused
+trainer-IO storage-boundary check. Eight typechecked behavioral reverts fail the
+retained tests. The first CI attempt passed all behavioral tests but failed the
+unchanged branch threshold; the added combined-budget case closes that gap.
+Interrupted local runs are not passing evidence.
+
+Normal local tracker health still reports host-version skew and merge-fence drift;
+fresh-checkout CI health passes. Greptile's expired trial, Sourcery's quota limit
+and CodeRabbit's skipped automatic review leave substantive review unavailable.
+No summary or skipped review is counted as approval. The PR remains unmerged and
+the package unreleased.
