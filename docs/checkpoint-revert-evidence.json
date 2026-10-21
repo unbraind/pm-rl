@@ -91,7 +91,8 @@
         "typecheck": 0,
         "exit": 1,
         "seconds": 7.86,
-        "function": "encodeCheckpointArtifacts"
+        "function": "encodeCheckpointArtifacts",
+        "thread_id": "PRRT_kwDOTqJmqs6upoTP"
       },
       {
         "variant": "shared-authority",
@@ -100,7 +101,8 @@
         "typecheck": 0,
         "exit": 1,
         "seconds": 7.519,
-        "function": "acquireControllerLease"
+        "function": "acquireControllerLease",
+        "thread_id": "PRRT_kwDOTqJmqs6upoTk"
       },
       {
         "variant": "portable-process-tools",
@@ -109,7 +111,8 @@
         "typecheck": 0,
         "exit": 1,
         "seconds": 6.127,
-        "function": "checkpointToolBin"
+        "function": "checkpointToolBin",
+        "thread_id": "PRRT_kwDOTqJmqs6upoTw"
       },
       {
         "variant": "storage-documentation",
@@ -118,7 +121,8 @@
         "typecheck": 0,
         "exit": 1,
         "seconds": 6.771,
-        "function": "README storage contract"
+        "function": "README storage contract",
+        "thread_id": "PRRT_kwDOTqJmqs6upoTr"
       }
     ]
   }

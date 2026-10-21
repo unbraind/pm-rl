@@ -139,3 +139,30 @@ fresh-checkout CI health passes. Greptile's expired trial, Sourcery's quota limi
 and CodeRabbit's skipped automatic review leave substantive review unavailable.
 No summary or skipped review is counted as approval. The PR remains unmerged and
 the package unreleased.
+
+
+The PR 92 review round validates source commit
+`6bfa3bcc765d96d67adba1da3bf85d4b66b491f5` in
+[CI run 39558157659](https://github.com/unbraind/pm-rl/actions/runs/39558157659).
+All four findings were valid: policy schema/identity now validates before any
+publication, worktree authority resolves directly from Git metadata regardless
+of executable availability, the README preserves the reservation through width
+64, and both restricted-PATH fixtures discover process tools from the original
+PATH. The complete diff was checked for the same defect classes.
+
+| Command | Runtime | Tests | Statements / lines / branches / functions |
+| --- | --- | --- | --- |
+| `npm run release:check` | Node 22 | 665/665 | 100/100/100/100 |
+| `npm run release:check` | Node 26 | 665/665 | 100/100/100/100 |
+| `bun run release:check` | Node 26, Bun | 665/665 | 100/100/100/100 |
+
+Each variant has zero failures, skips, cancellations or todos; measures all 46
+sources; documents 336 declarations; and passes the complete unchanged gate,
+including tracker health, identity/audit, packaging and changelog checks.
+[CodeQL](https://github.com/unbraind/pm-rl/actions/runs/39558157708) passes too.
+The five focused checks also pass directly and through pinned `pm test --run
+--only-last --progress`. Four additional isolated behavioral reverts each
+typecheck and fail their retained regression; the revert receipt maps each to
+its review thread. The local full gate was interrupted by a provider error and
+is not counted as passing. No local timeout is substituted for a passing result.
+The review threads remain untouched. No new PM CLI/SDK defect was encountered.
