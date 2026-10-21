@@ -61,7 +61,7 @@ const report = (JSON.parse(json) as { details: EvaluationPlanReport }).details;
 assert.ok(Buffer.byteLength(json) < 2000); assert.ok(toonBytes < 2000);
 assert.equal(report.verdict.decision, "refuse");
 assert.equal(report.comparison, evaluationComparison(plan));
-const score: ScoreRecord = { objective: plan.objective, objective_version: plan.objective_version, evaluation_context: snapshot, direction: "maximize", scale: 1, seed_set: snapshot, value: report.candidate_mean };
+const score: ScoreRecord = { objective: plan.objective, objective_version: plan.objective_version, evaluation_context: snapshot, direction: "maximize", scale: 1, seed_set: declared.comparison, value: report.candidate_mean };
 await assert.rejects(enforceEvaluationPlan(client, "rl-candidate", score), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "eval_plan_refused");
 const shared = { objective: plan.objective, objective_version: plan.objective_version, evaluation_context: snapshot, direction: "maximize" as const, rewardBounds: plan.reward_bounds, samples: items.length };
 const naive = decidePromotion({ candidate: { ...shared, generation: "rl-candidate", mean: report.candidate_mean }, incumbent: { ...shared, generation: "rl-seed", mean: report.incumbent_mean }, criterion: plan.criterion, contaminationPath: null, expectedGeneration: "rl-candidate" });

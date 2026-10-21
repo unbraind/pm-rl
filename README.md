@@ -605,7 +605,9 @@ as `incumbent_version`. Copy and adjust the example for your tracker before decl
 it. TOON is the default; `--json` returns the same compact summary: comparison hash,
 observation/unit counts, equal-unit means, statistical verdict and remedy. Cohorts
 and raw observations remain in the Plan and result Decision, available through
-ordinary full item reads. Output size does not grow with cohort size.
+ordinary full item reads. Output size does not grow with cohort size. For promotion,
+set the held-out score's `seed_set` to the registered comparison hash and `scale`
+to the declared reward-bound width; both are checked against the frozen plan.
 
 Each member supplies one candidate and incumbent outcome. The evaluator first
 averages within each declared correlation unit, then weights units equally and

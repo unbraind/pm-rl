@@ -208,6 +208,6 @@ export async function enforceEvaluationPlan(client: PmClient, candidate: string,
   const raw = object(storedJson(result.body), ["comparison", "observations"]);
   if (result.type !== "Decision" || raw.comparison !== registered.comparison || result.affected_version !== hashJson(raw as JsonValue)) refuse("eval_plan_drift");
   const report = evaluatePlan(registered.plan, raw.observations);
-  if (score.objective !== registered.plan.objective || score.objective_version !== registered.plan.objective_version || score.evaluation_context !== registered.plan.evaluation_context || score.direction !== registered.plan.direction || score.value !== report.candidate_mean) refuse("eval_plan_evidence");
+  if (score.objective !== registered.plan.objective || score.objective_version !== registered.plan.objective_version || score.evaluation_context !== registered.plan.evaluation_context || score.direction !== registered.plan.direction || score.seed_set !== registered.comparison || score.scale !== registered.plan.reward_bounds[1] - registered.plan.reward_bounds[0] || score.value !== report.candidate_mean) refuse("eval_plan_evidence");
   if (report.verdict.decision !== "promote") refuse("eval_plan_refused");
 }

@@ -45,7 +45,7 @@ async function workspace() {
   return { root, pmRoot: tracker.path, client };
 }
 /** A held-out score for the planned objective and comparison context. */
-function score(overrides: Partial<ScoreRecord> = {}): ScoreRecord { return { objective: "episode_return", objective_version: "v1", evaluation_context: "held-out", direction: "maximize", seed_set: "fixed", scale: 1, value: 1, ...overrides }; }
+function score(overrides: Partial<ScoreRecord> = {}): ScoreRecord { return { objective: "episode_return", objective_version: "v1", evaluation_context: "held-out", direction: "maximize", seed_set: evaluationComparison(plan()), scale: 1, value: 1, ...overrides }; }
 
 test("all plan fields and correlation assignments determine comparison identity", () => {
   const p = plan(); const identity = evaluationComparison(p);
@@ -91,7 +91,7 @@ test("real SDK plan reservation, single evaluation and promotion checks work wit
   assert.equal(report.verdict.decision, "promote");
   assert.deepEqual(await recordPlanEvaluation(w.client, "rl-candidate", [...observations()].reverse()), report);
   await assert.rejects(recordPlanEvaluation(w.client, "rl-candidate", observations().map((row) => ({ ...row, candidate: 0 }))), refusal("eval_plan_drift"));
-  for (const patch of [{ objective: "other" }, { objective_version: "v2" }, { evaluation_context: "other" }, { direction: "minimize" as const }, { value: 0.5 }]) await assert.rejects(enforceEvaluationPlan(w.client, "rl-candidate", score(patch)), refusal("eval_plan_evidence"));
+  for (const patch of [{ objective: "other" }, { objective_version: "v2" }, { evaluation_context: "other" }, { direction: "minimize" as const }, { seed_set: "foreign" }, { scale: 2 }, { value: 0.5 }]) await assert.rejects(enforceEvaluationPlan(w.client, "rl-candidate", score(patch)), refusal("eval_plan_evidence"));
   await enforceEvaluationPlan(w.client, "rl-candidate", score());
   assert.equal(extractGenerationSpec(String((await readCompleteLoopItem(w.client, "rl-candidate")).item.body), "rl-candidate").promoted, false);
   assert.equal(await readEvaluationPlan(w.client, "absent"), null);
