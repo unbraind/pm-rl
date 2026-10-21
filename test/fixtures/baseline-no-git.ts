@@ -19,7 +19,8 @@ const bounds = JSON.parse(readFileSync(new URL("../../examples/loop-corpus-basel
 const selected = { ...bounds, fit_steps: 8, samples_per_generation: 32, budget: 96, evaluation_samples: 512,
   adapter: { kind: "process-bandit", allowance: { training_steps: 8, wall_ms: 30000, storage_bytes: 262144, compute_units: 10000, tokens: 0 } } };
 const boundsFile = join(root, "bounds.json"); writeFileSync(boundsFile, JSON.stringify(selected));
-await baselineMain(["node", "/baseline-acceptance.ts", pmRoot, join(root, "controller"), boundsFile], "file:///baseline-acceptance.ts");
+const scriptUrl = new URL("../../scripts/live-baseline.ts", import.meta.url);
+await baselineMain(["node", fileURLToPath(scriptUrl), pmRoot, join(root, "controller"), boundsFile], scriptUrl.href);
 const evidence = JSON.parse(readFileSync(join(root, "controller", "evidence.json"), "utf8")) as Record<string, JsonValue>;
 assert.ok((evidence.charges as Record<string, JsonValue>[]).every((job) => job.source_policy === evidence.final_checkpoint));
 assert.equal(evidence.promoted, 0);

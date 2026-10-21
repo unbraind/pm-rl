@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
 import { banditCheckpoint, banditProbability, fitBanditBatch, validatedBanditDatasets } from "../bandit.ts";
@@ -134,8 +135,9 @@ test("bounded refused generations replay through the actual controller and statu
 
 
 test("acceptance dispatcher refuses missing coordinates and does not run on import", async () => {
-  await baselineMain(["node", "other.ts"], "file:///acceptance.ts");
-  await assert.rejects(baselineMain(["node", "/acceptance.ts"], "file:///acceptance.ts"), /Supply a public tracker/);
+  const scriptUrl = new URL("../scripts/live-baseline.ts", import.meta.url);
+  await baselineMain(["node", fileURLToPath(import.meta.url)], scriptUrl.href);
+  await assert.rejects(baselineMain(["node", fileURLToPath(scriptUrl)], scriptUrl.href), /Supply a public tracker/);
 });
 
 test("vector promotion refuses an improving checkpoint that still loses to a constant", () => {
