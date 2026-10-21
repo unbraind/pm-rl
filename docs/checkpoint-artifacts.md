@@ -207,3 +207,48 @@ passed; it is not counted as passing. No local timeout was observed. The final
 follow-up contains only documentation and tracker evidence; executable source,
 tests and gate settings remain identical to the tested source commit. Review
 threads remain untouched, and substantive final-head re-review remains pending.
+
+
+## Descriptor review validation
+
+Thread `PRRT_kwDOTqJmqs6ur6XM` was valid: pathname metadata checks did not
+constrain the inode subsequently read. The reader now opens once with no-follow
+and nonblocking flags, checks descriptor metadata, and reads at most the validated
+size plus one byte. Size drift refuses before parsing; descriptors close on success
+and failure. All immutable blob, ledger and publication-collision reads share this
+reader. Whole-PR self-review also found the benchmark legacy comparison's raw
+read; it now uses the same guard and performs one SHA verification.
+
+Four new real plain-directory tracker regressions cover pathname replacement by
+oversized files, symlinks and directories; growth/truncation; short reads and
+metadata/IO failures; and baseline refusal before reading oversized bytes. Eight
+focused checks pass directly and through pinned `pm test --run --only-last
+--progress`. Against the final source, reverting the reader body to path-based
+stat/read typechecks and fails three of four descriptor checks; substituting an
+unbounded descriptor read typechecks and fails one. Reverting the complete prior
+benchmark measurement function typechecks and fails its oversized-file check.
+Commands and timings are in the [revert receipt](checkpoint-revert-evidence.json).
+
+[CI run 39573073353](https://github.com/unbraind/pm-rl/actions/runs/39573073353)
+validates executable source `6759e6ab63f151ae720af5e127776d52a17fb8c7`:
+
+| Command | Runtime | Tests | Statements / lines / branches / functions |
+| --- | --- | --- | --- |
+| `npm run release:check` | Node 22 | 672/672 | 100/100/100/100 |
+| `npm run release:check` | Node 26 | 672/672 | 100/100/100/100 |
+| `bun run release:check` | Node 26, Bun | 672/672 | 100/100/100/100 |
+
+Every variant has zero failures, skips, cancellations and todos; covers all 46
+sources; documents 336 declarations; and passes the unchanged complete gate.
+Strict fresh-checkout tracker health, identity audit, zero duplication, zero
+production vulnerabilities, release attestation, packaging, changelog and Bun
+package-graph installation pass.
+[CodeQL](https://github.com/unbraind/pm-rl/actions/runs/39573073352) also passes.
+
+Two local full npm attempts were deliberately stopped: one was superseded by the
+final benchmark correction, and the other became redundant after both required
+Node 26 CI variants passed. Neither is counted as passing, and no local timeout
+was observed. This final documentation/tracker update preserves the validated
+executable source, tests, dependency pins and gate settings. No new PM CLI/SDK
+defect was encountered. Review threads remain untouched; substantive final-head
+review remains pending. No merge or release.

@@ -155,7 +155,7 @@
   },
   "descriptor_review_round": {
     "base": "3029c8afcbf8a4aa0a5856620f25e2fccdc552ee",
-    "scope": "Isolated source copies retained all tests. Production source was never reverted. Tests import TypeScript directly.",
+    "scope": "Isolated source copies retained all current tests. Behavioral function bodies were reverted while preserving required imports and the internal export. Production source was never reverted. Tests import TypeScript directly.",
     "restored_focused_passes": 8,
     "reverts": [
       {
@@ -166,7 +166,9 @@
         "command": "node --test --test-name-pattern=\"checkpoint descriptor\" test/checkpoint-artifacts.test.ts",
         "typecheck": 0,
         "exit": 1,
-        "seconds": 9.357
+        "seconds": 2.372,
+        "tests": 4,
+        "failed": 3
       },
       {
         "variant": "unbounded-descriptor-read",
@@ -176,7 +178,9 @@
         "command": "node --test --test-name-pattern=\"checkpoint descriptor\" test/checkpoint-artifacts.test.ts",
         "typecheck": 0,
         "exit": 1,
-        "seconds": 6.435
+        "seconds": 2.894,
+        "tests": 4,
+        "failed": 1
       },
       {
         "variant": "unbounded-benchmark-baseline",
@@ -187,8 +191,40 @@
         "command": "node --test --test-name-pattern=\"benchmark legacy comparison\" test/checkpoint-artifacts.test.ts",
         "typecheck": 0,
         "exit": 1,
-        "seconds": 8.598
+        "seconds": 8.598,
+        "tests": 1,
+        "failed": 1
       }
-    ]
+    ],
+    "tested_source": "6759e6ab63f151ae720af5e127776d52a17fb8c7",
+    "validation": {
+      "source": "6759e6ab63f151ae720af5e127776d52a17fb8c7",
+      "ci": "https://github.com/unbraind/pm-rl/actions/runs/39573073353",
+      "variants": [
+        {
+          "command": "npm run release:check",
+          "node": 22,
+          "tests": 672
+        },
+        {
+          "command": "npm run release:check",
+          "node": 26,
+          "tests": 672
+        },
+        {
+          "command": "bun run release:check",
+          "node": 26,
+          "tests": 672
+        }
+      ],
+      "coverage": {
+        "statements": 100,
+        "lines": 100,
+        "branches": 100,
+        "functions": 100,
+        "sources": 46
+      },
+      "focused_linked_tests": 8
+    }
   }
 }
