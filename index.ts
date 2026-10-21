@@ -191,7 +191,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { open, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
-import { delimiter, dirname, join, relative, resolve, sep } from "node:path";
+import { basename, delimiter, dirname, join, relative, resolve, sep } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 
 import {
@@ -4232,18 +4232,44 @@ async function runLoop(context: CommandHandlerContext): Promise<RlCommandResult>
   return { action: "rl-loop-run", id, details: loopCommandDetails(context, report) };
 }
 
+/** Resolve a required corpus directory without leaking missing or invalid filesystem coordinates. */
+function corpusDirectory(path: string, kind: "source" | "output_parent"): string {
+  try {
+    const directory = realpathSync(path);
+    if (!statSync(directory).isDirectory()) fail("Corpus directory is missing or invalid.", `corpus_${kind}_missing`);
+    return directory;
+  } catch (error: unknown) {
+    if (["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code!)) fail("Corpus directory is missing or invalid.", `corpus_${kind}_missing`);
+    throw error;
+  }
+}
+
 /** Snapshot a selected tracker read-only and publish one exclusive programme file for durable run/resume. */
 async function buildCorpusCommand(context: CommandHandlerContext): Promise<RlCommandResult> {
   const output = resolve(stringOption(context, "output")!);
-  if (lstatSync(output, { throwIfNoEntry: false }) !== undefined) fail("Corpus output already exists; choose a new path.", "corpus_output_exists", EXIT_CODE.CONFLICT);
-  const source = realpathSync(resolve(stringOption(context, "from_tracker")!));
-  const destination = `${realpathSync(dirname(output))}${sep}`;
-  if (destination.startsWith(join(source, sep))) fail("Corpus output must be outside the source tracker.", "corpus_output_inside_source", EXIT_CODE.CONFLICT);
-  const corpus = await buildTrackerLoopCorpus(new PmClient({ pmRoot: source, noExtensions: true }), readJsonFile(stringOption(context, "file")!, "Corpus bounds"));
   try {
-    await writeFile(output, `${JSON.stringify(corpus.programme, null, 2)}\n`, { flag: "wx" });
+    if (lstatSync(output, { throwIfNoEntry: false }) !== undefined) fail("Corpus output already exists; choose a new path.", "corpus_output_exists", EXIT_CODE.CONFLICT);
   } catch (error: unknown) {
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") fail("Corpus output already exists; choose a new path.", "corpus_output_exists", EXIT_CODE.CONFLICT);
+    if ((error as NodeJS.ErrnoException).code === "ENOTDIR") fail("Corpus directory is missing or invalid.", "corpus_output_parent_missing");
+    throw error;
+  }
+  const source = corpusDirectory(resolve(stringOption(context, "from_tracker")!), "source");
+  /** Revalidate both the caller's alias and the canonical parent at publication time. */
+  const destination = (path: string): string => {
+    const parent = corpusDirectory(dirname(path), "output_parent");
+    if (`${parent}${sep}`.startsWith(join(source, sep))) fail("Corpus output must be outside the source tracker.", "corpus_output_inside_source", EXIT_CODE.CONFLICT);
+    return join(parent, basename(path));
+  };
+  const target = destination(output);
+  const corpus = await buildTrackerLoopCorpus(new PmClient({ pmRoot: source, noExtensions: true }), readJsonFile(stringOption(context, "file")!, "Corpus bounds"));
+  destination(output);
+  destination(target);
+  try {
+    await writeFile(target, `${JSON.stringify(corpus.programme, null, 2)}\n`, { flag: "wx" });
+  } catch (error: unknown) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "EEXIST") fail("Corpus output already exists; choose a new path.", "corpus_output_exists", EXIT_CODE.CONFLICT);
+    if (code === "ENOENT" || code === "ENOTDIR") fail("Corpus directory is missing or invalid.", "corpus_output_parent_missing");
     throw error;
   }
   return { action: "rl-corpus-build", details: { snapshot: corpus.snapshot, training_items: corpus.training_items,

@@ -1,13 +1,14 @@
 /** Native process acceptance with no Git executable, immutable sources and real external policy updates. */
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { init, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import extension, { hashJson, resumeRlLoop, rlLoopStatus, runRlLoop, type RlCommandResult, type JsonValue } from "../../index.ts";
+import extension, { resumeRlLoop, rlLoopStatus, runRlLoop, type RlCommandResult, type JsonValue } from "../../index.ts";
 import { corpusHeldOut } from "../../corpus.ts";
 import { listProcessJobs, processStaging, type ProcessAdapter } from "../../process.ts";
+import { sourceBytes } from "./corpus-source-snapshot.ts";
 
 try {
 const root = process.argv[2];
@@ -15,11 +16,7 @@ const initialized = await init("rl", { defaults: true, agentGuidance: "skip", au
 const pmRoot = initialized.path;
 const client = new PmClient({ pmRoot, author: "corpus-test", noExtensions: true });
 for (let index = 64; index < 94; index += 1) await client.create({ id: `input-${index}`, type: "Task", title: "t".repeat(index), status: "closed", closeReason: "Completed synthetic source fixture" });
-/** Snapshot every source item and its append-only history, excluding SDK caches. */
-function sourceBytes(): string {
-  return hashJson(["tasks", "history"].flatMap((folder) => readdirSync(join(pmRoot, folder)).sort().map((file) => readFileSync(join(pmRoot, folder, file), "utf8"))));
-}
-const before = sourceBytes();
+const before = sourceBytes(pmRoot);
 process.stdout.write("source initialized\n");
 const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
 const output = join(root, "sealed.json");
@@ -31,7 +28,7 @@ writeFileSync(boundsFile, JSON.stringify({ ...declared, samples_per_generation: 
 const options = { from_tracker: pmRoot, file: boundsFile, output };
 const built = await harness.runCommand({ command: "rl corpus build", pmRoot, args: [], options });
 assert.equal(built.handled, true); assert.equal((built.result as RlCommandResult).action, "rl-corpus-build");
-assert.equal(sourceBytes(), before, "building must leave item and history bytes untouched");
+assert.equal(sourceBytes(pmRoot), before, "building must leave every durable source filename and byte untouched");
 const sealedBytes = readFileSync(output, "utf8");
 await assert.rejects(harness.runCommand({ command: "rl corpus build", pmRoot, args: [], options }),
   (error: unknown) => isPmCliExpectedError(error) && error.context.code === "corpus_output_exists");

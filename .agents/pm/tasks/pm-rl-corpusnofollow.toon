@@ -1,0 +1,12 @@
+id: pm-rl-corpusnofollow
+title: Evaluate descriptor-relative corpus publication under concurrent parent replacement
+description: "PR #94 canonicalizes corpus output and rechecks alias and canonical parents immediately before exclusive creation. As identified in review thread PRRT_kwDOTqJmqs6u58zn, path checks still leave a small window against a hostile concurrent filesystem writer. Evaluate descriptor-relative no-follow creation with an explicit cross-platform support contract; retain exclusive creation, stable refusals, Git-independent real tracker tests and unchanged source bytes. The review-round fix narrows the window and makes no atomic containment claim."
+type: Task
+status: open
+priority: 3
+tags: []
+created_at: "2026-10-21T19:18:52.641Z"
+updated_at: "2026-10-21T19:18:52.641Z"
+author: codex-agent
+parent: pm-rl-apvf
+body: ""
