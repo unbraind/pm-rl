@@ -10,6 +10,13 @@ configuration, so subsequent source edits cannot silently change its data.
 The corpus builder accepts the bandit trainer; selecting another trainer refuses
 before output publication.
 
+The output must be a new file outside the source tracker. Existing files,
+directories and dangling symlinks refuse with `corpus_output_exists` before
+reading bounds or source items. Canonical source and output-parent paths reject
+destinations inside the source, including symlink aliases, with
+`corpus_output_inside_source`. Publication retains exclusive creation; a
+concurrent creator receives the same typed conflict without exposing a path.
+
 The task is deliberately small: recognize the snapshot's `closed` status from
 normalized title length. Every other status has target zero. The single
 logistic weight receives actual on-policy sampled rewards. The shipped programme
