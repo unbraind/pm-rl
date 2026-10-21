@@ -252,6 +252,20 @@ test("checkpoint descriptor handles short reads and closes after metadata or IO 
   fs.rmdirSync(file); writeFileSync(file, original);
 });
 
+test("checkpoint descriptor also bounds the benchmark legacy comparison before reading oversized files", async () => {
+  const w = await checkpointWorkspace();
+  const policy = prefixCheckpoint(new Array<number>(16).fill(0.125), { ...w.config.initial.arms[0].config.prefix, hashing_width: 16 });
+  const ref = await encodeCheckpointArtifacts(w.pmRoot, "benchmark-bound", policy) as CheckpointArtifact;
+  assert.ok(ref.bytes <= 4096);
+  const file = checkpointArtifactPath(w.pmRoot, ref.digest);
+  fs.truncateSync(file, MAX_CHECKPOINT_BYTES + 1);
+  const reads = mock.method(fs, "readSync"); const pathReads = mock.method(fs, "readFileSync"); syncBuiltinESMExports();
+  try {
+    assert.throws(() => measureCheckpointLoads(w.pmRoot, ref, 1), refuses("checkpoint_artifact_corrupt"));
+    assert.equal(reads.mock.callCount() + pathReads.mock.callCount(), 0, "oversized baseline must be refused before reading bytes");
+  } finally { reads.mock.restore(); pathReads.mock.restore(); syncBuiltinESMExports(); }
+});
+
 test("checkpoint inspection structurally validates every ledger reference without reading its blob", async () => {
   const w = await checkpointWorkspace();
   const ref = await encodeCheckpointArtifacts(w.pmRoot, "healthy", initialImprover()) as CheckpointArtifact;

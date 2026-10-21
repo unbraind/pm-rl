@@ -4,7 +4,12 @@ Prefix checkpoint bytes live under the tracker in
 `artifacts/pm-rl/sha256/<sha256>.json`. The filename hashes the exact JSON bytes;
 the reference also binds the byte count, policy's semantic digest, and kind.
 Every load verifies a regular bounded file, SHA-256, size, schema and policy
-identity. Missing and damaged blobs raise `checkpoint_artifact_missing` and
+identity. Reads open once with no-follow and nonblocking flags, validate the
+opened descriptor, and read at most its validated size plus one byte. Pathname
+replacement cannot change the inode being read; growth and truncation refuse
+without unbounded allocation. The descriptor closes on all read/validation paths.
+The benchmark legacy comparison shares this bound; historical timing measurements
+below describe their recorded source revision. Missing and damaged blobs raise `checkpoint_artifact_missing` and
 `checkpoint_artifact_corrupt`; neither permits a replacement fit.
 
 The trainer's `checkpoint.json` and completion receipt contain references and

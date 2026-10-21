@@ -1,11 +1,11 @@
 /** Reproducible checkpoint size/load measurements on an already sealed public tracker corpus. */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { init } from "@unbrained/pm-cli/sdk/runtime";
-import { checkpointArtifactPath, readCheckpointArtifact, type CheckpointArtifact } from "../checkpoint-artifacts.ts";
+import { checkpointArtifactPath, readCheckpointArtifact, readVerifiedFile, type CheckpointArtifact } from "../checkpoint-artifacts.ts";
 import { readTrackerDataset } from "../dataset.ts";
 import { runRlMeta, type MetaConfig } from "../meta.ts";
 import { prefixCheckpoint, type PrefixCheckpoint } from "../prefix.ts";
@@ -24,7 +24,7 @@ export function measureCheckpointLoads(root: string, ref: CheckpointArtifact, it
     return { iterations, median_ms: samples[Math.floor(samples.length / 2)], mean_ms: samples.reduce((sum, value) => sum + value, 0) / samples.length };
   };
   const legacy = ref.bytes > 4096 ? null : measure(() => {
-    const bytes = readFileSync(checkpointArtifactPath(root, ref.digest));
+    const bytes = readVerifiedFile(checkpointArtifactPath(root, ref.digest), ref.digest, ref.bytes);
     assert.equal(`sha256:${createHash("sha256").update(bytes).digest("hex")}`, ref.digest);
     const policy = JSON.parse(bytes.toString("utf8")) as PrefixCheckpoint;
     assert.equal(prefixCheckpoint(policy.weights, policy.knobs).digest, policy.digest); return policy;

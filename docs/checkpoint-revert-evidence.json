@@ -156,7 +156,7 @@
   "descriptor_review_round": {
     "base": "3029c8afcbf8a4aa0a5856620f25e2fccdc552ee",
     "scope": "Isolated source copies retained all tests. Production source was never reverted. Tests import TypeScript directly.",
-    "restored_focused_passes": 7,
+    "restored_focused_passes": 8,
     "reverts": [
       {
         "variant": "path-stat-read",
@@ -177,6 +177,17 @@
         "typecheck": 0,
         "exit": 1,
         "seconds": 6.435
+      },
+      {
+        "variant": "unbounded-benchmark-baseline",
+        "file": "scripts/checkpoint-benchmark.ts",
+        "function": "measureCheckpointLoads",
+        "thread_id": "PRRT_kwDOTqJmqs6ur6XM",
+        "origin": "Whole-PR self-review for the same defect class.",
+        "command": "node --test --test-name-pattern=\"benchmark legacy comparison\" test/checkpoint-artifacts.test.ts",
+        "typecheck": 0,
+        "exit": 1,
+        "seconds": 5.719
       }
     ]
   }

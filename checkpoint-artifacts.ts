@@ -38,8 +38,8 @@ function validateReference(ref: CheckpointArtifact): void {
     expectedFail("Invalid checkpoint artifact reference.", "checkpoint_artifact_invalid");
   }
 }
-/** Read only regular bounded files and normalize missing/corrupt storage into stable typed refusals. */
-function readVerifiedFile(file: string, digest: string, bytes?: number): Buffer {
+/** Read only regular bounded files and normalize missing/corrupt storage into stable typed refusals. @internal */
+export function readVerifiedFile(file: string, digest: string, bytes?: number): Buffer {
   let content: Buffer;
   try {
     const handle = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
