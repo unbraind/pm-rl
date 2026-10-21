@@ -10,7 +10,7 @@ import { runRlMeta, type MetaConfig } from "../meta.ts";
 import { prefixCheckpoint, type PrefixCheckpoint } from "../prefix.ts";
 import { recipeArtifact } from "../recipe.ts";
 import { listProcessJobs } from "../process.ts";
-import { liveMetaConfiguration } from "./live-meta.ts";
+import { liveMetaConfiguration } from "./meta-configuration.ts";
 import { isMainInvocation } from "./script-launcher.ts";
 
 /** Compare warm synchronous verified reads; legacy reads use the same bytes, hash and semantic validator. */
@@ -58,7 +58,7 @@ export async function benchmarkCheckpointCorpus(dataset: string, scratch: string
 
 /** Execute only on explicit invocation; raw source examples stay in the supplied scratch directory. */
 export async function checkpointBenchmarkMain(argv = process.argv, moduleUrl = import.meta.url, config = liveMetaConfiguration()): Promise<void> {
-  if (!isMainInvocation(argv, moduleUrl)) return;
+  if (!isMainInvocation(argv, moduleUrl, true)) return;
   const evidence = await benchmarkCheckpointCorpus(argv[2], argv[3], config);
   writeFileSync(argv[4], JSON.stringify(evidence, null, 2) + "\n");
 }

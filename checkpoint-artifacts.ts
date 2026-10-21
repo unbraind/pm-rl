@@ -136,13 +136,12 @@ export async function encodeCheckpointArtifacts(root: string, key: string, value
   };
   const encoded = encode(value);
   if (blobs.size === 0) return encoded;
+  const entry: CheckpointLedgerEntry = { format: "pm-rl/checkpoint-ledger/1", key, artifacts: [...blobs.values()].map(({ ref }) => ref) };
+  const content = Buffer.from(JSON.stringify(entry));
+  if (content.length > MAX_CHECKPOINT_BYTES) expectedFail("Checkpoint ledger batch exceeds its storage bound.", "checkpoint_artifact_invalid");
   await withArtifactLock(root, () => {
     for (const { ref, content } of blobs.values()) publishFile(join(root, "artifacts", "pm-rl", "sha256"), ref.digest, content);
-    for (const { ref } of blobs.values()) {
-      const entry: CheckpointLedgerEntry = { format: "pm-rl/checkpoint-ledger/1", key, artifacts: [ref] };
-      const content = Buffer.from(JSON.stringify(entry));
-      publishFile(join(root, "artifacts", "pm-rl", "ledger"), digestBytes(content), content);
-    }
+    publishFile(join(root, "artifacts", "pm-rl", "ledger"), digestBytes(content), content);
   });
   return encoded;
 }

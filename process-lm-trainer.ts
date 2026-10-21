@@ -36,7 +36,7 @@ export async function runLmTrainer(stdin: Readable = process.stdin, stdout: Writ
 
 /** Dispatch the same trainer through a real process or direct IO under coverage. */
 export async function lmTrainerMain(argv = process.argv, moduleUrl = import.meta.url, stdin: Readable = process.stdin, stdout: Writable = process.stdout, directory = "."): Promise<void> {
-  if (isMainInvocation(argv, moduleUrl)) await runLmTrainer(stdin, stdout, directory);
+  if (isMainInvocation(argv, moduleUrl, true)) await runLmTrainer(stdin, stdout, directory);
 }
 
 await lmTrainerMain();

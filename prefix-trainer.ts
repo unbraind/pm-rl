@@ -32,6 +32,6 @@ export async function runPrefixTrainer(stdin: Readable, stdout: Writable, direct
 }
 /** Dispatch the same IO implementation for direct and external-process acceptance. */
 export async function prefixTrainerMain(argv = process.argv, moduleUrl = import.meta.url, stdin: Readable = process.stdin, stdout: Writable = process.stdout, directory = "."): Promise<void> {
-  if (isMainInvocation(argv, moduleUrl)) await runPrefixTrainer(stdin, stdout, directory);
+  if (isMainInvocation(argv, moduleUrl, true)) await runPrefixTrainer(stdin, stdout, directory);
 }
 await prefixTrainerMain();

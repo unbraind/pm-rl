@@ -226,5 +226,111 @@
       },
       "focused_linked_tests": 8
     }
+  },
+  "batch_launcher_review_round": {
+    "base": "3352546f28a9cfe04355f172f47495244032ce95",
+    "scope": "Independent behavioral reverts in an isolated source copy with retained TypeScript regressions; production source never reverted. Shared release launchers retain strict behavior by default.",
+    "restored_focused_passes": 6,
+    "reverts": [
+      {
+        "variant": "per-blob-ledger",
+        "file": "checkpoint-artifacts.ts",
+        "function": "encodeCheckpointArtifacts",
+        "thread_id": "PRRT_kwDOTqJmqs6ut3Ca",
+        "command": "node --test --test-name-pattern=\"checkpoint batch publication\" test/checkpoint-artifacts.test.ts",
+        "typecheck": 0,
+        "exit": 1,
+        "seconds": 6.306,
+        "failed": 2
+      },
+      {
+        "variant": "oversized-ledger-bound",
+        "file": "checkpoint-artifacts.ts",
+        "function": "encodeCheckpointArtifacts",
+        "thread_id": "PRRT_kwDOTqJmqs6ut3Ca",
+        "command": "node --test --test-name-pattern=\"oversized ledger metadata\" test/checkpoint-artifacts.test.ts",
+        "typecheck": 0,
+        "exit": 1,
+        "seconds": 3.45,
+        "failed": 1
+      },
+      {
+        "variant": "missing-tool-diagnostic",
+        "file": "test/checkpoint-artifacts.test.ts",
+        "function": "checkpointToolBin",
+        "thread_id": "PRRT_kwDOTqJmqs6ut3Cq",
+        "command": "node --test --test-name-pattern=\"restricted process tools name\" test/checkpoint-artifacts.test.ts",
+        "typecheck": 0,
+        "exit": 1,
+        "seconds": 2.27,
+        "failed": 1
+      },
+      {
+        "variant": "benchmark-launcher",
+        "file": "scripts/checkpoint-benchmark.ts",
+        "function": "checkpointBenchmarkMain",
+        "thread_id": "PRRT_kwDOTqJmqs6ut3Cg",
+        "command": "node --test --test-name-pattern=\"non-file launcher\" test/checkpoint-artifacts.test.ts",
+        "typecheck": 0,
+        "exit": 1,
+        "seconds": 2.38,
+        "failed": 1
+      },
+      {
+        "variant": "shared-launcher-behavior",
+        "file": "scripts/script-launcher.ts",
+        "function": "isMainInvocation",
+        "thread_id": "PRRT_kwDOTqJmqs6ut3Cg",
+        "command": "node --test --test-name-pattern=\"non-file launcher\" test/checkpoint-artifacts.test.ts",
+        "typecheck": 0,
+        "exit": 1,
+        "seconds": 2.836,
+        "failed": 1
+      },
+      {
+        "variant": "benchmark-transitive-live-import",
+        "file": "scripts/checkpoint-benchmark.ts",
+        "function": "configuration import",
+        "thread_id": "PRRT_kwDOTqJmqs6ut3Cg",
+        "command": "node --test --test-name-pattern=\"non-file launcher\" test/checkpoint-artifacts.test.ts",
+        "typecheck": 0,
+        "exit": 1,
+        "seconds": 5.299,
+        "failed": 1
+      },
+      {
+        "variant": "prefixTrainerMain-launcher",
+        "file": "prefix-trainer.ts",
+        "function": "prefixTrainerMain",
+        "thread_id": "PRRT_kwDOTqJmqs6ut3Cg",
+        "command": "node --test --test-name-pattern=\"non-file launcher\" test/checkpoint-artifacts.test.ts",
+        "typecheck": 0,
+        "exit": 1,
+        "seconds": 2.633,
+        "failed": 1
+      },
+      {
+        "variant": "referenceTrainerMain-launcher",
+        "file": "process-bandit.ts",
+        "function": "referenceTrainerMain",
+        "thread_id": "PRRT_kwDOTqJmqs6ut3Cg",
+        "command": "node --test --test-name-pattern=\"non-file launcher\" test/checkpoint-artifacts.test.ts",
+        "typecheck": 0,
+        "exit": 1,
+        "seconds": 2.376,
+        "failed": 1
+      },
+      {
+        "variant": "lmTrainerMain-launcher",
+        "file": "process-lm-trainer.ts",
+        "function": "lmTrainerMain",
+        "thread_id": "PRRT_kwDOTqJmqs6ut3Cg",
+        "command": "node --test --test-name-pattern=\"non-file launcher\" test/checkpoint-artifacts.test.ts",
+        "typecheck": 0,
+        "exit": 1,
+        "seconds": 2.457,
+        "failed": 1
+      }
+    ]
   }
 }

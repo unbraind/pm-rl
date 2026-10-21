@@ -22,6 +22,10 @@ import { buildTrackerDataset } from "../dataset.ts";
 import { withTrackerSources } from "./fixtures/meta-workspace.ts";
 import { checkpointBenchmarkMain, measureCheckpointLoads } from "../scripts/checkpoint-benchmark.ts";
 import { liveMetaConfiguration } from "../scripts/live-meta.ts";
+import { isMainInvocation } from "../scripts/script-launcher.ts";
+import { prefixTrainerMain } from "../prefix-trainer.ts";
+import { referenceTrainerMain } from "../process-bandit.ts";
+import { lmTrainerMain } from "../process-lm-trainer.ts";
 
 /** Match stable errors instead of accepting accidental parser or filesystem exceptions. */
 function refuses(code: string): (error: unknown) => boolean { return (error) => isPmCliExpectedError(error) && error.context.code === code; }
@@ -30,7 +34,9 @@ function refuses(code: string): (error: unknown) => boolean { return (error) => 
 function checkpointToolBin(root: string, searchPath = process.env.PATH): string {
   const bin = join(root, "bin"); mkdirSync(bin); symlinkSync(process.execPath, join(bin, "node"));
   for (const tool of ["ps", "getconf"]) {
-    const executable = childProcess.execFileSync("/bin/sh", ["-c", `command -v ${tool}`], { encoding: "utf8", env: { ...process.env, PATH: searchPath } }).trim();
+    let executable: string;
+    try { executable = childProcess.execFileSync("/bin/sh", ["-c", `command -v ${tool}`], { encoding: "utf8", env: { ...process.env, PATH: searchPath } }).trim(); }
+    catch (cause) { throw new Error(`Required process tool '${tool}' was not found on the supplied PATH.`, { cause }); }
     symlinkSync(executable, join(bin, tool));
   }
   return bin;
@@ -43,6 +49,40 @@ test("restricted process tools follow the supplied PATH instead of platform inst
   const bin = checkpointToolBin(w.root, tools);
   for (const tool of ["ps", "getconf"]) assert.equal(readlinkSync(join(bin, tool)), join(tools, tool));
   assert.equal(readlinkSync(join(bin, "node")), process.execPath);
+});
+
+test("restricted process tools name each missing executable and preserve the lookup cause", async () => {
+  const w = await checkpointWorkspace();
+  for (const missing of ["ps", "getconf"]) {
+    const root = join(w.root, missing); mkdirSync(root);
+    const tools = join(root, "tools"); mkdirSync(tools);
+    if (missing === "getconf") symlinkSync(process.execPath, join(tools, "ps"));
+    assert.throws(() => checkpointToolBin(root, tools), (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.equal(error.message, `Required process tool '${missing}' was not found on the supplied PATH.`);
+      assert.ok(error.cause instanceof Error);
+      return true;
+    });
+  }
+});
+
+test("checkpoint benchmark and trainer imports tolerate non-file launcher entries while gates remain strict", async () => {
+  const w = await checkpointWorkspace();
+  const entry = join(w.root, "missing-entry");
+  const moduleUrl = new URL("../scripts/checkpoint-benchmark.ts", import.meta.url).href;
+  assert.throws(() => isMainInvocation([process.execPath, entry], moduleUrl), /ENOENT/);
+  assert.throws(() => isMainInvocation([process.execPath, process.argv[1]], new URL("../missing-module.ts", import.meta.url).href, true), /ENOENT/);
+  for (const main of [checkpointBenchmarkMain, prefixTrainerMain, referenceTrainerMain, lmTrainerMain]) {
+    await main([process.execPath, entry]);
+    await main([process.execPath]);
+  }
+  for (const launcher of ["missing", "absent"]) {
+    const result = childProcess.spawnSync(process.execPath, ["--input-type=module", "-e",
+      `${launcher === "missing" ? 'process.argv[1] = "[eval]";' : "delete process.argv[1];"} await import(${JSON.stringify(moduleUrl)}); await import(${JSON.stringify(new URL("../process-lm-trainer.ts", import.meta.url).href)});`],
+    { encoding: "utf8", timeout: 60_000 });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, "", "imports must not start a benchmark or trainer");
+  }
 });
 
 test("README states the existing storage reservation through width 64", () => {
@@ -285,6 +325,49 @@ test("publication failure exposes neither a partial digest file nor a ledger roo
   try { await assert.rejects(encodeCheckpointArtifacts(w.pmRoot, "failed", w.config.initial), /synthetic publication failure/); }
   finally { failure.mock.restore(); syncBuiltinESMExports(); }
   assert.deepEqual(readdirSync(join(w.pmRoot, "artifacts/pm-rl/sha256")), []);
+  assert.deepEqual(readCheckpointLedger(w.pmRoot), []);
+});
+
+test("checkpoint batch publication writes one complete ledger root and retries idempotently", async () => {
+  const w = await checkpointWorkspace();
+  assert.equal(existsSync(join(w.root, ".git")), false);
+  const prefix = prefixCheckpoint(new Array<number>(4096).fill(0.125), w.config.initial.arms[0].config.prefix);
+  const value = { prefix, duplicate: prefix, improver: initialImprover() };
+  const original = fs.linkSync;
+  let ledgerAttempts = 0;
+  const failure = mock.method(fs, "linkSync", (...args: Parameters<typeof original>) => {
+    if (dirname(String(args[1])) === join(w.pmRoot, "artifacts/pm-rl/ledger")) {
+      ledgerAttempts += 1;
+      assert.equal(readdirSync(join(w.pmRoot, "artifacts/pm-rl/sha256")).length, 2, "all blobs precede the ledger root");
+      throw new Error("synthetic ledger publication failure");
+    }
+    return original(...args);
+  }); syncBuiltinESMExports();
+  try { await assert.rejects(encodeCheckpointArtifacts(w.pmRoot, "batch", value), /synthetic ledger publication failure/); }
+  finally { failure.mock.restore(); syncBuiltinESMExports(); }
+  assert.equal(ledgerAttempts, 1);
+  assert.deepEqual(readdirSync(join(w.pmRoot, "artifacts/pm-rl/ledger")), []);
+  const refs = await encodeCheckpointArtifacts(w.pmRoot, "batch", value) as Record<keyof typeof value, CheckpointArtifact>;
+  await encodeCheckpointArtifacts(w.pmRoot, "batch", value);
+  assert.deepEqual(readCheckpointLedger(w.pmRoot), [{ format: "pm-rl/checkpoint-ledger/1", key: "batch", artifacts: [refs.prefix, refs.improver] }]);
+  const ledger = join(w.pmRoot, "artifacts/pm-rl/ledger"); const files = readdirSync(ledger);
+  assert.equal(files.length, 1);
+  assert.equal(files[0], `${createHash("sha256").update(readFileSync(join(ledger, files[0]))).digest("hex")}.json`);
+  assert.deepEqual(decodeCheckpointArtifacts(w.pmRoot, refs), value);
+  assert.deepEqual(await collectCheckpointArtifacts(w.pmRoot), { retained: 2, removed: 0 });
+});
+
+test("checkpoint batch publication refuses oversized ledger metadata before publishing any blob", async () => {
+  const w = await checkpointWorkspace();
+  const knobs = { regularisation: 0.001, ngram_order: 2, hashing_width: 16 };
+  const policies = Array.from({ length: 8192 }, (_, index) => prefixCheckpoint(new Array<number>(16).fill(index / 8192), knobs));
+  const writes = mock.method(fs, "linkSync", () => { throw new Error("unexpected publication before ledger validation"); }); syncBuiltinESMExports();
+  try {
+    await assert.rejects(encodeCheckpointArtifacts(w.pmRoot, "oversized-batch", policies), refuses("checkpoint_artifact_invalid"));
+    await assert.rejects(encodeCheckpointArtifacts(w.pmRoot, "x".repeat(MAX_CHECKPOINT_BYTES), policies[0]), refuses("checkpoint_artifact_invalid"));
+    assert.equal(writes.mock.callCount(), 0);
+  } finally { writes.mock.restore(); syncBuiltinESMExports(); }
+  assert.equal(existsSync(join(w.pmRoot, "artifacts/pm-rl/sha256")), false);
   assert.deepEqual(readCheckpointLedger(w.pmRoot), []);
 });
 

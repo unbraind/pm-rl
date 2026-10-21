@@ -27,7 +27,10 @@ its digest name, verifies any existing blob, and fsyncs the directory. Identical
 checkpoints deduplicate; an existing corrupt blob is refused. An SDK tracker lock
 serializes publication and ledger insertion with garbage collection. Independent
 processes use immutable hash-named ledger entries, so they never overwrite a
-shared ledger array. A crash before ledger publication can leave an orphan blob;
+shared ledger array. Each encode call publishes one entry containing all distinct
+checkpoint references, after all blobs are durable. Retries of the same batch are
+idempotent. Ledger metadata must fit the same bounded reader before any blob is
+published. A crash before ledger publication can leave an orphan blob;
 a reference is exposed only after its root is durable.
 
 `artifacts/pm-rl/ledger` is the promotion/audit reachability ledger. Staging,
