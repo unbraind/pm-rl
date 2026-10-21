@@ -10,6 +10,7 @@
 import { createHash } from "node:crypto";
 
 import { decideTrainerPromotion } from "./promotion.ts";
+import { pairedItemEvidence, type ItemEvidence } from "./item-evaluation.ts";
 
 /** Maximum explicitly reserved optimizer updates over one collected batch. */
 export const MAX_BANDIT_FIT_STEPS = 256;
@@ -20,6 +21,8 @@ export interface BanditExample {
   readonly id: string;
   /** Scalar observation in [-1, 1] consumed by the logistic policy. */
   readonly feature: number;
+  /** Optional bounded title-only vector; legacy scalar programmes retain their identities. */
+  readonly features?: readonly number[];
   /** Reward for actions zero and one, each in [0, 1]. */
   readonly rewards: readonly [number, number];
 }
@@ -56,6 +59,8 @@ export interface BanditProgramme {
 export interface BanditCheckpoint {
   /** Scalar policy parameter, changed by the measured reward gradient. */
   readonly weight: number;
+  /** Optional vector coefficients, bound into the checkpoint digest. */
+  readonly coefficients?: readonly number[];
   /** SHA-256 of the versioned, canonically serialized checkpoint. */
   readonly digest: string;
 }
@@ -77,6 +82,8 @@ export type BanditStopReason = "unchanged_checkpoint" | "evaluation_rejected" | 
 export interface BanditGeneration {
   /** One-based attempted generation number. */
   readonly generation: number;
+  /** Item-level uncertainty and baseline comparisons for vector corpus programmes. */
+  readonly itemEvidence?: ItemEvidence;
   /** Exact checkpoint used to choose this batch's actions. */
   readonly source: BanditCheckpoint;
   /** Actual checkpoint obtained from the batch's policy-gradient update. */
@@ -181,18 +188,32 @@ function digest(value: unknown): string {
 }
 
 /** Construct a format-bound identity that changes whenever the real weight does. */
-export function banditCheckpoint(weight: number): BanditCheckpoint {
+export function banditCheckpoint(weight: number, coefficients?: readonly number[]): BanditCheckpoint {
+  if (coefficients !== undefined) {
+    if (!Array.isArray(coefficients) || coefficients.length < 1 || coefficients.length > 64 || coefficients.some((value) => !Number.isFinite(value) || Math.abs(value) > 20)) throw new RangeError("bandit_coefficients");
+    return { weight, coefficients: [...coefficients], digest: digest({ format: "pm-rl/bandit-checkpoint/2", weight, coefficients }) };
+  }
   return { weight, digest: digest({ format: "pm-rl/bandit-checkpoint/1", weight }) };
 }
 
-/** Evaluate exact expected reward, avoiding an additional noisy sample budget. */
-function evaluate(weight: number, examples: readonly BanditExample[]): number {
-  let reward = 0;
-  for (const example of examples) {
-    const probability = 1 / (1 + Math.exp(-weight * example.feature));
-    reward += (1 - probability) * example.rewards[0] + probability * example.rewards[1];
+/** Predict using only declared observations; a vector checkpoint cannot silently drop dimensions. */
+export function banditProbability(policy: BanditCheckpoint, example: BanditExample): number {
+  let logit = policy.weight * example.feature;
+  if (policy.coefficients !== undefined) {
+    if (example.features?.length !== policy.coefficients.length) throw new RangeError("bandit_dimensions");
+    logit += policy.coefficients.reduce((sum, value, index) => sum + value * example.features![index], 0);
   }
-  return reward / examples.length;
+  return 1 / (1 + Math.exp(-logit));
+}
+
+/** Per-item expected rewards are evaluator-only; rollouts do not inflate item sample size. */
+export function banditItemRewards(policy: BanditCheckpoint, examples: readonly BanditExample[]): number[] {
+  return examples.map((example) => { const probability = banditProbability(policy, example); return (1 - probability) * example.rewards[0] + probability * example.rewards[1]; });
+}
+
+/** Evaluate exact expected reward, avoiding an additional noisy sample budget. */
+function evaluate(policy: BanditCheckpoint, examples: readonly BanditExample[]): number {
+  return banditItemRewards(policy, examples).reduce((sum, value) => sum + value, 0) / examples.length;
 }
 
 /**
@@ -206,18 +227,18 @@ function evaluate(weight: number, examples: readonly BanditExample[]): number {
  * and records the reward of the sampled action. The seed makes the empirical
  * mean deterministic, so a replay reproduces it byte-identically.
  *
- * @param weight - The policy parameter to evaluate.
+ * @param policy - The checkpoint to evaluate.
  * @param examples - The held-out evaluation examples.
  * @param samples - Number of episodes to draw.
  * @param seed - Unsigned 32-bit LCG seed for reproducible action sampling.
  * @returns The empirical mean reward over the drawn episodes.
  */
-function sampledHeldOutMean(weight: number, examples: readonly BanditExample[], samples: number, seed: number): number {
+function sampledHeldOutMean(policy: BanditCheckpoint, examples: readonly BanditExample[], samples: number, seed: number): number {
   let state = seed;
   let total = 0;
   for (let index = 0; index < samples; index += 1) {
     const example = examples[index % examples.length];
-    const probability = 1 / (1 + Math.exp(-weight * example.feature));
+    const probability = banditProbability(policy, example);
     state = (Math.imul(1664525, state) + 1013904223) >>> 0;
     const action = state / 0x1_0000_0000 < probability ? 1 : 0;
     total += example.rewards[action];
@@ -241,6 +262,7 @@ function sampledHeldOutMean(weight: number, examples: readonly BanditExample[], 
 export function validatedBanditDatasets(programme: Pick<BanditProgramme, "training" | "evaluation">): BanditDatasets {
   const identities = new Set<string>();
   const datasets: BanditExample[][] = [];
+  const dimensions = programme.training[0]?.features?.length;
   for (const dataset of [programme.training, programme.evaluation]) {
     if (dataset.length === 0 || dataset.length > 10_000) throw new Error("bandit_invalid: dataset size must be 1..10000");
     const validated: BanditExample[] = [];
@@ -252,7 +274,8 @@ export function validatedBanditDatasets(programme: Pick<BanditProgramme, "traini
       }
       if (identities.has(example.id)) throw new Error("bandit_overlap: example identities must be unique and disjoint");
       identities.add(example.id);
-      validated.push({ id: example.id, feature: example.feature, rewards: [example.rewards[0], example.rewards[1]] });
+      if (example.features?.length !== dimensions || (example.features !== undefined && (dimensions! < 1 || dimensions! > 64 || example.features.some((value) => !Number.isFinite(value) || Math.abs(value) > 1)))) throw new Error("bandit_invalid: feature dimensions or bounds");
+      validated.push({ id: example.id, feature: example.feature, ...(example.features === undefined ? {} : { features: [...example.features] }), rewards: [example.rewards[0], example.rewards[1]] });
     }
     datasets.push(validated);
   }
@@ -263,6 +286,7 @@ export function validatedBanditDatasets(programme: Pick<BanditProgramme, "traini
 /** Fit bounded importance-weighted REINFORCE updates from the same source-policy actions; no held-out rewards enter. */
 export function fitBanditBatch(training: readonly BanditExample[], source: BanditCheckpoint, observations: readonly BanditObservation[], learningRate: number, steps = 1): BanditCheckpoint {
   if (!Number.isInteger(steps) || steps < 1 || steps > MAX_BANDIT_FIT_STEPS) throw new RangeError("bandit_fit_steps");
+  if (training[0].features !== undefined) return fitVectorBatch(training, source, observations, learningRate, steps);
   let weight = source.weight;
   for (let step = 0; step < steps; step += 1) {
     let gradient = 0;
@@ -276,6 +300,25 @@ export function fitBanditBatch(training: readonly BanditExample[], source: Bandi
     weight = Math.max(-20, Math.min(20, weight + learningRate * gradient / observations.length));
   }
   return banditCheckpoint(weight);
+}
+
+/** Fit an intercept and bounded token coefficients from the same charged, importance-weighted action batch. */
+function fitVectorBatch(training: readonly BanditExample[], source: BanditCheckpoint, observations: readonly BanditObservation[], learningRate: number, steps: number): BanditCheckpoint {
+  let coefficients = source.coefficients === undefined ? new Array<number>(training[0].features!.length).fill(0) : [...source.coefficients];
+  for (let step = 0; step < steps; step += 1) {
+    const policy = banditCheckpoint(source.weight, coefficients);
+    const gradient = new Array<number>(coefficients.length).fill(0);
+    for (const [index, observation] of observations.entries()) {
+      const example = training[index % training.length];
+      const probability = banditProbability(policy, example);
+      const initial = banditProbability(source, example);
+      const ratio = observation.action === 1 ? probability / initial : (1 - probability) / (1 - initial);
+      const scale = observation.reward * (observation.action - probability) * ratio;
+      for (let column = 0; column < gradient.length; column += 1) gradient[column] += scale * example.features![column];
+    }
+    coefficients = coefficients.map((value, index) => Math.max(-20, Math.min(20, value + learningRate * gradient[index] / observations.length)));
+  }
+  return banditCheckpoint(source.weight, coefficients);
 }
 
 /**
@@ -301,7 +344,7 @@ export function executeBanditStep(input: BanditStepInput, materialized?: BanditC
   let randomState = input.randomState;
   for (let sample = 0; sample < samples; sample += 1) {
     const example = training[sample % training.length];
-    const probability = 1 / (1 + Math.exp(-source.weight * example.feature));
+    const probability = banditProbability(source, example);
     randomState = (Math.imul(1664525, randomState) + 1013904223) >>> 0;
     const action = (randomState / 0x1_0000_0000 < probability ? 1 : 0) as 0 | 1;
     const reward = example.rewards[action];
@@ -309,9 +352,9 @@ export function executeBanditStep(input: BanditStepInput, materialized?: BanditC
     observations.push({ example: example.id, action, reward });
   }
   const candidate = materialized ?? fitBanditBatch(training, source, observations, learningRate, input.fitSteps);
-  const baselineScore = evaluate(source.weight, evaluation);
-  const trainingScore = evaluate(candidate.weight, training);
-  const evaluationScore = evaluate(candidate.weight, evaluation);
+  const baselineScore = evaluate(source, evaluation);
+  const trainingScore = evaluate(candidate, training);
+  const evaluationScore = evaluate(candidate, evaluation);
   const collectionDigest = digest({ source: source.digest, trainingDigest, observations });
   const evidence = {
     generation,
@@ -336,12 +379,16 @@ export function executeBanditStep(input: BanditStepInput, materialized?: BanditC
   // unreachable from the gradient; the gate's contamination verdict is null.
   const incumbentSeed = (Math.imul(generation, 0x9E3779B1) + seed) >>> 0;
   const candidateSeed = (incumbentSeed + 0x6D5B5B5D) >>> 0;
-  evidence.incumbentHeldOutMean = sampledHeldOutMean(source.weight, evaluation, evaluationSamples, incumbentSeed);
-  evidence.candidateHeldOutMean = sampledHeldOutMean(candidate.weight, evaluation, evaluationSamples, candidateSeed);
-  return { ...evidence, ...decideTrainerPromotion({ changed: candidate.digest !== source.digest, training: trainingScore, evaluation: evaluationScore,
+  evidence.incumbentHeldOutMean = sampledHeldOutMean(source, evaluation, evaluationSamples, incumbentSeed);
+  evidence.candidateHeldOutMean = sampledHeldOutMean(candidate, evaluation, evaluationSamples, candidateSeed);
+  const verdict = decideTrainerPromotion({ changed: candidate.digest !== source.digest, training: trainingScore, evaluation: evaluationScore,
     baseline: baselineScore, maximumGap, generation, version: "1", context: evaluationDigest, samples: evaluationSamples,
     candidateMean: evidence.candidateHeldOutMean, incumbentMean: evidence.incumbentHeldOutMean,
-    criterion: { confidence, minSamples, effectThreshold: minimumImprovement } }) };
+    criterion: { confidence, minSamples, effectThreshold: minimumImprovement } });
+  if (evaluation[0].features === undefined) return { ...evidence, ...verdict };
+  const itemEvidence = pairedItemEvidence(banditItemRewards(candidate, evaluation), banditItemRewards(source, evaluation), evaluation.map((row) => row.rewards), confidence, minSamples, minimumImprovement);
+  const refused = verdict.promoted && !itemEvidence.accepted;
+  return { ...evidence, ...verdict, itemEvidence, ...(refused ? { promoted: false, refusalReason: itemEvidence.reason, stopReason: "evaluation_rejected" as const } : {}) };
 }
 
 /**

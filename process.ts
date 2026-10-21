@@ -327,7 +327,9 @@ export function validateProcessCompletion<P extends TrainerPolicy>(directory: st
   else if (input.prefix !== undefined) validatePrefixCompletion(content, { policy: JSON.parse(content.toString("utf8")) as P }, input);
   else {
     const policy = JSON.parse(content.toString("utf8")) as BanditCheckpoint;
-    if (processDigest(policy) !== processDigest(value.policy) || !Number.isFinite(policy.weight) || Math.abs(policy.weight) > 20 || policy.digest !== banditCheckpoint(policy.weight).digest) expectedFail("Checkpoint content digest or parameters are invalid.", "process_checkpoint_invalid");
+    try {
+      if (processDigest(policy) !== processDigest(value.policy) || !Number.isFinite(policy.weight) || Math.abs(policy.weight) > 20 || policy.digest !== banditCheckpoint(policy.weight, policy.coefficients).digest) throw new Error("bandit_checkpoint");
+    } catch { expectedFail("Checkpoint content digest or parameters are invalid.", "process_checkpoint_invalid"); }
   }
   const usage = parseResources(value.usage);
   if (usage.training_steps !== input.training_config.steps || usage.storage_bytes !== content.length) expectedFail("Completion lacks measured training or checkpoint use.", "process_receipt_invalid");
