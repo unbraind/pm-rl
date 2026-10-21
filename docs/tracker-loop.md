@@ -152,3 +152,27 @@ and parent swaps during collection. Publication rechecks the caller and canonica
 parents immediately before exclusive creation. These checks narrow the race window;
 they do not provide descriptor-relative protection against a hostile concurrent
 filesystem writer. The CI receipt above predates these review-round changes.
+
+## Review-round verification
+
+[Complete review-round CI](https://github.com/unbraind/pm-rl/actions/runs/39660872803)
+validates executable source and tests at `83969917f6183ab1999a7c8e87def0bcb92892b1`:
+
+| Command | Runtime | Passed | Statements / lines / branches / functions |
+| --- | --- | --- | --- |
+| `npm run release:check` | Node 22 | 688/688 | 100/100/100/100 |
+| `npm run release:check` | Node 26 | 688/688 | 100/100/100/100 |
+| `bun run release:check` | Node 26, Bun 1.3.14 | 688/688 | 100/100/100/100 |
+
+Each variant has zero failures, skips, cancellations or todos, covers all 48
+sources and documents all 340 declarations. Fresh-checkout strict tracker health,
+identity, zero duplication, production audit, publication attestation, packaging,
+changelog and Bun installation pass; CodeQL also passes. Thresholds are unchanged.
+
+All six focused review regressions pass directly and through the pinned
+tracker-linked runner. Reverting only `buildCorpusCommand` fails both the missing
+path and publication-swap regressions; reverting only this document fails the
+receipt regression. The epic retains the exact commands and revert results.
+The existing local managed-extension skew and shared merge-fence drift are
+separate from the passing fresh-checkout CI health. The descriptor-relative
+publication follow-up remains open as `pm-rl-corpusnofollow`.
