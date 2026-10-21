@@ -1,11 +1,13 @@
 /** Real tracker snapshots and inherited durable jobs work without Git or source mutation. */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import fsPromises from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { test } from "node:test";
-import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
+import { EXIT_CODE, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import { buildTrackerLoopCorpus, corpusHeldOut, sealTrackerLoopCorpus, verifyTrackerLoopCorpus } from "../corpus.ts";
 import { banditProcessInput, generationTrainingConfig, parseLoopConfig, runLoopGeneration, seedTrainingConfig } from "../loop.ts";
@@ -19,6 +21,82 @@ const items = Array.from({ length: 80 }, (_, index) => ({ id: `source-${index}`,
 
 /** Match the typed refusal rather than a parser or runtime accident. */
 function refuses(code: string): (error: unknown) => boolean { return (error) => isPmCliExpectedError(error) && error.context.code === code; }
+
+/** Populate a real tracker with the smallest valid split shared by command regressions. */
+async function seedCorpusSource(client: Awaited<ReturnType<typeof processWorkspace>>["client"]): Promise<void> {
+  const lengths = [false, true].flatMap((held) => Array.from({ length: 80 }, (_, i) => i + 1).filter((n) => corpusHeldOut(n) === held).slice(0, 2));
+  for (const length of lengths) await client.create({ id: `source-${length}`, type: "Task", title: "z".repeat(length) });
+}
+
+test("corpus output conflicts refuse before source or bounds reads without exposing paths", async () => {
+  const w = await processWorkspace();
+  const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
+  const existing = join(w.root, "existing.json"); writeFileSync(existing, "preserve bytes");
+  const dangling = join(w.root, "dangling.json"); symlinkSync(join(w.root, "absent"), dangling);
+  for (const output of [existing, dangling, w.pmRoot]) {
+    await assert.rejects(harness.runCommand({ command: "rl corpus build", pmRoot: w.pmRoot, args: [], options: {
+      from_tracker: join(w.root, "missing-source"), file: join(w.root, "missing-bounds"), output,
+    } }), (error: unknown) => {
+      assert.ok(isPmCliExpectedError(error)); assert.equal(error.context.code, "corpus_output_exists");
+      assert.equal(error.exitCode, EXIT_CODE.CONFLICT); assert.ok(!error.message.includes(w.root)); return true;
+    });
+  }
+  assert.equal(readFileSync(existing, "utf8"), "preserve bytes");
+  assert.equal(existsSync(join(w.root, "absent")), false);
+});
+
+test("corpus output inside the source refuses before inventory reads through relative and symlink aliases", async () => {
+  const w = await processWorkspace();
+  const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
+  const nested = join(w.pmRoot, "nested"); mkdirSync(nested);
+  const alias = join(w.root, "source-alias"); symlinkSync(w.pmRoot, alias, "dir");
+  const childAlias = join(w.root, "child-alias"); symlinkSync(nested, childAlias, "dir");
+  /** Capture every source file, so rejected commands cannot add or alter tracker bytes. */
+  const snapshot = (): [string, string][] => readdirSync(w.pmRoot, { recursive: true, withFileTypes: true }).filter((entry) => entry.isFile()).map((entry) => {
+    const path = join(entry.parentPath, entry.name); return [relative(w.pmRoot, path), readFileSync(path, "hex")];
+  });
+  const before = snapshot();
+  for (const [source, output] of [
+    [w.pmRoot, join(w.pmRoot, "sealed.json")], [w.pmRoot, join(nested, "sealed.json")],
+    [w.pmRoot, join(alias, "sealed.json")], [alias, join(w.pmRoot, "sealed.json")],
+    [w.pmRoot, join(childAlias, "sealed.json")], [w.pmRoot, relative(process.cwd(), join(nested, "..", "sealed.json"))],
+  ]) {
+    await assert.rejects(harness.runCommand({ command: "rl corpus build", pmRoot: w.pmRoot, args: [], options: {
+      from_tracker: source, file: join(w.root, "missing-bounds"), output,
+    } }), refuses("corpus_output_inside_source"));
+    assert.equal(existsSync(output), false); assert.deepEqual(snapshot(), before);
+  }
+});
+
+test("corpus exclusive publication handles a real concurrent creator and preserves other IO errors", async (t) => {
+  const w = await processWorkspace(); await seedCorpusSource(w.client);
+  const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
+  const options = { from_tracker: w.pmRoot, file: new URL("../examples/loop-corpus.json", import.meta.url).pathname, output: join(dirname(w.pmRoot), "sealed.json") };
+  const sibling = `${w.pmRoot}-copy`; mkdirSync(sibling);
+  for (const output of [options.output, join(sibling, "sealed.json")]) {
+    await harness.runCommand({ command: "rl corpus build", pmRoot: w.pmRoot, args: [], options: { ...options, output } });
+    assert.equal((JSON.parse(readFileSync(output, "utf8")) as Record<string, JsonValue>).fit_steps, 8);
+    rmSync(output);
+  }
+  const original = fsPromises.writeFile;
+  for (const conflict of [true, false]) {
+    const parent = join(w.root, conflict ? "race" : "removed"); mkdirSync(parent);
+    const output = join(parent, "sealed.json");
+    const injection = t.mock.method(fsPromises, "writeFile", async (...args: Parameters<typeof original>) => {
+      if (args[0] === output) {
+        if (conflict) writeFileSync(output, "concurrent creator"); else rmSync(parent, { recursive: true });
+      }
+      return original(...args);
+    });
+    syncBuiltinESMExports();
+    try {
+      const command = harness.runCommand({ command: "rl corpus build", pmRoot: w.pmRoot, args: [], options: { ...options, output } });
+      if (conflict) await assert.rejects(command, refuses("corpus_output_exists"));
+      else assert.match(JSON.stringify(await command), /ENOENT/);
+      if (conflict) assert.equal(readFileSync(output, "utf8"), "concurrent creator");
+    } finally { injection.mock.restore(); syncBuiltinESMExports(); }
+  }
+});
 
 test("sealed corpora group identical inputs, bind labels and IDs, and do not retain text or paths", () => {
   const rows = [...items, { id: "duplicate-title", title: "  Ｘ  ", status: "closed" }, { id: "long-title", title: "😀".repeat(300), status: "open" }];
@@ -112,8 +190,7 @@ test("fit steps are bounded, persisted and matched to a reservation before any j
   await assert.rejects(executeProcessTrainer(w.client, w.coordinates, { ...trainingInput(), training_config: { learning_rate: 0.5, steps: 8 } }, w.approval, parseProcessAdapter({ kind: "process-bandit", allowance: { training_steps: 1, wall_ms: 5000, storage_bytes: 65536, compute_units: 1000, tokens: 0 } })), refuses("process_invalid_adapter"));
   assert.deepEqual(await listProcessJobs(w.client), []);
   await assert.rejects(buildTrackerLoopCorpus(w.client, bounds), refuses("corpus_insufficient_split"));
-  const lengths = [false, true].flatMap((held) => Array.from({ length: 80 }, (_, i) => i + 1).filter((n) => corpusHeldOut(n) === held).slice(0, 2));
-  for (const length of lengths) await w.client.create({ id: `source-${length}`, type: "Task", title: "z".repeat(length) });
+  await seedCorpusSource(w.client);
   const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
   const built = await harness.runCommand({ command: "rl corpus build", pmRoot: w.pmRoot, args: [], options: { from_tracker: w.pmRoot, file: new URL("../examples/loop-corpus.json", import.meta.url).pathname, output: join(w.root, "sealed.json") } });
   assert.equal(built.handled, true); assert.equal((JSON.parse(readFileSync(join(w.root, "sealed.json"), "utf8")) as Record<string, JsonValue>).fit_steps, 8);

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
-import { init } from "@unbrained/pm-cli/sdk/runtime";
+import { init, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import extension, { hashJson, resumeRlLoop, rlLoopStatus, runRlLoop, type RlCommandResult, type JsonValue } from "../../index.ts";
 import { corpusHeldOut } from "../../corpus.ts";
@@ -33,8 +33,8 @@ const built = await harness.runCommand({ command: "rl corpus build", pmRoot, arg
 assert.equal(built.handled, true); assert.equal((built.result as RlCommandResult).action, "rl-corpus-build");
 assert.equal(sourceBytes(), before, "building must leave item and history bytes untouched");
 const sealedBytes = readFileSync(output, "utf8");
-const duplicate = await harness.runCommand({ command: "rl corpus build", pmRoot, args: [], options });
-assert.match(JSON.stringify(duplicate), /EEXIST/);
+await assert.rejects(harness.runCommand({ command: "rl corpus build", pmRoot, args: [], options }),
+  (error: unknown) => isPmCliExpectedError(error) && error.context.code === "corpus_output_exists");
 assert.equal(readFileSync(output, "utf8"), sealedBytes);
 process.stdout.write("sealed corpus verified\n");
 const { item: approval } = await client.create({ id: "allowance", title: "Bounded corpus run", type: "Decision", body: '```json\n{"permitted_promotions":2,"resource_budget":{"training_steps":16,"wall_ms":60000,"storage_bytes":524288,"compute_units":2000,"tokens":0}}\n```' });

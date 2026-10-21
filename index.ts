@@ -188,10 +188,10 @@ import {
 
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { open, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
-import { delimiter, dirname, join, relative, resolve } from "node:path";
+import { delimiter, dirname, join, relative, resolve, sep } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 
 import {
@@ -4234,9 +4234,18 @@ async function runLoop(context: CommandHandlerContext): Promise<RlCommandResult>
 
 /** Snapshot a selected tracker read-only and publish one exclusive programme file for durable run/resume. */
 async function buildCorpusCommand(context: CommandHandlerContext): Promise<RlCommandResult> {
-  const source = stringOption(context, "from_tracker")!;
-  const corpus = await buildTrackerLoopCorpus(new PmClient({ pmRoot: resolve(source), noExtensions: true }), readJsonFile(stringOption(context, "file")!, "Corpus bounds"));
-  await writeFile(stringOption(context, "output")!, `${JSON.stringify(corpus.programme, null, 2)}\n`, { flag: "wx" });
+  const output = resolve(stringOption(context, "output")!);
+  if (lstatSync(output, { throwIfNoEntry: false }) !== undefined) fail("Corpus output already exists; choose a new path.", "corpus_output_exists", EXIT_CODE.CONFLICT);
+  const source = realpathSync(resolve(stringOption(context, "from_tracker")!));
+  const destination = `${realpathSync(dirname(output))}${sep}`;
+  if (destination.startsWith(join(source, sep))) fail("Corpus output must be outside the source tracker.", "corpus_output_inside_source", EXIT_CODE.CONFLICT);
+  const corpus = await buildTrackerLoopCorpus(new PmClient({ pmRoot: source, noExtensions: true }), readJsonFile(stringOption(context, "file")!, "Corpus bounds"));
+  try {
+    await writeFile(output, `${JSON.stringify(corpus.programme, null, 2)}\n`, { flag: "wx" });
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") fail("Corpus output already exists; choose a new path.", "corpus_output_exists", EXIT_CODE.CONFLICT);
+    throw error;
+  }
   return { action: "rl-corpus-build", details: { snapshot: corpus.snapshot, training_items: corpus.training_items,
     held_out_items: corpus.held_out_items, held_out_closed: corpus.held_out_closed } };
 }
