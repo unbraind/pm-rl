@@ -33,7 +33,7 @@ export function checkpointArtifactPath(root: string, digest: string): string {
 }
 /** Reject malformed references before using sizes or names from persisted metadata. */
 function validateReference(ref: CheckpointArtifact): void {
-  if (ref.format !== "pm-rl/checkpoint-artifact/1" || !["prefix", "improver"].includes(ref.kind)
+  if (ref === null || typeof ref !== "object" || ref.format !== "pm-rl/checkpoint-artifact/1" || !["prefix", "improver"].includes(ref.kind)
     || !/^sha256:[a-f0-9]{64}$/.test(ref.policy) || !Number.isSafeInteger(ref.bytes) || ref.bytes < 1 || ref.bytes > MAX_CHECKPOINT_BYTES) {
     expectedFail("Invalid checkpoint artifact reference.", "checkpoint_artifact_invalid");
   }
@@ -74,7 +74,7 @@ function parseArtifactJson(content: Buffer): unknown {
 /** Resolve a public audit coordinate without needing a staging path or a Git repository. */
 export function inspectCheckpointArtifact(root: string, digest: string): { artifact: CheckpointArtifact; value: unknown } {
   checkpointArtifactPath(root, digest);
-  const artifact = readCheckpointLedger(root).flatMap((entry) => entry.artifacts).find((ref) => ref.digest === digest);
+  const artifact = ledgerEntries(root, false).flatMap((entry) => entry.artifacts).find((ref) => ref.digest === digest);
   if (artifact === undefined) expectedFail("Checkpoint digest has no promotion ledger root.", "checkpoint_artifact_missing");
   return { artifact, value: readCheckpointArtifact(root, artifact) };
 }
@@ -142,18 +142,24 @@ export function decodeCheckpointArtifacts(root: string, value: unknown): unknown
   if (record.format === "pm-rl/checkpoint-artifact/1") return readCheckpointArtifact(root, record as unknown as CheckpointArtifact);
   return Object.fromEntries(Object.entries(record).map(([name, child]) => [name, decodeCheckpointArtifacts(root, child)]));
 }
-/** Certify the entire promotion ledger before deciding that any blob is unreachable. */
-export function readCheckpointLedger(root: string): CheckpointLedgerEntry[] {
+/** Verify ledger structure and references; certify blob contents only for a full integrity read. */
+function ledgerEntries(root: string, certify: boolean): CheckpointLedgerEntry[] {
   const directory = join(root, "artifacts", "pm-rl", "ledger");
   mkdirSync(directory, { recursive: true });
   return readdirSync(directory).filter((name) => name.endsWith(".json")).sort().map((name) => {
     const content = readVerifiedFile(join(directory, name), `sha256:${name.slice(0, -5)}`);
     const entry = parseArtifactJson(content) as CheckpointLedgerEntry;
     if (entry === null || entry.format !== "pm-rl/checkpoint-ledger/1" || typeof entry.key !== "string" || !Array.isArray(entry.artifacts)) expectedFail("Checkpoint promotion ledger is corrupt.", "checkpoint_artifact_corrupt");
-    for (const ref of entry.artifacts) readCheckpointArtifact(root, ref);
+    for (const ref of entry.artifacts) {
+      validateReference(ref);
+      checkpointArtifactPath(root, ref.digest);
+      if (certify) readCheckpointArtifact(root, ref);
+    }
     return entry;
   });
 }
+/** Certify the entire promotion ledger before deciding that any blob is unreachable. */
+export function readCheckpointLedger(root: string): CheckpointLedgerEntry[] { return ledgerEntries(root, true); }
 /** Collect only unreachable digest-named blobs under the same lock used for publication and promotion roots. */
 export async function collectCheckpointArtifacts(root: string): Promise<{ retained: number; removed: number }> {
   return withArtifactLock(root, () => {

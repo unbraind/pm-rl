@@ -125,5 +125,32 @@
         "thread_id": "PRRT_kwDOTqJmqs6upoTr"
       }
     ]
+  },
+  "inspection_review_round": {
+    "base": "ae9f554f46ee604318c12d6c65bcfe52f0f383ba",
+    "restored_focused_passes": 3,
+    "scope": "Behavioral reverts restored in finally before further validation. Tests import TypeScript source directly.",
+    "reverts": [
+      {
+        "variant": "inspection-global-certification",
+        "file": "checkpoint-artifacts.ts",
+        "function": "inspectCheckpointArtifact",
+        "thread_id": "PRRT_kwDOTqJmqs6uqs1G",
+        "command": "node --test '--test-name-pattern=checkpoint inspection' test/checkpoint-artifacts.test.ts",
+        "typecheck": 0,
+        "exit": 1,
+        "seconds": 3.206
+      },
+      {
+        "variant": "reference-object-validation",
+        "file": "checkpoint-artifacts.ts",
+        "function": "validateReference",
+        "thread_id": "PRRT_kwDOTqJmqs6uqs1G",
+        "command": "node --test '--test-name-pattern=checkpoint inspection' test/checkpoint-artifacts.test.ts",
+        "typecheck": 0,
+        "exit": 1,
+        "seconds": 4.475
+      }
+    ]
   }
 }

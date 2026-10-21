@@ -126,6 +126,56 @@ test("artifact addressing verifies bytes, schemas, ledger roots and conservative
   }
 });
 
+test("checkpoint inspection isolates unrelated missing or corrupt blobs while GC refuses deletion", async () => {
+  const w = await checkpointWorkspace();
+  assert.equal(existsSync(join(w.root, ".git")), false);
+  const policy = initialImprover();
+  const ref = await encodeCheckpointArtifacts(w.pmRoot, "healthy", policy) as CheckpointArtifact;
+  const unrelated = await encodeCheckpointArtifacts(w.pmRoot, "unrelated", prefixCheckpoint(new Array<number>(4096).fill(0.125), w.config.initial.arms[0].config.prefix)) as CheckpointArtifact;
+  const file = checkpointArtifactPath(w.pmRoot, unrelated.digest);
+  const orphan = checkpointArtifactPath(w.pmRoot, `sha256:${"e".repeat(64)}`); writeFileSync(orphan, "unreachable");
+  const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
+  for (const missing of [false, true]) {
+    if (missing) unlinkSync(file); else writeFileSync(file, "corrupt");
+    const code = missing ? "checkpoint_artifact_missing" : "checkpoint_artifact_corrupt";
+    assert.deepEqual(inspectCheckpointArtifact(w.pmRoot, ref.digest), { artifact: ref, value: policy });
+    const shown = await harness.runCommand({ command: "rl checkpoint show", pmRoot: w.pmRoot, args: [ref.digest] });
+    assert.ok(JSON.stringify(shown).includes(policy.digest));
+    assert.throws(() => inspectCheckpointArtifact(w.pmRoot, unrelated.digest), refuses(code));
+    assert.throws(() => readCheckpointLedger(w.pmRoot), refuses(code));
+    await assert.rejects(collectCheckpointArtifacts(w.pmRoot), refuses(code));
+    assert.ok(existsSync(orphan), "incomplete certification must never delete an orphan");
+  }
+});
+
+test("checkpoint inspection reads only the target blob once despite duplicate roots", async () => {
+  const w = await checkpointWorkspace();
+  const policy = initialImprover();
+  const ref = await encodeCheckpointArtifacts(w.pmRoot, "first", policy) as CheckpointArtifact;
+  await encodeCheckpointArtifacts(w.pmRoot, "second", policy);
+  const other = await encodeCheckpointArtifacts(w.pmRoot, "other", prefixCheckpoint(new Array<number>(4096).fill(0.125), w.config.initial.arms[0].config.prefix)) as CheckpointArtifact;
+  const file = checkpointArtifactPath(w.pmRoot, ref.digest); const otherFile = checkpointArtifactPath(w.pmRoot, other.digest);
+  const reads = mock.method(fs, "readFileSync"); syncBuiltinESMExports();
+  try {
+    assert.deepEqual(inspectCheckpointArtifact(w.pmRoot, ref.digest), { artifact: ref, value: policy });
+    assert.equal(reads.mock.calls.filter((call) => call.arguments[0] === file).length, 1);
+    assert.equal(reads.mock.calls.filter((call) => call.arguments[0] === otherFile).length, 0);
+  } finally { reads.mock.restore(); syncBuiltinESMExports(); }
+});
+
+test("checkpoint inspection structurally validates every ledger reference without reading its blob", async () => {
+  const w = await checkpointWorkspace();
+  const ref = await encodeCheckpointArtifacts(w.pmRoot, "healthy", initialImprover()) as CheckpointArtifact;
+  const ledger = join(w.pmRoot, "artifacts/pm-rl/ledger");
+  for (const invalid of [null, 1, { ...ref, bytes: 0 }, { ...ref, digest: "../../escape" }]) {
+    const text = JSON.stringify({ format: "pm-rl/checkpoint-ledger/1", key: "invalid", artifacts: [invalid] });
+    const file = join(ledger, `${createHash("sha256").update(text).digest("hex")}.json`);
+    writeFileSync(file, text);
+    assert.throws(() => inspectCheckpointArtifact(w.pmRoot, ref.digest), refuses("checkpoint_artifact_invalid"));
+    unlinkSync(file);
+  }
+});
+
 test("publication failure exposes neither a partial digest file nor a ledger root", async () => {
   const w = await checkpointWorkspace();
   const failure = mock.method(fs, "linkSync", () => { throw new Error("synthetic publication failure"); }); syncBuiltinESMExports();

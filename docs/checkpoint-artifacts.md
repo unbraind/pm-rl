@@ -40,6 +40,11 @@ pm rl checkpoint show sha256:<artifact-digest> --json
 pm rl checkpoint gc --json
 ```
 
+Inspection verifies ledger entry hashes and reference structure, then verifies only
+the requested blob. Missing or corrupt blobs belonging to other jobs do not block
+inspection of a healthy digest. Collection still certifies all referenced blobs
+before deleting anything. Duplicate audit roots do not repeat target blob reads.
+
 Both commands, training from a sealed dataset, promotion, resume and replay work
 without Git. Public-history dataset construction retains its committed-public-source
 provenance requirement. Node and the operating system's process identity tools
