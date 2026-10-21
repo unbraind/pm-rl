@@ -28,6 +28,7 @@ test("item bootstrap counts held-out items and refuses ties, constants, small sa
   assert.equal(pairedItemEvidence(rewards.map(() => 0.9), rewards.map(() => 0.5), rewards, 0.95, 41, 0.01).reason, "item_insufficient_samples");
   assert.equal(pairedItemEvidence(rewards.map(() => 0.9), rewards.map(() => 0.5), rewards.map(() => [0, 1]), 0.95, 10, 0.01).reason, "item_constant_not_beaten");
   assert.throws(() => pairedItemEvidence([1], [], [], 0.95, 1, 0.01), /item_pairing/);
+  assert.throws(() => pairedItemEvidence([1], [1], [], 0.95, 1, 0.01), /item_pairing/);
   for (const [values, confidence] of [[[], 0.95], [[NaN], 0.95], [[1], NaN], [[1], 0], [[1], 1]] as const) assert.throws(() => itemBootstrap(values, confidence), /item_bootstrap_input/);
 });
 
@@ -138,7 +139,7 @@ test("bounded refused generations replay through the actual controller and statu
 test("acceptance dispatcher refuses missing coordinates and does not run on import", async () => {
   const scriptUrl = new URL("../scripts/live-baseline.ts", import.meta.url);
   await baselineMain(["node", fileURLToPath(import.meta.url)], scriptUrl.href);
-  await assert.rejects(baselineMain(["node", fileURLToPath(scriptUrl)], scriptUrl.href), /Supply a public tracker/);
+  for (const coordinates of [[], ["source"], ["source", "output"]]) await assert.rejects(baselineMain(["node", fileURLToPath(scriptUrl), ...coordinates], scriptUrl.href), /Supply a public tracker/);
 });
 
 test("vector promotion refuses an improving checkpoint that still loses to a constant", () => {

@@ -20,7 +20,7 @@ export interface ItemEvidence {
 export function itemBootstrap(values: readonly number[], confidence: number): ItemInterval {
   if (values.length === 0 || values.some((value) => !Number.isFinite(value)) || !Number.isFinite(confidence) || confidence <= 0 || confidence >= 1) throw new RangeError("item_bootstrap_input");
   const replicates = 8192;
-  const means: number[] = [];
+  const means = new Float64Array(replicates);
   let state = 0x51f15e;
   for (let sample = 0; sample < replicates; sample += 1) {
     let sum = 0;
@@ -28,9 +28,9 @@ export function itemBootstrap(values: readonly number[], confidence: number): It
       state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
       sum += values[Math.floor(state / 0x1_0000_0000 * values.length)];
     }
-    means.push(sum / values.length);
+    means[sample] = sum / values.length;
   }
-  means.sort((left, right) => left - right);
+  means.sort();
   const tail = (1 - confidence) / 2;
   return { mean: values.reduce((sum, value) => sum + value, 0) / values.length,
     lower: means[Math.floor(tail * replicates)], upper: means[Math.ceil((1 - tail) * replicates) - 1] };
