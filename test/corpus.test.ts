@@ -37,10 +37,12 @@ test("sealed corpora group identical inputs, bind labels and IDs, and do not ret
   assert.ok(!JSON.stringify(corpus).includes("source-"));
   assert.ok(!JSON.stringify(corpus).includes("duplicate-title"));
   assert.ok(!JSON.stringify(corpus).includes("😀"));
+  assert.equal((sealTrackerLoopCorpus(items, { ...bounds, trainer: "bandit" }).programme as Record<string, JsonValue>).trainer, "bandit");
 });
 
 test("malformed snapshots, override datasets, duplicate identities and undersized splits refuse before training", () => {
   for (const value of [null, [], 1, "bounds"]) assert.throws(() => sealTrackerLoopCorpus(items, value), refuses("corpus_invalid_bounds"));
+  assert.throws(() => sealTrackerLoopCorpus(items, { ...bounds, trainer: "lm" }), refuses("corpus_invalid_bounds"));
   for (const key of ["training", "evaluation", "environment", "corpus"]) assert.throws(() => sealTrackerLoopCorpus(items, { ...bounds, [key]: [] }), refuses("corpus_external_datasets"));
   assert.throws(() => sealTrackerLoopCorpus(Array.from({ length: 10001 }, () => items[0]), bounds), refuses("corpus_item_limit"));
   for (const row of [{ id: 3 }, { title: 3 }, { status: 3 }, { id: " " }, { title: " " }, { status: " " }]) {

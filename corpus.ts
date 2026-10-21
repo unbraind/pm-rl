@@ -60,6 +60,7 @@ function corpusDatasets(rows: readonly CorpusRow[], snapshot: string): { trainin
 /** Seal projected input groups together so identical inputs cannot cross the held-out boundary. */
 export function sealTrackerLoopCorpus(items: readonly Pick<ItemMetadata, "id" | "title" | "status">[], bounds: JsonValue): TrackerLoopCorpus {
   if (bounds === null || typeof bounds !== "object" || Array.isArray(bounds)) corpusRefusal("corpus_invalid_bounds");
+  if (bounds["trainer"] !== undefined && bounds["trainer"] !== "bandit") corpusRefusal("corpus_invalid_bounds");
   if (["training", "evaluation", "environment", "corpus"].some((key) => Object.hasOwn(bounds, key))) corpusRefusal("corpus_external_datasets");
   if (items.length > 10_000) corpusRefusal("corpus_item_limit");
   const seen = new Set<string>();

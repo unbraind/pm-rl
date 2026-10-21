@@ -7,6 +7,8 @@ source, or read hosted services. The output is an exclusive new JSON file for
 gate → promote for the declared number of generations unattended. Only a
 promoted checkpoint collects the next generation. Resume uses the seed's sealed
 configuration, so subsequent source edits cannot silently change its data.
+The corpus builder accepts the bandit trainer; selecting another trainer refuses
+before output publication.
 
 The task is deliberately small: recognize the snapshot's `closed` status from
 normalized title length. Every other status has target zero. The single
@@ -22,7 +24,8 @@ Status is never a feature. This is snapshot recognition, not time-to-close
 forecasting, code improvement, or a new LLM adapter. The existing bounded LM and
 Compose adapter remain covered by their numerical and real-container tests.
 
-The split is fixed before fitting: all items with the same projected length
+The builder accepts at most 10,000 items and requires at least two items in each
+partition. The split is fixed before fitting: all items with the same projected length
 belong to one partition, using a fixed SHA-256 modulo-five assignment. Thus
 renamed duplicate inputs, including conflicting labels, cannot cross the
 training/evaluation boundary. The receipt retains only hashed item/content
@@ -97,7 +100,6 @@ not beat the always-closed classifier**, which scores 36/41 = 0.8780487805;
 both learned greedy classifiers also predict closed for every item and tie that
 baseline. The always-other classifier scores 5/41 = 0.1219512195. This receipt
 does not establish useful forecasting, cross-repository improvement or an
-independent final-test win. Implementation hashes identify the measured code;
-later preflight cleanup checks adapter kind before step allowances and removes
-a redundant LM step check after the new shared reservation check, without
-changing the measured optimizer or promotion gate.
+independent final-test win. Implementation hashes identify the measured code.
+Subsequent preflight checks do not change the measured optimizer or promotion
+criterion.

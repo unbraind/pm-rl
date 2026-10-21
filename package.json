@@ -242,7 +242,8 @@
       "examples/loop-systemone.json",
       "examples/loop-lm.json",
       "examples/loop-process.json",
-      "examples/meta-approval.md"
+      "examples/meta-approval.md",
+      "examples/loop-corpus.json"
     ]
   }
 }
