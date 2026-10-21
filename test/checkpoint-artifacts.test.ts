@@ -155,12 +155,101 @@ test("checkpoint inspection reads only the target blob once despite duplicate ro
   await encodeCheckpointArtifacts(w.pmRoot, "second", policy);
   const other = await encodeCheckpointArtifacts(w.pmRoot, "other", prefixCheckpoint(new Array<number>(4096).fill(0.125), w.config.initial.arms[0].config.prefix)) as CheckpointArtifact;
   const file = checkpointArtifactPath(w.pmRoot, ref.digest); const otherFile = checkpointArtifactPath(w.pmRoot, other.digest);
-  const reads = mock.method(fs, "readFileSync"); syncBuiltinESMExports();
+  const reads = mock.method(fs, "openSync"); syncBuiltinESMExports();
   try {
     assert.deepEqual(inspectCheckpointArtifact(w.pmRoot, ref.digest), { artifact: ref, value: policy });
     assert.equal(reads.mock.calls.filter((call) => call.arguments[0] === file).length, 1);
     assert.equal(reads.mock.calls.filter((call) => call.arguments[0] === otherFile).length, 0);
   } finally { reads.mock.restore(); syncBuiltinESMExports(); }
+});
+
+test("checkpoint descriptor keeps the validated inode when its path is replaced", async () => {
+  const w = await checkpointWorkspace();
+  assert.equal(existsSync(join(w.root, ".git")), false);
+  const policy = initialImprover();
+  const ref = await encodeCheckpointArtifacts(w.pmRoot, "descriptor", policy) as CheckpointArtifact;
+  const file = checkpointArtifactPath(w.pmRoot, ref.digest);
+  const original = readFileSync(file);
+  for (const replacement of ["oversized", "symlink", "directory"]) {
+    const saved = `${file}.saved`;
+    let swapped = false;
+    /** Replace the pathname after metadata validation, leaving any open inode intact. */
+    const swap = (): void => {
+      if (swapped) return;
+      swapped = true; fs.renameSync(file, saved);
+      if (replacement === "symlink") symlinkSync(saved, file);
+      else if (replacement === "directory") mkdirSync(file);
+      else { writeFileSync(file, original); fs.truncateSync(file, MAX_CHECKPOINT_BYTES + 1); }
+    };
+    const originalLstat = fs.lstatSync; const originalFstat = fs.fstatSync;
+    const pathStat = mock.method(fs, "lstatSync", (path: fs.PathLike) => {
+      const stat = originalLstat(path); if (path === file) swap(); return stat;
+    });
+    const descriptorStat = mock.method(fs, "fstatSync", (handle: number) => {
+      const stat = originalFstat(handle); swap(); return stat;
+    });
+    const closes = mock.method(fs, "closeSync"); syncBuiltinESMExports();
+    try {
+      assert.deepEqual(readCheckpointArtifact(w.pmRoot, ref), policy);
+      assert.equal(swapped, true);
+      assert.equal(closes.mock.calls.filter((call) => call.arguments[0] === descriptorStat.mock.calls[0].arguments[0]).length, 1, "validated descriptor must close on success");
+    } finally {
+      pathStat.mock.restore(); descriptorStat.mock.restore(); closes.mock.restore(); syncBuiltinESMExports();
+      fs.rmSync(file, { recursive: true }); fs.renameSync(saved, file);
+    }
+  }
+});
+
+test("checkpoint descriptor bounds reads when the validated inode grows or shrinks", async () => {
+  const w = await checkpointWorkspace();
+  const ref = await encodeCheckpointArtifacts(w.pmRoot, "bounded", initialImprover()) as CheckpointArtifact;
+  const file = checkpointArtifactPath(w.pmRoot, ref.digest); const original = readFileSync(file);
+  for (const size of [0, MAX_CHECKPOINT_BYTES + 100]) {
+    const originalLstat = fs.lstatSync; const originalFstat = fs.fstatSync;
+    const pathStat = mock.method(fs, "lstatSync", (path: fs.PathLike) => {
+      const stat = originalLstat(path); if (path === file) fs.truncateSync(file, size); return stat;
+    });
+    const descriptorStat = mock.method(fs, "fstatSync", (handle: number) => {
+      const stat = originalFstat(handle); fs.truncateSync(file, size); return stat;
+    });
+    const reads = mock.method(fs, "readSync"); const pathReads = mock.method(fs, "readFileSync");
+    const closes = mock.method(fs, "closeSync"); syncBuiltinESMExports();
+    try {
+      assert.throws(() => readCheckpointArtifact(w.pmRoot, ref), refuses("checkpoint_artifact_corrupt"));
+      const total = reads.mock.calls.reduce((sum, call) => sum + Number(call.result), 0)
+        + pathReads.mock.calls.reduce((sum, call) => sum + Buffer.byteLength(call.result as Buffer), 0);
+      assert.ok(total <= original.length + 1, "growth must not cause an unbounded read");
+      assert.equal(closes.mock.calls.filter((call) => call.arguments[0] === descriptorStat.mock.calls[0].arguments[0]).length, 1, "validated descriptor must close on size drift");
+    } finally {
+      for (const spy of [pathStat, descriptorStat, reads, pathReads, closes]) spy.mock.restore();
+      syncBuiltinESMExports(); writeFileSync(file, original);
+    }
+  }
+});
+
+test("checkpoint descriptor handles short reads and closes after metadata or IO failures", async () => {
+  const w = await checkpointWorkspace(); const policy = initialImprover();
+  const ref = await encodeCheckpointArtifacts(w.pmRoot, "io", policy) as CheckpointArtifact;
+  const file = checkpointArtifactPath(w.pmRoot, ref.digest);
+  const originalRead = fs.readSync;
+  const shortRead = mock.method(fs, "readSync", (handle: number, buffer: NodeJS.ArrayBufferView, offset: number, length: number, position: number | null) => originalRead(handle, buffer, offset, Math.min(length, 7), position));
+  syncBuiltinESMExports();
+  try { assert.deepEqual(readCheckpointArtifact(w.pmRoot, ref), policy); }
+  finally { shortRead.mock.restore(); syncBuiltinESMExports(); }
+  for (const method of ["fstatSync", "readSync"] as const) {
+    const failure = mock.method(fs, method, () => { throw new Error("synthetic descriptor failure"); });
+    const closes = mock.method(fs, "closeSync"); syncBuiltinESMExports();
+    try {
+      assert.throws(() => readCheckpointArtifact(w.pmRoot, ref), refuses("checkpoint_artifact_corrupt"));
+      assert.equal(closes.mock.callCount(), 1);
+    } finally { failure.mock.restore(); closes.mock.restore(); syncBuiltinESMExports(); }
+  }
+  const original = readFileSync(file);
+  fs.truncateSync(file, MAX_CHECKPOINT_BYTES + 1);
+  assert.throws(() => readCheckpointArtifact(w.pmRoot, ref), refuses("checkpoint_artifact_corrupt"));
+  unlinkSync(file); mkdirSync(file);
+  assert.throws(() => readCheckpointArtifact(w.pmRoot, ref), refuses("checkpoint_artifact_corrupt"));
+  fs.rmdirSync(file); writeFileSync(file, original);
 });
 
 test("checkpoint inspection structurally validates every ledger reference without reading its blob", async () => {

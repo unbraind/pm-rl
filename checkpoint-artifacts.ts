@@ -1,6 +1,6 @@
 /** Immutable checkpoint blobs and an append-only promotion/audit ledger, independent of Git. */
 import { createHash, randomUUID } from "node:crypto";
-import { closeSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, constants, fstatSync, fsyncSync, linkSync, mkdirSync, openSync, readSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { acquireLock } from "@unbrained/pm-cli/sdk/runtime";
 import { expectedFail } from "./refuse.ts";
@@ -42,9 +42,21 @@ function validateReference(ref: CheckpointArtifact): void {
 function readVerifiedFile(file: string, digest: string, bytes?: number): Buffer {
   let content: Buffer;
   try {
-    const stat = lstatSync(file);
-    if (!stat.isFile() || stat.size > MAX_CHECKPOINT_BYTES || (bytes !== undefined && stat.size !== bytes)) throw new Error("invalid file");
-    content = readFileSync(file);
+    const handle = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    try {
+      const stat = fstatSync(handle);
+      if (!stat.isFile() || stat.size > MAX_CHECKPOINT_BYTES || (bytes !== undefined && stat.size !== bytes)) throw new Error("invalid file");
+      // One extra byte detects growth without allowing an unbounded allocation or read.
+      const buffer = Buffer.alloc(stat.size + 1);
+      let total = 0;
+      while (total < buffer.length) {
+        const count = readSync(handle, buffer, total, buffer.length - total, null);
+        if (count === 0) break;
+        total += count;
+      }
+      if (total !== stat.size) throw new Error("file size changed");
+      content = buffer.subarray(0, total);
+    } finally { closeSync(handle); }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") expectedFail("Checkpoint artifact is missing; restore it before resuming.", "checkpoint_artifact_missing");
     expectedFail("Checkpoint artifact is unreadable or corrupt.", "checkpoint_artifact_corrupt");

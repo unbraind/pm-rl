@@ -152,5 +152,32 @@
         "seconds": 4.475
       }
     ]
+  },
+  "descriptor_review_round": {
+    "base": "3029c8afcbf8a4aa0a5856620f25e2fccdc552ee",
+    "scope": "Isolated source copies retained all tests. Production source was never reverted. Tests import TypeScript directly.",
+    "restored_focused_passes": 7,
+    "reverts": [
+      {
+        "variant": "path-stat-read",
+        "file": "checkpoint-artifacts.ts",
+        "function": "readVerifiedFile",
+        "thread_id": "PRRT_kwDOTqJmqs6ur6XM",
+        "command": "node --test --test-name-pattern=\"checkpoint descriptor\" test/checkpoint-artifacts.test.ts",
+        "typecheck": 0,
+        "exit": 1,
+        "seconds": 9.357
+      },
+      {
+        "variant": "unbounded-descriptor-read",
+        "file": "checkpoint-artifacts.ts",
+        "function": "readVerifiedFile",
+        "thread_id": "PRRT_kwDOTqJmqs6ur6XM",
+        "command": "node --test --test-name-pattern=\"checkpoint descriptor\" test/checkpoint-artifacts.test.ts",
+        "typecheck": 0,
+        "exit": 1,
+        "seconds": 6.435
+      }
+    ]
   }
 }
