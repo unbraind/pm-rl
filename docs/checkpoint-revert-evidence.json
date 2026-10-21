@@ -67,7 +67,17 @@
       "seconds": 10.575,
       "command": "node --test --test-name-pattern=\"plain-directory controllers\" test/checkpoint-artifacts.test.ts",
       "typecheck": 0
+    },
+    {
+      "variant": "combined-artifact-staging-budget",
+      "file": "process.ts",
+      "function": "validateProcessCompletion",
+      "exit": 1,
+      "seconds": 9.804,
+      "command": "node --test --test-name-pattern=\"trainer IO\" test/prefix.test.ts",
+      "typecheck": 0
     }
   ],
-  "restored_plain_controller_passes": 1
+  "restored_plain_controller_passes": 1,
+  "restored_trainer_io_passes": 1
 }

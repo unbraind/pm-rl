@@ -15,7 +15,7 @@ import { prefixCheckpoint } from "../prefix.ts";
 import { initialImprover } from "../improver.ts";
 import { executeImproverFit, improverAdapter, type LearnerTrial } from "../improver-environment.ts";
 import { runRecursiveImprover } from "../recursive-improver.ts";
-import { listProcessJobs, processStaging, readProcessJob, validateProcessCompletion, type ProcessInput } from "../process.ts";
+import { listProcessJobs, processStaging, readProcessJob, stagingBytes, validateProcessCompletion, type ProcessInput } from "../process.ts";
 import { checkpointWorkspace } from "./fixtures/checkpoint-workspace.ts";
 import { buildTrackerDataset } from "../dataset.ts";
 import { withTrackerSources } from "./fixtures/meta-workspace.ts";
@@ -175,7 +175,8 @@ test("large learner trains, promotes, resumes and audits by digest with no Git e
     writeFileSync(completionFile, completionText);
     utimesSync(completionFile, completionStat.atime, completionStat.mtime);
     assert.throws(() => validateProcessCompletion(stage, jobs[0].id, { ...originalInput, prefix: undefined }, jobs[0].allowance, w.pmRoot), refuses("process_checkpoint_invalid"));
-    assert.throws(() => validateProcessCompletion(stage, jobs[0].id, originalInput, { ...jobs[0].allowance, storage_bytes: 5000 }, w.pmRoot), refuses("process_limit_exceeded"));
+    assert.throws(() => validateProcessCompletion(stage, jobs[0].id, originalInput, { ...jobs[0].allowance, wall_ms: 900_000, storage_bytes: stagingBytes(stage) + ref.bytes - 1 }, w.pmRoot),
+      (error: unknown) => refuses("process_limit_exceeded")(error) && error instanceof Error && error.message.includes("artifact exceeded"));
   } finally { process.env.PATH = originalPath; if (originalCeiling === undefined) delete process.env.GIT_CEILING_DIRECTORIES; else process.env.GIT_CEILING_DIRECTORIES = originalCeiling; }
 });
 

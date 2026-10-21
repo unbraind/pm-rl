@@ -4341,5 +4341,10 @@
     "Load times are 100 warm synchronous verified reads after one warm-up. The legacy reader is reconstructed against the same bytes and refuses checkpoints above 4096 bytes.",
     "Summary checkpoints publish semantic digests and knobs; payload arrays and raw tracker examples are not included.",
     "Both programmes ran in fresh plain-directory trackers and completed replay without new fits."
-  ]
+  ],
+  "measurement_runtime": {
+    "node": "v24.19.0",
+    "load_iterations": 100,
+    "warmup_iterations": 1
+  }
 }

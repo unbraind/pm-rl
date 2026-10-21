@@ -16,7 +16,7 @@ import { prefixTrainerArgv, prefixTrainerMain, runPrefixTrainer } from "../prefi
 import { INITIAL_RECIPE, recipeArtifact, seededRecipes } from "../recipe.ts";
 import { metaWorkspace, withTrackerSources, metaConfig, git } from "./fixtures/meta-workspace.ts";
 import { compareRecipes, runRlMeta, type RecipePolicy } from "../meta.ts";
-import { executeProcessTrainer, validateProcessCompletion, readProcessJob, listProcessJobs, type ProcessCompletion, type ProcessInput } from "../process.ts";
+import { executeProcessTrainer, validateProcessCompletion, readProcessJob, listProcessJobs, stagingBytes, type ProcessCompletion, type ProcessInput } from "../process.ts";
 import { runLiveMetaAcceptance, liveMetaMain } from "../scripts/live-meta.ts";
 
 const knobs = { regularisation: 0.001, ngram_order: 2, hashing_width: 32 };
@@ -165,6 +165,8 @@ test("trainer IO publishes exact measured checkpoint evidence and validation ref
   const completion = JSON.parse(readFileSync(join(root, "completion.json"), "utf8")) as ProcessCompletion;
   writeFileSync(join(root, "runner.json"), JSON.stringify({ started_at: Date.now() - 1000 }));
   const verified = validateProcessCompletion(root, "synthetic", input, { training_steps: 1, wall_ms: 30000, storage_bytes: 4096, compute_units: 30000, tokens: 0 }, artifactRoot);
+  assert.throws(() => validateProcessCompletion(root, "synthetic", input, { training_steps: 1, wall_ms: 30000, storage_bytes: stagingBytes(root) + completion.artifact!.bytes - 1, compute_units: 30000, tokens: 0 }, artifactRoot),
+    (error: unknown) => isPmCliExpectedError(error) && error.context.code === "process_limit_exceeded" && error.message.includes("artifact exceeded"));
   const bytes = Buffer.from(JSON.stringify(verified.policy));
   assert.equal(verified.policy.digest, completion.policy.digest);
   assert.ok(output.includes('"complete"')); validatePrefixCompletion(bytes, verified, input as unknown as ProcessInput);
