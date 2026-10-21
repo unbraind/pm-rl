@@ -471,11 +471,19 @@ three-attempt public-corpus frontier are documented in
 [the baseline evaluation](docs/baseline-frontier.md). The current real corpus
 still favors the constant policy; all three candidates are refused.
 
+For creation-time Issue routing, `examples/loop-intake-objective.json` selects
+stochastic balanced accuracy, where every constant scores exactly 0.5. The
+[intake objective report](docs/intake-objective.md) records the data diagnosis,
+fixed keyword baseline, three real external fits, confidence intervals and
+checkpoint digests. All three candidates lose to the heuristic; none promotes.
+
 ## Without git
 
 Tracker environments, training on sealed datasets, evaluation, promotion,
 checkpoint inspection/collection, resume and replay work in a plain-directory
 tracker. Process execution requires the operating system's process identity tools.
+The intake acceptance runner also reads creation histories, trains and replays
+without Git; see its reproduction command in the intake report.
 `pm rl corpus build` reads an explicitly selected tracker without Git and seals
 a small title-length/closed-status task for the same durable controller:
 

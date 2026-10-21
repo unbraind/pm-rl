@@ -9,7 +9,7 @@
 
 export { runBanditProgramme, type BanditCheckpoint, type BanditExample, type BanditGeneration, type BanditProgramme, type BanditResult } from "./bandit.ts";
 export { checkpointArtifactPath, collectCheckpointArtifacts, readCheckpointArtifact, readCheckpointLedger, type CheckpointArtifact } from "./checkpoint-artifacts.ts";
-export { buildTrackerLoopCorpus, corpusHeldOut, sealTrackerLoopCorpus, verifyTrackerLoopCorpus, type CorpusRow, type TrackerLoopCorpus } from "./corpus.ts";
+export { buildIntakeLoopCorpus, intakeHeuristic, projectIntakeHistory, sealIntakeCorpus, type IntakeRow, buildTrackerLoopCorpus, corpusHeldOut, sealTrackerLoopCorpus, verifyTrackerLoopCorpus, type CorpusRow, type TrackerLoopCorpus } from "./corpus.ts";
 
 export { banditCheckpoint, executeBanditStep, validatedBanditDatasets, type BanditDatasets, type BanditObservation, type BanditStepInput, type BanditStopReason } from "./bandit.ts";
 
@@ -207,7 +207,7 @@ import { PmClient, type GetResult, type ItemMetadata } from "@unbrained/pm-cli/s
 import { acquireLock, certifyCompleteListResult, createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError, type PmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 
 import { parseJsonRecord } from "./refuse.ts";
-import { buildTrackerLoopCorpus } from "./corpus.ts";
+import { buildIntakeLoopCorpus, buildTrackerLoopCorpus } from "./corpus.ts";
 import { decodeCheckpointArtifacts, encodeCheckpointArtifacts, collectCheckpointArtifacts, inspectCheckpointArtifact } from "./checkpoint-artifacts.ts";
 
 import { encodeEventSegments, parseNdjsonStream, readSeries, type MetricEvent } from "./series.ts";
@@ -4261,7 +4261,11 @@ async function buildCorpusCommand(context: CommandHandlerContext): Promise<RlCom
     return join(parent, basename(path));
   };
   const target = destination(output);
-  const corpus = await buildTrackerLoopCorpus(new PmClient({ pmRoot: source, noExtensions: true }), readJsonFile(stringOption(context, "file")!, "Corpus bounds"));
+  const bounds = readJsonFile(stringOption(context, "file")!, "Corpus bounds");
+  const client = new PmClient({ pmRoot: source, noExtensions: true });
+  const corpus = (bounds as Record<string, JsonValue> | null)?.objective === "intake-issue-balanced-v1"
+    ? await buildIntakeLoopCorpus(client, bounds, (id) => readFileSync(join(source, "history", `${id}.jsonl`), "utf8"))
+    : await buildTrackerLoopCorpus(client, bounds);
   destination(output);
   destination(target);
   try {
@@ -4273,7 +4277,7 @@ async function buildCorpusCommand(context: CommandHandlerContext): Promise<RlCom
     throw error;
   }
   return { action: "rl-corpus-build", details: { snapshot: corpus.snapshot, training_items: corpus.training_items,
-    held_out_items: corpus.held_out_items, held_out_closed: corpus.held_out_closed } };
+    held_out_items: corpus.held_out_items, ...("held_out_closed" in corpus ? { held_out_closed: corpus.held_out_closed } : { held_out_positive: corpus.held_out_positive }) } };
 }
 
 /** Build a commit-pinned public tracker dataset through the installed command contract. */

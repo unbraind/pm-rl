@@ -1,0 +1,334 @@
+{
+  "format": "pm-rl/intake-frontier/1",
+  "source": {
+    "files": 300,
+    "digest": "628e23b8facc64bac8cb40476428fce07ca8432984333442ea9cee25d629fbb0",
+    "bytes_unchanged": true,
+    "repository": "https://github.com/unbraind/pm-ops",
+    "commit": "eba7d5262fd75e67afce0caad29dae7dc7dfbaeb",
+    "licence": "MIT"
+  },
+  "corpus": {
+    "snapshot": "7e408564ac60dd82f67a01b8b9eca95e29149d1354c6f7393c85e95e8b1602de",
+    "training_items": 104,
+    "held_out_items": 42,
+    "training_positive": 68,
+    "held_out_positive": 22
+  },
+  "objective": "intake-issue-balanced-v1",
+  "baselines": {
+    "constant_zero": {
+      "mean": 0.5,
+      "lower": 0.5,
+      "upper": 0.5
+    },
+    "constant_one": {
+      "mean": 0.5,
+      "lower": 0.5,
+      "upper": 0.5
+    },
+    "keyword": {
+      "mean": 0.6545454545454545,
+      "lower": 0.5340909090909091,
+      "upper": 0.7727272727272727
+    }
+  },
+  "bounds": {
+    "initial_weight": 0,
+    "fit_steps": 256,
+    "seed": 42,
+    "max_generations": 3,
+    "samples_per_generation": 1024,
+    "budget": 3072,
+    "learning_rate": 1,
+    "minimum_improvement": 0.01,
+    "maximum_gap": 0.2,
+    "evaluation_samples": 40000,
+    "confidence": 0.95,
+    "min_samples": 10,
+    "adapter": {
+      "kind": "process-bandit",
+      "allowance": {
+        "training_steps": 256,
+        "wall_ms": 30000,
+        "storage_bytes": 262144,
+        "compute_units": 10000,
+        "tokens": 0
+      }
+    },
+    "feature_mode": "title-tokens-v1",
+    "retry_rejected": true,
+    "objective": "intake-issue-balanced-v1"
+  },
+  "generations": [
+    {
+      "generation": 1,
+      "promoted": false,
+      "refusal": "item_incumbent_not_beaten",
+      "source_checkpoint": "sha256:17493680209cdf2fc86126ff2ad0b7bb6063ae24ce00f28f931224bb5ab2fd11",
+      "candidate_checkpoint": "sha256:989342db5ba90fc607932c4bc25a9a68461361fdf366ebbba7cad71c6f8e8e70",
+      "learning_rate": 1,
+      "held_out_reward": 0.608031597625003,
+      "training_reward": 0.8021395892934848,
+      "item_evidence": {
+        "method": "paired-stratified-item-bootstrap/1",
+        "samples": 42,
+        "replicates": 8192,
+        "confidence": 0.95,
+        "reward": {
+          "mean": 0.608031597625003,
+          "lower": 0.518409020378318,
+          "upper": 0.6933652524826157
+        },
+        "incumbent": {
+          "mean": 0.10803159762500297,
+          "lower": -0.007368724373732538,
+          "upper": 0.21575575604358987
+        },
+        "constant_zero": {
+          "mean": 0.108031597625003,
+          "lower": -0.007368724373732538,
+          "upper": 0.21575575604358985
+        },
+        "constant_one": {
+          "mean": 0.10803159762500297,
+          "lower": -0.007368724373732538,
+          "upper": 0.21575575604358985
+        },
+        "heuristic": {
+          "mean": -0.0465138569204515,
+          "lower": -0.21685509577848602,
+          "upper": 0.11561671997531307
+        },
+        "class_samples": [
+          20,
+          22
+        ],
+        "accepted": false,
+        "reason": "item_incumbent_not_beaten"
+      },
+      "sampled_reward": 0.60835
+    },
+    {
+      "generation": 2,
+      "promoted": false,
+      "refusal": "item_incumbent_not_beaten",
+      "source_checkpoint": "sha256:17493680209cdf2fc86126ff2ad0b7bb6063ae24ce00f28f931224bb5ab2fd11",
+      "candidate_checkpoint": "sha256:8f71594a490475ad17c7f56215464e1bd7af75cd414752d3c23b846da1447a3f",
+      "learning_rate": 0.5,
+      "held_out_reward": 0.5915538072063693,
+      "training_reward": 0.7215754776914871,
+      "item_evidence": {
+        "method": "paired-stratified-item-bootstrap/1",
+        "samples": 42,
+        "replicates": 8192,
+        "confidence": 0.95,
+        "reward": {
+          "mean": 0.5915538072063693,
+          "lower": 0.5245356249324832,
+          "upper": 0.657921110221459
+        },
+        "incumbent": {
+          "mean": 0.09155380720636917,
+          "lower": 0.005911620645323814,
+          "upper": 0.17456113194025272
+        },
+        "constant_zero": {
+          "mean": 0.09155380720636919,
+          "lower": 0.005911620645323801,
+          "upper": 0.17456113194025272
+        },
+        "constant_one": {
+          "mean": 0.09155380720636927,
+          "lower": 0.005911620645323801,
+          "upper": 0.1745611319402527
+        },
+        "heuristic": {
+          "mean": -0.0629916473390854,
+          "lower": -0.22381317233633724,
+          "upper": 0.09187311901261519
+        },
+        "class_samples": [
+          20,
+          22
+        ],
+        "accepted": false,
+        "reason": "item_incumbent_not_beaten"
+      },
+      "sampled_reward": 0.590675
+    },
+    {
+      "generation": 3,
+      "promoted": false,
+      "refusal": "item_heuristic_not_beaten",
+      "source_checkpoint": "sha256:17493680209cdf2fc86126ff2ad0b7bb6063ae24ce00f28f931224bb5ab2fd11",
+      "candidate_checkpoint": "sha256:e9c25380609fae64ac046f21f42c2cada97c27b0b8b0b97d21f06e0dc7afd3d6",
+      "learning_rate": 0.25,
+      "held_out_reward": 0.5667374267409488,
+      "training_reward": 0.6449521074046302,
+      "item_evidence": {
+        "method": "paired-stratified-item-bootstrap/1",
+        "samples": 42,
+        "replicates": 8192,
+        "confidence": 0.95,
+        "reward": {
+          "mean": 0.5667374267409488,
+          "lower": 0.5221832763382412,
+          "upper": 0.61181041115417
+        },
+        "incumbent": {
+          "mean": 0.06673742674094889,
+          "lower": 0.010343429682912578,
+          "upper": 0.12391744735499757
+        },
+        "constant_zero": {
+          "mean": 0.06673742674094893,
+          "lower": 0.010343429682912575,
+          "upper": 0.1239174473549976
+        },
+        "constant_one": {
+          "mean": 0.06673742674094893,
+          "lower": 0.01034342968291263,
+          "upper": 0.12391744735499763
+        },
+        "heuristic": {
+          "mean": -0.08780802780450565,
+          "lower": -0.2417435847224549,
+          "upper": 0.0667914641582622
+        },
+        "class_samples": [
+          20,
+          22
+        ],
+        "accepted": false,
+        "reason": "item_heuristic_not_beaten"
+      },
+      "sampled_reward": 0.56525
+    }
+  ],
+  "promoted": 0,
+  "final_checkpoint": "sha256:17493680209cdf2fc86126ff2ad0b7bb6063ae24ce00f28f931224bb5ab2fd11",
+  "samples_consumed": 3072,
+  "charges": [
+    {
+      "job": "process-1693b0c5ce7939c44d992ba33b761f628e02b965599b0d4b0160c9d53bcee6f2",
+      "charge": {
+        "training_steps": 256,
+        "wall_ms": 888,
+        "storage_bytes": 6088,
+        "compute_units": 301,
+        "tokens": 0
+      },
+      "source_policy": "sha256:17493680209cdf2fc86126ff2ad0b7bb6063ae24ce00f28f931224bb5ab2fd11"
+    },
+    {
+      "job": "process-3a387c4617673068562425d354b3dc9d9c65d95003fe76c2d9d30de5a3627d81",
+      "charge": {
+        "training_steps": 256,
+        "wall_ms": 1818,
+        "storage_bytes": 6031,
+        "compute_units": 301,
+        "tokens": 0
+      },
+      "source_policy": "sha256:17493680209cdf2fc86126ff2ad0b7bb6063ae24ce00f28f931224bb5ab2fd11"
+    },
+    {
+      "job": "process-4202646c6c1cc44861b8ee6e858a71553640cd0daff3149990f17ae64fb52558",
+      "charge": {
+        "training_steps": 256,
+        "wall_ms": 1741,
+        "storage_bytes": 6033,
+        "compute_units": 309,
+        "tokens": 0
+      },
+      "source_policy": "sha256:17493680209cdf2fc86126ff2ad0b7bb6063ae24ce00f28f931224bb5ab2fd11"
+    }
+  ],
+  "replay": {
+    "generations": 3,
+    "unchanged_checkpoints": true,
+    "no_new_jobs": true
+  },
+  "diagnosis": {
+    "old_target": "snapshot closed status",
+    "old_training": {
+      "closed": 77,
+      "other": 28
+    },
+    "old_held_out": {
+      "closed": 36,
+      "other": 5
+    },
+    "constant_predictions": "always closed",
+    "old_class_rewards": {
+      "closed": 1,
+      "other": 0
+    },
+    "old_baseline": 0.8780487804878049,
+    "old_title_mean_lengths": {
+      "training": {
+        "closed": 82.53246753246754,
+        "other": 89.5
+      },
+      "held_out": {
+        "closed": 79.86111111111111,
+        "other": 79.8
+      }
+    },
+    "old_generations": [
+      0.8713980699,
+      0.8645003749,
+      0.853439251
+    ],
+    "old_promotions": 0,
+    "creation_histories": 146,
+    "training_title_word_counts": {
+      "publish": {
+        "Issue": 15,
+        "other": 1
+      },
+      "npm": {
+        "Issue": 10,
+        "other": 0
+      },
+      "pm": {
+        "Issue": 9,
+        "other": 22
+      },
+      "ops": {
+        "Issue": 4,
+        "other": 13
+      }
+    },
+    "features": "Creation title only; no type, outcome, author, identity, timestamp, later title edits or lifecycle history enters the policy.",
+    "old_keyword_counts": {
+      "training": {
+        "closed": {
+          "matches": 17,
+          "n": 77
+        },
+        "other": {
+          "matches": 9,
+          "n": 28
+        }
+      },
+      "held_out": {
+        "closed": {
+          "matches": 8,
+          "n": 36
+        },
+        "other": {
+          "matches": 2,
+          "n": 5
+        }
+      }
+    }
+  },
+  "limitations": [
+    "Intake routing, not temporal forecasting or open-item prioritization.",
+    "Objective and heuristic diagnostics used this corpus before fitting; no independent final-test claim.",
+    "Percentile bootstrap assumes exchangeable items within classes; related titles can make intervals optimistic.",
+    "Nominal family confidence is per attempted generation, not corrected across adaptive generations.",
+    "Three attempted generations, zero promoted successors; no durable self-improvement or heuristic win."
+  ]
+}

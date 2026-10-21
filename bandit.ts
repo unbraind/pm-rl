@@ -25,6 +25,8 @@ export interface BanditExample {
   readonly features?: readonly number[];
   /** Reward for actions zero and one, each in [0, 1]. */
   readonly rewards: readonly [number, number];
+  /** Sealed binary intake target and fixed keyword action; enables class-balanced scoring and collection. */
+  readonly balance?: { readonly label: boolean; readonly heuristic: 0 | 1 };
 }
 
 /** Explicit resource and promotion bounds for this small in-process adapter. */
@@ -213,7 +215,21 @@ export function banditItemRewards(policy: BanditCheckpoint, examples: readonly B
 
 /** Evaluate exact expected reward, avoiding an additional noisy sample budget. */
 function evaluate(policy: BanditCheckpoint, examples: readonly BanditExample[]): number {
-  return banditItemRewards(policy, examples).reduce((sum, value) => sum + value, 0) / examples.length;
+  const values = banditItemRewards(policy, examples);
+  if (examples[0].balance === undefined) return values.reduce((sum, value) => sum + value, 0) / examples.length;
+  return [false, true].reduce((sum, label) => {
+    const group = values.filter((_, index) => examples[index].balance!.label === label);
+    return sum + group.reduce((total, value) => total + value, 0) / group.length;
+  }, 0) / 2;
+}
+
+/** Alternate classes and cycle within each, retaining unique item identities rather than copying dataset rows. */
+export function banditSampleRows(examples: readonly BanditExample[], samples: number): readonly BanditExample[] {
+  const groups = examples[0].balance === undefined ? [examples] : [false, true].map((label) => examples.filter((row) => row.balance!.label === label));
+  return Array.from({ length: samples }, (_, index) => {
+    const group = groups[index % groups.length];
+    return group[Math.floor(index / groups.length) % group.length];
+  });
 }
 
 /**
@@ -234,12 +250,13 @@ function evaluate(policy: BanditCheckpoint, examples: readonly BanditExample[]):
  * @returns The empirical mean reward over the drawn episodes.
  */
 function sampledHeldOutMean(policy: BanditCheckpoint, examples: readonly BanditExample[], samples: number, seed: number): number {
-  const probabilities = examples.map((example) => banditProbability(policy, example));
+  const schedule = banditSampleRows(examples, samples);
+  const probabilities = new Map(examples.map((example) => [example.id, banditProbability(policy, example)]));
   let state = seed;
   let total = 0;
   for (let index = 0; index < samples; index += 1) {
-    const example = examples[index % examples.length];
-    const probability = probabilities[index % examples.length];
+    const example = schedule[index];
+    const probability = probabilities.get(example.id)!;
     state = (Math.imul(1664525, state) + 1013904223) >>> 0;
     const action = state / 0x1_0000_0000 < probability ? 1 : 0;
     total += example.rewards[action];
@@ -264,6 +281,7 @@ export function validatedBanditDatasets(programme: Pick<BanditProgramme, "traini
   const identities = new Set<string>();
   const datasets: BanditExample[][] = [];
   const dimensions = programme.training[0]?.features?.length;
+  const balanced = programme.training[0]?.balance !== undefined;
   for (const dataset of [programme.training, programme.evaluation]) {
     if (dataset.length === 0 || dataset.length > 10_000) throw new Error("bandit_invalid: dataset size must be 1..10000");
     const validated: BanditExample[] = [];
@@ -276,8 +294,10 @@ export function validatedBanditDatasets(programme: Pick<BanditProgramme, "traini
       if (identities.has(example.id)) throw new Error("bandit_overlap: example identities must be unique and disjoint");
       identities.add(example.id);
       if (example.features?.length !== dimensions || (example.features !== undefined && (dimensions! < 1 || dimensions! > 64 || example.features.some((value) => !Number.isFinite(value) || Math.abs(value) > 1)))) throw new Error("bandit_invalid: feature dimensions or bounds");
-      validated.push({ id: example.id, feature: example.feature, ...(example.features === undefined ? {} : { features: [...example.features] }), rewards: [example.rewards[0], example.rewards[1]] });
+      if ((example.balance !== undefined) !== balanced || (balanced && (example.features === undefined || example.balance === null || typeof example.balance!.label !== "boolean" || ![0, 1].includes(example.balance!.heuristic) || example.rewards[1] !== Number(example.balance!.label) || example.rewards[0] !== Number(!example.balance!.label)))) throw new Error("bandit_invalid: balanced binary target");
+      validated.push({ id: example.id, feature: example.feature, ...(example.features === undefined ? {} : { features: [...example.features] }), ...(example.balance === undefined ? {} : { balance: { ...example.balance } }), rewards: [example.rewards[0], example.rewards[1]] });
     }
+    if (balanced && new Set(validated.map((row) => row.balance!.label)).size !== 2) throw new Error("bandit_invalid: both classes required");
     datasets.push(validated);
   }
   const [training, evaluation] = datasets;
@@ -306,11 +326,12 @@ export function fitBanditBatch(training: readonly BanditExample[], source: Bandi
 /** Fit an intercept and bounded token coefficients from the same charged, importance-weighted action batch. */
 function fitVectorBatch(training: readonly BanditExample[], source: BanditCheckpoint, observations: readonly BanditObservation[], learningRate: number, steps: number): BanditCheckpoint {
   let coefficients = source.coefficients === undefined ? new Array<number>(training[0].features!.length).fill(0) : [...source.coefficients];
+  const schedule = banditSampleRows(training, observations.length);
   for (let step = 0; step < steps; step += 1) {
     const policy = banditCheckpoint(source.weight, coefficients);
     const gradient = new Array<number>(coefficients.length).fill(0);
     for (const [index, observation] of observations.entries()) {
-      const example = training[index % training.length];
+      const example = schedule[index];
       const probability = banditProbability(policy, example);
       const initial = banditProbability(source, example);
       const ratio = observation.action === 1 ? probability / initial : (1 - probability) / (1 - initial);
@@ -343,8 +364,9 @@ export function executeBanditStep(input: BanditStepInput, materialized?: BanditC
   const observations: BanditObservation[] = [];
   const actionCounts: [number, number] = [0, 0];
   let randomState = input.randomState;
+  const schedule = banditSampleRows(training, samples);
   for (let sample = 0; sample < samples; sample += 1) {
-    const example = training[sample % training.length];
+    const example = schedule[sample];
     const probability = banditProbability(source, example);
     randomState = (Math.imul(1664525, randomState) + 1013904223) >>> 0;
     const action = (randomState / 0x1_0000_0000 < probability ? 1 : 0) as 0 | 1;
@@ -387,7 +409,8 @@ export function executeBanditStep(input: BanditStepInput, materialized?: BanditC
     candidateMean: evidence.candidateHeldOutMean, incumbentMean: evidence.incumbentHeldOutMean,
     criterion: { confidence, minSamples, effectThreshold: minimumImprovement } });
   if (evaluation[0].features === undefined) return { ...evidence, ...verdict };
-  const itemEvidence = pairedItemEvidence(banditItemRewards(candidate, evaluation), banditItemRewards(source, evaluation), evaluation.map((row) => row.rewards), confidence, minSamples, minimumImprovement);
+  const balanced = evaluation[0].balance === undefined ? undefined : { labels: evaluation.map((row) => row.balance!.label), heuristic: evaluation.map((row) => row.rewards[row.balance!.heuristic]) };
+  const itemEvidence = pairedItemEvidence(banditItemRewards(candidate, evaluation), banditItemRewards(source, evaluation), evaluation.map((row) => row.rewards), confidence, minSamples, minimumImprovement, balanced);
   const refused = verdict.promoted && !itemEvidence.accepted;
   return { ...evidence, ...verdict, itemEvidence, ...(refused ? { promoted: false, refusalReason: itemEvidence.reason, stopReason: "evaluation_rejected" as const } : {}) };
 }

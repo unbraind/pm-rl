@@ -67,7 +67,9 @@
     "docs/tracker-loop-evidence.json",
     "dist/item-evaluation.*",
     "docs/baseline-frontier.md",
-    "docs/baseline-frontier-evidence.json"
+    "docs/baseline-frontier-evidence.json",
+    "docs/intake-objective.md",
+    "docs/intake-objective-evidence.json"
   ],
   "engines": {
     "node": ">=22.18.0"
@@ -142,7 +144,8 @@
       "test/prefix.test.ts",
       "test/improver.test.ts",
       "test/corpus.test.ts",
-      "test/baseline.test.ts"
+      "test/baseline.test.ts",
+      "test/objective.test.ts"
     ],
     "thresholds": {
       "statements": 100,
@@ -237,7 +240,9 @@
       "docs/tracker-loop.md",
       "docs/tracker-loop-evidence.json",
       "docs/baseline-frontier.md",
-      "docs/baseline-frontier-evidence.json"
+      "docs/baseline-frontier-evidence.json",
+      "docs/intake-objective.md",
+      "docs/intake-objective-evidence.json"
     ],
     "examples": [
       "README.md",
@@ -249,7 +254,8 @@
       "examples/loop-lm.json",
       "examples/loop-process.json",
       "examples/meta-approval.md",
-      "examples/loop-corpus.json"
+      "examples/loop-corpus.json",
+      "examples/loop-intake-objective.json"
     ]
   }
 }

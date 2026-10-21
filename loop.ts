@@ -72,6 +72,8 @@ export interface LoopConfig {
   readonly retryRejected: boolean;
   /** Optional sealed tracker projection, retained for independent resume verification. */
   readonly corpus?: JsonValue;
+  /** Versioned intake objective; legacy configurations omit it to preserve programme identities. */
+  readonly objective?: "intake-issue-balanced-v1";
   /** Optional content-addressed recipe named by this programme. */
   readonly recipe?: Recipe;
   /** Optional isolated process execution and per-job reservation bounds. */
@@ -163,6 +165,7 @@ function requiredNumber(record: Readonly<Record<string, unknown>>, key: string, 
  */
 export function parseLoopConfig(raw: JsonValue): LoopConfig {
   const record = asJsonObject(raw, "Loop configuration", "loop_invalid_json");
+  if (record["objective"] !== undefined && (record["objective"] !== "intake-issue-balanced-v1" || (record["corpus"] as Record<string, JsonValue> | undefined)?.format !== "pm-rl/intake-corpus/1")) expectedFail("Intake objective requires its sealed corpus.", "loop_invalid_objective");
   if (record["corpus"] !== undefined) verifyTrackerLoopCorpus(record);
   const environment = asJsonObject(record["environment"] ?? null, "Loop configuration environment", "loop_invalid_environment");
   const environmentName = requiredTrimmedString(environment, "name", "Loop configuration environment", "loop_environment_");
@@ -175,7 +178,7 @@ export function parseLoopConfig(raw: JsonValue): LoopConfig {
   }
   const source = "Loop configuration";
   const retryRejected = record["retry_rejected"] === undefined ? false : record["retry_rejected"];
-  if (typeof retryRejected !== "boolean" || (retryRejected && (record["corpus"] as Record<string, JsonValue> | undefined)?.format !== "pm-rl/tracker-loop-corpus/2")) expectedFail("Rejected-generation exploration requires a sealed vector corpus and a boolean selector.", "loop_invalid_retry_rejected");
+  if (typeof retryRejected !== "boolean" || (retryRejected && !["pm-rl/tracker-loop-corpus/2", "pm-rl/intake-corpus/1"].includes(String((record["corpus"] as Record<string, JsonValue> | undefined)?.format)))) expectedFail("Rejected-generation exploration requires a sealed vector corpus and a boolean selector.", "loop_invalid_retry_rejected");
   const initialWeight = requiredNumber(record, "initial_weight", source, "loop_invalid_initial_weight");
   const seed = requiredNumber(record, "seed", source, "loop_invalid_seed");
   const maxGenerations = requiredNumber(record, "max_generations", source, "loop_invalid_max_generations");
@@ -238,6 +241,7 @@ export function parseLoopConfig(raw: JsonValue): LoopConfig {
   }
   const config: LoopConfig = {
     fitSteps,
+    ...(record["objective"] === undefined ? {} : { objective: "intake-issue-balanced-v1" as const }),
     retryRejected,
     ...(record["corpus"] === undefined ? {} : { corpus: record["corpus"] as JsonValue }),
     ...(recipe === undefined ? {} : { recipe }),
@@ -249,6 +253,7 @@ export function parseLoopConfig(raw: JsonValue): LoopConfig {
     trainingDigest: datasets.trainingDigest,
     evaluationDigest: datasets.evaluationDigest,
     digest: loopDigest({
+      ...(record["objective"] === undefined ? {} : { objective: record["objective"] as JsonValue }),
       ...(fitSteps === 1 ? {} : { fitSteps }),
       ...(retryRejected ? { retryRejected } : {}),
       ...(record["corpus"] === undefined ? {} : { corpus: record["corpus"] as JsonValue }),
@@ -287,7 +292,7 @@ export function parseLoopConfig(raw: JsonValue): LoopConfig {
 
 /** Render one validated example as the plain JSON value the environment spec stores. */
 function jsonExample(example: BanditExample): JsonValue {
-  return { id: example.id, feature: example.feature, ...(example.features === undefined ? {} : { features: [...example.features] }), rewards: [example.rewards[0], example.rewards[1]] };
+  return { id: example.id, feature: example.feature, ...(example.features === undefined ? {} : { features: [...example.features] }), ...(example.balance === undefined ? {} : { balance: { ...example.balance } }), rewards: [example.rewards[0], example.rewards[1]] };
 }
 
 /**
@@ -514,6 +519,7 @@ export function seedTrainingConfig(config: LoopConfig): JsonValue {
     programme: config.digest,
     initial_weight: config.initialWeight,
     configuration: {
+      ...(config.objective === undefined ? {} : { objective: config.objective }),
       ...(config.fitSteps === 1 ? {} : { fit_steps: config.fitSteps }),
       ...(config.retryRejected ? { retry_rejected: true } : {}),
       ...(config.corpus === undefined ? {} : { corpus: config.corpus }),

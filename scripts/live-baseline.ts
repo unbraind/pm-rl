@@ -5,7 +5,8 @@ import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { init } from "@unbrained/pm-cli/sdk/runtime";
-import { buildTrackerLoopCorpus } from "../corpus.ts";
+import { buildIntakeLoopCorpus, buildTrackerLoopCorpus } from "../corpus.ts";
+import { itemBootstrap } from "../item-evaluation.ts";
 import { hashJson, resumeRlLoop, rlLoopStatus, runRlLoop, type JsonValue } from "../index.ts";
 import { parseLoopConfig } from "../loop.ts";
 import { isMainInvocation } from "./script-launcher.ts";
@@ -21,14 +22,17 @@ function inventory(directory: string, prefix = ""): { file: string; digest: stri
 /** Execute the supplied bounds on an isolated controller tracker and retain item-level refusal evidence. */
 export async function runBaselineAcceptance(source: string, output: string, bounds: JsonValue): Promise<JsonValue> {
 const before = inventory(source);
-const corpus = await buildTrackerLoopCorpus(new PmClient({ pmRoot: source, noExtensions: true }), bounds);
+const sourceClient = new PmClient({ pmRoot: source, noExtensions: true });
+const intake = (bounds as Record<string, JsonValue> | null)?.objective === "intake-issue-balanced-v1";
+const { programme } = intake ? await buildIntakeLoopCorpus(sourceClient, bounds, (id) => readFileSync(join(source, "history", `${id}.jsonl`), "utf8"))
+  : await buildTrackerLoopCorpus(sourceClient, bounds);
+const config = parseLoopConfig(programme);
 mkdirSync(output, { recursive: true });
-writeFileSync(join(output, "programme.json"), JSON.stringify(corpus.programme, null, 2), { flag: "wx" });
+writeFileSync(join(output, "programme.json"), JSON.stringify(programme, null, 2), { flag: "wx" });
 const { path: pmRoot } = await init("rl", { defaults: true, agentGuidance: "skip", author: "codex-agent" }, { cwd: output, pmRoot: join(output, ".agents/pm") });
-const config = parseLoopConfig(corpus.programme);
 const client = new PmClient({ pmRoot, author: "codex-agent", noExtensions: true });
 const { item: approval } = await client.create({ id: "baseline-approval", type: "Decision", title: "Three bounded public-corpus proposals", body: '```json\n{"permitted_promotions":3,"resource_budget":{"training_steps":768,"wall_ms":90000,"storage_bytes":786432,"compute_units":30000,"tokens":0}}\n```' });
-const request = { id: "baseline-frontier", config: corpus.programme, approval: approval.id };
+const request = { id: "baseline-frontier", config: programme, approval: approval.id };
 const report = await runRlLoop(client, { pmRoot, author: "codex-agent" }, request);
 assert.equal(report.generations.length, config.maxGenerations);
 const jobs = await listProcessJobs(client);
@@ -53,9 +57,17 @@ for (const row of report.generations) {
     learning_rate: config.learning_rate, held_out_reward: config.evaluation_score, training_reward: config.training_score,
     item_evidence: config.item_evidence, sampled_reward: row.held_out_mean });
 }
-const evidence = { format: "pm-rl/baseline-frontier/1", source: { files: before.length, digest: hashJson(before), bytes_unchanged: true },
-  corpus: { snapshot: corpus.snapshot, training_items: corpus.training_items, held_out_items: corpus.held_out_items, held_out_closed: corpus.held_out_closed },
-  baseline: corpus.held_out_closed / corpus.held_out_items, bounds, generations, promoted: report.promoted,
+const labels = intake ? config.evaluation.map((row) => row.balance!.label) : undefined;
+const evidence = { format: intake ? "pm-rl/intake-frontier/1" : "pm-rl/baseline-frontier/1", source: { files: before.length, digest: hashJson(before), bytes_unchanged: true },
+  corpus: { snapshot: (config.corpus as Record<string, JsonValue>).snapshot, training_items: config.training.length, held_out_items: config.evaluation.length,
+    ...(intake ? { training_positive: config.training.filter((row) => row.balance!.label).length, held_out_positive: labels!.filter(Boolean).length }
+      : { held_out_closed: config.evaluation.filter((row) => row.rewards[1] === 1).length }) },
+  ...(intake ? { objective: config.objective, baselines: {
+    constant_zero: itemBootstrap(config.evaluation.map((row) => row.rewards[0]), config.confidence, labels),
+    constant_one: itemBootstrap(config.evaluation.map((row) => row.rewards[1]), config.confidence, labels),
+    keyword: itemBootstrap(config.evaluation.map((row) => row.rewards[row.balance!.heuristic]), config.confidence, labels),
+  } } : { baseline: config.evaluation.filter((row) => row.rewards[1] === 1).length / config.evaluation.length }),
+  bounds, generations, promoted: report.promoted,
   final_checkpoint: report.final_checkpoint, samples_consumed: report.samples_consumed,
   charges: jobs.map((job) => ({ job: job.id, charge: job.charge, source_policy: job.completion!.source_policy })), replay: { generations: resumed.resumed_generations, unchanged_checkpoints: true, no_new_jobs: true } };
 writeFileSync(join(output, "evidence.json"), JSON.stringify(evidence, null, 2), { flag: "wx" });

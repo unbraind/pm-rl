@@ -39,6 +39,7 @@ export function verifyTrackerLoopCorpus(programme: Readonly<Record<string, unkno
   const corpus = programme["corpus"];
   if (corpus === null || typeof corpus !== "object" || Array.isArray(corpus)) corpusRefusal("corpus_invalid_seal");
   const record = corpus as Record<string, unknown>;
+  if (record["format"] === "pm-rl/intake-corpus/1") { verifyIntakeCorpus(programme, record); return; }
   if (!["pm-rl/tracker-loop-corpus/1", "pm-rl/tracker-loop-corpus/2"].includes(String(record["format"])) || !Array.isArray(record["rows"])) corpusRefusal("corpus_invalid_seal");
   const rows = record["rows"] as CorpusRow[];
   if (rows.length > 10_000 || rows.some((row) => row === null || typeof row !== "object" || !/^[a-f0-9]{64}$/.test(row.item) || !/^[a-f0-9]{64}$/.test(row.content) || !Number.isInteger(row.length) || row.length < 1 || row.length > 256 || typeof row.closed !== "boolean")) corpusRefusal("corpus_invalid_seal");
@@ -104,4 +105,79 @@ export function titleFeatures(title: string): number[] {
     values[column] += (Number.parseInt(hash.slice(-1), 16) % 2 === 0 ? 1 : -1) / Math.sqrt(words.length);
   }
   return values.map((value) => Math.max(-1, Math.min(1, value)));
+}
+
+/** Creation-time inputs retain only title projections, an intake target and a frozen heuristic action. */
+export interface IntakeRow {
+  readonly item: string;
+  readonly content: string;
+  readonly length: number;
+  readonly features: readonly number[];
+  readonly label: boolean;
+  readonly heuristic: 0 | 1;
+}
+
+/** Fixed keyword router, declared before learning and independent of corpus frequencies. */
+export function intakeHeuristic(title: string): 0 | 1 {
+  return /\b(bug|fix|fail\w*|error|regression|security|refus\w*|reject\w*|corrupt\w*|broken|crash\w*)\b/u.test(title) ? 1 : 0;
+}
+
+/** Read only the first creation event; later edits, outcomes, authors and timestamps are unavailable inputs. */
+export function projectIntakeHistory(history: string): Pick<ItemMetadata, "id" | "title" | "type"> {
+  const first = JSON.parse(history.split("\n")[0]) as { op?: string; patch?: readonly { op: string; path: string; value?: unknown }[] };
+  if (first.op !== "create" || !Array.isArray(first.patch)) corpusRefusal("intake_missing_creation");
+  const fields = ["id", "title", "type"].map((field) => first.patch!.find((patch) => patch.path === `/metadata/${field}` && patch.op === "add")?.value);
+  if (fields.some((field) => typeof field !== "string" || !field.trim())) corpusRefusal("intake_missing_creation");
+  return { id: fields[0] as string, title: fields[1] as string, type: fields[2] as string };
+}
+
+/** Reconstruct all intake examples with class labels confined to reward, sampling and evaluator metadata. */
+function intakeDatasets(rows: readonly IntakeRow[], snapshot: string): { training: JsonValue[]; evaluation: JsonValue[] } {
+  const examples = (heldOut: boolean): JsonValue[] => rows.filter((row) => corpusHeldOut(row.length) === heldOut).map((row) => ({
+    id: hashJson({ snapshot, item: row.item }), feature: Math.log1p(row.length) / Math.log(257), features: [...row.features],
+    rewards: row.label ? [0, 1] : [1, 0], balance: { label: row.label, heuristic: row.heuristic },
+  }));
+  return { training: examples(false), evaluation: examples(true) };
+}
+
+/** Reject altered objective, projections, partition, heuristic actions or reconstructed datasets before collection. */
+function verifyIntakeCorpus(programme: Readonly<Record<string, unknown>>, record: Readonly<Record<string, unknown>>): void {
+  if (programme["objective"] !== "intake-issue-balanced-v1" || !Array.isArray(record["rows"])) corpusRefusal("intake_invalid_seal");
+  const rows = record["rows"] as IntakeRow[];
+  if (rows.length > 10_000 || rows.some((row) => row === null || typeof row !== "object" || !/^[a-f0-9]{64}$/.test(row.item) || !/^[a-f0-9]{64}$/.test(row.content) || !Number.isInteger(row.length) || row.length < 1 || row.length > 256 || typeof row.label !== "boolean" || ![0, 1].includes(row.heuristic) || !Array.isArray(row.features) || row.features.length !== 64 || row.features.some((value) => typeof value !== "number" || !Number.isFinite(value) || Math.abs(value) > 1))) corpusRefusal("intake_invalid_seal");
+  if (new Set(rows.map((row) => row.item)).size !== rows.length) corpusRefusal("corpus_duplicate_item");
+  const snapshot = hashJson(rows as unknown as JsonValue);
+  if (record["snapshot"] !== snapshot) corpusRefusal("corpus_snapshot_drift");
+  const datasets = intakeDatasets(rows, snapshot);
+  for (const key of ["training", "evaluation"] as const) {
+    const partition = rows.filter((row) => corpusHeldOut(row.length) === (key === "evaluation"));
+    if ([false, true].some((label) => !partition.some((row) => row.label === label))) corpusRefusal("intake_missing_class");
+    if (programme[key] === undefined || hashJson(programme[key] as JsonValue) !== hashJson(datasets[key])) corpusRefusal("corpus_dataset_drift");
+  }
+  if (programme["environment"] === undefined || hashJson(programme["environment"] as JsonValue) !== hashJson({ name: "Creation-title Issue routing with balanced accuracy", version: snapshot })) corpusRefusal("corpus_dataset_drift");
+}
+
+/** Seal a real creation-history corpus without Git, label-fitted features or majority subsampling. */
+export function sealIntakeCorpus(items: readonly Pick<ItemMetadata, "id" | "title" | "type">[], bounds: JsonValue): JsonValue {
+  if (bounds === null || typeof bounds !== "object" || Array.isArray(bounds) || bounds["objective"] !== "intake-issue-balanced-v1" || bounds["feature_mode"] !== "title-tokens-v1" || ["training", "evaluation", "environment", "corpus"].some((key) => Object.hasOwn(bounds, key))) corpusRefusal("corpus_invalid_bounds");
+  const rows = items.map((item): IntakeRow => {
+    if (typeof item.id !== "string" || !item.id.trim() || typeof item.title !== "string" || typeof item.type !== "string" || !item.type.trim()) corpusRefusal("corpus_invalid_item");
+    const title = item.title.normalize("NFKC").trim().replaceAll(/\s+/g, " ").toLowerCase();
+    return { item: hashJson(item.id), content: hashJson({ title, type: item.type }), length: Math.min(256, [...title].length), features: titleFeatures(title), label: item.type === "Issue", heuristic: intakeHeuristic(title) };
+  }).sort((left, right) => left.item.localeCompare(right.item));
+  const snapshot = hashJson(rows as unknown as JsonValue);
+  const programme: JsonValue = { ...bounds, corpus: { format: "pm-rl/intake-corpus/1", snapshot, rows: rows as unknown as JsonValue },
+    environment: { name: "Creation-title Issue routing with balanced accuracy", version: snapshot }, ...intakeDatasets(rows, snapshot) };
+  parseLoopConfig(programme);
+  return programme;
+}
+
+/** Read a complete SDK inventory and creation histories through a caller-supplied backend reader, without Git. */
+export async function buildIntakeLoopCorpus(client: PmClient, bounds: JsonValue, readHistory: (id: string) => string | Promise<string>): Promise<{ programme: JsonValue; snapshot: string; training_items: number; held_out_items: number; held_out_positive: number }> {
+  const inventory = await client.listAllComplete({ includeBody: false });
+  const items = await Promise.all(inventory.items.map(async (item) => projectIntakeHistory(await readHistory(item.id))));
+  const programme = sealIntakeCorpus(items, bounds);
+  const config = parseLoopConfig(programme);
+  return { programme, snapshot: (config.corpus as Record<string, JsonValue>).snapshot as string, training_items: config.training.length,
+    held_out_items: config.evaluation.length, held_out_positive: config.evaluation.filter((row) => row.balance!.label).length };
 }
