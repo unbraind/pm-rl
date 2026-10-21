@@ -8,6 +8,7 @@
  */
 
 export { runBanditProgramme, type BanditCheckpoint, type BanditExample, type BanditGeneration, type BanditProgramme, type BanditResult } from "./bandit.ts";
+export { checkpointArtifactPath, collectCheckpointArtifacts, readCheckpointArtifact, readCheckpointLedger, type CheckpointArtifact } from "./checkpoint-artifacts.ts";
 
 export { banditCheckpoint, executeBanditStep, validatedBanditDatasets, type BanditDatasets, type BanditObservation, type BanditStepInput, type BanditStopReason } from "./bandit.ts";
 
@@ -186,10 +187,10 @@ import {
 
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { open, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
-import { dirname, join, relative, resolve } from "node:path";
+import { delimiter, dirname, join, relative, resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 
 import {
@@ -205,6 +206,7 @@ import { PmClient, type GetResult, type ItemMetadata } from "@unbrained/pm-cli/s
 import { acquireLock, certifyCompleteListResult, createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError, type PmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 
 import { parseJsonRecord } from "./refuse.ts";
+import { decodeCheckpointArtifacts, encodeCheckpointArtifacts, collectCheckpointArtifacts, inspectCheckpointArtifact } from "./checkpoint-artifacts.ts";
 
 import { encodeEventSegments, parseNdjsonStream, readSeries, type MetricEvent } from "./series.ts";
 
@@ -2805,6 +2807,18 @@ async function controllerMutex(root: string, id: string, author: string, start: 
   return release;
 }
 
+/** Detect worktree ancestry without launching Git, respecting explicit standalone discovery ceilings. @internal */
+export function controllerHasGitAncestor(start: string, ceiling = process.env["GIT_CEILING_DIRECTORIES"] ?? ""): boolean {
+  const ceilings = ceiling.split(delimiter).filter(Boolean).map((path) => resolve(path));
+  let directory = resolve(start);
+  for (;;) {
+    if (existsSync(join(directory, ".git"))) return true;
+    const parent = dirname(directory);
+    if (parent === directory || ceilings.includes(parent)) return false;
+    directory = parent;
+  }
+}
+
 /**
  * Acquire one loop's controller lease: the pm SDK workspace lock plus a claim.
  *
@@ -2832,13 +2846,15 @@ async function acquireControllerLease(client: PmClient, coordinates: WorkspaceCo
   // Git worktrees share the repository metadata, so the SDK's lease and
   // launch journal are shared even when the tracked PM roots diverge.
   let authorityRoot = coordinates.pmRoot;
-  try {
-    const common = execFileSync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], {
-      cwd: dirname(coordinates.pmRoot), encoding: "utf8", stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
-    authorityRoot = join(common, "pm-rl-controllers");
-  } catch {
-    // Standalone PM projects have no Git worktree family.
+  if (controllerHasGitAncestor(dirname(coordinates.pmRoot))) {
+    try {
+      const common = execFileSync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], {
+        cwd: dirname(coordinates.pmRoot), encoding: "utf8", stdio: ["ignore", "pipe", "ignore"],
+      }).trim();
+      authorityRoot = join(common, "pm-rl-controllers");
+    } catch {
+      // Unavailable Git metadata cannot prevent standalone tracker operation.
+    }
   }
   const lockId = loopLeaseLockId(id);
   const lockPath = join(authorityRoot, "locks", `${lockId}.lock`);
@@ -3305,7 +3321,8 @@ export async function withRlController<T>(client: PmClient, coordinates: Workspa
   try {
     return await execute(async (key, input, operation) => {
       signal.throwIfAborted();
-      return (await durableLoopStep(client, lease, id, key, input, operation)).value;
+      const stored = await durableLoopStep(client, lease, id, key, input, async () => await encodeCheckpointArtifacts(coordinates.pmRoot, `step:${id}:${key}`, await operation()) as JsonValue);
+      return decodeCheckpointArtifacts(coordinates.pmRoot, stored.value) as JsonValue;
     });
   } finally {
     await lease.release();
@@ -4888,6 +4905,8 @@ async function showTransferGap(context: CommandHandlerContext): Promise<RlComman
 
 /** Commands authored separately so activation and tests share one exact contract. */
 export const RL_COMMANDS = [
+  defineCommand({ name: "rl checkpoint show", description: "Verify and load a checkpoint from its SHA-256 artifact digest and promotion ledger.", arguments: [{ name: "digest", required: true, description: "SHA-256 artifact digest." }], run: async (context) => ({ action: "rl-checkpoint-show", details: inspectCheckpointArtifact(context.pm_root, requiredArgument(context, "an artifact digest")) }) }),
+  defineCommand({ name: "rl checkpoint gc", description: "Collect checkpoint blobs unreachable from the promotion/audit ledger.", run: async (context) => ({ action: "rl-checkpoint-gc", details: await collectCheckpointArtifacts(context.pm_root) }) }),
   defineCommand({ name: "rl improver build", description: "Freeze chronological balanced public tracker tasks for recursive proposal-policy evaluation.", arguments: [{ name: "directories", variadic: true, description: "Additional tracker directories." }], flags: [
     { long: "--from-trackers", value_name: "directory", value_type: "string", required: true, description: "First copied public tracker directory." },
     { long: "--output", value_name: "directory", value_type: "string", required: true, description: "New dataset directory." },

@@ -460,6 +460,19 @@ Default output is compact; `--json` includes complete jobs, receipts and charges
 include the approval example, NDJSON protocol, Compose configuration, crash recovery and cancellation
 semantics. Checkpoints and failed-job evidence live in tracker-owned staging.
 
+Prefix checkpoints now live in SHA-256 artifacts, with small staging references,
+verified resume/replay, and reachability-based garbage collection. Hashing widths
+up to 4096 require an explicit larger storage approval; optimizer and promotion
+bounds are unchanged. See [checkpoint storage and measurements](docs/checkpoint-artifacts.md).
+
+## Without git
+
+Tracker environments, training on sealed datasets, evaluation, promotion,
+checkpoint inspection/collection, resume and replay work in a plain-directory
+tracker. Process execution requires the operating system's process identity tools.
+Building public-history datasets requires Git repositories and verified public
+source commits. Release changelogs and GitHub provenance also require Git.
+
 ## Not in scope
 
 - **Current execution boundary.** `run log` accepts NDJSON from an external trainer. Native

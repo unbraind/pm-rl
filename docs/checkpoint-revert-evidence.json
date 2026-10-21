@@ -1,0 +1,73 @@
+{
+  "format": "pm-rl/checkpoint-revert-proof/1",
+  "base": "445e17a",
+  "scope": "Isolated source copies with retained regression tests; production worktree was not reverted.",
+  "restored_capacity_passes": 1,
+  "restored_artifact_fault_passes": 2,
+  "reverts": [
+    {
+      "variant": "prefix-domain",
+      "file": "prefix.ts",
+      "function": "validatePrefixKnobs",
+      "exit": 1,
+      "seconds": 10.228,
+      "command": "node --test --test-name-pattern=\"large learner\" test/checkpoint-artifacts.test.ts",
+      "typecheck": 0
+    },
+    {
+      "variant": "trainer-artifacts",
+      "file": "prefix-trainer.ts",
+      "function": "runPrefixTrainer",
+      "exit": 1,
+      "seconds": 34.918,
+      "command": "node --test --test-name-pattern=\"large learner\" test/checkpoint-artifacts.test.ts",
+      "typecheck": 0
+    },
+    {
+      "variant": "controller-references",
+      "file": "index.ts",
+      "function": "withRlController",
+      "exit": 1,
+      "seconds": 47.996,
+      "command": "node --test --test-name-pattern=\"large learner\" test/checkpoint-artifacts.test.ts",
+      "typecheck": 0
+    },
+    {
+      "variant": "artifact-integrity",
+      "file": "checkpoint-artifacts.ts",
+      "function": "readVerifiedFile",
+      "exit": 1,
+      "seconds": 9.526,
+      "command": "node --test --test-name-pattern=\"artifact addressing\" test/checkpoint-artifacts.test.ts",
+      "typecheck": 0
+    },
+    {
+      "variant": "artifact-collection",
+      "file": "checkpoint-artifacts.ts",
+      "function": "collectCheckpointArtifacts",
+      "exit": 1,
+      "seconds": 10.58,
+      "command": "node --test --test-name-pattern=\"artifact addressing\" test/checkpoint-artifacts.test.ts",
+      "typecheck": 0
+    },
+    {
+      "variant": "atomic-publication",
+      "file": "checkpoint-artifacts.ts",
+      "function": "publishFile",
+      "exit": 1,
+      "seconds": 19.987,
+      "command": "node --test --test-name-pattern=\"artifact addressing\" test/checkpoint-artifacts.test.ts",
+      "typecheck": 0
+    },
+    {
+      "variant": "plain-controller-git-probe",
+      "file": "index.ts",
+      "function": "acquireControllerLease",
+      "exit": 1,
+      "seconds": 10.575,
+      "command": "node --test --test-name-pattern=\"plain-directory controllers\" test/checkpoint-artifacts.test.ts",
+      "typecheck": 0
+    }
+  ],
+  "restored_plain_controller_passes": 1
+}

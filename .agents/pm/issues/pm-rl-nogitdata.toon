@@ -1,0 +1,17 @@
+id: pm-rl-nogitdata
+title: Explain the Git requirement before building public-history datasets
+description: "Out-of-scope follow-up found while implementing pm-rl-a2zp. Building a dataset from three real plain-directory SDK trackers currently throws a raw git remote get-url origin command failure (status 128), rather than naming the committed-public-source requirement and the operations that still work without Git. Reproduced after checking existing git/dataset/standalone items; do not weaken provenance or replace the builder with uncommitted data."
+type: Issue
+status: open
+priority: 3
+tags: []
+created_at: "2026-10-21T05:15:57.529Z"
+updated_at: "2026-10-21T05:16:13.210Z"
+author: codex-agent
+acceptance_criteria: "Dataset and improver builders detect missing repositories before Git transport, return a clear nonzero requirement message, and retain all public commit/license checks; Real plain-directory tracker regressions run with a Git discovery ceiling; sealed-dataset training, checkpoint operations and replay remain available"
+parent: pm-rl-apvf
+files[3]{path,scope}:
+  dataset.ts,project
+  improver-data.ts,project
+  test/dataset.test.ts,project
+body: ""

@@ -2,19 +2,47 @@ id: pm-rl-a2zp
 title: "Lift the prefix learner's capacity bound: content-addressed checkpoint artifacts instead of the 4096-byte staging record"
 description: "Follow-up to pm-rl-prefix and PR 86 only; no capacity changes in that PR. Its honest null is bounded by one SGD pass, at most 512 training rows, hashing width at most 64, and quantized weights constrained by the 4096-byte staging record. Retained policies predict only slow. Separate checkpoint artifact storage from the staging receipt to permit a larger bounded learner."
 type: Feature
-status: open
+status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-18T20:01:33.655Z"
-updated_at: "2026-10-18T20:02:54.247Z"
+updated_at: "2026-10-21T05:24:47.011Z"
+assignee: codex-agent
+claim_principal: codex-agent
 author: codex-agent
 acceptance_criteria: "Store the checkpoint as a content-addressed blob referenced by digest from the receipt; Keep the budget and promotion gate unchanged; Rerun live acceptance on the same sealed dataset and report majority baseline, prediction diversity, held-out gain and confidence bound, and final-test before and after honestly"
 parent: pm-rl-apvf
-comments[1]{created_at,author,text}:
+comments[8]{created_at,author,text}:
   "2026-10-18T20:02:54.247Z",codex-agent,"Tracking only, requested during PR 86 review. Same parent as pm-rl-prefix. No artifact storage, learner, budget or promotion-gate change is included in the review fix. Current null result and capacity constraints are recorded in docs/history-prefix.md and docs/prefix-live-evidence.json."
-files[2]{path,scope}:
+  "2026-10-21T04:40:54.170Z",codex-agent,"Read the queue rules, no-git audit and related prefix/RSI items. Implement immutable SHA-256 checkpoint blobs with atomic publication, typed integrity failures and a reachability ledger shared with garbage collection. Keep staging receipts bounded and store references in durable controller receipts. Prove a larger bounded prefix learner through promotion/resume on real plain-directory trackers and concurrent processes. Measure the same pinned public corpus before/after; preserve the statistical gate and report null improvement honestly. Dependency pins stay unchanged."
+  "2026-10-21T04:50:15.966Z",codex-agent,"Artifact store and process/controller integration are implemented. Initial focused checks pass 3/3 for existing fitting, promotion and receipt validation; lint, zero duplication and docstrings pass (45 sources, 330 declarations). New plain-directory tests exercise a 4096-weight learner and independent concurrent promoters. Their restricted PATH must retain OS process-start tooling (getconf/ps) while omitting git; the first run correctly refused an unverifiable lease, and the fixture now preserves that required tooling. Existing 4096-byte storage reservations remain unchanged for widths through 64; opting into larger widths requires a separate 1 MiB storage reservation from the existing approval, with no compute or statistical threshold change."
+  "2026-10-21T04:53:45.821Z",codex-agent,"Capacity and concurrency acceptance passes 3/3 on real plain-directory SDK trackers: a 4096-weight checkpoint is promoted, interruption resumes with five total fits, completed replay launches none, corrupt/missing artifacts refuse with typed errors and unchanged jobs, and two independent processes promote the same immutable checkpoint with both ledger roots retained. The restricted PATH contains Node and OS process-start tools but no git executable. A fourth regression now exercises the reproducible corpus benchmark, plus explicit staging-size and completed-artifact recovery refusals. Full gates and public-corpus measurements follow."
+  "2026-10-21T05:03:02.116Z",codex-agent,"The artifact module passes focused real-tracker integrity/fault tests at 100 percent lines, branches and functions, including a failed hard-link publication and corrupt-ledger refusal before deletion. Expanded integration coverage hit the new test's initial five-minute timeout while several training checks overlapped; that run is failed evidence. The new integration fixtures now have a bounded fifteen-minute allowance, matching the linked-test watchdog. Existing package gate thresholds and existing regression deadlines remain unchanged. A preliminary public benchmark was stopped after source refinements; only a frozen-source completed repetition will be published."
+  "2026-10-21T05:08:38.141Z",codex-agent,"Six isolated behavioral reverts all typecheck and fail retained regressions with exit 1: restore validatePrefixKnobs, restore runPrefixTrainer with its required crypto import, restore withRlController, disable exact-byte SHA verification, disable unreachable collection, and replace exclusive publication with overwriting writes. Restored production passes the capacity regression 1/1 (290840.755645 ms including module startup), and the artifact/fault suite passes 2/2 at 100/100/100 measured lines/branches/functions. The public corpus rebuilt to digest 6eb9e7dcb22bb243b472512ce55e4c0ab1d2fa6053b5d489eea7b59240592f48: 25 repositories, split counts 943/225/214/385. A fresh frozen-source measurement is running sequentially. The earlier linked run is failed evidence (two passes, one failure, one cancellation); its new integration deadline and fixture deadline are now aligned at fifteen minutes."
+  "2026-10-21T05:18:06.413Z",codex-agent,"Plain-directory controller regression passes 1/1 and counts zero Git invocations. Removing only the filesystem guard typechecks and fails it with exit 1, giving seven behavioral revert proofs in docs/checkpoint-revert-evidence.json. Worktree launch fencing remains available when repository metadata exists. The benchmark normalizes relative scratch coordinates before SDK initialization and its evidence excludes checkpoint payload arrays. Public measurements now use fresh independent trackers outside the checkout. Reproduced the separate dataset-builder missing-repository diagnostic gap on three real temporary SDK trackers and created follow-up pm-rl-nogitdata; provenance restrictions remain unchanged. No upstream CLI/SDK issue was filed."
+  "2026-10-21T05:24:47.007Z",codex-agent,"Frozen-source public corpus experiment completes both two-generation K=2 programmes with five fits each and unchanged replay. Fitted sizes: legacy-capacity widths 296-651 bytes; expanded capacity 10343-18756 bytes. Initial checkpoints are 396 and 17921 bytes. Median verified warm load (100 iterations): legacy reader 0.039227 ms; artifact reader at width 32 0.041579 ms; artifact reader at width 4096 3.768197 ms. Large blobs are refused by the legacy 4096-byte reader. Source hashes match all eleven recorded files. Both real-data runs are honest nulls: retained meta 140/214, gain 0, lower bound -0.21778781183411927; final before/after 220/385, matching majority, one predicted class and p=1. No public-data learner or recipe promotes. The synthetic real-tracker positive promotion/resume proof remains separate. Measurements and digests exclude payload arrays and raw examples."
+files[15]{path,scope}:
+  checkpoint-artifacts.ts,project
+  improver-environment.ts,project
+  index.ts,project
+  meta.ts,project
+  package.json,project
   prefix-trainer.ts,project
   prefix.ts,project
-docs[1]{path,scope}:
+  process.ts,project
+  recipe.ts,project
+  recursive-improver.ts,project
+  scripts/checkpoint-benchmark.ts,project
+  test/checkpoint-artifacts.test.ts,project
+  test/fixtures/checkpoint-promoter.ts,project
+  test/fixtures/checkpoint-workspace.ts,project
+  test/prefix.test.ts,project
+tests[1]{command,scope,timeout_seconds,pm_context_mode,workspace_context_mode,provenance{author,created_at,source_kind,source_ref}}:
+  node --test test/checkpoint-artifacts.test.ts,project,900,none,snapshot,codex-agent,"2026-10-21T04:54:12.151Z",local_mutation,feat/content-addressed-checkpoints
+docs[5]{path,scope}:
+  docs/checkpoint-artifacts.md,project
+  docs/checkpoint-capacity-evidence.json,project
+  docs/checkpoint-revert-evidence.json,project
   docs/history-prefix.md,project
+  README.md,project
 body: ""

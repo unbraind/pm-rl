@@ -5,6 +5,10 @@
   "type": "module",
   "main": "dist/index.js",
   "files": [
+    "dist/checkpoint-artifacts.*",
+    "docs/checkpoint-artifacts.md",
+    "docs/checkpoint-capacity-evidence.json",
+    "docs/checkpoint-revert-evidence.json",
     "dist/index.*",
     "dist/lineage.*",
     "dist/bandit.*",
@@ -93,6 +97,7 @@
       "."
     ],
     "tests": [
+      "test/checkpoint-artifacts.test.ts",
       "test/audit-git-identities.test.ts",
       "test/bandit.test.ts",
       "test/compare.test.ts",
@@ -205,6 +210,8 @@
       }
     },
     "docs": [
+      "docs/checkpoint-artifacts.md",
+      "docs/checkpoint-capacity-evidence.json",
       "README.md",
       "CHANGELOG.md",
       "RECURSIVE_TRAINING.md",

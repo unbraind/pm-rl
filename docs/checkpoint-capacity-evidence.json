@@ -1,0 +1,4345 @@
+{
+  "format": "pm-rl/checkpoint-capacity-benchmark/1",
+  "dataset": {
+    "format": "pm-rl/tracker-dataset/1",
+    "task": "history-prefix",
+    "seed": 42,
+    "sources": [
+      {
+        "repo": "unbraind/pm-brand",
+        "commit": "7ad0970d96a20c24b8dbd9e0dcd1efeb8b4d5cc1",
+        "license": "MIT",
+        "role": "train"
+      },
+      {
+        "repo": "unbraind/pm-csv",
+        "commit": "31f968c5d63ac471f8df4495087c15f1809ca4d7",
+        "license": "MIT",
+        "role": "train"
+      },
+      {
+        "repo": "unbraind/pm-beads",
+        "commit": "8919a250feb3ebb51b9aa3288f6351de1f150c70",
+        "license": "MIT",
+        "role": "train"
+      },
+      {
+        "repo": "unbraind/pm-gantt-chart",
+        "commit": "57562e04a4c35bbb9e408b1d33605f61887375af",
+        "license": "MIT",
+        "role": "train"
+      },
+      {
+        "repo": "unbraind/pm-rust",
+        "commit": "6d519ecc40f5978f18e0cd546cce322fa67fc835",
+        "license": "MIT",
+        "role": "train"
+      },
+      {
+        "repo": "unbraind/pm-changelog",
+        "commit": "4a2e6330b0180b103c28d90a98bc731d326b1ef7",
+        "license": "MIT",
+        "role": "train"
+      },
+      {
+        "repo": "unbraind/pm-todos",
+        "commit": "aed7f7da9c9f960623f89f31a46b0a0815ae7b1e",
+        "license": "MIT",
+        "role": "train"
+      },
+      {
+        "repo": "unbraind/pm-jira",
+        "commit": "007d78e04c33d07eeddb8c32e23f88b6f4334fd0",
+        "license": "MIT",
+        "role": "train"
+      },
+      {
+        "repo": "unbraind/pm-presets",
+        "commit": "eea1037e0b9bf5c84fdee1e7617efa4bd42cfe2d",
+        "license": "MIT",
+        "role": "train"
+      },
+      {
+        "repo": "unbraind/pm-slack",
+        "commit": "0372d4ec234cefd9209843c2f9c8a418fef41d56",
+        "license": "MIT",
+        "role": "train"
+      },
+      {
+        "repo": "unbraind/pm-ts-starter",
+        "commit": "1236759ebce60a3b663d9715afae1354e64c1c15",
+        "license": "MIT",
+        "role": "train"
+      },
+      {
+        "repo": "unbraind/pm-ops",
+        "commit": "53bb64924d8affa6c55dd5c0b54f4fd6c971742b",
+        "license": "MIT",
+        "role": "train"
+      },
+      {
+        "repo": "unbraind/pm-graph",
+        "commit": "ef2caae43446d0103761581abd5a2a2b3a40528d",
+        "license": "MIT",
+        "role": "train"
+      },
+      {
+        "repo": "unbraind/pm-context",
+        "commit": "cc12869326f7ece5f4643a9fae5b90de0e27ec3a",
+        "license": "MIT",
+        "role": "train"
+      },
+      {
+        "repo": "unbraind/pm-slack-standup",
+        "commit": "0b3c57b3b47b3297e140892ea537f20104b4c2a1",
+        "license": "MIT",
+        "role": "train"
+      },
+      {
+        "repo": "unbraind/pm-rl",
+        "commit": "b255dfac6543ab178ab2720fad1de1ba49f91dd4",
+        "license": "MIT",
+        "role": "meta-validation"
+      },
+      {
+        "repo": "unbraind/pm-ado",
+        "commit": "6e78685557536226ffc6edb822b127c9a4acacbc",
+        "license": "MIT",
+        "role": "meta-validation"
+      },
+      {
+        "repo": "unbraind/pm-lint",
+        "commit": "434f6f75be626308dbff872cd43329c54893ca1e",
+        "license": "MIT",
+        "role": "meta-validation"
+      },
+      {
+        "repo": "unbraind/pm-brief",
+        "commit": "5f7f2761d335ce2d39f747434afc2370eb47854b",
+        "license": "MIT",
+        "role": "meta-validation"
+      },
+      {
+        "repo": "unbraind/pm-review",
+        "commit": "58ea2c294137f4e392931dad8bb0af4d054bbc50",
+        "license": "MIT",
+        "role": "meta-validation"
+      },
+      {
+        "repo": "unbraind/pm-starter",
+        "commit": "be5fac027b1124def32c612dc2ca3b5496d29dd2",
+        "license": "MIT",
+        "role": "final-test"
+      },
+      {
+        "repo": "unbraind/pm-linear",
+        "commit": "0b213fc998211734368514c13e65669a4ea389f2",
+        "license": "MIT",
+        "role": "final-test"
+      },
+      {
+        "repo": "unbraind/pm-jev",
+        "commit": "9a61b98d9774367ca959ae2d3c6b5f0f36514476",
+        "license": "MIT",
+        "role": "final-test"
+      },
+      {
+        "repo": "unbraind/pm-vcs",
+        "commit": "1efdf4b3ca0da7968e4df4041aab3b5a4574a9fa",
+        "license": "MIT",
+        "role": "final-test"
+      },
+      {
+        "repo": "unbraind/pm-github",
+        "commit": "247b95e6214f687d0d838d1685cc0e99db664cd6",
+        "license": "MIT",
+        "role": "final-test"
+      }
+    ],
+    "omitted_sources": [],
+    "splits": {
+      "train": {
+        "digest": "0f5a1cf903399679bc850205799c65a14f248da4c3a6a3434c13ff51481ab65f",
+        "count": 943
+      },
+      "inner-held-out": {
+        "digest": "b2771d2d8071ef930ad7f95c3b8644b7ae541f456f227a1e0995455efc79c90f",
+        "count": 225
+      },
+      "meta-validation": {
+        "digest": "05c85ef875998d8dc07a693811a19277b89bbc4264f08dae5d37796391706546",
+        "count": 214
+      },
+      "final-test": {
+        "digest": "339ab5a704fdfe12235a428450dc494539c3d1b18508c68d03b500d78268750f",
+        "count": 385
+      }
+    },
+    "calibration": {
+      "threshold_ms": 47356,
+      "candidates": [
+        {
+          "target": "next_lifecycle",
+          "counts": {
+            "canceled": 9,
+            "closed": 776,
+            "in_progress": 155,
+            "open": 2,
+            "blocked": 1
+          },
+          "samples": 943,
+          "majority": 0.8229056203605515
+        },
+        {
+          "target": "reopened",
+          "counts": {
+            "false": 926,
+            "true": 17
+          },
+          "samples": 943,
+          "majority": 0.9819724284199364
+        },
+        {
+          "target": "item_type",
+          "counts": {
+            "Issue": 368,
+            "Task": 240,
+            "Chore": 214,
+            "Feature": 111,
+            "Epic": 4,
+            "Decision": 6
+          },
+          "samples": 943,
+          "majority": 0.3902439024390244
+        },
+        {
+          "target": "time_to_close",
+          "counts": {
+            "slow": 471,
+            "fast": 472
+          },
+          "samples": 943,
+          "majority": 0.5005302226935313
+        }
+      ]
+    },
+    "digest": "6eb9e7dcb22bb243b472512ce55e4c0ab1d2fa6053b5d489eea7b59240592f48"
+  },
+  "runs": [
+    {
+      "hashing_width": 32,
+      "configuration": {
+        "initial_recipe": {
+          "prefix_bounds": {
+            "regularisation": [
+              0,
+              0.1
+            ],
+            "ngram_order": [
+              1,
+              3
+            ],
+            "hashing_width": [
+              16,
+              4096
+            ],
+            "learning_rate": [
+              0.01,
+              1
+            ]
+          },
+          "format": "pm-rl/recipe/1",
+          "bounds": {
+            "learning_rate": [
+              0.01,
+              1
+            ],
+            "steps": [
+              1,
+              2
+            ],
+            "batch": [
+              16,
+              256
+            ],
+            "temperature": [
+              0.5,
+              2
+            ],
+            "correct_weight": [
+              0.5,
+              1
+            ],
+            "incorrect_weight": [
+              0,
+              0.25
+            ],
+            "selection": [
+              "all",
+              "balanced"
+            ],
+            "curriculum": [
+              "forward",
+              "reverse"
+            ]
+          },
+          "knobs": {
+            "learning_rate": 0.25,
+            "steps": 2,
+            "batch": 128,
+            "temperature": 1,
+            "correct_weight": 1,
+            "incorrect_weight": 0,
+            "selection": "all",
+            "curriculum": "forward",
+            "prefix": {
+              "hashing_width": 32,
+              "ngram_order": 2,
+              "regularisation": 0.001
+            }
+          },
+          "digest": "sha256:c412e8771be3def037b3fc2e3b63dd38ed807e298c6ac458a4c74cdf3d5b4684"
+        },
+        "seed": 42,
+        "meta_generations": 2,
+        "candidates": 2,
+        "timeout_ms": 840000,
+        "criterion": {
+          "confidence": 0.95,
+          "minSamples": 10,
+          "effectThreshold": 0.01
+        },
+        "maximum_gap": 0.3,
+        "evaluation_samples": 40000,
+        "adapter": {
+          "kind": "process-bandit",
+          "allowance": {
+            "training_steps": 1,
+            "wall_ms": 30000,
+            "storage_bytes": 4096,
+            "compute_units": 30000,
+            "tokens": 0
+          }
+        }
+      },
+      "elapsed_ms_including_replay": 153302.551816,
+      "summary": {
+        "initial": {
+          "recipe": {
+            "prefix_bounds": {
+              "regularisation": [
+                0,
+                0.1
+              ],
+              "ngram_order": [
+                1,
+                3
+              ],
+              "hashing_width": [
+                16,
+                4096
+              ],
+              "learning_rate": [
+                0.01,
+                1
+              ]
+            },
+            "format": "pm-rl/recipe/1",
+            "bounds": {
+              "learning_rate": [
+                0.01,
+                1
+              ],
+              "steps": [
+                1,
+                2
+              ],
+              "batch": [
+                16,
+                256
+              ],
+              "temperature": [
+                0.5,
+                2
+              ],
+              "correct_weight": [
+                0.5,
+                1
+              ],
+              "incorrect_weight": [
+                0,
+                0.25
+              ],
+              "selection": [
+                "all",
+                "balanced"
+              ],
+              "curriculum": [
+                "forward",
+                "reverse"
+              ]
+            },
+            "knobs": {
+              "learning_rate": 0.25,
+              "steps": 2,
+              "batch": 128,
+              "temperature": 1,
+              "correct_weight": 1,
+              "incorrect_weight": 0,
+              "selection": "all",
+              "curriculum": "forward",
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 2,
+                "regularisation": 0.001
+              }
+            },
+            "digest": "sha256:c412e8771be3def037b3fc2e3b63dd38ed807e298c6ac458a4c74cdf3d5b4684"
+          },
+          "weight": 0,
+          "checkpoint": "sha256:d7a6a75bc5dd61d7d1323805d5e6024b49db79e94f9498b27ff8661f3bdb6759",
+          "prefix": {
+            "knobs": {
+              "hashing_width": 32,
+              "ngram_order": 2,
+              "regularisation": 0.001
+            },
+            "digest": "sha256:d7a6a75bc5dd61d7d1323805d5e6024b49db79e94f9498b27ff8661f3bdb6759"
+          },
+          "fit": {
+            "job": "process-93fc729765e65040b71225bfbd6c5542f75604857bf45c588e4d3ded41da69a3",
+            "changed": true,
+            "accepted": false,
+            "gain": 0.013333333333333308,
+            "gain_lower_bound": -0.16774686876541595,
+            "refusal": "Promotion refused: the candidate is not statistically better than the incumbent. Candidate lower bound 0.460571 does not beat incumbent upper bound 0.628318 by the effect threshold 0.01 (margin -0.177747).",
+            "candidate": {
+              "knobs": {
+                "hashing_width": 32,
+                "ngram_order": 2,
+                "regularisation": 0.001
+              },
+              "digest": "sha256:66d763460b40a4d13f45d5d3bb86431bcb1fd8d25c1563ae1e886ce11bf01fd7"
+            },
+            "samples": 225,
+            "mean": 0.5511111111111111,
+            "baseline": 0.5377777777777778,
+            "predictions": {
+              "fast": 111,
+              "slow": 114
+            },
+            "calibration": {
+              "candidate": {
+                "samples": 225,
+                "accuracy": {
+                  "correct": 124,
+                  "mean": 0.5511111111111111,
+                  "interval": [
+                    0.4605710100617365,
+                    0.6416512121604857
+                  ]
+                },
+                "brier": 0.2409624986467634,
+                "log_loss": 0.6746137999232614,
+                "ece": 0.040556090620982,
+                "bins": [
+                  {
+                    "samples": 0,
+                    "probability": null,
+                    "frequency": null
+                  },
+                  {
+                    "samples": 21,
+                    "probability": 0.3568709202243611,
+                    "frequency": 0.38095238095238093
+                  },
+                  {
+                    "samples": 193,
+                    "probability": 0.505174854391384,
+                    "frequency": 0.538860103626943
+                  },
+                  {
+                    "samples": 11,
+                    "probability": 0.6256221261845772,
+                    "frequency": 0.8181818181818182
+                  },
+                  {
+                    "samples": 0,
+                    "probability": null,
+                    "frequency": null
+                  }
+                ]
+              },
+              "retained": {
+                "samples": 225,
+                "accuracy": {
+                  "correct": 121,
+                  "mean": 0.5377777777777778,
+                  "interval": [
+                    0.4472376767284032,
+                    0.6283178788271524
+                  ]
+                },
+                "brier": 0.25,
+                "log_loss": 0.6931471805599465,
+                "ece": 0.03777777777777778,
+                "bins": [
+                  {
+                    "samples": 0,
+                    "probability": null,
+                    "frequency": null
+                  },
+                  {
+                    "samples": 0,
+                    "probability": null,
+                    "frequency": null
+                  },
+                  {
+                    "samples": 225,
+                    "probability": 0.5,
+                    "frequency": 0.5377777777777778
+                  },
+                  {
+                    "samples": 0,
+                    "probability": null,
+                    "frequency": null
+                  },
+                  {
+                    "samples": 0,
+                    "probability": null,
+                    "frequency": null
+                  }
+                ]
+              },
+              "training_frequency": {
+                "samples": 225,
+                "accuracy": {
+                  "correct": 104,
+                  "mean": 0.4622222222222222,
+                  "interval": [
+                    0.3716821211728476,
+                    0.5527623232715968
+                  ]
+                },
+                "brier": 0.2500403424062832,
+                "log_loss": 0.6932278654028607,
+                "ece": 0.03830800047130797,
+                "bins": [
+                  {
+                    "samples": 0,
+                    "probability": null,
+                    "frequency": null
+                  },
+                  {
+                    "samples": 0,
+                    "probability": null,
+                    "frequency": null
+                  },
+                  {
+                    "samples": 225,
+                    "probability": 0.4994697773064698,
+                    "frequency": 0.5377777777777778
+                  },
+                  {
+                    "samples": 0,
+                    "probability": null,
+                    "frequency": null
+                  },
+                  {
+                    "samples": 0,
+                    "probability": null,
+                    "frequency": null
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "incumbent": {
+          "recipe": {
+            "prefix_bounds": {
+              "regularisation": [
+                0,
+                0.1
+              ],
+              "ngram_order": [
+                1,
+                3
+              ],
+              "hashing_width": [
+                16,
+                4096
+              ],
+              "learning_rate": [
+                0.01,
+                1
+              ]
+            },
+            "format": "pm-rl/recipe/1",
+            "bounds": {
+              "learning_rate": [
+                0.01,
+                1
+              ],
+              "steps": [
+                1,
+                2
+              ],
+              "batch": [
+                16,
+                256
+              ],
+              "temperature": [
+                0.5,
+                2
+              ],
+              "correct_weight": [
+                0.5,
+                1
+              ],
+              "incorrect_weight": [
+                0,
+                0.25
+              ],
+              "selection": [
+                "all",
+                "balanced"
+              ],
+              "curriculum": [
+                "forward",
+                "reverse"
+              ]
+            },
+            "knobs": {
+              "learning_rate": 0.25,
+              "steps": 2,
+              "batch": 128,
+              "temperature": 1,
+              "correct_weight": 1,
+              "incorrect_weight": 0,
+              "selection": "all",
+              "curriculum": "forward",
+              "prefix": {
+                "hashing_width": 32,
+                "ngram_order": 2,
+                "regularisation": 0.001
+              }
+            },
+            "digest": "sha256:c412e8771be3def037b3fc2e3b63dd38ed807e298c6ac458a4c74cdf3d5b4684"
+          },
+          "weight": 0,
+          "checkpoint": "sha256:d7a6a75bc5dd61d7d1323805d5e6024b49db79e94f9498b27ff8661f3bdb6759",
+          "prefix": {
+            "knobs": {
+              "hashing_width": 32,
+              "ngram_order": 2,
+              "regularisation": 0.001
+            },
+            "digest": "sha256:d7a6a75bc5dd61d7d1323805d5e6024b49db79e94f9498b27ff8661f3bdb6759"
+          },
+          "fit": {
+            "job": "process-93fc729765e65040b71225bfbd6c5542f75604857bf45c588e4d3ded41da69a3",
+            "changed": true,
+            "accepted": false,
+            "gain": 0.013333333333333308,
+            "gain_lower_bound": -0.16774686876541595,
+            "refusal": "Promotion refused: the candidate is not statistically better than the incumbent. Candidate lower bound 0.460571 does not beat incumbent upper bound 0.628318 by the effect threshold 0.01 (margin -0.177747).",
+            "candidate": {
+              "knobs": {
+                "hashing_width": 32,
+                "ngram_order": 2,
+                "regularisation": 0.001
+              },
+              "digest": "sha256:66d763460b40a4d13f45d5d3bb86431bcb1fd8d25c1563ae1e886ce11bf01fd7"
+            },
+            "samples": 225,
+            "mean": 0.5511111111111111,
+            "baseline": 0.5377777777777778,
+            "predictions": {
+              "fast": 111,
+              "slow": 114
+            },
+            "calibration": {
+              "candidate": {
+                "samples": 225,
+                "accuracy": {
+                  "correct": 124,
+                  "mean": 0.5511111111111111,
+                  "interval": [
+                    0.4605710100617365,
+                    0.6416512121604857
+                  ]
+                },
+                "brier": 0.2409624986467634,
+                "log_loss": 0.6746137999232614,
+                "ece": 0.040556090620982,
+                "bins": [
+                  {
+                    "samples": 0,
+                    "probability": null,
+                    "frequency": null
+                  },
+                  {
+                    "samples": 21,
+                    "probability": 0.3568709202243611,
+                    "frequency": 0.38095238095238093
+                  },
+                  {
+                    "samples": 193,
+                    "probability": 0.505174854391384,
+                    "frequency": 0.538860103626943
+                  },
+                  {
+                    "samples": 11,
+                    "probability": 0.6256221261845772,
+                    "frequency": 0.8181818181818182
+                  },
+                  {
+                    "samples": 0,
+                    "probability": null,
+                    "frequency": null
+                  }
+                ]
+              },
+              "retained": {
+                "samples": 225,
+                "accuracy": {
+                  "correct": 121,
+                  "mean": 0.5377777777777778,
+                  "interval": [
+                    0.4472376767284032,
+                    0.6283178788271524
+                  ]
+                },
+                "brier": 0.25,
+                "log_loss": 0.6931471805599465,
+                "ece": 0.03777777777777778,
+                "bins": [
+                  {
+                    "samples": 0,
+                    "probability": null,
+                    "frequency": null
+                  },
+                  {
+                    "samples": 0,
+                    "probability": null,
+                    "frequency": null
+                  },
+                  {
+                    "samples": 225,
+                    "probability": 0.5,
+                    "frequency": 0.5377777777777778
+                  },
+                  {
+                    "samples": 0,
+                    "probability": null,
+                    "frequency": null
+                  },
+                  {
+                    "samples": 0,
+                    "probability": null,
+                    "frequency": null
+                  }
+                ]
+              },
+              "training_frequency": {
+                "samples": 225,
+                "accuracy": {
+                  "correct": 104,
+                  "mean": 0.4622222222222222,
+                  "interval": [
+                    0.3716821211728476,
+                    0.5527623232715968
+                  ]
+                },
+                "brier": 0.2500403424062832,
+                "log_loss": 0.6932278654028607,
+                "ece": 0.03830800047130797,
+                "bins": [
+                  {
+                    "samples": 0,
+                    "probability": null,
+                    "frequency": null
+                  },
+                  {
+                    "samples": 0,
+                    "probability": null,
+                    "frequency": null
+                  },
+                  {
+                    "samples": 225,
+                    "probability": 0.4994697773064698,
+                    "frequency": 0.5377777777777778
+                  },
+                  {
+                    "samples": 0,
+                    "probability": null,
+                    "frequency": null
+                  },
+                  {
+                    "samples": 0,
+                    "probability": null,
+                    "frequency": null
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "generations": [
+          {
+            "generation": 1,
+            "proposer": "seeded",
+            "candidates": [
+              {
+                "candidate": {
+                  "recipe": {
+                    "prefix_bounds": {
+                      "regularisation": [
+                        0,
+                        0.1
+                      ],
+                      "ngram_order": [
+                        1,
+                        3
+                      ],
+                      "hashing_width": [
+                        16,
+                        4096
+                      ],
+                      "learning_rate": [
+                        0.01,
+                        1
+                      ]
+                    },
+                    "format": "pm-rl/recipe/1",
+                    "bounds": {
+                      "learning_rate": [
+                        0.01,
+                        1
+                      ],
+                      "steps": [
+                        1,
+                        2
+                      ],
+                      "batch": [
+                        16,
+                        256
+                      ],
+                      "temperature": [
+                        0.5,
+                        2
+                      ],
+                      "correct_weight": [
+                        0.5,
+                        1
+                      ],
+                      "incorrect_weight": [
+                        0,
+                        0.25
+                      ],
+                      "selection": [
+                        "all",
+                        "balanced"
+                      ],
+                      "curriculum": [
+                        "forward",
+                        "reverse"
+                      ]
+                    },
+                    "knobs": {
+                      "learning_rate": 0.14189881267026067,
+                      "steps": 2,
+                      "batch": 236,
+                      "temperature": 1.473896962008439,
+                      "correct_weight": 0.7315963520668447,
+                      "incorrect_weight": 0.017979025549720973,
+                      "prefix": {
+                        "regularisation": 0.038608057005330924,
+                        "ngram_order": 3,
+                        "hashing_width": 16
+                      },
+                      "selection": "all",
+                      "curriculum": "forward"
+                    },
+                    "digest": "sha256:b24accb429be6ba0afcb3a31dac6f5fd1b144fcf22e5af85b94c6bf273ce3f6a"
+                  },
+                  "weight": 0,
+                  "checkpoint": "sha256:8e95f0ea03d8e129f334e189dfab774b4ea9c2ffb30e22440fbf1ab5412c1dde",
+                  "prefix": {
+                    "knobs": {
+                      "regularisation": 0.038608057005330924,
+                      "ngram_order": 3,
+                      "hashing_width": 16
+                    },
+                    "digest": "sha256:8e95f0ea03d8e129f334e189dfab774b4ea9c2ffb30e22440fbf1ab5412c1dde"
+                  },
+                  "fit": {
+                    "job": "process-972178becd2dac97e063c75633738a3901e1b6df2691803e7d7ab2088aaaba4a",
+                    "changed": true,
+                    "accepted": false,
+                    "gain": 0.01777777777777778,
+                    "gain_lower_bound": -0.16330242432097147,
+                    "refusal": "Promotion refused: the candidate is not statistically better than the incumbent. Candidate lower bound 0.465015 does not beat incumbent upper bound 0.628318 by the effect threshold 0.01 (margin -0.173302).",
+                    "candidate": {
+                      "knobs": {
+                        "regularisation": 0.038608057005330924,
+                        "ngram_order": 3,
+                        "hashing_width": 16
+                      },
+                      "digest": "sha256:43e38e05db915b87e4f625b081bcc2fcf24e98f6ff0e23aafb12c3cdce25f47b"
+                    },
+                    "samples": 225,
+                    "mean": 0.5555555555555556,
+                    "baseline": 0.5377777777777778,
+                    "predictions": {
+                      "fast": 6,
+                      "slow": 219
+                    },
+                    "calibration": {
+                      "candidate": {
+                        "samples": 225,
+                        "accuracy": {
+                          "correct": 125,
+                          "mean": 0.5555555555555556,
+                          "interval": [
+                            0.465015454506181,
+                            0.6460956566049302
+                          ]
+                        },
+                        "brier": 0.24450821772208906,
+                        "log_loss": 0.6821151676458943,
+                        "ece": 0.004523655912341648,
+                        "bins": [
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 225,
+                            "probability": 0.5332541218654361,
+                            "frequency": 0.5377777777777778
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          }
+                        ]
+                      },
+                      "retained": {
+                        "samples": 225,
+                        "accuracy": {
+                          "correct": 121,
+                          "mean": 0.5377777777777778,
+                          "interval": [
+                            0.4472376767284032,
+                            0.6283178788271524
+                          ]
+                        },
+                        "brier": 0.25,
+                        "log_loss": 0.6931471805599465,
+                        "ece": 0.03777777777777778,
+                        "bins": [
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 225,
+                            "probability": 0.5,
+                            "frequency": 0.5377777777777778
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          }
+                        ]
+                      },
+                      "training_frequency": {
+                        "samples": 225,
+                        "accuracy": {
+                          "correct": 104,
+                          "mean": 0.4622222222222222,
+                          "interval": [
+                            0.3716821211728476,
+                            0.5527623232715968
+                          ]
+                        },
+                        "brier": 0.2500403424062832,
+                        "log_loss": 0.6932278654028607,
+                        "ece": 0.03830800047130797,
+                        "bins": [
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 225,
+                            "probability": 0.4994697773064698,
+                            "frequency": 0.5377777777777778
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          }
+                        ]
+                      }
+                    }
+                  }
+                },
+                "incumbent": "sha256:c412e8771be3def037b3fc2e3b63dd38ed807e298c6ac458a4c74cdf3d5b4684",
+                "score": {
+                  "mean": 0.6542056074766355,
+                  "samples": 214,
+                  "context": "05c85ef875998d8dc07a693811a19277b89bbc4264f08dae5d37796391706546"
+                },
+                "gain": 0,
+                "gain_lower_bound": -0.21778781183411927,
+                "verdict": {
+                  "decision": "refuse",
+                  "code": "no_statistical_improvement",
+                  "reason": "Promotion refused: the candidate is not statistically better than the incumbent. Candidate lower bound 0.545312 does not beat incumbent upper bound 0.763100 by the effect threshold 0.01 (margin -0.227788). The candidate regressed: its mean is not above the incumbent's mean."
+                },
+                "diagnostics": {
+                  "calibration": {
+                    "samples": 214,
+                    "accuracy": {
+                      "correct": 140,
+                      "mean": 0.6542056074766355,
+                      "interval": [
+                        0.5613676991135204,
+                        0.7470435158397506
+                      ]
+                    },
+                    "brier": 0.25,
+                    "log_loss": 0.6931471805599465,
+                    "ece": 0.1542056074766355,
+                    "bins": [
+                      {
+                        "samples": 0,
+                        "probability": null,
+                        "frequency": null
+                      },
+                      {
+                        "samples": 0,
+                        "probability": null,
+                        "frequency": null
+                      },
+                      {
+                        "samples": 214,
+                        "probability": 0.5,
+                        "frequency": 0.6542056074766355
+                      },
+                      {
+                        "samples": 0,
+                        "probability": null,
+                        "frequency": null
+                      },
+                      {
+                        "samples": 0,
+                        "probability": null,
+                        "frequency": null
+                      }
+                    ]
+                  },
+                  "majority_class": {
+                    "label": "slow",
+                    "correct": 140,
+                    "samples": 214,
+                    "mean": 0.6542056074766355
+                  },
+                  "predictions": {
+                    "distinct_labels": 1,
+                    "counts": {
+                      "fast": 0,
+                      "slow": 214
+                    }
+                  },
+                  "disagreements": [
+                    {
+                      "recipe": "sha256:c412e8771be3def037b3fc2e3b63dd38ed807e298c6ac458a4c74cdf3d5b4684",
+                      "differing": 0,
+                      "samples": 214,
+                      "rate": 0
+                    }
+                  ]
+                }
+              },
+              {
+                "candidate": {
+                  "recipe": {
+                    "prefix_bounds": {
+                      "regularisation": [
+                        0,
+                        0.1
+                      ],
+                      "ngram_order": [
+                        1,
+                        3
+                      ],
+                      "hashing_width": [
+                        16,
+                        4096
+                      ],
+                      "learning_rate": [
+                        0.01,
+                        1
+                      ]
+                    },
+                    "format": "pm-rl/recipe/1",
+                    "bounds": {
+                      "learning_rate": [
+                        0.01,
+                        1
+                      ],
+                      "steps": [
+                        1,
+                        2
+                      ],
+                      "batch": [
+                        16,
+                        256
+                      ],
+                      "temperature": [
+                        0.5,
+                        2
+                      ],
+                      "correct_weight": [
+                        0.5,
+                        1
+                      ],
+                      "incorrect_weight": [
+                        0,
+                        0.25
+                      ],
+                      "selection": [
+                        "all",
+                        "balanced"
+                      ],
+                      "curriculum": [
+                        "forward",
+                        "reverse"
+                      ]
+                    },
+                    "knobs": {
+                      "learning_rate": 0.6654765332373791,
+                      "steps": 1,
+                      "batch": 82,
+                      "temperature": 1.9209714403841645,
+                      "correct_weight": 0.7803024702006951,
+                      "incorrect_weight": 0.04362239921465516,
+                      "prefix": {
+                        "regularisation": 0.05322790683712811,
+                        "ngram_order": 1,
+                        "hashing_width": 64
+                      },
+                      "selection": "balanced",
+                      "curriculum": "forward"
+                    },
+                    "digest": "sha256:47ad89c19a30ab1531080ee7f6c6354cdb652c993aedd7ea9767a649c802c2a0"
+                  },
+                  "weight": 0,
+                  "checkpoint": "sha256:2c73b736592fb9624cf0ada05203b14532a3a204a6eb7538c6bc6b550a05ee7d",
+                  "prefix": {
+                    "knobs": {
+                      "regularisation": 0.05322790683712811,
+                      "ngram_order": 1,
+                      "hashing_width": 64
+                    },
+                    "digest": "sha256:2c73b736592fb9624cf0ada05203b14532a3a204a6eb7538c6bc6b550a05ee7d"
+                  },
+                  "fit": {
+                    "job": "process-818ac4fc3d875ecdea1e36d7e3b602281a82f09c0ae4ef0374bc94c6c5c5c38f",
+                    "changed": true,
+                    "accepted": false,
+                    "gain": 0.013333333333333308,
+                    "gain_lower_bound": -0.16774686876541595,
+                    "refusal": "Promotion refused: the candidate is not statistically better than the incumbent. Candidate lower bound 0.460571 does not beat incumbent upper bound 0.628318 by the effect threshold 0.01 (margin -0.177747).",
+                    "candidate": {
+                      "knobs": {
+                        "regularisation": 0.05322790683712811,
+                        "ngram_order": 1,
+                        "hashing_width": 64
+                      },
+                      "digest": "sha256:2985dbfa39187948ff1c589731ca7dd45e484af8bca9f527fc621ebefbfc89ee"
+                    },
+                    "samples": 225,
+                    "mean": 0.5511111111111111,
+                    "baseline": 0.5377777777777778,
+                    "predictions": {
+                      "fast": 3,
+                      "slow": 222
+                    },
+                    "calibration": {
+                      "candidate": {
+                        "samples": 225,
+                        "accuracy": {
+                          "correct": 124,
+                          "mean": 0.5511111111111111,
+                          "interval": [
+                            0.4605710100617365,
+                            0.6416512121604857
+                          ]
+                        },
+                        "brier": 0.244414622521505,
+                        "log_loss": 0.6818006897951073,
+                        "ece": 0.04248152495107913,
+                        "bins": [
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 212,
+                            "probability": 0.5498110682618849,
+                            "frequency": 0.5188679245283019
+                          },
+                          {
+                            "samples": 13,
+                            "probability": 0.6155079505789828,
+                            "frequency": 0.8461538461538461
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          }
+                        ]
+                      },
+                      "retained": {
+                        "samples": 225,
+                        "accuracy": {
+                          "correct": 121,
+                          "mean": 0.5377777777777778,
+                          "interval": [
+                            0.4472376767284032,
+                            0.6283178788271524
+                          ]
+                        },
+                        "brier": 0.25,
+                        "log_loss": 0.6931471805599465,
+                        "ece": 0.03777777777777778,
+                        "bins": [
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 225,
+                            "probability": 0.5,
+                            "frequency": 0.5377777777777778
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          }
+                        ]
+                      },
+                      "training_frequency": {
+                        "samples": 225,
+                        "accuracy": {
+                          "correct": 104,
+                          "mean": 0.4622222222222222,
+                          "interval": [
+                            0.3716821211728476,
+                            0.5527623232715968
+                          ]
+                        },
+                        "brier": 0.2500403424062832,
+                        "log_loss": 0.6932278654028607,
+                        "ece": 0.03830800047130797,
+                        "bins": [
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 225,
+                            "probability": 0.4994697773064698,
+                            "frequency": 0.5377777777777778
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          }
+                        ]
+                      }
+                    }
+                  }
+                },
+                "incumbent": "sha256:c412e8771be3def037b3fc2e3b63dd38ed807e298c6ac458a4c74cdf3d5b4684",
+                "score": {
+                  "mean": 0.6542056074766355,
+                  "samples": 214,
+                  "context": "05c85ef875998d8dc07a693811a19277b89bbc4264f08dae5d37796391706546"
+                },
+                "gain": 0,
+                "gain_lower_bound": -0.21778781183411927,
+                "verdict": {
+                  "decision": "refuse",
+                  "code": "no_statistical_improvement",
+                  "reason": "Promotion refused: the candidate is not statistically better than the incumbent. Candidate lower bound 0.545312 does not beat incumbent upper bound 0.763100 by the effect threshold 0.01 (margin -0.227788). The candidate regressed: its mean is not above the incumbent's mean."
+                },
+                "diagnostics": {
+                  "calibration": {
+                    "samples": 214,
+                    "accuracy": {
+                      "correct": 140,
+                      "mean": 0.6542056074766355,
+                      "interval": [
+                        0.5613676991135204,
+                        0.7470435158397506
+                      ]
+                    },
+                    "brier": 0.25,
+                    "log_loss": 0.6931471805599465,
+                    "ece": 0.1542056074766355,
+                    "bins": [
+                      {
+                        "samples": 0,
+                        "probability": null,
+                        "frequency": null
+                      },
+                      {
+                        "samples": 0,
+                        "probability": null,
+                        "frequency": null
+                      },
+                      {
+                        "samples": 214,
+                        "probability": 0.5,
+                        "frequency": 0.6542056074766355
+                      },
+                      {
+                        "samples": 0,
+                        "probability": null,
+                        "frequency": null
+                      },
+                      {
+                        "samples": 0,
+                        "probability": null,
+                        "frequency": null
+                      }
+                    ]
+                  },
+                  "majority_class": {
+                    "label": "slow",
+                    "correct": 140,
+                    "samples": 214,
+                    "mean": 0.6542056074766355
+                  },
+                  "predictions": {
+                    "distinct_labels": 1,
+                    "counts": {
+                      "fast": 0,
+                      "slow": 214
+                    }
+                  },
+                  "disagreements": [
+                    {
+                      "recipe": "sha256:c412e8771be3def037b3fc2e3b63dd38ed807e298c6ac458a4c74cdf3d5b4684",
+                      "differing": 0,
+                      "samples": 214,
+                      "rate": 0
+                    },
+                    {
+                      "recipe": "sha256:b24accb429be6ba0afcb3a31dac6f5fd1b144fcf22e5af85b94c6bf273ce3f6a",
+                      "differing": 0,
+                      "samples": 214,
+                      "rate": 0
+                    }
+                  ]
+                }
+              }
+            ],
+            "promoted": null
+          },
+          {
+            "generation": 2,
+            "proposer": "seeded",
+            "candidates": [
+              {
+                "candidate": {
+                  "recipe": {
+                    "prefix_bounds": {
+                      "regularisation": [
+                        0,
+                        0.1
+                      ],
+                      "ngram_order": [
+                        1,
+                        3
+                      ],
+                      "hashing_width": [
+                        16,
+                        4096
+                      ],
+                      "learning_rate": [
+                        0.01,
+                        1
+                      ]
+                    },
+                    "format": "pm-rl/recipe/1",
+                    "bounds": {
+                      "learning_rate": [
+                        0.01,
+                        1
+                      ],
+                      "steps": [
+                        1,
+                        2
+                      ],
+                      "batch": [
+                        16,
+                        256
+                      ],
+                      "temperature": [
+                        0.5,
+                        2
+                      ],
+                      "correct_weight": [
+                        0.5,
+                        1
+                      ],
+                      "incorrect_weight": [
+                        0,
+                        0.25
+                      ],
+                      "selection": [
+                        "all",
+                        "balanced"
+                      ],
+                      "curriculum": [
+                        "forward",
+                        "reverse"
+                      ]
+                    },
+                    "knobs": {
+                      "learning_rate": 0.9824569878191687,
+                      "steps": 1,
+                      "batch": 163,
+                      "temperature": 1.9516109181568027,
+                      "correct_weight": 0.8392156370682642,
+                      "incorrect_weight": 0.013162519433535635,
+                      "prefix": {
+                        "regularisation": 0.06067083964589984,
+                        "ngram_order": 2,
+                        "hashing_width": 16
+                      },
+                      "selection": "balanced",
+                      "curriculum": "reverse"
+                    },
+                    "digest": "sha256:0a6e84936064364cf68e3631ea7ed1de370256fa6ddb793fddd045d2b2cae3f3"
+                  },
+                  "weight": 0,
+                  "checkpoint": "sha256:bd02c0d1cc99b18eec257085f2ef4b3e4c30655f4c4421b441902bab9e39885f",
+                  "prefix": {
+                    "knobs": {
+                      "regularisation": 0.06067083964589984,
+                      "ngram_order": 2,
+                      "hashing_width": 16
+                    },
+                    "digest": "sha256:bd02c0d1cc99b18eec257085f2ef4b3e4c30655f4c4421b441902bab9e39885f"
+                  },
+                  "fit": {
+                    "job": "process-ebb81aafc7c7d4d502a4c70a9f6a2bb0e89e1b5e6fa6dd1f7b130bfca0ec50a8",
+                    "changed": true,
+                    "accepted": false,
+                    "gain": 0.022222222222222254,
+                    "gain_lower_bound": -0.158857979876527,
+                    "refusal": "Promotion refused: the candidate is not statistically better than the incumbent. Candidate lower bound 0.469460 does not beat incumbent upper bound 0.628318 by the effect threshold 0.01 (margin -0.168858).",
+                    "candidate": {
+                      "knobs": {
+                        "regularisation": 0.06067083964589984,
+                        "ngram_order": 2,
+                        "hashing_width": 16
+                      },
+                      "digest": "sha256:8eb4288d828cbf22898e840c09b14f443f031e35a1a9b3da5febd7f01dfb1238"
+                    },
+                    "samples": 225,
+                    "mean": 0.56,
+                    "baseline": 0.5377777777777778,
+                    "predictions": {
+                      "fast": 7,
+                      "slow": 218
+                    },
+                    "calibration": {
+                      "candidate": {
+                        "samples": 225,
+                        "accuracy": {
+                          "correct": 126,
+                          "mean": 0.56,
+                          "interval": [
+                            0.46945989895062545,
+                            0.6505401010493747
+                          ]
+                        },
+                        "brier": 0.24417819201007313,
+                        "log_loss": 0.6813921556252047,
+                        "ece": 0.03323960784706549,
+                        "bins": [
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 204,
+                            "probability": 0.5563321378133379,
+                            "frequency": 0.5245098039215687
+                          },
+                          {
+                            "samples": 21,
+                            "probability": 0.6196592546824384,
+                            "frequency": 0.6666666666666666
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          }
+                        ]
+                      },
+                      "retained": {
+                        "samples": 225,
+                        "accuracy": {
+                          "correct": 121,
+                          "mean": 0.5377777777777778,
+                          "interval": [
+                            0.4472376767284032,
+                            0.6283178788271524
+                          ]
+                        },
+                        "brier": 0.25,
+                        "log_loss": 0.6931471805599465,
+                        "ece": 0.03777777777777778,
+                        "bins": [
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 225,
+                            "probability": 0.5,
+                            "frequency": 0.5377777777777778
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          }
+                        ]
+                      },
+                      "training_frequency": {
+                        "samples": 225,
+                        "accuracy": {
+                          "correct": 104,
+                          "mean": 0.4622222222222222,
+                          "interval": [
+                            0.3716821211728476,
+                            0.5527623232715968
+                          ]
+                        },
+                        "brier": 0.2500403424062832,
+                        "log_loss": 0.6932278654028607,
+                        "ece": 0.03830800047130797,
+                        "bins": [
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 225,
+                            "probability": 0.4994697773064698,
+                            "frequency": 0.5377777777777778
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          }
+                        ]
+                      }
+                    }
+                  }
+                },
+                "incumbent": "sha256:c412e8771be3def037b3fc2e3b63dd38ed807e298c6ac458a4c74cdf3d5b4684",
+                "score": {
+                  "mean": 0.6542056074766355,
+                  "samples": 214,
+                  "context": "05c85ef875998d8dc07a693811a19277b89bbc4264f08dae5d37796391706546"
+                },
+                "gain": 0,
+                "gain_lower_bound": -0.21778781183411927,
+                "verdict": {
+                  "decision": "refuse",
+                  "code": "no_statistical_improvement",
+                  "reason": "Promotion refused: the candidate is not statistically better than the incumbent. Candidate lower bound 0.545312 does not beat incumbent upper bound 0.763100 by the effect threshold 0.01 (margin -0.227788). The candidate regressed: its mean is not above the incumbent's mean."
+                },
+                "diagnostics": {
+                  "calibration": {
+                    "samples": 214,
+                    "accuracy": {
+                      "correct": 140,
+                      "mean": 0.6542056074766355,
+                      "interval": [
+                        0.5613676991135204,
+                        0.7470435158397506
+                      ]
+                    },
+                    "brier": 0.25,
+                    "log_loss": 0.6931471805599465,
+                    "ece": 0.1542056074766355,
+                    "bins": [
+                      {
+                        "samples": 0,
+                        "probability": null,
+                        "frequency": null
+                      },
+                      {
+                        "samples": 0,
+                        "probability": null,
+                        "frequency": null
+                      },
+                      {
+                        "samples": 214,
+                        "probability": 0.5,
+                        "frequency": 0.6542056074766355
+                      },
+                      {
+                        "samples": 0,
+                        "probability": null,
+                        "frequency": null
+                      },
+                      {
+                        "samples": 0,
+                        "probability": null,
+                        "frequency": null
+                      }
+                    ]
+                  },
+                  "majority_class": {
+                    "label": "slow",
+                    "correct": 140,
+                    "samples": 214,
+                    "mean": 0.6542056074766355
+                  },
+                  "predictions": {
+                    "distinct_labels": 1,
+                    "counts": {
+                      "fast": 0,
+                      "slow": 214
+                    }
+                  },
+                  "disagreements": [
+                    {
+                      "recipe": "sha256:c412e8771be3def037b3fc2e3b63dd38ed807e298c6ac458a4c74cdf3d5b4684",
+                      "differing": 0,
+                      "samples": 214,
+                      "rate": 0
+                    },
+                    {
+                      "recipe": "sha256:b24accb429be6ba0afcb3a31dac6f5fd1b144fcf22e5af85b94c6bf273ce3f6a",
+                      "differing": 0,
+                      "samples": 214,
+                      "rate": 0
+                    },
+                    {
+                      "recipe": "sha256:47ad89c19a30ab1531080ee7f6c6354cdb652c993aedd7ea9767a649c802c2a0",
+                      "differing": 0,
+                      "samples": 214,
+                      "rate": 0
+                    }
+                  ]
+                }
+              },
+              {
+                "candidate": {
+                  "recipe": {
+                    "prefix_bounds": {
+                      "regularisation": [
+                        0,
+                        0.1
+                      ],
+                      "ngram_order": [
+                        1,
+                        3
+                      ],
+                      "hashing_width": [
+                        16,
+                        4096
+                      ],
+                      "learning_rate": [
+                        0.01,
+                        1
+                      ]
+                    },
+                    "format": "pm-rl/recipe/1",
+                    "bounds": {
+                      "learning_rate": [
+                        0.01,
+                        1
+                      ],
+                      "steps": [
+                        1,
+                        2
+                      ],
+                      "batch": [
+                        16,
+                        256
+                      ],
+                      "temperature": [
+                        0.5,
+                        2
+                      ],
+                      "correct_weight": [
+                        0.5,
+                        1
+                      ],
+                      "incorrect_weight": [
+                        0,
+                        0.25
+                      ],
+                      "selection": [
+                        "all",
+                        "balanced"
+                      ],
+                      "curriculum": [
+                        "forward",
+                        "reverse"
+                      ]
+                    },
+                    "knobs": {
+                      "learning_rate": 0.6707208060100674,
+                      "steps": 1,
+                      "batch": 145,
+                      "temperature": 1.6728670237353072,
+                      "correct_weight": 0.6122616571374238,
+                      "incorrect_weight": 0.22644032834796235,
+                      "prefix": {
+                        "regularisation": 0.05862415409646929,
+                        "ngram_order": 3,
+                        "hashing_width": 32
+                      },
+                      "selection": "balanced",
+                      "curriculum": "forward"
+                    },
+                    "digest": "sha256:218b8b2727213f1119f757a2d7d0c7bedb9606b7b5300ee71407d020f80c1840"
+                  },
+                  "weight": 0,
+                  "checkpoint": "sha256:c4349084998d4d74d167c3ade123d72b73413016c759fb49a42a3b19b0a66f67",
+                  "prefix": {
+                    "knobs": {
+                      "regularisation": 0.05862415409646929,
+                      "ngram_order": 3,
+                      "hashing_width": 32
+                    },
+                    "digest": "sha256:c4349084998d4d74d167c3ade123d72b73413016c759fb49a42a3b19b0a66f67"
+                  },
+                  "fit": {
+                    "job": "process-02808a193750d876d4005f5ef9986c9941509fad43bdb61ddc3c870ffd8083dc",
+                    "changed": true,
+                    "accepted": false,
+                    "gain": -0.0755555555555556,
+                    "gain_lower_bound": -0.25663575765430485,
+                    "refusal": "Promotion refused: the candidate is not statistically better than the incumbent. Candidate lower bound 0.371682 does not beat incumbent upper bound 0.628318 by the effect threshold 0.01 (margin -0.266636). The candidate regressed: its mean is not above the incumbent's mean.",
+                    "candidate": {
+                      "knobs": {
+                        "regularisation": 0.05862415409646929,
+                        "ngram_order": 3,
+                        "hashing_width": 32
+                      },
+                      "digest": "sha256:a8f1c68dd4ad5436be87243e3f2461dd133f1041d2f21819e91e8ca0366af6de"
+                    },
+                    "samples": 225,
+                    "mean": 0.4622222222222222,
+                    "baseline": 0.5377777777777778,
+                    "predictions": {
+                      "fast": 209,
+                      "slow": 16
+                    },
+                    "calibration": {
+                      "candidate": {
+                        "samples": 225,
+                        "accuracy": {
+                          "correct": 104,
+                          "mean": 0.4622222222222222,
+                          "interval": [
+                            0.3716821211728476,
+                            0.5527623232715968
+                          ]
+                        },
+                        "brier": 0.25278240798696217,
+                        "log_loss": 0.6987298694102952,
+                        "ece": 0.08207367121676931,
+                        "bins": [
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 4,
+                            "probability": 0.3971245752319823,
+                            "frequency": 0.25
+                          },
+                          {
+                            "samples": 221,
+                            "probability": 0.4620901460504744,
+                            "frequency": 0.5429864253393665
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          }
+                        ]
+                      },
+                      "retained": {
+                        "samples": 225,
+                        "accuracy": {
+                          "correct": 121,
+                          "mean": 0.5377777777777778,
+                          "interval": [
+                            0.4472376767284032,
+                            0.6283178788271524
+                          ]
+                        },
+                        "brier": 0.25,
+                        "log_loss": 0.6931471805599465,
+                        "ece": 0.03777777777777778,
+                        "bins": [
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 225,
+                            "probability": 0.5,
+                            "frequency": 0.5377777777777778
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          }
+                        ]
+                      },
+                      "training_frequency": {
+                        "samples": 225,
+                        "accuracy": {
+                          "correct": 104,
+                          "mean": 0.4622222222222222,
+                          "interval": [
+                            0.3716821211728476,
+                            0.5527623232715968
+                          ]
+                        },
+                        "brier": 0.2500403424062832,
+                        "log_loss": 0.6932278654028607,
+                        "ece": 0.03830800047130797,
+                        "bins": [
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 225,
+                            "probability": 0.4994697773064698,
+                            "frequency": 0.5377777777777778
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          }
+                        ]
+                      }
+                    }
+                  }
+                },
+                "incumbent": "sha256:c412e8771be3def037b3fc2e3b63dd38ed807e298c6ac458a4c74cdf3d5b4684",
+                "score": {
+                  "mean": 0.6542056074766355,
+                  "samples": 214,
+                  "context": "05c85ef875998d8dc07a693811a19277b89bbc4264f08dae5d37796391706546"
+                },
+                "gain": 0,
+                "gain_lower_bound": -0.21778781183411927,
+                "verdict": {
+                  "decision": "refuse",
+                  "code": "no_statistical_improvement",
+                  "reason": "Promotion refused: the candidate is not statistically better than the incumbent. Candidate lower bound 0.545312 does not beat incumbent upper bound 0.763100 by the effect threshold 0.01 (margin -0.227788). The candidate regressed: its mean is not above the incumbent's mean."
+                },
+                "diagnostics": {
+                  "calibration": {
+                    "samples": 214,
+                    "accuracy": {
+                      "correct": 140,
+                      "mean": 0.6542056074766355,
+                      "interval": [
+                        0.5613676991135204,
+                        0.7470435158397506
+                      ]
+                    },
+                    "brier": 0.25,
+                    "log_loss": 0.6931471805599465,
+                    "ece": 0.1542056074766355,
+                    "bins": [
+                      {
+                        "samples": 0,
+                        "probability": null,
+                        "frequency": null
+                      },
+                      {
+                        "samples": 0,
+                        "probability": null,
+                        "frequency": null
+                      },
+                      {
+                        "samples": 214,
+                        "probability": 0.5,
+                        "frequency": 0.6542056074766355
+                      },
+                      {
+                        "samples": 0,
+                        "probability": null,
+                        "frequency": null
+                      },
+                      {
+                        "samples": 0,
+                        "probability": null,
+                        "frequency": null
+                      }
+                    ]
+                  },
+                  "majority_class": {
+                    "label": "slow",
+                    "correct": 140,
+                    "samples": 214,
+                    "mean": 0.6542056074766355
+                  },
+                  "predictions": {
+                    "distinct_labels": 1,
+                    "counts": {
+                      "fast": 0,
+                      "slow": 214
+                    }
+                  },
+                  "disagreements": [
+                    {
+                      "recipe": "sha256:c412e8771be3def037b3fc2e3b63dd38ed807e298c6ac458a4c74cdf3d5b4684",
+                      "differing": 0,
+                      "samples": 214,
+                      "rate": 0
+                    },
+                    {
+                      "recipe": "sha256:b24accb429be6ba0afcb3a31dac6f5fd1b144fcf22e5af85b94c6bf273ce3f6a",
+                      "differing": 0,
+                      "samples": 214,
+                      "rate": 0
+                    },
+                    {
+                      "recipe": "sha256:47ad89c19a30ab1531080ee7f6c6354cdb652c993aedd7ea9767a649c802c2a0",
+                      "differing": 0,
+                      "samples": 214,
+                      "rate": 0
+                    },
+                    {
+                      "recipe": "sha256:0a6e84936064364cf68e3631ea7ed1de370256fa6ddb793fddd045d2b2cae3f3",
+                      "differing": 0,
+                      "samples": 214,
+                      "rate": 0
+                    }
+                  ]
+                }
+              }
+            ],
+            "promoted": null
+          }
+        ],
+        "final_test": {
+          "before": {
+            "mean": 0.5714285714285714,
+            "samples": 385,
+            "context": "339ab5a704fdfe12235a428450dc494539c3d1b18508c68d03b500d78268750f"
+          },
+          "after": {
+            "mean": 0.5714285714285714,
+            "samples": 385,
+            "context": "339ab5a704fdfe12235a428450dc494539c3d1b18508c68d03b500d78268750f"
+          },
+          "diagnostics": {
+            "calibration": {
+              "samples": 385,
+              "accuracy": {
+                "correct": 220,
+                "mean": 0.5714285714285714,
+                "interval": [
+                  0.5022133091101325,
+                  0.6406438337470103
+                ]
+              },
+              "brier": 0.25,
+              "log_loss": 0.6931471805599467,
+              "ece": 0.07142857142857142,
+              "bins": [
+                {
+                  "samples": 0,
+                  "probability": null,
+                  "frequency": null
+                },
+                {
+                  "samples": 0,
+                  "probability": null,
+                  "frequency": null
+                },
+                {
+                  "samples": 385,
+                  "probability": 0.5,
+                  "frequency": 0.5714285714285714
+                },
+                {
+                  "samples": 0,
+                  "probability": null,
+                  "frequency": null
+                },
+                {
+                  "samples": 0,
+                  "probability": null,
+                  "frequency": null
+                }
+              ]
+            },
+            "majority_class": {
+              "label": "slow",
+              "correct": 220,
+              "samples": 385,
+              "mean": 0.5714285714285714
+            },
+            "predictions": {
+              "distinct_labels": 1,
+              "counts": {
+                "fast": 0,
+                "slow": 385
+              }
+            },
+            "disagreements": [
+              {
+                "recipe": "sha256:c412e8771be3def037b3fc2e3b63dd38ed807e298c6ac458a4c74cdf3d5b4684",
+                "differing": 0,
+                "samples": 385,
+                "rate": 0
+              }
+            ]
+          },
+          "majority_test": {
+            "p_value": 1,
+            "beats_majority": false,
+            "baseline_accuracy": 0.5714285714285714,
+            "accuracy_lower_bound": 0.5090542065482301,
+            "wins": 0,
+            "losses": 0,
+            "gain_lower_bound": -0.13843052463687777
+          }
+        },
+        "dataset": "6eb9e7dcb22bb243b472512ce55e4c0ab1d2fa6053b5d489eea7b59240592f48"
+      },
+      "checkpoints": [
+        {
+          "job": "process-02808a193750d876d4005f5ef9986c9941509fad43bdb61ddc3c870ffd8083dc",
+          "state": "evaluated",
+          "artifact": {
+            "format": "pm-rl/checkpoint-artifact/1",
+            "kind": "prefix",
+            "digest": "sha256:7dfeeae924cc937690642d4e4c5c687195a7e961b386845699e48b75a94ea6ae",
+            "policy": "sha256:a8f1c68dd4ad5436be87243e3f2461dd133f1041d2f21819e91e8ca0366af6de",
+            "bytes": 418
+          },
+          "storage_charge_bytes": 2983,
+          "checkpoint_bytes": 418,
+          "legacy_4096_byte_reader": {
+            "iterations": 100,
+            "median_ms": 0.043796999991172925,
+            "mean_ms": 0.0956803700007731
+          },
+          "artifact_reader": {
+            "iterations": 100,
+            "median_ms": 0.04864799999631941,
+            "mean_ms": 0.21339098999975248
+          }
+        },
+        {
+          "job": "process-ebb81aafc7c7d4d502a4c70a9f6a2bb0e89e1b5e6fa6dd1f7b130bfca0ec50a8",
+          "state": "evaluated",
+          "artifact": {
+            "format": "pm-rl/checkpoint-artifact/1",
+            "kind": "prefix",
+            "digest": "sha256:1cd8ad73fbc81bbdf562bee3e4e83cc6f426e2bcde4147047807400a865ae6fc",
+            "policy": "sha256:8eb4288d828cbf22898e840c09b14f443f031e35a1a9b3da5febd7f01dfb1238",
+            "bytes": 296
+          },
+          "storage_charge_bytes": 2861,
+          "checkpoint_bytes": 296,
+          "legacy_4096_byte_reader": {
+            "iterations": 100,
+            "median_ms": 0.036680999997770414,
+            "mean_ms": 0.14953910000156612
+          },
+          "artifact_reader": {
+            "iterations": 100,
+            "median_ms": 0.040772999986074865,
+            "mean_ms": 0.17979098000039812
+          }
+        },
+        {
+          "job": "process-818ac4fc3d875ecdea1e36d7e3b602281a82f09c0ae4ef0374bc94c6c5c5c38f",
+          "state": "evaluated",
+          "artifact": {
+            "format": "pm-rl/checkpoint-artifact/1",
+            "kind": "prefix",
+            "digest": "sha256:e2e30a74aaf5b9613107beadfcb8032de496ddf5bc461a54725d3af64deada0e",
+            "policy": "sha256:2985dbfa39187948ff1c589731ca7dd45e484af8bca9f527fc621ebefbfc89ee",
+            "bytes": 651
+          },
+          "storage_charge_bytes": 3216,
+          "checkpoint_bytes": 651,
+          "legacy_4096_byte_reader": {
+            "iterations": 100,
+            "median_ms": 0.046842999989166856,
+            "mean_ms": 0.23057455999951343
+          },
+          "artifact_reader": {
+            "iterations": 100,
+            "median_ms": 0.05042899999534711,
+            "mean_ms": 0.15413374000112526
+          }
+        },
+        {
+          "job": "process-972178becd2dac97e063c75633738a3901e1b6df2691803e7d7ab2088aaaba4a",
+          "state": "evaluated",
+          "artifact": {
+            "format": "pm-rl/checkpoint-artifact/1",
+            "kind": "prefix",
+            "digest": "sha256:c3e7f195beb4f31100cca7ba8ebdb19620c4acf992457b9c5f294a7f842c6f75",
+            "policy": "sha256:43e38e05db915b87e4f625b081bcc2fcf24e98f6ff0e23aafb12c3cdce25f47b",
+            "bytes": 296
+          },
+          "storage_charge_bytes": 2865,
+          "checkpoint_bytes": 296,
+          "legacy_4096_byte_reader": {
+            "iterations": 100,
+            "median_ms": 0.03343199999653734,
+            "mean_ms": 0.11366805999889039
+          },
+          "artifact_reader": {
+            "iterations": 100,
+            "median_ms": 0.03835700001218356,
+            "mean_ms": 0.12180653000221354
+          }
+        },
+        {
+          "job": "process-93fc729765e65040b71225bfbd6c5542f75604857bf45c588e4d3ded41da69a3",
+          "state": "evaluated",
+          "artifact": {
+            "format": "pm-rl/checkpoint-artifact/1",
+            "kind": "prefix",
+            "digest": "sha256:1702272c030dae3ec179776ace8d114205bb87569b02d467355ab1e152058697",
+            "policy": "sha256:66d763460b40a4d13f45d5d3bb86431bcb1fd8d25c1563ae1e886ce11bf01fd7",
+            "bytes": 396
+          },
+          "storage_charge_bytes": 2935,
+          "checkpoint_bytes": 396,
+          "legacy_4096_byte_reader": {
+            "iterations": 100,
+            "median_ms": 0.03922700000111945,
+            "mean_ms": 0.15686399999569403
+          },
+          "artifact_reader": {
+            "iterations": 100,
+            "median_ms": 0.041579000011552125,
+            "mean_ms": 0.14751475999946706
+          }
+        }
+      ]
+    },
+    {
+      "hashing_width": 4096,
+      "configuration": {
+        "initial_recipe": {
+          "prefix_bounds": {
+            "regularisation": [
+              0,
+              0.1
+            ],
+            "ngram_order": [
+              1,
+              3
+            ],
+            "hashing_width": [
+              16,
+              4096
+            ],
+            "learning_rate": [
+              0.01,
+              1
+            ]
+          },
+          "format": "pm-rl/recipe/1",
+          "bounds": {
+            "learning_rate": [
+              0.01,
+              1
+            ],
+            "steps": [
+              1,
+              2
+            ],
+            "batch": [
+              16,
+              256
+            ],
+            "temperature": [
+              0.5,
+              2
+            ],
+            "correct_weight": [
+              0.5,
+              1
+            ],
+            "incorrect_weight": [
+              0,
+              0.25
+            ],
+            "selection": [
+              "all",
+              "balanced"
+            ],
+            "curriculum": [
+              "forward",
+              "reverse"
+            ]
+          },
+          "knobs": {
+            "learning_rate": 0.25,
+            "steps": 2,
+            "batch": 128,
+            "temperature": 1,
+            "correct_weight": 1,
+            "incorrect_weight": 0,
+            "selection": "all",
+            "curriculum": "forward",
+            "prefix": {
+              "hashing_width": 4096,
+              "ngram_order": 2,
+              "regularisation": 0.001
+            }
+          },
+          "digest": "sha256:d99bfc98b0bc898f3ab16a2aa236dc97812e001c16d732eadec99bf88c5fe9b9"
+        },
+        "seed": 42,
+        "meta_generations": 2,
+        "candidates": 2,
+        "timeout_ms": 840000,
+        "criterion": {
+          "confidence": 0.95,
+          "minSamples": 10,
+          "effectThreshold": 0.01
+        },
+        "maximum_gap": 0.3,
+        "evaluation_samples": 40000,
+        "adapter": {
+          "kind": "process-bandit",
+          "allowance": {
+            "training_steps": 1,
+            "wall_ms": 30000,
+            "storage_bytes": 1048576,
+            "compute_units": 30000,
+            "tokens": 0
+          }
+        }
+      },
+      "elapsed_ms_including_replay": 83624.350358,
+      "summary": {
+        "initial": {
+          "recipe": {
+            "prefix_bounds": {
+              "regularisation": [
+                0,
+                0.1
+              ],
+              "ngram_order": [
+                1,
+                3
+              ],
+              "hashing_width": [
+                16,
+                4096
+              ],
+              "learning_rate": [
+                0.01,
+                1
+              ]
+            },
+            "format": "pm-rl/recipe/1",
+            "bounds": {
+              "learning_rate": [
+                0.01,
+                1
+              ],
+              "steps": [
+                1,
+                2
+              ],
+              "batch": [
+                16,
+                256
+              ],
+              "temperature": [
+                0.5,
+                2
+              ],
+              "correct_weight": [
+                0.5,
+                1
+              ],
+              "incorrect_weight": [
+                0,
+                0.25
+              ],
+              "selection": [
+                "all",
+                "balanced"
+              ],
+              "curriculum": [
+                "forward",
+                "reverse"
+              ]
+            },
+            "knobs": {
+              "learning_rate": 0.25,
+              "steps": 2,
+              "batch": 128,
+              "temperature": 1,
+              "correct_weight": 1,
+              "incorrect_weight": 0,
+              "selection": "all",
+              "curriculum": "forward",
+              "prefix": {
+                "hashing_width": 4096,
+                "ngram_order": 2,
+                "regularisation": 0.001
+              }
+            },
+            "digest": "sha256:d99bfc98b0bc898f3ab16a2aa236dc97812e001c16d732eadec99bf88c5fe9b9"
+          },
+          "weight": 0,
+          "checkpoint": "sha256:1626538b228fc17c6c50c7f10fa52991621fc6ce4b854612c34ebf5c28b85421",
+          "prefix": {
+            "knobs": {
+              "hashing_width": 4096,
+              "ngram_order": 2,
+              "regularisation": 0.001
+            },
+            "digest": "sha256:1626538b228fc17c6c50c7f10fa52991621fc6ce4b854612c34ebf5c28b85421"
+          },
+          "fit": {
+            "job": "process-2be2001265ccbf4724dff62e4df395a8ab38a4327e7168d69846ab41cde6904d",
+            "changed": true,
+            "accepted": false,
+            "gain": 0.07111111111111112,
+            "gain_lower_bound": -0.10996909098763813,
+            "refusal": "Promotion refused: the candidate is not statistically better than the incumbent. Candidate lower bound 0.518349 does not beat incumbent upper bound 0.628318 by the effect threshold 0.01 (margin -0.119969).",
+            "candidate": {
+              "knobs": {
+                "hashing_width": 4096,
+                "ngram_order": 2,
+                "regularisation": 0.001
+              },
+              "digest": "sha256:f5a12d12943d8d4768315ccdb482a52024143534ad091ee8b6f5adbbef9a837c"
+            },
+            "samples": 225,
+            "mean": 0.6088888888888889,
+            "baseline": 0.5377777777777778,
+            "predictions": {
+              "fast": 118,
+              "slow": 107
+            },
+            "calibration": {
+              "candidate": {
+                "samples": 225,
+                "accuracy": {
+                  "correct": 137,
+                  "mean": 0.6088888888888889,
+                  "interval": [
+                    0.5183487878395143,
+                    0.6994289899382635
+                  ]
+                },
+                "brier": 0.23543713200775152,
+                "log_loss": 0.6634339419711223,
+                "ece": 0.08499407714084084,
+                "bins": [
+                  {
+                    "samples": 0,
+                    "probability": null,
+                    "frequency": null
+                  },
+                  {
+                    "samples": 13,
+                    "probability": 0.36125958007880266,
+                    "frequency": 0
+                  },
+                  {
+                    "samples": 202,
+                    "probability": 0.4963592849749122,
+                    "frequency": 0.5544554455445545
+                  },
+                  {
+                    "samples": 10,
+                    "probability": 0.6308131619402969,
+                    "frequency": 0.9
+                  },
+                  {
+                    "samples": 0,
+                    "probability": null,
+                    "frequency": null
+                  }
+                ]
+              },
+              "retained": {
+                "samples": 225,
+                "accuracy": {
+                  "correct": 121,
+                  "mean": 0.5377777777777778,
+                  "interval": [
+                    0.4472376767284032,
+                    0.6283178788271524
+                  ]
+                },
+                "brier": 0.25,
+                "log_loss": 0.6931471805599465,
+                "ece": 0.03777777777777778,
+                "bins": [
+                  {
+                    "samples": 0,
+                    "probability": null,
+                    "frequency": null
+                  },
+                  {
+                    "samples": 0,
+                    "probability": null,
+                    "frequency": null
+                  },
+                  {
+                    "samples": 225,
+                    "probability": 0.5,
+                    "frequency": 0.5377777777777778
+                  },
+                  {
+                    "samples": 0,
+                    "probability": null,
+                    "frequency": null
+                  },
+                  {
+                    "samples": 0,
+                    "probability": null,
+                    "frequency": null
+                  }
+                ]
+              },
+              "training_frequency": {
+                "samples": 225,
+                "accuracy": {
+                  "correct": 104,
+                  "mean": 0.4622222222222222,
+                  "interval": [
+                    0.3716821211728476,
+                    0.5527623232715968
+                  ]
+                },
+                "brier": 0.2500403424062832,
+                "log_loss": 0.6932278654028607,
+                "ece": 0.03830800047130797,
+                "bins": [
+                  {
+                    "samples": 0,
+                    "probability": null,
+                    "frequency": null
+                  },
+                  {
+                    "samples": 0,
+                    "probability": null,
+                    "frequency": null
+                  },
+                  {
+                    "samples": 225,
+                    "probability": 0.4994697773064698,
+                    "frequency": 0.5377777777777778
+                  },
+                  {
+                    "samples": 0,
+                    "probability": null,
+                    "frequency": null
+                  },
+                  {
+                    "samples": 0,
+                    "probability": null,
+                    "frequency": null
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "incumbent": {
+          "recipe": {
+            "prefix_bounds": {
+              "regularisation": [
+                0,
+                0.1
+              ],
+              "ngram_order": [
+                1,
+                3
+              ],
+              "hashing_width": [
+                16,
+                4096
+              ],
+              "learning_rate": [
+                0.01,
+                1
+              ]
+            },
+            "format": "pm-rl/recipe/1",
+            "bounds": {
+              "learning_rate": [
+                0.01,
+                1
+              ],
+              "steps": [
+                1,
+                2
+              ],
+              "batch": [
+                16,
+                256
+              ],
+              "temperature": [
+                0.5,
+                2
+              ],
+              "correct_weight": [
+                0.5,
+                1
+              ],
+              "incorrect_weight": [
+                0,
+                0.25
+              ],
+              "selection": [
+                "all",
+                "balanced"
+              ],
+              "curriculum": [
+                "forward",
+                "reverse"
+              ]
+            },
+            "knobs": {
+              "learning_rate": 0.25,
+              "steps": 2,
+              "batch": 128,
+              "temperature": 1,
+              "correct_weight": 1,
+              "incorrect_weight": 0,
+              "selection": "all",
+              "curriculum": "forward",
+              "prefix": {
+                "hashing_width": 4096,
+                "ngram_order": 2,
+                "regularisation": 0.001
+              }
+            },
+            "digest": "sha256:d99bfc98b0bc898f3ab16a2aa236dc97812e001c16d732eadec99bf88c5fe9b9"
+          },
+          "weight": 0,
+          "checkpoint": "sha256:1626538b228fc17c6c50c7f10fa52991621fc6ce4b854612c34ebf5c28b85421",
+          "prefix": {
+            "knobs": {
+              "hashing_width": 4096,
+              "ngram_order": 2,
+              "regularisation": 0.001
+            },
+            "digest": "sha256:1626538b228fc17c6c50c7f10fa52991621fc6ce4b854612c34ebf5c28b85421"
+          },
+          "fit": {
+            "job": "process-2be2001265ccbf4724dff62e4df395a8ab38a4327e7168d69846ab41cde6904d",
+            "changed": true,
+            "accepted": false,
+            "gain": 0.07111111111111112,
+            "gain_lower_bound": -0.10996909098763813,
+            "refusal": "Promotion refused: the candidate is not statistically better than the incumbent. Candidate lower bound 0.518349 does not beat incumbent upper bound 0.628318 by the effect threshold 0.01 (margin -0.119969).",
+            "candidate": {
+              "knobs": {
+                "hashing_width": 4096,
+                "ngram_order": 2,
+                "regularisation": 0.001
+              },
+              "digest": "sha256:f5a12d12943d8d4768315ccdb482a52024143534ad091ee8b6f5adbbef9a837c"
+            },
+            "samples": 225,
+            "mean": 0.6088888888888889,
+            "baseline": 0.5377777777777778,
+            "predictions": {
+              "fast": 118,
+              "slow": 107
+            },
+            "calibration": {
+              "candidate": {
+                "samples": 225,
+                "accuracy": {
+                  "correct": 137,
+                  "mean": 0.6088888888888889,
+                  "interval": [
+                    0.5183487878395143,
+                    0.6994289899382635
+                  ]
+                },
+                "brier": 0.23543713200775152,
+                "log_loss": 0.6634339419711223,
+                "ece": 0.08499407714084084,
+                "bins": [
+                  {
+                    "samples": 0,
+                    "probability": null,
+                    "frequency": null
+                  },
+                  {
+                    "samples": 13,
+                    "probability": 0.36125958007880266,
+                    "frequency": 0
+                  },
+                  {
+                    "samples": 202,
+                    "probability": 0.4963592849749122,
+                    "frequency": 0.5544554455445545
+                  },
+                  {
+                    "samples": 10,
+                    "probability": 0.6308131619402969,
+                    "frequency": 0.9
+                  },
+                  {
+                    "samples": 0,
+                    "probability": null,
+                    "frequency": null
+                  }
+                ]
+              },
+              "retained": {
+                "samples": 225,
+                "accuracy": {
+                  "correct": 121,
+                  "mean": 0.5377777777777778,
+                  "interval": [
+                    0.4472376767284032,
+                    0.6283178788271524
+                  ]
+                },
+                "brier": 0.25,
+                "log_loss": 0.6931471805599465,
+                "ece": 0.03777777777777778,
+                "bins": [
+                  {
+                    "samples": 0,
+                    "probability": null,
+                    "frequency": null
+                  },
+                  {
+                    "samples": 0,
+                    "probability": null,
+                    "frequency": null
+                  },
+                  {
+                    "samples": 225,
+                    "probability": 0.5,
+                    "frequency": 0.5377777777777778
+                  },
+                  {
+                    "samples": 0,
+                    "probability": null,
+                    "frequency": null
+                  },
+                  {
+                    "samples": 0,
+                    "probability": null,
+                    "frequency": null
+                  }
+                ]
+              },
+              "training_frequency": {
+                "samples": 225,
+                "accuracy": {
+                  "correct": 104,
+                  "mean": 0.4622222222222222,
+                  "interval": [
+                    0.3716821211728476,
+                    0.5527623232715968
+                  ]
+                },
+                "brier": 0.2500403424062832,
+                "log_loss": 0.6932278654028607,
+                "ece": 0.03830800047130797,
+                "bins": [
+                  {
+                    "samples": 0,
+                    "probability": null,
+                    "frequency": null
+                  },
+                  {
+                    "samples": 0,
+                    "probability": null,
+                    "frequency": null
+                  },
+                  {
+                    "samples": 225,
+                    "probability": 0.4994697773064698,
+                    "frequency": 0.5377777777777778
+                  },
+                  {
+                    "samples": 0,
+                    "probability": null,
+                    "frequency": null
+                  },
+                  {
+                    "samples": 0,
+                    "probability": null,
+                    "frequency": null
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "generations": [
+          {
+            "generation": 1,
+            "proposer": "seeded",
+            "candidates": [
+              {
+                "candidate": {
+                  "recipe": {
+                    "prefix_bounds": {
+                      "regularisation": [
+                        0,
+                        0.1
+                      ],
+                      "ngram_order": [
+                        1,
+                        3
+                      ],
+                      "hashing_width": [
+                        16,
+                        4096
+                      ],
+                      "learning_rate": [
+                        0.01,
+                        1
+                      ]
+                    },
+                    "format": "pm-rl/recipe/1",
+                    "bounds": {
+                      "learning_rate": [
+                        0.01,
+                        1
+                      ],
+                      "steps": [
+                        1,
+                        2
+                      ],
+                      "batch": [
+                        16,
+                        256
+                      ],
+                      "temperature": [
+                        0.5,
+                        2
+                      ],
+                      "correct_weight": [
+                        0.5,
+                        1
+                      ],
+                      "incorrect_weight": [
+                        0,
+                        0.25
+                      ],
+                      "selection": [
+                        "all",
+                        "balanced"
+                      ],
+                      "curriculum": [
+                        "forward",
+                        "reverse"
+                      ]
+                    },
+                    "knobs": {
+                      "learning_rate": 0.9691521861543879,
+                      "steps": 2,
+                      "batch": 238,
+                      "temperature": 0.9574526651995257,
+                      "correct_weight": 0.91721439990215,
+                      "incorrect_weight": 0.20851555635454133,
+                      "prefix": {
+                        "regularisation": 0.0661832144483924,
+                        "ngram_order": 2,
+                        "hashing_width": 2048
+                      },
+                      "selection": "all",
+                      "curriculum": "reverse"
+                    },
+                    "digest": "sha256:f8b119050b1975ef697852a99603985d2762ef278b12327704f0c3270012f989"
+                  },
+                  "weight": 0,
+                  "checkpoint": "sha256:41b4c146a4afbd2a7b3bde1d1e17fc65554b3644f451eb046ccf88d3ee0111b3",
+                  "prefix": {
+                    "knobs": {
+                      "regularisation": 0.0661832144483924,
+                      "ngram_order": 2,
+                      "hashing_width": 2048
+                    },
+                    "digest": "sha256:41b4c146a4afbd2a7b3bde1d1e17fc65554b3644f451eb046ccf88d3ee0111b3"
+                  },
+                  "fit": {
+                    "job": "process-3fb1d23fd649c506cf52b89b1bb7ec0434be61ebbe389f0170087c6eccc60d0c",
+                    "changed": true,
+                    "accepted": false,
+                    "gain": -0.06666666666666671,
+                    "gain_lower_bound": -0.24774686876541596,
+                    "refusal": "Promotion refused: the candidate is not statistically better than the incumbent. Candidate lower bound 0.380571 does not beat incumbent upper bound 0.628318 by the effect threshold 0.01 (margin -0.257747). The candidate regressed: its mean is not above the incumbent's mean.",
+                    "candidate": {
+                      "knobs": {
+                        "regularisation": 0.0661832144483924,
+                        "ngram_order": 2,
+                        "hashing_width": 2048
+                      },
+                      "digest": "sha256:28d85411508b6e70eb9b6dde83c453ffd10bb913617372ce944e22080b0ce259"
+                    },
+                    "samples": 225,
+                    "mean": 0.4711111111111111,
+                    "baseline": 0.5377777777777778,
+                    "predictions": {
+                      "fast": 203,
+                      "slow": 22
+                    },
+                    "calibration": {
+                      "candidate": {
+                        "samples": 225,
+                        "accuracy": {
+                          "correct": 106,
+                          "mean": 0.4711111111111111,
+                          "interval": [
+                            0.38057101006173644,
+                            0.5616512121604857
+                          ]
+                        },
+                        "brier": 0.2538173217602647,
+                        "log_loss": 0.7007970159771715,
+                        "ece": 0.07408034773248276,
+                        "bins": [
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 225,
+                            "probability": 0.463697430045295,
+                            "frequency": 0.5377777777777778
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          }
+                        ]
+                      },
+                      "retained": {
+                        "samples": 225,
+                        "accuracy": {
+                          "correct": 121,
+                          "mean": 0.5377777777777778,
+                          "interval": [
+                            0.4472376767284032,
+                            0.6283178788271524
+                          ]
+                        },
+                        "brier": 0.25,
+                        "log_loss": 0.6931471805599465,
+                        "ece": 0.03777777777777778,
+                        "bins": [
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 225,
+                            "probability": 0.5,
+                            "frequency": 0.5377777777777778
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          }
+                        ]
+                      },
+                      "training_frequency": {
+                        "samples": 225,
+                        "accuracy": {
+                          "correct": 104,
+                          "mean": 0.4622222222222222,
+                          "interval": [
+                            0.3716821211728476,
+                            0.5527623232715968
+                          ]
+                        },
+                        "brier": 0.2500403424062832,
+                        "log_loss": 0.6932278654028607,
+                        "ece": 0.03830800047130797,
+                        "bins": [
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 225,
+                            "probability": 0.4994697773064698,
+                            "frequency": 0.5377777777777778
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          }
+                        ]
+                      }
+                    }
+                  }
+                },
+                "incumbent": "sha256:d99bfc98b0bc898f3ab16a2aa236dc97812e001c16d732eadec99bf88c5fe9b9",
+                "score": {
+                  "mean": 0.6542056074766355,
+                  "samples": 214,
+                  "context": "05c85ef875998d8dc07a693811a19277b89bbc4264f08dae5d37796391706546"
+                },
+                "gain": 0,
+                "gain_lower_bound": -0.21778781183411927,
+                "verdict": {
+                  "decision": "refuse",
+                  "code": "no_statistical_improvement",
+                  "reason": "Promotion refused: the candidate is not statistically better than the incumbent. Candidate lower bound 0.545312 does not beat incumbent upper bound 0.763100 by the effect threshold 0.01 (margin -0.227788). The candidate regressed: its mean is not above the incumbent's mean."
+                },
+                "diagnostics": {
+                  "calibration": {
+                    "samples": 214,
+                    "accuracy": {
+                      "correct": 140,
+                      "mean": 0.6542056074766355,
+                      "interval": [
+                        0.5613676991135204,
+                        0.7470435158397506
+                      ]
+                    },
+                    "brier": 0.25,
+                    "log_loss": 0.6931471805599465,
+                    "ece": 0.1542056074766355,
+                    "bins": [
+                      {
+                        "samples": 0,
+                        "probability": null,
+                        "frequency": null
+                      },
+                      {
+                        "samples": 0,
+                        "probability": null,
+                        "frequency": null
+                      },
+                      {
+                        "samples": 214,
+                        "probability": 0.5,
+                        "frequency": 0.6542056074766355
+                      },
+                      {
+                        "samples": 0,
+                        "probability": null,
+                        "frequency": null
+                      },
+                      {
+                        "samples": 0,
+                        "probability": null,
+                        "frequency": null
+                      }
+                    ]
+                  },
+                  "majority_class": {
+                    "label": "slow",
+                    "correct": 140,
+                    "samples": 214,
+                    "mean": 0.6542056074766355
+                  },
+                  "predictions": {
+                    "distinct_labels": 1,
+                    "counts": {
+                      "fast": 0,
+                      "slow": 214
+                    }
+                  },
+                  "disagreements": [
+                    {
+                      "recipe": "sha256:d99bfc98b0bc898f3ab16a2aa236dc97812e001c16d732eadec99bf88c5fe9b9",
+                      "differing": 0,
+                      "samples": 214,
+                      "rate": 0
+                    }
+                  ]
+                }
+              },
+              {
+                "candidate": {
+                  "recipe": {
+                    "prefix_bounds": {
+                      "regularisation": [
+                        0,
+                        0.1
+                      ],
+                      "ngram_order": [
+                        1,
+                        3
+                      ],
+                      "hashing_width": [
+                        16,
+                        4096
+                      ],
+                      "learning_rate": [
+                        0.01,
+                        1
+                      ]
+                    },
+                    "format": "pm-rl/recipe/1",
+                    "bounds": {
+                      "learning_rate": [
+                        0.01,
+                        1
+                      ],
+                      "steps": [
+                        1,
+                        2
+                      ],
+                      "batch": [
+                        16,
+                        256
+                      ],
+                      "temperature": [
+                        0.5,
+                        2
+                      ],
+                      "correct_weight": [
+                        0.5,
+                        1
+                      ],
+                      "incorrect_weight": [
+                        0,
+                        0.25
+                      ],
+                      "selection": [
+                        "all",
+                        "balanced"
+                      ],
+                      "curriculum": [
+                        "forward",
+                        "reverse"
+                      ]
+                    },
+                    "knobs": {
+                      "learning_rate": 0.26046031270409004,
+                      "steps": 2,
+                      "batch": 171,
+                      "temperature": 1.73398919403553,
+                      "correct_weight": 0.7391013166634366,
+                      "incorrect_weight": 0.11857659660745412,
+                      "prefix": {
+                        "regularisation": 0.007394006312824786,
+                        "ngram_order": 1,
+                        "hashing_width": 4096
+                      },
+                      "selection": "balanced",
+                      "curriculum": "reverse"
+                    },
+                    "digest": "sha256:0b710519ba5210e3a3c87862a045c87c2579906ed16e5195acbc5f86a0a77205"
+                  },
+                  "weight": 0,
+                  "checkpoint": "sha256:944d780d1f45ed4b004bd6851afee732f3d8a19e536028da272ba57ddd9ca5d6",
+                  "prefix": {
+                    "knobs": {
+                      "regularisation": 0.007394006312824786,
+                      "ngram_order": 1,
+                      "hashing_width": 4096
+                    },
+                    "digest": "sha256:944d780d1f45ed4b004bd6851afee732f3d8a19e536028da272ba57ddd9ca5d6"
+                  },
+                  "fit": {
+                    "job": "process-416f2c7b0c30b299d79ccd39d8b1d653b7956d000876d0d0a95706aeb88022f0",
+                    "changed": true,
+                    "accepted": false,
+                    "gain": 0.07555555555555549,
+                    "gain_lower_bound": -0.10552464654319377,
+                    "refusal": "Promotion refused: the candidate is not statistically better than the incumbent. Candidate lower bound 0.522793 does not beat incumbent upper bound 0.628318 by the effect threshold 0.01 (margin -0.115525).",
+                    "candidate": {
+                      "knobs": {
+                        "regularisation": 0.007394006312824786,
+                        "ngram_order": 1,
+                        "hashing_width": 4096
+                      },
+                      "digest": "sha256:814d0a4375f2abceacb27ad8f49709d0450037509e827cd4c40e5c4581083f80"
+                    },
+                    "samples": 225,
+                    "mean": 0.6133333333333333,
+                    "baseline": 0.5377777777777778,
+                    "predictions": {
+                      "fast": 145,
+                      "slow": 80
+                    },
+                    "calibration": {
+                      "candidate": {
+                        "samples": 225,
+                        "accuracy": {
+                          "correct": 138,
+                          "mean": 0.6133333333333333,
+                          "interval": [
+                            0.5227932322839587,
+                            0.7038734343827079
+                          ]
+                        },
+                        "brier": 0.23912725033905108,
+                        "log_loss": 0.6712357864263144,
+                        "ece": 0.05968267392556,
+                        "bins": [
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 4,
+                            "probability": 0.3805290789423083,
+                            "frequency": 0
+                          },
+                          {
+                            "samples": 221,
+                            "probability": 0.4936358130430689,
+                            "frequency": 0.5475113122171946
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          }
+                        ]
+                      },
+                      "retained": {
+                        "samples": 225,
+                        "accuracy": {
+                          "correct": 121,
+                          "mean": 0.5377777777777778,
+                          "interval": [
+                            0.4472376767284032,
+                            0.6283178788271524
+                          ]
+                        },
+                        "brier": 0.25,
+                        "log_loss": 0.6931471805599465,
+                        "ece": 0.03777777777777778,
+                        "bins": [
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 225,
+                            "probability": 0.5,
+                            "frequency": 0.5377777777777778
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          }
+                        ]
+                      },
+                      "training_frequency": {
+                        "samples": 225,
+                        "accuracy": {
+                          "correct": 104,
+                          "mean": 0.4622222222222222,
+                          "interval": [
+                            0.3716821211728476,
+                            0.5527623232715968
+                          ]
+                        },
+                        "brier": 0.2500403424062832,
+                        "log_loss": 0.6932278654028607,
+                        "ece": 0.03830800047130797,
+                        "bins": [
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 225,
+                            "probability": 0.4994697773064698,
+                            "frequency": 0.5377777777777778
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          }
+                        ]
+                      }
+                    }
+                  }
+                },
+                "incumbent": "sha256:d99bfc98b0bc898f3ab16a2aa236dc97812e001c16d732eadec99bf88c5fe9b9",
+                "score": {
+                  "mean": 0.6542056074766355,
+                  "samples": 214,
+                  "context": "05c85ef875998d8dc07a693811a19277b89bbc4264f08dae5d37796391706546"
+                },
+                "gain": 0,
+                "gain_lower_bound": -0.21778781183411927,
+                "verdict": {
+                  "decision": "refuse",
+                  "code": "no_statistical_improvement",
+                  "reason": "Promotion refused: the candidate is not statistically better than the incumbent. Candidate lower bound 0.545312 does not beat incumbent upper bound 0.763100 by the effect threshold 0.01 (margin -0.227788). The candidate regressed: its mean is not above the incumbent's mean."
+                },
+                "diagnostics": {
+                  "calibration": {
+                    "samples": 214,
+                    "accuracy": {
+                      "correct": 140,
+                      "mean": 0.6542056074766355,
+                      "interval": [
+                        0.5613676991135204,
+                        0.7470435158397506
+                      ]
+                    },
+                    "brier": 0.25,
+                    "log_loss": 0.6931471805599465,
+                    "ece": 0.1542056074766355,
+                    "bins": [
+                      {
+                        "samples": 0,
+                        "probability": null,
+                        "frequency": null
+                      },
+                      {
+                        "samples": 0,
+                        "probability": null,
+                        "frequency": null
+                      },
+                      {
+                        "samples": 214,
+                        "probability": 0.5,
+                        "frequency": 0.6542056074766355
+                      },
+                      {
+                        "samples": 0,
+                        "probability": null,
+                        "frequency": null
+                      },
+                      {
+                        "samples": 0,
+                        "probability": null,
+                        "frequency": null
+                      }
+                    ]
+                  },
+                  "majority_class": {
+                    "label": "slow",
+                    "correct": 140,
+                    "samples": 214,
+                    "mean": 0.6542056074766355
+                  },
+                  "predictions": {
+                    "distinct_labels": 1,
+                    "counts": {
+                      "fast": 0,
+                      "slow": 214
+                    }
+                  },
+                  "disagreements": [
+                    {
+                      "recipe": "sha256:d99bfc98b0bc898f3ab16a2aa236dc97812e001c16d732eadec99bf88c5fe9b9",
+                      "differing": 0,
+                      "samples": 214,
+                      "rate": 0
+                    },
+                    {
+                      "recipe": "sha256:f8b119050b1975ef697852a99603985d2762ef278b12327704f0c3270012f989",
+                      "differing": 0,
+                      "samples": 214,
+                      "rate": 0
+                    }
+                  ]
+                }
+              }
+            ],
+            "promoted": null
+          },
+          {
+            "generation": 2,
+            "proposer": "seeded",
+            "candidates": [
+              {
+                "candidate": {
+                  "recipe": {
+                    "prefix_bounds": {
+                      "regularisation": [
+                        0,
+                        0.1
+                      ],
+                      "ngram_order": [
+                        1,
+                        3
+                      ],
+                      "hashing_width": [
+                        16,
+                        4096
+                      ],
+                      "learning_rate": [
+                        0.01,
+                        1
+                      ]
+                    },
+                    "format": "pm-rl/recipe/1",
+                    "bounds": {
+                      "learning_rate": [
+                        0.01,
+                        1
+                      ],
+                      "steps": [
+                        1,
+                        2
+                      ],
+                      "batch": [
+                        16,
+                        256
+                      ],
+                      "temperature": [
+                        0.5,
+                        2
+                      ],
+                      "correct_weight": [
+                        0.5,
+                        1
+                      ],
+                      "incorrect_weight": [
+                        0,
+                        0.25
+                      ],
+                      "selection": [
+                        "all",
+                        "balanced"
+                      ],
+                      "curriculum": [
+                        "forward",
+                        "reverse"
+                      ]
+                    },
+                    "knobs": {
+                      "learning_rate": 0.20695450105238705,
+                      "steps": 1,
+                      "batch": 130,
+                      "temperature": 1.5480521252611652,
+                      "correct_weight": 0.6059674334246665,
+                      "incorrect_weight": 0.030077589733991772,
+                      "prefix": {
+                        "regularisation": 0.08362758634611965,
+                        "ngram_order": 1,
+                        "hashing_width": 4096
+                      },
+                      "selection": "balanced",
+                      "curriculum": "forward"
+                    },
+                    "digest": "sha256:33926f4a93c7afce7816d5807d8746368082aa6f6e6e2c65d96204fd49afbe22"
+                  },
+                  "weight": 0,
+                  "checkpoint": "sha256:eeba1640a3a265017f3ec829645cf367c40ca89466321bda7d33d1ccd63bf449",
+                  "prefix": {
+                    "knobs": {
+                      "regularisation": 0.08362758634611965,
+                      "ngram_order": 1,
+                      "hashing_width": 4096
+                    },
+                    "digest": "sha256:eeba1640a3a265017f3ec829645cf367c40ca89466321bda7d33d1ccd63bf449"
+                  },
+                  "fit": {
+                    "job": "process-2750ec217908d0d580f4bac10c472643db97c295bfe62cf5db2517c0ec8fed08",
+                    "changed": true,
+                    "accepted": false,
+                    "gain": 0.013333333333333308,
+                    "gain_lower_bound": -0.16774686876541595,
+                    "refusal": "Promotion refused: the candidate is not statistically better than the incumbent. Candidate lower bound 0.460571 does not beat incumbent upper bound 0.628318 by the effect threshold 0.01 (margin -0.177747).",
+                    "candidate": {
+                      "knobs": {
+                        "regularisation": 0.08362758634611965,
+                        "ngram_order": 1,
+                        "hashing_width": 4096
+                      },
+                      "digest": "sha256:ebccde63ce1f90bbe6c2425aa8a703cfbe7b09253b0390cd4cb2ce1e144829a9"
+                    },
+                    "samples": 225,
+                    "mean": 0.5511111111111111,
+                    "baseline": 0.5377777777777778,
+                    "predictions": {
+                      "fast": 3,
+                      "slow": 222
+                    },
+                    "calibration": {
+                      "candidate": {
+                        "samples": 225,
+                        "accuracy": {
+                          "correct": 124,
+                          "mean": 0.5511111111111111,
+                          "interval": [
+                            0.4605710100617365,
+                            0.6416512121604857
+                          ]
+                        },
+                        "brier": 0.24676261933107574,
+                        "log_loss": 0.6866615485773774,
+                        "ece": 0.020475361423244243,
+                        "bins": [
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 225,
+                            "probability": 0.5173024163545336,
+                            "frequency": 0.5377777777777778
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          }
+                        ]
+                      },
+                      "retained": {
+                        "samples": 225,
+                        "accuracy": {
+                          "correct": 121,
+                          "mean": 0.5377777777777778,
+                          "interval": [
+                            0.4472376767284032,
+                            0.6283178788271524
+                          ]
+                        },
+                        "brier": 0.25,
+                        "log_loss": 0.6931471805599465,
+                        "ece": 0.03777777777777778,
+                        "bins": [
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 225,
+                            "probability": 0.5,
+                            "frequency": 0.5377777777777778
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          }
+                        ]
+                      },
+                      "training_frequency": {
+                        "samples": 225,
+                        "accuracy": {
+                          "correct": 104,
+                          "mean": 0.4622222222222222,
+                          "interval": [
+                            0.3716821211728476,
+                            0.5527623232715968
+                          ]
+                        },
+                        "brier": 0.2500403424062832,
+                        "log_loss": 0.6932278654028607,
+                        "ece": 0.03830800047130797,
+                        "bins": [
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 225,
+                            "probability": 0.4994697773064698,
+                            "frequency": 0.5377777777777778
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          }
+                        ]
+                      }
+                    }
+                  }
+                },
+                "incumbent": "sha256:d99bfc98b0bc898f3ab16a2aa236dc97812e001c16d732eadec99bf88c5fe9b9",
+                "score": {
+                  "mean": 0.6542056074766355,
+                  "samples": 214,
+                  "context": "05c85ef875998d8dc07a693811a19277b89bbc4264f08dae5d37796391706546"
+                },
+                "gain": 0,
+                "gain_lower_bound": -0.21778781183411927,
+                "verdict": {
+                  "decision": "refuse",
+                  "code": "no_statistical_improvement",
+                  "reason": "Promotion refused: the candidate is not statistically better than the incumbent. Candidate lower bound 0.545312 does not beat incumbent upper bound 0.763100 by the effect threshold 0.01 (margin -0.227788). The candidate regressed: its mean is not above the incumbent's mean."
+                },
+                "diagnostics": {
+                  "calibration": {
+                    "samples": 214,
+                    "accuracy": {
+                      "correct": 140,
+                      "mean": 0.6542056074766355,
+                      "interval": [
+                        0.5613676991135204,
+                        0.7470435158397506
+                      ]
+                    },
+                    "brier": 0.25,
+                    "log_loss": 0.6931471805599465,
+                    "ece": 0.1542056074766355,
+                    "bins": [
+                      {
+                        "samples": 0,
+                        "probability": null,
+                        "frequency": null
+                      },
+                      {
+                        "samples": 0,
+                        "probability": null,
+                        "frequency": null
+                      },
+                      {
+                        "samples": 214,
+                        "probability": 0.5,
+                        "frequency": 0.6542056074766355
+                      },
+                      {
+                        "samples": 0,
+                        "probability": null,
+                        "frequency": null
+                      },
+                      {
+                        "samples": 0,
+                        "probability": null,
+                        "frequency": null
+                      }
+                    ]
+                  },
+                  "majority_class": {
+                    "label": "slow",
+                    "correct": 140,
+                    "samples": 214,
+                    "mean": 0.6542056074766355
+                  },
+                  "predictions": {
+                    "distinct_labels": 1,
+                    "counts": {
+                      "fast": 0,
+                      "slow": 214
+                    }
+                  },
+                  "disagreements": [
+                    {
+                      "recipe": "sha256:d99bfc98b0bc898f3ab16a2aa236dc97812e001c16d732eadec99bf88c5fe9b9",
+                      "differing": 0,
+                      "samples": 214,
+                      "rate": 0
+                    },
+                    {
+                      "recipe": "sha256:f8b119050b1975ef697852a99603985d2762ef278b12327704f0c3270012f989",
+                      "differing": 0,
+                      "samples": 214,
+                      "rate": 0
+                    },
+                    {
+                      "recipe": "sha256:0b710519ba5210e3a3c87862a045c87c2579906ed16e5195acbc5f86a0a77205",
+                      "differing": 0,
+                      "samples": 214,
+                      "rate": 0
+                    }
+                  ]
+                }
+              },
+              {
+                "candidate": {
+                  "recipe": {
+                    "prefix_bounds": {
+                      "regularisation": [
+                        0,
+                        0.1
+                      ],
+                      "ngram_order": [
+                        1,
+                        3
+                      ],
+                      "hashing_width": [
+                        16,
+                        4096
+                      ],
+                      "learning_rate": [
+                        0.01,
+                        1
+                      ]
+                    },
+                    "format": "pm-rl/recipe/1",
+                    "bounds": {
+                      "learning_rate": [
+                        0.01,
+                        1
+                      ],
+                      "steps": [
+                        1,
+                        2
+                      ],
+                      "batch": [
+                        16,
+                        256
+                      ],
+                      "temperature": [
+                        0.5,
+                        2
+                      ],
+                      "correct_weight": [
+                        0.5,
+                        1
+                      ],
+                      "incorrect_weight": [
+                        0,
+                        0.25
+                      ],
+                      "selection": [
+                        "all",
+                        "balanced"
+                      ],
+                      "curriculum": [
+                        "forward",
+                        "reverse"
+                      ]
+                    },
+                    "knobs": {
+                      "learning_rate": 0.8812281495262869,
+                      "steps": 2,
+                      "batch": 172,
+                      "temperature": 1.5188251095823944,
+                      "correct_weight": 0.7398765314137563,
+                      "incorrect_weight": 0.05074273457285017,
+                      "prefix": {
+                        "regularisation": 0.04371274665463716,
+                        "ngram_order": 3,
+                        "hashing_width": 2048
+                      },
+                      "selection": "balanced",
+                      "curriculum": "forward"
+                    },
+                    "digest": "sha256:8adba91f760ceedfd5a496d5dceced2fb5812bc04ab064cdd2718bc9f9c7474b"
+                  },
+                  "weight": 0,
+                  "checkpoint": "sha256:91f66a716dc6b2b438d69323fb31ea56c278ec28618311a28058021b6b4c0736",
+                  "prefix": {
+                    "knobs": {
+                      "regularisation": 0.04371274665463716,
+                      "ngram_order": 3,
+                      "hashing_width": 2048
+                    },
+                    "digest": "sha256:91f66a716dc6b2b438d69323fb31ea56c278ec28618311a28058021b6b4c0736"
+                  },
+                  "fit": {
+                    "job": "process-d342c8f604ed535f90b9d7cb387f84826201eaa9d36278f85826f2cd3d90aeba",
+                    "changed": true,
+                    "accepted": false,
+                    "gain": 0.022222222222222254,
+                    "gain_lower_bound": -0.158857979876527,
+                    "refusal": "Promotion refused: the candidate is not statistically better than the incumbent. Candidate lower bound 0.469460 does not beat incumbent upper bound 0.628318 by the effect threshold 0.01 (margin -0.168858).",
+                    "candidate": {
+                      "knobs": {
+                        "regularisation": 0.04371274665463716,
+                        "ngram_order": 3,
+                        "hashing_width": 2048
+                      },
+                      "digest": "sha256:9f46f93f64d25f817d74903830844c5afc53cb05d7609090a913d662f8cea112"
+                    },
+                    "samples": 225,
+                    "mean": 0.56,
+                    "baseline": 0.5377777777777778,
+                    "predictions": {
+                      "fast": 5,
+                      "slow": 220
+                    },
+                    "calibration": {
+                      "candidate": {
+                        "samples": 225,
+                        "accuracy": {
+                          "correct": 126,
+                          "mean": 0.56,
+                          "interval": [
+                            0.46945989895062545,
+                            0.6505401010493747
+                          ]
+                        },
+                        "brier": 0.24748110587062558,
+                        "log_loss": 0.6884700797308927,
+                        "ece": 0.08032081593677096,
+                        "bins": [
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 72,
+                            "probability": 0.5579273772648731,
+                            "frequency": 0.4166666666666667
+                          },
+                          {
+                            "samples": 153,
+                            "probability": 0.646414460279102,
+                            "frequency": 0.5947712418300654
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          }
+                        ]
+                      },
+                      "retained": {
+                        "samples": 225,
+                        "accuracy": {
+                          "correct": 121,
+                          "mean": 0.5377777777777778,
+                          "interval": [
+                            0.4472376767284032,
+                            0.6283178788271524
+                          ]
+                        },
+                        "brier": 0.25,
+                        "log_loss": 0.6931471805599465,
+                        "ece": 0.03777777777777778,
+                        "bins": [
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 225,
+                            "probability": 0.5,
+                            "frequency": 0.5377777777777778
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          }
+                        ]
+                      },
+                      "training_frequency": {
+                        "samples": 225,
+                        "accuracy": {
+                          "correct": 104,
+                          "mean": 0.4622222222222222,
+                          "interval": [
+                            0.3716821211728476,
+                            0.5527623232715968
+                          ]
+                        },
+                        "brier": 0.2500403424062832,
+                        "log_loss": 0.6932278654028607,
+                        "ece": 0.03830800047130797,
+                        "bins": [
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 225,
+                            "probability": 0.4994697773064698,
+                            "frequency": 0.5377777777777778
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          },
+                          {
+                            "samples": 0,
+                            "probability": null,
+                            "frequency": null
+                          }
+                        ]
+                      }
+                    }
+                  }
+                },
+                "incumbent": "sha256:d99bfc98b0bc898f3ab16a2aa236dc97812e001c16d732eadec99bf88c5fe9b9",
+                "score": {
+                  "mean": 0.6542056074766355,
+                  "samples": 214,
+                  "context": "05c85ef875998d8dc07a693811a19277b89bbc4264f08dae5d37796391706546"
+                },
+                "gain": 0,
+                "gain_lower_bound": -0.21778781183411927,
+                "verdict": {
+                  "decision": "refuse",
+                  "code": "no_statistical_improvement",
+                  "reason": "Promotion refused: the candidate is not statistically better than the incumbent. Candidate lower bound 0.545312 does not beat incumbent upper bound 0.763100 by the effect threshold 0.01 (margin -0.227788). The candidate regressed: its mean is not above the incumbent's mean."
+                },
+                "diagnostics": {
+                  "calibration": {
+                    "samples": 214,
+                    "accuracy": {
+                      "correct": 140,
+                      "mean": 0.6542056074766355,
+                      "interval": [
+                        0.5613676991135204,
+                        0.7470435158397506
+                      ]
+                    },
+                    "brier": 0.25,
+                    "log_loss": 0.6931471805599465,
+                    "ece": 0.1542056074766355,
+                    "bins": [
+                      {
+                        "samples": 0,
+                        "probability": null,
+                        "frequency": null
+                      },
+                      {
+                        "samples": 0,
+                        "probability": null,
+                        "frequency": null
+                      },
+                      {
+                        "samples": 214,
+                        "probability": 0.5,
+                        "frequency": 0.6542056074766355
+                      },
+                      {
+                        "samples": 0,
+                        "probability": null,
+                        "frequency": null
+                      },
+                      {
+                        "samples": 0,
+                        "probability": null,
+                        "frequency": null
+                      }
+                    ]
+                  },
+                  "majority_class": {
+                    "label": "slow",
+                    "correct": 140,
+                    "samples": 214,
+                    "mean": 0.6542056074766355
+                  },
+                  "predictions": {
+                    "distinct_labels": 1,
+                    "counts": {
+                      "fast": 0,
+                      "slow": 214
+                    }
+                  },
+                  "disagreements": [
+                    {
+                      "recipe": "sha256:d99bfc98b0bc898f3ab16a2aa236dc97812e001c16d732eadec99bf88c5fe9b9",
+                      "differing": 0,
+                      "samples": 214,
+                      "rate": 0
+                    },
+                    {
+                      "recipe": "sha256:f8b119050b1975ef697852a99603985d2762ef278b12327704f0c3270012f989",
+                      "differing": 0,
+                      "samples": 214,
+                      "rate": 0
+                    },
+                    {
+                      "recipe": "sha256:0b710519ba5210e3a3c87862a045c87c2579906ed16e5195acbc5f86a0a77205",
+                      "differing": 0,
+                      "samples": 214,
+                      "rate": 0
+                    },
+                    {
+                      "recipe": "sha256:33926f4a93c7afce7816d5807d8746368082aa6f6e6e2c65d96204fd49afbe22",
+                      "differing": 0,
+                      "samples": 214,
+                      "rate": 0
+                    }
+                  ]
+                }
+              }
+            ],
+            "promoted": null
+          }
+        ],
+        "final_test": {
+          "before": {
+            "mean": 0.5714285714285714,
+            "samples": 385,
+            "context": "339ab5a704fdfe12235a428450dc494539c3d1b18508c68d03b500d78268750f"
+          },
+          "after": {
+            "mean": 0.5714285714285714,
+            "samples": 385,
+            "context": "339ab5a704fdfe12235a428450dc494539c3d1b18508c68d03b500d78268750f"
+          },
+          "diagnostics": {
+            "calibration": {
+              "samples": 385,
+              "accuracy": {
+                "correct": 220,
+                "mean": 0.5714285714285714,
+                "interval": [
+                  0.5022133091101325,
+                  0.6406438337470103
+                ]
+              },
+              "brier": 0.25,
+              "log_loss": 0.6931471805599467,
+              "ece": 0.07142857142857142,
+              "bins": [
+                {
+                  "samples": 0,
+                  "probability": null,
+                  "frequency": null
+                },
+                {
+                  "samples": 0,
+                  "probability": null,
+                  "frequency": null
+                },
+                {
+                  "samples": 385,
+                  "probability": 0.5,
+                  "frequency": 0.5714285714285714
+                },
+                {
+                  "samples": 0,
+                  "probability": null,
+                  "frequency": null
+                },
+                {
+                  "samples": 0,
+                  "probability": null,
+                  "frequency": null
+                }
+              ]
+            },
+            "majority_class": {
+              "label": "slow",
+              "correct": 220,
+              "samples": 385,
+              "mean": 0.5714285714285714
+            },
+            "predictions": {
+              "distinct_labels": 1,
+              "counts": {
+                "fast": 0,
+                "slow": 385
+              }
+            },
+            "disagreements": [
+              {
+                "recipe": "sha256:d99bfc98b0bc898f3ab16a2aa236dc97812e001c16d732eadec99bf88c5fe9b9",
+                "differing": 0,
+                "samples": 385,
+                "rate": 0
+              }
+            ]
+          },
+          "majority_test": {
+            "p_value": 1,
+            "beats_majority": false,
+            "baseline_accuracy": 0.5714285714285714,
+            "accuracy_lower_bound": 0.5090542065482301,
+            "wins": 0,
+            "losses": 0,
+            "gain_lower_bound": -0.13843052463687777
+          }
+        },
+        "dataset": "6eb9e7dcb22bb243b472512ce55e4c0ab1d2fa6053b5d489eea7b59240592f48"
+      },
+      "checkpoints": [
+        {
+          "job": "process-d342c8f604ed535f90b9d7cb387f84826201eaa9d36278f85826f2cd3d90aeba",
+          "state": "evaluated",
+          "artifact": {
+            "format": "pm-rl/checkpoint-artifact/1",
+            "kind": "prefix",
+            "digest": "sha256:84666f2e6a6bd7fadaa6447cee1ae3205a334122dad18651b6383a0a2db42d6b",
+            "policy": "sha256:9f46f93f64d25f817d74903830844c5afc53cb05d7609090a913d662f8cea112",
+            "bytes": 11322
+          },
+          "storage_charge_bytes": 13897,
+          "checkpoint_bytes": 11322,
+          "legacy_4096_byte_reader": null,
+          "artifact_reader": {
+            "iterations": 100,
+            "median_ms": 2.418804999993881,
+            "mean_ms": 3.9380727199994725
+          }
+        },
+        {
+          "job": "process-2750ec217908d0d580f4bac10c472643db97c295bfe62cf5db2517c0ec8fed08",
+          "state": "evaluated",
+          "artifact": {
+            "format": "pm-rl/checkpoint-artifact/1",
+            "kind": "prefix",
+            "digest": "sha256:b0580f4f8b5e0d9facdf7549418c0e4f5c67e10c35a0314d10fb786bcd17e207",
+            "policy": "sha256:ebccde63ce1f90bbe6c2425aa8a703cfbe7b09253b0390cd4cb2ce1e144829a9",
+            "bytes": 16436
+          },
+          "storage_charge_bytes": 19013,
+          "checkpoint_bytes": 16436,
+          "legacy_4096_byte_reader": null,
+          "artifact_reader": {
+            "iterations": 100,
+            "median_ms": 2.9440709999762475,
+            "mean_ms": 4.003377640001999
+          }
+        },
+        {
+          "job": "process-416f2c7b0c30b299d79ccd39d8b1d653b7956d000876d0d0a95706aeb88022f0",
+          "state": "evaluated",
+          "artifact": {
+            "format": "pm-rl/checkpoint-artifact/1",
+            "kind": "prefix",
+            "digest": "sha256:792086f51ce6ece6fca4f6a1c94f13640dc214c3d49a5014714d8b35460fca40",
+            "policy": "sha256:814d0a4375f2abceacb27ad8f49709d0450037509e827cd4c40e5c4581083f80",
+            "bytes": 18756
+          },
+          "storage_charge_bytes": 21335,
+          "checkpoint_bytes": 18756,
+          "legacy_4096_byte_reader": null,
+          "artifact_reader": {
+            "iterations": 100,
+            "median_ms": 4.233217000000877,
+            "mean_ms": 4.955075179999403
+          }
+        },
+        {
+          "job": "process-3fb1d23fd649c506cf52b89b1bb7ec0434be61ebbe389f0170087c6eccc60d0c",
+          "state": "evaluated",
+          "artifact": {
+            "format": "pm-rl/checkpoint-artifact/1",
+            "kind": "prefix",
+            "digest": "sha256:3935a84357ecc719eeb742875bccaeaa5101403d4e23b52b7bb67d8fedadeaf6",
+            "policy": "sha256:28d85411508b6e70eb9b6dde83c453ffd10bb913617372ce944e22080b0ce259",
+            "bytes": 10343
+          },
+          "storage_charge_bytes": 12918,
+          "checkpoint_bytes": 10343,
+          "legacy_4096_byte_reader": null,
+          "artifact_reader": {
+            "iterations": 100,
+            "median_ms": 0.8265289999835659,
+            "mean_ms": 2.8928469200004474
+          }
+        },
+        {
+          "job": "process-2be2001265ccbf4724dff62e4df395a8ab38a4327e7168d69846ab41cde6904d",
+          "state": "evaluated",
+          "artifact": {
+            "format": "pm-rl/checkpoint-artifact/1",
+            "kind": "prefix",
+            "digest": "sha256:02d393a8ac24fbc218252b20d7af9bc20eeb677bf4d3cd9fbdae1cafa8076ccb",
+            "policy": "sha256:f5a12d12943d8d4768315ccdb482a52024143534ad091ee8b6f5adbbef9a837c",
+            "bytes": 17921
+          },
+          "storage_charge_bytes": 20468,
+          "checkpoint_bytes": 17921,
+          "legacy_4096_byte_reader": null,
+          "artifact_reader": {
+            "iterations": 100,
+            "median_ms": 3.768196999997599,
+            "mean_ms": 3.8765431399981027
+          }
+        }
+      ]
+    }
+  ],
+  "implementation": {
+    "checkpoint-artifacts.ts": "54080e910eebdc8301a36cc83f72248821811fead1545776817063df3e2e7914",
+    "prefix.ts": "7116a59c351c2c795672f0ffe60411dfae2a3059a86a5d709b20b1cb98a901ef",
+    "prefix-trainer.ts": "b9b6902d9a150f44da67833ad987a10eb7eee856b3ea8c02b2c68bc4a5dc9b11",
+    "process.ts": "70de2f8c040cbfc58ea4a0852a0e567b0407af891f88506da94faf86d05685a7",
+    "index.ts": "06ff93c6086b431a3927555289f939441bc2151ba05f2a54a5112a9c450d3582",
+    "improver-environment.ts": "c3083b9b5610800f71c689c9c3edad346df4950e77c3c1d76be6f0167df58f62",
+    "recursive-improver.ts": "73c79280ba07ee5d02e4c954f3a339d4f8e7a5c89ec405d4b96c01508bec8371",
+    "recipe.ts": "001ef75e9aaef0509026ce4e702b6ccc61c328e6d55e348f635096556e2e7e4c",
+    "meta.ts": "ca487c2801f777544475b01479b26a43972b32aa90ab210e60fdfdd900e219cd",
+    "scripts/checkpoint-benchmark.ts": "041e137c99d468e5d19760eb68db736d25849dfde113180a856b2406cbd90177",
+    "promotion.ts": "af6f82c024e3083db928f1c82debbe0980161077083d0f66e9236e3553dca982"
+  },
+  "source_base": "445e17a86c7b76c968c3e1d5f4ca33aa7b88aab2",
+  "command": "node scripts/checkpoint-benchmark.ts dataset scratch evidence.json",
+  "measurement_notes": [
+    "Same pinned public corpus, two generations, two candidates, seed 42 and unchanged statistical/compute limits; only feature capacity and explicitly approved storage differ.",
+    "Load times are 100 warm synchronous verified reads after one warm-up. The legacy reader is reconstructed against the same bytes and refuses checkpoints above 4096 bytes.",
+    "Summary checkpoints publish semantic digests and knobs; payload arrays and raw tracker examples are not included.",
+    "Both programmes ran in fresh plain-directory trackers and completed replay without new fits."
+  ]
+}
