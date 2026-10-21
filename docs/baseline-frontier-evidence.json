@@ -11,7 +11,9 @@
     "snapshot": "b4446c4345b027b7cb7c248b1ac385e5f256445b9bc2cfa284916f10aa41dfe9",
     "training_items": 105,
     "held_out_items": 41,
-    "held_out_closed": 36
+    "held_out_closed": 36,
+    "training_closed": 77,
+    "training_other": 28
   },
   "baseline": 0.8780487804878049,
   "bounds": {
@@ -78,7 +80,9 @@
         "accepted": false,
         "reason": "item_constant_not_beaten"
       },
-      "sampled_reward": 0.870875
+      "sampled_reward": 0.870875,
+      "greedy_closed_predictions": 41,
+      "greedy_reward": 0.8780487804878049
     },
     {
       "generation": 2,
@@ -117,7 +121,9 @@
         "accepted": false,
         "reason": "item_constant_not_beaten"
       },
-      "sampled_reward": 0.865375
+      "sampled_reward": 0.865375,
+      "greedy_closed_predictions": 41,
+      "greedy_reward": 0.8780487804878049
     },
     {
       "generation": 3,
@@ -156,7 +162,9 @@
         "accepted": false,
         "reason": "item_constant_not_beaten"
       },
-      "sampled_reward": 0.852975
+      "sampled_reward": 0.852975,
+      "greedy_closed_predictions": 41,
+      "greedy_reward": 0.8780487804878049
     }
   ],
   "promoted": 0,
@@ -205,17 +213,80 @@
     "implementation": {
       "bandit.ts": "bb80ed33762cf5314d175165980d9627cd2c6955dc807c0dfbe21dce34b09b8c",
       "corpus.ts": "74c1c4a32d41fbedbfef45110aebeb681c0ac82ba8558a7266fc950fc283663d",
-      "index.ts": "ef896ffaf2bdb884c9329074f25914ee600e269fc0c95564adec43a04c3382af",
+      "index.ts": "80dce54faccf596c6118dd0311ebaf72808e1b999f71cbb3fd1215645e8af81f",
       "loop.ts": "3bd56e1b8da579952edf2b480e6e91255efafe7f643fd224efdfc31a70136c63",
       "process.ts": "2446eadc522df28a41c02546e18c6aa2b6c39d05ac1ce5dc1cb203038b54e6ee",
       "process-bandit.ts": "2ba48e7c52c7bcc20173fb2d4cc6bc10cbad93e442ba1ed8123f1162814c7dec",
       "item-evaluation.ts": "20e3425b047e9de1b6b359a8c648b3c461cb8e3be13f812e10c91b4030a89bea"
-    }
+    },
+    "source_ref": "4f64e31576b952b35e918561cdb9f67ac981eb26"
   },
   "execution": {
     "git_executable_available": false,
     "tracker_is_git_repository": false,
     "latest_cli": "2026.10.21",
     "pinned_cli": "2026.10.17"
+  },
+  "consumer_acceptance": {
+    "cli": "2026.10.21",
+    "runtime": "Node 26.12.0",
+    "package_sha256": "99d3284200e90d4e8174080fcae99bc72d7631892259be714292a73b55963fea",
+    "git_free_path": true,
+    "non_git_tracker": true,
+    "snapshot": "b4446c4345b027b7cb7c248b1ac385e5f256445b9bc2cfa284916f10aa41dfe9",
+    "attempts": 1,
+    "promoted": 0,
+    "refusal": "item_constant_not_beaten",
+    "samples": 32,
+    "optimizer_updates": 8,
+    "candidate_checkpoint": "sha256:47c178583f70479e1f39b6ec907883d8e8c8be55532a443adcc5bea4648a7684",
+    "retained_checkpoint": "sha256:17493680209cdf2fc86126ff2ad0b7bb6063ae24ce00f28f931224bb5ab2fd11",
+    "resume_same_generations_and_jobs": true
+  },
+  "validation": {
+    "source_commit": "4f64e31576b952b35e918561cdb9f67ac981eb26",
+    "ci": "https://github.com/unbraind/pm-rl/actions/runs/39646147464",
+    "variants": {
+      "npm_node_22": {
+        "passed": 696,
+        "failed": 0,
+        "skipped": 0
+      },
+      "npm_node_26": {
+        "passed": 696,
+        "failed": 0,
+        "skipped": 0
+      },
+      "bun_1_3_14_node_26": {
+        "passed": 696,
+        "failed": 0,
+        "skipped": 0
+      }
+    },
+    "authored_sources": 50,
+    "coverage": {
+      "statements": 100,
+      "lines": 100,
+      "branches": 100,
+      "functions": 100
+    },
+    "documented_declarations": 343,
+    "tracker_linked_tests": {
+      "command": "node --test test/baseline.test.ts",
+      "passed": 11,
+      "failed": 0,
+      "skipped": 0
+    },
+    "revert_proofs": {
+      "vector_dispatch_removed": "fails",
+      "item_gate_disabled": "fails",
+      "restored_focused_tests": 2
+    },
+    "local_health": {
+      "ok": false,
+      "blocking_code": "merge_fence_drift:2",
+      "child_history_verification": "passed",
+      "repair_performed": false
+    }
   }
 }

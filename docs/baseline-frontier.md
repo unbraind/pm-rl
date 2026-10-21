@@ -18,12 +18,15 @@ whereas the original stochastic learner earned 0.5980 and 0.6810. Expected
 stochastic action reward remains the evaluation objective; substituting greedy
 accuracy would change that objective and obscure the shortfall.
 
-The training partition contains only 105 items, is imbalanced, and supplies
-limited evidence about minority outcomes. The feature split holds all equal
+The training partition contains only 105 items: 77 closed and 28 other
+(73.33% closed, versus 87.80% in held-out). This split has substantial class
+frequency shift and limited evidence about minority outcomes. The feature split holds all equal
 lengths together, which is conservative but protects against renamed identical
 inputs. It is retained exactly. The new experiment uses 1,024 sampled actions
 and 256 explicitly reserved updates per attempted generation, rather than 256
-actions and eight updates. These are approved resource changes, not gate changes.
+actions and eight updates. The larger action batch still reuses the same 105
+training inputs; it does not create new independent examples. These are approved
+resource changes, not gate changes.
 
 ## Learner and gate
 
@@ -88,8 +91,11 @@ process errors and cancellation still stop execution. Omitted/false retains
 stop-on-refusal; enabling retries requires a sealed vector corpus.
 
 The best candidate still loses to the constant by 0.0066507106. Its adjusted
-paired interval against always-closed is wholly negative. Reducing the learning
-rate makes this frontier worse. Capacity and extra fitting alone therefore do
+paired interval against always-closed is wholly negative. All three greedy policies still predict closed on all 41 held-out items and
+tie the constant baseline; greedy accuracy cannot substitute for the stochastic
+objective. Later attempts at smaller learning rates perform worse; their
+collection streams also change, so this is not an isolated learning-rate
+ablation. Capacity and extra fitting alone therefore do
 not establish a useful predictor on this corpus. A diagnostic log-loss probe
 was also worse (first held-out score 0.7492), so it was not adopted. Broader
 history/transfer work remains with the existing prefix and powered-corpus items.
@@ -119,3 +125,37 @@ Behavior-only copies with vector fitting removed fail the three-promotion
 capacity regression. Disabling only the item-gate application fails the
 constant-policy refusal regression. Restored code must pass both. Coverage
 thresholds and source scope remain unchanged at 100% in every dimension.
+
+The combined implementation at `4f64e31576b952b35e918561cdb9f67ac981eb26`
+includes #94's output preflight review fix. [Complete CI](https://github.com/unbraind/pm-rl/actions/runs/39646147464)
+passes every release variant:
+
+| Command | Runtime | Passed | Statements / lines / branches / functions |
+| --- | --- | --- | --- |
+| `npm run release:check` | Node 22 | 696/696 | 100/100/100/100 |
+| `npm run release:check` | Node 26 | 696/696 | 100/100/100/100 |
+| `bun run release:check` | Node 26, Bun 1.3.14 | 696/696 | 100/100/100/100 |
+
+Each has zero failures, skips, cancellations and todos, measures all 50 authored
+sources, documents 343 declarations, and passes strict tracker health, identity,
+zero duplication, production audit, attestation, packaging and changelog checks.
+Both release commands use isolated HOME and disabled global/system Git config.
+CodeQL passes. Superseded local and CI attempts are not counted as passing.
+The tiny Compose fixture now includes the new evaluator module; all original
+physical crash, cancellation, recovery and contention drills pass in full CI.
+
+The pinned tracker-linked `node --test test/baseline.test.ts` command passes
+11/11, zero failures/skips, in snapshot workspace context with PM context none.
+A packed consumer also passes on PM CLI **2026.10.21** and Node 26.12.0 with no
+Git executable: init, activation, sealing the same corpus, a real external fit
+and resume. That separate eight-update compatibility probe is refused against
+the constant and retains the same single settled job and checkpoint on resume.
+It does not replace the three-generation frontier above. The repository's SDK
+pin remains unchanged. Complete resource/digest receipts are in
+[the machine-readable evidence](baseline-frontier-evidence.json).
+
+Strict local tracker health reports `merge_fence_drift:2`; the child item's strict
+history verification passes. Fresh CI tracker health passes in all variants.
+The owner contract excludes merge-tooling work, so that clone configuration and
+standing tracker advisories remain unchanged. This is separate from source
+coverage and the measured learner frontier.
