@@ -29,8 +29,9 @@ import { createHash } from "node:crypto";
 
 import { EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
 
-import { banditCheckpoint, executeBanditStep, validatedBanditDatasets, type BanditCheckpoint, type BanditExample, type BanditGeneration } from "./bandit.ts";
+import { banditCheckpoint, executeBanditStep, validatedBanditDatasets, MAX_BANDIT_FIT_STEPS, type BanditCheckpoint, type BanditExample, type BanditGeneration } from "./bandit.ts";
 import { hoeffdingEpsilon } from "./promotion.ts";
+import { verifyTrackerLoopCorpus } from "./corpus.ts";
 import { asJsonObject, expectedFail, requiredTrimmedString, storedCheckpointNumber, storedCheckpointDigest, verifyReplayFields, verifyTrainerReceipt } from "./refuse.ts";
 import { canonicalJson, type EnvironmentSpec, type JsonValue } from "./index.ts";
 import { parseLmLoopConfig, type LmLoopConfig } from "./lm.ts";
@@ -65,6 +66,10 @@ const STRONG_IMPROVEMENT_FACTOR = 2;
 
 /** A complete bounded loop configuration with validated datasets and identities. */
 export interface LoopConfig {
+  /** Optimizer updates per batch, each reserved and charged for process execution. */
+  readonly fitSteps: number;
+  /** Optional sealed tracker projection, retained for independent resume verification. */
+  readonly corpus?: JsonValue;
   /** Optional content-addressed recipe named by this programme. */
   readonly recipe?: Recipe;
   /** Optional isolated process execution and per-job reservation bounds. */
@@ -156,6 +161,7 @@ function requiredNumber(record: Readonly<Record<string, unknown>>, key: string, 
  */
 export function parseLoopConfig(raw: JsonValue): LoopConfig {
   const record = asJsonObject(raw, "Loop configuration", "loop_invalid_json");
+  if (record["corpus"] !== undefined) verifyTrackerLoopCorpus(record);
   const environment = asJsonObject(record["environment"] ?? null, "Loop configuration environment", "loop_invalid_environment");
   const environmentName = requiredTrimmedString(environment, "name", "Loop configuration environment", "loop_environment_");
   const environmentVersion = requiredTrimmedString(environment, "version", "Loop configuration environment", "loop_environment_");
@@ -177,6 +183,8 @@ export function parseLoopConfig(raw: JsonValue): LoopConfig {
   const evaluationSamples = requiredNumber(record, "evaluation_samples", source, "loop_invalid_evaluation_samples");
   const confidence = requiredNumber(record, "confidence", source, "loop_invalid_confidence");
   const minSamples = requiredNumber(record, "min_samples", source, "loop_invalid_min_samples");
+  const fitSteps = record["fit_steps"] === undefined ? 1 : requiredNumber(record, "fit_steps", source, "loop_invalid_fit_steps");
+  if (!Number.isInteger(fitSteps) || fitSteps < 1 || fitSteps > MAX_BANDIT_FIT_STEPS) expectedFail("fit_steps must be an integer from 1 to 256.", "loop_invalid_fit_steps");
   if (!Number.isInteger(seed) || seed < 0 || seed > 0xffff_ffff) {
     expectedFail(`${source} seed must be an unsigned 32-bit integer.`, "loop_invalid_seed");
   }
@@ -219,11 +227,14 @@ export function parseLoopConfig(raw: JsonValue): LoopConfig {
     expectedFail("Recipe knobs disagree with the inner programme.", "loop_recipe_mismatch");
   }
   if (processAdapter !== undefined) {
-    const heldOut = new Set(datasets.evaluation.map((example) => canonicalJson({ feature: example.feature, rewards: [...example.rewards] })));
     if (processAdapter.kind === "compose-lm") expectedFail("Bandit requires a bandit process adapter.", "process_invalid_adapter");
+    if (processAdapter.allowance.training_steps !== fitSteps) expectedFail("Optimizer steps differ from the explicit process allowance.", "loop_fit_allowance_mismatch");
+    const heldOut = new Set(datasets.evaluation.map((example) => canonicalJson({ feature: example.feature, rewards: [...example.rewards] })));
     if (datasets.training.some((example) => heldOut.has(canonicalJson({ feature: example.feature, rewards: [...example.rewards] })))) expectedFail("Process training and held-out content overlap.", "process_dataset_overlap");
   }
   const config: LoopConfig = {
+    fitSteps,
+    ...(record["corpus"] === undefined ? {} : { corpus: record["corpus"] as JsonValue }),
     ...(recipe === undefined ? {} : { recipe }),
     ...(processAdapter === undefined ? {} : { process: processAdapter }),
     environmentName,
@@ -233,6 +244,8 @@ export function parseLoopConfig(raw: JsonValue): LoopConfig {
     trainingDigest: datasets.trainingDigest,
     evaluationDigest: datasets.evaluationDigest,
     digest: loopDigest({
+      ...(fitSteps === 1 ? {} : { fitSteps }),
+      ...(record["corpus"] === undefined ? {} : { corpus: record["corpus"] as JsonValue }),
       ...(recipe === undefined ? {} : { recipe: recipe.digest }),
       ...(processAdapter === undefined ? {} : { adapter: processAdapter as unknown as JsonValue }),
       format: "pm-rl/loop-programme/1",
@@ -364,6 +377,7 @@ export function deriveNextStepConfig(config: LoopScheduleBounds, step: LoopStepC
  */
 export function runLoopGeneration(config: LoopConfig, step: LoopStepConfig, generation: number, source: BanditCheckpoint, materialized?: BanditCheckpoint): BanditGeneration {
   return executeBanditStep({
+    fitSteps: config.fitSteps,
     training: config.training,
     evaluation: config.evaluation,
     trainingDigest: config.trainingDigest,
@@ -456,6 +470,7 @@ export function loopPromotionScores(config: LoopConfig, step: LoopStepConfig, ge
  */
 export function generationTrainingConfig(config: LoopConfig, step: LoopStepConfig, generation: number, receipt: BanditGeneration): JsonValue {
   return {
+    ...(config.fitSteps === 1 ? {} : { fit_steps: config.fitSteps }),
     ...(config.recipe === undefined ? {} : { recipe: config.recipe.digest }),
     format: LOOP_GENERATION_FORMAT,
     generation,
@@ -491,6 +506,8 @@ export function seedTrainingConfig(config: LoopConfig): JsonValue {
     programme: config.digest,
     initial_weight: config.initialWeight,
     configuration: {
+      ...(config.fitSteps === 1 ? {} : { fit_steps: config.fitSteps }),
+      ...(config.corpus === undefined ? {} : { corpus: config.corpus }),
       ...(config.recipe === undefined ? {} : { recipe: config.recipe as unknown as JsonValue }),
       ...(config.process === undefined ? {} : { adapter: config.process as unknown as JsonValue }),
       environment: { name: config.environmentName, version: config.environmentVersion },
@@ -733,7 +750,7 @@ export function banditProcessInput(config: LoopConfig, step: LoopStepConfig, gen
       evaluation: config.evaluationDigest, environment: loopDigest(environment as unknown as JsonValue),
       reward: loopDigest(environment.reward_specification), configuration: { ...step } },
     source: receipt.source, training: config.training, observations: receipt.observations,
-    training_config: { learning_rate: step.learningRate, steps: 1 },
+    training_config: { learning_rate: step.learningRate, steps: config.fitSteps },
     lineage: { training: config.trainingDigest, held_out: config.evaluationDigest, collection: receipt.collectionDigest },
   };
 }

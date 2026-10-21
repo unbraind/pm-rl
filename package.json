@@ -61,7 +61,10 @@
     "docs/improver-live-evidence.json",
     "docs/prefix-diagnosis-evidence.json",
     "docs/prefix-calibration-evidence.json",
-    "docs/improver-calibration-evidence.json"
+    "docs/improver-calibration-evidence.json",
+    "dist/corpus.*",
+    "docs/tracker-loop.md",
+    "docs/tracker-loop-evidence.json"
   ],
   "engines": {
     "node": ">=22.18.0"
@@ -134,7 +137,8 @@
       "test/dataset.test.ts",
       "test/meta.test.ts",
       "test/prefix.test.ts",
-      "test/improver.test.ts"
+      "test/improver.test.ts",
+      "test/corpus.test.ts"
     ],
     "thresholds": {
       "statements": 100,
@@ -225,7 +229,9 @@
       "docs/recursive-improver.md",
       "docs/prefix-diagnosis-evidence.json",
       "docs/prefix-calibration-evidence.json",
-      "docs/improver-calibration-evidence.json"
+      "docs/improver-calibration-evidence.json",
+      "docs/tracker-loop.md",
+      "docs/tracker-loop-evidence.json"
     ],
     "examples": [
       "README.md",

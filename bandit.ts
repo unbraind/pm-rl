@@ -11,6 +11,9 @@ import { createHash } from "node:crypto";
 
 import { decideTrainerPromotion } from "./promotion.ts";
 
+/** Maximum explicitly reserved optimizer updates over one collected batch. */
+export const MAX_BANDIT_FIT_STEPS = 256;
+
 /** A synthetic contextual bandit example with bounded feature and action rewards. */
 export interface BanditExample {
   /** Stable dataset-local identity, disjoint across training and evaluation. */
@@ -106,6 +109,8 @@ export interface BanditGeneration {
 
 /** Inputs for one policy-gradient generation step over validated datasets and bounds. */
 export interface BanditStepInput {
+  /** Optional bounded optimizer passes; later passes importance-weight the source-policy actions. */
+  readonly fitSteps?: number;
   /** Validated training examples; only the sampled actions' rewards enter the gradient. */
   readonly training: readonly BanditExample[];
   /** Validated held-out examples; never a source of gradients. */
@@ -255,15 +260,22 @@ export function validatedBanditDatasets(programme: Pick<BanditProgramme, "traini
   return { training, evaluation, trainingDigest: digest(training), evaluationDigest: digest(evaluation) };
 }
 
-/** Fit one real REINFORCE step using only the collected actions and rewards. */
-export function fitBanditBatch(training: readonly BanditExample[], source: BanditCheckpoint, observations: readonly BanditObservation[], learningRate: number): BanditCheckpoint {
-  let gradient = 0;
-  for (const [index, observation] of observations.entries()) {
-    const feature = training[index % training.length].feature;
-    const probability = 1 / (1 + Math.exp(-source.weight * feature));
-    gradient += observation.reward * (observation.action - probability) * feature;
+/** Fit bounded importance-weighted REINFORCE updates from the same source-policy actions; no held-out rewards enter. */
+export function fitBanditBatch(training: readonly BanditExample[], source: BanditCheckpoint, observations: readonly BanditObservation[], learningRate: number, steps = 1): BanditCheckpoint {
+  if (!Number.isInteger(steps) || steps < 1 || steps > MAX_BANDIT_FIT_STEPS) throw new RangeError("bandit_fit_steps");
+  let weight = source.weight;
+  for (let step = 0; step < steps; step += 1) {
+    let gradient = 0;
+    for (const [index, observation] of observations.entries()) {
+      const feature = training[index % training.length].feature;
+      const probability = 1 / (1 + Math.exp(-weight * feature));
+      const sourceProbability = 1 / (1 + Math.exp(-source.weight * feature));
+      const ratio = observation.action === 1 ? probability / sourceProbability : (1 - probability) / (1 - sourceProbability);
+      gradient += observation.reward * (observation.action - probability) * feature * ratio;
+    }
+    weight = Math.max(-20, Math.min(20, weight + learningRate * gradient / observations.length));
   }
-  return banditCheckpoint(source.weight + learningRate * gradient / observations.length);
+  return banditCheckpoint(weight);
 }
 
 /**
@@ -296,7 +308,7 @@ export function executeBanditStep(input: BanditStepInput, materialized?: BanditC
     actionCounts[action] += 1;
     observations.push({ example: example.id, action, reward });
   }
-  const candidate = materialized ?? fitBanditBatch(training, source, observations, learningRate);
+  const candidate = materialized ?? fitBanditBatch(training, source, observations, learningRate, input.fitSteps);
   const baselineScore = evaluate(source.weight, evaluation);
   const trainingScore = evaluate(candidate.weight, training);
   const evaluationScore = evaluate(candidate.weight, evaluation);

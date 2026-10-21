@@ -9,6 +9,7 @@
 
 export { runBanditProgramme, type BanditCheckpoint, type BanditExample, type BanditGeneration, type BanditProgramme, type BanditResult } from "./bandit.ts";
 export { checkpointArtifactPath, collectCheckpointArtifacts, readCheckpointArtifact, readCheckpointLedger, type CheckpointArtifact } from "./checkpoint-artifacts.ts";
+export { buildTrackerLoopCorpus, corpusHeldOut, sealTrackerLoopCorpus, verifyTrackerLoopCorpus, type CorpusRow, type TrackerLoopCorpus } from "./corpus.ts";
 
 export { banditCheckpoint, executeBanditStep, validatedBanditDatasets, type BanditDatasets, type BanditObservation, type BanditStepInput, type BanditStopReason } from "./bandit.ts";
 
@@ -206,6 +207,7 @@ import { PmClient, type GetResult, type ItemMetadata } from "@unbrained/pm-cli/s
 import { acquireLock, certifyCompleteListResult, createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError, type PmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 
 import { parseJsonRecord } from "./refuse.ts";
+import { buildTrackerLoopCorpus } from "./corpus.ts";
 import { decodeCheckpointArtifacts, encodeCheckpointArtifacts, collectCheckpointArtifacts, inspectCheckpointArtifact } from "./checkpoint-artifacts.ts";
 
 import { encodeEventSegments, parseNdjsonStream, readSeries, type MetricEvent } from "./series.ts";
@@ -4220,6 +4222,15 @@ async function runLoop(context: CommandHandlerContext): Promise<RlCommandResult>
   return { action: "rl-loop-run", id, details: loopCommandDetails(context, report) };
 }
 
+/** Snapshot a selected tracker read-only and publish one exclusive programme file for durable run/resume. */
+async function buildCorpusCommand(context: CommandHandlerContext): Promise<RlCommandResult> {
+  const source = stringOption(context, "from_tracker")!;
+  const corpus = await buildTrackerLoopCorpus(new PmClient({ pmRoot: resolve(source), noExtensions: true }), readJsonFile(stringOption(context, "file")!, "Corpus bounds"));
+  await writeFile(stringOption(context, "output")!, `${JSON.stringify(corpus.programme, null, 2)}\n`, { flag: "wx" });
+  return { action: "rl-corpus-build", details: { snapshot: corpus.snapshot, training_items: corpus.training_items,
+    held_out_items: corpus.held_out_items, held_out_closed: corpus.held_out_closed } };
+}
+
 /** Build a commit-pinned public tracker dataset through the installed command contract. */
 async function buildDatasetCommand(context: CommandHandlerContext): Promise<RlCommandResult> {
   const first = stringOption(context, "from_trackers")!;
@@ -4924,6 +4935,11 @@ async function showTransferGap(context: CommandHandlerContext): Promise<RlComman
 
 /** Commands authored separately so activation and tests share one exact contract. */
 export const RL_COMMANDS = [
+  defineCommand({ name: "rl corpus build", description: "Seal a read-only tracker snapshot into a Git-independent recursive status-recognition programme.", flags: [
+    { long: "--from-tracker", value_name: "directory", value_type: "string", required: true, description: "Explicitly selected local tracker root; never modified." },
+    { long: "--file", value_name: "path", value_type: "string", required: true, description: "Bounded loop JSON without environment, training or evaluation fields." },
+    { long: "--output", value_name: "path", value_type: "string", required: true, description: "New sealed programme JSON; existing files refuse overwrite." },
+  ], run: buildCorpusCommand }),
   defineCommand({ name: "rl checkpoint show", description: "Verify and load a checkpoint from its SHA-256 artifact digest and promotion ledger.", arguments: [{ name: "digest", required: true, description: "SHA-256 artifact digest." }], run: async (context) => ({ action: "rl-checkpoint-show", details: inspectCheckpointArtifact(context.pm_root, requiredArgument(context, "an artifact digest")) }) }),
   defineCommand({ name: "rl checkpoint gc", description: "Collect checkpoint blobs unreachable from the promotion/audit ledger.", run: async (context) => ({ action: "rl-checkpoint-gc", details: await collectCheckpointArtifacts(context.pm_root) }) }),
   defineCommand({ name: "rl improver build", description: "Freeze chronological balanced public tracker tasks for recursive proposal-policy evaluation.", arguments: [{ name: "directories", variadic: true, description: "Additional tracker directories." }], flags: [

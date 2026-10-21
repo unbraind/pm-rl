@@ -22,12 +22,12 @@ export async function runReferenceTrainer(stdin: Readable = process.stdin, stdou
   const start = performance.now();
   const cpu = process.cpuUsage();
   stdout.write(`${JSON.stringify({ type: "progress", job, usage: { training_steps: 0, wall_ms: 0, storage_bytes: 0, compute_units: 0, tokens: 0 } })}\n`);
-  const policy = fitBanditBatch(input.training, input.source, input.observations, input.training_config.learning_rate);
+  const policy = fitBanditBatch(input.training, input.source, input.observations, input.training_config.learning_rate, input.training_config.steps);
   writeTrainerArtifact(join(directory, "checkpoint.json"), policy);
   const cpuUse = process.cpuUsage(cpu);
   const completion: ProcessCompletion = { format: "pm-rl/process-completion/1", job, checkpoint: "checkpoint.json", digest: `sha256:${createHash("sha256").update(JSON.stringify(policy)).digest("hex")}`, policy,
     training_config: input.training_config, source_policy: input.source.digest, lineage: input.lineage,
-    usage: { training_steps: 1, wall_ms: Math.ceil(performance.now() - start), storage_bytes: Buffer.byteLength(JSON.stringify(policy)), compute_units: Math.ceil((cpuUse.user + cpuUse.system) / 1000), tokens: 0 } };
+    usage: { training_steps: input.training_config.steps, wall_ms: Math.ceil(performance.now() - start), storage_bytes: Buffer.byteLength(JSON.stringify(policy)), compute_units: Math.ceil((cpuUse.user + cpuUse.system) / 1000), tokens: 0 } };
   writeTrainerArtifact(join(directory, "completion.json"), completion);
   stdout.write(`${JSON.stringify({ type: "complete", job, receipt: completion })}\n`);
 }
