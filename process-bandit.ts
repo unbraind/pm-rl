@@ -34,7 +34,7 @@ export async function runReferenceTrainer(stdin: Readable = process.stdin, stdou
 
 /** Dispatch the packaged entry point while allowing the same real IO contract to be exercised under coverage. */
 export async function referenceTrainerMain(argv = process.argv, moduleUrl = import.meta.url, stdin: Readable = process.stdin, stdout: Writable = process.stdout, directory = "."): Promise<void> {
-  if (isMainInvocation(argv, moduleUrl)) await runReferenceTrainer(stdin, stdout, directory);
+  if (isMainInvocation(argv, moduleUrl, true)) await runReferenceTrainer(stdin, stdout, directory);
 }
 
 await referenceTrainerMain();

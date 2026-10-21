@@ -286,7 +286,7 @@ export async function runRlMeta(client: PmClient, coordinates: ProcessCoordinate
   const environment = openTrackerEnvironment(client, coordinates, request.dataset, config, request.approval);
   const proposalRequest = { config, proposer: request.proposer, decisionEndpoint: request.decisionEndpoint };
   const approval = await metaApproval(client, request.approval);
-  const input = { format: config.initial_recipe.knobs.prefix === undefined ? "pm-rl/meta-programme/1" : "pm-rl/meta-programme/2", id: request.id, config: config as unknown as JsonValue, dataset: environment.digest, approval_id: approval.id, approval: approval.digest,
+  const input = { format: config.initial_recipe.knobs.prefix === undefined ? "pm-rl/meta-programme/1" : "pm-rl/meta-programme/3", id: request.id, config: config as unknown as JsonValue, dataset: environment.digest, approval_id: approval.id, approval: approval.digest,
     proposer: request.proposer, endpoint: request.decisionEndpoint ?? "http://127.0.0.1:11434" };
   const binding = hashJson(input);
   const recoveryCommand = `pm rl meta run ${request.id} --file <programme.json> --dataset <dataset-directory> --approval ${request.approval} --proposer ${request.proposer} --force-takeover`;

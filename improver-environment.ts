@@ -8,13 +8,17 @@ import type { LearnerConfig } from "./improver.ts";
 import { binaryCalibration, prefixCheckpoint, prefixPrediction, prefixProbability, type BinaryCalibration, type PrefixCheckpoint } from "./prefix.ts";
 import type { HistoryPrefix } from "./prefix-data.ts";
 import { prefixTrainerArgv } from "./prefix-trainer.ts";
-import { executeProcessTrainer, processJobId, readProcessJob, transitionProcessJob, verifyProcessJobBudget, type ProcessCoordinates, type ProcessInput, type ProcessJob } from "./process.ts";
+import { executeProcessTrainer, processJobId, readProcessJob, transitionProcessJob, verifyProcessJobBudget, type ProcessAdapter, type ProcessCoordinates, type ProcessInput, type ProcessJob } from "./process.ts";
 import { decidePromotion, hoeffdingEpsilon, type PromotionDecision, type PromotionCriterion } from "./promotion.ts";
 
 /** Both levels use the existing unchanged confidence, sample and effect thresholds. */
 export const IMPROVER_CRITERION = { confidence: 0.95, minSamples: 10, effectThreshold: 0.01 } as const;
 /** Each matched fit has the same CPU-only, zero-token reservation and fixed optimizer update allowance. */
 export const IMPROVER_ADAPTER = { kind: "process-bandit", allowance: { training_steps: 1, wall_ms: 30_000, storage_bytes: 4096, compute_units: 30_000, tokens: 0 } } as const;
+/** Larger feature spaces require a separately approved storage reservation; existing runs retain their exact budget. */
+export function improverAdapter(input: ProcessInput<PrefixCheckpoint>): ProcessAdapter {
+  return input.prefix!.knobs.hashing_width <= 64 ? IMPROVER_ADAPTER : { ...IMPROVER_ADAPTER, allowance: { ...IMPROVER_ADAPTER.allowance, storage_bytes: 1_048_576 } };
+}
 /** One recoverable lost receipt may consume a second reservation; repeated losses cannot replenish this cap. */
 export const IMPROVER_MAX_ATTEMPTS = 2;
 /** Retained learners bind prediction parameters to their feature mask. */
@@ -102,13 +106,14 @@ export function improverProcessAttempt(input: ProcessInput<PrefixCheckpoint>, at
 export async function executeImproverFit(client: PmClient, coordinates: ProcessCoordinates, input: ProcessInput<PrefixCheckpoint>, approval: string, signal: AbortSignal): Promise<ProcessJob<PrefixCheckpoint>> {
   signal.throwIfAborted();
   const argv = prefixTrainerArgv();
+  const adapter = improverAdapter(input);
   /** Both attempts begin from the same source parameters and training rows; recovery adds no optimization opportunity. */
-  const run = (attempt: 0 | 1): Promise<ProcessJob<PrefixCheckpoint>> => executeProcessTrainer(client, coordinates, improverProcessAttempt(input, attempt), approval, IMPROVER_ADAPTER, signal, argv);
+  const run = (attempt: 0 | 1): Promise<ProcessJob<PrefixCheckpoint>> => executeProcessTrainer(client, coordinates, improverProcessAttempt(input, attempt), approval, adapter, signal, argv);
   try { return await run(0); }
   catch (error) {
     signal.throwIfAborted();
     if (!(error instanceof SyntaxError) && !(isPmCliExpectedError(error) && ["process_receipt_required", "process_job_terminal"].includes(String(error.context.code)))) throw error;
-    const failed = await readProcessJob(client, processJobId(improverProcessAttempt(input, 0), argv, IMPROVER_ADAPTER));
+    const failed = await readProcessJob(client, processJobId(improverProcessAttempt(input, 0), argv, adapter));
     assert.ok(failed, "improver_recovery_job_required"); assert.equal(failed.state, "failed", "improver_recovery_state");
     if (isPmCliExpectedError(error) && error.context.code === "process_job_terminal" && !["process_receipt_required", "trainer_failure"].includes(failed.outcome)) throw error;
     await verifyProcessJobBudget(client, failed);

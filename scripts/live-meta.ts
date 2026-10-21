@@ -7,8 +7,9 @@ import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { init } from "@unbrained/pm-cli/sdk/runtime";
 import { buildTrackerDataset, readTrackerSplit, TRACKER_SPLITS, type TrackerBuildOptions } from "../dataset.ts";
 import { hashJson, type JsonValue } from "../index.ts";
-import { runRlMeta, type MetaConfig, type MetaReport, type MetaRequest } from "../meta.ts";
-import { INITIAL_RECIPE, recipeArtifact } from "../recipe.ts";
+import { runRlMeta, type MetaReport, type MetaRequest } from "../meta.ts";
+import { recipeArtifact } from "../recipe.ts";
+import { liveMetaConfiguration } from "./meta-configuration.ts";
 import { isMainInvocation } from "./script-launcher.ts";
 import { LIVE_WORKER_DEADLINE_MS, LIVE_WORKER_TIMEOUT_ENV } from "./live-watchdog.ts";
 
@@ -23,12 +24,8 @@ export function publicTrackerDirectories(fleet: string): string[] {
   return directories.sort();
 }
 
-/** Two meta-generations and two candidates, with every fit covered by the same pre-approved resource Decision. */
-export function liveMetaConfiguration(): MetaConfig {
-  return { initial_recipe: INITIAL_RECIPE, seed: 42, meta_generations: 2, candidates: 2, timeout_ms: 840_000,
-    criterion: { confidence: 0.95, minSamples: 10, effectThreshold: 0.01 }, maximum_gap: 0.3, evaluation_samples: 40_000,
-    adapter: { kind: "process-bandit", allowance: { training_steps: 1, wall_ms: 30_000, storage_bytes: 4096, compute_units: 30_000, tokens: 0 } } };
-}
+/** Preserve the existing live-script configuration export for callers. */
+export { liveMetaConfiguration } from "./meta-configuration.ts";
 
 /** Build real data at acceptance time and retain results without committing tracker inputs or local paths. */
 export async function runLiveMetaAcceptance(directories: readonly string[], timeoutMs = LIVE_WORKER_DEADLINE_MS, options: TrackerBuildOptions = {}): Promise<{ artifacts: string; elapsed_ms: number; report: MetaReport }> {

@@ -1,0 +1,367 @@
+{
+  "format": "pm-rl/checkpoint-revert-proof/1",
+  "base": "445e17a",
+  "scope": "Isolated source copies with retained regression tests; production worktree was not reverted.",
+  "restored_capacity_passes": 1,
+  "restored_artifact_fault_passes": 2,
+  "reverts": [
+    {
+      "variant": "prefix-domain",
+      "file": "prefix.ts",
+      "function": "validatePrefixKnobs",
+      "exit": 1,
+      "seconds": 10.228,
+      "command": "node --test --test-name-pattern=\"large learner\" test/checkpoint-artifacts.test.ts",
+      "typecheck": 0
+    },
+    {
+      "variant": "trainer-artifacts",
+      "file": "prefix-trainer.ts",
+      "function": "runPrefixTrainer",
+      "exit": 1,
+      "seconds": 34.918,
+      "command": "node --test --test-name-pattern=\"large learner\" test/checkpoint-artifacts.test.ts",
+      "typecheck": 0
+    },
+    {
+      "variant": "controller-references",
+      "file": "index.ts",
+      "function": "withRlController",
+      "exit": 1,
+      "seconds": 47.996,
+      "command": "node --test --test-name-pattern=\"large learner\" test/checkpoint-artifacts.test.ts",
+      "typecheck": 0
+    },
+    {
+      "variant": "artifact-integrity",
+      "file": "checkpoint-artifacts.ts",
+      "function": "readVerifiedFile",
+      "exit": 1,
+      "seconds": 9.526,
+      "command": "node --test --test-name-pattern=\"artifact addressing\" test/checkpoint-artifacts.test.ts",
+      "typecheck": 0
+    },
+    {
+      "variant": "artifact-collection",
+      "file": "checkpoint-artifacts.ts",
+      "function": "collectCheckpointArtifacts",
+      "exit": 1,
+      "seconds": 10.58,
+      "command": "node --test --test-name-pattern=\"artifact addressing\" test/checkpoint-artifacts.test.ts",
+      "typecheck": 0
+    },
+    {
+      "variant": "atomic-publication",
+      "file": "checkpoint-artifacts.ts",
+      "function": "publishFile",
+      "exit": 1,
+      "seconds": 19.987,
+      "command": "node --test --test-name-pattern=\"artifact addressing\" test/checkpoint-artifacts.test.ts",
+      "typecheck": 0
+    },
+    {
+      "variant": "plain-controller-git-probe",
+      "file": "index.ts",
+      "function": "acquireControllerLease",
+      "exit": 1,
+      "seconds": 10.575,
+      "command": "node --test --test-name-pattern=\"plain-directory controllers\" test/checkpoint-artifacts.test.ts",
+      "typecheck": 0
+    },
+    {
+      "variant": "combined-artifact-staging-budget",
+      "file": "process.ts",
+      "function": "validateProcessCompletion",
+      "exit": 1,
+      "seconds": 9.804,
+      "command": "node --test --test-name-pattern=\"trainer IO\" test/prefix.test.ts",
+      "typecheck": 0
+    }
+  ],
+  "restored_plain_controller_passes": 1,
+  "restored_trainer_io_passes": 1,
+  "review_round": {
+    "base": "d433bc9a4b18c07df94988b114dacfb5e6b81392",
+    "restored_focused_passes": 5,
+    "reverts": [
+      {
+        "variant": "policy-validation",
+        "file": "checkpoint-artifacts.ts",
+        "command": "node --test '--test-name-pattern=invalid policies' test/checkpoint-artifacts.test.ts",
+        "typecheck": 0,
+        "exit": 1,
+        "seconds": 7.86,
+        "function": "encodeCheckpointArtifacts",
+        "thread_id": "PRRT_kwDOTqJmqs6upoTP"
+      },
+      {
+        "variant": "shared-authority",
+        "file": "index.ts",
+        "command": "node --test '--test-name-pattern=mixed Git' test/checkpoint-artifacts.test.ts",
+        "typecheck": 0,
+        "exit": 1,
+        "seconds": 7.519,
+        "function": "acquireControllerLease",
+        "thread_id": "PRRT_kwDOTqJmqs6upoTk"
+      },
+      {
+        "variant": "portable-process-tools",
+        "file": "test/checkpoint-artifacts.test.ts",
+        "command": "node --test '--test-name-pattern=restricted process tools' test/checkpoint-artifacts.test.ts",
+        "typecheck": 0,
+        "exit": 1,
+        "seconds": 6.127,
+        "function": "checkpointToolBin",
+        "thread_id": "PRRT_kwDOTqJmqs6upoTw"
+      },
+      {
+        "variant": "storage-documentation",
+        "file": "README.md",
+        "command": "node --test --test-name-pattern=README test/checkpoint-artifacts.test.ts",
+        "typecheck": 0,
+        "exit": 1,
+        "seconds": 6.771,
+        "function": "README storage contract",
+        "thread_id": "PRRT_kwDOTqJmqs6upoTr"
+      }
+    ]
+  },
+  "inspection_review_round": {
+    "base": "ae9f554f46ee604318c12d6c65bcfe52f0f383ba",
+    "restored_focused_passes": 3,
+    "scope": "Behavioral reverts restored in finally before further validation. Tests import TypeScript source directly.",
+    "reverts": [
+      {
+        "variant": "inspection-global-certification",
+        "file": "checkpoint-artifacts.ts",
+        "function": "inspectCheckpointArtifact",
+        "thread_id": "PRRT_kwDOTqJmqs6uqs1G",
+        "command": "node --test '--test-name-pattern=checkpoint inspection' test/checkpoint-artifacts.test.ts",
+        "typecheck": 0,
+        "exit": 1,
+        "seconds": 3.206
+      },
+      {
+        "variant": "reference-object-validation",
+        "file": "checkpoint-artifacts.ts",
+        "function": "validateReference",
+        "thread_id": "PRRT_kwDOTqJmqs6uqs1G",
+        "command": "node --test '--test-name-pattern=checkpoint inspection' test/checkpoint-artifacts.test.ts",
+        "typecheck": 0,
+        "exit": 1,
+        "seconds": 4.475
+      }
+    ]
+  },
+  "descriptor_review_round": {
+    "base": "3029c8afcbf8a4aa0a5856620f25e2fccdc552ee",
+    "scope": "Isolated source copies retained all current tests. Behavioral function bodies were reverted while preserving required imports and the internal export. Production source was never reverted. Tests import TypeScript directly.",
+    "restored_focused_passes": 8,
+    "reverts": [
+      {
+        "variant": "path-stat-read",
+        "file": "checkpoint-artifacts.ts",
+        "function": "readVerifiedFile",
+        "thread_id": "PRRT_kwDOTqJmqs6ur6XM",
+        "command": "node --test --test-name-pattern=\"checkpoint descriptor\" test/checkpoint-artifacts.test.ts",
+        "typecheck": 0,
+        "exit": 1,
+        "seconds": 2.372,
+        "tests": 4,
+        "failed": 3
+      },
+      {
+        "variant": "unbounded-descriptor-read",
+        "file": "checkpoint-artifacts.ts",
+        "function": "readVerifiedFile",
+        "thread_id": "PRRT_kwDOTqJmqs6ur6XM",
+        "command": "node --test --test-name-pattern=\"checkpoint descriptor\" test/checkpoint-artifacts.test.ts",
+        "typecheck": 0,
+        "exit": 1,
+        "seconds": 2.894,
+        "tests": 4,
+        "failed": 1
+      },
+      {
+        "variant": "unbounded-benchmark-baseline",
+        "file": "scripts/checkpoint-benchmark.ts",
+        "function": "measureCheckpointLoads",
+        "thread_id": "PRRT_kwDOTqJmqs6ur6XM",
+        "origin": "Whole-PR self-review for the same defect class.",
+        "command": "node --test --test-name-pattern=\"benchmark legacy comparison\" test/checkpoint-artifacts.test.ts",
+        "typecheck": 0,
+        "exit": 1,
+        "seconds": 8.598,
+        "tests": 1,
+        "failed": 1
+      }
+    ],
+    "tested_source": "6759e6ab63f151ae720af5e127776d52a17fb8c7",
+    "validation": {
+      "source": "6759e6ab63f151ae720af5e127776d52a17fb8c7",
+      "ci": "https://github.com/unbraind/pm-rl/actions/runs/39573073353",
+      "variants": [
+        {
+          "command": "npm run release:check",
+          "node": 22,
+          "tests": 672
+        },
+        {
+          "command": "npm run release:check",
+          "node": 26,
+          "tests": 672
+        },
+        {
+          "command": "bun run release:check",
+          "node": 26,
+          "tests": 672
+        }
+      ],
+      "coverage": {
+        "statements": 100,
+        "lines": 100,
+        "branches": 100,
+        "functions": 100,
+        "sources": 46
+      },
+      "focused_linked_tests": 8
+    }
+  },
+  "batch_launcher_review_round": {
+    "base": "3352546f28a9cfe04355f172f47495244032ce95",
+    "scope": "Independent behavioral reverts in an isolated source copy with retained TypeScript regressions; production source never reverted. Shared release launchers retain strict behavior by default.",
+    "restored_focused_passes": 6,
+    "reverts": [
+      {
+        "variant": "per-blob-ledger",
+        "file": "checkpoint-artifacts.ts",
+        "function": "encodeCheckpointArtifacts",
+        "thread_id": "PRRT_kwDOTqJmqs6ut3Ca",
+        "command": "node --test --test-name-pattern=\"checkpoint batch publication\" test/checkpoint-artifacts.test.ts",
+        "typecheck": 0,
+        "exit": 1,
+        "seconds": 6.306,
+        "failed": 2
+      },
+      {
+        "variant": "oversized-ledger-bound",
+        "file": "checkpoint-artifacts.ts",
+        "function": "encodeCheckpointArtifacts",
+        "thread_id": "PRRT_kwDOTqJmqs6ut3Ca",
+        "command": "node --test --test-name-pattern=\"oversized ledger metadata\" test/checkpoint-artifacts.test.ts",
+        "typecheck": 0,
+        "exit": 1,
+        "seconds": 3.45,
+        "failed": 1
+      },
+      {
+        "variant": "missing-tool-diagnostic",
+        "file": "test/checkpoint-artifacts.test.ts",
+        "function": "checkpointToolBin",
+        "thread_id": "PRRT_kwDOTqJmqs6ut3Cq",
+        "command": "node --test --test-name-pattern=\"restricted process tools name\" test/checkpoint-artifacts.test.ts",
+        "typecheck": 0,
+        "exit": 1,
+        "seconds": 2.27,
+        "failed": 1
+      },
+      {
+        "variant": "benchmark-launcher",
+        "file": "scripts/checkpoint-benchmark.ts",
+        "function": "checkpointBenchmarkMain",
+        "thread_id": "PRRT_kwDOTqJmqs6ut3Cg",
+        "command": "node --test --test-name-pattern=\"non-file launcher\" test/checkpoint-artifacts.test.ts",
+        "typecheck": 0,
+        "exit": 1,
+        "seconds": 2.38,
+        "failed": 1
+      },
+      {
+        "variant": "shared-launcher-behavior",
+        "file": "scripts/script-launcher.ts",
+        "function": "isMainInvocation",
+        "thread_id": "PRRT_kwDOTqJmqs6ut3Cg",
+        "command": "node --test --test-name-pattern=\"non-file launcher\" test/checkpoint-artifacts.test.ts",
+        "typecheck": 0,
+        "exit": 1,
+        "seconds": 2.836,
+        "failed": 1
+      },
+      {
+        "variant": "benchmark-transitive-live-import",
+        "file": "scripts/checkpoint-benchmark.ts",
+        "function": "configuration import",
+        "thread_id": "PRRT_kwDOTqJmqs6ut3Cg",
+        "command": "node --test --test-name-pattern=\"non-file launcher\" test/checkpoint-artifacts.test.ts",
+        "typecheck": 0,
+        "exit": 1,
+        "seconds": 5.299,
+        "failed": 1
+      },
+      {
+        "variant": "prefixTrainerMain-launcher",
+        "file": "prefix-trainer.ts",
+        "function": "prefixTrainerMain",
+        "thread_id": "PRRT_kwDOTqJmqs6ut3Cg",
+        "command": "node --test --test-name-pattern=\"non-file launcher\" test/checkpoint-artifacts.test.ts",
+        "typecheck": 0,
+        "exit": 1,
+        "seconds": 2.633,
+        "failed": 1
+      },
+      {
+        "variant": "referenceTrainerMain-launcher",
+        "file": "process-bandit.ts",
+        "function": "referenceTrainerMain",
+        "thread_id": "PRRT_kwDOTqJmqs6ut3Cg",
+        "command": "node --test --test-name-pattern=\"non-file launcher\" test/checkpoint-artifacts.test.ts",
+        "typecheck": 0,
+        "exit": 1,
+        "seconds": 2.376,
+        "failed": 1
+      },
+      {
+        "variant": "lmTrainerMain-launcher",
+        "file": "process-lm-trainer.ts",
+        "function": "lmTrainerMain",
+        "thread_id": "PRRT_kwDOTqJmqs6ut3Cg",
+        "command": "node --test --test-name-pattern=\"non-file launcher\" test/checkpoint-artifacts.test.ts",
+        "typecheck": 0,
+        "exit": 1,
+        "seconds": 2.457,
+        "failed": 1
+      }
+    ],
+    "tested_source": "67b8f85bfbd427185fc3538f00ad32af761a4638",
+    "validation": {
+      "ci": "https://github.com/unbraind/pm-rl/actions/runs/39584178627",
+      "variants": [
+        {
+          "command": "npm run release:check",
+          "node": 22,
+          "tests": 676
+        },
+        {
+          "command": "npm run release:check",
+          "node": 26,
+          "tests": 676
+        },
+        {
+          "command": "bun run release:check",
+          "node": 26,
+          "tests": 676
+        }
+      ],
+      "coverage": {
+        "statements": 100,
+        "lines": 100,
+        "branches": 100,
+        "functions": 100,
+        "sources": 47
+      },
+      "documented_declarations": 336,
+      "focused_linked_tests": 6,
+      "local_full_attempts": "Two intentionally interrupted attempts: superseded source, then redundant after CI passed. Neither counted as passing; no local timeout observed."
+    }
+  }
+}

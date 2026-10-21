@@ -24,7 +24,7 @@ import { fileURLToPath } from "node:url";
  * skip `main`. Resolving both sides through `realpathSync` after converting the
  * URL back to a path removes that casing and symlink ambiguity.
  *
- * An unresolvable path **propagates** rather than returning false. The two
+ * By default an unresolvable path **propagates** rather than returning false. The two
  * outcomes are not equally safe: returning false makes the caller treat the
  * script as a library import and skip `main`, so a required release check
  * exits 0 having done nothing — the one failure these gates exist to prevent.
@@ -38,14 +38,18 @@ import { fileURLToPath } from "node:url";
  *
  * @param argv - The process argv slice to inspect.
  * @param moduleUrl - The `import.meta.url` of the module that might be main.
+ * @param allowMissingEntry - Opt imported trainers into tolerating non-file launchers; release gates remain strict.
  * @returns True when `argv[1]` resolves to this module's own real path, false
  *          when it resolves to a different one.
  * @throws Whatever `realpathSync` throws when either path cannot be resolved.
  */
-export function isMainInvocation(argv: readonly string[], moduleUrl: string): boolean {
+export function isMainInvocation(argv: readonly string[], moduleUrl: string, allowMissingEntry = false): boolean {
   const entry = argv[1];
   if (entry === undefined) return false;
-  return realpathSync(entry) === realpathSync(fileURLToPath(moduleUrl));
+  let resolvedEntry: string;
+  try { resolvedEntry = realpathSync(entry); }
+  catch (error) { if (allowMissingEntry) return false; throw error; }
+  return resolvedEntry === realpathSync(fileURLToPath(moduleUrl));
 }
 
 /**

@@ -16,7 +16,7 @@ import { prefixTrainerArgv, prefixTrainerMain, runPrefixTrainer } from "../prefi
 import { INITIAL_RECIPE, recipeArtifact, seededRecipes } from "../recipe.ts";
 import { metaWorkspace, withTrackerSources, metaConfig, git } from "./fixtures/meta-workspace.ts";
 import { compareRecipes, runRlMeta, type RecipePolicy } from "../meta.ts";
-import { executeProcessTrainer, validateProcessCompletion, readProcessJob, listProcessJobs, type ProcessCompletion, type ProcessInput } from "../process.ts";
+import { executeProcessTrainer, validateProcessCompletion, readProcessJob, listProcessJobs, stagingBytes, type ProcessCompletion, type ProcessInput } from "../process.ts";
 import { runLiveMetaAcceptance, liveMetaMain } from "../scripts/live-meta.ts";
 
 const knobs = { regularisation: 0.001, ngram_order: 2, hashing_width: 32 };
@@ -141,15 +141,17 @@ test("hashed learner responds to every declared observable and actually changes 
   const fit = fitPrefix({ knobs, rows: Array.from({ length: 128 }, () => ({ prefix, label: 0 as const })) }, source, 0.5);
   assert.notEqual(source.digest, fit.digest); assert.equal(prefixPrediction(prefix, fit), "fast"); assert.equal(prefixPrediction(prefix, source), "slow");
   assert.deepEqual(fit, prefixCheckpoint(fit.weights, knobs));
-  for (const patch of [{ regularisation: -1 }, { regularisation: NaN }, { ngram_order: 0 }, { ngram_order: 1.2 }, { hashing_width: 128 }]) assert.throws(() => validatePrefixKnobs({ ...knobs, ...patch }));
+  for (const patch of [{ regularisation: -1 }, { regularisation: NaN }, { ngram_order: 0 }, { ngram_order: 1.2 }, ...[8, 33, 1.5, NaN, 8192].map((hashing_width) => ({ hashing_width }))]) assert.throws(() => validatePrefixKnobs({ ...knobs, ...patch }));
   for (const patch of [{ events: [] }, { fields: ["bad/path"] }, { words: [-1] }, { elapsed_ms: -1 }, { authors: 0.5 }]) assert.throws(() => validateHistoryPrefix({ ...prefix, ...patch }));
   assert.throws(() => prefixCheckpoint([0], knobs), /weights/); assert.throws(() => prefixCheckpoint(new Array<number>(32).fill(Infinity), knobs), /weights/);
   assert.throws(() => fitPrefix({ knobs, rows: [] }, source, 0.5), /bounds/);
   assert.throws(() => fitPrefix({ knobs, rows: [{ prefix, label: 2 as 0 }] }, source, 0.5), /label/);
   assert.throws(() => fitPrefix({ knobs: { ...knobs, regularisation: 0.02 }, rows: [] }, source, 0.5), /source_knobs/);
   assert.ok(prefixFeatures({ ...prefix, events: ["create"] }, { ...knobs, ngram_order: 3 }).length === 32);
-  assert.throws(() => recipeArtifact({ ...recipe.knobs, prefix: { ...knobs, hashing_width: 128 } }));
+  assert.throws(() => recipeArtifact({ ...recipe.knobs, prefix: { ...knobs, hashing_width: 8192 } }));
   assert.ok(seededRecipes(recipe, 42, 1, 8).every((next) => next.knobs.prefix !== undefined));
+  const largeRecipe = recipeArtifact({ ...recipe.knobs, prefix: { ...knobs, hashing_width: 4096 } });
+  assert.ok(seededRecipes(largeRecipe, 42, 1, 8).every((next) => next.knobs.prefix!.hashing_width >= 1024));
 });
 
 test("trainer IO publishes exact measured checkpoint evidence and validation refuses forged parameters", async () => {
@@ -158,19 +160,23 @@ test("trainer IO publishes exact measured checkpoint evidence and validation ref
   const input: ProcessInput<PrefixCheckpoint> = { identity: {}, source, training: [], observations: [], training_config: { learning_rate: 0.25, steps: 1 }, lineage: {}, prefix: { rows: [{ prefix, label: 0 }], knobs } };
   let output = "";
   const sink = new Writable({ write(chunk: Buffer, _encoding, callback) { output += String(chunk); callback(); } });
-  await runPrefixTrainer(Readable.from([JSON.stringify({ job: "synthetic", input })]), sink, root);
+  const artifactRoot = mkdtempSync(join(tmpdir(), "rl-prefix-artifacts-"));
+  await runPrefixTrainer(Readable.from([JSON.stringify({ job: "synthetic", input, artifactRoot })]), sink, root);
   const completion = JSON.parse(readFileSync(join(root, "completion.json"), "utf8")) as ProcessCompletion;
-  const bytes = readFileSync(join(root, "checkpoint.json"));
   writeFileSync(join(root, "runner.json"), JSON.stringify({ started_at: Date.now() - 1000 }));
-  assert.equal(validateProcessCompletion(root, "synthetic", input, { training_steps: 1, wall_ms: 30000, storage_bytes: 4096, compute_units: 30000, tokens: 0 }).policy.digest, completion.policy.digest);
-  assert.ok(output.includes('"complete"')); validatePrefixCompletion(bytes, completion, input as unknown as ProcessInput);
+  const verified = validateProcessCompletion(root, "synthetic", input, { training_steps: 1, wall_ms: 30000, storage_bytes: 4096, compute_units: 30000, tokens: 0 }, artifactRoot);
+  assert.throws(() => validateProcessCompletion(root, "synthetic", input, { training_steps: 1, wall_ms: 30000, storage_bytes: stagingBytes(root) + completion.artifact!.bytes - 1, compute_units: 30000, tokens: 0 }, artifactRoot),
+    (error: unknown) => isPmCliExpectedError(error) && error.context.code === "process_limit_exceeded" && error.message.includes("artifact exceeded"));
+  const bytes = Buffer.from(JSON.stringify(verified.policy));
+  assert.equal(verified.policy.digest, completion.policy.digest);
+  assert.ok(output.includes('"complete"')); validatePrefixCompletion(bytes, verified, input as unknown as ProcessInput);
   assert.throws(() => validatePrefixCompletion(Buffer.from(JSON.stringify({ ...source, digest: "forged" })), completion, input as unknown as ProcessInput), /identity/);
   assert.throws(() => validatePrefixCompletion(bytes, { ...completion, policy: source as unknown as ProcessCompletion["policy"] }, input as unknown as ProcessInput), /policy/);
-  assert.throws(() => validatePrefixCompletion(bytes, completion, { ...input, prefix: { rows: [], knobs: { ...knobs, regularisation: 0.01 } } } as unknown as ProcessInput), /knobs/);
+  assert.throws(() => validatePrefixCompletion(bytes, verified, { ...input, prefix: { rows: [], knobs: { ...knobs, regularisation: 0.01 } } } as unknown as ProcessInput), /knobs/);
   assert.ok(prefixTrainerArgv()[1].endsWith(".ts")); assert.ok(prefixTrainerArgv(new URL("../dist/prefix-trainer.js", import.meta.url).href)[1].endsWith(".js"));
   await prefixTrainerMain(["node", new URL("./prefix.test.ts", import.meta.url).pathname], new URL("../prefix-trainer.ts", import.meta.url).href);
   const other = mkdtempSync(join(tmpdir(), "rl-prefix-main-"));
-  await prefixTrainerMain(["node", new URL("../prefix-trainer.ts", import.meta.url).pathname], new URL("../prefix-trainer.ts", import.meta.url).href, Readable.from([JSON.stringify({ job: "synthetic", input })]), sink, other);
+  await prefixTrainerMain(["node", new URL("../prefix-trainer.ts", import.meta.url).pathname], new URL("../prefix-trainer.ts", import.meta.url).href, Readable.from([JSON.stringify({ job: "synthetic", input, artifactRoot })]), sink, other);
 });
 
 test("public snapshot builder pins the task, calibrates only fit items and preserves repository compartments", async () => {

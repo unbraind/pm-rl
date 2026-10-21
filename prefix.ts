@@ -5,7 +5,7 @@ import { validateHistoryPrefix, type HistoryPrefix } from "./prefix-data.ts";
 import type { ProcessCompletion, ProcessInput } from "./process.ts";
 
 /** Fixed domains form part of every fitted checkpoint and recipe identity. */
-export const PREFIX_BOUNDS = { regularisation: [0, 0.1], ngram_order: [1, 3], hashing_width: [16, 64], learning_rate: [0.01, 1] } as const;
+export const PREFIX_BOUNDS = { regularisation: [0, 0.1], ngram_order: [1, 3], hashing_width: [16, 4096], learning_rate: [0.01, 1] } as const;
 /** Small feature spaces and one bounded SGD pass keep fits within existing process reservations. */
 export interface PrefixKnobs { readonly regularisation: number; readonly ngram_order: number; readonly hashing_width: number }
 /** Actual parameters, with their feature recipe and content digest. */
@@ -53,7 +53,7 @@ export function validatePrefixKnobs(knobs: PrefixKnobs): void {
   assert.deepEqual(Object.keys(knobs).sort(), ["hashing_width", "ngram_order", "regularisation"], "prefix_knobs");
   assert.ok(Number.isFinite(knobs.regularisation) && knobs.regularisation >= 0 && knobs.regularisation <= 0.1, "prefix_regularisation");
   assert.ok(Number.isInteger(knobs.ngram_order) && knobs.ngram_order >= 1 && knobs.ngram_order <= 3, "prefix_ngram_order");
-  assert.ok([16, 32, 64].includes(knobs.hashing_width), "prefix_hashing_width");
+  assert.ok(Number.isInteger(knobs.hashing_width) && knobs.hashing_width >= 16 && knobs.hashing_width <= 4096 && (knobs.hashing_width & (knobs.hashing_width - 1)) === 0, "prefix_hashing_width");
 }
 /** Hash event counts, order n-grams, field changes, elapsed buckets, author count and first-text words. */
 export function prefixFeatures(prefix: HistoryPrefix, knobs: PrefixKnobs): number[] {

@@ -68,7 +68,7 @@ export function seededRecipes(incumbent: Recipe, seed: number, generation: numbe
   return Array.from({ length: count }, () => recipeArtifact({
     learning_rate: 0.01 + draw() * 0.99, steps: 1 + Math.floor(draw() * 2), batch: 16 + Math.floor(draw() * 241),
     temperature: 0.5 + draw() * 1.5, correct_weight: 0.5 + draw() * 0.5, incorrect_weight: draw() * 0.25,
-    ...(incumbent.knobs.prefix === undefined ? {} : { prefix: { regularisation: draw() * 0.1, ngram_order: 1 + Math.floor(draw() * 3), hashing_width: [16, 32, 64][Math.floor(draw() * 3)] } }),
+    ...(incumbent.knobs.prefix === undefined ? {} : { prefix: { regularisation: draw() * 0.1, ngram_order: 1 + Math.floor(draw() * 3), hashing_width: (incumbent.knobs.prefix.hashing_width > 64 ? [Math.max(128, incumbent.knobs.prefix.hashing_width / 4), Math.max(128, incumbent.knobs.prefix.hashing_width / 2), incumbent.knobs.prefix.hashing_width] : [16, 32, 64])[Math.floor(draw() * 3)] } }),
     selection: draw() < 0.5 ? "all" : "balanced", curriculum: draw() < 0.5 ? "forward" : "reverse",
   }));
 }
