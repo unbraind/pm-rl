@@ -187,7 +187,7 @@
         "command": "node --test --test-name-pattern=\"benchmark legacy comparison\" test/checkpoint-artifacts.test.ts",
         "typecheck": 0,
         "exit": 1,
-        "seconds": 5.719
+        "seconds": 8.598
       }
     ]
   }

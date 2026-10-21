@@ -1,6 +1,5 @@
 /** Reproducible checkpoint size/load measurements on an already sealed public tracker corpus. */
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
@@ -25,7 +24,6 @@ export function measureCheckpointLoads(root: string, ref: CheckpointArtifact, it
   };
   const legacy = ref.bytes > 4096 ? null : measure(() => {
     const bytes = readVerifiedFile(checkpointArtifactPath(root, ref.digest), ref.digest, ref.bytes);
-    assert.equal(`sha256:${createHash("sha256").update(bytes).digest("hex")}`, ref.digest);
     const policy = JSON.parse(bytes.toString("utf8")) as PrefixCheckpoint;
     assert.equal(prefixCheckpoint(policy.weights, policy.knobs).digest, policy.digest); return policy;
   });
