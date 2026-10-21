@@ -181,3 +181,23 @@ receipt regression. The epic retains the exact commands and revert results.
 The existing local managed-extension skew and shared merge-fence drift are
 separate from the passing fresh-checkout CI health. The descriptor-relative
 publication follow-up remains open as `pm-rl-corpusnofollow`.
+
+## Durable-source snapshot review verification
+
+[Complete snapshot-review CI](https://github.com/unbraind/pm-rl/actions/runs/39673545869)
+validates source and tests at `ecfc1e9af774506bd526bd1da43329cd3becfc4f`.
+The npm release gates on Node 22 and Node 26 and the Bun release gate on
+Node 26/Bun 1.3.14 each pass 689/689 tests with zero failures, skips,
+cancellations or todos. All four coverage dimensions remain 100% across
+48 sources, with 340 declarations documented. Strict tracker health, lint,
+identity, zero duplication, production audit, publication attestation,
+packaging, changelog, Bun installation and CodeQL pass.
+
+The corpus suite passes 13/13 locally. Reverting only the shared source snapshot
+helper to its previous tasks/history-only implementation fails the new regression
+on a missed settings-file byte change; restoration passes directly and through
+the pinned tracker-linked runner. The epic retains the exact command and proof.
+Local unscoped lint still sees retained ignored runtime copies, tracked separately
+as `pm-rl-lintruntime`; authored-source lint passes when those copies are excluded,
+and unchanged unscoped lint passes in all three fresh CI jobs. No local test
+timeouts occurred in this round. This receipt adds no executable changes.
