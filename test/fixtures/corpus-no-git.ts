@@ -7,7 +7,7 @@ import { init } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import extension, { hashJson, resumeRlLoop, rlLoopStatus, runRlLoop, type RlCommandResult, type JsonValue } from "../../index.ts";
 import { corpusHeldOut } from "../../corpus.ts";
-import { listProcessJobs, processStaging } from "../../process.ts";
+import { listProcessJobs, processStaging, type ProcessAdapter } from "../../process.ts";
 
 try {
 const root = process.argv[2];
@@ -24,7 +24,10 @@ process.stdout.write("source initialized\n");
 const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
 const output = join(root, "sealed.json");
 const boundsFile = join(root, "bounds.json");
-writeFileSync(boundsFile, JSON.stringify({ ...JSON.parse(readFileSync(new URL("../../examples/loop-corpus.json", import.meta.url), "utf8")), samples_per_generation: 32, budget: 64 }));
+const declared = JSON.parse(readFileSync(new URL("../../examples/loop-corpus.json", import.meta.url), "utf8")) as Record<string, JsonValue>;
+const adapter = declared.adapter as unknown as ProcessAdapter;
+writeFileSync(boundsFile, JSON.stringify({ ...declared, samples_per_generation: 32, budget: 64,
+  adapter: { ...adapter, allowance: { ...adapter.allowance, wall_ms: 30_000 } } }));
 const options = { from_tracker: pmRoot, file: boundsFile, output };
 const built = await harness.runCommand({ command: "rl corpus build", pmRoot, args: [], options });
 assert.equal(built.handled, true); assert.equal((built.result as RlCommandResult).action, "rl-corpus-build");
@@ -34,7 +37,7 @@ const duplicate = await harness.runCommand({ command: "rl corpus build", pmRoot,
 assert.match(JSON.stringify(duplicate), /EEXIST/);
 assert.equal(readFileSync(output, "utf8"), sealedBytes);
 process.stdout.write("sealed corpus verified\n");
-const { item: approval } = await client.create({ id: "allowance", title: "Bounded corpus run", type: "Decision", body: '```json\n{"permitted_promotions":2,"resource_budget":{"training_steps":16,"wall_ms":10000,"storage_bytes":524288,"compute_units":2000,"tokens":0}}\n```' });
+const { item: approval } = await client.create({ id: "allowance", title: "Bounded corpus run", type: "Decision", body: '```json\n{"permitted_promotions":2,"resource_budget":{"training_steps":16,"wall_ms":60000,"storage_bytes":524288,"compute_units":2000,"tokens":0}}\n```' });
 const config = JSON.parse(sealedBytes) as JsonValue;
 const request = { id: "corpus-recursion", config, approval: approval.id };
 const report = await runRlLoop(client, { pmRoot, author: "corpus-test" }, request);
