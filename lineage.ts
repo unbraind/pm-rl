@@ -65,6 +65,8 @@ export interface ScoreRecord {
 
 /** A policy generation and its provenance, stored as a JSON fence in the item body. */
 export interface GenerationSpec {
+  /** Frozen comparison identity when the generation belongs to a predeclared experiment. */
+  readonly evaluation_plan?: string;
   /** Content-addressed identity of the base checkpoint the generation started from. */
   readonly base_checkpoint: string;
   /** Content-addressed identity of the policy that collected the training data; empty for the seed. */
@@ -262,6 +264,8 @@ export function parseGenerationSpec(text: string, source: string): GenerationSpe
     expectedFail(`${source} is not valid JSON.`, "invalid_generation_json");
   }
   const record = asJsonObject(parsed, source);
+  const evaluationPlan = record["evaluation_plan"];
+  if (evaluationPlan !== undefined && (typeof evaluationPlan !== "string" || !/^[a-f0-9]{64}$/.test(evaluationPlan))) expectedFail(`${source} requires a SHA-256 evaluation_plan comparison; register a fresh planned candidate.`, "invalid_evaluation_plan");
   const baseCheckpoint = asString(record, "base_checkpoint", source);
   const policy = asString(record, "policy", source, false);
   const collectionRunsRaw = record["collection_runs"];
@@ -374,6 +378,7 @@ export function parseGenerationSpec(text: string, source: string): GenerationSpe
     }
   }
   return {
+    ...(evaluationPlan === undefined ? {} : { evaluation_plan: evaluationPlan as string }),
     base_checkpoint: baseCheckpoint,
     policy,
     collection_runs: collectionRuns,

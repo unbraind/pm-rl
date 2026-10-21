@@ -151,6 +151,8 @@ export {
   type StoredLmGeneration,
 } from "./lm.ts";
 
+export { parseEvaluationPlan, evaluationPlanId, evaluationComparison, registerEvaluationPlan, readEvaluationPlan, evaluatePlan, recordPlanEvaluation, enforceEvaluationPlan, type EvaluationPlan, type EvaluationMember, type EvaluationObservation, type EvaluationPlanReport, type RegisteredEvaluationPlan, type EvaluationPlanRefusal } from "./evaluation-plan.ts";
+
 export { decidePromotion, hoeffdingEpsilon, parsePromotionCriterion, parsePromotionEvidence, type PromotionCriterion, type PromotionDecision, type PromotionEvidence, type PromotionGateInput } from "./promotion.ts";
 export { recipeArtifact, parseRecipe, seededRecipes, INITIAL_RECIPE, RECIPE_BOUNDS, type Recipe, type RecipeKnobs } from "./recipe.ts";
 export { buildTrackerDataset, readTrackerDataset, readTrackerSplit, type TrackerDataset, type TrackerExample } from "./dataset.ts";
@@ -204,9 +206,10 @@ import {
 } from "@unbrained/pm-cli/sdk/authoring";
 import { commitWorkspaceTransaction, type CommitWorkspaceTransactionOptions, type LogNote } from "@unbrained/pm-cli/sdk";
 import { PmClient, type GetResult, type ItemMetadata } from "@unbrained/pm-cli/sdk/core";
-import { acquireLock, certifyCompleteListResult, createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError, type PmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
+import { acquireLock, certifyCompleteListResult, createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError, normalizeItemId, type PmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 
 import { parseJsonRecord } from "./refuse.ts";
+import { registerEvaluationPlan, readEvaluationPlan, recordPlanEvaluation, enforceEvaluationPlan } from "./evaluation-plan.ts";
 import { buildTrackerLoopCorpus } from "./corpus.ts";
 import { decodeCheckpointArtifacts, encodeCheckpointArtifacts, collectCheckpointArtifacts, inspectCheckpointArtifact } from "./checkpoint-artifacts.ts";
 
@@ -537,8 +540,9 @@ const guardReferencedEnvironmentMutation = defineBeforeMutationHook(async (conte
  * @param spec - The generation specification to reduce to its provenance.
  * @returns The provenance fields, ordered by the caller's key order for hashing.
  */
-function generationProvenance(spec: GenerationSpec): JsonValue {
+export function generationProvenance(spec: GenerationSpec): JsonValue {
   return {
+    ...(spec.evaluation_plan === undefined ? {} : { evaluation_plan: spec.evaluation_plan }),
     base_checkpoint: spec.base_checkpoint,
     policy: spec.policy,
     collection_runs: [...spec.collection_runs],
@@ -1736,7 +1740,7 @@ async function simRealGap(context: CommandHandlerContext): Promise<RlCommandResu
 }
 
 /** Extract and parse a generation spec from an item body's JSON fence. */
-function extractGenerationSpec(body: string, source: string): GenerationSpec {
+export function extractGenerationSpec(body: string, source: string): GenerationSpec {
   const fenced = JSON_SPEC_FENCE.exec(body);
   if (fenced?.[1] === undefined) {
     fail(`${source} has no JSON specification fence.`, "generation_missing_spec", EXIT_CODE.CONFLICT);
@@ -2177,7 +2181,9 @@ async function registerGenerationCore(client: PmClient, request: GenerationRegis
     }
     deps = [environmentId, ...collectionRuns];
   }
+  const reservation = await readEvaluationPlan(client, normalizeItemId(requestedId, String((await client.config("project", "get", "id_prefix")).nested_setting!.value)));
   const spec: GenerationSpec = {
+    ...(reservation === null ? {} : { evaluation_plan: reservation.comparison }),
     base_checkpoint: baseCheckpoint,
     policy,
     collection_runs: collectionRuns,
@@ -2456,6 +2462,7 @@ async function promoteGenerationCore(client: PmClient, coordinates: WorkspaceCoo
         if (currentSpec.promoted) {
           fail(`Generation ${id} is already promoted.`, "already_promoted", EXIT_CODE.CONFLICT);
         }
+        await enforceEvaluationPlan(client, String(current.item.id), heldOutScore);
         // THE authoritative contamination decision, taken inside the lock over
         // the ancestry the verdict actually depends on.
         //
@@ -4373,6 +4380,7 @@ async function showGeneration(context: CommandHandlerContext): Promise<RlCommand
       held_out_score: spec.held_out_score,
       gap: spec.gap,
       promotion_evidence: spec.promotion_evidence,
+      ...(spec.evaluation_plan === undefined ? {} : { evaluation_plan: spec.evaluation_plan }),
     },
   };
 }
@@ -5007,6 +5015,25 @@ export const RL_COMMANDS = [
     { long: "--file", value_name: "path", value_type: "string", required: true, description: "Benchmark JSON file." },
     { long: "--contaminated-by", value_name: "environment-ids", value_type: "string", description: "Comma-separated environment versions whose training data overlaps the suite." },
   ], run: registerBenchmark }),
+  defineCommand({ name: "rl eval plan register", description: "Predeclare a fixed cohort and correlation units before candidate collection.", flags: [
+    { long: "--file", value_name: "path", value_type: "string", required: true, description: "Evaluation plan JSON." },
+  ], run: async (context) => {
+    const registered = await registerEvaluationPlan(clientFor(context), readJsonFile(stringOption(context, "file")!, "Evaluation plan"));
+    return { action: "rl-eval-plan-register", id: registered.id, details: { comparison: registered.comparison, observations: registered.plan.stopping.observations, independent_units: registered.plan.stopping.independent_units } };
+  } }),
+  defineCommand({ name: "rl eval plan show", description: "Show compact predeclared comparison identity and fixed stopping sizes.", arguments: [{ name: "candidate", required: true, description: "Reserved candidate generation id." }], run: async (context) => {
+    const registered = await readEvaluationPlan(clientFor(context), requiredArgument(context, "a candidate id"));
+    if (registered === null) fail("No predeclared plan. Register one before creating a fresh candidate.", "eval_plan_missing", EXIT_CODE.CONFLICT);
+    return { action: "rl-eval-plan-show", id: registered.id, details: { comparison: registered.comparison, candidate: registered.plan.candidate, incumbent: registered.plan.incumbent, stopping: registered.plan.stopping } };
+  } }),
+  defineCommand({ name: "rl eval plan evaluate", description: "Seal one paired evaluation and report its cluster-aware promotion verdict.", arguments: [{ name: "candidate", required: true, description: "Reserved candidate generation id." }], flags: [
+    { long: "--file", value_name: "path", value_type: "string", required: true, description: "Paired observation array JSON." },
+  ], run: async (context) => {
+    const client = clientFor(context); const id = requiredArgument(context, "a candidate id");
+    const item = await getTypedItem(client, id, "Generation");
+    const report = await recordPlanEvaluation(client, String(item.item.id), readJsonFile(stringOption(context, "file")!, "Paired observations"));
+    return { action: "rl-eval-plan-evaluate", id: report.plan, details: { ...report } };
+  } }),
   defineCommand({ name: "rl eval record", description: "Record one immutable checkpoint verdict linked to its source run and benchmark.", flags: [
     { long: "--run", value_name: "id", value_type: "string", required: true, description: "Source Run item id." },
     { long: "--benchmark", value_name: "id", value_type: "string", required: true, description: "Benchmark item id." },
