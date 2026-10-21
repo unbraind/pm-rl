@@ -16,7 +16,7 @@ const client = new PmClient({ pmRoot, author: "baseline-test", noExtensions: tru
 const lengths = [false, true].flatMap((heldOut) => Array.from({ length: 200 }, (_, index) => index + 40).filter((length) => corpusHeldOut(length) === heldOut).slice(0, 10));
 for (const length of lengths) await client.create({ id: `source-${length}`, type: "Task", title: "t".repeat(length), status: "closed", closeReason: "Synthetic completed source" });
 const bounds = JSON.parse(readFileSync(new URL("../../examples/loop-corpus-baseline.json", import.meta.url), "utf8")) as Record<string, JsonValue>;
-const selected = { ...bounds, fit_steps: 8, samples_per_generation: 32, budget: 96,
+const selected = { ...bounds, fit_steps: 8, samples_per_generation: 32, budget: 96, evaluation_samples: 512,
   adapter: { kind: "process-bandit", allowance: { training_steps: 8, wall_ms: 30000, storage_bytes: 262144, compute_units: 10000, tokens: 0 } } };
 const boundsFile = join(root, "bounds.json"); writeFileSync(boundsFile, JSON.stringify(selected));
 await baselineMain(["node", "/baseline-acceptance.ts", pmRoot, join(root, "controller"), boundsFile], "file:///baseline-acceptance.ts");

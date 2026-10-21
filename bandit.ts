@@ -234,11 +234,12 @@ function evaluate(policy: BanditCheckpoint, examples: readonly BanditExample[]):
  * @returns The empirical mean reward over the drawn episodes.
  */
 function sampledHeldOutMean(policy: BanditCheckpoint, examples: readonly BanditExample[], samples: number, seed: number): number {
+  const probabilities = examples.map((example) => banditProbability(policy, example));
   let state = seed;
   let total = 0;
   for (let index = 0; index < samples; index += 1) {
     const example = examples[index % examples.length];
-    const probability = banditProbability(policy, example);
+    const probability = probabilities[index % examples.length];
     state = (Math.imul(1664525, state) + 1013904223) >>> 0;
     const action = state / 0x1_0000_0000 < probability ? 1 : 0;
     total += example.rewards[action];
