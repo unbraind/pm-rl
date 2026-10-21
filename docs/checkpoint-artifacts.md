@@ -171,3 +171,34 @@ typecheck and fail their retained regression; the revert receipt maps each to
 its review thread. The local full gate was interrupted by a provider error and
 is not counted as passing. No local timeout is substituted for a passing result.
 The review threads remain untouched. No new PM CLI/SDK defect was encountered.
+
+
+The subsequent inspection review validates source commit
+`913c6d8161cf457aade70312cdced0b07223bef4` in
+[CI run 39565988092](https://github.com/unbraind/pm-rl/actions/runs/39565988092).
+Thread `PRRT_kwDOTqJmqs6uqs1G` was valid: inspection now verifies ledger metadata
+and only the requested blob, while collection retains full certification before
+any deletion. The complete PR diff was reviewed for the same global-read coupling;
+no other production inspection path required correction. Malformed reference
+objects now raise a typed refusal rather than a raw property-access exception.
+
+| Command | Runtime | Tests | Statements / lines / branches / functions |
+| --- | --- | --- | --- |
+| `npm run release:check` | Node 22 | 668/668 | 100/100/100/100 |
+| `npm run release:check` | Node 26 | 668/668 | 100/100/100/100 |
+| `bun run release:check` | Node 26, Bun | 668/668 | 100/100/100/100 |
+
+Every variant has zero failures, skips, cancellations or todos; measures all 46
+sources; documents 336 declarations; and passes the unchanged complete gate,
+tracker health, identity and production audits, packaging, changelog checks and
+Bun package-graph installation.
+[CodeQL](https://github.com/unbraind/pm-rl/actions/runs/39565988276) also passes.
+The three focused inspection checks pass directly and through pinned pm test.
+Both behavioral reverts typecheck and fail retained regressions: the inspection
+lookup revert fails two checks, and the object-guard revert fails one. Exact
+commands and timings are in the inspection review section of the revert receipt.
+The slower local full npm run was deliberately stopped after all CI variants
+passed; it is not counted as passing. No local timeout was observed. The final
+follow-up contains only documentation and tracker evidence; executable source,
+tests and gate settings remain identical to the tested source commit. Review
+threads remain untouched, and substantive final-head re-review remains pending.
