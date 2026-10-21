@@ -66,7 +66,7 @@ function label(value: unknown): string {
 /** Validate the entire fixed design; adaptive stopping needs a different future plan format. */
 export function parseEvaluationPlan(value: unknown): EvaluationPlan {
   const p = object(value, ["format", "candidate", "incumbent", "incumbent_version", "population", "selection", "correlation_unit", "members", "objective", "objective_version", "evaluation_context", "direction", "reward_bounds", "criterion", "stopping"]);
-  if (p.format !== "pm-rl/evaluation-plan/1" || !["maximize", "minimize"].includes(String(p.direction))) refuse("eval_plan_invalid");
+  if (p.format !== "pm-rl/evaluation-plan/1" || (p.direction !== "maximize" && p.direction !== "minimize")) refuse("eval_plan_invalid");
   const candidate = label(p.candidate); const incumbent = label(p.incumbent);
   if (candidate === incumbent) refuse("eval_plan_invalid");
   if (!Array.isArray(p.members) || p.members.length === 0 || p.members.length > 10_000) refuse("eval_plan_invalid");
