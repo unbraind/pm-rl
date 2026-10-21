@@ -6,14 +6,13 @@ status: in_progress
 priority: 3
 tags: []
 created_at: "2026-10-21T15:19:43.600Z"
-updated_at: "2026-10-21T16:04:12.611Z"
-assignee: codex-agent
-claim_principal: codex-agent
+updated_at: "2026-10-21T16:38:28.557Z"
 author: codex-agent
 parent: pm-rl-apvf
-comments[2]{created_at,author,text}:
+comments[3]{created_at,author,text}:
   "2026-10-21T15:33:21.292Z",codex-agent,"Confirmed with a real Node process that process.stdin.destroy() leaves file descriptor 0 open. The broken-pipe fixture therefore relied on its 100 ms timed process exit. Replace that fixture action with an explicit closeSync(0) and keep the child alive until the transport kills it after the actual stdin error. The existing one-second timeout, 16 MiB input, real subprocess, and stdin-failure assertion remain unchanged. No transport implementation or quality threshold changes."
   "2026-10-21T16:04:12.611Z",codex-agent,"The explicit-descriptor fixture passes focused coverage verification 2/2 and tracker-linked snapshot verification 2/2 (2.112 seconds), with zero failures/skips. The original one-second deadline, 16 MiB input and stdin-failure assertion remain intact. The unrelated checkpoint benchmark passes isolated verification 1/1 (100.904 seconds) after failing during the loaded whole-suite attempt; its failure is retained for classification when that attempt finishes. No benchmark or production resource ceiling is changed."
+  "2026-10-21T16:38:23.131Z",codex-agent,"The deterministic descriptor-close fixture is included in validated source a36191a. Complete CI npm Node 22/26 and Bun Node 26 each pass 682/682 with zero test skips and all four coverage dimensions at 100 percent. Focused tracker-linked stream verification passes 2/2; the original one-second deadline, input size and stdin-failure assertion remain intact. The item remains in progress for orchestrator verification; releasing the claim without closure."
 files[1]{path,scope}:
   test/audit-git-identities.test.ts,project
 tests[1]{command,scope,timeout_seconds,pm_context_mode,workspace_context_mode,provenance{author,created_at,source_kind,source_ref}}:

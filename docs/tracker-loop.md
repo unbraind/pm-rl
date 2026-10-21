@@ -103,3 +103,37 @@ does not establish useful forecasting, cross-repository improvement or an
 independent final-test win. Implementation hashes identify the measured code.
 Subsequent preflight checks do not change the measured optimizer or promotion
 criterion.
+
+## Verification receipts
+
+[Complete CI](https://github.com/unbraind/pm-rl/actions/runs/39633116585)
+validates executable source and tests at `a36191ac506a8b29d6b51f0d718caba1bd5e100d`:
+
+| Command | Runtime | Passed | Statements / lines / branches / functions |
+| --- | --- | --- | --- |
+| `npm run release:check` | Node 22 | 682/682 | 100/100/100/100 |
+| `npm run release:check` | Node 26 | 682/682 | 100/100/100/100 |
+| `bun run release:check` | Node 26, Bun 1.3.14 | 682/682 | 100/100/100/100 |
+
+Each variant has zero failures, skips, cancellations or todos, covers all 48
+authored sources, documents all 339 declarations, and passes strict tracker
+health, identity, duplication, production audit, publication attestation,
+packaging, changelog and Bun installation checks. Both release commands run with
+an isolated HOME and disabled global/system Git configuration. CodeQL also passes.
+
+The final source's pinned tracker-linked corpus command passes 6/6 in snapshot
+workspace context with PM context `none` (129.551 seconds); the stream-fixture
+command passes 2/2 (2.112 seconds). Four retained behavioural proofs fail before
+their corresponding fixes: disabled seal verification, the old single-update
+fitter, the old process preflight, and acceptance of an incompatible trainer
+selector. Restored focused regressions pass 5/5. These use real SDK trackers or
+the actual numerical kernel, with no SDK mocks.
+
+Superseded local full attempts are not passing receipts. Their partial logs
+retain shared-host benchmark and HTTP timing failures; the unchanged checkpoint
+benchmark passes isolated verification, and the full CI variants pass those
+cases without skips. The existing HTTP timing follow-up remains open. The
+stream fixture now closes the actual stdin descriptor while retaining its
+one-second deadline and 16 MiB input. Coverage thresholds remain 100% in every
+dimension. The shipped programme retains its five-second per-job wall bound and
+separately approved 16-update total budget.
