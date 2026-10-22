@@ -14,6 +14,6 @@ export function sourceBytes(pmRoot: string): string {
     })
     .filter(([path]) => !runtimeRoots.has(path.split(sep)[0]) &&
       (path.split(sep)[0] !== "search" || path === join("search", "eval-queries.json")))
-    .sort(([left], [right]) => left.localeCompare(right))
+    .sort(([left], [right]) => left < right ? -1 : 1)
     .map(([path, absolute]) => [path, readFileSync(absolute, "hex")]));
 }
