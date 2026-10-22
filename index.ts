@@ -349,15 +349,19 @@ export { executeProcessTrainer, reserveProcessJob, readProcessJob, processJobId,
 
 import { banditCheckpoint, type BanditCheckpoint, type BanditGeneration } from "./bandit.ts";
 
-/**
- * The fenced JSON block regex shared by every pm-rl spec reader.
- *
- * A module-level const keeps one shape for the ```` ```json ```` envelope every
- * item body stores its specification in, so a change to the fence contract
- * touches one place. It has no `g` flag: a shared global regex carries
- * `lastIndex` state across calls and would silently skip matches.
- */
-const JSON_SPEC_FENCE = /```json\n([\s\S]+?)\n```/;
+/** Yield nonempty JSON fences in one forward scan, preserving the exact LF delimiters. */
+function* jsonSpecFences(body: string): Generator<string, undefined> {
+  let offset = 0;
+  for (;;) {
+    const opening = body.indexOf("```json\n", offset);
+    if (opening < 0) return;
+    const start = opening + 8;
+    const end = body.indexOf("\n```", start + 1);
+    if (end < 0) return;
+    yield body.slice(start, end);
+    offset = end + 4;
+  }
+}
 
 /**
  * How long a promotion waits for the workspace writer lock before giving up.
@@ -1182,9 +1186,9 @@ async function showEnvironment(context: CommandHandlerContext): Promise<RlComman
 
 /** Return the JSON fence stored in a domain item's body or fail closed. */
 function storedJson(body: string, source: string, code: string): string {
-  const fenced = JSON_SPEC_FENCE.exec(body);
-  if (fenced?.[1] === undefined) fail(`${source} has no JSON specification fence.`, code, EXIT_CODE.CONFLICT);
-  return fenced[1];
+  const fenced = jsonSpecFences(body).next().value;
+  if (fenced === undefined) fail(`${source} has no JSON specification fence.`, code, EXIT_CODE.CONFLICT);
+  return fenced;
 }
 
 /** Verify a benchmark remains content-addressed and its contamination graph matches its body. */
@@ -1448,11 +1452,11 @@ async function verifiedEnvironmentFence(client: PmClient, environmentId: string,
   if (typeof specHash !== "string" || specHash.length === 0) {
     fail(`Environment ${environmentId} has no specification affected_version and cannot support attributable ${dependents}.`, "environment_missing_hash", EXIT_CODE.CONFLICT);
   }
-  const fenced = JSON_SPEC_FENCE.exec(String(environment.item.body));
-  if (fenced?.[1] === undefined) {
+  const fenced = jsonSpecFences(String(environment.item.body)).next().value;
+  if (fenced === undefined) {
     fail(`Environment ${environmentId} has no JSON specification fence.`, "environment_missing_spec", EXIT_CODE.CONFLICT);
   }
-  return { id: String(environment.item.id), specHash, json: fenced[1]! };
+  return { id: String(environment.item.id), specHash, json: fenced };
 }
 
 /**
@@ -1741,11 +1745,11 @@ async function simRealGap(context: CommandHandlerContext): Promise<RlCommandResu
 
 /** Extract and parse a generation spec from an item body's JSON fence. */
 export function extractGenerationSpec(body: string, source: string): GenerationSpec {
-  const fenced = JSON_SPEC_FENCE.exec(body);
-  if (fenced?.[1] === undefined) {
+  const fenced = jsonSpecFences(body).next().value;
+  if (fenced === undefined) {
     fail(`${source} has no JSON specification fence.`, "generation_missing_spec", EXIT_CODE.CONFLICT);
   }
-  return parseGenerationSpec(fenced[1], source);
+  return parseGenerationSpec(fenced, source);
 }
 
 /**
@@ -1817,8 +1821,8 @@ export async function environmentInvalidationReason(client: PmClient, envId: str
     if (typeof specHash !== "string" || specHash.length === 0) {
       return "environment has no recorded specification identity";
     }
-    const fenced = JSON_SPEC_FENCE.exec(String(environment.item.body));
-    const envJson = fenced?.[1];
+    const fenced = jsonSpecFences(String(environment.item.body)).next().value;
+    const envJson = fenced;
     if (envJson === undefined) return "environment specification is unreadable";
     // Parsed inside its own try so an invalid fence is reported as unreadable
     // rather than falling through to the outer catch, which reports the
@@ -1993,8 +1997,8 @@ export async function promotedGenerationIdsUnderApproval(client: PmClient, appro
     // The SDK types a listed item's `id` as optional; a record without one
     // carries no identity to report, so it is skipped rather than counted.
     if (item.id === undefined) continue;
-    const fenced = JSON_SPEC_FENCE.exec(String(item.body));
-    const json = fenced?.[1];
+    const fenced = jsonSpecFences(String(item.body)).next().value;
+    const json = fenced;
     if (json === undefined) {
       fail(`Promotion refused: generation ${item.id} has no JSON specification fence, so the approved budget cannot be established.`, "budget_undecidable", EXIT_CODE.CONFLICT);
     }
@@ -2265,12 +2269,12 @@ export async function readApprovalSpec(client: PmClient, approvalId: string): Pr
   if (String(approval.item.type) !== "Decision") {
     fail(`pm rl expected a Decision ${approvalId} as the approval item, not ${String(approval.item.type)}.`, "wrong_approval_type", EXIT_CODE.CONFLICT);
   }
-  const approvalFenced = JSON_SPEC_FENCE.exec(String(approval.item.body));
-  if (approvalFenced?.[1] === undefined) {
+  const approvalFenced = jsonSpecFences(String(approval.item.body)).next().value;
+  if (approvalFenced === undefined) {
     fail(`Approval item ${approvalId} has no JSON specification fence.`, "approval_missing_spec", EXIT_CODE.CONFLICT);
   }
   const id = approval.item.id;
-  return { ...parseApprovalSpec(approvalFenced[1], `Approval ${approvalId}`), id };
+  return { ...parseApprovalSpec(approvalFenced, `Approval ${approvalId}`), id };
 }
 
 /** Promote a candidate generation after contamination and budget checks pass. */
@@ -3637,10 +3641,10 @@ async function verifyLoopRun(client: PmClient, programme: LoopProgramme, chain: 
       ? systemOneEnvironmentSpec(programme.config)
       : lmEnvironmentSpec(programme.config);
   const storedEnvironment = await verifyEnvironmentIdentity(client, String(normalizeRunEnvironment(run.item.environment)), "loop");
-  const fences = [...String(run.item.body).matchAll(/```json\n([\s\S]+?)\n```/g)];
+  const fences = [...jsonSpecFences(String(run.item.body))];
   if (run.item.component !== chain.current.digest || run.item.fixed_version !== hashJson(config)
     || run.item.affected_version !== hashJson(environment) || hashJson(storedEnvironment.spec) !== hashJson(environment)
-    || fences.length !== 2 || canonicalJson(JSON.parse(fences[1][1]) as JsonValue) !== canonicalJson(config)) {
+    || fences.length !== 2 || canonicalJson(JSON.parse(fences[1]) as JsonValue) !== canonicalJson(config)) {
     fail("The persisted collection run does not match its programme, policy and environment.", "loop_generation_drift", EXIT_CODE.CONFLICT);
   }
 }
@@ -4449,7 +4453,7 @@ function fencedSection(body: string, heading: string): string | null {
   // find that impostor first and return the wrong fence.
   const start = body.indexOf(`\n${heading}`);
   if (start < 0) return null;
-  return JSON_SPEC_FENCE.exec(body.slice(start))?.[1] ?? null;
+  return jsonSpecFences(body.slice(start)).next().value ?? null;
 }
 
 /** Parsed provenance sections of a Run body written by `rl run start`. */

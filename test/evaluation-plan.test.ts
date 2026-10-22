@@ -1,5 +1,6 @@
 /** Real non-git trackers and adversarial cohorts for predeclared policy comparisons. */
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, symlinkSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
@@ -215,4 +216,29 @@ test("generation comparison pins survive parsing and reject malformed or changed
   const w = await workspace(); await registerEvaluationPlan(w.client, plan());
   await generation(w.client, "rl-candidate", { ...spec("rl-seed"), evaluation_plan: "a".repeat(64) });
   await assert.rejects(recordPlanEvaluation(w.client, "rl-candidate", observations()), refusal("eval_plan_drift"));
+});
+
+
+test("generation JSON fences retain exact delimiters and first-match behavior", () => {
+  const value = spec(); const json = JSON.stringify(value);
+  for (const body of ["", "```JSON\n" + json + "\n```", "```json\r\n" + json + "\r\n```", "```json\n\n```", "```json\n" + json]) {
+    assert.throws(() => extractGenerationSpec(body, "Generation"), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "generation_missing_spec");
+  }
+  const fence = "```json\n" + json + "\n```";
+  for (const body of [fence, "prefix\n" + fence + "\nsuffix", fence + "\n```json\ninvalid\n```", "```text\nignore\n```\n" + fence]) assert.deepEqual(extractGenerationSpec(body, "Generation"), value);
+});
+
+test("generation JSON fence scan bounds 100k repeated unclosed openers", () => {
+  const script = `
+    import assert from "node:assert/strict";
+    import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
+    import { extractGenerationSpec } from "./index.ts";
+    const input = ${JSON.stringify("```json\nx")}.repeat(100_000);
+    const start = performance.now();
+    assert.throws(() => extractGenerationSpec(input, "Generation"),
+      (error) => isPmCliExpectedError(error) && error.context.code === "generation_missing_spec");
+    assert.ok(performance.now() - start < 2000, "100k openers must scan within two seconds");
+    console.log("100k linear scan passed");
+  `;
+  assert.match(execFileSync(process.execPath, ["--input-type=module", "-e", script], { encoding: "utf8", timeout: 20_000 }), /100k linear scan passed/);
 });
