@@ -4,6 +4,12 @@ Status: the persisted bounded loop is implemented as `pm rl loop run` ([`pm-rl-h
 
 ## Durable local continuation
 
+Real tracker snapshots can now enter the same controller through
+`pm rl corpus build`, including in a plain directory without Git. The builder
+seals projected inputs and held-out membership; run/resume revalidate the seal
+before collection. [The contract and measured result](docs/tracker-loop.md)
+distinguish finite-corpus policy improvement from useful predictive skill.
+
 Every generation has stable PM Decision keys `<loop>-g<N>-step-collect`,
 `-step-train`, `-step-evaluate`, and `-step-promote`. Each records `running` before
 work and commits a content-digested `complete` receipt bound to the programme,

@@ -328,7 +328,7 @@ test("stream transport reports a real broken stdin pipe", async () => {
   await assert.rejects(
     streamProcess(
       process.execPath,
-      ["-e", "process.stdin.destroy(); setTimeout(() => {}, 100)"],
+      ["-e", "require('node:fs').closeSync(0); setInterval(() => {}, 1000)"],
       { cwd: dir.root, input: "x".repeat(16 * 1024 * 1024), timeoutMs: 1_000 },
       () => {},
     ),

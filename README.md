@@ -470,6 +470,23 @@ require an explicit larger storage approval; optimizer and promotion bounds are 
 Tracker environments, training on sealed datasets, evaluation, promotion,
 checkpoint inspection/collection, resume and replay work in a plain-directory
 tracker. Process execution requires the operating system's process identity tools.
+`pm rl corpus build` reads an explicitly selected tracker without Git and seals
+a small title-length/closed-status task for the same durable controller:
+
+```sh
+pm rl corpus build --from-tracker source/.agents/pm \
+  --file node_modules/pm-rl/examples/loop-corpus.json --output sealed.json
+# Create an independent Decision allowing two promotions and the resource budget below.
+pm rl loop run tracker-live --file sealed.json --approval corpus-approval --json
+pm rl loop resume tracker-live --approval corpus-approval --json
+```
+
+For the shipped bounds, the approval's JSON is
+`{"permitted_promotions":2,"resource_budget":{"training_steps":16,"wall_ms":10000,"storage_bytes":524288,"compute_units":2000,"tokens":0}}`.
+The builder never modifies its source or overwrites an existing output. Input
+groups stay in one partition; the seal is checked again on run and resume.
+See [the corpus contract and measured result](docs/tracker-loop.md).
+
 Building public-history datasets requires Git repositories and verified public
 source commits. Release changelogs and GitHub provenance also require Git.
 

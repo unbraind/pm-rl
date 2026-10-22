@@ -22,7 +22,7 @@ test("resource vectors and packaged adapter require complete bounded declaration
   assert.deepEqual(parseProcessAdapter(adapter), adapter);
   for (const value of [null, [], 1]) { assert.throws(() => parseResources(value)); assert.throws(() => parseProcessAdapter(value)); }
   for (const key of Object.keys(allowance)) for (const value of [-1, 0.5, Number.MAX_SAFE_INTEGER + 1, null]) assert.throws(() => parseResources({ ...allowance, [key]: value }));
-  for (const value of [{ ...adapter, kind: "shell" }, { ...adapter, argv: ["untrusted"] }, { ...adapter, allowance: { ...allowance, training_steps: 2 } }, { ...adapter, allowance: { ...allowance, wall_ms: 0 } }, { ...adapter, allowance: { ...allowance, wall_ms: 3600001 } }, { ...adapter, allowance: { ...allowance, storage_bytes: 0 } }, { ...adapter, allowance: { ...allowance, storage_bytes: 1073741825 } }]) assert.throws(() => parseProcessAdapter(value));
+  for (const value of [{ ...adapter, kind: "shell" }, { ...adapter, argv: ["untrusted"] }, { ...adapter, allowance: { ...allowance, training_steps: 257 } }, { ...adapter, allowance: { ...allowance, wall_ms: 0 } }, { ...adapter, allowance: { ...allowance, wall_ms: 3600001 } }, { ...adapter, allowance: { ...allowance, storage_bytes: 0 } }, { ...adapter, allowance: { ...allowance, storage_bytes: 1073741825 } }]) assert.throws(() => parseProcessAdapter(value));
 });
 
 test("real trainer materializes changed weights and replays one settled reservation", async () => {

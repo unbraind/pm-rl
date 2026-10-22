@@ -1,0 +1,140 @@
+{
+  "format": "pm-rl/tracker-loop-acceptance/1",
+  "source": {
+    "repo": "unbraind/pm-ops",
+    "commit": "eba7d5262fd75e67afce0caad29dae7dc7dfbaeb",
+    "tracker_files": 300,
+    "files_digest": "f1d4654cadbbb7a2d26a5cafa9b5d06b854359d378f82a22a8dac09edf8baf68",
+    "read_only_bytes_unchanged": true
+  },
+  "cli_version": "2026.10.17",
+  "latest_registry_cli": "2026.10.21",
+  "corpus": {
+    "snapshot": "e45e6205eddf35edc2167d253a2ef1fb5ce2a4c4116557497f1e24da2230b656",
+    "training_items": 105,
+    "held_out_items": 41,
+    "held_out_closed": 36
+  },
+  "bounds": {
+    "initial_weight": 0,
+    "fit_steps": 8,
+    "seed": 42,
+    "max_generations": 2,
+    "samples_per_generation": 256,
+    "budget": 512,
+    "learning_rate": 1,
+    "minimum_improvement": 0.01,
+    "maximum_gap": 0.2,
+    "evaluation_samples": 40000,
+    "confidence": 0.95,
+    "min_samples": 10,
+    "adapter": {
+      "kind": "process-bandit",
+      "allowance": {
+        "training_steps": 8,
+        "wall_ms": 5000,
+        "storage_bytes": 262144,
+        "compute_units": 1000,
+        "tokens": 0
+      }
+    }
+  },
+  "sealed_programme_digest": "17720f2c1e58043c8374024cfe63b25c710b0d11ada35705690dd4b0e6dd58c2",
+  "elapsed_ms": 124736.15725199999,
+  "generations": [
+    {
+      "generation": 1,
+      "source_checkpoint": "sha256:17493680209cdf2fc86126ff2ad0b7bb6063ae24ce00f28f931224bb5ab2fd11",
+      "candidate_checkpoint": "sha256:2df645949b852625c2acdc20bf5232620cac8c87d1ab1f8f85c4221da14ac605",
+      "weight": 0.6829963490640114,
+      "expected_held_out": 0.5979768545815656,
+      "training_score": 0.5602653245388369,
+      "incumbent_sampled": 0.499825,
+      "candidate_sampled": 0.59765,
+      "evaluation_episodes": 40000,
+      "promoted": true,
+      "refusal": null
+    },
+    {
+      "generation": 2,
+      "source_checkpoint": "sha256:2df645949b852625c2acdc20bf5232620cac8c87d1ab1f8f85c4221da14ac605",
+      "candidate_checkpoint": "sha256:3e31b06286e99d6b3d73486216f98f0c6d519228cac4bcbefc56f4945c292863",
+      "weight": 1.3452115701518008,
+      "expected_held_out": 0.6810112913266447,
+      "training_score": 0.611385607433161,
+      "incumbent_sampled": 0.5951,
+      "candidate_sampled": 0.685825,
+      "evaluation_episodes": 40000,
+      "promoted": true,
+      "refusal": null
+    }
+  ],
+  "jobs": [
+    {
+      "id": "process-378e6e8fea9e3e35c2bb7ee07d6ad155c2f3be4e135f877713020cd7e10a4fcb",
+      "state": "promoted",
+      "settled": true,
+      "charge": {
+        "training_steps": 8,
+        "wall_ms": 1591,
+        "storage_bytes": 2200,
+        "compute_units": 6,
+        "tokens": 0
+      }
+    },
+    {
+      "id": "process-bf702714cf63a7f50eceeb37a4eae7fbaba5c34879520eee49fda3c82e73c58e",
+      "state": "promoted",
+      "settled": true,
+      "charge": {
+        "training_steps": 8,
+        "wall_ms": 1157,
+        "storage_bytes": 2200,
+        "compute_units": 7,
+        "tokens": 0
+      }
+    }
+  ],
+  "report": {
+    "promoted": 2,
+    "stop_reason": "generation_limit",
+    "refusal_reason": null,
+    "final_checkpoint": "sha256:3e31b06286e99d6b3d73486216f98f0c6d519228cac4bcbefc56f4945c292863",
+    "samples_consumed": 512
+  },
+  "replay": {
+    "resumed_generations": 2,
+    "byte_identical_checkpoints": true,
+    "status_agrees": true
+  },
+  "implementation": {
+    "corpus.ts": "d17f77e9ebddd853e0a555e64931139f16bbd739fa959cf7d0315127a43fe505",
+    "loop.ts": "69985472d782d53e61786027a2f639aaa1d2c776797d7385318d5c86ef59648a",
+    "index.ts": "acfff716423ce0ca8e0cd5f91cedf8260d6df85b8fc892d8311de81504dc6616",
+    "process.ts": "858e7decda2ef9b1a59c9a1272120d1c945c9f5d639cc1f12ada3362f1d0394f",
+    "process-bandit.ts": "f42db140a659e770965c34f7d81a1726501e7733883abd7ca3dede65cc4a2c1d",
+    "bandit.ts": "23db3d249388d2b6def2c55a2a6f69f258a44f2323161cd8200f246330c497ab",
+    "promotion.ts": "a36e0b2b565bbd5b6bdcaa83991d50b18c08c409bff218c7dd3d1e77bb901df8"
+  },
+  "baselines": {
+    "always_closed": 0.8780487804878049,
+    "always_other": 0.12195121951219512,
+    "greedy_candidate": 0.8780487804878049,
+    "beats_constant_baseline": false
+  },
+  "initial_single_update_run": {
+    "source_checkpoint": "sha256:17493680209cdf2fc86126ff2ad0b7bb6063ae24ce00f28f931224bb5ab2fd11",
+    "candidate_checkpoint": "sha256:30472bb0144f5b6c9a4777da6a9899bd9acec3df704468b3ec1493d8980b5bc2",
+    "candidate_sampled": 0.511125,
+    "promoted": false,
+    "stop_reason": "evaluation_rejected",
+    "samples_consumed": 256,
+    "settled_training_steps": 1
+  },
+  "limits": [
+    "Finite snapshot status recognition, not forecasting or code improvement.",
+    "Adaptive held-out validation; no independent final-test or cross-repository claim.",
+    "Policy sampling episodes reuse 41 items and do not establish population-level generalization.",
+    "Eight-update run followed a reported one-update null; neither the data nor promotion thresholds changed."
+  ]
+}
