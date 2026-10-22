@@ -465,6 +465,12 @@ verified resume/replay, and reachability-based garbage collection. Hashing width
 through 64 retain the existing 4096-byte reservation. Widths above 64, up to 4096,
 require an explicit larger storage approval; optimizer and promotion bounds are unchanged. See [checkpoint storage and measurements](docs/checkpoint-artifacts.md).
 
+For item-paired promotion against constant policies, use
+`examples/loop-corpus-baseline.json`. Its bounded title-vector learner and
+three-attempt public-corpus frontier are documented in
+[the baseline evaluation](docs/baseline-frontier.md). The current real corpus
+still favors the constant policy; all three candidates are refused.
+
 ## Without git
 
 Tracker environments, training on sealed datasets, evaluation, promotion,

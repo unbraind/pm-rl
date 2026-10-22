@@ -68,6 +68,8 @@ const STRONG_IMPROVEMENT_FACTOR = 2;
 export interface LoopConfig {
   /** Optimizer updates per batch, each reserved and charged for process execution. */
   readonly fitSteps: number;
+  /** Explicit bounded exploration after an item-gate refusal; collectors always retain the incumbent. */
+  readonly retryRejected: boolean;
   /** Optional sealed tracker projection, retained for independent resume verification. */
   readonly corpus?: JsonValue;
   /** Optional content-addressed recipe named by this programme. */
@@ -172,6 +174,8 @@ export function parseLoopConfig(raw: JsonValue): LoopConfig {
     expectedFail(`Loop configuration datasets are invalid: ${String(error)}`, "loop_invalid_datasets");
   }
   const source = "Loop configuration";
+  const retryRejected = record["retry_rejected"] === undefined ? false : record["retry_rejected"];
+  if (typeof retryRejected !== "boolean" || (retryRejected && (record["corpus"] as Record<string, JsonValue> | undefined)?.format !== "pm-rl/tracker-loop-corpus/2")) expectedFail("Rejected-generation exploration requires a sealed vector corpus and a boolean selector.", "loop_invalid_retry_rejected");
   const initialWeight = requiredNumber(record, "initial_weight", source, "loop_invalid_initial_weight");
   const seed = requiredNumber(record, "seed", source, "loop_invalid_seed");
   const maxGenerations = requiredNumber(record, "max_generations", source, "loop_invalid_max_generations");
@@ -229,11 +233,12 @@ export function parseLoopConfig(raw: JsonValue): LoopConfig {
   if (processAdapter !== undefined) {
     if (processAdapter.kind === "compose-lm") expectedFail("Bandit requires a bandit process adapter.", "process_invalid_adapter");
     if (processAdapter.allowance.training_steps !== fitSteps) expectedFail("Optimizer steps differ from the explicit process allowance.", "loop_fit_allowance_mismatch");
-    const heldOut = new Set(datasets.evaluation.map((example) => canonicalJson({ feature: example.feature, rewards: [...example.rewards] })));
-    if (datasets.training.some((example) => heldOut.has(canonicalJson({ feature: example.feature, rewards: [...example.rewards] })))) expectedFail("Process training and held-out content overlap.", "process_dataset_overlap");
+    const heldOut = new Set(datasets.evaluation.map((example) => canonicalJson({ feature: example.feature, ...(example.features === undefined ? {} : { features: [...example.features] }), rewards: [...example.rewards] })));
+    if (datasets.training.some((example) => heldOut.has(canonicalJson({ feature: example.feature, ...(example.features === undefined ? {} : { features: [...example.features] }), rewards: [...example.rewards] })))) expectedFail("Process training and held-out content overlap.", "process_dataset_overlap");
   }
   const config: LoopConfig = {
     fitSteps,
+    retryRejected,
     ...(record["corpus"] === undefined ? {} : { corpus: record["corpus"] as JsonValue }),
     ...(recipe === undefined ? {} : { recipe }),
     ...(processAdapter === undefined ? {} : { process: processAdapter }),
@@ -245,6 +250,7 @@ export function parseLoopConfig(raw: JsonValue): LoopConfig {
     evaluationDigest: datasets.evaluationDigest,
     digest: loopDigest({
       ...(fitSteps === 1 ? {} : { fitSteps }),
+      ...(retryRejected ? { retryRejected } : {}),
       ...(record["corpus"] === undefined ? {} : { corpus: record["corpus"] as JsonValue }),
       ...(recipe === undefined ? {} : { recipe: recipe.digest }),
       ...(processAdapter === undefined ? {} : { adapter: processAdapter as unknown as JsonValue }),
@@ -281,7 +287,7 @@ export function parseLoopConfig(raw: JsonValue): LoopConfig {
 
 /** Render one validated example as the plain JSON value the environment spec stores. */
 function jsonExample(example: BanditExample): JsonValue {
-  return { id: example.id, feature: example.feature, rewards: [example.rewards[0], example.rewards[1]] };
+  return { id: example.id, feature: example.feature, ...(example.features === undefined ? {} : { features: [...example.features] }), rewards: [example.rewards[0], example.rewards[1]] };
 }
 
 /**
@@ -483,6 +489,8 @@ export function generationTrainingConfig(config: LoopConfig, step: LoopStepConfi
     source_checkpoint: receipt.source.digest,
     candidate_checkpoint: receipt.candidate.digest,
     candidate_weight: receipt.candidate.weight,
+    ...(receipt.candidate.coefficients === undefined ? {} : { candidate_coefficients: [...receipt.candidate.coefficients] }),
+    ...(receipt.itemEvidence === undefined ? {} : { item_evidence: receipt.itemEvidence as unknown as JsonValue }),
     training_score: receipt.trainingScore,
     evaluation_score: receipt.evaluationScore,
     incumbent_held_out_mean: receipt.incumbentHeldOutMean,
@@ -507,6 +515,7 @@ export function seedTrainingConfig(config: LoopConfig): JsonValue {
     initial_weight: config.initialWeight,
     configuration: {
       ...(config.fitSteps === 1 ? {} : { fit_steps: config.fitSteps }),
+      ...(config.retryRejected ? { retry_rejected: true } : {}),
       ...(config.corpus === undefined ? {} : { corpus: config.corpus }),
       ...(config.recipe === undefined ? {} : { recipe: config.recipe as unknown as JsonValue }),
       ...(config.process === undefined ? {} : { adapter: config.process as unknown as JsonValue }),
@@ -620,6 +629,9 @@ export interface StoredLoopGeneration {
   readonly candidateCheckpoint: string;
   /** The candidate's actual scalar weight. */
   readonly candidateWeight: number;
+  /** Vector coefficients and item evidence are replayed in full when present. */
+  readonly candidateCoefficients?: readonly number[];
+  readonly itemEvidence?: JsonValue;
   /** Expected reward under the candidate on the collection examples. */
   readonly trainingScore: number;
   /** Expected reward under the candidate on the held-out examples. */
@@ -662,7 +674,14 @@ export function parseStoredLoopGeneration(value: JsonValue, source: string): Sto
   if (Math.abs(candidateWeight) > 20) {
     expectedFail(`${source} candidate_weight is outside the stable policy bound [-20, 20]; the persisted checkpoint is invalid.`, "loop_invalid_checkpoint");
   }
+  const coefficients = record["candidate_coefficients"] as readonly number[] | undefined;
+  if (coefficients !== undefined) {
+    try { banditCheckpoint(candidateWeight, coefficients); }
+    catch { expectedFail("Stored vector coefficients are invalid.", "loop_invalid_checkpoint"); }
+  }
   const stored: StoredLoopGeneration = {
+    ...(coefficients === undefined ? {} : { candidateCoefficients: coefficients }),
+    ...(record["item_evidence"] === undefined ? {} : { itemEvidence: record["item_evidence"] as JsonValue }),
     ...(record["recipe"] === undefined ? {} : { recipeDigest: storedCheckpointDigest(record, "recipe", source, "loop_invalid_checkpoint") }),
     generation,
     learningRate: storedCheckpointNumber(record, "learning_rate", source, "loop_invalid_training_config"),
@@ -712,7 +731,7 @@ export function verifyStoredLoopGeneration(config: LoopConfig, step: LoopStepCon
   // other comparison, so a tampered hash - a digest naming a checkpoint the
   // stored parameters cannot produce - is refused as an invalid checkpoint
   // rather than generic drift.
-  if (stored.candidateCheckpoint !== banditCheckpoint(stored.candidateWeight).digest) {
+  if (stored.candidateCheckpoint !== banditCheckpoint(stored.candidateWeight, stored.candidateCoefficients).digest) {
     expectedFail(`Loop generation ${generation} records candidate checkpoint ${stored.candidateCheckpoint}, which does not match the digest of its own persisted weight; the persisted checkpoint is invalid.`, "loop_invalid_checkpoint", EXIT_CODE.CONFLICT);
   }
   const expected: Array<[string, unknown, unknown]> = [
@@ -725,6 +744,8 @@ export function verifyStoredLoopGeneration(config: LoopConfig, step: LoopStepCon
     ["collection_digest", stored.collectionDigest, receipt.collectionDigest],
     ["action_counts", stored.actionCounts.join(","), receipt.actionCounts.join(",")],
     ["candidate_weight", stored.candidateWeight, receipt.candidate.weight],
+    ["candidate_coefficients", JSON.stringify(stored.candidateCoefficients), JSON.stringify(receipt.candidate.coefficients)],
+    ["item_evidence", canonicalJson(stored.itemEvidence ?? null), canonicalJson(receipt.itemEvidence as unknown as JsonValue ?? null)],
   ];
   verifyReplayFields(expected, generation);
   verifyTrainerReceipt(stored, receipt, generation);

@@ -49,7 +49,7 @@ comments[39]{created_at,author,text}:
   "2026-10-22T10:12:52.525Z",codex-agent,"Local clean-checkout release runs passed typecheck, build, unscoped lint, zero duplication, 340 documented declarations across 48 sources, attestation, and the completed test cases (npm 143 and Bun 137 at last inspection). Both passed large learner training, checkpoint benchmark and concurrent promotion. The complete runs were intentionally interrupted under shared host load; these partial counts are not release-gate success. Full npm and Bun results will be verified in CI on the pushed head before the next PR starts. Focused linked regression passes 1/1; full corpus suite 14/14. No threshold or gate-script changes."
   "2026-10-22T10:31:49.788Z",codex-agent,"Complete CI verified at 31b9f7b996c9192c9230: https://github.com/unbraind/pm-rl/actions/runs/39761523871 . Independently downloaded all three completed job logs: npm on Node 22, npm on Node 26, and Bun on Node 26 each pass 690/690, zero fail/skip/cancel/todo, 100/100/100/100 coverage over 48 sources. Strict tracker health, unscoped lint, zero duplication, 340 documented declarations, attestation, production audit, packing, changelog, and Bun graph installation pass; CodeQL passes. The local duplicate full gates were interrupted under host load, not counted as passes. This receipt update changes tracker evidence only; executable source and tests remain identical. Claim is released; leave the epic in progress. No new pm CLI/SDK defect found."
   "2026-10-22T10:32:17.818Z",codex-agent,"Receipt correction: the complete verified CI head is 31b9f7b5520eef7b1a55cb7f1863d9692ad81b38. The extra characters after the valid 31b9f7b prefix in the preceding comment were a transcription error. CI run 39761523871 and all recorded counts are verified against this exact head."
-files[16]:
+files[18]:
   - path: bandit.ts
     scope: project
   - path: corpus.ts
@@ -74,6 +74,14 @@ files[16]:
     scope: project
   - path: test/corpus.test.ts
     scope: project
+  - path: test/fixtures/corpus-no-git.ts
+    scope: project
+  - path: test/process.test.ts
+    scope: project
+  - path: test/promotion.test.ts
+    scope: project
+  - path: test/corpus.test.ts
+    scope: project
     note: Snapshot regression and complete publication snapshots
   - path: test/fixtures/corpus-no-git.ts
     scope: project
@@ -81,10 +89,6 @@ files[16]:
   - path: test/fixtures/corpus-source-snapshot.ts
     scope: project
     note: Complete durable-source snapshot helper
-  - path: test/process.test.ts
-    scope: project
-  - path: test/promotion.test.ts
-    scope: project
 tests[7]:
   - command: npm test
     path: test/promotion.test.ts
@@ -132,7 +136,7 @@ tests[7]:
     provenance:
       author: codex-agent
       created_at: "2026-10-21T19:17:28.021Z"
-      source_kind: local_mutation
+      source_kind: merge_union
       source_ref: feat/recursive-training-generations
   - command: "node --test --test-name-pattern=\"corpus source snapshots\" test/corpus.test.ts"
     scope: project
@@ -142,7 +146,7 @@ tests[7]:
     provenance:
       author: codex-agent
       created_at: "2026-10-21T20:47:53.626Z"
-      source_kind: local_mutation
+      source_kind: merge_union
       source_ref: feat/recursive-training-generations
   - command: "node --test --test-name-pattern=\"corpus snapshots are identical\" test/corpus.test.ts"
     scope: project
@@ -150,12 +154,14 @@ tests[7]:
     provenance:
       author: codex-agent
       created_at: "2026-10-22T09:35:47.428Z"
-      source_kind: local_mutation
+      source_kind: merge_union
       source_ref: feat/recursive-training-generations
-docs[4]:
+docs[5]:
   - path: docs/process-trainer.md
     scope: project
   - path: docs/tracker-loop-evidence.json
+    scope: project
+  - path: docs/tracker-loop.md
     scope: project
   - path: docs/tracker-loop.md
     scope: project
