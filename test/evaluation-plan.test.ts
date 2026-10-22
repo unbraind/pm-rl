@@ -241,6 +241,24 @@ test("sealed creation timing refuses an early run with a rewritten current times
   await assert.rejects(recordPlanEvaluation(w.client, "rl-candidate", observations()), refusal("eval_plan_late"));
 });
 
+test("original candidate sources must match the declared parent and unchanged incumbent", async () => {
+  for (const invalid of ["parent", "incumbent"]) {
+    const w = await workspace(); await registerEvaluationPlan(w.client, plan());
+    await generation(w.client, "rl-candidate", spec(invalid === "parent" ? "rl-other" : "rl-seed"));
+    if (invalid === "incumbent") {
+      const replacement = { ...spec(), base_checkpoint: "replacement-incumbent" };
+      await w.client.update("rl-seed", { body: `\`\`\`json\n${JSON.stringify(replacement)}\n\`\`\``, affectedVersion: hashJson(generationProvenance(replacement)) });
+    }
+    await assert.rejects(recordPlanEvaluation(w.client, "rl-candidate", observations()), refusal("eval_plan_drift"));
+  }
+});
+
+test("orphaned generation comparison pins refuse without a plan or plan history", async () => {
+  const w = await workspace();
+  await generation(w.client, "rl-orphan", { ...spec("rl-seed"), evaluation_plan: "a".repeat(64) });
+  await assert.rejects(enforceEvaluationPlan(w.client, "rl-orphan", score()), refusal("eval_plan_missing"));
+});
+
 test("late plans, early collection, changed parents and edited provenance never promote", async () => {
   const w = await workspace(); await w.client.create({ id: "rl-early-run", title: "Early collection", type: "Run" });
   await registerEvaluationPlan(w.client, plan()); const s = spec("rl-seed", ["rl-early-run"]); const item = await generation(w.client, "rl-candidate", s);
