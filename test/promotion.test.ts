@@ -159,6 +159,15 @@ test("promotion with a genuine statistically sound improvement is promoted (posi
   assert.equal(minimized.decision, "promote");
 });
 
+test("centered promotion margins reject ties at huge, subnormal and constant reward scales", () => {
+  for (const rewardBounds of [[1e16, 1e16 + 2], [-1e16, -1e16 + 2], [0, Number.MIN_VALUE], [1, 1]] as const) for (const direction of ["maximize", "minimize"] as const) {
+    const shared = { rewardBounds, direction, samples: 100, mean: rewardBounds[0] };
+    const verdict = decidePromotion(gateInput({ candidate: evidence(shared), incumbent: evidence({ ...shared, generation: "gen-seed" }) }));
+    assert.equal(verdict.decision, "refuse", `${rewardBounds}, ${direction}`);
+    if (verdict.decision === "refuse") assert.equal(verdict.code, "no_statistical_improvement");
+  }
+});
+
 test("a regressing generation is not promoted and the refusal records the regression", () => {
   const verdict = decidePromotion(gateInput({
     candidate: evidence({ samples: 10000, mean: 0.45 }),

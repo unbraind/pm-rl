@@ -81,6 +81,45 @@ test("fixed stopping and exact paired membership forbid extra looks, duplication
   assert.throws(() => evaluatePlan(plan(), [{ ...rows[0], samples: 10000 }, ...rows.slice(1)]), refusal("eval_plan_invalid"));
 });
 
+test("large-offset tied rewards never promote the exact 100-unit reproduction", () => {
+  const p = plan({ reward_bounds: [1e16, 1e16 + 2], criterion: { confidence: 0.95, minSamples: 10, effectThreshold: 0 } });
+  const report = evaluatePlan(p, p.members.map((m) => ({ id: m.id, candidate: 1e16, incumbent: 1e16 })));
+  assert.equal(report.independent_units, 100);
+  assert.equal(report.candidate_mean, 1e16); assert.equal(report.incumbent_mean, 1e16);
+  assert.equal(report.verdict.decision, "refuse");
+  if (report.verdict.decision === "refuse") assert.equal(report.verdict.code, "no_statistical_improvement");
+});
+
+test("balanced large-offset rewards refuse despite different accumulation orders", () => {
+  const members = Array.from({ length: 100 }, (_, i) => ({ id: String(i).padStart(3, "0"), unit: `unit-${i}` }));
+  const p = plan({ members, reward_bounds: [1e16, 1e16 + 2] });
+  const rows = members.map((m, i) => ({ id: m.id, candidate: i < 50 ? 1e16 + 2 : 1e16, incumbent: i < 50 ? 1e16 : 1e16 + 2 }));
+  const report = evaluatePlan(p, rows);
+  assert.equal(report.verdict.decision, "refuse");
+  assert.equal(evaluatePlan(p, [...rows].reverse()).verdict.decision, "refuse");
+});
+
+test("reward magnitude and offset preserve tie refusals, powered controls and effect thresholds", () => {
+  const bounds: readonly (readonly [number, number])[] = [[0, Number.MIN_VALUE], [0, 2 ** -1022], [1e-300, 1e-300 + 1e-315], [-1e-100, 1e-100], [0, 1], [1e16, 1e16 + 2], [-1e16, -1e16 + 2], [1e100, 1e100 + 1e85], [1e300, 1e300 + 1e285], [-1e308, -1e308 + 1e293], [0, 1e308], [Number.MAX_VALUE * 0.49, Number.MAX_VALUE], [-Number.MAX_VALUE, -Number.MAX_VALUE * 0.49]];
+  for (const reward_bounds of bounds) for (const direction of ["maximize", "minimize"] as const) for (const units of [10, 100]) {
+    const members = Array.from({ length: 100 }, (_, i) => ({ id: String(i).padStart(3, "0"), unit: `unit-${i % units}` }));
+    const p = plan({ reward_bounds, direction, members, stopping: { kind: "fixed", observations: 100, independent_units: units } });
+    const [lo, hi] = reward_bounds; const range = hi - lo;
+    for (const value of [lo, lo + range / 2, hi]) {
+      const report = evaluatePlan(p, members.map((m) => ({ id: m.id, candidate: value, incumbent: value })));
+      assert.equal(report.verdict.decision, "refuse", `${reward_bounds}, ${direction}, ${units}, tie ${value}`);
+      assert.equal(report.candidate_mean, report.incumbent_mean);
+    }
+    const balanced = members.map((m, i) => ({ id: m.id, candidate: i < 50 ? hi : lo, incumbent: i < 50 ? lo : hi }));
+    assert.equal(evaluatePlan(p, balanced).verdict.decision, "refuse", `balanced ${reward_bounds}, ${direction}, ${units}`);
+    const positive = members.map((m) => ({ id: m.id, candidate: direction === "maximize" ? hi : lo, incumbent: direction === "maximize" ? lo : hi }));
+    const report = evaluatePlan(p, positive);
+    assert.equal(report.verdict.decision, "promote", `powered ${reward_bounds}, ${direction}, ${units}`);
+    assert.equal(report.candidate_mean, positive[0].candidate); assert.equal(report.incumbent_mean, positive[0].incumbent);
+    assert.equal(evaluatePlan({ ...p, criterion: { ...p.criterion, effectThreshold: range * 0.9 } }, positive).verdict.decision, "refuse");
+  }
+});
+
 test("real SDK plan reservation, single evaluation and promotion checks work without git", async () => {
   const w = await workspace(); const p = plan();
   const registered = await registerEvaluationPlan(w.client, p);

@@ -617,6 +617,12 @@ Each member supplies one candidate and incumbent outcome. The evaluator first
 averages within each declared correlation unit, then weights units equally and
 uses the **number of units** in the existing Hoeffding promotion gate. A hundred
 related items in one project cannot count as a hundred independent samples.
+Rewards are centered on the declared lower bound and rescaled to `[0, 1]` before
+averaging and computing confidence bounds; the effect threshold is divided by
+the declared reward width. This keeps large common offsets and subnormal scales
+from erasing uncertainty. Ties never promote. Reported `candidate_mean` and
+`incumbent_mean` retain the declared reward units; the statistical `verdict`
+bounds, epsilons, margin and reason use the normalized units.
 Unknown members, duplicates, supplied aggregate counts, changed objective/scale,
 missing observations, extra observations and adaptive stopping are refused. Up to
 10,000 members are supported. This fixed-stop format allows one sealed paired

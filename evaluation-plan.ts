@@ -37,6 +37,7 @@ export interface EvaluationPlanReport {
   readonly independent_units: number;
   readonly candidate_mean: number;
   readonly incumbent_mean: number;
+  /** Confidence bounds, uncertainty, margin and effect threshold use rewards normalized to [0, 1]. */
   readonly verdict: PromotionDecision;
   readonly remedy: string | null;
 }
@@ -156,21 +157,26 @@ function normalizedObservations(input: readonly unknown[]): EvaluationObservatio
 export function evaluatePlan(value: unknown, input: unknown): EvaluationPlanReport {
   const plan = parseEvaluationPlan(value);
   if (!Array.isArray(input) || input.length !== plan.stopping.observations) refuse("eval_plan_stopping");
+  const [lo, hi] = plan.reward_bounds; const range = hi - lo;
   const declared = new Map(plan.members.map((member) => [member.id, member.unit])); const seen = new Set<string>();
   const groups = new Map<string, { candidate: number; incumbent: number; n: number }>();
   for (const row of normalizedObservations(input)) {
     const id = row.id; const unit = declared.get(id);
     if (unit === undefined || seen.has(id) || [row.candidate, row.incumbent].some((score) => score < plan.reward_bounds[0] || score > plan.reward_bounds[1])) refuse("eval_plan_evidence");
     seen.add(id); const group = groups.get(unit) ?? { candidate: 0, incumbent: 0, n: 0 };
-    // Online means avoid overflowing when the declared finite reward scale is large.
-    group.n += 1; group.candidate += ((row.candidate as number) - group.candidate) / group.n; group.incumbent += ((row.incumbent as number) - group.incumbent) / group.n; groups.set(unit, group);
+    // Remove the common offset before averaging; narrow ranges near huge rewards lose raw increments.
+    group.n += 1; group.candidate += (((row.candidate - lo) / range) - group.candidate) / group.n; group.incumbent += (((row.incumbent - lo) / range) - group.incumbent) / group.n; groups.set(unit, group);
   }
   const means = [...groups.values()];
   const candidateMean = means.reduce((mean, group, index) => mean + (group.candidate - mean) / (index + 1), 0);
   const incumbentMean = means.reduce((mean, group, index) => mean + (group.incumbent - mean) / (index + 1), 0);
-  const shared = { objective: plan.objective, objective_version: plan.objective_version, evaluation_context: plan.evaluation_context, direction: plan.direction, rewardBounds: plan.reward_bounds, samples: groups.size };
-  const verdict = decidePromotion({ candidate: { ...shared, generation: plan.candidate, mean: candidateMean }, incumbent: { ...shared, generation: plan.incumbent, mean: incumbentMean }, criterion: plan.criterion, expectedGeneration: plan.candidate, contaminationPath: null });
-  return { plan: evaluationPlanId(plan.candidate), comparison: evaluationComparison(plan), observations: input.length, independent_units: groups.size, candidate_mean: candidateMean, incumbent_mean: incumbentMean, verdict, remedy: verdict.decision === "promote" ? null : "Register a new plan and fresh candidate before collecting a different cohort or making another evaluation look." };
+  const shared = { objective: plan.objective, objective_version: plan.objective_version, evaluation_context: plan.evaluation_context, direction: plan.direction, rewardBounds: [0, 1] as const, samples: groups.size };
+  const criterion = { ...plan.criterion, effectThreshold: plan.criterion.effectThreshold / range };
+  const verdict = decidePromotion({ candidate: { ...shared, generation: plan.candidate, mean: candidateMean }, incumbent: { ...shared, generation: plan.incumbent, mean: incumbentMean }, criterion, expectedGeneration: plan.candidate, contaminationPath: null });
+  // Reconstruct from the nearer endpoint so rounding the range cannot overflow a finite upper bound.
+  const candidateReward = candidateMean <= 0.5 ? lo + candidateMean * range : hi - (1 - candidateMean) * range;
+  const incumbentReward = incumbentMean <= 0.5 ? lo + incumbentMean * range : hi - (1 - incumbentMean) * range;
+  return { plan: evaluationPlanId(plan.candidate), comparison: evaluationComparison(plan), observations: input.length, independent_units: groups.size, candidate_mean: candidateReward, incumbent_mean: incumbentReward, verdict, remedy: verdict.decision === "promote" ? null : "Register a new plan and fresh candidate before collecting a different cohort or making another evaluation look." };
 }
 /** Require predeclaration before all collection runs and unchanged incumbent provenance. */
 async function verifyTiming(client: PmClient, registered: RegisteredEvaluationPlan, spec: GenerationSpec, createdAt: unknown): Promise<void> {
