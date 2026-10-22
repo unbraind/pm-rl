@@ -1,0 +1,17 @@
+id: pm-rl-lintruntime
+title: Keep retained runtime artifacts outside authored-source lint
+description: "Local npm run lint traverses ignored .agents/pm/runtime execution snapshots and rejects generated packaged declarations there for inline type imports. scripts/eslint.config.ts ignores only root dist, coverage and node_modules. Identical authored sources pass lint in a clean worktree. Preserve retained raw-run evidence and keep the authored source scope and all release thresholds unchanged; define a precise runtime-artifact ignore boundary with regression coverage."
+type: Task
+status: open
+priority: 3
+tags: []
+created_at: "2026-10-21T17:42:54.342Z"
+updated_at: "2026-10-21T18:03:11.793Z"
+author: codex-agent
+acceptance_criteria: A retained packaged declaration under ignored .agents/pm/runtime does not alter authored-source lint results; authored sources and tests remain linted at unchanged strictness; raw execution evidence is preserved.
+comments[1]{created_at,author,text}:
+  "2026-10-21T18:03:11.793Z",codex-agent,"Discovered while validating PR #94: https://github.com/unbraind/pm-rl/pull/94 . Retained ignored execution snapshots trigger the strict inline-import rule in generated packaged declarations, while byte-identical authored sources pass lint and all three complete release variants in clean CI. This follow-up remains separate from corpus output safety. Preserve retained evidence and every authored-source rule/coverage threshold."
+files[2]{path,scope}:
+  scripts/eslint.config.ts,project
+  .gitignore,project
+body: ""

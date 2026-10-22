@@ -465,11 +465,42 @@ verified resume/replay, and reachability-based garbage collection. Hashing width
 through 64 retain the existing 4096-byte reservation. Widths above 64, up to 4096,
 require an explicit larger storage approval; optimizer and promotion bounds are unchanged. See [checkpoint storage and measurements](docs/checkpoint-artifacts.md).
 
+For item-paired promotion against constant policies, use
+`examples/loop-corpus-baseline.json`. Its bounded title-vector learner and
+three-attempt public-corpus frontier are documented in
+[the baseline evaluation](docs/baseline-frontier.md). The current real corpus
+still favors the constant policy; all three candidates are refused.
+
+For creation-time Issue routing, `examples/loop-intake-objective.json` selects
+stochastic balanced accuracy, where every constant scores exactly 0.5. The
+[intake objective report](docs/intake-objective.md) records the data diagnosis,
+fixed keyword baseline, three real external fits, confidence intervals and
+checkpoint digests. All three candidates lose to the heuristic; none promotes.
+
 ## Without git
 
 Tracker environments, training on sealed datasets, evaluation, promotion,
 checkpoint inspection/collection, resume and replay work in a plain-directory
 tracker. Process execution requires the operating system's process identity tools.
+The intake acceptance runner also reads creation histories, trains and replays
+without Git; see its reproduction command in the intake report.
+`pm rl corpus build` reads an explicitly selected tracker without Git and seals
+a small title-length/closed-status task for the same durable controller:
+
+```sh
+pm rl corpus build --from-tracker source/.agents/pm \
+  --file node_modules/pm-rl/examples/loop-corpus.json --output sealed.json
+# Create an independent Decision allowing two promotions and the resource budget below.
+pm rl loop run tracker-live --file sealed.json --approval corpus-approval --json
+pm rl loop resume tracker-live --approval corpus-approval --json
+```
+
+For the shipped bounds, the approval's JSON is
+`{"permitted_promotions":2,"resource_budget":{"training_steps":16,"wall_ms":10000,"storage_bytes":524288,"compute_units":2000,"tokens":0}}`.
+The builder never modifies its source or overwrites an existing output. Input
+groups stay in one partition; the seal is checked again on run and resume.
+See [the corpus contract and measured result](docs/tracker-loop.md).
+
 Building public-history datasets requires Git repositories and verified public
 source commits. Release changelogs and GitHub provenance also require Git.
 

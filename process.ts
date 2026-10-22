@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import type { WorkspaceTransactionStep, WorkspaceTransactionTransitionContext } from "@unbrained/pm-cli/sdk";
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { EXIT_CODE, isPmCliExpectedError, certifyCompleteListResult } from "@unbrained/pm-cli/sdk/runtime";
-import { banditCheckpoint, type BanditCheckpoint, type BanditExample, type BanditObservation } from "./bandit.ts";
+import { banditCheckpoint, MAX_BANDIT_FIT_STEPS, type BanditCheckpoint, type BanditExample, type BanditObservation } from "./bandit.ts";
 import { canonicalJson, commitProcessTransaction, loopProcessStartTime, withProcessJobFence, readCompleteLoopItem, type JsonValue } from "./index.ts";
 import { expectedFail } from "./refuse.ts";
 import { validateLmProcessCheckpoint, type LmProcessPayload } from "./process-lm.ts";
@@ -158,7 +158,7 @@ export function parseProcessAdapter(value: unknown): ProcessAdapter {
   if ((!compose && record["kind"] !== "process-bandit") || Object.keys(record).some((key) => key !== "kind" && key !== "allowance" && !(compose && key === "image") && !(lm && ["memory_bytes", "cpus"].includes(key)))) expectedFail("Select process-bandit or compose-bandit.", "process_invalid_adapter");
   if (compose && (typeof record["image"] !== "string" || !/^sha256:[a-f0-9]{64}$/u.test(record["image"]))) expectedFail("Compose requires a local immutable image ID.", "process_invalid_adapter");
   const allowance = parseResources(record["allowance"]);
-  if ((!lm && allowance.training_steps !== 1) || (lm && (allowance.training_steps < 1 || allowance.training_steps > 10_000)) || allowance.wall_ms < 1 || allowance.wall_ms > 3_600_000 || allowance.storage_bytes < 1 || allowance.storage_bytes > 1_073_741_824) expectedFail("Process training requires one step, bounded wall time and staging bytes.", "process_invalid_allowance");
+  if (allowance.training_steps < 1 || allowance.training_steps > (lm ? 10_000 : MAX_BANDIT_FIT_STEPS) || allowance.wall_ms < 1 || allowance.wall_ms > 3_600_000 || allowance.storage_bytes < 1 || allowance.storage_bytes > 1_073_741_824) expectedFail("Process training requires bounded optimizer steps, wall time and staging bytes.", "process_invalid_allowance");
   if (lm) {
     if (!Number.isSafeInteger(record["memory_bytes"]) || Number(record["memory_bytes"]) < 16_777_216 || Number(record["memory_bytes"]) > 1_073_741_824
       || typeof record["cpus"] !== "number" || record["cpus"] < 0.1 || record["cpus"] > 4 || !Number.isFinite(record["cpus"])) expectedFail("LM requires bounded memory and CPU ceilings.", "process_invalid_allowance");
@@ -327,7 +327,9 @@ export function validateProcessCompletion<P extends TrainerPolicy>(directory: st
   else if (input.prefix !== undefined) validatePrefixCompletion(content, { policy: JSON.parse(content.toString("utf8")) as P }, input);
   else {
     const policy = JSON.parse(content.toString("utf8")) as BanditCheckpoint;
-    if (processDigest(policy) !== processDigest(value.policy) || !Number.isFinite(policy.weight) || Math.abs(policy.weight) > 20 || policy.digest !== banditCheckpoint(policy.weight).digest) expectedFail("Checkpoint content digest or parameters are invalid.", "process_checkpoint_invalid");
+    try {
+      if (processDigest(policy) !== processDigest(value.policy) || !Number.isFinite(policy.weight) || Math.abs(policy.weight) > 20 || policy.digest !== banditCheckpoint(policy.weight, policy.coefficients).digest) throw new Error("bandit_checkpoint");
+    } catch { expectedFail("Checkpoint content digest or parameters are invalid.", "process_checkpoint_invalid"); }
   }
   const usage = parseResources(value.usage);
   if (usage.training_steps !== input.training_config.steps || usage.storage_bytes !== content.length) expectedFail("Completion lacks measured training or checkpoint use.", "process_receipt_invalid");
@@ -449,8 +451,9 @@ function failedProcessCharge(directory: string, allowance: Resources): Resources
 
 /** Recover staged work or execute exactly one reserved phase; failures settle conservatively and retain evidence. */
 export async function executeProcessTrainer<P extends TrainerPolicy>(client: PmClient, coordinates: ProcessCoordinates, input: ProcessInput<P>, approval: string, adapter: ProcessAdapter, signal?: AbortSignal, argv: readonly string[] = referenceTrainerArgv()): Promise<ProcessJob<P>> {
+  if (input.training_config.steps !== adapter.allowance.training_steps) expectedFail("Optimizer steps differ from the declared reservation.", "process_invalid_adapter");
   if (input.prefix !== undefined && (input.lm !== undefined || adapter.kind !== "process-bandit")) expectedFail("Prefix fits require the packaged process adapter.", "process_invalid_adapter");
-  if ((input.lm !== undefined) !== (adapter.kind === "compose-lm") || (input.lm !== undefined && adapter.kind === "compose-lm" && (input.lm.memory_bytes !== adapter.memory_bytes || input.training_config.steps !== adapter.allowance.training_steps))) expectedFail("Trainer payload differs from the declared adapter limits.", "process_invalid_adapter");
+  if ((input.lm !== undefined) !== (adapter.kind === "compose-lm") || (input.lm !== undefined && adapter.kind === "compose-lm" && input.lm.memory_bytes !== adapter.memory_bytes)) expectedFail("Trainer payload differs from the declared adapter limits.", "process_invalid_adapter");
   const id = processJobId(input, argv, adapter);
   return withProcessJobFence(coordinates, id, async () => await executeReservedProcessJob(client, coordinates, input, approval, adapter, id, signal, argv) as ProcessJob<P>);
 }

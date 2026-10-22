@@ -43,8 +43,12 @@ allowances, settled charges and generation evidence. The SDK's `runRlLoop`,
 `resumeRlLoop` and `rlLoopStatus` return that full evidence. Pass the tracker root
 to status so it can verify checkpoint bytes.
 
-Every resource value is a nonnegative safe integer. The reference performs one
-optimizer step per external phase. Wall time is capped at one hour and staging
+Every resource value is a nonnegative safe integer. The reference defaults to one
+optimizer update per external phase. An explicit `fit_steps` from 1 to 256
+enables repeated importance-weighted updates over the collected batch and must
+match the adapter's `training_steps` reservation before launch. Each update is
+charged; resume retains the declared count. See the [real tracker corpus
+measurement](tracker-loop.md). Wall time is capped at one hour and staging
 at 1 GiB; the supplied example is much smaller. Compute units are adapter-reported CPU milliseconds for fitting and checkpoint
 publication (ceil of user plus system CPU time). Runtime bootstrap and
 request/receipt processing are outside that reported compute interval; observed

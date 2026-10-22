@@ -9,6 +9,7 @@
 
 export { runBanditProgramme, type BanditCheckpoint, type BanditExample, type BanditGeneration, type BanditProgramme, type BanditResult } from "./bandit.ts";
 export { checkpointArtifactPath, collectCheckpointArtifacts, readCheckpointArtifact, readCheckpointLedger, type CheckpointArtifact } from "./checkpoint-artifacts.ts";
+export { buildIntakeLoopCorpus, intakeHeuristic, projectIntakeHistory, sealIntakeCorpus, type IntakeRow, buildTrackerLoopCorpus, corpusHeldOut, sealTrackerLoopCorpus, verifyTrackerLoopCorpus, type CorpusRow, type TrackerLoopCorpus } from "./corpus.ts";
 
 export { banditCheckpoint, executeBanditStep, validatedBanditDatasets, type BanditDatasets, type BanditObservation, type BanditStepInput, type BanditStopReason } from "./bandit.ts";
 
@@ -187,10 +188,10 @@ import {
 
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { open, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
-import { delimiter, dirname, join, relative, resolve } from "node:path";
+import { basename, delimiter, dirname, join, relative, resolve, sep } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 
 import {
@@ -206,6 +207,7 @@ import { PmClient, type GetResult, type ItemMetadata } from "@unbrained/pm-cli/s
 import { acquireLock, certifyCompleteListResult, createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError, type PmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 
 import { parseJsonRecord } from "./refuse.ts";
+import { buildIntakeLoopCorpus, buildTrackerLoopCorpus } from "./corpus.ts";
 import { decodeCheckpointArtifacts, encodeCheckpointArtifacts, collectCheckpointArtifacts, inspectCheckpointArtifact } from "./checkpoint-artifacts.ts";
 
 import { encodeEventSegments, parseNdjsonStream, readSeries, type MetricEvent } from "./series.ts";
@@ -3752,6 +3754,7 @@ async function executeLoopProgramme(client: PmClient, coordinates: WorkspaceCoor
       // crash between the registration and that comment still gets it, exactly
       // once, because the append is idempotent by text.
       if (inspection.stopReason !== "promotion_refused") await prepared.lease.guard(() => appendCommentOnce(client, inspection.report.item!, `Loop ${request.id} generation ${generation} refused: ${inspection.refusalReason}`));
+      if (advanceRejectedProposal(programme, chain, inspection.refusalReason, inspection.stopReason)) { chain.resumed += 1; continue; }
       terminal = { stopReason: inspection.stopReason, refusalReason: inspection.refusalReason };
       break;
     }
@@ -3913,6 +3916,7 @@ async function executePendingGeneration(client: PmClient, coordinates: Workspace
     chain.reports.push({ generation, run: runId!, item: generationId, promoted: false,
       held_out_mean: receipt.candidateHeldOutMean, candidate_checkpoint: receipt.candidate.digest, refusal_reason: receipt.refusalReason });
     await finishProcessGeneration(client, coordinates, prepared.lease, programme.trainer !== "systemone" ? programme.config : null, chain, generation, receipt as BanditGeneration | LmGeneration, "failed", receipt.refusalReason!, request);
+    if (advanceRejectedProposal(programme, chain, receipt.refusalReason!, receipt.stopReason!)) return { terminal: null };
     return { terminal: { stopReason: receipt.stopReason!, refusalReason: receipt.refusalReason! } };
   }
   // Promote through the existing transactional, budget-checked flow. An
@@ -3963,6 +3967,13 @@ async function executePendingGeneration(client: PmClient, coordinates: Workspace
   chain.parent = generationId;
   chain.step = deriveNextStepConfig(programme.config, chain.step, receipt.candidateHeldOutMean - receipt.incumbentHeldOutMean);
   return { terminal: null };
+}
+
+/** A separately sealed exploration mode retries item refusals with a smaller step, never a refused collector. */
+function advanceRejectedProposal(programme: LoopProgramme, chain: LoopChain, refusalReason: string, reason: RlLoopReport["stop_reason"]): boolean {
+  if (programme.trainer !== "bandit" || !programme.config.retryRejected || reason !== "evaluation_rejected" || !refusalReason.startsWith("item_")) return false;
+  chain.step = deriveNextStepConfig(programme.config, chain.step, -programme.config.minimumImprovement);
+  return true;
 }
 
 /** Advance the process lifecycle alongside the existing held-out and promotion gates. */
@@ -4101,6 +4112,7 @@ export async function rlLoopStatus(client: PmClient, id: string, pmRoot?: string
     if (inspection.kind === "refused") {
       generations.push(statusOf(inspection.report, "refused"));
       chain.consumed += generationCost(programme);
+      if (advanceRejectedProposal(programme, chain, inspection.refusalReason, inspection.stopReason)) { chain.resumed += 1; continue; }
       terminal = { stopReason: inspection.stopReason, refusalReason: inspection.refusalReason };
       break;
     }
@@ -4218,6 +4230,54 @@ async function runLoop(context: CommandHandlerContext): Promise<RlCommandResult>
     removeCancellationSignals(cancellation.handlers);
   }
   return { action: "rl-loop-run", id, details: loopCommandDetails(context, report) };
+}
+
+/** Resolve a required corpus directory without leaking missing or invalid filesystem coordinates. */
+function corpusDirectory(path: string, kind: "source" | "output_parent"): string {
+  try {
+    const directory = realpathSync(path);
+    if (!statSync(directory).isDirectory()) fail("Corpus directory is missing or invalid.", `corpus_${kind}_missing`);
+    return directory;
+  } catch (error: unknown) {
+    if (["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code!)) fail("Corpus directory is missing or invalid.", `corpus_${kind}_missing`);
+    throw error;
+  }
+}
+
+/** Snapshot a selected tracker read-only and publish one exclusive programme file for durable run/resume. */
+async function buildCorpusCommand(context: CommandHandlerContext): Promise<RlCommandResult> {
+  const output = resolve(stringOption(context, "output")!);
+  try {
+    if (lstatSync(output, { throwIfNoEntry: false }) !== undefined) fail("Corpus output already exists; choose a new path.", "corpus_output_exists", EXIT_CODE.CONFLICT);
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code === "ENOTDIR") fail("Corpus directory is missing or invalid.", "corpus_output_parent_missing");
+    throw error;
+  }
+  const source = corpusDirectory(resolve(stringOption(context, "from_tracker")!), "source");
+  /** Revalidate both the caller's alias and the canonical parent at publication time. */
+  const destination = (path: string): string => {
+    const parent = corpusDirectory(dirname(path), "output_parent");
+    if (`${parent}${sep}`.startsWith(join(source, sep))) fail("Corpus output must be outside the source tracker.", "corpus_output_inside_source", EXIT_CODE.CONFLICT);
+    return join(parent, basename(path));
+  };
+  const target = destination(output);
+  const bounds = readJsonFile(stringOption(context, "file")!, "Corpus bounds");
+  const client = new PmClient({ pmRoot: source, noExtensions: true });
+  const corpus = (bounds as Record<string, JsonValue> | null)?.objective === "intake-issue-balanced-v1"
+    ? await buildIntakeLoopCorpus(client, bounds, (id) => readFileSync(join(source, "history", `${id}.jsonl`), "utf8"))
+    : await buildTrackerLoopCorpus(client, bounds);
+  destination(output);
+  destination(target);
+  try {
+    await writeFile(target, `${JSON.stringify(corpus.programme, null, 2)}\n`, { flag: "wx" });
+  } catch (error: unknown) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "EEXIST") fail("Corpus output already exists; choose a new path.", "corpus_output_exists", EXIT_CODE.CONFLICT);
+    if (code === "ENOENT" || code === "ENOTDIR") fail("Corpus directory is missing or invalid.", "corpus_output_parent_missing");
+    throw error;
+  }
+  return { action: "rl-corpus-build", details: { snapshot: corpus.snapshot, training_items: corpus.training_items,
+    held_out_items: corpus.held_out_items, ...("held_out_closed" in corpus ? { held_out_closed: corpus.held_out_closed } : { held_out_positive: corpus.held_out_positive }) } };
 }
 
 /** Build a commit-pinned public tracker dataset through the installed command contract. */
@@ -4924,6 +4984,11 @@ async function showTransferGap(context: CommandHandlerContext): Promise<RlComman
 
 /** Commands authored separately so activation and tests share one exact contract. */
 export const RL_COMMANDS = [
+  defineCommand({ name: "rl corpus build", description: "Seal a read-only tracker snapshot into a Git-independent recursive status-recognition programme.", flags: [
+    { long: "--from-tracker", value_name: "directory", value_type: "string", required: true, description: "Explicitly selected local tracker root; never modified." },
+    { long: "--file", value_name: "path", value_type: "string", required: true, description: "Bounded loop JSON without environment, training or evaluation fields." },
+    { long: "--output", value_name: "path", value_type: "string", required: true, description: "New sealed programme JSON; existing files refuse overwrite." },
+  ], run: buildCorpusCommand }),
   defineCommand({ name: "rl checkpoint show", description: "Verify and load a checkpoint from its SHA-256 artifact digest and promotion ledger.", arguments: [{ name: "digest", required: true, description: "SHA-256 artifact digest." }], run: async (context) => ({ action: "rl-checkpoint-show", details: inspectCheckpointArtifact(context.pm_root, requiredArgument(context, "an artifact digest")) }) }),
   defineCommand({ name: "rl checkpoint gc", description: "Collect checkpoint blobs unreachable from the promotion/audit ledger.", run: async (context) => ({ action: "rl-checkpoint-gc", details: await collectCheckpointArtifacts(context.pm_root) }) }),
   defineCommand({ name: "rl improver build", description: "Freeze chronological balanced public tracker tasks for recursive proposal-policy evaluation.", arguments: [{ name: "directories", variadic: true, description: "Additional tracker directories." }], flags: [
