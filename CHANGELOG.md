@@ -6,6 +6,11 @@
 
 - Environment registration and versioning, immutable once referenced ([pm-rl-et5b](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-et5b.toon))
 - Run lifecycle ingests NDJSON in bounded pm-rl/2 segments, reads pm-rl/1, and measures sustained storage ([pm-rl-dyho](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-dyho.toon))
+- Add Docker Compose execution for the durable process trainer contract ([pm-rl-mjo5](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-mjo5.toon))
+- Train the bounded LM in external Compose jobs across recursive generations ([pm-rl-whrd](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-whrd.toon))
+- Improve bounded training recipes over public tracker histories ([pm-rl-meta](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-meta.toon))
+- Promote improver policies from their own outcome ledger ([pm-rl-rsi](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-rsi.toon))
+- Lift the prefix learner's capacity bound: content-addressed checkpoint artifacts instead of the 4096-byte staging record ([pm-rl-a2zp](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-a2zp.toon))
 - Durable external process trainers with atomic resource reservations ([pm-rl-shgm](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-shgm.toon))
 - System One decision-model calibration adapter for the recursive loop ([pm-rl-qhz2](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-qhz2.toon))
 - Live acceptance: two tev1:4b generations through npm run test:live ([pm-rl-ip21](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-ip21.toon))
@@ -27,6 +32,11 @@
 - An approved generation budget the loop cannot advance past on its own ([pm-rl-qix7](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-qix7.toon))
 - Generation lineage: a policy generation is an item whose parent is the generation that produced its training data ([pm-rl-81oc](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-81oc.toon))
 - Absorb pm 2026.8.7 merge and SDK contracts ([pm-rl-soik](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-soik.toon))
+
+### Changed
+
+- Adopt pm-github 2026.10.16: default-branch-safe gated sync and daily gated closeout PRs ([pm-rl-yb4q](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-yb4q.toon))
+- Enable pm-github issue sync in the pm-rl tracker ([pm-rl-1bpz](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-1bpz.toon))
 
 ### Fixed
 
@@ -70,6 +80,7 @@
 
 - Metric series live in item history, never in an item body ([pm-rl-mpd9](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/decisions/pm-rl-mpd9.toon))
 - 100/100/100 coverage and full docstring coverage for pm-rl ([pm-rl-fpon](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-fpon.toon))
+- Certify pm-rl on PM CLI/SDK 2026.10.4 and consolidate pending dependency updates ([pm-rl-hncb](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-hncb.toon))
 - Auto-merge green Dependabot updates and group the pm toolchain into one daily PR ([pm-rl-3q1e](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-3q1e.toon))
 - Certify pm CLI 2026.9.23 and adopt the guarded pm-ops merge-driver launcher ([pm-rl-nerp](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-nerp.toon))
 - Certify pm CLI 2026.9.17 ([pm-rl-jlom](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-jlom.toon))

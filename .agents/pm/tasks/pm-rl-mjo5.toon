@@ -2,15 +2,17 @@ id: pm-rl-mjo5
 title: Add Docker Compose execution for the durable process trainer contract
 description: "Follow the local process adapter with a Compose launcher using the same job identity, staged receipt validation, atomic approved resource reservations and cancellation evidence. Requires isolated container lifecycle and real crash drills; no hosted data inputs."
 type: Task
-status: in_progress
+status: closed
 priority: 2
 tags: []
 created_at: "2026-10-14T19:46:39.492Z"
-updated_at: "2026-10-18T03:01:10.041Z"
+updated_at: "2026-10-21T19:44:17.871Z"
+closed_at: "2026-10-21T19:44:11.738Z"
+completed_at: "2026-10-21T19:44:11.738Z"
 author: codex-agent
 acceptance_criteria: "Compose execution preserves launch ownership and process contract, retains staging on failure, and passes real reservation and recovery drills"
 parent: pm-rl-apvf
-comments[15]{created_at,author,text}:
+comments[16]{created_at,author,text}:
   "2026-10-15T10:58:38.098Z",codex-agent,"Design: reuse the process job fence, reservation transaction, receipt validator and settlement state machine. Add a trusted Compose launcher with a job-derived project identity and generated isolated staging configuration; mount only job staging and retain all protocol artifacts. Exercise real success, container death, cancellation, contention and two-generation successor collection. Behavioural revert proofs will remove only the relevant launcher or selection behaviour in an isolated snapshot."
   "2026-10-15T11:08:14.363Z",codex-agent,"Real Docker findings: a capability-restricted container must use the invoking numeric UID/GID to write host staging. Compose down/rm omit one-off run containers on the tested version, so cleanup resolves only the exact job-named container with matching project/service labels and removes its immutable daemon ID before project-scoped down. Project names also hash staging scope to isolate identical jobs in independent trackers. Receipt validation, conservative settled charges and controller fences remain shared with local execution."
   "2026-10-15T11:11:10.946Z",codex-agent,"Drill progress: launch/receipt/replay, container death, cancellation, two real controller contention, staged-completion SIGKILL recovery and orphan cleanup pass. The two-generation Compose run promoted both changed policies, and generation two collection identifies generation one policy. Kernel CPU/storage quotas are a distinct follow-up to the existing reported-use and polling contract. Full release gates run directly under isolated CI Git/home settings; pm test --run --progress passed the linked typecheck, but project policy reports tracking_disabled so durable gate results are recorded in comments."
@@ -26,6 +28,7 @@ comments[15]{created_at,author,text}:
   "2026-10-15T21:03:59.855Z",codex-agent,"Review round 1 final verdict: finding confirmed and fixed. Both npm run release:check and bun run release:check PASS 582/582 tests each, zero fail/skip/cancel/todo, unchanged exact 100/100/100/100 statement/line/branch/function coverage across 28 sources and 266 documented declarations. Zero duplication and production audit findings; identity, attestation, packaging and changelog checks pass under isolated CI Git/home settings. All 15 real Compose cases pass in both gates; 4/4 new cleanup regressions also pass via the linked PM snapshot test. Behavioural revert proofs (3/3 launch cases and 1/1 recovery case fail when only the relevant behavior is reverted) are recorded above. Gated source hashes match. Packed LM CLI measured 12623 ms npm and 12272 ms Bun within the unchanged 20000 ms bound. Cleanup failure remains visible as cleanup_failed and can require inspection of retained job resources; existing timing and kernel quota follow-ups remain unchanged. No new PM CLI/SDK defect encountered; test result tracking is disabled by project policy. Leaving the item open for orchestrator verification and releasing the claim."
   "2026-10-15T21:36:08.213Z",claude-orchestrator,"Review round 2 (CodeRabbit thread on docs/process-trainer.md:211): the Compose cleanup paragraph said a failed cleanup refuses progression, contradicting the cleanup-diagnostic section and executeReservedProcessJob (cleanup_failed is recorded separately and preserves a validated completion, cancellation or trainer error). Sentence replaced so both sections agree; doc-only change."
   "2026-10-18T03:01:08.923Z",codex-agent,"Audit: MET against recorded acceptance. Merged PR #79 (2018b585bce8aa55f0d1c6483001f65a3a7190da) adds Compose execution through the existing durable job, atomic reservation and receipt contract. Fifteen real-container tests retain ownership, staging, cancellation, contention, crash/recovery and successor evidence, including four cleanup-error regressions with behavioural revert failures. Both isolated release gates passed 582/582 at exact 100% in all four dimensions; merged PR #80 subsequently passed 590/590. Kernel CPU/storage follow-up pm-rl-7073 is a separate scope. No missing criterion found; leave open for orchestrator verification."
+  "2026-10-21T19:43:36.892Z",codex-agent,"Authorized tracker reconciliation, audit 2026-10-21. Owner-authorized takeover of any historical assignment for this verified terminal transition. Reverified current main ce948522e18a: merged #79 (2018b58); source tree exactly matches the audited snapshot. **Add Docker Compose execution for the durable process trainer contract.** [PR #79](https://github.com/unbraind/pm-rl/pull/79) (2018b58) implements Compose execution through the durable process trainer contract."
 files[7]{path,scope}:
   compose.ts,project
   index.ts,project
@@ -66,4 +69,5 @@ docs[3]{path,scope}:
   docs/process-trainer.md,project
   README.md,project
   RECURSIVE_TRAINING.md,project
+close_reason: "Reverified current main ce948522e18a: merged #79 (2018b58); source tree exactly matches the audited snapshot. **Add Docker Compose execution for the durable process trainer contract.** [PR #79](https://github.com/unbraind/pm-rl/pull/79) (2018b58) implements Compose execution through the durable process trainer contract."
 body: ""

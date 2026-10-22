@@ -75,7 +75,7 @@ export function sealTrackerLoopCorpus(items: readonly Pick<ItemMetadata, "id" | 
     if (seen.has(item.id)) corpusRefusal("corpus_duplicate_item");
     seen.add(item.id);
     return { item: hashJson(item.id), content: hashJson({ title, status: item.status }), length: Math.min(256, [...title].length), ...(bounds["feature_mode"] === undefined ? {} : { features: titleFeatures(title) }), closed: item.status === "closed" };
-  }).sort((left, right) => left.item.localeCompare(right.item));
+  }).sort((left, right) => left.item < right.item ? -1 : 1);
   const snapshot = hashJson(rows as unknown as JsonValue);
   const { training, evaluation } = corpusDatasets(rows, snapshot);
   if (training.length < 2 || evaluation.length < 2) corpusRefusal("corpus_insufficient_split");

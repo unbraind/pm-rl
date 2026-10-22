@@ -73,6 +73,11 @@ the promoted successor's collection component, unchanged replay artifacts and
 one charge per fit. A separate inverted held-out fixture proves a changed but
 non-improving candidate is refused. Existing process/controller/Compose suites
 provide physical crash, cancellation, contention and corrupt-checkpoint drills.
+Source immutability checks hash sorted relative filenames and exact bytes for
+all regular tracker files, including settings, nested item folders and
+`search/eval-queries.json`. SDK runtime, locks, transactions, checkpoints and
+other search cache files are excluded. A focused regression checks durable-file
+additions, removals, renames and binary changes while allowing cache updates.
 
 ## Public corpus measurement
 
@@ -113,14 +118,14 @@ criterion.
 
 ## Verification receipts
 
-[Complete CI](https://github.com/unbraind/pm-rl/actions/runs/39633116585)
-validates executable source and tests at `a36191ac506a8b29d6b51f0d718caba1bd5e100d`:
+The prior [complete CI](https://github.com/unbraind/pm-rl/actions/runs/39645374144) receipt
+validates executable source and tests at `56e28544c28158f36654fb3f0ce58f300e96ef86`:
 
 | Command | Runtime | Passed | Statements / lines / branches / functions |
 | --- | --- | --- | --- |
-| `npm run release:check` | Node 22 | 682/682 | 100/100/100/100 |
-| `npm run release:check` | Node 26 | 682/682 | 100/100/100/100 |
-| `bun run release:check` | Node 26, Bun 1.3.14 | 682/682 | 100/100/100/100 |
+| `npm run release:check` | Node 22 | 685/685 | 100/100/100/100 |
+| `npm run release:check` | Node 26 | 685/685 | 100/100/100/100 |
+| `bun run release:check` | Node 26, Bun 1.3.14 | 685/685 | 100/100/100/100 |
 
 Each variant has zero failures, skips, cancellations or todos, covers all 48
 authored sources, documents all 339 declarations, and passes strict tracker
@@ -128,9 +133,10 @@ health, identity, duplication, production audit, publication attestation,
 packaging, changelog and Bun installation checks. Both release commands run with
 an isolated HOME and disabled global/system Git configuration. CodeQL also passes.
 
-The final source's pinned tracker-linked corpus command passes 6/6 in snapshot
-workspace context with PM context `none` (129.551 seconds); the stream-fixture
-command passes 2/2 (2.112 seconds). Four retained behavioural proofs fail before
+That source's pinned tracker-linked corpus command passes 9/9 in snapshot
+workspace context with PM context `none`; the stream-fixture
+command passes 2/2 (2.112 seconds). Three output-publication regressions also fail when only `buildCorpusCommand`
+is reverted, and pass 3/3 when restored. Four earlier retained behavioural proofs fail before
 their corresponding fixes: disabled seal verification, the old single-update
 fitter, the old process preflight, and acceptance of an incompatible trainer
 selector. Restored focused regressions pass 5/5. These use real SDK trackers or
@@ -144,3 +150,54 @@ stream fixture now closes the actual stdin descriptor while retaining its
 one-second deadline and 16 MiB input. Coverage thresholds remain 100% in every
 dimension. The shipped programme retains its five-second per-job wall bound and
 separately approved 16-update total budget.
+
+The review-round path regressions additionally cover missing and non-directory
+source/output parents, parent removal during publication, canonical alias writes
+and parent swaps during collection. Publication rechecks the caller and canonical
+parents immediately before exclusive creation. These checks narrow the race window;
+they do not provide descriptor-relative protection against a hostile concurrent
+filesystem writer. The CI receipt above predates these review-round changes.
+
+## Review-round verification
+
+[Complete review-round CI](https://github.com/unbraind/pm-rl/actions/runs/39660872803)
+validates executable source and tests at `83969917f6183ab1999a7c8e87def0bcb92892b1`:
+
+| Command | Runtime | Passed | Statements / lines / branches / functions |
+| --- | --- | --- | --- |
+| `npm run release:check` | Node 22 | 688/688 | 100/100/100/100 |
+| `npm run release:check` | Node 26 | 688/688 | 100/100/100/100 |
+| `bun run release:check` | Node 26, Bun 1.3.14 | 688/688 | 100/100/100/100 |
+
+Each variant has zero failures, skips, cancellations or todos, covers all 48
+sources and documents all 340 declarations. Fresh-checkout strict tracker health,
+identity, zero duplication, production audit, publication attestation, packaging,
+changelog and Bun installation pass; CodeQL also passes. Thresholds are unchanged.
+
+All six focused review regressions pass directly and through the pinned
+tracker-linked runner. Reverting only `buildCorpusCommand` fails both the missing
+path and publication-swap regressions; reverting only this document fails the
+receipt regression. The epic retains the exact commands and revert results.
+The existing local managed-extension skew and shared merge-fence drift are
+separate from the passing fresh-checkout CI health. The descriptor-relative
+publication follow-up remains open as `pm-rl-corpusnofollow`.
+
+## Durable-source snapshot review verification
+
+[Complete snapshot-review CI](https://github.com/unbraind/pm-rl/actions/runs/39673545869)
+validates source and tests at `ecfc1e9af774506bd526bd1da43329cd3becfc4f`.
+The npm release gates on Node 22 and Node 26 and the Bun release gate on
+Node 26/Bun 1.3.14 each pass 689/689 tests with zero failures, skips,
+cancellations or todos. All four coverage dimensions remain 100% across
+48 sources, with 340 declarations documented. Strict tracker health, lint,
+identity, zero duplication, production audit, publication attestation,
+packaging, changelog, Bun installation and CodeQL pass.
+
+The corpus suite passes 13/13 locally. Reverting only the shared source snapshot
+helper to its previous tasks/history-only implementation fails the new regression
+on a missed settings-file byte change; restoration passes directly and through
+the pinned tracker-linked runner. The epic retains the exact command and proof.
+Local unscoped lint still sees retained ignored runtime copies, tracked separately
+as `pm-rl-lintruntime`; authored-source lint passes when those copies are excluded,
+and unchanged unscoped lint passes in all three fresh CI jobs. No local test
+timeouts occurred in this round. This receipt adds no executable changes.
