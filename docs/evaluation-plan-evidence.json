@@ -1,0 +1,25 @@
+{
+  "source": "https://github.com/unbraind/pm-rl",
+  "commit": "ce948522e18a37f92e9d3b345371ac924c5fa305",
+  "snapshot": "d3f1492a7acb6e9d86ae9c62045349e2f627ed29383bb0e502d350087a4e2e96",
+  "source_digest": "ae2abd5b4ee61a7e3a8f03066429a95b031883aba761fafc9284565ba5e90ed2",
+  "source_unchanged": true,
+  "source_read_only": true,
+  "git_repository_required": false,
+  "cli_json_bytes": 780,
+  "cli_toon_bytes": 280,
+  "plan": "rl-candidate-evaluation-plan",
+  "comparison": "c9b4bdee1a5410c663d5495f4015a834676d0fb7b804904c6eed3d5b8bbcdb09",
+  "observations": 95,
+  "independent_units": 1,
+  "candidate_mean": 0.7684210526315792,
+  "incumbent_mean": 0.2315789473684211,
+  "verdict": {
+    "decision": "refuse",
+    "code": "insufficient_samples",
+    "reason": "Promotion refused: the candidate evidence carries 1 sample(s), below the required minimum of 10. A noisy sample below the minimum count is not statistically bounded improvement."
+  },
+  "remedy": "Register a new plan and fresh candidate before collecting a different cohort or making another evaluation look.",
+  "naive_episode_gate": "promote",
+  "policy": "Constant closed versus constant not-closed classification; descriptive replay only. One repository is one correlation unit, with no causal generalization or trainer improvement claim."
+}

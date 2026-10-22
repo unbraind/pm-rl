@@ -151,6 +151,8 @@ export {
   type StoredLmGeneration,
 } from "./lm.ts";
 
+export { parseEvaluationPlan, evaluationPlanId, evaluationComparison, registerEvaluationPlan, readEvaluationPlan, evaluatePlan, recordPlanEvaluation, enforceEvaluationPlan, type EvaluationPlan, type EvaluationMember, type EvaluationObservation, type EvaluationPlanReport, type RegisteredEvaluationPlan, type EvaluationPlanRefusal } from "./evaluation-plan.ts";
+
 export { decidePromotion, hoeffdingEpsilon, parsePromotionCriterion, parsePromotionEvidence, type PromotionCriterion, type PromotionDecision, type PromotionEvidence, type PromotionGateInput } from "./promotion.ts";
 export { recipeArtifact, parseRecipe, seededRecipes, INITIAL_RECIPE, RECIPE_BOUNDS, type Recipe, type RecipeKnobs } from "./recipe.ts";
 export { buildTrackerDataset, readTrackerDataset, readTrackerSplit, type TrackerDataset, type TrackerExample } from "./dataset.ts";
@@ -204,9 +206,10 @@ import {
 } from "@unbrained/pm-cli/sdk/authoring";
 import { commitWorkspaceTransaction, type CommitWorkspaceTransactionOptions, type LogNote } from "@unbrained/pm-cli/sdk";
 import { PmClient, type GetResult, type ItemMetadata } from "@unbrained/pm-cli/sdk/core";
-import { acquireLock, certifyCompleteListResult, createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError, type PmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
+import { acquireLock, certifyCompleteListResult, createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError, normalizeItemId, type PmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 
 import { parseJsonRecord } from "./refuse.ts";
+import { registerEvaluationPlan, readEvaluationPlan, recordPlanEvaluation, enforceEvaluationPlan } from "./evaluation-plan.ts";
 import { buildTrackerLoopCorpus } from "./corpus.ts";
 import { decodeCheckpointArtifacts, encodeCheckpointArtifacts, collectCheckpointArtifacts, inspectCheckpointArtifact } from "./checkpoint-artifacts.ts";
 
@@ -346,15 +349,19 @@ export { executeProcessTrainer, reserveProcessJob, readProcessJob, processJobId,
 
 import { banditCheckpoint, type BanditCheckpoint, type BanditGeneration } from "./bandit.ts";
 
-/**
- * The fenced JSON block regex shared by every pm-rl spec reader.
- *
- * A module-level const keeps one shape for the ```` ```json ```` envelope every
- * item body stores its specification in, so a change to the fence contract
- * touches one place. It has no `g` flag: a shared global regex carries
- * `lastIndex` state across calls and would silently skip matches.
- */
-const JSON_SPEC_FENCE = /```json\n([\s\S]+?)\n```/;
+/** Yield nonempty JSON fences in one forward scan, preserving the exact LF delimiters. */
+function* jsonSpecFences(body: string): Generator<string, undefined> {
+  let offset = 0;
+  for (;;) {
+    const opening = body.indexOf("```json\n", offset);
+    if (opening < 0) return;
+    const start = opening + 8;
+    const end = body.indexOf("\n```", start + 1);
+    if (end < 0) return;
+    yield body.slice(start, end);
+    offset = end + 4;
+  }
+}
 
 /**
  * How long a promotion waits for the workspace writer lock before giving up.
@@ -537,8 +544,9 @@ const guardReferencedEnvironmentMutation = defineBeforeMutationHook(async (conte
  * @param spec - The generation specification to reduce to its provenance.
  * @returns The provenance fields, ordered by the caller's key order for hashing.
  */
-function generationProvenance(spec: GenerationSpec): JsonValue {
+export function generationProvenance(spec: GenerationSpec): JsonValue {
   return {
+    ...(spec.evaluation_plan === undefined ? {} : { evaluation_plan: spec.evaluation_plan }),
     base_checkpoint: spec.base_checkpoint,
     policy: spec.policy,
     collection_runs: [...spec.collection_runs],
@@ -733,9 +741,9 @@ export function idSegment(value: string): string {
   return segment.length > 0 ? segment : "environment";
 }
 
-/** Read full domain evidence with no output ceiling; the unbounded SDK result carries the complete item. */
-export async function readCompleteLoopItem(client: PmClient, id: string): Promise<GetResult> {
-  const result = await client.get(id, { depth: "standard", outputLimit: "unbounded", outputBudget: "unbounded" });
+/** Read complete current or verified historical domain evidence without an output ceiling. */
+export async function readCompleteLoopItem(client: PmClient, id: string, at?: string): Promise<GetResult> {
+  const result = await client.get(id, { depth: "standard", outputLimit: "unbounded", outputBudget: "unbounded", ...(at === undefined ? {} : { at }) });
   if (!("item" in result) || "output_budget_exceeded" in result) {
     fail(`Item ${id} was omitted despite an unbounded read request.`, "loop_history_incomplete", EXIT_CODE.CONFLICT);
   }
@@ -1178,9 +1186,9 @@ async function showEnvironment(context: CommandHandlerContext): Promise<RlComman
 
 /** Return the JSON fence stored in a domain item's body or fail closed. */
 function storedJson(body: string, source: string, code: string): string {
-  const fenced = JSON_SPEC_FENCE.exec(body);
-  if (fenced?.[1] === undefined) fail(`${source} has no JSON specification fence.`, code, EXIT_CODE.CONFLICT);
-  return fenced[1];
+  const fenced = jsonSpecFences(body).next().value;
+  if (fenced === undefined) fail(`${source} has no JSON specification fence.`, code, EXIT_CODE.CONFLICT);
+  return fenced;
 }
 
 /** Verify a benchmark remains content-addressed and its contamination graph matches its body. */
@@ -1444,11 +1452,11 @@ async function verifiedEnvironmentFence(client: PmClient, environmentId: string,
   if (typeof specHash !== "string" || specHash.length === 0) {
     fail(`Environment ${environmentId} has no specification affected_version and cannot support attributable ${dependents}.`, "environment_missing_hash", EXIT_CODE.CONFLICT);
   }
-  const fenced = JSON_SPEC_FENCE.exec(String(environment.item.body));
-  if (fenced?.[1] === undefined) {
+  const fenced = jsonSpecFences(String(environment.item.body)).next().value;
+  if (fenced === undefined) {
     fail(`Environment ${environmentId} has no JSON specification fence.`, "environment_missing_spec", EXIT_CODE.CONFLICT);
   }
-  return { id: String(environment.item.id), specHash, json: fenced[1]! };
+  return { id: String(environment.item.id), specHash, json: fenced };
 }
 
 /**
@@ -1736,12 +1744,12 @@ async function simRealGap(context: CommandHandlerContext): Promise<RlCommandResu
 }
 
 /** Extract and parse a generation spec from an item body's JSON fence. */
-function extractGenerationSpec(body: string, source: string): GenerationSpec {
-  const fenced = JSON_SPEC_FENCE.exec(body);
-  if (fenced?.[1] === undefined) {
+export function extractGenerationSpec(body: string, source: string): GenerationSpec {
+  const fenced = jsonSpecFences(body).next().value;
+  if (fenced === undefined) {
     fail(`${source} has no JSON specification fence.`, "generation_missing_spec", EXIT_CODE.CONFLICT);
   }
-  return parseGenerationSpec(fenced[1], source);
+  return parseGenerationSpec(fenced, source);
 }
 
 /**
@@ -1813,8 +1821,8 @@ export async function environmentInvalidationReason(client: PmClient, envId: str
     if (typeof specHash !== "string" || specHash.length === 0) {
       return "environment has no recorded specification identity";
     }
-    const fenced = JSON_SPEC_FENCE.exec(String(environment.item.body));
-    const envJson = fenced?.[1];
+    const fenced = jsonSpecFences(String(environment.item.body)).next().value;
+    const envJson = fenced;
     if (envJson === undefined) return "environment specification is unreadable";
     // Parsed inside its own try so an invalid fence is reported as unreadable
     // rather than falling through to the outer catch, which reports the
@@ -1989,8 +1997,8 @@ export async function promotedGenerationIdsUnderApproval(client: PmClient, appro
     // The SDK types a listed item's `id` as optional; a record without one
     // carries no identity to report, so it is skipped rather than counted.
     if (item.id === undefined) continue;
-    const fenced = JSON_SPEC_FENCE.exec(String(item.body));
-    const json = fenced?.[1];
+    const fenced = jsonSpecFences(String(item.body)).next().value;
+    const json = fenced;
     if (json === undefined) {
       fail(`Promotion refused: generation ${item.id} has no JSON specification fence, so the approved budget cannot be established.`, "budget_undecidable", EXIT_CODE.CONFLICT);
     }
@@ -2177,7 +2185,9 @@ async function registerGenerationCore(client: PmClient, request: GenerationRegis
     }
     deps = [environmentId, ...collectionRuns];
   }
+  const reservation = await readEvaluationPlan(client, normalizeItemId(requestedId, String((await client.config("project", "get", "id_prefix")).nested_setting!.value)));
   const spec: GenerationSpec = {
+    ...(reservation === null ? {} : { evaluation_plan: reservation.comparison }),
     base_checkpoint: baseCheckpoint,
     policy,
     collection_runs: collectionRuns,
@@ -2259,12 +2269,12 @@ export async function readApprovalSpec(client: PmClient, approvalId: string): Pr
   if (String(approval.item.type) !== "Decision") {
     fail(`pm rl expected a Decision ${approvalId} as the approval item, not ${String(approval.item.type)}.`, "wrong_approval_type", EXIT_CODE.CONFLICT);
   }
-  const approvalFenced = JSON_SPEC_FENCE.exec(String(approval.item.body));
-  if (approvalFenced?.[1] === undefined) {
+  const approvalFenced = jsonSpecFences(String(approval.item.body)).next().value;
+  if (approvalFenced === undefined) {
     fail(`Approval item ${approvalId} has no JSON specification fence.`, "approval_missing_spec", EXIT_CODE.CONFLICT);
   }
   const id = approval.item.id;
-  return { ...parseApprovalSpec(approvalFenced[1], `Approval ${approvalId}`), id };
+  return { ...parseApprovalSpec(approvalFenced, `Approval ${approvalId}`), id };
 }
 
 /** Promote a candidate generation after contamination and budget checks pass. */
@@ -2456,6 +2466,7 @@ async function promoteGenerationCore(client: PmClient, coordinates: WorkspaceCoo
         if (currentSpec.promoted) {
           fail(`Generation ${id} is already promoted.`, "already_promoted", EXIT_CODE.CONFLICT);
         }
+        await enforceEvaluationPlan(client, String(current.item.id), heldOutScore);
         // THE authoritative contamination decision, taken inside the lock over
         // the ancestry the verdict actually depends on.
         //
@@ -3630,10 +3641,10 @@ async function verifyLoopRun(client: PmClient, programme: LoopProgramme, chain: 
       ? systemOneEnvironmentSpec(programme.config)
       : lmEnvironmentSpec(programme.config);
   const storedEnvironment = await verifyEnvironmentIdentity(client, String(normalizeRunEnvironment(run.item.environment)), "loop");
-  const fences = [...String(run.item.body).matchAll(/```json\n([\s\S]+?)\n```/g)];
+  const fences = [...jsonSpecFences(String(run.item.body))];
   if (run.item.component !== chain.current.digest || run.item.fixed_version !== hashJson(config)
     || run.item.affected_version !== hashJson(environment) || hashJson(storedEnvironment.spec) !== hashJson(environment)
-    || fences.length !== 2 || canonicalJson(JSON.parse(fences[1][1]) as JsonValue) !== canonicalJson(config)) {
+    || fences.length !== 2 || canonicalJson(JSON.parse(fences[1]) as JsonValue) !== canonicalJson(config)) {
     fail("The persisted collection run does not match its programme, policy and environment.", "loop_generation_drift", EXIT_CODE.CONFLICT);
   }
 }
@@ -4373,6 +4384,7 @@ async function showGeneration(context: CommandHandlerContext): Promise<RlCommand
       held_out_score: spec.held_out_score,
       gap: spec.gap,
       promotion_evidence: spec.promotion_evidence,
+      ...(spec.evaluation_plan === undefined ? {} : { evaluation_plan: spec.evaluation_plan }),
     },
   };
 }
@@ -4441,7 +4453,7 @@ function fencedSection(body: string, heading: string): string | null {
   // find that impostor first and return the wrong fence.
   const start = body.indexOf(`\n${heading}`);
   if (start < 0) return null;
-  return JSON_SPEC_FENCE.exec(body.slice(start))?.[1] ?? null;
+  return jsonSpecFences(body.slice(start)).next().value ?? null;
 }
 
 /** Parsed provenance sections of a Run body written by `rl run start`. */
@@ -5007,6 +5019,27 @@ export const RL_COMMANDS = [
     { long: "--file", value_name: "path", value_type: "string", required: true, description: "Benchmark JSON file." },
     { long: "--contaminated-by", value_name: "environment-ids", value_type: "string", description: "Comma-separated environment versions whose training data overlaps the suite." },
   ], run: registerBenchmark }),
+  defineCommand({ name: "rl eval plan register", description: "Predeclare a fixed cohort and correlation units before candidate collection.", flags: [
+    { long: "--file", value_name: "path", value_type: "string", required: true, description: "Evaluation plan JSON." },
+  ], run: async (context) => {
+    const registered = await registerEvaluationPlan(clientFor(context), readJsonFile(stringOption(context, "file")!, "Evaluation plan"));
+    return { action: "rl-eval-plan-register", id: registered.id, details: { comparison: registered.comparison, observations: registered.plan.stopping.observations, independent_units: registered.plan.stopping.independent_units } };
+  } }),
+  defineCommand({ name: "rl eval plan show", description: "Show compact predeclared comparison identity and fixed stopping sizes.", arguments: [{ name: "candidate", required: true, description: "Reserved candidate generation id." }], run: async (context) => {
+    const client = clientFor(context);
+    const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
+    const registered = await readEvaluationPlan(client, normalizeItemId(requiredArgument(context, "a candidate id"), prefix));
+    if (registered === null) fail("No predeclared plan. Register one before creating a fresh candidate.", "eval_plan_missing", EXIT_CODE.CONFLICT);
+    return { action: "rl-eval-plan-show", id: registered.id, details: { comparison: registered.comparison, candidate: registered.plan.candidate, incumbent: registered.plan.incumbent, stopping: registered.plan.stopping } };
+  } }),
+  defineCommand({ name: "rl eval plan evaluate", description: "Seal one paired evaluation and report its cluster-aware promotion verdict.", arguments: [{ name: "candidate", required: true, description: "Reserved candidate generation id." }], flags: [
+    { long: "--file", value_name: "path", value_type: "string", required: true, description: "Paired observation array JSON." },
+  ], run: async (context) => {
+    const client = clientFor(context); const id = requiredArgument(context, "a candidate id");
+    const item = await getTypedItem(client, id, "Generation");
+    const report = await recordPlanEvaluation(client, String(item.item.id), readJsonFile(stringOption(context, "file")!, "Paired observations"));
+    return { action: "rl-eval-plan-evaluate", id: report.plan, details: { ...report } };
+  } }),
   defineCommand({ name: "rl eval record", description: "Record one immutable checkpoint verdict linked to its source run and benchmark.", flags: [
     { long: "--run", value_name: "id", value_type: "string", required: true, description: "Source Run item id." },
     { long: "--benchmark", value_name: "id", value_type: "string", required: true, description: "Benchmark item id." },
