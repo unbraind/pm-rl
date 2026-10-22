@@ -6,12 +6,10 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-21T16:53:13.328Z"
-updated_at: "2026-10-22T14:08:49.505Z"
-assignee: codex-agent
-claim_principal: codex-agent
+updated_at: "2026-10-22T14:33:32.173Z"
 author: codex-agent
 parent: pm-rl-apvf
-comments[17]{created_at,author,text}:
+comments[20]{created_at,author,text}:
   "2026-10-21T16:53:34.594Z",codex-agent,"Pre-change diagnosis: PR #94 uses one logistic weight times a strictly positive log-title-length feature. Its greedy classifier is necessarily constant, so more samples, higher learning rate or more updates cannot make it useful. The held-out set has 36 closed and 5 other items, so always-closed scores 36/41=0.8780487805; the stochastic reward correctly penalizes uncertainty and cannot be substituted with greedy accuracy. Eight updates and 256 samples learn the majority slowly (0.5980 then 0.6810), but capacity is the primary defect. Holding every identical projected length in one partition is conservative yet prevents renamed-input leakage; retain this exact split. Proposed bounded intercept plus hashed title-word vector has no status/ID features and keeps all title-identical inputs together. Add deterministic paired bootstrap confidence intervals over held-out items against BOTH constant actions and the incumbent, in addition to existing sampled, exact-improvement and gap gates. Increase only explicit approved fit/sample allowances; retain every failed frontier and never relax the gate. Existing prefix/rsipower items cover broader chronological forecasting and transfer, distinct from this snapshot-recognition child."
   "2026-10-21T17:00:36.485Z",codex-agent,"Implementation in progress: bounded 64-column title-only features plus an intercept, unchanged source-action importance weighting, versioned vector checkpoint digests and full resume verification. Item-paired percentile bootstrap uses 8192 deterministic resamples, 41 held-out items rather than 40000 repeated rollouts, and Bonferroni-adjusted intervals for incumbent and both constant actions. Existing sampled confidence/effect, exact improvement and gap gates remain additional requirements. A preliminary numerical probe still trails the constant baseline; no win is claimed. Explicit sealed retry_rejected exploration will attempt three generations while keeping refused checkpoints out of collection and preserving all per-job reservations. Legacy scalar programmes keep their exact identities and stop semantics."
   "2026-10-21T17:11:46.623Z",codex-agent,"Three real external attempts on the same public pm-ops commit and original split are complete: n_train=105, n_held_out=41, baseline=36/41=0.8780487805. Held-out expected rewards and nominal 95% item-bootstrap CIs: g1 0.8713980699 [0.7743570291,0.9668509885], g2 0.8645003749 [0.7683455624,0.9579166612], g3 0.8534392510 [0.7593053408,0.9436312068]. All three are refused against the constant; zero promoted successors. Every collection used the unchanged seed policy; the derived learning rates were 1,0.5,0.25. The baseline still wins and no gate was weakened. Each job charged 256 optimizer updates exactly once; 3072 actions were collected. Resume verified all three, preserved checkpoint bytes, launched no new job, and status agreed. Source inventory bytes are unchanged. Execution used a PATH without Git and a plain controller tracker. Complete metrics, adjusted paired differences and full digests are in docs/baseline-frontier-evidence.json. Diagnostic log-loss fitting was worse (first score 0.7492), so it was not adopted."
@@ -29,6 +27,9 @@ comments[17]{created_at,author,text}:
   "2026-10-21T18:21:08.382Z",codex-agent,"Post-release boundary: strict local pm health reports merge_fence_drift:2; its history_drift check is OK, and this child item passes strict history verification. Complete fresh CI strict health passes in all three release variants. The owner no-git contract forbids merge-driver work, so clone configuration and existing tracker advisories remain unchanged; no history repair or re-anchoring is performed. This is separate from the measured 100 percent source coverage and the refused learner frontier. Standing tracker-advisory work remains with pm-rl-9uz4. The claim is released and this child stays in_progress for orchestrator verification."
   "2026-10-22T13:57:43.396Z",codex-agent,"Follow-up after PR #94 squash merge: inspect and update draft PR #95 against origin/main using the same merge-only approach as PR #97. Preserve vector training, item-paired gates, all measured baseline-refusal limitations and draft status. Regenerate CHANGELOG.md and ignored dist rather than hand-merging outputs; run full unchanged npm/Bun release gates. Prior behavioral revert proofs will be retained where feature behavior remains byte-identical. Do not claim that any measured real candidate beats the constant baseline or promote this draft to ready."
   "2026-10-22T14:08:49.505Z",codex-agent,"Merged main 2663828 into draft PR #95. Used the known shared #94 content at 56e2854 to resolve the add/add overlap while retaining the baseline vector learner and item-paired gates. Explicitly combined the feature-bearing corpus rows with main locale-independent ordering; retained current main publication guards, complete source snapshots, locale regression and all added corpus regressions. Combined corpus and baseline tests pass 25/25, zero fail/skip/cancel/todo; build and test compilation pass. Existing baseline runtime functions and feature tests match the prior reviewed head, so their prior revert proofs remain applicable. The epic ownership conflict retains latest main unclaimed ownership and merged context. Ran the prescribed pm merge reconcile once: one receipt reconciled, zero entries rehashed or patch-repaired, no remaining drift. Independently verified all existing main epic and prior baseline history bytes remain exact prefixes; history is append-only. Regenerated changelog and ignored dist; run full unchanged npm/Bun gates on this merged candidate. The three historical real attempts still have zero promotions and do not beat the constant baseline; preserve draft status."
+  "2026-10-22T14:28:43.694Z",codex-agent,"Merged-head CI run 39793575010 has completed the Node 26 npm and Bun 1.3.14 release commands: each reports 701/701 tests, zero failures/skips/cancellations/todos, and 100/100/100/100 coverage across 50 authored sources. Bun package graph installation passes. Node 22 remains pending completion. The newly linked combined corpus/baseline command also passes 25/25 through pm test in an isolated snapshot. Existing behavioral revert proofs remain applicable because this update combines unchanged baseline behavior with already-tested main corpus fixes."
+  "2026-10-22T14:32:02.691Z",codex-agent,"Main-update validation is complete at source merge 07e12fdc23ba249de2eab8d570db3d20af40ca54. CI run 39793575010 completed npm run release:check on Node 22 and Node 26, and bun run release:check on Node 26 with Bun 1.3.14. Every completed log independently verifies 701/701 tests, zero failures/skips/cancellations/todos, 50 authored sources and coverage 100/100/100/100 at unchanged thresholds. All three release steps, fresh strict tracker health and Bun package graph installation report success; 344 declarations, lint, duplication, audit, attestation, packaging and changelog checks pass. CodeQL passes. Local npm ci, generated changelog check, dist rebuild/check and linked corpus/baseline tests 25/25 also pass. No new runtime behavior was introduced by conflict resolution, so the prior vector-dispatch and item-gate behavioral revert proofs remain valid; earlier external evidence still has zero promoted successors. Draft status and dependency pins are preserved. The final receipt changes tracker evidence only, with unchanged source and tests. No PR merge, thread reply or resolution, or package release was performed."
+  "2026-10-22T14:33:32.173Z",codex-agent,"Final prepared-environment strict health is ok:true with only the existing telemetry queue, stale-item and legacy provenance advisories. Restoring the unchanged tracked attributes after prepare reproduces the pre-existing merge_fence_drift:2 advisory owned by pm-rl-9uz4; no merge tooling or attribute policy was changed. CI strict health passes after its normal npm ci prepare step. Existing item and epic history prefixes remain intact, and added tracker records pass the local-path privacy check."
 files[17]{path,scope}:
   .agents/pm/epics/pm-rl-apvf.toon,project
   .agents/pm/history/pm-rl-apvf.jsonl,project
@@ -47,7 +48,7 @@ files[17]{path,scope}:
   test/corpus.test.ts,project
   test/fixtures/baseline-no-git.ts,project
   test/fixtures/compose.Dockerfile,project
-tests[2]:
+tests[3]:
   - command: node --test test/baseline.test.ts
     path: test/baseline.test.ts
     scope: project
@@ -64,6 +65,16 @@ tests[2]:
     provenance:
       author: codex-agent
       created_at: "2026-10-22T14:08:46.724Z"
+      source_kind: local_mutation
+      source_ref: feat/rsi-beats-baseline
+  - command: node --test test/corpus.test.ts test/baseline.test.ts
+    scope: project
+    timeout_seconds: 600
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-22T14:26:56.707Z"
       source_kind: local_mutation
       source_ref: feat/rsi-beats-baseline
 docs[3]{path,scope}:
