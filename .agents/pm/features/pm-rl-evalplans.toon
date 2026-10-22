@@ -6,12 +6,14 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-21T21:36:09.182Z"
-updated_at: "2026-10-22T17:07:22.254Z"
+updated_at: "2026-10-22T19:58:52.225Z"
+assignee: codex-agent
+claim_principal: codex-agent
 author: codex-agent
 estimated_minutes: 180
 acceptance_criteria: Synthetic correlated cohorts cannot masquerade as independent samples; changed plans invalidate comparison identity. Typed SDK and CLI; compact TOON/JSON; typed refusals with remedies; README and example; non-git real public-tracker validation; npm and Bun CI release gates.
 parent: pm-rl-apvf
-comments[20]{created_at,author,text}:
+comments[25]{created_at,author,text}:
   "2026-10-21T21:36:11.512Z",codex-agent,"Overlap rechecked against the pinned CLI SDK declarations and sibling package sources/docs: core Plan/Decision stores decisions but has no causal experiment-plan enforcement; pm-jev owns model calibration/evaluation; pm-context supplies context. Existing pm-rl-rsipower supplies one powered dataset and is retained separately. This item adds reusable immutable plan/comparison enforcement and cluster-aware promotion, stacked on PR #94; must merge after #94. Dependency pins remain unchanged. Local verification will be targeted tests, typecheck and lint; full npm/Bun release gates run in CI due shared CPU load."
   "2026-10-21T21:49:50.172Z",codex-agent,"Implemented fixed paired plans in core Plan records, immutable result Decisions, provenance-pinned comparison identities, and authoritative promotion enforcement. Plans pin incumbent provenance, populations, member-to-unit assignments, sample sizes, fixed stopping, objective and criterion. Equal-unit aggregation counts correlated cohorts once; one sealed result per plan. Existing unplanned controllers retain legacy semantics without causal-plan claims. Non-git public validation measured 95 observations as one repository unit: candidate 0.7684210526 vs incumbent 0.2315789474; naive episode-count gate would promote, clustered gate refuses. Read-only public source digest is unchanged; evidence is descriptive replay, not deployed causal benefit."
   "2026-10-21T21:51:52.718Z",codex-agent,"Verification: node --test test/evaluation-plan.test.ts test/promotion.test.ts passes 30/30 with zero skipped. New module focused coverage passes 100 percent lines/branches/functions; full four-dimension gate remains for CI. npm run typecheck, npm run build, npm run build:test, npm run lint, npm run duplicates (zero clones), npm run docstring (49 files; 342 declarations) pass. pm test --run --progress ran the linked correlated-cohort regression successfully (1/1). Behavioral revert proof: changing only evaluatePlan to count episode rows fails the correlated-cohort regression; removing only the authoritative enforcement call fails the real promotion regression. Both reverted variants exit 1; exact source bytes restored and 30/30 rerun passes. Local strict health exposes existing extension skew and fence drift in this shared clone, plus advisory stale/provenance findings; no history or merge repair performed. Fresh CI health and npm/Bun release matrices are required before handoff."
@@ -32,6 +34,11 @@ comments[20]{created_at,author,text}:
   "2026-10-22T16:55:33.074Z",codex-agent,"The complete local npm run release:check finished with exit 0 on Node 24.19.0/npm 11.17.0 using isolated HOME and disabled global/system Git configuration. Results: 704/704 tests; zero failures/skips/cancellations/todos; coverage 100/100/100/100 across 49 authored sources; 343 documented declarations; zero duplication and production vulnerabilities; identity audit, attestation, packaging and changelog checks pass. No timeout or retry was needed. Source and test bytes match candidate 24ee3f23a2681e8ea5359a106c176ef2e780d79f. CI run 39816844486 remains in progress for independent npm Node 22/26 and Bun 1.3.14 verification; CodeQL has passed."
   "2026-10-22T17:07:20.790Z",codex-agent,"Final review-round gates at source commit 24ee3f23a2681e8ea5359a106c176ef2e780d79f: CI run 39816844486 is completed success. Downloaded and independently verified all three complete logs: npm run release:check on Node 22 and Node 26, and bun run release:check on Node 26/Bun 1.3.14 each pass 704/704 tests, zero failures/skips/cancellations/todos, coverage 100/100/100/100 across 49 authored sources and 343 documented declarations. Strict fresh tracker health, unchanged static gates, identity audit, zero duplication, attestation, production audit, packaging, changelog and Bun package graph installation pass. CodeQL run 39816844415 passes. The complete local isolated npm gate on Node 24.19.0 also passed 704/704 without a timeout or retry. The README-only revert proof is 0/1 when reverted and 1/1 restored, with full evaluation-plan suite 14/14 and the linked regression passing in an isolated non-Git snapshot. The review feed was rechecked: only PRRT_kwDOTqJmqs6vRL2q is unresolved; no outside-diff findings or additional instances were found. The final receipt changes tracker evidence only; tested source and tests remain identical. No thread reply or resolution, PR merge, release, dependency bump or threshold change was performed."
   "2026-10-22T17:07:21.518Z",codex-agent,"Standard npm ci prepare installs the current local merge fence, matching CI strict health. The existing tracked attribute policy is retained after verification; its shared-clone fence drift and the existing telemetry/stale-item/legacy provenance advisories remain owned by pm-rl-9uz4. No merge tooling, attribute policy or existing history record was changed for this documentation review."
+  "2026-10-22T19:17:58.723Z",codex-agent,"New review intake at de0caf3: pulled the remote head; main is already an ancestor. The sole unresolved thread PRRT_kwDOTqJmqs6vVkIW reports favorable replacement of sealed observations with a recomputed affected_version. All comments and the latest CodeRabbit review were read; no Outside diff range findings were present. Verify the bypass with a real non-Git tracker, bind result provenance to certified original creation evidence or write-once storage, add behavioral revert proof, and audit plan/result paths for the same defect class before unchanged full npm/Bun gates. Previously completed documentation and scanner fixes remain intact."
+  "2026-10-22T19:37:25.910Z",codex-agent,"PRRT_kwDOTqJmqs6vVkIW is valid. Three real non-Git regressions fail 0/3 before the fix: favorable result replacement with a recomputed hash bypasses promotion and retry checks, and a recomputed plan/result pair rewrites a correlated cohort as independent units. The fix compares id, type, body, creation time and affected_version against the pinned SDK verified version-one snapshot. It uses the existing complete unbounded read helper with an optional historical selector, without Git or direct filesystem reads. Promotion, retries, concurrent-create winners and plan reads verify the original seal. Self-review found the same defect in plan reservation reads and result retries; both are fixed. Missing or corrupt original history refuses; unrelated annotations remain allowed. Trust in SDK append-only original history is documented; privileged rewriting of that original history is outside this boundary."
+  "2026-10-22T19:37:41.581Z",codex-agent,"Function-only behavioral revert proofs: restore each of enforceEvaluationPlan, recordPlanEvaluation, readEvaluationPlan and readCompleteLoopItem individually from de0caf3 while retaining every other fix and regression. Each targeted run fails 0/1 with Missing expected rejection because replacement evidence is accepted. Restore each function and the final four-regression command passes 4/4, zero failures/skips/cancellations/todos, including missing/malformed/hash-corrupt original history and allowed annotations. The pinned pm runner also executes the linked four-regression command in an isolated snapshot. No SDK mocks, new dependency, threshold reduction or existing tracker-history rewrite was used. Full unchanged npm/Bun release gates will validate the candidate in CI."
+  "2026-10-22T19:58:49.812Z",codex-agent,"Final self-review also reproduced three additional bypasses (0/3 before their fixes): replacing candidate checkpoint/provenance with a recomputed hash, deleting a reservation while stripping the generation pin, and rewriting a pre-plan run current creation timestamp. Planned candidates now retain their original creation provenance, deleted reservations remain detectable through original history, and predeclaration timing uses original candidate/run timestamps. The final creation-history suite covers plan, result, candidate and run histories, missing/malformed/hash-corrupt history, and allowed annotations. The original recorder already refuses deleted-result recreation: a retained integration control passes 1/1 with the recorder reverted, so no speculative extra fix was added there. Final direct evaluation-plan suite passes 22/22, zero failures/skips/cancellations/todos, including Git-absent CLI promotion and the existing 100k linear-scanner bound. The full linked suite also runs through the pinned pm runner in an isolated snapshot."
+  "2026-10-22T19:58:52.225Z",codex-agent,"Final behavioral revert proof against de0caf3: individually restoring enforceEvaluationPlan, recordPlanEvaluation, readEvaluationPlan, readCompleteLoopItem, verifiedCandidate, verifyTiming or optionalItem while retaining every other fix produces 0/1 with Missing expected rejection, accepting replacement evidence or laundering a reservation/timestamp. All seven functions were restored afterward and the complete final suite passes 22/22. A malformed-history assertion was corrected during test development to accept the SDK native refusal that can occur before domain verification; valid-history positives and missing/history-hash negatives remain exercised. Existing source/threshold configuration is unchanged. Unscoped local lint was blocked by generated declarations in a retained ignored synthetic acceptance artifact from the prior gate; that artifact was preserved outside the worktree, unchanged checks pass, and the existing pm-rl-lintruntime follow-up was enriched instead of duplicated."
 files[7]{path,scope}:
   evaluation-plan.ts,project
   index.ts,project
@@ -40,7 +47,7 @@ files[7]{path,scope}:
   README.md,project
   test/evaluation-plan.acceptance.ts,project
   test/evaluation-plan.test.ts,project
-tests[4]:
+tests[6]:
   - command: "node --test --test-name-pattern=\"correlated synthetic\" test/evaluation-plan.test.ts"
     scope: project
     provenance:
@@ -71,6 +78,26 @@ tests[4]:
     provenance:
       author: codex-agent
       created_at: "2026-10-22T16:18:51.255Z"
+      source_kind: local_mutation
+      source_ref: feat/predeclared-eval-plans
+  - command: "node --test --test-name-pattern=\"sealed evaluation|sealed predeclarations|sealed creation history\" test/evaluation-plan.test.ts"
+    scope: project
+    timeout_seconds: 900
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-22T19:35:14.726Z"
+      source_kind: local_mutation
+      source_ref: feat/predeclared-eval-plans
+  - command: node --test test/evaluation-plan.test.ts
+    scope: project
+    timeout_seconds: 900
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-22T19:57:24.938Z"
       source_kind: local_mutation
       source_ref: feat/predeclared-eval-plans
 docs[4]{path,scope}:

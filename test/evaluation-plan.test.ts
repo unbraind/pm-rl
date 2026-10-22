@@ -139,8 +139,106 @@ test("raw stored evidence and plan drift are rechecked on every promotion", asyn
   }
   const changed = { comparison: registered.comparison, observations: observations().map((row) => ({ ...row, candidate: 0 })) };
   await w.client.update(resultId, { body: JSON.stringify(changed), affectedVersion: hashJson(changed) });
-  await assert.rejects(enforceEvaluationPlan(w.client, "rl-candidate", score({ value: 0 })), refusal("eval_plan_refused"));
+  await assert.rejects(enforceEvaluationPlan(w.client, "rl-candidate", score({ value: 0 })), refusal("eval_plan_drift"));
   await assert.rejects(recordPlanEvaluation(w.client, "rl-candidate", observations()), refusal("eval_plan_drift"));
+});
+
+test("sealed evaluation promotion refuses favorable replacement with a recomputed hash", async () => {
+  const w = await workspace(); const registered = await registerEvaluationPlan(w.client, plan());
+  await generation(w.client, "rl-candidate", spec("rl-seed"));
+  const rejected = observations().map((row) => ({ ...row, candidate: 0 }));
+  assert.equal((await recordPlanEvaluation(w.client, "rl-candidate", rejected)).verdict.decision, "refuse");
+  await assert.rejects(enforceEvaluationPlan(w.client, "rl-candidate", score({ value: 0 })), refusal("eval_plan_refused"));
+  const replacement = { comparison: registered.comparison, observations: observations().map((row) => ({ ...row })).sort((a, b) => a.id < b.id ? -1 : 1) };
+  assert.equal(evaluatePlan(plan(), replacement.observations).verdict.decision, "promote");
+  await w.client.update(`${registered.id}-result`, { body: JSON.stringify(replacement), affectedVersion: hashJson(replacement) });
+  await assert.rejects(enforceEvaluationPlan(w.client, "rl-candidate", score()), refusal("eval_plan_drift"));
+});
+
+test("sealed evaluation retries refuse favorable replacement with a recomputed hash", async () => {
+  const w = await workspace(); const registered = await registerEvaluationPlan(w.client, plan());
+  await generation(w.client, "rl-candidate", spec("rl-seed"));
+  await recordPlanEvaluation(w.client, "rl-candidate", observations().map((row) => ({ ...row, candidate: 0 })));
+  const replacement = { comparison: registered.comparison, observations: observations().map((row) => ({ ...row })).sort((a, b) => a.id < b.id ? -1 : 1) };
+  await w.client.update(`${registered.id}-result`, { body: JSON.stringify(replacement), affectedVersion: hashJson(replacement) });
+  await assert.rejects(recordPlanEvaluation(w.client, "rl-candidate", replacement.observations), refusal("eval_plan_drift"));
+});
+
+test("sealed predeclarations refuse a rewritten cohort and matching replacement result", async () => {
+  const w = await workspace(); const independent = plan();
+  const correlated = plan({ members: independent.members.map((row) => ({ ...row, unit: "one-project" })), stopping: { kind: "fixed", observations: 100, independent_units: 1 } });
+  const registered = await registerEvaluationPlan(w.client, correlated);
+  await generation(w.client, "rl-candidate", spec("rl-seed"));
+  assert.equal((await recordPlanEvaluation(w.client, "rl-candidate", observations())).verdict.decision, "refuse");
+  const comparison = evaluationComparison(independent);
+  await w.client.update(registered.id, { body: JSON.stringify({ plan: independent, incumbent_version: independent.incumbent_version }), affectedVersion: hashJson({ comparison, incumbent_version: independent.incumbent_version }) });
+  const replacement = { comparison, observations: observations().map((row) => ({ ...row })).sort((a, b) => a.id < b.id ? -1 : 1) };
+  await w.client.update(`${registered.id}-result`, { body: JSON.stringify(replacement), affectedVersion: hashJson(replacement) });
+  await assert.rejects(readEvaluationPlan(w.client, "rl-candidate"), refusal("eval_plan_drift"));
+  await assert.rejects(registerEvaluationPlan(w.client, independent), refusal("eval_plan_drift"));
+  await assert.rejects(enforceEvaluationPlan(w.client, "rl-candidate", score()), refusal("eval_plan_drift"));
+});
+
+test("sealed creation history is required while unrelated annotations remain allowed", async () => {
+  const w = await workspace(); const registered = await registerEvaluationPlan(w.client, plan());
+  await generation(w.client, "rl-candidate", spec("rl-seed"));
+  const report = await recordPlanEvaluation(w.client, "rl-candidate", observations());
+  const resultId = `${registered.id}-result`;
+  const annotated = [registered.id, resultId, "rl-candidate", "rl-collection"];
+  for (const id of annotated) await w.client.update(id, { title: "Annotation without changing sealed fields" });
+  assert.deepEqual(await recordPlanEvaluation(w.client, "rl-candidate", observations()), report);
+  await enforceEvaluationPlan(w.client, "rl-candidate", score());
+  for (const id of annotated) {
+    const path = join(w.pmRoot, "history", `${id}.jsonl`); const history = readFileSync(path);
+    rmSync(path);
+    await assert.rejects(enforceEvaluationPlan(w.client, "rl-candidate", score()), refusal("eval_plan_drift"));
+    const entries = history.toString("utf8").trimEnd().split("\n");
+    entries[0] = JSON.stringify({ ...JSON.parse(entries[0]) as Record<string, unknown>, after_hash: "0".repeat(64) });
+    for (const corrupt of ["invalid history\n", entries.join("\n") + "\n"]) {
+      writeFileSync(path, corrupt);
+      await assert.rejects(enforceEvaluationPlan(w.client, "rl-candidate", score()));
+    }
+    writeFileSync(path, history);
+    await enforceEvaluationPlan(w.client, "rl-candidate", score());
+  }
+});
+
+test("sealed candidate provenance refuses a replacement checkpoint with a recomputed hash", async () => {
+  const w = await workspace(); const registered = await registerEvaluationPlan(w.client, plan());
+  const original = { ...spec("rl-seed"), evaluation_plan: registered.comparison };
+  await generation(w.client, "rl-candidate", original);
+  await recordPlanEvaluation(w.client, "rl-candidate", observations());
+  const replacement = { ...original, base_checkpoint: "replacement-checkpoint", policy: "replacement-policy" };
+  await w.client.update("rl-candidate", { body: `\`\`\`json\n${JSON.stringify(replacement)}\n\`\`\``, affectedVersion: hashJson(generationProvenance(replacement)) });
+  await assert.rejects(enforceEvaluationPlan(w.client, "rl-candidate", score()), refusal("eval_plan_drift"));
+});
+
+test("sealed deleted reservations cannot become legacy by removing the candidate pin", async () => {
+  const w = await workspace(); const registered = await registerEvaluationPlan(w.client, plan());
+  await generation(w.client, "rl-candidate", { ...spec("rl-seed"), evaluation_plan: registered.comparison });
+  await recordPlanEvaluation(w.client, "rl-candidate", observations().map((row) => ({ ...row, candidate: 0 })));
+  await w.client.update("rl-candidate", { body: `\`\`\`json\n${JSON.stringify(spec("rl-seed"))}\n\`\`\``, affectedVersion: hashJson(generationProvenance(spec("rl-seed"))) });
+  await w.client.delete(registered.id, { force: true });
+  await assert.rejects(enforceEvaluationPlan(w.client, "rl-candidate", score()), refusal("eval_plan_missing"));
+});
+
+test("sealed deleted results cannot obtain another evaluation look", async () => {
+  const w = await workspace(); const registered = await registerEvaluationPlan(w.client, plan());
+  await generation(w.client, "rl-candidate", spec("rl-seed"));
+  await recordPlanEvaluation(w.client, "rl-candidate", observations().map((row) => ({ ...row, candidate: 0 })));
+  await w.client.delete(`${registered.id}-result`, { force: true });
+  await assert.rejects(recordPlanEvaluation(w.client, "rl-candidate", observations()));
+});
+
+test("sealed creation timing refuses an early run with a rewritten current timestamp", async () => {
+  const w = await workspace(); await w.client.create({ id: "rl-early-run", title: "Early collection", type: "Run" });
+  await registerEvaluationPlan(w.client, plan());
+  await generation(w.client, "rl-candidate", spec("rl-seed", ["rl-early-run"]));
+  const path = join(w.pmRoot, "runs", "rl-early-run.toon"); const original = readFileSync(path, "utf8");
+  const rewritten = original.replace(/^created_at: .*$/m, `created_at: "${new Date(Date.now() + 60_000).toISOString()}"`);
+  assert.notEqual(rewritten, original);
+  writeFileSync(path, rewritten);
+  await assert.rejects(recordPlanEvaluation(w.client, "rl-candidate", observations()), refusal("eval_plan_late"));
 });
 
 test("late plans, early collection, changed parents and edited provenance never promote", async () => {

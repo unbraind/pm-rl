@@ -741,9 +741,9 @@ export function idSegment(value: string): string {
   return segment.length > 0 ? segment : "environment";
 }
 
-/** Read full domain evidence with no output ceiling; the unbounded SDK result carries the complete item. */
-export async function readCompleteLoopItem(client: PmClient, id: string): Promise<GetResult> {
-  const result = await client.get(id, { depth: "standard", outputLimit: "unbounded", outputBudget: "unbounded" });
+/** Read complete current or verified historical domain evidence without an output ceiling. */
+export async function readCompleteLoopItem(client: PmClient, id: string, at?: string): Promise<GetResult> {
+  const result = await client.get(id, { depth: "standard", outputLimit: "unbounded", outputBudget: "unbounded", ...(at === undefined ? {} : { at }) });
   if (!("item" in result) || "output_budget_exceeded" in result) {
     fail(`Item ${id} was omitted despite an unbounded read request.`, "loop_history_incomplete", EXIT_CODE.CONFLICT);
   }

@@ -623,6 +623,15 @@ missing observations, extra observations and adaptive stopping are refused. Up t
 look per plan, including a statistical refusal; retrying identical evidence is
 idempotent. Changing a population, grouping, stopping size, criterion or incumbent
 provenance changes comparison identity and requires a fresh plan/candidate.
+Plan reads, evaluation retries and promotions compare sealed fields against the
+SDK's verified version-one history snapshot. Replacing observations or a plan
+and recomputing its hash is refused with `eval_plan_drift`. Missing, corrupt or
+compacted-away original history also refuses; unrelated annotations remain allowed.
+Candidate provenance is checked against its creation snapshot, while creation
+order uses the original candidate and collection-run timestamps. Deleting a plan
+and removing the candidate's pin cannot discard a reservation retained in history.
+This relies on the SDK's append-only history: privileged rewriting of the original
+history itself is outside this enforcement boundary.
 
 `rl generation register` pins an existing plan in generation provenance. Both
 manual and controller promotions re-read the plan and sealed outcomes inside the

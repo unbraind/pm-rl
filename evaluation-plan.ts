@@ -29,7 +29,7 @@ export interface EvaluationPlan {
 }
 /** Paired bounded outcomes, one per declared member; sample counts are never accepted from the caller. */
 export interface EvaluationObservation { readonly id: string; readonly candidate: number; readonly incumbent: number }
-/** Compact agent output; full cohorts and raw observations remain in immutable tracker records. */
+/** Compact agent output; full cohorts and raw observations remain in creation-verified tracker records. */
 export interface EvaluationPlanReport {
   readonly plan: string;
   readonly comparison: string;
@@ -89,22 +89,36 @@ export function evaluationPlanId(candidate: string): string { return `${label(ca
 /** Every plan choice contributes to comparison identity; member order does not. */
 export function evaluationComparison(value: unknown): string { return hashJson(parseEvaluationPlan(value) as unknown as JsonValue); }
 /** Return only a certified absence; malformed, denied and incomplete reads propagate. */
-async function optionalItem(client: PmClient, id: string): Promise<GetResult["item"] | null> {
-  try { return (await readCompleteLoopItem(client, id)).item; }
+async function optionalItem(client: PmClient, id: string, at?: string): Promise<GetResult["item"] | null> {
+  try { return (await readCompleteLoopItem(client, id, at)).item; }
   catch (error) { if (isPmCliExpectedError(error) && error.exitCode === EXIT_CODE.NOT_FOUND) return null; throw error; }
 }
 /** Decode package-owned JSON without leaking raw malformed content through parser errors. */
 function storedJson(body: unknown): unknown {
   try { return JSON.parse(String(body)); } catch { return refuse("eval_plan_drift"); }
 }
+/** Read the SDK's verified creation snapshot or refuse unavailable original history. */
+async function createdItem(client: PmClient, id: string): Promise<GetResult["item"]> {
+  try { return (await readCompleteLoopItem(client, id, "1")).item; }
+  catch { refuse("eval_plan_drift"); }
+}
+/** Bind sealed fields to the SDK's verified first history version, allowing unrelated annotations. */
+async function verifyCreatedRecord(client: PmClient, item: GetResult["item"]): Promise<void> {
+  const original = await createdItem(client, item.id);
+  if ((["id", "type", "body", "created_at", "affected_version"] as const).some((field) => original[field] !== item[field])) refuse("eval_plan_drift");
+}
 /** Verify the full stored Plan and its provenance, rather than trusting its derived id. */
 export async function readEvaluationPlan(client: PmClient, candidate: string): Promise<RegisteredEvaluationPlan | null> {
   const id = evaluationPlanId(candidate); const item = await optionalItem(client, id);
-  if (item === null) return null;
+  if (item === null) {
+    if (await optionalItem(client, id, "1") !== null) refuse("eval_plan_missing");
+    return null;
+  }
   const record = object(storedJson(item.body), ["plan", "incumbent_version"]);
   const plan = parseEvaluationPlan(record.plan); const incumbentVersion = label(record.incumbent_version);
   const comparison = evaluationComparison(plan);
   if (item.type !== "Plan" || item.id !== id || plan.candidate !== candidate || plan.incumbent_version !== incumbentVersion || item.affected_version !== hashJson({ comparison, incumbent_version: incumbentVersion })) refuse("eval_plan_drift");
+  await verifyCreatedRecord(client, item);
   return { id, comparison, plan, incumbent_version: incumbentVersion, created_at: String(item.created_at) };
 }
 /** Register before candidate creation; repeat identical declarations safely, refusing edited designs. */
@@ -163,7 +177,7 @@ async function verifyTiming(client: PmClient, registered: RegisteredEvaluationPl
   if (spec.parent !== registered.plan.incumbent) refuse("eval_plan_drift");
   const incumbent = await optionalItem(client, spec.parent);
   if (incumbent === null || incumbent.type !== "Generation" || incumbent.affected_version !== registered.incumbent_version || hashJson(generationProvenance(extractGenerationSpec(String(incumbent.body), "Incumbent generation"))) !== registered.incumbent_version) refuse("eval_plan_drift");
-  for (const timestamp of [createdAt, ...(await Promise.all(spec.collection_runs.map(async (id) => (await readCompleteLoopItem(client, id)).item.created_at)))]) {
+  for (const timestamp of [createdAt, ...(await Promise.all(spec.collection_runs.map(async (id) => (await createdItem(client, id)).created_at)))]) {
     if (!(Date.parse(registered.created_at) < Date.parse(String(timestamp)))) refuse("eval_plan_late");
   }
 }
@@ -173,7 +187,11 @@ async function verifiedCandidate(client: PmClient, candidate: string, registered
   if (item.item.type !== "Generation" || item.item.id !== candidate) refuse("eval_plan_drift");
   const spec = extractGenerationSpec(String(item.item.body), "Candidate generation");
   if ((spec.evaluation_plan !== undefined && spec.evaluation_plan !== registered.comparison) || item.item.affected_version !== hashJson(generationProvenance(spec))) refuse("eval_plan_drift");
-  await verifyTiming(client, registered, spec, item.item.created_at);
+  const original = await createdItem(client, candidate);
+  const unchanged = (["id", "type", "created_at", "affected_version"] as const).map((field) => original[field] === item.item[field]);
+  unchanged.push(hashJson(generationProvenance(extractGenerationSpec(String(original.body), "Original candidate generation"))) === item.item.affected_version);
+  if (unchanged.includes(false)) refuse("eval_plan_drift");
+  await verifyTiming(client, registered, spec, original.created_at);
 }
 /** Seal exactly one evaluation, including refusals; a second look requires a fresh plan/candidate. */
 export async function recordPlanEvaluation(client: PmClient, candidate: string, input: unknown): Promise<EvaluationPlanReport> {
@@ -185,12 +203,14 @@ export async function recordPlanEvaluation(client: PmClient, candidate: string, 
   const id = `${registered.id}-result`;
   const existing = await optionalItem(client, id);
   if (existing !== null) {
+    await verifyCreatedRecord(client, existing);
     if (existing.type !== "Decision" || existing.body !== body || existing.affected_version !== hashJson(storedJson(body) as JsonValue)) refuse("eval_plan_drift");
   } else {
     try { await client.create({ id, type: "Decision", title: "Fixed-stop paired evaluation result", body, affectedVersion: hashJson(storedJson(body) as JsonValue), message: "Seal predeclared evaluation evidence" }); }
     catch (error) {
       const winner = await optionalItem(client, id);
       if (winner === null || winner.type !== "Decision" || winner.body !== body || winner.affected_version !== hashJson(storedJson(body) as JsonValue)) throw error;
+      await verifyCreatedRecord(client, winner);
     }
   }
   return report;
@@ -207,6 +227,7 @@ export async function enforceEvaluationPlan(client: PmClient, candidate: string,
   const result = await optionalItem(client, `${registered.id}-result`); if (result === null) refuse("eval_plan_missing");
   const raw = object(storedJson(result.body), ["comparison", "observations"]);
   if (result.type !== "Decision" || raw.comparison !== registered.comparison || result.affected_version !== hashJson(raw as JsonValue)) refuse("eval_plan_drift");
+  await verifyCreatedRecord(client, result);
   const report = evaluatePlan(registered.plan, raw.observations);
   if (score.objective !== registered.plan.objective || score.objective_version !== registered.plan.objective_version || score.evaluation_context !== registered.plan.evaluation_context || score.direction !== registered.plan.direction || score.seed_set !== registered.comparison || score.scale !== registered.plan.reward_bounds[1] - registered.plan.reward_bounds[0] || score.value !== report.candidate_mean) refuse("eval_plan_evidence");
   if (report.verdict.decision !== "promote") refuse("eval_plan_refused");
