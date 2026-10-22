@@ -5026,7 +5026,9 @@ export const RL_COMMANDS = [
     return { action: "rl-eval-plan-register", id: registered.id, details: { comparison: registered.comparison, observations: registered.plan.stopping.observations, independent_units: registered.plan.stopping.independent_units } };
   } }),
   defineCommand({ name: "rl eval plan show", description: "Show compact predeclared comparison identity and fixed stopping sizes.", arguments: [{ name: "candidate", required: true, description: "Reserved candidate generation id." }], run: async (context) => {
-    const registered = await readEvaluationPlan(clientFor(context), requiredArgument(context, "a candidate id"));
+    const client = clientFor(context);
+    const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
+    const registered = await readEvaluationPlan(client, normalizeItemId(requiredArgument(context, "a candidate id"), prefix));
     if (registered === null) fail("No predeclared plan. Register one before creating a fresh candidate.", "eval_plan_missing", EXIT_CODE.CONFLICT);
     return { action: "rl-eval-plan-show", id: registered.id, details: { comparison: registered.comparison, candidate: registered.plan.candidate, incumbent: registered.plan.incumbent, stopping: registered.plan.stopping } };
   } }),

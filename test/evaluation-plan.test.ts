@@ -322,6 +322,27 @@ test("concurrent declarations and identical result writers converge on one immut
   assert.ok(results.some((entry) => entry.status === "fulfilled")); await enforceEvaluationPlan(w.client, "rl-candidate", score());
 });
 
+test("CLI evaluation plan show normalizes short IDs before the candidate exists", async () => {
+  for (const name of ["rl", "study"]) {
+    const root = mkdtempSync(join(tmpdir(), "rl-show-plan-")); roots.push(root);
+    const tracker = await init(name, { defaults: true, author: "evaluation-test", agentGuidance: "skip" }, { cwd: root, pmRoot: join(root, ".agents/pm") });
+    const client = new PmClient({ pmRoot: tracker.path, cwd: root, author: "evaluation-test", noExtensions: true });
+    const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
+    assert.equal(prefix, `${name}-`);
+    await client.schemaAddType("Generation", { folder: "generations", defaultStatus: "open" });
+    await generation(client, `${prefix}seed`, spec());
+    const p = plan({ candidate: `${prefix}candidate`, incumbent: `${prefix}seed` });
+    await registerEvaluationPlan(client, p);
+    const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
+    const canonical = await harness.runCommand({ command: "rl eval plan show", pmRoot: tracker.path, args: [p.candidate] });
+    const short = await harness.runCommand({ command: "rl eval plan show", pmRoot: tracker.path, args: ["candidate"] });
+    assert.equal(canonical.handled, true); assert.equal(short.handled, true);
+    assert.deepEqual(short.result, canonical.result);
+    assert.equal((short.result as RlCommandResult).id, evaluationPlanId(p.candidate));
+    await assert.rejects(client.get(p.candidate));
+  }
+});
+
 test("CLI plan commands and actual promotion enforce the reservation with git absent from PATH", async () => {
   const w = await workspace(); const bin = join(w.root, "bin"); mkdirSync(bin); symlinkSync(process.execPath, join(bin, "node"));
   const previousPath = process.env.PATH; const previousCeiling = process.env.GIT_CEILING_DIRECTORIES;
