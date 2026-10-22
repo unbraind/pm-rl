@@ -607,8 +607,11 @@ observation/unit counts, equal-unit means, statistical verdict and remedy. Cohor
 and raw observations remain in the Plan and result Decision, available through
 complete item reads (`pm get <plan-id> --depth standard --output-limit unbounded
 --output-budget unbounded`). Output size does not grow with cohort size. For promotion,
-set the held-out score's `seed_set` to the registered comparison hash and `scale`
-to the declared reward-bound width; both are checked against the frozen plan.
+set the held-out score's `seed_set` to the registered comparison hash, `scale`
+to the declared reward-bound width, and `value` to exactly equal the report's
+`candidate_mean`. Copy that mean unrounded from the `--json` output, since TOON
+may format numbers differently. All three fields are checked against the frozen
+plan and sealed evidence; rounding the mean causes an `eval_plan_evidence` refusal.
 
 Each member supplies one candidate and incumbent outcome. The evaluator first
 averages within each declared correlation unit, then weights units equally and

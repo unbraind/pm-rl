@@ -103,6 +103,27 @@ test("real SDK plan reservation, single evaluation and promotion checks work wit
   await assert.rejects(registerEvaluationPlan(w.client, plan({ candidate: "short-id" })), refusal("eval_plan_invalid"));
 });
 
+test("documented held-out scores copy the unrounded JSON mean and refuse rounded values", async () => {
+  const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+  const guidance = readme.split("## Predeclared causal evaluation plans")[1].split("\n## ")[0];
+  assert.match(guidance, /`seed_set`[\s\S]*comparison hash/);
+  assert.match(guidance, /`scale`[\s\S]*reward-bound width/);
+  assert.match(guidance, /`value`[\s\S]*exactly[\s\S]*`candidate_mean`/);
+  assert.match(guidance, /unrounded[\s\S]*`--json`/);
+
+  const w = await workspace();
+  await registerEvaluationPlan(w.client, plan());
+  await generation(w.client, "rl-candidate", spec("rl-seed"));
+  const report = await recordPlanEvaluation(w.client, "rl-candidate", observations().map((row) => ({ ...row, candidate: 2 / 3 })));
+  assert.equal(report.verdict.decision, "promote");
+  const copied = JSON.parse(JSON.stringify(report)) as { candidate_mean: number };
+  assert.equal(copied.candidate_mean, report.candidate_mean);
+  await enforceEvaluationPlan(w.client, "rl-candidate", score({ value: copied.candidate_mean }));
+  const rounded = Number(copied.candidate_mean.toFixed(3));
+  assert.notEqual(rounded, report.candidate_mean);
+  await assert.rejects(enforceEvaluationPlan(w.client, "rl-candidate", score({ value: rounded })), refusal("eval_plan_evidence"));
+});
+
 test("raw stored evidence and plan drift are rechecked on every promotion", async () => {
   const w = await workspace(); const registered = await registerEvaluationPlan(w.client, plan());
   await generation(w.client, "rl-candidate", spec("rl-seed")); await recordPlanEvaluation(w.client, "rl-candidate", observations());
