@@ -216,6 +216,22 @@ test("corpus documentation identifies the complete prior executable-source recei
   assert.doesNotMatch(receipt, /682\/682|6\/6|a36191ac506a8b29d6b51f0d718caba1bd5e100d/);
 });
 
+test("corpus snapshots are identical across English and Danish collation", (t) => {
+  const pmRoot = mkdtempSync(join(tmpdir(), "corpus-locale-"));
+  t.after(() => rmSync(pmRoot, { recursive: true, force: true }));
+  for (const name of ["aa.toon", "b.toon", "z.toon"]) writeFileSync(join(pmRoot, name), name);
+  const script = `
+    import { hashJson } from "./index.ts";
+    import { sealTrackerLoopCorpus } from "./corpus.ts";
+    import { sourceBytes } from "./test/fixtures/corpus-source-snapshot.ts";
+    const corpus = sealTrackerLoopCorpus(${JSON.stringify(items)}, ${JSON.stringify(bounds)});
+    process.stdout.write(JSON.stringify({ corpus: hashJson(corpus.programme), source: sourceBytes(process.argv[1]) }));
+  `;
+  const results = ["en_US.UTF-8", "da_DK.UTF-8"].map((locale) => execFileSync(process.execPath,
+    ["--input-type=module", "-e", script, pmRoot], { encoding: "utf8", env: { ...process.env, LANG: locale, LC_ALL: locale } }));
+  assert.equal(results[0], results[1]);
+});
+
 test("sealed corpora group identical inputs, bind labels and IDs, and do not retain text or paths", () => {
   const rows = [...items, { id: "duplicate-title", title: "  Ｘ  ", status: "closed" }, { id: "long-title", title: "😀".repeat(300), status: "open" }];
   const corpus = sealTrackerLoopCorpus(rows, bounds);
