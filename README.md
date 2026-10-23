@@ -673,8 +673,14 @@ CLI with Git absent from `PATH`.
 
 ## Without git
 
-Tracker-based environments, runs, evaluations, predeclared plans, generation
-promotion and lineage work in plain directories without Git. Public-history
+Tracker-based environments, runs, evaluations, predeclared plans, shadow
+observation/comparison, generation promotion and lineage work in plain directories without Git. Public-history
 dataset/improver builders and Git-tree episode replay need Git provenance. Plan
 registration, evaluation and promotion are tested with Git absent from `PATH` and
 an explicit discovery ceiling.
+
+## Shadow policy deployment
+
+Observe a candidate beside the active policy on explicitly consented, minimized inputs with `pm rl shadow register`, `observe` and `compare`, or the typed SDK equivalents. Candidate lookup failures preserve the active decision; both arms consume the reserved budget. The comparison receipt feeds the existing predeclared evaluation and generation promotion gate, so online switching requires validated outcomes and the existing approval. No candidate receives mutation or tool authority.
+
+See [the consent, budget and promotion contract](docs/shadow-policy.md) and [registration example](examples/shadow-policy.json). Policies currently use bounded declarative lookup tables.

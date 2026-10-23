@@ -1,0 +1,33 @@
+id: pm-rl-shadow
+title: Observe candidate policies safely before deployment
+description: "Controlled online shadow observation on explicitly consented inputs, with paired resource accounting and validated outcome receipts required by the existing promotion boundary."
+type: Feature
+status: in_progress
+priority: 1
+tags: []
+created_at: "2026-10-23T06:41:11.687Z"
+updated_at: "2026-10-23T07:07:52.857Z"
+assignee: codex-agent
+claim_principal: codex-agent
+author: codex-agent
+acceptance_criteria: Candidate failures never affect active actions; Budgets include both arms; Switching requires a validated outcome comparison through existing promotion and RSI code
+parent: pm-rl-apvf
+comments[4]{created_at,author,text}:
+  "2026-10-23T06:41:26.255Z",codex-agent,"Overlap checked against the pinned pm SDK and current CLI 2026.10.23, pm-context, pm-jev, and existing pm-rl evaluation, loop, meta proposer and promotion modules. Core owns tracker/history/transactions; pm-context supplies bounded context; pm-jev replays typed decisions. Existing RL loops evaluate/train/promote offline. This feature adds explicitly consented online observation with no candidate mutation authority and reuses predeclared evaluation plans plus the authoritative promotion transaction. Draft PRs 95 and 98 are context only. No dependency bump is needed unless SDK capability inspection proves otherwise."
+  "2026-10-23T06:56:27.540Z",codex-agent,"Implemented a bounded declarative shadow interpreter with no executable candidate tools or tracker authority. Consent pins both generation identities, both policy digests, exact minimized input hashes and separate active/candidate allowances; every frozen member reserves two calls including candidate failures. Immutable per-member SDK receipts make retries free and outcome replacement a refusal. Existing evaluation plans and the authoritative promotion transaction require the comparison receipt for online candidates; standalone offline evaluation cannot bypass it. Local linked parser test passes 1/1. Source and packed acceptance use non-git trackers; full release gates will run in CI."
+  "2026-10-23T07:02:21.061Z",codex-agent,"Behavioral revert proof: independently omitting enforceShadowComparison from the existing evaluation gate fails the retry-safe receipt regression (1/1); propagating a missing candidate decision fails active-isolation (1/1); disabling the two-arm allowance validator fails strict-parser regression (1/1). Restored code passed the preceding complete 7/7 shadow suite including actual generation promotion without git. Final consent-generation binding and additional corruption/concurrency regressions are now under targeted validation. The SDK/dev pin remains 2026.10.17; there is no feature dependency on newer CLI behavior."
+  "2026-10-23T07:07:52.857Z",codex-agent,"Focused source validation passed 11/11 with shadow.ts at 100% lines, branches and functions. Added read-only promotion revalidation and a forged-original-receipt regression; final focused verification and packed replay are running. Public MIT pm-context snapshot: 84 certified items; first 20 sorted ids selected without outcome filtering; 17 closed and 3 other; 20/20 active decisions preserved; 20 disagreements; zero candidate failures; 20 active plus 20 candidate calls charged. All 175 copied source files retain identical digest and read-only permissions. One independent tracker unit correctly refuses promotion despite observed candidate accuracy 0.85 versus active 0.15. JSON observation 548 bytes; comparison JSON 1278 bytes and TOON 1127 bytes. This measures the observation/gating mechanism, not a learned policy improvement."
+files[5]{path,scope}:
+  evaluation-plan.ts,project
+  index.ts,project
+  shadow.ts,project
+  test/shadow.acceptance.ts,project
+  test/shadow.test.ts,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  "node --test --test-name-pattern=\"strict parsers\" test/shadow.test.ts",project,codex-agent,"2026-10-23T06:53:44.350Z",local_mutation,feat/shadow-policy-deployment
+docs[4]{path,scope}:
+  docs/shadow-evidence.json,project
+  docs/shadow-policy.md,project
+  examples/shadow-policy.json,project
+  README.md,project
+body: ""
