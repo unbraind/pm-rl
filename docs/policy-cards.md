@@ -22,6 +22,8 @@ Generation registration records evaluation diagnostics in native SDK notes, leav
 
 Generation cards cite parents, collection runs, environments and promotion approvals. When present, they also cite the causal evaluation plan, paired result, shadow deployment and shadow comparison. Existing causal and shadow gates run again on adoption checks. The card does not relax those gates or claim that a single tracker proves transfer to another population.
 
+Regression diagnostics follow the recorded held-out score direction: lower means improve a minimizing objective, and higher means improve a maximizing objective. Trainer candidates without a recorded score retain the bounded trainers' maximizing convention. Before promotion writes any outcome or spends approval budget, the writer lock validates the complete prospective card, including the approval citation and its resource declarations. An oversized outcome refuses with `card_limit` while the candidate and approval budget remain unchanged.
+
 ## SDK
 
 ```ts

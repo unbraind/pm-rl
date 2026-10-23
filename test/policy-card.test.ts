@@ -64,20 +64,74 @@ test("minimized cards replay exact evidence, reject forgery and refuse seed adop
 });
 
 /** Create a certified three-generation ancestry with evidence unique to its root. */
-async function ancestryFixture() {
+async function ancestryFixture(direction: "maximize" | "minimize" = "maximize", candidate = 0.8, incumbent = 0.8) {
   const w = await workspace();
   await w.client.create({ id: "rl-env", type: "Environment", title: "Environment" });
   await w.client.create({ id: "rl-approval", type: "Decision", title: "Approval" });
-  const score = { objective: "return", objective_version: "1", evaluation_context: "held-out", seed_set: "fixed", direction: "maximize" as const, scale: 1, value: 0.8 };
+  const score = { objective: "return", objective_version: "1", evaluation_context: "held-out", seed_set: "fixed", direction, scale: 1, value: candidate };
   for (let index = 0; index < 3; index += 1) {
     await w.client.create({ id: `rl-run-${index}`, type: "Run", title: "Collection" });
     await generation(w.client, spec({ base_checkpoint: `sha256:${hashJson(index - 1)}`, policy: `sha256:${hashJson(index)}`, seed: index === 0, promoted: index > 0,
       parent: index === 0 ? null : `rl-g${index - 1}`, collection_runs: [`rl-run-${index}`], environment_version: "rl-env", reward_spec_version: "reward",
+      training_config: { samples: 10, candidate_held_out_mean: candidate, incumbent_held_out_mean: incumbent },
       approval: index === 0 ? null : "rl-approval", proxy_score: index === 0 ? null : score, held_out_score: index === 0 ? null : score, gap: index === 0 ? null : 0 }), `rl-g${index}`);
     await recordPolicyCard(w.client, `rl-g${index}`);
   }
   return w;
 }
+
+test("policy regressions respect minimizing and maximizing score directions during replay and adoption", async () => {
+  for (const direction of ["minimize", "maximize"] as const) for (const candidate of [0.2, 0.5, 0.8]) {
+    const w = await ancestryFixture(direction, candidate, 0.5);
+    const card = await exportPolicyCard(w.client, "rl-g2");
+    const regression = direction === "minimize" ? candidate > 0.5 : candidate < 0.5;
+    assert.equal(card.outcome, "promoted");
+    assert.deepEqual(card.known_regressions, regression ? ["reward_regression"] : []);
+    assert.equal((await replayPolicyCard(w.client, card)).card.digest, card.digest);
+    if (regression) await assert.rejects(adoptPolicyCard(w.client, card), refused("card_not_adoptable"));
+    else assert.equal((await adoptPolicyCard(w.client, card)).digest, card.digest);
+  }
+});
+
+test("prospective promoted card overflow refuses before history changes or approval budget is spent", async () => {
+  const w = await workspace(); await generation(w.client);
+  await w.client.create({ id: "rl-env", type: "Environment", title: "Environment" });
+  const approval = `rl-approval-${"a".repeat(170)}`;
+  await w.client.create({ id: approval, type: "Decision", title: "One promotion", body: '```json\n{"permitted_promotions":1,"resource_budget":{"wall_ms":100,"tokens":0}}\n```' });
+  const runs: string[] = [];
+  let card: PolicyCard;
+  for (let index = 0; ; index += 1) {
+    const run = `rl-run-${index}-${"r".repeat(70)}`; runs.push(run);
+    await w.client.create({ id: run, type: "Run", title: "Collection", environment: "rl-env" });
+    const value = spec({ seed: false, policy: "candidate", parent: "rl-seed", collection_runs: runs, environment_version: "rl-env", reward_spec_version: "reward" });
+    if (index === 0) await generation(w.client, value, "rl-candidate");
+    else await w.client.update("rl-candidate", { body: `\`\`\`json\n${JSON.stringify(value)}\n\`\`\``, affectedVersion: hashJson(generationProvenance(value)) });
+    card = await exportPolicyCard(w.client, "rl-candidate");
+    if (Buffer.byteLength(canonicalJson(card as unknown as JsonValue)) > POLICY_CARD_MAX_BYTES - 300) break;
+    assert.ok(index < 30);
+  }
+  await recordPolicyCard(w.client, "rl-candidate");
+  const score = { objective: "return", objective_version: "1", evaluation_context: "held-out", seed_set: "fixed", direction: "maximize", scale: 1, value: 0.8 };
+  const scores = join(w.root, "scores.json"); writeFileSync(scores, JSON.stringify({ proxy_score: score, held_out_score: score }));
+  const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "schema", "hooks"] });
+  const before = await w.client.get("rl-candidate");
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await assert.rejects(harness.runCommand({ command: "rl generation promote", pmRoot: w.pmRoot, args: ["rl-candidate"], options: { approval, scores, evidence: "Evaluated" } }), refused("card_limit"));
+    const after = await w.client.get("rl-candidate");
+    assert.equal(after.item.body, before.item.body); assert.equal(after.item.status, before.item.status);
+    assert.equal(after.item.updated_at, before.item.updated_at);
+    assert.equal((await exportPolicyCard(w.client, "rl-candidate")).digest, card.digest);
+  }
+  // Free explanation space, then consume the same one-unit approval successfully.
+  const value = extractGenerationSpec(String(before.item.body), "Candidate");
+  const smaller = { ...value, collection_runs: [runs[0]] };
+  await w.client.update("rl-candidate", { body: `\`\`\`json\n${JSON.stringify(smaller)}\n\`\`\``, affectedVersion: hashJson(generationProvenance(smaller)) });
+  const promoted = (await harness.runCommand({ command: "rl generation promote", pmRoot: w.pmRoot, args: ["rl-candidate"], options: { approval, scores, evidence: "Evaluated" } })).result as RlCommandResult;
+  assert.equal(promoted.details?.budget_consumed, 1);
+  const retained = await recordPolicyCard(w.client, "rl-candidate");
+  assert.equal(retained.outcome, "promoted"); assert.equal(retained.resource_limits.wall_ms, 100);
+  assert.equal((await replayPolicyCard(w.client, retained)).card.digest, retained.digest);
+});
 
 test("adoption requires every ancestor generation, retained card and cited result through the root", async () => {
   for (const missing of ["generation", "card", "evidence", "corrupt-card", "card-version", "card-type", "unaddressed", "unpromoted", "cycle"] as const) {

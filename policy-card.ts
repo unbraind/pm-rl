@@ -87,7 +87,8 @@ function source(item: GetResult["item"]): { value: Record<string, unknown>; outc
       try { judged = object(JSON.parse(notes.at(-1)!.text.slice(EVALUATION_NOTE.length))); }
       catch { return refuse("card_invalid"); }
     }
-    const regression = typeof config.candidate_held_out_mean === "number" && typeof config.incumbent_held_out_mean === "number" && config.candidate_held_out_mean < config.incumbent_held_out_mean;
+    const regression = typeof config.candidate_held_out_mean === "number" && typeof config.incumbent_held_out_mean === "number" &&
+      (spec.held_out_score?.direction === "minimize" ? config.candidate_held_out_mean > config.incumbent_held_out_mean : config.candidate_held_out_mean < config.incumbent_held_out_mean);
     return { value: { ...config, policy_card_evaluation: judged }, outcome: spec.seed ? "seed" : spec.promoted ? "promoted" : regression || judged.decision === "refuse" ? "refused" : "candidate",
       dependencies: [...(spec.parent === null ? [] : [spec.parent]), ...spec.collection_runs, ...(spec.environment_version ? [spec.environment_version] : []), ...(spec.approval === null ? [] : [spec.approval]), ...(spec.evaluation_plan === undefined ? [] : [`${item.id}-evaluation-plan`])],
       scope: { digest: hashJson(spec.training_config), collection_runs: spec.collection_runs.length, environment: hashJson(spec.environment_version), reward: hashJson(spec.reward_spec_version) },
@@ -173,7 +174,18 @@ function bodyLimits(item: GetResult["item"]): Record<string, number> {
 }
 /** Export an explanation without modifying any tracker. Missing referenced records fail closed. */
 export async function exportPolicyCard(client: PmClient, subject: string, selection: number | null = null): Promise<PolicyCard> {
-  const primary = await snapshot(client, subject); subject = primary.citation.id;
+  return exportSnapshotCard(client, await snapshot(client, subject), selection);
+}
+/** Validate the complete prospective outcome before promotion consumes budget or changes history. */
+export async function validatePromotedPolicyCard(client: PmClient, subject: string, body: string): Promise<void> {
+  const primary = await snapshot(client, subject);
+  // Outcome fields change only fixed-width evidence digests and ISO timestamps.
+  // Assemble with the new body so approval citations, limits and verdict size are included.
+  await exportSnapshotCard(client, { ...primary, item: { ...primary.item, body } }, null);
+}
+/** Share the bounded projection between certified exports and pre-commit outcome validation. */
+async function exportSnapshotCard(client: PmClient, primary: Awaited<ReturnType<typeof snapshot>>, selection: number | null): Promise<PolicyCard> {
+  const subject = primary.citation.id;
   const parsed = source(primary.item);
   const evidence = [primary.citation]; const resource: Record<string, number> = {};
   const plan = await optionalItem(client, `${subject}-evaluation-plan`);

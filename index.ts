@@ -211,7 +211,7 @@ import { PmClient, type GetResult, type ItemMetadata } from "@unbrained/pm-cli/s
 import { acquireLock, certifyCompleteListResult, createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError, normalizeItemId, type PmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 
 import { parseJsonRecord, rethrowOperationalRead, retryProvenanceRead, isProvenanceReadFailure } from "./refuse.ts";
-import { exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordRecursivePolicyCards, recordPolicyCard } from "./policy-card.ts";
+import { exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordRecursivePolicyCards, recordPolicyCard, validatePromotedPolicyCard } from "./policy-card.ts";
 import { registerShadowDeployment, observeShadow, compareShadow } from "./shadow.ts";
 import { registerEvaluationPlan, readEvaluationPlan, recordPlanEvaluation, enforceEvaluationPlan } from "./evaluation-plan.ts";
 import { buildTrackerLoopCorpus } from "./corpus.ts";
@@ -2511,10 +2511,12 @@ async function promoteGenerationCore(client: PmClient, coordinates: WorkspaceCoo
         if (promotedCount + retainedHeadroom >= permittedPromotions) {
           fail(`Advancing past the approved promotion budget is refused. ${promotedCount} promotion(s) consumed; ${retainedHeadroom} promotion(s) held for meta search; approval ${approvalId} permits ${permittedPromotions}. Extend approval item ${approvalId} to authorize more promotions.`, "budget_exceeded", EXIT_CODE.CONFLICT);
         }
+        const promotedBody = renderPromotedBody(currentSpec);
+        await validatePromotedPolicyCard(client, id, promotedBody);
         await client.update(id, {
           // Rendered from the IN-LOCK spec, so a peer edit to a field the
           // promotion decision did not consume survives this write.
-          body: renderPromotedBody(currentSpec),
+          body: promotedBody,
           message: `Promote generation: gap=${gap.toFixed(4)}, evidence=${evidence}`,
         });
         try {
