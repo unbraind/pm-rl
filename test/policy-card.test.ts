@@ -81,6 +81,35 @@ test("citation reads require complete verified history and preserve durable comp
   assert.equal((await exportPolicyCard(w.client, id)).digest, card.digest);
 });
 
+test("operational history enumeration errors remain retryable without changing policy evidence", async () => {
+  const w = await workspace(); const id = await generation(w.client);
+  const run = w.client.run.bind(w.client);
+  let failure: unknown = null;
+  // Successful data always comes from the real SDK; inject native failures only after its history read.
+  w.client.run = (async (action, args) => {
+    const result = await run(action, args);
+    if (action === "history" && failure !== null) throw failure;
+    return result;
+  }) as PmClient["run"];
+  const before = trackerBytes(w.pmRoot);
+  for (const error of [
+    createPmCliExpectedError("History backend unavailable", { exitCode: 4, context: { code: "backend_unavailable" } }),
+    createPmCliExpectedError("History request timed out", { exitCode: 4, context: { code: "storage_timeout" } }),
+    Object.assign(new Error("Storage read failed"), { code: "EIO" }),
+    new DOMException("History request timed out", "TimeoutError"),
+  ]) {
+    failure = error;
+    await assert.rejects(exportPolicyCard(w.client, id), (caught: unknown) => isPmCliExpectedError(caught) && caught.context.code === "provenance_read_retryable");
+    assert.deepEqual(trackerBytes(w.pmRoot), before);
+  }
+  const native = new TypeError("Native history read failure"); failure = native;
+  await assert.rejects(exportPolicyCard(w.client, id), (error: unknown) => error === native);
+  failure = createPmCliExpectedError("Certified history missing", { exitCode: 4, context: { code: "history_drift" } });
+  await assert.rejects(exportPolicyCard(w.client, id), refused("card_missing_provenance"));
+  failure = null;
+  assert.equal((await exportPolicyCard(w.client, id)).outcome, "seed");
+});
+
 test("concurrent policy replacement and history compaction cannot certify a vanished content snapshot", async () => {
   const w = await workspace(); const id = await generation(w.client);
   /** A real peer change prunes the old content between the current read and history enumeration. */

@@ -210,7 +210,7 @@ import { commitWorkspaceTransaction, type CommitWorkspaceTransactionOptions, typ
 import { PmClient, type GetResult, type ItemMetadata } from "@unbrained/pm-cli/sdk/core";
 import { acquireLock, certifyCompleteListResult, createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError, normalizeItemId, type PmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 
-import { parseJsonRecord, rethrowOperationalRead, retryProvenanceRead, isProvenanceReadFailure } from "./refuse.ts";
+import { parseJsonRecord, rethrowOperationalRead, rethrowProvenanceRead } from "./refuse.ts";
 import { exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordRecursivePolicyCards, recordPolicyCard, validatePromotedPolicyCard, validatePolicyCardWrite, validateRefusedPolicyCard } from "./policy-card.ts";
 import { registerShadowDeployment, observeShadow, compareShadow } from "./shadow.ts";
 import { registerEvaluationPlan, readEvaluationPlan, recordPlanEvaluation, enforceEvaluationPlan } from "./evaluation-plan.ts";
@@ -747,7 +747,7 @@ export function idSegment(value: string): string {
 
 /** Read complete current or verified historical domain evidence without an output ceiling. */
 export async function readCompleteLoopItem(client: PmClient, id: string, at?: string, fields?: string): Promise<GetResult> {
-  const result = await client.get(id, { ...(fields === undefined ? { depth: "standard" } : { fields }), outputLimit: "unbounded", outputBudget: "unbounded", ...(at === undefined ? {} : { at }) }).catch((error: unknown) => { rethrowOperationalRead(error); if (!isProvenanceReadFailure(error)) retryProvenanceRead(); throw error; });
+  const result = await client.get(id, { ...(fields === undefined ? { depth: "standard" } : { fields }), outputLimit: "unbounded", outputBudget: "unbounded", ...(at === undefined ? {} : { at }) }).catch(rethrowProvenanceRead);
   if (!("item" in result) || "output_budget_exceeded" in result) {
     fail(`Item ${id} was omitted despite an unbounded read request.`, "loop_history_incomplete", EXIT_CODE.CONFLICT);
   }

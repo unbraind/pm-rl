@@ -4,7 +4,7 @@ import type { GetResult, PmClient } from "@unbrained/pm-cli/sdk/core";
 import { createPmCliExpectedError, EXIT_CODE, normalizeItemId } from "@unbrained/pm-cli/sdk/runtime";
 import { canonicalJson, createOrReadIdentical, hashJson, extractGenerationSpec, generationProvenance, readCompleteLoopItem, type JsonValue } from "./index.ts";
 import { optionalItem, enforceEvaluationPlan } from "./evaluation-plan.ts";
-import { rethrowOperationalRead } from "./refuse.ts";
+import { rethrowOperationalRead, rethrowProvenanceRead } from "./refuse.ts";
 
 /** Stable agent-facing refusal reasons; messages and context include a concrete remedy. */
 export type PolicyCardRefusal = "card_missing_provenance" | "card_invalid" | "card_drift" | "card_limit" | "card_not_adoptable";
@@ -63,7 +63,7 @@ async function snapshot(client: PmClient, id: string, at?: string): Promise<{ it
     const current = (await readCompleteLoopItem(client, id, at, SNAPSHOT_FIELDS)).item;
     const digest = hashJson(domain(current));
     if (at !== undefined) return { item: current, citation: { id: identity(current.id), at, digest } };
-    const history = await client.run("history", { id, options: { compact: true, verify: true, outputLimit: "unbounded", outputBudget: "unbounded" } }) as HistoryResult;
+    const history = await client.run("history", { id, options: { compact: true, verify: true, outputLimit: "unbounded", outputBudget: "unbounded" } }).catch(rethrowProvenanceRead) as HistoryResult;
     if (!history.verification?.ok || history.limit !== null || history.compact_history?.length !== history.count) refuse("card_missing_provenance");
     for (const row of history.compact_history) {
       const coordinate = String(row.version ?? row.index);

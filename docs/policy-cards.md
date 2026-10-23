@@ -50,7 +50,7 @@ await adoptPolicyCard(client, card); // Suitability check; no adoption side effe
 
 Replay reconstructs the minimized explanation from certified historical records; rehashing a forged card does not validate its facts. Adoption additionally compares with a fresh export, requires a promoted Generation with complete provenance and explicit numeric limits, and walks its complete canonical ancestry back to the root seed. Every generation must retain its current card, declared content-addressed policy identity and all cited evidence; cycles, absent ancestors, absent cards and missing results refuse. Existing causal/shadow enforcement applies to every promoted ancestor. A missing history, result or source never becomes an empty successful explanation. Historical replay is not a statement that the policy remains suitable today.
 
-Transient reads of evaluation-plan creation history also remain retryable. Unrelated native storage errors and coordinator validation errors preserve their original diagnostics and leave the programme resumable; they never establish a terminal policy verdict.
+Transient reads of evaluation-plan creation history and policy-card history enumeration also remain retryable. Unrelated native storage errors and coordinator validation errors preserve their original diagnostics and leave the programme resumable; they never establish a terminal policy verdict.
 
 ## Without git
 

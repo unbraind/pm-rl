@@ -21,6 +21,13 @@ export function rethrowOperationalRead(error: unknown): asserts error is PmCliEx
   if (!isPmCliExpectedError(error)) throw error;
 }
 
+/** Normalize item and history read failures consistently; only certified integrity or absence may refuse provenance. */
+export function rethrowProvenanceRead(error: unknown): never {
+  rethrowOperationalRead(error);
+  if (!isProvenanceReadFailure(error)) retryProvenanceRead();
+  throw error;
+}
+
 /** Only explicit SDK absence or integrity classifications establish a provenance failure. */
 export function isProvenanceReadFailure(error: PmCliExpectedError): boolean {
   return error.exitCode === EXIT_CODE.NOT_FOUND || ["item_document_invalid", "history_target_out_of_range", "history_drift", "card_drift"].includes(String(error.context.code));

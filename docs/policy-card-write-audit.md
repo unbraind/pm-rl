@@ -140,3 +140,12 @@ pinned PM snapshot runner with context `none`, timeout 600 seconds: complete his
 concurrent replacement/compaction, routine mutations and real policy changes. These
 proofs supplement the earlier write-boundary proofs; no earlier gate or refusal
 boundary was removed.
+
+History enumeration uses the same `rethrowProvenanceRead` normalization as complete
+item reads. Unclassified SDK backend errors remain retryable; native errors retain
+their identity; only explicit absence/integrity classifications establish missing
+provenance. `operational history enumeration` injects failures only after a real SDK
+history read and asserts unchanged durable tracker bytes. Removing normalization
+from the history read makes that regression fail with a permanent refusal instead
+of the required retryable error. This preserves the earlier operational-read blocker
+while adding the new certified-history selector.

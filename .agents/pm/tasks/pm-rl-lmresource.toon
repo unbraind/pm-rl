@@ -1,0 +1,17 @@
+id: pm-rl-lmresource
+title: Investigate intermittent Node 26 LM fixture resource refusal under coverage
+description: "CI run https://github.com/unbraind/pm-rl/actions/runs/40038706857 at source 171b1254665714475facaf13fb2f24881cf221b9: npm Node 26 failed LM real fit publishes canonical tensors and rejects corrupt bytes, memory and token evidence at its initial valid-completion assertion with process_limit_exceeded (LM memory or token use exceeds its declaration). It passed 772/773 overall; missing coverage followed the early test exit. npm Node 22 and Bun Node 26 each passed the complete 773/773 release suite with 100 percent statements, lines, branches and functions. A focused isolated-identity Node 26 coverage retry passed 1/1 without changes. The original failure does not retain measured peak memory/token values, so its cause remains unconfirmed. Preserve all production limits and release thresholds; capture resource evidence, distinguish an actual limit violation from runtime measurement variability, and add an appropriate regression if a defect is established. This is outside the policy-card review fix."
+type: Task
+status: open
+priority: 3
+tags[2]: ci,testing
+created_at: "2026-10-23T23:46:23.082Z"
+updated_at: "2026-10-23T23:46:24.028Z"
+author: codex-agent
+acceptance_criteria: Capture measured versus declared resources for the failing fixture; reproduce or explain the variability; preserve production resource enforcement and release thresholds.
+parent: pm-rl-apvf
+files[3]{path,scope}:
+  process-lm-trainer.ts,project
+  process-lm.ts,project
+  test/lm-compose.test.ts,project
+body: ""
