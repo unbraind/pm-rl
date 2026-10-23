@@ -42,7 +42,7 @@ function object(value: unknown): Record<string, unknown> {
 }
 /** Bound the only exported source strings to tracker identifiers and historical timestamps. */
 function identity(value: unknown): string {
-  if (typeof value !== "string" || !/^[a-z0-9][a-z0-9-]{0,255}$/.test(value)) refuse("card_invalid");
+  if (typeof value !== "string" || !/^[a-z0-9][a-z0-9-]{0,255}$/i.test(value)) refuse("card_invalid");
   return value;
 }
 /** Domain identity excludes presentation and bookkeeping metadata. */

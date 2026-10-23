@@ -38,6 +38,7 @@ function rehash(card: PolicyCard): PolicyCard { const { digest: _digest, ...body
 test("minimized cards replay exact evidence, reject forgery and refuse seed adoption without provenance", async () => {
   const w = await workspace(); const id = await generation(w.client);
   const card = await exportPolicyCard(w.client, id);
+  assert.equal((await exportPolicyCard(w.client, id.toUpperCase())).digest, card.digest);
   assert.equal(card.outcome, "seed"); assert.deepEqual(card.allowed_actions, ["inspect", "evaluate"]);
   assert.equal(card.resource_limits.samples, 10);
   await w.client.claim(id);
