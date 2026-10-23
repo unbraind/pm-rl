@@ -26,7 +26,7 @@ export interface PolicyCard {
 /** Maximum exported bytes and direct citations; large trackers remain behind evidence digests. */
 export const POLICY_CARD_MAX_BYTES = 4096;
 const MAX_EVIDENCE = 32;
-const SNAPSHOT_FIELDS = "id,type,body,affected_version,status,updated_at,notes";
+const SNAPSHOT_FIELDS = "id,type,body,affected_version,fixed_version,component,environment,parent,status,updated_at,notes";
 const EVALUATION_NOTE = "pm-rl/policy-evaluation/1 ";
 const LIMIT_KEYS = ["samples", "evaluation_samples", "fit_steps", "training_steps", "wall_ms", "storage_bytes", "compute_units", "tokens", "active_calls", "candidate_calls", "generations", "candidates", "updates", "timeout_ms", "optimizer_updates", "max_optimizer_updates", "fits", "budget"];
 
@@ -47,7 +47,7 @@ function identity(value: unknown): string {
 }
 /** Domain identity excludes presentation and bookkeeping metadata. */
 function domain(item: GetResult["item"]): JsonValue {
-  return { type: String(item.type), body: String(item.body), version: String(item.affected_version), status: String(item.status), evaluation: item.notes!.filter((note) => note.text.startsWith(EVALUATION_NOTE)).map((note) => note.text) };
+  return { type: String(item.type), body: String(item.body), version: String(item.affected_version), checkpoint: String(item.fixed_version), policy: String(item.component), environment: String(item.environment), parent: String(item.parent), status: String(item.status), evaluation: item.notes!.filter((note) => note.text.startsWith(EVALUATION_NOTE)).map((note) => note.text) };
 }
 /** Read exact evidence and verify that the current materialized record matches certified history. */
 async function snapshot(client: PmClient, id: string, at?: string): Promise<{ item: GetResult["item"]; citation: PolicyCardEvidence }> {

@@ -30,29 +30,29 @@
   "evidence": [
     {
       "id": "rl-cards-g1",
-      "at": "2026-10-23T16:10:53.623Z",
-      "digest": "f5f0a33072d0525d8622936526f55e6662a15fa8c478ed9cbe61b6b93d969791"
+      "at": "2026-10-23T16:27:57.195Z",
+      "digest": "c580a5fb6112a3c2efc8477c3adec17a1912544fb82fa05af60bb77b6051f483"
     },
     {
       "id": "rl-approval",
-      "at": "2026-10-23T16:10:45.454Z",
-      "digest": "414881f4bd8cadb90f7e45a3066e610138112e99fa4f37091c6f6513f90dd483"
+      "at": "2026-10-23T16:27:45.830Z",
+      "digest": "039aaa488232a9f8496f1530ada480dd22e91a55b4ecfdeb428f434f823a306e"
     },
     {
       "id": "rl-cards-g1-collect",
-      "at": "2026-10-23T16:10:50.126Z",
-      "digest": "0a3e02f061456a8e53ce356406f29f97e4de40dbc2bcb231e97683e3f3399975"
+      "at": "2026-10-23T16:27:51.566Z",
+      "digest": "d60e529bdf57d674317a5452f05beb2ee41086c1e1baa7902a8659b9aa756d67"
     },
     {
       "id": "rl-cards-seed",
-      "at": "2026-10-23T16:10:47.540Z",
-      "digest": "c2f16d19826cd520b05cbd73f236d3890c29f0421e637b869b6c5d1a2a413e64"
+      "at": "2026-10-23T16:27:49.428Z",
+      "digest": "f6f9539dbdbb3ae11de1374b402c097bdc72150e5993653d0e83fdcd08654c24"
     },
     {
       "id": "rl-env-tracker-snapshot-closed-stat-e45e6205eddf35edc2167d253a2e-ea844b709ab2",
-      "at": "2026-10-23T16:10:47.107Z",
-      "digest": "61b491ccfe014a8387961c30b5bda71473b809ffbd120ddadf40cc7ffaea98d3"
+      "at": "2026-10-23T16:27:48.975Z",
+      "digest": "df6cb73ee3657479bd478152956ad7d2eb163b0ec59b5f27bb9ffee3ddd240df"
     }
   ],
-  "digest": "b3346f28ce1e25e0ed24336b1727fa1c357315fa3960a0722cf7b42a66b0976d"
+  "digest": "abfaca88c976ce19dbb0b7cac053b605073ede49ed84088f63065c378953f1fc"
 }

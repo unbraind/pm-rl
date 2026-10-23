@@ -153,6 +153,9 @@ test("real recursive generations retain candidate and promotion cards and pass s
   const card = await exportPolicyCard(w.client, report.generations[0].item);
   const file = join(w.root, "suitable.json"); writeFileSync(file, JSON.stringify(card));
   assert.equal(((await harness.runCommand({ command: "rl policy-card adopt", pmRoot: w.pmRoot, args: [], options: { file } })).result as RlCommandResult).details?.suitable, true);
+  await w.client.update(report.generations[0].run, { component: "changed-collection-policy" });
+  assert.equal((await replayPolicyCard(w.client, card)).card.digest, card.digest);
+  await assert.rejects(adoptPolicyCard(w.client, card), refused("card_drift"));
 });
 
 test("malformed completed receipts, proposal selectors, numeric diagnostics and concurrent publication stay fail closed", async () => {
