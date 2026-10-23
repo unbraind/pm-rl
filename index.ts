@@ -2372,7 +2372,6 @@ interface PromotionOutcome {
  */
 async function promoteGenerationCore(client: PmClient, coordinates: WorkspaceCoordinates, id: string, approvalId: string, proxyScore: ScoreRecord, heldOutScore: ScoreRecord, evidence: string): Promise<PromotionOutcome> {
   const { pmRoot, author } = coordinates;
-  await exportPolicyCard(client, id);
   const ancestry = await buildAncestry(client, id, true);
   const contamination = findContaminationPath(ancestry, heldOutScore.evaluation_context);
   if (contamination !== null) {
@@ -2385,6 +2384,7 @@ async function promoteGenerationCore(client: PmClient, coordinates: WorkspaceCoo
   // The value is deliberately discarded — every number the decision and the
   // receipt use is re-read inside the lock.
   await readApprovalSpec(client, approvalId);
+  await exportPolicyCard(client, id);
   // Count the consumed budget and write the promotion inside one workspace
   // writer lock. Two concurrent promotions would otherwise both read the same
   // count, both observe headroom, and both promote — the race a recursive loop

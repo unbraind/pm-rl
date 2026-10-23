@@ -1,6 +1,6 @@
 /** Minimized explanations of learned-policy suitability, backed by SDK-certified history. */
 import type { GetResult, PmClient } from "@unbrained/pm-cli/sdk/core";
-import { createPmCliExpectedError, EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
+import { createPmCliExpectedError, EXIT_CODE, normalizeItemId } from "@unbrained/pm-cli/sdk/runtime";
 import { canonicalJson, createOrReadIdentical, hashJson, extractGenerationSpec, generationProvenance, readCompleteLoopItem, type JsonValue } from "./index.ts";
 import { optionalItem, enforceEvaluationPlan } from "./evaluation-plan.ts";
 
@@ -55,7 +55,7 @@ async function snapshot(client: PmClient, id: string, at?: string): Promise<{ it
     const timestamp = at ?? String(current.updated_at);
     const historical = (await readCompleteLoopItem(client, id, timestamp)).item;
     if (hashJson(domain(current)) !== hashJson(domain(historical))) refuse("card_drift");
-    return { item: historical, citation: { id, at: timestamp, digest: hashJson(domain(historical)) } };
+    return { item: historical, citation: { id: identity(historical.id), at: timestamp, digest: hashJson(domain(historical)) } };
   } catch { return refuse("card_missing_provenance"); }
 }
 /** Collect only named numeric allowances; examples, parameters and arbitrary strings are never copied. */
@@ -123,7 +123,8 @@ function bodyLimits(item: GetResult["item"]): Record<string, number> {
 }
 /** Export an explanation without modifying any tracker. Missing referenced records fail closed. */
 export async function exportPolicyCard(client: PmClient, subject: string, selection: number | null = null): Promise<PolicyCard> {
-  const primary = await snapshot(client, subject); const parsed = source(primary.item);
+  const primary = await snapshot(client, subject); subject = primary.citation.id;
+  const parsed = source(primary.item);
   const evidence = [primary.citation]; const resource: Record<string, number> = {};
   const plan = await optionalItem(client, `${subject}-evaluation-plan`);
   const dependencies = [...parsed.dependencies, ...(plan === null ? [] : [plan.id])];
@@ -168,7 +169,8 @@ export async function replayPolicyCard(client: PmClient, value: unknown): Promis
   }
   if (results[0].id !== subject || new Set(results.map((row) => row.id)).size !== results.length) refuse("card_invalid");
   const parsed = source(items[0]);
-  if (parsed.dependencies.some((id) => !results.some((row) => row.id === id))) refuse("card_missing_provenance");
+  const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
+  if (parsed.dependencies.some((id) => !results.some((row) => row.id === normalizeItemId(id, prefix)))) refuse("card_missing_provenance");
   const card = assemble(subject, items[0], results, resource, selection);
   if (canonicalJson(candidate as JsonValue) !== canonicalJson(card as unknown as JsonValue)) refuse("card_drift");
   return { card, results };

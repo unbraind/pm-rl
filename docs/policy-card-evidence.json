@@ -18,14 +18,14 @@
     {
       "generation": 1,
       "promoted": true,
-      "expected_held_out": 0.59765,
+      "sampled_held_out_mean": 0.59765,
       "retained_cards": 2,
       "outcomes": [
         "promoted",
         "candidate"
       ],
       "evidence_results": 5,
-      "card_digest": "03721e07e53737a5cabf15fe1d848a2a19203ec618275f99675d768598d09bd1",
+      "card_digest": "1c88aeb3d8766144028a5cdfff9d88d78d45d32e4c8e18079f27e19f7fea6e18",
       "json_bytes": 2085,
       "toon_bytes": 1547,
       "missing_provenance": "card_missing_provenance"
@@ -33,24 +33,25 @@
     {
       "generation": 2,
       "promoted": true,
-      "expected_held_out": 0.685825,
+      "sampled_held_out_mean": 0.685825,
       "retained_cards": 2,
       "outcomes": [
         "promoted",
         "candidate"
       ],
       "evidence_results": 5,
-      "card_digest": "46d2593080df4bd668085047310375976042b50ee7350092bdff5fa87282409e",
+      "card_digest": "01fe74840dad37baa91a04af2992f21f2b3c539884b3ce385bdcd743463662a1",
       "json_bytes": 2082,
       "toon_bytes": 1544,
       "missing_provenance": "card_missing_provenance"
     }
   ],
   "retained_cards": 5,
+  "later_generation_replays": 1,
   "cited_results_replayed": 19,
   "samples_consumed": 512,
   "stop_reason": "generation_limit",
-  "elapsed_ms": 62770.79117900001,
+  "elapsed_ms": 258318.023636,
   "programme_digest": "92f502a18f0ca613cba0b25bc064208eb3fdc4344b23cad6625ec71c41811732",
   "no_git": true,
   "git_absent_from_path": true,
