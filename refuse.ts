@@ -15,7 +15,7 @@ import { createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError, type PmCliEx
 /** Type transient storage failures for retry, preserving unrelated native and coordinator errors. */
 export function rethrowOperationalRead(error: unknown): asserts error is PmCliExpectedError {
   const code = isPmCliExpectedError(error) ? error.context.code : error !== null && typeof error === "object" && "code" in error ? error.code : "";
-  if (/(?:EIO|EAGAIN|EBUSY|ENOENT|TIMEDOUT|TIMEOUT|TIMED_OUT|ABORT_ERR|provenance_read_retryable)/i.test(String(code))) {
+  if (/(?:EIO|EAGAIN|EBUSY|ENOENT|TIMEDOUT|TIMEOUT|TIMED_OUT|ABORT_ERR|provenance_read_retryable)/i.test(String(code)) || error instanceof Error && error.name === "TimeoutError") {
     retryProvenanceRead();
   }
   if (!isPmCliExpectedError(error)) throw error;

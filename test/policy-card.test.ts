@@ -137,6 +137,7 @@ test("operational card reads are typed retryable errors and promotion remains re
       const code = fault; fault = null;
       if (code === "storage_timeout") throw createPmCliExpectedError("Storage request timed out", { exitCode: 4, context: { code } });
       if (code === "unclassified_read") throw createPmCliExpectedError("Storage unavailable", { exitCode: 4, context: { code: "backend_unavailable" } });
+      if (code === "native_timeout") throw new DOMException("Storage request timed out", "TimeoutError");
       throw Object.assign(new Error("Temporary storage read failure"), { code });
     }
     return result;
@@ -154,7 +155,7 @@ test("operational card reads are typed retryable errors and promotion remains re
   assert.equal(resumed.promoted, 1); assert.equal(resumed.stop_reason, "generation_limit");
   const generationItem = (await get("rl-read-retry-g1", { depth: "standard" })).item;
   assert.ok(!generationItem.notes?.some((note) => note.text.includes('"decision":"refuse"')));
-  for (const code of ["EIO", "EAGAIN", "EBUSY", "ENOENT", "ETIMEDOUT", "storage_timeout", "unclassified_read"]) {
+  for (const code of ["EIO", "EAGAIN", "EBUSY", "ENOENT", "ETIMEDOUT", "storage_timeout", "unclassified_read", "native_timeout"]) {
     fault = code; await assert.rejects(exportPolicyCard(w.client, "rl-seed"), retryable);
     assert.equal((await exportPolicyCard(w.client, "rl-seed")).outcome, "seed");
   }

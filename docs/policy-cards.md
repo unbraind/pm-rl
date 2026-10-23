@@ -39,7 +39,7 @@ await adoptPolicyCard(client, card); // Suitability check; no adoption side effe
 
 | Code | Remedy |
 | --- | --- |
-| `provenance_read_retryable` | Retry the same read or resume after storage recovers. EIO, EAGAIN, EBUSY, concurrent-write ENOENT and timeouts do not create terminal promotion refusals. |
+| `provenance_read_retryable` | Retry the same read or resume after storage recovers. EIO, EAGAIN, EBUSY, concurrent-write ENOENT and timeouts (including native `TimeoutError`) do not create terminal promotion refusals. |
 | `card_missing_provenance` | Restore the original source and every cited history; complete provenance before adoption. |
 | `card_invalid` | Supply an unwrapped card or a valid subject/proposal index. |
 | `card_drift` | Restore the exact evidence or export a new card after the legitimate change. |
