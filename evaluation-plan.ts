@@ -4,6 +4,7 @@ import { createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError, normalizeIte
 import { extractGenerationSpec, generationProvenance, hashJson, readCompleteLoopItem, type JsonValue } from "./index.ts";
 import { decidePromotion, type PromotionCriterion, type PromotionDecision } from "./promotion.ts";
 import { enforceShadowComparison } from "./shadow.ts";
+import { rethrowOperationalRead } from "./refuse.ts";
 import type { GenerationSpec, ScoreRecord } from "./lineage.ts";
 
 /** Stable refusals available to SDK consumers and CLI agents. */
@@ -105,7 +106,7 @@ function storedJson(body: unknown): unknown {
 /** Read the SDK's verified creation snapshot or refuse unavailable original history. */
 async function createdItem(client: PmClient, id: string): Promise<GetResult["item"]> {
   try { return (await readCompleteLoopItem(client, id, "1")).item; }
-  catch { refuse("eval_plan_drift"); }
+  catch (error) { rethrowOperationalRead(error); refuse("eval_plan_drift"); }
 }
 /** Bind sealed fields to the SDK's verified first history version, allowing unrelated annotations. */
 async function verifyCreatedRecord(client: PmClient, item: GetResult["item"]): Promise<void> {

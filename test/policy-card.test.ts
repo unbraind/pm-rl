@@ -7,7 +7,7 @@ import { after, test } from "node:test";
 import { PmClient, type CloseResult } from "@unbrained/pm-cli/sdk/core";
 import { init, isPmCliExpectedError, createPmCliExpectedError, type CloseTaskResult, type PmClientCloseActionOptions } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import extension, { generationProvenance, extractGenerationSpec, hashJson, canonicalJson, runRlLoop, resumeRlLoop, withRlController, type JsonValue, type RlCommandResult } from "../index.ts";
+import extension, { generationProvenance, extractGenerationSpec, hashJson, canonicalJson, readCompleteLoopItem, runRlLoop, resumeRlLoop, withRlController, type JsonValue, type RlCommandResult } from "../index.ts";
 import { exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordRecursivePolicyCards, recordPolicyCard, POLICY_CARD_MAX_BYTES, type PolicyCard } from "../policy-card.ts";
 import type { GenerationSpec } from "../lineage.ts";
 
@@ -158,6 +158,18 @@ test("operational card reads are typed retryable errors and promotion remains re
     fault = code; await assert.rejects(exportPolicyCard(w.client, "rl-seed"), retryable);
     assert.equal((await exportPolicyCard(w.client, "rl-seed")).outcome, "seed");
   }
+});
+
+test("unrelated native read errors retain their identity and never become provenance verdicts", async () => {
+  const w = await workspace(); await generation(w.client);
+  const get = w.client.get.bind(w.client);
+  for (const failure of [new TypeError("Transaction author required"), Object.assign(new Error("Unreadable storage"), { code: "EISDIR" }), {}, null, "native failure"]) {
+    w.client.get = (async (id, options) => { await get(id, options); throw failure; }) as PmClient["get"];
+    await assert.rejects(readCompleteLoopItem(w.client, "rl-seed"), (error: unknown) => error === failure);
+    await assert.rejects(exportPolicyCard(w.client, "rl-seed"), (error: unknown) => error === failure);
+  }
+  w.client.get = get;
+  assert.equal((await exportPolicyCard(w.client, "rl-seed")).outcome, "seed");
 });
 
 test("certified old explanations survive later edits while adoption rejects stale or missing sources", async () => {

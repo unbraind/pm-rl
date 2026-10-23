@@ -12,11 +12,13 @@
 
 import { createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError, type PmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 
-/** Keep unclassified IO failures retryable; only SDK-certified domain errors establish invalid provenance. */
+/** Type transient storage failures for retry, preserving unrelated native and coordinator errors. */
 export function rethrowOperationalRead(error: unknown): asserts error is PmCliExpectedError {
-  if (!isPmCliExpectedError(error) || /(?:EIO|EAGAIN|EBUSY|ENOENT|TIMEDOUT|TIMEOUT|TIMED_OUT|ABORT_ERR|provenance_read_retryable)/i.test(String(error.context.code))) {
+  const code = isPmCliExpectedError(error) ? error.context.code : error !== null && typeof error === "object" && "code" in error ? error.code : "";
+  if (/(?:EIO|EAGAIN|EBUSY|ENOENT|TIMEDOUT|TIMEOUT|TIMED_OUT|ABORT_ERR|provenance_read_retryable)/i.test(String(code))) {
     retryProvenanceRead();
   }
+  if (!isPmCliExpectedError(error)) throw error;
 }
 
 /** Only explicit SDK absence or integrity classifications establish a provenance failure. */

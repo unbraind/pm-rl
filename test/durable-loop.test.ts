@@ -513,7 +513,7 @@ test("read failures and omitted comments propagate; release errors still release
   const get = client.get.bind(client);
   for (const suffix of ["-collect", "-g1"]) {
     client.get = (async (id, options) => { if (id.endsWith(suffix)) throw new Error("read failure"); return get(id, options); }) as PmClient["get"];
-    await assert.rejects(runRlLoop(client, coordinates, request), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "provenance_read_retryable");
+    await assert.rejects(runRlLoop(client, coordinates, request), /read failure/);
   }
   client.get = get;
   const comments = client.comments.bind(client);
