@@ -66,3 +66,4 @@ runner with context `none` and a 600-second timeout.
 | `prospective rejection` | Preflight before native rejection-note append. |
 | `generation citations` | Pinned Plan wrapper identity check. |
 | `generation citations` | Exclusion of allowances from plans and comparison receipts. |
+| `generation citations` | Concrete comparison identity required; an offline plan cannot cite an undeclared shadow comparison through two missing values. |

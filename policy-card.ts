@@ -235,7 +235,10 @@ async function verifyEvidenceBindings(client: PmClient, item: CardItem, entries:
       if (entry.type !== "Decision") refuse("card_drift");
       if (entry.id === `${plan}-shadow`) {
         if (body.generation !== item.id || hashJson(body as JsonValue) !== declared.shadow || entry.affected_version !== declared.shadow) refuse("card_drift");
-      } else if (body.comparison !== (entry.id === `${plan}-result` ? spec.evaluation_plan : declared.shadow)) refuse("card_drift");
+      } else {
+        const comparison = entry.id === `${plan}-result` ? spec.evaluation_plan : declared.shadow;
+        if (typeof comparison !== "string" || body.comparison !== comparison) refuse("card_drift");
+      }
     }
   }
 }

@@ -315,6 +315,17 @@ test("generation citations include parents, collection, environments and evaluat
     await w.client.update(target, { body: String(original.body), type: original.type, affectedVersion: String(original.affected_version ?? "") });
   }
   assert.equal((await replayPolicyCard(w.client, plannedCard)).card.digest, plannedCard.digest);
+  const { shadow: _shadow, ...offlinePlan } = { ...plan, candidate: "rl-offline" };
+  const offlineComparison = hashJson(offlinePlan);
+  await w.client.create({ id: "rl-offline-evaluation-plan", type: "Plan", title: "Offline comparison", body: JSON.stringify({ plan: offlinePlan, incumbent_version: "original" }), affectedVersion: hashJson({ comparison: offlineComparison, incumbent_version: "original" }) });
+  await generation(w.client, { ...value, evaluation_plan: offlineComparison }, "rl-offline");
+  const offlineCard = await exportPolicyCard(w.client, "rl-offline");
+  const foreignResult = { samples: 1 };
+  const foreignId = "rl-offline-evaluation-plan-shadow-comparison";
+  await w.client.create({ id: foreignId, type: "Decision", title: "Unrelated certified result", body: JSON.stringify({ format: "pm-rl/loop-step/1", state: "complete", input: hashJson("foreign"), result: foreignResult, digest: hashJson(foreignResult) }) });
+  const foreignCitation = (await exportPolicyCard(w.client, foreignId)).evidence[0];
+  await unchanged(w.pmRoot, () => exportPolicyCard(w.client, "rl-offline"), "card_drift");
+  await unchanged(w.pmRoot, () => replayPolicyCard(w.client, rehash({ ...offlineCard, evidence: [...offlineCard.evidence, foreignCitation] })), "card_drift");
   await assert.rejects(adoptPolicyCard(w.client, await exportPolicyCard(w.client, id)), refused("card_missing_provenance"));
   const many = spec({ collection_runs: Array.from({ length: 33 }, (_, i) => `rl-run-${i}`) });
   await generation(w.client, many, "rl-many"); await assert.rejects(exportPolicyCard(w.client, "rl-many"), refused("card_limit"));
@@ -548,6 +559,7 @@ test("prospective rejection notes and oversized proposed sources refuse without 
   const w = await workspace();
   await generation(w.client, spec({ collection_runs: Array.from({ length: 32 }, (_, index) => `rl-missing-${index}`) }));
   await unchanged(w.pmRoot, () => recordRefusedPolicyCard(w.client, "rl-seed", "Rejected"), "card_limit");
+  await unchanged(w.pmRoot, () => validatePolicyCardWrite(w.client, { id: "rl-empty-source", type: "Decision" }), "card_invalid");
   const result = { configs: Array(33).fill({ samples: 1 }) };
   await unchanged(w.pmRoot, () => validatePolicyCardWrite(w.client, { id: "rl-unwritten", type: "Decision", title: "Proposals", body: JSON.stringify({ format: "pm-rl/loop-step/1", state: "complete", input: hashJson("proposals"), result, digest: hashJson(result) }) }, true), "card_limit");
 });
