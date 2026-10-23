@@ -25,7 +25,7 @@
         "candidate"
       ],
       "evidence_results": 5,
-      "card_digest": "5a1bcdead60cac898ac0cdd4aa0f9bd876be7326d165b5f734cdb21dc8e9fd8d",
+      "card_digest": "b3346f28ce1e25e0ed24336b1727fa1c357315fa3960a0722cf7b42a66b0976d",
       "json_bytes": 2085,
       "toon_bytes": 1547,
       "missing_provenance": "card_missing_provenance"
@@ -40,11 +40,16 @@
         "candidate"
       ],
       "evidence_results": 5,
-      "card_digest": "2ea42a3050ac8ef8449393d30f4ae3495cf49ac78cc1b32d80292461cafeb718",
+      "card_digest": "b90021c05551f26f0a0f19f9ed28b8c1bc19572276629d0f760dbaf9fcfba90c",
       "json_bytes": 2082,
       "toon_bytes": 1544,
       "missing_provenance": "card_missing_provenance"
     }
+  ],
+  "majority_baseline_accuracy": 0.8780487804878049,
+  "sampled_policies_beat_majority": [
+    false,
+    false
   ],
   "retained_cards": 5,
   "later_generation_replays": 1,
@@ -52,7 +57,7 @@
   "cited_results_replayed": 19,
   "samples_consumed": 512,
   "stop_reason": "generation_limit",
-  "elapsed_ms": 89295.183376,
+  "elapsed_ms": 156641.99157299998,
   "programme_digest": "92f502a18f0ca613cba0b25bc064208eb3fdc4344b23cad6625ec71c41811732",
   "no_git": true,
   "git_absent_from_path": true,

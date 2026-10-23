@@ -2318,6 +2318,7 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
   }
   const heldOutScore = parseScoreRecord(heldOutScoreRaw, "held_out_score");
   const outcome = await promoteGenerationCore(client, { pmRoot: context.pm_root, author: authorFor(context) }, id, approvalId, proxyScore, heldOutScore, evidence);
+  await recordPolicyCard(client, id);
   return {
     action: "rl-generation-promote",
     id,
@@ -2541,7 +2542,6 @@ async function promoteGenerationCore(client: PmClient, coordinates: WorkspaceCoo
       compensate: revertPromotingWrite,
     }],
   });
-  await recordPolicyCard(client, id);
   return { status: closedStatus, gap, promotedCount, permittedPromotions };
 }
 
@@ -3730,6 +3730,12 @@ async function reconcileLoopPromotion(client: PmClient, lease: ControllerLease, 
   });
 }
 
+/** Preserve final rejection evidence through the SDK's atomic, author-scoped append-once contract. */
+async function recordRefusedPolicyCard(client: PmClient, id: string, reason: string | null): Promise<void> {
+  await client.notes(id, { add: `pm-rl/policy-evaluation/1 ${JSON.stringify({ decision: "refuse", reason_digest: hashJson(reason) })}`, ifAbsent: true });
+  await recordPolicyCard(client, id);
+}
+
 /** Walk the persisted generations, then execute and verify until the loop terminates. */
 async function executeLoopProgramme(client: PmClient, coordinates: WorkspaceCoordinates, programme: LoopProgramme, request: RlLoopRequest, prepared: LoopPrepared): Promise<RlLoopReport> {
   const schedule = loopSchedule(programme);
@@ -3751,6 +3757,7 @@ async function executeLoopProgramme(client: PmClient, coordinates: WorkspaceCoor
     }
     if (inspection.kind === "complete") {
       await reconcileLoopPromotion(client, prepared.lease, inspection.report.item);
+      await prepared.lease.guard(() => recordPolicyCard(client, inspection.report.item));
       if (programme.trainer === "bandit" && programme.config.process !== undefined) {
         const receipt = runLoopGeneration(programme.config, chain.step, generation, chain.current as BanditCheckpoint, inspection.advance.checkpoint as BanditCheckpoint);
         await finishProcessGeneration(client, coordinates, prepared.lease, programme.config, chain, generation, receipt, "promoted", "promotion_verified", request);
@@ -3777,6 +3784,7 @@ async function executeLoopProgramme(client: PmClient, coordinates: WorkspaceCoor
       // crash between the registration and that comment still gets it, exactly
       // once, because the append is idempotent by text.
       if (inspection.stopReason !== "promotion_refused") await prepared.lease.guard(() => appendCommentOnce(client, inspection.report.item!, `Loop ${request.id} generation ${generation} refused: ${inspection.refusalReason}`));
+      await prepared.lease.guard(() => recordRefusedPolicyCard(client, inspection.report.item, inspection.refusalReason));
       terminal = { stopReason: inspection.stopReason, refusalReason: inspection.refusalReason };
       break;
     }
@@ -3935,7 +3943,10 @@ async function executePendingGeneration(client: PmClient, coordinates: Workspace
     // The gate refused the candidate: record the refusal in the candidate's
     // history and stop. A refused candidate never becomes a collector.
     const message = `Loop ${request.id} generation ${generation} refused: ${receipt.refusalReason}`;
-    await prepared.lease.guard(() => appendCommentOnce(client, generationId, message));
+    await prepared.lease.guard(async () => {
+      await appendCommentOnce(client, generationId, message);
+      await recordRefusedPolicyCard(client, generationId, receipt.refusalReason);
+    });
     chain.reports.push({ generation, run: runId!, item: generationId, promoted: false,
       held_out_mean: receipt.candidateHeldOutMean, candidate_checkpoint: receipt.candidate.digest, refusal_reason: receipt.refusalReason });
     await finishProcessGeneration(client, coordinates, prepared.lease, programme.trainer !== "systemone" ? programme.config : null, chain, generation, receipt as BanditGeneration | LmGeneration, "failed", receipt.refusalReason!, request);
@@ -3966,13 +3977,17 @@ async function executePendingGeneration(client: PmClient, coordinates: Workspace
         promotionError = error;
         throw error;
       }
+      await recordPolicyCard(client, generationId);
       return { item: generationId };
     });
     promotionExecuted = promotion.executed;
   } catch (error) {
     if (error !== promotionError || !isPmCliExpectedError(error)) throw error;
     const message = `Loop ${request.id} generation ${generation} promotion refused: ${error.message}`;
-    await prepared.lease.guard(() => appendCommentOnce(client, generationId, message));
+    await prepared.lease.guard(async () => {
+      await appendCommentOnce(client, generationId, message);
+      await recordRefusedPolicyCard(client, generationId, error.message);
+    });
     chain.reports.push({ generation, run: runId!, item: generationId, promoted: false,
       held_out_mean: receipt.candidateHeldOutMean, candidate_checkpoint: receipt.candidate.digest, refusal_reason: error.message });
     await finishProcessGeneration(client, coordinates, prepared.lease, programme.trainer !== "systemone" ? programme.config : null, chain, generation, receipt as BanditGeneration | LmGeneration, "invalidated", error.message, request);

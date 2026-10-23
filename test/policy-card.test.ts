@@ -4,10 +4,10 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync, symlinkSync, readFileSyn
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { after, test } from "node:test";
-import { PmClient } from "@unbrained/pm-cli/sdk/core";
-import { init, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
+import { PmClient, type CloseResult } from "@unbrained/pm-cli/sdk/core";
+import { init, isPmCliExpectedError, type CloseTaskResult, type PmClientCloseActionOptions } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import extension, { generationProvenance, hashJson, canonicalJson, runRlLoop, withRlController, type JsonValue, type RlCommandResult } from "../index.ts";
+import extension, { generationProvenance, hashJson, canonicalJson, runRlLoop, resumeRlLoop, withRlController, type JsonValue, type RlCommandResult } from "../index.ts";
 import { exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordRecursivePolicyCards, recordPolicyCard, POLICY_CARD_MAX_BYTES, type PolicyCard } from "../policy-card.ts";
 import type { GenerationSpec } from "../lineage.ts";
 
@@ -210,4 +210,49 @@ test("materialized evidence drift and oversized complete exports refuse without 
   for (const run of runs) await w.client.create({ id: run, type: "Run", title: run });
   await generation(w.client, spec({ collection_runs: runs }), "rl-oversize");
   await assert.rejects(exportPolicyCard(w.client, "rl-oversize"), refused("card_limit"));
+});
+
+
+test("resume repairs card publication interrupted after a committed promotion", async (context) => {
+  for (const fault of ["storage", "collision"] as const) await context.test(fault, async () => {
+    const w = await workspace();
+    /** Delegate real SDK closes, then obstruct only the not-yet-published explanation. */
+    class InterruptedPublisher extends PmClient {
+      repair: (() => Promise<void>) | null = null;
+      /** Create a native failure after the real promotion close commits. */
+      override close(id: string, reason: string, options: PmClientCloseActionOptions & { releaseAssignment: true }): Promise<CloseTaskResult>;
+      override close(id: string, reason: string, options?: PmClientCloseActionOptions & { releaseAssignment?: false }): Promise<CloseResult>;
+      override close(id: string, reason: string, options?: PmClientCloseActionOptions & { releaseAssignment?: boolean }): Promise<CloseResult | CloseTaskResult>;
+      override async close(id: string, reason: string, options?: PmClientCloseActionOptions & { releaseAssignment?: boolean }): Promise<CloseResult | CloseTaskResult> {
+        const result = await super.close(id, reason, options);
+        const item = "item" in result ? result.item : result.close.item;
+        if (item.type === "Generation" && this.repair === null) {
+          const card = await exportPolicyCard(this, String(item.id));
+          const cardId = `rl-policy-card-${card.digest}`;
+          if (fault === "storage") {
+            const obstruction = join(w.pmRoot, "decisions", `${cardId}.toon`); mkdirSync(obstruction);
+            this.repair = async () => { rmSync(obstruction, { recursive: true }); };
+          } else {
+            await super.create({ id: cardId, type: "Decision", title: "Publication obstruction", body: "{}" });
+            this.repair = async () => { await super.update(cardId, { body: canonicalJson(card as unknown as JsonValue), affectedVersion: card.digest }); };
+          }
+        }
+        return result;
+      }
+    }
+    const client = new InterruptedPublisher({ pmRoot: w.pmRoot, cwd: w.root, author: "card-test", noExtensions: true });
+    await client.create({ id: "rl-approval", type: "Decision", title: "One bounded promotion", body: '```json\n{"permitted_promotions":1}\n```' });
+    const config = { ...JSON.parse(readFileSync(new URL("../examples/loop-bandit.json", import.meta.url), "utf8")) as Record<string, JsonValue>, max_generations: 1 };
+    await assert.rejects(runRlLoop(client, { pmRoot: w.pmRoot, author: "card-test" }, { id: "repair", config, approval: "rl-approval" }), fault === "collision" ? refused("card_drift") : (error: unknown) => error instanceof Error);
+    assert.ok(client.repair !== null); await client.repair();
+    const committed = await exportPolicyCard(client, "rl-repair-g1"); assert.equal(committed.outcome, "promoted");
+    const before = (await client.listAllComplete({ includeBody: true })).items;
+    assert.equal(before.filter((item) => item.id.includes("-policy-card-")).map((item) => JSON.parse(String(item.body)) as PolicyCard).filter((card) => card.outcome === "promoted").length, fault === "collision" ? 1 : 0);
+    const resumed = await resumeRlLoop(client, { pmRoot: w.pmRoot, author: "card-test" }, { id: "repair", approval: "rl-approval" });
+    assert.equal(resumed.resumed_generations, 1); assert.equal(resumed.promoted, 1);
+    const after = (await client.listAllComplete({ includeBody: true })).items;
+    const promoted = after.filter((item) => item.id.includes("-policy-card-")).map((item) => JSON.parse(String(item.body)) as PolicyCard).filter((card) => card.outcome === "promoted");
+    assert.equal(promoted.length, 1);
+    assert.equal((await replayPolicyCard(client, promoted[0])).card.digest, committed.digest);
+  });
 });
