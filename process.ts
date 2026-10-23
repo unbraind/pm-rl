@@ -295,11 +295,12 @@ export async function transitionProcessJob<P extends TrainerPolicy>(client: PmCl
   }] });
   return (await readProcessJob<P>(client, job.id, coordinates.pmRoot))!;
 }
-/** Measure all retained flat staging files, rejecting links and directories rather than following them. */
+/** Measure retained flat staging files, skipping vanished entries and rejecting links or directories. */
 export function stagingBytes(directory: string): number {
   let bytes = 0;
   for (const name of readdirSync(directory)) {
-    const stat = lstatSync(join(directory, name));
+    const stat = lstatSync(join(directory, name), { throwIfNoEntry: false });
+    if (stat === undefined) continue;
     if (!stat.isFile()) expectedFail("Staging contains an unsupported file or symbolic link.", "process_checkpoint_invalid");
     bytes += stat.size;
   }

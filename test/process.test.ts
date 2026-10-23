@@ -1,13 +1,15 @@
 /** Protocol, real child execution, atomic approved reservations and evidence corruption. */
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync, mkdirSync, symlinkSync, lstatSync, existsSync, rmSync, renameSync } from "node:fs";
+import fs, { readFileSync, writeFileSync, mkdirSync, symlinkSync, lstatSync, existsSync, rmSync, renameSync, type PathLike } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { commitProcessTransaction, withProcessJobFence, runRlLoop } from "../index.ts";
 import { Readable, Writable } from "node:stream";
 import { runReferenceTrainer, referenceTrainerMain, writeTrainerArtifact } from "../process-bandit.ts";
 import { parseLoopProgramme, parseLoopConfig } from "../loop.ts";
-import { test } from "node:test";
+import { mock, test } from "node:test";
+import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { appendDiagnostics, executeProcessTrainer, launchTrainer, transitionProcessJob, stopTrainer, parseProcessAdapter, parseResources, processJobId, processStaging, readProcessJob, referenceTrainerArgv, reserveProcessJob, stagingBytes, validateProcessCompletion, verifiedProcessPolicy, type ProcessCompletion } from "../process.ts";
 import { allowance, configuration, processWorkspace, trainingInput } from "./fixtures/process-workspace.ts";
 // Node's parent coverage hooks remain active; SIGKILL-able children must not inherit its raw-report directory.
@@ -16,6 +18,24 @@ delete process.env["NODE_V8_COVERAGE"];
 const adapter = { kind: "process-bandit", allowance } as const;
 /** Only explicitly trusted test code selects fixture argv; tracker bodies never carry commands. */
 function argv(mode: string): readonly string[] { return [process.execPath, new URL("./fixtures/process-trainer.ts", import.meta.url).pathname, mode]; }
+
+test("staging measurement tolerates an entry deleted after listing without accepting a missing completion", async () => {
+  const { root } = await processWorkspace(); const directory = join(root, "vanishing-staging"); mkdirSync(directory);
+  const receipt = join(directory, "completion.json"); writeFileSync(receipt, "transient receipt");
+  writeFileSync(join(directory, "checkpoint.json"), "retained");
+  const read = fs.readdirSync;
+  const listing = mock.method(fs, "readdirSync", ((path: PathLike) => {
+    const entries = read(path);
+    if (path === directory) rmSync(receipt);
+    return entries;
+  }) as typeof fs.readdirSync);
+  syncBuiltinESMExports();
+  try { assert.doesNotThrow(() => assert.equal(stagingBytes(directory), Buffer.byteLength("retained"))); }
+  finally { listing.mock.restore(); syncBuiltinESMExports(); }
+  assert.equal(existsSync(receipt), false);
+  assert.throws(() => validateProcessCompletion(directory, "missing-receipt", trainingInput(), allowance), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "process_receipt_required");
+  assert.throws(() => stagingBytes(join(root, "absent-staging")), { code: "ENOENT" });
+});
 
 test("resource vectors and packaged adapter require complete bounded declarations", () => {
   assert.deepEqual(parseResources(allowance), allowance);
