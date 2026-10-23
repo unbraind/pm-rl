@@ -683,4 +683,4 @@ an explicit discovery ceiling.
 
 Observe a candidate beside the active policy on explicitly consented, minimized inputs with `pm rl shadow register`, `observe` and `compare`, or the typed SDK equivalents. Candidate lookup failures preserve the active decision; both arms consume the reserved budget. The comparison receipt feeds the existing predeclared evaluation and generation promotion gate, so online switching requires validated outcomes and the existing approval. No candidate receives mutation or tool authority.
 
-See [the consent, budget and promotion contract](docs/shadow-policy.md) and [registration example](examples/shadow-policy.json). Policies currently use bounded declarative lookup tables.
+See [the consent, budget and promotion contract](docs/shadow-policy.md) and [registration example](examples/shadow-policy.json). Policies currently use bounded declarative lookup tables. Registration, reload and promotion share cohort/budget validation; live and loaded receipts share action, reward and disagreement validation. Typed refusals identify the receipt and invalid field.

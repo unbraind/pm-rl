@@ -7,9 +7,9 @@ import { after, test } from "node:test";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { init, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import extension, { hashJson, generationProvenance, extractGenerationSpec, readCompleteLoopItem, type JsonValue, type RlCommandResult } from "../index.ts";
-import { registerShadowDeployment, parseShadowDeployment, shadowInputDigest, observeShadow, compareShadow, enforceShadowComparison, type ShadowDeployment } from "../shadow.ts";
-import { evaluationComparison, registerEvaluationPlan, readEvaluationPlan, recordPlanEvaluation, enforceEvaluationPlan, type EvaluationPlan } from "../evaluation-plan.ts";
+import extension, { canonicalJson, hashJson, generationProvenance, extractGenerationSpec, readCompleteLoopItem, type JsonValue, type RlCommandResult } from "../index.ts";
+import { registerShadowDeployment, parseShadowDeployment, shadowInputDigest, observeShadow, compareShadow, enforceShadowComparison, type ShadowDeployment, type ShadowObservation, type ShadowReport } from "../shadow.ts";
+import { evaluationComparison, registerEvaluationPlan, readEvaluationPlan, recordPlanEvaluation, enforceEvaluationPlan, evaluatePlan, type EvaluationPlan } from "../evaluation-plan.ts";
 import type { GenerationSpec, ScoreRecord } from "../lineage.ts";
 
 const roots: string[] = [];
@@ -200,6 +200,7 @@ test("a forged original aggregate receipt cannot authorize valid individual obse
   const w = await workspace(); const registered = await registerShadowDeployment(w.client, w.d, w.p); await collect(w);
   for (const m of w.p.members) await observeShadow(w.client, "rl-candidate", input(m.id));
   await w.client.create({ id: `${registered.id}-comparison`, title: "Unvalidated aggregate", type: "Decision", body: "{}", affectedVersion: hashJson({}) });
+  await assert.rejects(compareShadow(w.client, "rl-candidate"), refusal("shadow_drift"));
   await assert.rejects(enforceEvaluationPlan(w.client, "rl-candidate", score((await readEvaluationPlan(w.client, "rl-candidate"))!.plan)), refusal("shadow_drift"));
 });
 
@@ -219,4 +220,175 @@ test("online incumbent lineage cannot bypass shadow observation through an unres
   await enforceShadowComparison(w.client, "rl-offline-seed", null);
   await w.client.create({ id: "rl-not-generation", title: "Offline task", type: "Task" });
   await enforceShadowComparison(w.client, "rl-not-generation", null);
+});
+
+/** Match refusal identity and field through the pinned SDK's typed diagnostic contract. */
+function fieldRefusal(code: string, receipt: string, field: string) {
+  return (error: unknown): boolean => refusal(code)(error) && isPmCliExpectedError(error) && error.context.item_id === receipt && error.context.field === field && error.message.includes(receipt) && error.message.includes(field);
+}
+/** Persist an original correctly hashed record without rewriting any SDK history. */
+async function originalDecision(client: PmClient, id: string, value: JsonValue, version = hashJson(value)) {
+  await client.create({ id, type: "Decision", title: "Adversarial original evidence", body: canonicalJson(value), affectedVersion: version });
+}
+/** Reproduce a loader-only manifest that bypasses the registration entrypoint. */
+async function originalManifest(w: Awaited<ReturnType<typeof workspace>>, p = w.p) {
+  const registered = await registerEvaluationPlan(w.client, { ...p, shadow: hashJson(w.d as unknown as JsonValue) });
+  const id = `${registered.id}-shadow`;
+  await originalDecision(w.client, id, w.d as unknown as JsonValue);
+  await collect(w);
+  return { id, plan: registered.plan };
+}
+/** A complete original cohort and matching aggregate reproduce pre-fix admission, not just malformed hashes. */
+async function originalCohort(w: Awaited<ReturnType<typeof workspace>>, p: EvaluationPlan, patch: Partial<ShadowObservation> = {}, reportPatch: Partial<ShadowReport> = {}, version?: string) {
+  const id = `${p.candidate}-evaluation-plan-shadow`;
+  const rows = p.members.map((m): ShadowObservation => ({ id: m.id, input_digest: shadowInputDigest("event"), outcome_digest: hashJson({ hold: 0, accept: 1 }),
+    active_action: "hold", candidate_action: "accept", active_reward: 0, candidate_reward: 1, disagreement: true, failure: null, ...patch }));
+  for (const row of rows) await originalDecision(w.client, `${id}-${hashJson(row.id)}`, row as unknown as JsonValue);
+  const pairs = rows.map((row) => ({ id: row.id, candidate: row.candidate_reward!, incumbent: row.active_reward }));
+  const outcome = evaluatePlan(p, pairs); assert.equal(outcome.verdict.decision, "promote");
+  await recordPlanEvaluation(w.client, p.candidate, pairs);
+  const report = { receipt: `${id}-comparison`, comparison: hashJson(w.d as unknown as JsonValue), observations: rows.length,
+    disagreements: rows.filter((row) => row.disagreement).length, candidate_failures: 0, charged: { active_calls: rows.length, candidate_calls: rows.length }, outcome, remedy: null };
+  await originalDecision(w.client, report.receipt, { ...report, ...reportPatch } as unknown as JsonValue, version);
+  return rows;
+}
+
+test("review regression: identical actions with original rewards zero and one never promote", async () => {
+  const w = await workspace(deployment({ event: "hold" })); const registered = await registerShadowDeployment(w.client, w.d, w.p); await collect(w);
+  const p = (await readEvaluationPlan(w.client, "rl-candidate"))!.plan;
+  await originalCohort(w, p, { candidate_action: "hold", disagreement: false });
+  const receipt = `${registered.id}-${hashJson(p.members[0].id)}`;
+  await assert.rejects(compareShadow(w.client, "rl-candidate"), (error: unknown) => isPmCliExpectedError(error) && error.context.field === "candidate_reward" && String(error.context.item_id).startsWith(`${registered.id}-`));
+  await assert.rejects(enforceEvaluationPlan(w.client, "rl-candidate", score(p)), (error: unknown) => isPmCliExpectedError(error) && error.context.field === "candidate_reward");
+  await assert.rejects(observeShadow(w.client, "rl-candidate", input(p.members[0].id)), fieldRefusal("shadow_drift", receipt, "candidate_reward"));
+});
+
+test("review regression: a consented original zero-budget manifest cannot observe compare or promote", async () => {
+  const w = await workspace({ ...deployment(), budget: { active_calls: 0, candidate_calls: 0 } }); const registered = await originalManifest(w);
+  await originalCohort(w, registered.plan);
+  const reject = fieldRefusal("shadow_budget", registered.id, "budget.active_calls");
+  await assert.rejects(observeShadow(w.client, "rl-candidate", input()), reject);
+  await assert.rejects(compareShadow(w.client, "rl-candidate"), reject);
+  await assert.rejects(enforceEvaluationPlan(w.client, "rl-candidate", score(registered.plan)), reject);
+});
+
+test("review regression: an original tampered disagreement flag cannot authorize promotion or resume", async () => {
+  const w = await workspace(); const registered = await registerShadowDeployment(w.client, w.d, w.p); await collect(w);
+  const p = (await readEvaluationPlan(w.client, "rl-candidate"))!.plan;
+  await originalCohort(w, p, { disagreement: false });
+  await assert.rejects(compareShadow(w.client, "rl-candidate"), (error: unknown) => isPmCliExpectedError(error) && error.context.field === "disagreement");
+  await assert.rejects(enforceEvaluationPlan(w.client, "rl-candidate", score(p)), (error: unknown) => isPmCliExpectedError(error) && error.context.field === "disagreement");
+  await assert.rejects(observeShadow(w.client, "rl-candidate", input()), fieldRefusal("shadow_drift", `${registered.id}-${hashJson("event-0")}`, "disagreement"));
+});
+
+test("review regression: a manifest cohort grown after plan registration never extends consented observation", async () => {
+  const d = deployment(); const w = await workspace({ ...d, inputs: { ...d.inputs, "event-10": shadowInputDigest("event") }, budget: { active_calls: 11, candidate_calls: 11 } });
+  const registered = await originalManifest(w, plan(d)); await originalCohort(w, registered.plan);
+  const reject = fieldRefusal("shadow_consent", registered.id, "inputs");
+  await assert.rejects(compareShadow(w.client, "rl-candidate"), reject);
+  await assert.rejects(observeShadow(w.client, "rl-candidate", input("event-10")), reject);
+  await assert.rejects(enforceEvaluationPlan(w.client, "rl-candidate", score(registered.plan)), reject);
+});
+
+/** A valid compact original observation for testing one broken field at a time. */
+function originalObservation(overrides: Partial<ShadowObservation> = {}): ShadowObservation {
+  return { id: "event-0", input_digest: shadowInputDigest("event"), outcome_digest: hashJson({ hold: 0, accept: 1 }), active_action: "hold", candidate_action: "accept", active_reward: 0, candidate_reward: 1, disagreement: true, failure: null, ...overrides };
+}
+
+test("loaded observations reject wrong actions bounds digests failures membership and slot identity", async () => {
+  const cases: { value: unknown; field: string; code?: string; version?: string }[] = [
+    { value: null, field: "fields" }, { value: { ...originalObservation(), extra: true }, field: "fields" },
+    { value: originalObservation({ id: "foreign" }), field: "id", code: "shadow_consent" },
+    { value: originalObservation({ id: "event-1" }), field: "id" },
+    { value: originalObservation({ input_digest: "foreign" }), field: "input_digest", code: "shadow_consent" },
+    { value: originalObservation({ active_action: "other" }), field: "active_action" },
+    { value: originalObservation({ candidate_action: "other" }), field: "candidate_action" },
+    { value: originalObservation({ active_reward: -1 }), field: "active_reward" },
+    { value: originalObservation({ candidate_reward: 2 }), field: "candidate_reward" },
+    { value: originalObservation({ failure: "candidate_missing_outcome" }), field: "failure" },
+    { value: originalObservation({ outcome_digest: "wrong" }), field: "outcome_digest" },
+    { value: originalObservation(), field: "affected_version", version: "wrong" },
+  ];
+  for (const entry of cases) {
+    const w = await workspace(); const registered = await registerShadowDeployment(w.client, w.d, w.p); await collect(w);
+    const receipt = `${registered.id}-${hashJson("event-0")}`;
+    await w.client.create({ id: receipt, type: "Decision", title: "Invalid original observation field", body: canonicalJson(entry.value as JsonValue), affectedVersion: entry.version ?? hashJson(entry.value as JsonValue) });
+    await assert.rejects(compareShadow(w.client, "rl-candidate"), fieldRefusal(entry.code ?? "shadow_drift", receipt, entry.field));
+  }
+});
+
+test("actual inventory charges include unexpected receipts and enforce each arm separately", async () => {
+  for (const [budget, field] of [[{ active_calls: 10, candidate_calls: 10 }, "charged.active_calls"], [{ active_calls: 11, candidate_calls: 10 }, "charged.candidate_calls"], [{ active_calls: 12, candidate_calls: 12 }, "id"]] as const) {
+    const w = await workspace({ ...deployment(), budget }); const registered = await registerShadowDeployment(w.client, w.d, w.p); await collect(w);
+    const p = (await readEvaluationPlan(w.client, "rl-candidate"))!.plan; await originalCohort(w, p);
+    const extra = `${registered.id}-${hashJson("extra")}`; await originalDecision(w.client, extra, {});
+    const reject = fieldRefusal(field === "id" ? "shadow_consent" : "shadow_budget", field === "id" ? extra : registered.id, field);
+    await assert.rejects(compareShadow(w.client, "rl-candidate"), reject);
+    await assert.rejects(observeShadow(w.client, "rl-candidate", input()), reject);
+    await assert.rejects(enforceEvaluationPlan(w.client, "rl-candidate", score(p)), reject);
+  }
+});
+
+test("candidate absence and absent policy inputs cannot be disguised as successful receipts", async () => {
+  for (const [d, row, field] of [
+    [deployment({}), originalObservation({ candidate_action: null, failure: "candidate_missing_action", disagreement: false }), "candidate_reward"],
+    [{ ...deployment(), inputs: Object.fromEntries(Object.keys(deployment().inputs).map((id) => [id, shadowInputDigest("unknown")])) }, originalObservation({ input_digest: shadowInputDigest("unknown") }), "active_action"],
+  ] as const) {
+    const w = await workspace(d); const registered = await registerShadowDeployment(w.client, w.d, w.p); await collect(w);
+    const receipt = `${registered.id}-${hashJson("event-0")}`; await originalDecision(w.client, receipt, row as unknown as JsonValue);
+    await assert.rejects(compareShadow(w.client, "rl-candidate"), fieldRefusal("shadow_drift", receipt, field));
+  }
+});
+
+test("selected outcome digests ignore unselected rewards and preserve prototype-like action names", async () => {
+  const d = { ...deployment(), active: { event: "__proto__" }, candidate: { event: "constructor" } };
+  const w = await workspace(d); await registerShadowDeployment(w.client, w.d, w.p); await collect(w);
+  const rewards = Object.fromEntries([["__proto__", 0], ["constructor", 1], ["unused", 0.5]]);
+  const row = await observeShadow(w.client, "rl-candidate", { id: "event-0", input: "event", rewards });
+  assert.equal(row.outcome_digest, hashJson(Object.fromEntries([["__proto__", 0], ["constructor", 1]])));
+  assert.equal(row.active_action, "__proto__"); assert.equal(row.candidate_action, "constructor");
+  assert.deepEqual(await observeShadow(w.client, "rl-candidate", { id: "event-0", input: "event", rewards }), row);
+});
+
+test("reloaded manifest structure and edited creation fields name their exact receipt", async () => {
+  const w = await workspace(); const p = await registerEvaluationPlan(w.client, { ...w.p, shadow: "wrong" });
+  const receipt = `${p.id}-shadow`;
+  await originalDecision(w.client, receipt, { ...w.d, budget: { active_calls: -1, candidate_calls: 10 } } as unknown as JsonValue);
+  await assert.rejects(compareShadow(w.client, "rl-candidate"), fieldRefusal("shadow_budget", receipt, "manifest"));
+  const other = await workspace(); const registered = await registerShadowDeployment(other.client, other.d, other.p); await collect(other);
+  await other.client.update(registered.id, { type: "Task" });
+  await assert.rejects(compareShadow(other.client, "rl-candidate"), fieldRefusal("shadow_drift", registered.id, "type"));
+});
+
+test("native metadata governance refuses an uncommitted observation without inventing a winning receipt", async () => {
+  const w = await workspace(); const registration = await registerShadowDeployment(w.client, w.d, w.p); await collect(w);
+  await w.client.workflowPolicy("policy-put", "require-shadow-risk", { definition: { id: "require-shadow-risk", effect: "refuse", subject: { types: ["Decision"], operations: ["create"] }, rule: { kind: "require_fields", fields: ["risk"] } } });
+  await w.client.workflowPolicy("policy-mode", "refuse");
+  await assert.rejects(observeShadow(w.client, "rl-candidate", input()), /risk|required/);
+  await assert.rejects(w.client.get(`${registration.id}-${hashJson("event-0")}`));
+});
+
+test("aggregate charges and comparison digests cannot override validated individual evidence", async () => {
+  for (const [patch, version, field] of [
+    [{ charged: { active_calls: 9, candidate_calls: 10 } }, undefined, "charged.active_calls"],
+    [{ charged: { active_calls: 10, candidate_calls: 9 } }, undefined, "charged.candidate_calls"],
+    [{ disagreements: 0 }, undefined, "comparison"],
+    [{}, "wrong", "affected_version"],
+  ] as const) {
+    const w = await workspace(); const registered = await registerShadowDeployment(w.client, w.d, w.p); await collect(w);
+    const p = (await readEvaluationPlan(w.client, "rl-candidate"))!.plan;
+    await originalCohort(w, p, {}, patch, version);
+    await assert.rejects(enforceEvaluationPlan(w.client, "rl-candidate", score(p)), fieldRefusal(field.startsWith("charged") ? "shadow_budget" : "shadow_drift", `${registered.id}-comparison`, field));
+  }
+});
+
+test("manifest identity checksum and post-registration cohort edits retain field-specific refusals", async () => {
+  const mismatched = await workspace({ ...deployment(), incumbent: "rl-other" });
+  await assert.rejects(registerShadowDeployment(mismatched.client, mismatched.d, mismatched.p), fieldRefusal("shadow_consent", "rl-candidate-evaluation-plan-shadow", "incumbent"));
+  const wrongVersion = await workspace(); const p = await registerEvaluationPlan(wrongVersion.client, { ...wrongVersion.p, shadow: hashJson(wrongVersion.d as unknown as JsonValue) });
+  const receipt = `${p.id}-shadow`; await originalDecision(wrongVersion.client, receipt, wrongVersion.d as unknown as JsonValue, "wrong");
+  await assert.rejects(compareShadow(wrongVersion.client, "rl-candidate"), fieldRefusal("shadow_drift", receipt, "affected_version"));
+  const edited = await workspace(); const registered = await registerShadowDeployment(edited.client, edited.d, edited.p);
+  await edited.client.update(registered.id, { body: canonicalJson({ ...edited.d, inputs: { ...edited.d.inputs, extra: shadowInputDigest("event") } } as unknown as JsonValue) });
+  await assert.rejects(compareShadow(edited.client, "rl-candidate"), fieldRefusal("shadow_drift", registered.id, "body"));
 });
