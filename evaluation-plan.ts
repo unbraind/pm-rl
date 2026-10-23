@@ -231,6 +231,7 @@ export async function enforceEvaluationPlan(client: PmClient, candidate: string,
   if (registered === null) {
     const item = await optionalItem(client, candidate);
     if (item !== null && item.type === "Generation" && extractGenerationSpec(String(item.body), "Candidate generation").evaluation_plan !== undefined) refuse("eval_plan_missing");
+    await enforceShadowComparison(client, candidate, null);
     return;
   }
   await verifiedCandidate(client, candidate, registered);

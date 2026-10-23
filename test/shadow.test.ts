@@ -202,3 +202,21 @@ test("a forged original aggregate receipt cannot authorize valid individual obse
   await w.client.create({ id: `${registered.id}-comparison`, title: "Unvalidated aggregate", type: "Decision", body: "{}", affectedVersion: hashJson({}) });
   await assert.rejects(enforceEvaluationPlan(w.client, "rl-candidate", score((await readEvaluationPlan(w.client, "rl-candidate"))!.plan)), refusal("shadow_drift"));
 });
+
+test("online incumbent lineage cannot bypass shadow observation through an unreserved or offline-only child", async () => {
+  const w = await workspace();
+  await w.client.create({ id: "rl-collection", title: "Unreserved collection", type: "Run", environment: "train-env" });
+  await addGeneration(w.client, "rl-unreserved", { ...spec(w.d.candidate, "rl-seed"), training_config: {} });
+  await assert.rejects(enforceEvaluationPlan(w.client, "rl-unreserved", score(w.p)), refusal("shadow_missing"));
+  await addGeneration(w.client, "rl-bound", spec(w.d.candidate, "rl-seed"));
+  await assert.rejects(enforceEvaluationPlan(w.client, "rl-bound", score(w.p)), refusal("shadow_missing"));
+  const planned = await workspace(); const reserved = await registerEvaluationPlan(planned.client, planned.p); await collect(planned);
+  await recordPlanEvaluation(planned.client, "rl-candidate", planned.p.members.map((m) => ({ id: m.id, candidate: 1, incumbent: 0 })));
+  await assert.rejects(enforceEvaluationPlan(planned.client, "rl-candidate", score(reserved.plan)), refusal("shadow_missing"));
+  await addGeneration(w.client, "rl-offline-seed", { ...spec(w.d.active), training_config: null });
+  await addGeneration(w.client, "rl-offline-child", { ...spec(w.d.candidate, "rl-offline-seed"), training_config: [] });
+  await enforceEvaluationPlan(w.client, "rl-offline-child", score(w.p));
+  await enforceShadowComparison(w.client, "rl-offline-seed", null);
+  await w.client.create({ id: "rl-not-generation", title: "Offline task", type: "Task" });
+  await enforceShadowComparison(w.client, "rl-not-generation", null);
+});

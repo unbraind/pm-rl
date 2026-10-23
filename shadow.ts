@@ -181,9 +181,23 @@ export async function compareShadow(client: PmClient, candidate: string): Promis
   await seal(client, report.receipt, report as unknown as JsonValue);
   return report;
 }
-/** The existing promotion transaction requires a sealed, validated online comparison for shadow plans. */
-export async function enforceShadowComparison(client: PmClient, candidate: string, plan: EvaluationPlan): Promise<void> {
-  if (plan.shadow === undefined) return;
+/** Recognize the explicit online-policy provenance marker without restricting offline trainer config formats. */
+function onlineBound(value: JsonValue): boolean {
+  return value !== null && typeof value === "object" && !Array.isArray(value) && Object.hasOwn(value, "shadow_policy");
+}
+/** The existing promotion transaction requires online comparisons throughout an online-bound lineage. */
+export async function enforceShadowComparison(client: PmClient, candidate: string, plan: EvaluationPlan | null): Promise<void> {
+  if (plan === null || plan.shadow === undefined) {
+    const item = await optional(client, candidate);
+    if (item === null || item.type !== "Generation") return;
+    const spec = extractGenerationSpec(String(item.body), "Candidate generation");
+    if (onlineBound(spec.training_config)) refuse("shadow_missing");
+    if (spec.parent !== null) {
+      const parent = await readCompleteLoopItem(client, spec.parent);
+      if (onlineBound(extractGenerationSpec(String(parent.item.body), "Incumbent generation").training_config)) refuse("shadow_missing");
+    }
+    return;
+  }
   const receipt = await sealed(client, `${candidate}-evaluation-plan-shadow-comparison`);
   if (receipt === null) refuse("shadow_missing");
   const { report } = await shadowComparison(client, candidate);
