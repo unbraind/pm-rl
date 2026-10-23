@@ -1,0 +1,36 @@
+{
+  "format": "pm-rl/shadow-evidence/1",
+  "source": {
+    "repository": "unbraind/pm-context",
+    "commit": "f55cdbbcf2447dae29df789e133fdbe5521a47b6",
+    "license": "MIT",
+    "tracker_files": 175,
+    "digest_before": "4c7d4eb088fef2a3be91b759d58d3231d79b9bc713b7e2737c8c80906a36c993",
+    "digest_after": "4c7d4eb088fef2a3be91b759d58d3231d79b9bc713b7e2737c8c80906a36c993"
+  },
+  "complete_items": 84,
+  "selected_items": 20,
+  "closed_items": 17,
+  "open_or_other_items": 3,
+  "active_actions_preserved": 20,
+  "observations": 20,
+  "disagreements": 20,
+  "candidate_failures": 0,
+  "reserved_calls": 40,
+  "charged": {
+    "active_calls": 20,
+    "candidate_calls": 20
+  },
+  "independent_units": 1,
+  "active_mean": 0.15000000000000002,
+  "candidate_mean": 0.8499999999999999,
+  "promotion_refusal": "eval_plan_refused",
+  "promotion_performed": false,
+  "non_git": true,
+  "git_absent_from_path": true,
+  "output_bytes": {
+    "observation_json": 548,
+    "comparison_json": 1278,
+    "comparison_toon": 1127
+  }
+}

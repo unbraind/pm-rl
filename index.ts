@@ -151,6 +151,7 @@ export {
   type StoredLmGeneration,
 } from "./lm.ts";
 
+export { parseShadowDeployment, shadowInputDigest, registerShadowDeployment, observeShadow, compareShadow, type ShadowPolicy, type ShadowDeployment, type ShadowInput, type ShadowObservation, type ShadowReport, type ShadowRefusal } from "./shadow.ts";
 export { parseEvaluationPlan, evaluationPlanId, evaluationComparison, registerEvaluationPlan, readEvaluationPlan, evaluatePlan, recordPlanEvaluation, enforceEvaluationPlan, type EvaluationPlan, type EvaluationMember, type EvaluationObservation, type EvaluationPlanReport, type RegisteredEvaluationPlan, type EvaluationPlanRefusal } from "./evaluation-plan.ts";
 
 export { decidePromotion, hoeffdingEpsilon, parsePromotionCriterion, parsePromotionEvidence, type PromotionCriterion, type PromotionDecision, type PromotionEvidence, type PromotionGateInput } from "./promotion.ts";
@@ -209,6 +210,7 @@ import { PmClient, type GetResult, type ItemMetadata } from "@unbrained/pm-cli/s
 import { acquireLock, certifyCompleteListResult, createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError, normalizeItemId, type PmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 
 import { parseJsonRecord } from "./refuse.ts";
+import { registerShadowDeployment, observeShadow, compareShadow } from "./shadow.ts";
 import { registerEvaluationPlan, readEvaluationPlan, recordPlanEvaluation, enforceEvaluationPlan } from "./evaluation-plan.ts";
 import { buildTrackerLoopCorpus } from "./corpus.ts";
 import { decodeCheckpointArtifacts, encodeCheckpointArtifacts, collectCheckpointArtifacts, inspectCheckpointArtifact } from "./checkpoint-artifacts.ts";
@@ -5019,6 +5021,25 @@ export const RL_COMMANDS = [
     { long: "--file", value_name: "path", value_type: "string", required: true, description: "Benchmark JSON file." },
     { long: "--contaminated-by", value_name: "environment-ids", value_type: "string", description: "Comma-separated environment versions whose training data overlaps the suite." },
   ], run: registerBenchmark }),
+  defineCommand({ name: "rl shadow register", description: "Reserve consented online observation and both-arm budgets before candidate collection.", flags: [
+    { long: "--file", value_name: "path", value_type: "string", required: true, description: "JSON with deployment and predeclared plan." },
+  ], run: async (context) => {
+    const value = jsonObject(readJsonFile(stringOption(context, "file")!, "Shadow deployment"), "Shadow deployment");
+    const report = await registerShadowDeployment(clientFor(context), value.deployment, value.plan);
+    return { action: "rl-shadow-register", id: report.id, details: { ...report } };
+  } }),
+  defineCommand({ name: "rl shadow observe", description: "Record one active and candidate decision; a failed candidate never replaces the active action.", arguments: [{ name: "candidate", required: true, description: "Candidate generation id." }], flags: [
+    { long: "--file", value_name: "path", value_type: "string", required: true, description: "One consented input and bounded observed rewards JSON." },
+  ], run: async (context) => {
+    const client = clientFor(context); const item = await getTypedItem(client, requiredArgument(context, "a candidate id"), "Generation");
+    const report = await observeShadow(client, String(item.item.id), readJsonFile(stringOption(context, "file")!, "Shadow input"));
+    return { action: "rl-shadow-observe", id: report.id, details: { ...report } };
+  } }),
+  defineCommand({ name: "rl shadow compare", description: "Seal the validated shadow outcome comparison required by existing generation promotion.", arguments: [{ name: "candidate", required: true, description: "Candidate generation id." }], run: async (context) => {
+    const client = clientFor(context); const item = await getTypedItem(client, requiredArgument(context, "a candidate id"), "Generation");
+    const report = await compareShadow(client, String(item.item.id));
+    return { action: "rl-shadow-compare", id: report.receipt, details: { ...report } };
+  } }),
   defineCommand({ name: "rl eval plan register", description: "Predeclare a fixed cohort and correlation units before candidate collection.", flags: [
     { long: "--file", value_name: "path", value_type: "string", required: true, description: "Evaluation plan JSON." },
   ], run: async (context) => {
