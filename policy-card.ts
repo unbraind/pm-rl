@@ -3,6 +3,7 @@ import type { GetResult, PmClient } from "@unbrained/pm-cli/sdk/core";
 import { createPmCliExpectedError, EXIT_CODE, normalizeItemId } from "@unbrained/pm-cli/sdk/runtime";
 import { canonicalJson, createOrReadIdentical, hashJson, extractGenerationSpec, generationProvenance, readCompleteLoopItem, type JsonValue } from "./index.ts";
 import { optionalItem, enforceEvaluationPlan } from "./evaluation-plan.ts";
+import { rethrowOperationalRead } from "./refuse.ts";
 
 /** Stable agent-facing refusal reasons; messages and context include a concrete remedy. */
 export type PolicyCardRefusal = "card_missing_provenance" | "card_invalid" | "card_drift" | "card_limit" | "card_not_adoptable";
@@ -13,7 +14,8 @@ export interface PolicyCard {
   readonly format: "pm-rl/policy-card/1";
   readonly subject: string;
   readonly selection: number | null;
-  readonly policy_digest: string;
+  readonly policy_digest: string | null;
+  readonly proposal_digest: string;
   readonly evaluation: Readonly<Record<string, number | string>>;
   readonly outcome: "seed" | "candidate" | "promoted" | "refused" | "recorded";
   readonly training_scope: { readonly digest: string; readonly collection_runs: number; readonly environment: string; readonly reward: string };
@@ -59,7 +61,10 @@ async function snapshot(client: PmClient, id: string, at?: string): Promise<{ it
     const historical = (await readCompleteLoopItem(client, id, timestamp, SNAPSHOT_FIELDS)).item;
     if (hashJson(domain(current)) !== hashJson(domain(historical))) refuse("card_drift");
     return { item: historical, citation: { id: identity(historical.id), at: timestamp, digest: hashJson(domain(historical)) } };
-  } catch { return refuse("card_missing_provenance"); }
+  } catch (error) {
+    rethrowOperationalRead(error);
+    return refuse("card_missing_provenance");
+  }
 }
 /** Collect only named numeric allowances; examples, parameters and arbitrary strings are never copied. */
 function limits(value: unknown, result: Record<string, number> = {}): Record<string, number> {
@@ -115,14 +120,51 @@ function evaluation(value: unknown): Record<string, number | string> {
   }
   return result;
 }
+/** Locate a declared content-addressed policy, excluding evaluation diagnostics and proposal-only recipe hashes. */
+function artifactIdentity(value: unknown, configuration: unknown = null): JsonValue | null {
+  if (typeof value === "string") return /^sha256:[a-f0-9]{64}$/.test(value) ? { artifact: value, configuration: configuration as JsonValue } : null;
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  const config = row.recipe ?? row.config ?? row.training_config ?? configuration;
+  for (const key of ["checkpoint", "candidate", "successor", "policy", "retained", "incumbent", "digest"]) {
+    const found = artifactIdentity(row[key], config);
+    if (found !== null) return found;
+  }
+  return null;
+}
 /** Assemble the same whitelist for export and replay, rejecting oversized cards instead of truncating citations. */
 function assemble(subject: string, item: GetResult["item"], evidence: readonly PolicyCardEvidence[], extraLimits: Readonly<Record<string, number>>, selection: number | null): PolicyCard {
   const parsed = source(item);
-  const body = { format: "pm-rl/policy-card/1" as const, subject, selection, policy_digest: hashJson(proposal(item, selection) as JsonValue), evaluation: evaluation(parsed.value), outcome: parsed.outcome, training_scope: parsed.scope, allowed_actions: ["inspect", "evaluate"] as const,
+  const selected = proposal(item, selection);
+  const policy = item.type === "Generation" ? extractGenerationSpec(String(item.body), "Policy identity") : null;
+  const policyIdentity = policy === null ? selection === null ? artifactIdentity(selected) : null
+    : [policy.base_checkpoint, policy.policy].filter(Boolean).every((reference) => /^sha256:[a-f0-9]{64}$/.test(reference)) ? { checkpoint: policy.base_checkpoint, policy: policy.policy, configuration: policy.training_config } : null;
+  const body = { format: "pm-rl/policy-card/1" as const, subject, selection, policy_digest: policyIdentity === null ? null : hashJson(policyIdentity), proposal_digest: hashJson(selected as JsonValue), evaluation: evaluation(parsed.value), outcome: parsed.outcome, training_scope: parsed.scope, allowed_actions: ["inspect", "evaluate"] as const,
     known_regressions: parsed.regressions, resource_limits: { ...limits(parsed.value), ...extraLimits }, evidence };
   const card = { ...body, digest: hashJson(body as unknown as JsonValue) };
   if (Buffer.byteLength(canonicalJson(card as unknown as JsonValue)) > POLICY_CARD_MAX_BYTES) refuse("card_limit");
   return card;
+}
+/** Verify retained explanations and their live evidence at every canonical ancestor through the seed. */
+async function verifyCardAncestry(client: PmClient, leaf: string): Promise<void> {
+  const visited = new Set<string>();
+  let current: string | null = leaf;
+  while (current !== null) {
+    const fresh = await exportPolicyCard(client, current);
+    if (visited.has(fresh.subject)) refuse("card_missing_provenance");
+    visited.add(fresh.subject);
+    if (fresh.policy_digest === null) refuse("card_missing_provenance");
+    const retained = await snapshot(client, `policy-card-${fresh.digest}`);
+    if (retained.item.type !== "Decision" || retained.item.affected_version !== fresh.digest || retained.item.body !== canonicalJson(fresh as unknown as JsonValue)) refuse("card_drift");
+    await replayPolicyCard(client, JSON.parse(String(retained.item.body)));
+    const generation = (await snapshot(client, fresh.subject)).item;
+    const spec = extractGenerationSpec(String(generation.body), "Policy ancestry");
+    if (!spec.seed) {
+      if (!spec.promoted) refuse("card_missing_provenance");
+      await enforceEvaluationPlan(client, fresh.subject, spec.held_out_score!);
+    }
+    current = spec.parent;
+  }
 }
 /** Extract numeric limits from JSON or a package JSON fence, never free text. */
 function bodyLimits(item: GetResult["item"]): Record<string, number> {
@@ -195,6 +237,7 @@ export async function adoptPolicyCard(client: PmClient, value: unknown): Promise
     await enforceEvaluationPlan(client, card.subject, spec.held_out_score);
   }
   if (card.outcome !== "promoted" || card.known_regressions.length > 0 || item.type !== "Generation" || Object.keys(card.resource_limits).length === 0) refuse("card_not_adoptable");
+  await verifyCardAncestry(client, card.subject);
   return card;
 }
 /** Retain immutable outcome cards with the candidate; retries verify the winner rather than overwriting it. */

@@ -210,7 +210,7 @@ import { commitWorkspaceTransaction, type CommitWorkspaceTransactionOptions, typ
 import { PmClient, type GetResult, type ItemMetadata } from "@unbrained/pm-cli/sdk/core";
 import { acquireLock, certifyCompleteListResult, createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError, normalizeItemId, type PmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 
-import { parseJsonRecord } from "./refuse.ts";
+import { parseJsonRecord, rethrowOperationalRead, retryProvenanceRead, isProvenanceReadFailure } from "./refuse.ts";
 import { exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordRecursivePolicyCards, recordPolicyCard } from "./policy-card.ts";
 import { registerShadowDeployment, observeShadow, compareShadow } from "./shadow.ts";
 import { registerEvaluationPlan, readEvaluationPlan, recordPlanEvaluation, enforceEvaluationPlan } from "./evaluation-plan.ts";
@@ -747,7 +747,7 @@ export function idSegment(value: string): string {
 
 /** Read complete current or verified historical domain evidence without an output ceiling. */
 export async function readCompleteLoopItem(client: PmClient, id: string, at?: string, fields?: string): Promise<GetResult> {
-  const result = await client.get(id, { ...(fields === undefined ? { depth: "standard" } : { fields }), outputLimit: "unbounded", outputBudget: "unbounded", ...(at === undefined ? {} : { at }) });
+  const result = await client.get(id, { ...(fields === undefined ? { depth: "standard" } : { fields }), outputLimit: "unbounded", outputBudget: "unbounded", ...(at === undefined ? {} : { at }) }).catch((error: unknown) => { rethrowOperationalRead(error); if (!isProvenanceReadFailure(error)) retryProvenanceRead(); throw error; });
   if (!("item" in result) || "output_budget_exceeded" in result) {
     fail(`Item ${id} was omitted despite an unbounded read request.`, "loop_history_incomplete", EXIT_CODE.CONFLICT);
   }
@@ -1929,6 +1929,7 @@ async function buildAncestry(client: PmClient, headId: string, strict: boolean):
       try {
         run = await getTypedItem(client, runId, "Run");
       } catch (error) {
+        rethrowOperationalRead(error);
         if (strict) {
           fail(`Promotion refused: collection run ${runId} of generation ${currentId} could not be resolved, so the contamination graph is unreadable. ${String(error)}`, "provenance_unreadable", EXIT_CODE.CONFLICT);
         }
@@ -2017,7 +2018,7 @@ export async function promotedGenerationIdsUnderApproval(client: PmClient, appro
       let identity = identities.get(spec.approval);
       if (identity === undefined) {
         try { identity = (await readApprovalSpec(client, spec.approval)).id; }
-        catch (error) { fail(`Promotion refused: generation ${item.id} has an unreadable approval (${String(error)}), so the approved budget cannot be established.`, "budget_undecidable", EXIT_CODE.CONFLICT); }
+        catch (error) { rethrowOperationalRead(error); fail(`Promotion refused: generation ${item.id} has an unreadable approval (${String(error)}), so the approved budget cannot be established.`, "budget_undecidable", EXIT_CODE.CONFLICT); }
         identities.set(spec.approval, identity);
       }
       if (identity === canonical) promoted.push(item.id);
@@ -3730,6 +3731,12 @@ async function reconcileLoopPromotion(client: PmClient, lease: ControllerLease, 
   });
 }
 
+/** Only established policy/permission verdicts may permanently stop promotion; IO and coordinator errors propagate. */
+function terminalPromotionRefusal(error: PmCliExpectedError): boolean {
+  const code = String(error.context.code);
+  return ["contamination_refused", "lineage_cycle", "provenance_unreadable", "budget_exceeded", "budget_undecidable", "already_promoted", "wrong_item_type", "approval_missing_spec", "card_missing_provenance", "card_invalid", "card_drift", "eval_plan_invalid", "eval_plan_drift", "eval_plan_late", "eval_plan_missing", "eval_plan_evidence", "eval_plan_stopping", "eval_plan_refused", "shadow_invalid", "shadow_consent", "shadow_budget", "shadow_drift", "shadow_missing", "shadow_incomplete", "shadow_failed"].includes(code);
+}
+
 /** Preserve final rejection evidence through the SDK's atomic, author-scoped append-once contract. */
 async function recordRefusedPolicyCard(client: PmClient, id: string, reason: string | null): Promise<void> {
   await client.notes(id, { add: `pm-rl/policy-evaluation/1 ${JSON.stringify({ decision: "refuse", reason_digest: hashJson(reason) })}`, ifAbsent: true });
@@ -3974,6 +3981,7 @@ async function executePendingGeneration(client: PmClient, coordinates: Workspace
           parseScoreRecord(scores.proxy_score, "proxy_score"), parseScoreRecord(scores.held_out_score, "held_out_score"),
           `loop ${request.id} generation ${generation}: held-out mean improved from ${receipt.incumbentHeldOutMean.toFixed(4)} to ${receipt.candidateHeldOutMean.toFixed(4)} over ${chain.step.evaluationSamples} episodes at confidence ${schedule.confidence}`);
       } catch (error) {
+        rethrowOperationalRead(error);
         promotionError = error;
         throw error;
       }
@@ -3982,7 +3990,7 @@ async function executePendingGeneration(client: PmClient, coordinates: Workspace
     });
     promotionExecuted = promotion.executed;
   } catch (error) {
-    if (error !== promotionError || !isPmCliExpectedError(error)) throw error;
+    if (error !== promotionError || !isPmCliExpectedError(error) || !terminalPromotionRefusal(error)) throw error;
     const message = `Loop ${request.id} generation ${generation} promotion refused: ${error.message}`;
     await prepared.lease.guard(async () => {
       await appendCommentOnce(client, generationId, message);

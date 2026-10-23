@@ -2,7 +2,8 @@
   "format": "pm-rl/policy-card/1",
   "subject": "rl-cards-g1",
   "selection": null,
-  "policy_digest": "81a3bf8e89040411554095a077636142556545f07d035a82c8100e24e658f2b3",
+  "policy_digest": "c8f6e065fbda74ce7223bb837744eb1f09e0fa6a931bd38b75038eb6c1fcd0df",
+  "proposal_digest": "81a3bf8e89040411554095a077636142556545f07d035a82c8100e24e658f2b3",
   "evaluation": {
     "samples": 256,
     "incumbent_held_out_mean": 0.499825,
@@ -30,29 +31,29 @@
   "evidence": [
     {
       "id": "rl-cards-g1",
-      "at": "2026-10-23T16:27:57.195Z",
+      "at": "2026-10-23T18:16:10.789Z",
       "digest": "c580a5fb6112a3c2efc8477c3adec17a1912544fb82fa05af60bb77b6051f483"
     },
     {
       "id": "rl-approval",
-      "at": "2026-10-23T16:27:45.830Z",
+      "at": "2026-10-23T18:15:58.884Z",
       "digest": "039aaa488232a9f8496f1530ada480dd22e91a55b4ecfdeb428f434f823a306e"
     },
     {
       "id": "rl-cards-g1-collect",
-      "at": "2026-10-23T16:27:51.566Z",
+      "at": "2026-10-23T18:16:03.958Z",
       "digest": "d60e529bdf57d674317a5452f05beb2ee41086c1e1baa7902a8659b9aa756d67"
     },
     {
       "id": "rl-cards-seed",
-      "at": "2026-10-23T16:27:49.428Z",
+      "at": "2026-10-23T18:16:01.446Z",
       "digest": "f6f9539dbdbb3ae11de1374b402c097bdc72150e5993653d0e83fdcd08654c24"
     },
     {
       "id": "rl-env-tracker-snapshot-closed-stat-e45e6205eddf35edc2167d253a2e-ea844b709ab2",
-      "at": "2026-10-23T16:27:48.975Z",
+      "at": "2026-10-23T18:16:01.018Z",
       "digest": "df6cb73ee3657479bd478152956ad7d2eb163b0ec59b5f27bb9ffee3ddd240df"
     }
   ],
-  "digest": "abfaca88c976ce19dbb0b7cac053b605073ede49ed84088f63065c378953f1fc"
+  "digest": "be7381ff17c4d9c8236470677eca2eec1ff77d22b2db2af4505cb85997c9341f"
 }

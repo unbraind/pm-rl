@@ -10,7 +10,24 @@
  * fail-closed discipline is written once instead of drifting per file.
  */
 
-import { createPmCliExpectedError, EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
+import { createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError, type PmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
+
+/** Keep unclassified IO failures retryable; only SDK-certified domain errors establish invalid provenance. */
+export function rethrowOperationalRead(error: unknown): asserts error is PmCliExpectedError {
+  if (!isPmCliExpectedError(error) || /(?:EIO|EAGAIN|EBUSY|ENOENT|TIMEDOUT|TIMEOUT|TIMED_OUT|ABORT_ERR|provenance_read_retryable)/i.test(String(error.context.code))) {
+    retryProvenanceRead();
+  }
+}
+
+/** Only explicit SDK absence or integrity classifications establish a provenance failure. */
+export function isProvenanceReadFailure(error: PmCliExpectedError): boolean {
+  return error.exitCode === EXIT_CODE.NOT_FOUND || ["item_document_invalid", "history_target_out_of_range", "history_drift", "card_drift"].includes(String(error.context.code));
+}
+
+/** Report an unavailable read without declaring the underlying policy permanently invalid. */
+export function retryProvenanceRead(): never {
+  expectedFail("Provenance read temporarily unavailable. Retry the same operation or resume the programme after storage recovers; no promotion refusal was recorded.", "provenance_read_retryable", EXIT_CODE.CONFLICT);
+}
 
 /**
  * Throw an expected command error with stable machine context.

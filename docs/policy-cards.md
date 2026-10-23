@@ -14,7 +14,7 @@ pm rl policy-card export rl-improver-step-g1-d-t0-proposals --selection 0
 
 The host renders compact TOON by default and JSON with `--json`. Export and replay read trackers without mutations. Each card is capped at 4 KiB and 32 direct evidence citations; overflow refuses rather than hiding citations. Tracker identifiers and timestamps are the only copied source strings. Training configurations, policy parameters, example text, titles, credentials, raw outcomes and free-text diagnostic messages stay in their original stores. Their domain contents contribute SHA-256 digests. Do not treat a hash as anonymization of low-entropy data, or publish the underlying tracker without a separate privacy review.
 
-Each card includes a candidate digest, training-scope digest, collection count, environment and reward digests, permitted explanation actions (`inspect`, `evaluate`), numeric resource declarations, fixed regression categories, bounded numeric evaluation diagnostics and evidence locators. Unknown evaluation remains `evaluation_incomplete`; an unpromoted candidate cannot pass adoption checks. Resource declarations describe the original experiment; another backend must supply its own consent and enforce its own budget.
+Each card includes a proposal digest and a nullable policy digest, training-scope digest, collection count, environment and reward digests, permitted explanation actions (`inspect`, `evaluate`), numeric resource declarations, fixed regression categories, bounded numeric evaluation diagnostics and evidence locators. The policy digest binds the declared content-addressed checkpoint/policy artifact and its configuration. Evaluation notes do not change it. Unfitted proposals and opaque legacy references have `policy_digest: null`; their `proposal_digest` identifies their definition without claiming a learned policy identity. Unknown evaluation remains `evaluation_incomplete`; an unpromoted candidate cannot pass adoption checks. Resource declarations describe the original experiment; another backend must supply its own consent and enforce its own budget.
 
 ## Recursive coverage
 
@@ -39,13 +39,14 @@ await adoptPolicyCard(client, card); // Suitability check; no adoption side effe
 
 | Code | Remedy |
 | --- | --- |
+| `provenance_read_retryable` | Retry the same read or resume after storage recovers. EIO, EAGAIN, EBUSY, concurrent-write ENOENT and timeouts do not create terminal promotion refusals. |
 | `card_missing_provenance` | Restore the original source and every cited history; complete provenance before adoption. |
 | `card_invalid` | Supply an unwrapped card or a valid subject/proposal index. |
 | `card_drift` | Restore the exact evidence or export a new card after the legitimate change. |
 | `card_limit` | Split the experiment into bounded candidates; never remove evidence to fit. |
 | `card_not_adoptable` | Keep the incumbent; complete evaluation, limits and normal promotion gates. |
 
-Replay reconstructs the minimized explanation from certified historical records; rehashing a forged card does not validate its facts. Adoption additionally compares with a fresh export, requires a promoted Generation with complete provenance and explicit numeric limits, and invokes existing causal/shadow enforcement. A missing history, result or source never becomes an empty successful explanation. Historical replay is not a statement that the policy remains suitable today.
+Replay reconstructs the minimized explanation from certified historical records; rehashing a forged card does not validate its facts. Adoption additionally compares with a fresh export, requires a promoted Generation with complete provenance and explicit numeric limits, and walks its complete canonical ancestry back to the root seed. Every generation must retain its current card, declared content-addressed policy identity and all cited evidence; cycles, absent ancestors, absent cards and missing results refuse. Existing causal/shadow enforcement applies to every promoted ancestor. A missing history, result or source never becomes an empty successful explanation. Historical replay is not a statement that the policy remains suitable today.
 
 ## Without git
 

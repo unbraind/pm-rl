@@ -5,9 +5,9 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { after, test } from "node:test";
 import { PmClient, type CloseResult } from "@unbrained/pm-cli/sdk/core";
-import { init, isPmCliExpectedError, type CloseTaskResult, type PmClientCloseActionOptions } from "@unbrained/pm-cli/sdk/runtime";
+import { init, isPmCliExpectedError, createPmCliExpectedError, type CloseTaskResult, type PmClientCloseActionOptions } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import extension, { generationProvenance, hashJson, canonicalJson, runRlLoop, resumeRlLoop, withRlController, type JsonValue, type RlCommandResult } from "../index.ts";
+import extension, { generationProvenance, extractGenerationSpec, hashJson, canonicalJson, runRlLoop, resumeRlLoop, withRlController, type JsonValue, type RlCommandResult } from "../index.ts";
 import { exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordRecursivePolicyCards, recordPolicyCard, POLICY_CARD_MAX_BYTES, type PolicyCard } from "../policy-card.ts";
 import type { GenerationSpec } from "../lineage.ts";
 
@@ -61,6 +61,103 @@ test("minimized cards replay exact evidence, reject forgery and refuse seed adop
   await assert.rejects(replayPolicyCard(w.client, { ...card, evidence: [{ ...card.evidence[0], at: "invalid" }] }), refused("card_missing_provenance"));
   await assert.rejects(replayPolicyCard(w.client, { ...card, subject: "rl-other" }), refused("card_invalid"));
   await assert.rejects(replayPolicyCard(w.client, { ...card, evidence: [card.evidence[0], card.evidence[0]] }), refused("card_invalid"));
+});
+
+/** Create a certified three-generation ancestry with evidence unique to its root. */
+async function ancestryFixture() {
+  const w = await workspace();
+  await w.client.create({ id: "rl-env", type: "Environment", title: "Environment" });
+  await w.client.create({ id: "rl-approval", type: "Decision", title: "Approval" });
+  const score = { objective: "return", objective_version: "1", evaluation_context: "held-out", seed_set: "fixed", direction: "maximize" as const, scale: 1, value: 0.8 };
+  for (let index = 0; index < 3; index += 1) {
+    await w.client.create({ id: `rl-run-${index}`, type: "Run", title: "Collection" });
+    await generation(w.client, spec({ base_checkpoint: `sha256:${hashJson(index - 1)}`, policy: `sha256:${hashJson(index)}`, seed: index === 0, promoted: index > 0,
+      parent: index === 0 ? null : `rl-g${index - 1}`, collection_runs: [`rl-run-${index}`], environment_version: "rl-env", reward_spec_version: "reward",
+      approval: index === 0 ? null : "rl-approval", proxy_score: index === 0 ? null : score, held_out_score: index === 0 ? null : score, gap: index === 0 ? null : 0 }), `rl-g${index}`);
+    await recordPolicyCard(w.client, `rl-g${index}`);
+  }
+  return w;
+}
+
+test("adoption requires every ancestor generation, retained card and cited result through the root", async () => {
+  for (const missing of ["generation", "card", "evidence", "corrupt-card", "card-version", "card-type", "unaddressed", "unpromoted", "cycle"] as const) {
+    const w = await ancestryFixture(); const leaf = await exportPolicyCard(w.client, "rl-g2");
+    assert.equal((await adoptPolicyCard(w.client, leaf)).digest, leaf.digest);
+    const root = await exportPolicyCard(w.client, "rl-g0");
+    let candidate = leaf;
+    if (missing === "corrupt-card") await w.client.update(`policy-card-${root.digest}`, { body: "{}" });
+    else if (missing === "card-version") await w.client.update(`policy-card-${root.digest}`, { affectedVersion: "different" });
+    else if (missing === "card-type") await w.client.update(`policy-card-${root.digest}`, { type: "Task" });
+    else if (["unaddressed", "unpromoted", "cycle"].includes(missing)) {
+      const value = extractGenerationSpec(String((await w.client.get("rl-g1")).item.body), "Fixture generation");
+      const target = missing === "unpromoted" ? "rl-g1" : "rl-g0";
+      const changed = missing === "unpromoted" ? { ...value, promoted: false, approval: null, proxy_score: null, held_out_score: null, gap: null }
+        : missing === "cycle" ? { ...value, parent: "rl-g1" } : spec({ base_checkpoint: "opaque-legacy-reference" });
+      await w.client.update(target, { body: `\`\`\`json\n${JSON.stringify(changed)}\n\`\`\``, affectedVersion: hashJson(generationProvenance(changed)) });
+      await recordPolicyCard(w.client, target); await recordPolicyCard(w.client, "rl-g1"); candidate = await recordPolicyCard(w.client, "rl-g2");
+    } else await w.client.delete(missing === "generation" ? "rl-g0" : missing === "evidence" ? "rl-run-0" : `policy-card-${root.digest}`);
+    await assert.rejects(adoptPolicyCard(w.client, candidate), refused(["corrupt-card", "card-version", "card-type"].includes(missing) ? "card_drift" : "card_missing_provenance"));
+  }
+});
+
+test("policy identity binds checkpoint content and configuration independently of evaluation notes", async () => {
+  const w = await workspace();
+  const first = spec({ base_checkpoint: `sha256:${hashJson({ weights: [0, 1] })}`, policy: `sha256:${hashJson({ weights: [1, 0] })}`, training_config: { samples: 10 } });
+  await generation(w.client, first, "rl-policy-a");
+  await generation(w.client, { ...first, base_checkpoint: `sha256:${hashJson({ weights: [2, 3] })}` }, "rl-checkpoint-b");
+  await generation(w.client, { ...first, policy: `sha256:${hashJson({ weights: [3, 2] })}` }, "rl-policy-b");
+  await generation(w.client, { ...first, training_config: { samples: 20 } }, "rl-config-b");
+  const card = await exportPolicyCard(w.client, "rl-policy-a");
+  assert.ok(card.policy_digest !== null);
+  for (const id of ["rl-checkpoint-b", "rl-policy-b", "rl-config-b"]) assert.notEqual((await exportPolicyCard(w.client, id)).policy_digest, card.policy_digest);
+  await w.client.notes("rl-policy-a", { add: `pm-rl/policy-evaluation/1 ${JSON.stringify({ decision: "promote", reason_digest: hashJson("evaluation") })}` });
+  assert.equal((await exportPolicyCard(w.client, "rl-policy-a")).policy_digest, card.policy_digest);
+  assert.equal((await replayPolicyCard(w.client, card)).card.policy_digest, card.policy_digest);
+  /** Retain a real completed phase result, including its verified result digest. */
+  const phase = async (id: string, result: JsonValue) => w.client.create({ id, type: "Decision", title: "Fit result", body: JSON.stringify({ format: "pm-rl/loop-step/1", state: "complete", input: hashJson("fit"), result, digest: hashJson(result) }) });
+  await phase("rl-fit-a", { checkpoint: first.policy, config: { samples: 10 }, candidate_mean: 0.8 });
+  await phase("rl-fit-b", { checkpoint: `sha256:${hashJson("other-checkpoint")}`, config: { samples: 10 }, candidate_mean: 0.8 });
+  await phase("rl-score-a", { candidate: { checkpoint: first.policy, config: { samples: 10 } }, candidate_mean: 0.1 });
+  assert.notEqual((await exportPolicyCard(w.client, "rl-fit-a")).policy_digest, (await exportPolicyCard(w.client, "rl-fit-b")).policy_digest);
+  assert.equal((await exportPolicyCard(w.client, "rl-fit-a")).policy_digest, (await exportPolicyCard(w.client, "rl-score-a")).policy_digest);
+  await phase("rl-unaddressed-fit", { checkpoint: "opaque-policy-reference", config: { samples: 10 } });
+  assert.equal((await exportPolicyCard(w.client, "rl-unaddressed-fit")).policy_digest, null);
+  await phase("rl-unfitted", { configs: [{ samples: 10 }] });
+  const unfitted = await exportPolicyCard(w.client, "rl-unfitted", 0);
+  assert.equal(unfitted.policy_digest, null); assert.equal(unfitted.proposal_digest, hashJson({ samples: 10 }));
+});
+
+test("operational card reads are typed retryable errors and promotion remains resumable", async () => {
+  const w = await workspace(); const get = w.client.get.bind(w.client);
+  let fault: string | null = null;
+  // Every successful result comes from the real SDK; only native-shaped failures are injected.
+  w.client.get = (async (id, options) => {
+    const result = await get(id, options);
+    if (fault !== null && options?.fields?.includes("notes")) {
+      const code = fault; fault = null;
+      if (code === "storage_timeout") throw createPmCliExpectedError("Storage request timed out", { exitCode: 4, context: { code } });
+      if (code === "unclassified_read") throw createPmCliExpectedError("Storage unavailable", { exitCode: 4, context: { code: "backend_unavailable" } });
+      throw Object.assign(new Error("Temporary storage read failure"), { code });
+    }
+    return result;
+  }) as PmClient["get"];
+  /** Retryable reads must never be rendered as permanent provenance refusals. */
+  const retryable = (error: unknown) => isPmCliExpectedError(error) && error.context.code === "provenance_read_retryable" && /resume.*storage recovers/.test(error.message);
+  await generation(w.client);
+  await w.client.create({ id: "rl-approval", type: "Decision", title: "Promotion", body: '```json\n{"permitted_promotions":1}\n```' });
+  const config = { ...JSON.parse(readFileSync(new URL("../examples/loop-bandit.json", import.meta.url), "utf8")) as Record<string, JsonValue>, max_generations: 1 };
+  const coordinates = { pmRoot: w.pmRoot, author: "card-test" };
+  await assert.rejects(runRlLoop(w.client, coordinates, { id: "read-retry", config, approval: "rl-approval", onPhase(phase) { if (phase === "evaluate") fault = "EIO"; } }), retryable);
+  fault = "EAGAIN";
+  await assert.rejects(resumeRlLoop(w.client, coordinates, { id: "read-retry", approval: "rl-approval" }), retryable);
+  const resumed = await resumeRlLoop(w.client, coordinates, { id: "read-retry", approval: "rl-approval" });
+  assert.equal(resumed.promoted, 1); assert.equal(resumed.stop_reason, "generation_limit");
+  const generationItem = (await get("rl-read-retry-g1", { depth: "standard" })).item;
+  assert.ok(!generationItem.notes?.some((note) => note.text.includes('"decision":"refuse"')));
+  for (const code of ["EIO", "EAGAIN", "EBUSY", "ENOENT", "ETIMEDOUT", "storage_timeout", "unclassified_read"]) {
+    fault = code; await assert.rejects(exportPolicyCard(w.client, "rl-seed"), retryable);
+    assert.equal((await exportPolicyCard(w.client, "rl-seed")).outcome, "seed");
+  }
 });
 
 test("certified old explanations survive later edits while adoption rejects stale or missing sources", async () => {

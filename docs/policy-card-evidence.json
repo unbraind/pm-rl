@@ -25,9 +25,9 @@
         "candidate"
       ],
       "evidence_results": 5,
-      "card_digest": "abfaca88c976ce19dbb0b7cac053b605073ede49ed84088f63065c378953f1fc",
-      "json_bytes": 2085,
-      "toon_bytes": 1547,
+      "card_digest": "be7381ff17c4d9c8236470677eca2eec1ff77d22b2db2af4505cb85997c9341f",
+      "json_bytes": 2176,
+      "toon_bytes": 1633,
       "missing_provenance": "card_missing_provenance"
     },
     {
@@ -40,9 +40,9 @@
         "candidate"
       ],
       "evidence_results": 5,
-      "card_digest": "d23354d9d9092c4ba1f73788fbecad51684d3d6198c447eee6433c457a165c87",
-      "json_bytes": 2082,
-      "toon_bytes": 1544,
+      "card_digest": "b0a30b64d2a3618465978d307a800de641c3b08c224ec91ac4f538e14ed88258",
+      "json_bytes": 2173,
+      "toon_bytes": 1630,
       "missing_provenance": "card_missing_provenance"
     }
   ],
@@ -57,7 +57,7 @@
   "cited_results_replayed": 19,
   "samples_consumed": 512,
   "stop_reason": "generation_limit",
-  "elapsed_ms": 74874.542071,
+  "elapsed_ms": 73839.93022899999,
   "programme_digest": "92f502a18f0ca613cba0b25bc064208eb3fdc4344b23cad6625ec71c41811732",
   "no_git": true,
   "git_absent_from_path": true,
