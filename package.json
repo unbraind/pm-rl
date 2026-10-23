@@ -69,7 +69,10 @@
     "docs/evaluation-plan-evidence.json",
     "dist/shadow.*",
     "docs/shadow-policy.md",
-    "docs/shadow-evidence.json"
+    "docs/shadow-evidence.json",
+    "dist/policy-card.*",
+    "docs/policy-cards.md",
+    "docs/policy-card-evidence.json"
   ],
   "engines": {
     "node": ">=22.18.0"
@@ -145,7 +148,8 @@
       "test/improver.test.ts",
       "test/corpus.test.ts",
       "test/evaluation-plan.test.ts",
-      "test/shadow.test.ts"
+      "test/shadow.test.ts",
+      "test/policy-card.test.ts"
     ],
     "thresholds": {
       "statements": 100,
@@ -241,7 +245,8 @@
       "docs/tracker-loop-evidence.json",
       "docs/evaluation-plan-evidence.json",
       "docs/shadow-policy.md",
-      "docs/shadow-evidence.json"
+      "docs/shadow-evidence.json",
+      "docs/policy-cards.md"
     ],
     "examples": [
       "README.md",
@@ -256,7 +261,8 @@
       "examples/loop-corpus.json",
       "examples/evaluation-plan.json",
       "examples/evaluation-observations.json",
-      "examples/shadow-policy.json"
+      "examples/shadow-policy.json",
+      "examples/policy-card.json"
     ]
   }
 }

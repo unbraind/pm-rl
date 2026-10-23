@@ -1,0 +1,36 @@
+id: pm-rl-policycards
+title: Explain learned policy suitability with portable replayable cards
+description: "Export minimized policy suitability, scope, action limits, regressions and evidence digests across agent backends; automatically retain explanations throughout recursive candidate and promotion paths."
+type: Feature
+status: in_progress
+priority: 2
+tags: []
+created_at: "2026-10-23T14:29:56.651Z"
+updated_at: "2026-10-23T14:56:48.575Z"
+assignee: codex-agent
+claim_principal: codex-agent
+author: codex-agent
+acceptance_criteria: Missing provenance blocks adoption; replay identifies every cited result; export contains no training examples or credentials; typed SDK and compact TOON/JSON CLI; every recursive candidate and promotion has a card; read-only public tracker validation demonstrates at least two generations; npm and Bun CI release gates pass at unchanged thresholds.
+parent: pm-rl-apvf
+comments[3]{created_at,author,text}:
+  "2026-10-23T14:31:01.471Z",codex-agent,"Overlap check: current host CLI is 2026.10.23; package SDK remains pinned at 2026.10.20. Inspected CLI command ownership and pm-context context-pack explanations: neither exports learned-policy suitability. Existing pm-rl checkpoint artifacts retain executable state; generation provenance, causal plans, shadow comparisons and recursive improver receipts own the evidence. Cards will reuse SDK complete inventory, certified history reads and content-addressed package hashes. No dependency bump, trainer replacement or context assembler. Plan: minimized digest-only cards, replay/adoption refusals, automatic recursive candidate/outcome publication, non-Git public-copy validation for two generations, targeted local checks and full npm/Bun CI gates."
+  "2026-10-23T14:43:18.298Z",codex-agent,"Implemented typed export/replay/adoption-check SDK and CLI, bounded digest-only projection, exact timestamped history citations and retained candidate/promotion cards. Recursive durable phases now retain outcome cards plus one card per proposed configuration/recipe. Local typecheck, lint, duplication and docstring checks passed before the last small additions; targeted regression work is ongoing. Verified the selected pm-ops commit is publicly accessible and MIT licensed; prepared a read-only non-Git copy for two-generation numerical-policy acceptance. Full release gates will run in CI because the shared host is saturated."
+  "2026-10-23T14:54:41.570Z",codex-agent,"Behavioral revert proof: disabled only recordRecursivePolicyCards publication; the durable recursive-phase regression failed with 0 retained cards versus 6 required. Restored implementation; targeted suite passed 8/8 with no skips, new module 100% lines/functions and 98.35% branches before final branch cases. The first real-data run passed two promotions, 5 retained cards, 19 replayed citations, 105 training plus 41 held-out items and unchanged 300-file source digest. Compact output measured 2082-2085 JSON bytes and 1544-1547 TOON bytes. Final packed rerun and CI gates pending."
+files[9]{path,scope}:
+  index.ts,project
+  manifest.json,project
+  package.json,project
+  policy-card.ts,project
+  test/improver.test.ts,project
+  test/loop.test.ts,project
+  test/policy-card.acceptance.ts,project
+  test/policy-card.test.ts,project
+  test/shadow.test.ts,project
+tests[1]{command,scope,timeout_seconds,pm_context_mode,workspace_context_mode,provenance{author,created_at,source_kind,source_ref}}:
+  node --test test/policy-card.test.ts,project,600,none,snapshot,codex-agent,"2026-10-23T14:50:55.239Z",local_mutation,feat/policy-cards
+docs[4]{path,scope}:
+  docs/policy-card-evidence.json,project
+  docs/policy-cards.md,project
+  examples/policy-card.json,project
+  README.md,project
+body: ""

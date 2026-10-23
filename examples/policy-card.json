@@ -1,0 +1,58 @@
+{
+  "format": "pm-rl/policy-card/1",
+  "subject": "rl-cards-g1",
+  "selection": null,
+  "policy_digest": "81a3bf8e89040411554095a077636142556545f07d035a82c8100e24e658f2b3",
+  "evaluation": {
+    "samples": 256,
+    "incumbent_held_out_mean": 0.499825,
+    "candidate_held_out_mean": 0.59765,
+    "decision": "promote",
+    "reason_digest": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+  },
+  "outcome": "promoted",
+  "training_scope": {
+    "digest": "81a3bf8e89040411554095a077636142556545f07d035a82c8100e24e658f2b3",
+    "collection_runs": 1,
+    "environment": "0d357a5857f3cf4bf909fc7db385aaa1c8bbb62f13222c280297fff5c9da4444",
+    "reward": "7618d04fc739998b65b6c602cc3ee4cdf6d910aac947dc435d5b59f2e181a815"
+  },
+  "allowed_actions": [
+    "inspect",
+    "evaluate"
+  ],
+  "known_regressions": [],
+  "resource_limits": {
+    "evaluation_samples": 40000,
+    "fit_steps": 8,
+    "samples": 256
+  },
+  "evidence": [
+    {
+      "id": "rl-cards-g1",
+      "at": "2026-10-23T14:54:54.728Z",
+      "digest": "db4b75a7d073e113ec944bdd2d8974160d3c7c71b7f887fb131ed3d70fee383f"
+    },
+    {
+      "id": "rl-approval",
+      "at": "2026-10-23T14:54:46.813Z",
+      "digest": "61349b437a141c800e6b95cfd20527aa49fb56b84f735a8c72cf6b664dd0adf1"
+    },
+    {
+      "id": "rl-cards-g1-collect",
+      "at": "2026-10-23T14:54:50.085Z",
+      "digest": "4de11c7e159dd79e2cb8fa8a4fb5387d885808263879194974adea32c2dcf2bf"
+    },
+    {
+      "id": "rl-cards-seed",
+      "at": "2026-10-23T14:55:11.607Z",
+      "digest": "c6fafbbb8563f86aaf5d3a14a203a798dd4a86cccdff8274e5f95a59cb8dbdd6"
+    },
+    {
+      "id": "rl-env-tracker-snapshot-closed-stat-e45e6205eddf35edc2167d253a2e-ea844b709ab2",
+      "at": "2026-10-23T14:54:48.103Z",
+      "digest": "77190d1254685236b4f95a37354ba418d10caf940a861949dfaa2eebe07b21bd"
+    }
+  ],
+  "digest": "1c88aeb3d8766144028a5cdfff9d88d78d45d32e4c8e18079f27e19f7fea6e18"
+}

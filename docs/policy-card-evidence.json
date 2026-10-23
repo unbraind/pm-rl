@@ -1,0 +1,63 @@
+{
+  "format": "pm-rl/policy-card-evidence/1",
+  "source": {
+    "repository": "unbraind/pm-ops",
+    "commit": "eba7d5262fd75e67afce0caad29dae7dc7dfbaeb",
+    "license": "MIT",
+    "digest": "7a40de59c78bdb15972d3c98078ced3f205d5c8a9c92dc5e6e993c84a5dd3a6f",
+    "files": 300,
+    "digest_after": "7a40de59c78bdb15972d3c98078ced3f205d5c8a9c92dc5e6e993c84a5dd3a6f"
+  },
+  "corpus": {
+    "snapshot": "e45e6205eddf35edc2167d253a2ef1fb5ce2a4c4116557497f1e24da2230b656",
+    "training_items": 105,
+    "held_out_items": 41,
+    "held_out_closed": 36
+  },
+  "generations": [
+    {
+      "generation": 1,
+      "promoted": true,
+      "expected_held_out": 0.59765,
+      "retained_cards": 2,
+      "outcomes": [
+        "promoted",
+        "candidate"
+      ],
+      "evidence_results": 5,
+      "card_digest": "03721e07e53737a5cabf15fe1d848a2a19203ec618275f99675d768598d09bd1",
+      "json_bytes": 2085,
+      "toon_bytes": 1547,
+      "missing_provenance": "card_missing_provenance"
+    },
+    {
+      "generation": 2,
+      "promoted": true,
+      "expected_held_out": 0.685825,
+      "retained_cards": 2,
+      "outcomes": [
+        "promoted",
+        "candidate"
+      ],
+      "evidence_results": 5,
+      "card_digest": "46d2593080df4bd668085047310375976042b50ee7350092bdff5fa87282409e",
+      "json_bytes": 2082,
+      "toon_bytes": 1544,
+      "missing_provenance": "card_missing_provenance"
+    }
+  ],
+  "retained_cards": 5,
+  "cited_results_replayed": 19,
+  "samples_consumed": 512,
+  "stop_reason": "generation_limit",
+  "elapsed_ms": 62770.79117900001,
+  "programme_digest": "92f502a18f0ca613cba0b25bc064208eb3fdc4344b23cad6625ec71c41811732",
+  "no_git": true,
+  "git_absent_from_path": true,
+  "source_unchanged": true,
+  "limits": [
+    "Finite snapshot status recognition; sampled episodes reuse held-out items.",
+    "Two recursive numerical-policy generations do not establish cross-repository generalization or proposer transfer.",
+    "Adoption checks suitability only; backend consent and normal gates remain required."
+  ]
+}

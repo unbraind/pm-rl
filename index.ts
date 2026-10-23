@@ -151,6 +151,7 @@ export {
   type StoredLmGeneration,
 } from "./lm.ts";
 
+export { exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordRecursivePolicyCards, recordPolicyCard, POLICY_CARD_MAX_BYTES, type PolicyCard, type PolicyCardEvidence, type PolicyCardRefusal } from "./policy-card.ts";
 export { parseShadowDeployment, shadowInputDigest, registerShadowDeployment, observeShadow, compareShadow, type ShadowPolicy, type ShadowDeployment, type ShadowInput, type ShadowObservation, type ShadowReport, type ShadowRefusal } from "./shadow.ts";
 export { parseEvaluationPlan, evaluationPlanId, evaluationComparison, registerEvaluationPlan, readEvaluationPlan, evaluatePlan, recordPlanEvaluation, enforceEvaluationPlan, type EvaluationPlan, type EvaluationMember, type EvaluationObservation, type EvaluationPlanReport, type RegisteredEvaluationPlan, type EvaluationPlanRefusal } from "./evaluation-plan.ts";
 
@@ -210,6 +211,7 @@ import { PmClient, type GetResult, type ItemMetadata } from "@unbrained/pm-cli/s
 import { acquireLock, certifyCompleteListResult, createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError, normalizeItemId, type PmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 
 import { parseJsonRecord } from "./refuse.ts";
+import { exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordRecursivePolicyCards, recordPolicyCard } from "./policy-card.ts";
 import { registerShadowDeployment, observeShadow, compareShadow } from "./shadow.ts";
 import { registerEvaluationPlan, readEvaluationPlan, recordPlanEvaluation, enforceEvaluationPlan } from "./evaluation-plan.ts";
 import { buildTrackerLoopCorpus } from "./corpus.ts";
@@ -753,7 +755,7 @@ export async function readCompleteLoopItem(client: PmClient, id: string, at?: st
 }
 
 /** Validate that an existing item has the expected domain type. */
-async function getTypedItem(client: PmClient, id: string, type: "Environment" | "Run" | "Generation" | "Benchmark" | "EvalResult" | "GateEpisode" | "MergeOutcome" | "Sweep" | "Transfer"): Promise<GetResult> {
+async function getTypedItem(client: PmClient, id: string, type: "Decision" | "Environment" | "Run" | "Generation" | "Benchmark" | "EvalResult" | "GateEpisode" | "MergeOutcome" | "Sweep" | "Transfer"): Promise<GetResult> {
   // Benchmarks validate edge roles, which deep presentation reads omit; every
   // other domain type uses the complete, unbounded loop read.
   const result = type === "Benchmark" ? await client.get(id, { full: true }) : await readCompleteLoopItem(client, id);
@@ -818,6 +820,7 @@ async function readCompleteNotes(client: PmClient, id: string): Promise<LogNote[
 
 /**
  * Create an immutable identity or verify the item that won a concurrent create.
+ * @internal
  *
  * Only the SDK's typed already-exists refusal permits recovery. The pinned SDK
  * has no context code for create collisions, so its exact resolved-id message
@@ -830,7 +833,7 @@ async function readCompleteNotes(client: PmClient, id: string): Promise<LogNote[
  * @param matches - Checks the stored content and provenance, not just the id.
  * @returns The created or verified item and whether this caller created it.
  */
-async function createOrReadIdentical(client: PmClient, options: Parameters<PmClient["create"]>[0] & { id: string; type: "Environment" | "Run" | "Generation" }, collisionCode: string, matches: (item: GetResult["item"]) => boolean): Promise<{ item: GetResult["item"]; created: boolean }> {
+export async function createOrReadIdentical(client: PmClient, options: Parameters<PmClient["create"]>[0] & { id: string; type: "Decision" | "Environment" | "Run" | "Generation" }, collisionCode: string, matches: (item: GetResult["item"]) => boolean): Promise<{ item: GetResult["item"]; created: boolean }> {
   /** Read and validate the winner at either the initial read or collision boundary. */
   async function readMatching(): Promise<GetResult["item"]> {
     const existing = await getTypedItem(client, options.id, options.type);
@@ -2234,6 +2237,7 @@ async function registerGenerationCore(client: PmClient, request: GenerationRegis
   const result = await createOrReadIdentical(client, createOptions, "generation_identity_collision", (item) =>
     item.affected_version === specHash && hashJson(generationProvenance(extractGenerationSpec(String(item.body), `Generation ${requestedId}`))) === specHash,
   );
+  await recordPolicyCard(client, String(result.item.id));
   return {
     action: "rl-generation-register",
     id: result.item.id,
@@ -2368,6 +2372,7 @@ interface PromotionOutcome {
  */
 async function promoteGenerationCore(client: PmClient, coordinates: WorkspaceCoordinates, id: string, approvalId: string, proxyScore: ScoreRecord, heldOutScore: ScoreRecord, evidence: string): Promise<PromotionOutcome> {
   const { pmRoot, author } = coordinates;
+  await exportPolicyCard(client, id);
   const ancestry = await buildAncestry(client, id, true);
   const contamination = findContaminationPath(ancestry, heldOutScore.evaluation_context);
   if (contamination !== null) {
@@ -2533,6 +2538,7 @@ async function promoteGenerationCore(client: PmClient, coordinates: WorkspaceCoo
       compensate: revertPromotingWrite,
     }],
   });
+  await recordPolicyCard(client, id);
   return { status: closedStatus, gap, promotedCount, permittedPromotions };
 }
 
@@ -3356,6 +3362,7 @@ export async function withRlController<T>(client: PmClient, coordinates: Workspa
     return await execute(async (key, input, operation) => {
       signal.throwIfAborted();
       const stored = await durableLoopStep(client, lease, id, key, input, async () => await encodeCheckpointArtifacts(coordinates.pmRoot, `step:${id}:${key}`, await operation()) as JsonValue);
+      await recordRecursivePolicyCards(client, `${id}-step-${key}`);
       return decodeCheckpointArtifacts(coordinates.pmRoot, stored.value) as JsonValue;
     });
   } finally {
@@ -3911,11 +3918,14 @@ async function executePendingGeneration(client: PmClient, coordinates: Workspace
     policy: receipt.candidate.digest,
     collectionRuns: [runId!],
     environment: prepared.environmentId,
-    config: programme.trainer === "bandit"
-      ? generationTrainingConfig(programme.config, chain.step, generation, receipt as BanditGeneration)
-      : programme.trainer === "systemone"
-        ? systemOneGenerationTrainingConfig(programme.config, chain.step, receipt as SystemOneGeneration)
-        : lmGenerationTrainingConfig(programme.config, chain.step, receipt as LmGeneration),
+    config: {
+      ...jsonObject(programme.trainer === "bandit"
+        ? generationTrainingConfig(programme.config, chain.step, generation, receipt as BanditGeneration)
+        : programme.trainer === "systemone"
+          ? systemOneGenerationTrainingConfig(programme.config, chain.step, receipt as SystemOneGeneration)
+          : lmGenerationTrainingConfig(programme.config, chain.step, receipt as LmGeneration), "Trainer configuration"),
+      policy_card_evaluation: { decision: receipt.promoted ? "promote" : "refuse", reason_digest: hashJson(receipt.refusalReason) },
+    },
   }));
   const generationId = String(generationRegistration.id);
   if (trainExecuted) await request.onPhase?.("train", generation);
@@ -4984,6 +4994,15 @@ async function showTransferGap(context: CommandHandlerContext): Promise<RlComman
 
 /** Commands authored separately so activation and tests share one exact contract. */
 export const RL_COMMANDS = [
+  defineCommand({ name: "rl policy-card export", description: "Export a minimized policy explanation with replayable evidence digests.", arguments: [{ name: "subject", required: true, description: "Generation or completed recursive-step id." }], flags: [{ long: "--selection", value_name: "index", value_type: "string", description: "Zero-based proposed candidate index for a proposal phase." }], run: async (context) => {
+    const selection = stringOption(context, "selection", false);
+    return { action: "rl-policy-card-export", details: { ...await exportPolicyCard(clientFor(context), requiredArgument(context, "a policy subject"), selection === undefined ? null : Number(selection)) } };
+  } }),
+  defineCommand({ name: "rl policy-card replay", description: "Verify every cited historical result and reconstruct a portable explanation.", flags: [{ long: "--file", value_name: "path", value_type: "string", required: true, description: "Unwrapped policy card JSON." }], run: async (context) => {
+    const result = await replayPolicyCard(clientFor(context), readJsonFile(stringOption(context, "file")!, "Policy card"));
+    return { action: "rl-policy-card-replay", details: { digest: result.card.digest, results: result.results } };
+  } }),
+  defineCommand({ name: "rl policy-card adopt", description: "Check current policy suitability; normal backend consent and promotion gates remain required.", flags: [{ long: "--file", value_name: "path", value_type: "string", required: true, description: "Unwrapped policy card JSON." }], run: async (context) => ({ action: "rl-policy-card-adopt", details: { digest: (await adoptPolicyCard(clientFor(context), readJsonFile(stringOption(context, "file")!, "Policy card"))).digest, suitable: true } }) }),
   defineCommand({ name: "rl corpus build", description: "Seal a read-only tracker snapshot into a Git-independent recursive status-recognition programme.", flags: [
     { long: "--from-tracker", value_name: "directory", value_type: "string", required: true, description: "Explicitly selected local tracker root; never modified." },
     { long: "--file", value_name: "path", value_type: "string", required: true, description: "Bounded loop JSON without environment, training or evaluation fields." },

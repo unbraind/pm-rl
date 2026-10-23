@@ -438,7 +438,10 @@ test("pm rl loop run executes the bounded loop end to end and promotes every gen
     assert.equal(spec.policy, receipts[index].candidate.digest);
     assert.equal(spec.base_checkpoint, receipts[index].source.digest);
     assert.deepEqual(spec.collection_runs, [generation.run]);
-    assert.deepEqual(spec.training_config, generationTrainingConfig(config, steps[index], index + 1, receipts[index]));
+    assert.deepEqual(spec.training_config, {
+      ...generationTrainingConfig(config, steps[index], index + 1, receipts[index]) as Record<string, JsonValue>,
+      policy_card_evaluation: { decision: receipts[index].promoted ? "promote" : "refuse", reason_digest: hashJson(receipts[index].refusalReason) },
+    });
     assert.equal(spec.held_out_score?.value, receipts[index].candidateHeldOutMean);
   }
   // The chain renders through the lineage view from seed to promoted head.
