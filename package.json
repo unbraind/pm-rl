@@ -72,6 +72,7 @@
     "docs/shadow-evidence.json",
     "dist/policy-card.*",
     "docs/policy-cards.md",
+    "docs/policy-card-write-audit.md",
     "docs/policy-card-evidence.json"
   ],
   "engines": {
@@ -246,7 +247,8 @@
       "docs/evaluation-plan-evidence.json",
       "docs/shadow-policy.md",
       "docs/shadow-evidence.json",
-      "docs/policy-cards.md"
+      "docs/policy-cards.md",
+      "docs/policy-card-write-audit.md"
     ],
     "examples": [
       "README.md",

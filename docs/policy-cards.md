@@ -61,3 +61,12 @@ The [example card](../examples/policy-card.json) comes from the validation track
 The public-copy validation script is `test/policy-card.acceptance.ts`; aggregate measurements are in [policy-card-evidence.json](policy-card-evidence.json). It reads a permission-protected public tracker snapshot, trains two recursive generations, verifies retained candidate/promoted cards, exercises packed CLI TOON/JSON/replay/adoption, and checks every source byte remains unchanged. This is finite-snapshot recognition evidence, not a claim of general intelligence or statistically powered proposer transfer.
 
 The measured sampled policy means are 0.59765 and 0.685825; the always-closed majority baseline is 36/41 (0.8780487804878049). The receipt keeps this limitation explicit alongside the successful provenance and lifecycle checks.
+
+
+Registration, recursive receipt publication, rejection notes and batch card publication
+also validate before their associated durable writes. Replay rejects citations outside
+the historical subject's certified dependency graph before collecting resource limits.
+Evaluation and shadow citations must match the subject's pinned comparison lineage.
+The [write-boundary audit](policy-card-write-audit.md) inventories generation, history,
+card, budget, artifact and receipt writes and documents the complete durable-state
+snapshots, including the pinned SDK's derived observation-ledger exception.

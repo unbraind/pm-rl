@@ -6,11 +6,13 @@ status: in_progress
 priority: 2
 tags[1]: "gh:unbraind/pm-rl#100"
 created_at: "2026-10-23T14:29:56.651Z"
-updated_at: "2026-10-23T21:35:07.611Z"
+updated_at: "2026-10-23T22:09:48.387Z"
+assignee: codex-agent
+claim_principal: codex-agent
 author: codex-agent
 acceptance_criteria: Missing provenance blocks adoption; replay identifies every cited result; export contains no training examples or credentials; typed SDK and compact TOON/JSON CLI; every recursive candidate and promotion has a card; read-only public tracker validation demonstrates at least two generations; npm and Bun CI release gates pass at unchanged thresholds.
 parent: pm-rl-apvf
-comments[40]{created_at,author,text}:
+comments[47]{created_at,author,text}:
   "2026-10-23T14:31:01.471Z",codex-agent,"Overlap check: current host CLI is 2026.10.23; package SDK remains pinned at 2026.10.20. Inspected CLI command ownership and pm-context context-pack explanations: neither exports learned-policy suitability. Existing pm-rl checkpoint artifacts retain executable state; generation provenance, causal plans, shadow comparisons and recursive improver receipts own the evidence. Cards will reuse SDK complete inventory, certified history reads and content-addressed package hashes. No dependency bump, trainer replacement or context assembler. Plan: minimized digest-only cards, replay/adoption refusals, automatic recursive candidate/outcome publication, non-Git public-copy validation for two generations, targeted local checks and full npm/Bun CI gates."
   "2026-10-23T14:43:18.298Z",codex-agent,"Implemented typed export/replay/adoption-check SDK and CLI, bounded digest-only projection, exact timestamped history citations and retained candidate/promotion cards. Recursive durable phases now retain outcome cards plus one card per proposed configuration/recipe. Local typecheck, lint, duplication and docstring checks passed before the last small additions; targeted regression work is ongoing. Verified the selected pm-ops commit is publicly accessible and MIT licensed; prepared a read-only non-Git copy for two-generation numerical-policy acceptance. Full release gates will run in CI because the shared host is saturated."
   "2026-10-23T14:54:41.570Z",codex-agent,"Behavioral revert proof: disabled only recordRecursivePolicyCards publication; the durable recursive-phase regression failed with 0 retained cards versus 6 required. Restored implementation; targeted suite passed 8/8 with no skips, new module 100% lines/functions and 98.35% branches before final branch cases. The first real-data run passed two promotions, 5 retained cards, 19 replayed citations, 105 training plus 41 held-out items and unchanged 300-file source digest. Compact output measured 2082-2085 JSON bytes and 1544-1547 TOON bytes. Final packed rerun and CI gates pending."
@@ -51,8 +53,16 @@ comments[40]{created_at,author,text}:
   "2026-10-23T21:05:33.229Z",codex-agent,"Pinned pm test pm-rl-policycards --run --only-last --progress passed both new regressions, 2/2, zero failures/skips/cancellations, in its snapshot workspace with PM context none. Full release gate is running with isolated HOME and global/system Git configuration disabled, Node 26, at the unchanged four 100-percent thresholds. npm ci completed with zero audit vulnerabilities. Typecheck, test typecheck, lint, duplication (zero clones across 51 files), docstrings (378 declarations), and changelog generation/check passed. No CodeRabbit finding was available to reject; no GitHub review thread exists to reply to or resolve."
   "2026-10-23T21:26:57.545Z",codex-agent,"Bun release gate passed in CI run 40024257594 at code head 28ca37cd221267a9ee5d62cb574e57f743f971a4: bun run release:check, Node 26, 763/763 tests, zero failures/skips, all 51 source files at 100 percent statements/lines/branches/functions. Strict tracker health, typecheck/build, lint, zero duplication, 378 documented declarations, publish attestation, identity audit, zero production vulnerabilities, pack dry run and changelog check passed. CodeQL passed in run 40024257587. npm Node 22/26 jobs remain running. Stopped the duplicate local npm gate intentionally after 127 reported passing cases and no reported failure to reduce shared host load; no local full-gate pass is claimed."
   "2026-10-23T21:34:58.134Z",codex-agent,"Complete unchanged release gates passed at code head 28ca37cd221267a9ee5d62cb574e57f743f971a4 in https://github.com/unbraind/pm-rl/actions/runs/40024257594 : npm run release:check on Node 22 and Node 26 and bun run release:check on Node 26 each passed 763/763 tests, zero failures/skips. All 51 source files measured 100 percent statements/lines/branches/functions in each job. Strict tracker health, identity and production audits, lint/duplication/docstrings, build, publish attestation, package dry run and changelog checks passed. CodeQL passed. Both new regressions passed 2/2 through pinned pm test, and both independent behavioural reverts failed 1/1 with ERR_ASSERTION as recorded above. No timeout or failure occurred in these full CI runs; the duplicate local gate was intentionally stopped and is not a full pass. No new review threads appeared. Final follow-up commit contains tracker receipts only; no code change after full CI acceptance. The item remains in progress for orchestrator verification; no merge, release, review reply or thread resolution."
-files[18]{path,scope}:
+  "2026-10-23T21:50:37.110Z",codex-agent,"Third independent review confirmed both blockers: replay accepts unrelated certified citations and registration validates limits after generation/history creation. GraphQL returned zero review threads (no pagination); no CodeRabbit review body exists, and its issue comment records automatic review skipped. Plan: bind historical citations to the certified subject dependency graph, preflight complete cards before durable writes, audit every added write including receipts and budgets, and prove refusal atomicity with complete tracker byte snapshots plus independent behavioural reverts. Earlier fixes remain required. Remote branch is current and contains main; no merge needed."
+  "2026-10-23T21:58:27.907Z",codex-agent,"Write-boundary audit found additional instances: batch card publication could write a shared card before a selected-card collision; outer recursive phase receipts and checkpoint artifacts were persisted before card-limit checks; rejection notes/comments and recovery closes also needed preflight. These now validate before the associated durable write. Promotion retains its authoritative in-lock validation and gains a pre-journal check. Registration defers schema initialization too. Snapshot tests include all durable domain/history/budget/artifact/journal files; the pinned SDK unconditionally appends derived runtime/context-usage.jsonl on ordinary get calls, and active controller locks renew, so only that derived ledger and ephemeral locks are explicitly excluded. This SDK read-side effect is a concrete UX gap; no telemetry setting or SDK dependency changed."
+  "2026-10-23T22:00:09.924Z",codex-agent,"Focused regression run passed 6/6 with zero failures, cancellations or skips: unrelated certified citation forgery, both registration bounds, pre-journal promotion overflow and unchanged approval capacity, batch collision before partial publication, recursive receipt plus checkpoint publication preflight, and rejection-note preflight. Both count and byte-limit registration refusals were retried twice. Every refusal comparison enumerates and compares all durable files, including histories and transaction/artifact receipts, with the two explicitly documented SDK-derived exclusions. The write inventory is docs/policy-card-write-audit.md. Behavioural reverts and full unchanged npm/Bun release gates are next."
+  "2026-10-23T22:03:39.871Z",codex-agent,"Seven isolated function-only revert cases are being exercised on text-only source copies with the same pinned SDK and unchanged regression file: foreign citation validation, registration preflight, pre-journal promotion check, batch collision preflight, receipt intent deferral, artifact pre-publication validation, and rejection-note validation. The first five already fail with ERR_ASSERTION as required. Final self-review also excludes allowances from plans and comparison receipts (they do not declare resource budgets), and rejects extra wrapper fields on the pinned Plan. The initial local npm gate was stopped before its test run to include this final hardening; no full pass is claimed for that superseded run. New baseline gates will run on frozen source."
+  "2026-10-23T22:04:29.499Z",codex-agent,"All seven behavioural reverts failed 1/1 with ERR_ASSERTION, exit 1, while the regression file hash stayed unchanged within each source-only reversion. Cases: foreign-citation allowlist, registration preflight, pre-journal promotion preflight, batch collision preflight, receipt intent deferral, artifact pre-publication callback, rejection-note preflight. Each modified production file was restored in finally. Source-based tests need no dist rebuild; dist is untracked and rebuilt by release gates. Literal full-file equality is separately tracked by pm-rl-readusage because current SDK reads append a derived usage ledger. Full isolated-identity tracker health passed; default HOME health reports a local pm-github host-version skew, without history drift. The pinned pm test metadata update also refuses guarded item-format 2 because the existing peer floor includes older hosts; no pin or history was changed. Runtime context and timeout overrides are being used for the required pm test runner."
+  "2026-10-23T22:07:47.684Z",codex-agent,"Required pinned PM execution passed: pm test pm-rl-policycards --run --only-last --progress --timeout 600 --pm-context none --override-linked-pm-context --workspace-context snapshot --override-linked-workspace-context ran the six-boundary regression command successfully, 6/6 tests with zero failures/skips/cancellations, exit 0, 214.256 seconds. This follows an unrelated default-schema initialization refusal; the explicit supported runtime context override is the successful evidence. TypeScript source and test typechecks passed. The full npm release gate is measuring the frozen source; Bun and Node floor acceptance will also run through the existing CI matrix."
+  "2026-10-23T22:09:48.387Z",codex-agent,"Final hardening proofs complete: node --test --test-name-pattern=\"generation citations\" test/policy-card.test.ts passes 1/1 on restored current source, including foreign candidate/incumbent/comparison/deployment identities, malformed bindings, a rehashed budget-injection attempt in the Plan wrapper, and ignored numeric allowances in comparison evidence. Removing only the Plan-wrapper guard fails 1/1 with ERR_ASSERTION; restoring allowances from non-declaration records independently fails 1/1 with ERR_ASSERTION. Together with the repeated seven write-boundary reverts on the final source, all nine production-only reverts exited 1 as required, with unchanged regression-file hashes and immediate finally restoration. Exact revert commands and behaviors are listed in docs/policy-card-write-audit.md. Full npm/Bun CI is required on the pushed source; local npm gate is still running."
+files[19]{path,scope}:
   .gitattributes,project
+  checkpoint-artifacts.ts,project
   evaluation-plan.ts,project
   index.ts,project
   manifest.json,project
@@ -70,15 +80,98 @@ files[18]{path,scope}:
   test/policy-card.test.ts,project
   test/process.test.ts,project
   test/shadow.test.ts,project
-tests[6]{command,scope,timeout_seconds,pm_context_mode,workspace_context_mode,provenance{author,created_at,source_kind,source_ref}}:
-  node --test test/policy-card.test.ts,project,600,none,snapshot,codex-agent,"2026-10-23T14:50:55.239Z",local_mutation,feat/policy-cards
-  "node --test --test-name-pattern=\"adoption requires every ancestor|policy identity binds|operational card reads\" test/policy-card.test.ts",project,600,none,snapshot,codex-agent,"2026-10-23T18:25:59.761Z",local_mutation,feat/policy-cards
-  node --test test/policy-card.test.ts test/evaluation-plan.test.ts,project,600,none,snapshot,codex-agent,"2026-10-23T19:06:16.913Z",local_mutation,feat/policy-cards
-  "node --test --test-name-pattern=\"adoption requires every ancestor|policy identity binds|operational card reads|unrelated native|transient creation-history\" test/policy-card.test.ts test/evaluation-plan.test.ts",project,600,none,snapshot,codex-agent,"2026-10-23T19:20:25.292Z",local_mutation,feat/policy-cards
-  "node --test --test-name-pattern=\"staging measurement|completion validation refuses\" test/process.test.ts",project,600,none,snapshot,codex-agent,"2026-10-23T20:23:13.836Z",local_mutation,feat/policy-cards
-  "node --test --test-name-pattern=\"policy regressions respect|prospective promoted card overflow\" test/policy-card.test.ts",project,600,none,snapshot,codex-agent,"2026-10-23T21:02:13.190Z",local_mutation,feat/policy-cards
-docs[4]{path,scope}:
+tests[10]:
+  - command: node --test test/policy-card.test.ts
+    scope: project
+    timeout_seconds: 600
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-23T14:50:55.239Z"
+      source_kind: local_mutation
+      source_ref: feat/policy-cards
+  - command: "node --test --test-name-pattern=\"adoption requires every ancestor|policy identity binds|operational card reads\" test/policy-card.test.ts"
+    scope: project
+    timeout_seconds: 600
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-23T18:25:59.761Z"
+      source_kind: local_mutation
+      source_ref: feat/policy-cards
+  - command: node --test test/policy-card.test.ts test/evaluation-plan.test.ts
+    scope: project
+    timeout_seconds: 600
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-23T19:06:16.913Z"
+      source_kind: local_mutation
+      source_ref: feat/policy-cards
+  - command: "node --test --test-name-pattern=\"adoption requires every ancestor|policy identity binds|operational card reads|unrelated native|transient creation-history\" test/policy-card.test.ts test/evaluation-plan.test.ts"
+    scope: project
+    timeout_seconds: 600
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-23T19:20:25.292Z"
+      source_kind: local_mutation
+      source_ref: feat/policy-cards
+  - command: "node --test --test-name-pattern=\"staging measurement|completion validation refuses\" test/process.test.ts"
+    scope: project
+    timeout_seconds: 600
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-23T20:23:13.836Z"
+      source_kind: local_mutation
+      source_ref: feat/policy-cards
+  - command: "node --test --test-name-pattern=\"policy regressions respect|prospective promoted card overflow\" test/policy-card.test.ts"
+    scope: project
+    timeout_seconds: 600
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-23T21:02:13.190Z"
+      source_kind: local_mutation
+      source_ref: feat/policy-cards
+  - command: "node --test --test-name-pattern=\"replay refuses unrelated|registration refuses every|recursive card batch|recursive receipt card limits|prospective rejection|prospective promoted card overflow\" test/policy-card.test.ts"
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-23T22:00:02.818Z"
+      source_kind: local_mutation
+      source_ref: feat/policy-cards
+  - command: "node --test --test-name-pattern=\"generation citations\" test/policy-card.test.ts"
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-23T22:06:04.194Z"
+      source_kind: local_mutation
+      source_ref: feat/policy-cards
+  - command: "env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 npm run release:check"
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-23T22:06:12.271Z"
+      source_kind: local_mutation
+      source_ref: feat/policy-cards
+  - command: "env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 bun run release:check"
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-23T22:06:21.605Z"
+      source_kind: local_mutation
+      source_ref: feat/policy-cards
+docs[5]{path,scope}:
   docs/policy-card-evidence.json,project
+  docs/policy-card-write-audit.md,project
   docs/policy-cards.md,project
   examples/policy-card.json,project
   README.md,project

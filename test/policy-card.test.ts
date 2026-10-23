@@ -1,18 +1,40 @@
 /** Portable explanation regressions exercise real SDK histories in plain-directory trackers. */
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, symlinkSync, readFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, symlinkSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, dirname } from "node:path";
+import { join, dirname, relative } from "node:path";
 import { after, test } from "node:test";
 import { PmClient, type CloseResult } from "@unbrained/pm-cli/sdk/core";
 import { init, isPmCliExpectedError, createPmCliExpectedError, type CloseTaskResult, type PmClientCloseActionOptions } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import extension, { generationProvenance, extractGenerationSpec, hashJson, canonicalJson, readCompleteLoopItem, runRlLoop, resumeRlLoop, withRlController, type JsonValue, type RlCommandResult } from "../index.ts";
-import { exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordRecursivePolicyCards, recordPolicyCard, POLICY_CARD_MAX_BYTES, type PolicyCard } from "../policy-card.ts";
+import extension, { generationProvenance, extractGenerationSpec, hashJson, canonicalJson, readCompleteLoopItem, runRlLoop, resumeRlLoop, withRlController, recordRefusedPolicyCard, type JsonValue, type RlCommandResult } from "../index.ts";
+import { exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordRecursivePolicyCards, recordPolicyCard, POLICY_CARD_MAX_BYTES, validatePolicyCardWrite, type PolicyCard } from "../policy-card.ts";
+import { prefixCheckpoint } from "../prefix.ts";
 import type { GenerationSpec } from "../lineage.ts";
 
 const roots: string[] = [];
 after(() => { for (const root of roots) rmSync(root, { recursive: true, force: true }); });
+/** Snapshot every durable tracker file; SDK usage observations and renewable locks are derived coordination state. */
+function trackerBytes(root: string): Record<string, string> {
+  const files: Record<string, string> = {};
+  /** Traverse only the explicitly created disposable tracker. */
+  function visit(directory: string): void {
+    for (const entry of readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const path = join(directory, entry.name);
+      if (relative(root, path) === "locks" || relative(root, path) === join("runtime", "context-usage.jsonl")) continue;
+      if (entry.isDirectory()) visit(path);
+      else files[relative(root, path)] = readFileSync(path).toString("base64");
+    }
+  }
+  visit(root); return files;
+}
+/** Every deterministic refusal must preserve the complete tracker file inventory and exact bytes. */
+async function unchanged(root: string, run: () => Promise<unknown>, code: string): Promise<void> {
+  const before = trackerBytes(root);
+  await assert.rejects(run(), refused(code));
+  const after = trackerBytes(root);
+  assert.deepEqual(Object.keys({ ...before, ...after }).filter((path) => before[path] !== after[path]), [], "durable tracker files changed on refusal");
+}
 /** Initialize an actual tracker with generation and collection types. */
 async function workspace() {
   const root = mkdtempSync(join(tmpdir(), "rl-cards-")); roots.push(root);
@@ -115,8 +137,11 @@ test("prospective promoted card overflow refuses before history changes or appro
   const scores = join(w.root, "scores.json"); writeFileSync(scores, JSON.stringify({ proxy_score: score, held_out_score: score }));
   const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "schema", "hooks"] });
   const before = await w.client.get("rl-candidate");
+  const bytes = trackerBytes(w.pmRoot);
   for (let attempt = 0; attempt < 2; attempt += 1) {
     await assert.rejects(harness.runCommand({ command: "rl generation promote", pmRoot: w.pmRoot, args: ["rl-candidate"], options: { approval, scores, evidence: "Evaluated" } }), refused("card_limit"));
+    const refusedBytes = trackerBytes(w.pmRoot);
+    assert.deepEqual(Object.keys({ ...bytes, ...refusedBytes }).filter((path) => bytes[path] !== refusedBytes[path]), [], "all durable tracker bytes, including history, budgets and transaction receipts");
     const after = await w.client.get("rl-candidate");
     assert.equal(after.item.body, before.item.body); assert.equal(after.item.status, before.item.status);
     assert.equal(after.item.updated_at, before.item.updated_at);
@@ -248,12 +273,48 @@ test("generation citations include parents, collection, environments and evaluat
   assert.equal(card.outcome, "refused"); assert.deepEqual(card.known_regressions, ["reward_regression"]); assert.equal(card.resource_limits.wall_ms, 10);
   assert.equal((await replayPolicyCard(w.client, card)).results.length, 4);
   await assert.rejects(replayPolicyCard(w.client, rehash({ ...card, evidence: card.evidence.filter((row) => row.id !== "rl-run") })), refused("card_missing_provenance"));
-  await w.client.create({ id: `${id}-evaluation-plan`, type: "Plan", title: "Pinned plan", body: '{"budget":{"active_calls":2,"candidate_calls":2}}' });
-  for (const suffix of ["-result", "-shadow", "-shadow-comparison"]) await w.client.create({ id: `${id}-evaluation-plan${suffix}`, type: "Decision", title: "Result", body: "{}" });
-  const planned = { ...value, evaluation_plan: hashJson("pinned-comparison") };
+  const shadow = { generation: id, budget: { active_calls: 2, candidate_calls: 2 } };
+  const plan = { candidate: id, incumbent: "rl-seed", incumbent_version: "original", shadow: hashJson(shadow) };
+  const comparison = hashJson(plan);
+  await w.client.create({ id: `${id}-evaluation-plan`, type: "Plan", title: "Pinned plan", body: JSON.stringify({ plan, incumbent_version: "original" }), affectedVersion: hashJson({ comparison, incumbent_version: "original" }) });
+  for (const suffix of ["-result", "-shadow", "-shadow-comparison"]) await w.client.create({ id: `${id}-evaluation-plan${suffix}`, type: "Decision", title: "Result", body: JSON.stringify(suffix === "-shadow" ? shadow : { comparison: suffix === "-result" ? comparison : plan.shadow }), affectedVersion: suffix === "-shadow" ? plan.shadow : "" });
+  const planned = { ...value, evaluation_plan: comparison };
   await w.client.update(id, { body: `\`\`\`json\n${JSON.stringify(planned)}\n\`\`\``, affectedVersion: hashJson(generationProvenance(planned)) });
   assert.equal((await exportPolicyCard(w.client, id)).evidence.length, 8);
   assert.equal((await replayPolicyCard(w.client, await exportPolicyCard(w.client, id))).results.length, 8);
+  const plannedCard = await exportPolicyCard(w.client, id);
+  const planId = `${id}-evaluation-plan`;
+  const originalResult = String((await w.client.get(`${planId}-result`)).item.body);
+  await w.client.update(`${planId}-result`, { body: JSON.stringify({ comparison, observations: [], budget: { tokens: 999999 } }) });
+  const bounded = await exportPolicyCard(w.client, id);
+  assert.equal(bounded.resource_limits.tokens, 0, "comparison evidence cannot introduce resource declarations");
+  assert.equal((await replayPolicyCard(w.client, bounded)).card.digest, bounded.digest);
+  await w.client.update(`${planId}-result`, { body: originalResult });
+  const mutations: readonly [string, Parameters<PmClient["update"]>[1], string][] = [
+    [planId, { type: "Task" }, "card_drift"],
+    [planId, { body: "{" }, "card_drift"],
+    [planId, { body: "[]" }, "card_drift"],
+    [planId, { body: JSON.stringify({ plan: null }) }, "card_invalid"],
+    ...[
+      { ...plan, candidate: "rl-other" }, { ...plan, incumbent: "rl-other" },
+      { ...plan, incumbent_version: "other" }, { ...plan, extra: 1 },
+    ].map((changed): [string, Parameters<PmClient["update"]>[1], string] => [planId, { body: JSON.stringify({ plan: changed, incumbent_version: "original" }) }, "card_drift"]),
+    [planId, { body: JSON.stringify({ plan, incumbent_version: "original", budget: { tokens: 999999 } }) }, "card_drift"],
+    [planId, { affectedVersion: "wrong" }, "card_drift"],
+    [`${planId}-result`, { type: "Task" }, "card_drift"],
+    [`${planId}-result`, { body: JSON.stringify({ comparison: "foreign" }) }, "card_drift"],
+    [`${planId}-shadow`, { body: JSON.stringify({ ...shadow, generation: "rl-other" }) }, "card_drift"],
+    [`${planId}-shadow`, { body: JSON.stringify({ ...shadow, extra: 1 }) }, "card_drift"],
+    [`${planId}-shadow`, { affectedVersion: "wrong" }, "card_drift"],
+    [`${planId}-shadow-comparison`, { body: JSON.stringify({ comparison: "foreign" }) }, "card_drift"],
+  ];
+  for (const [target, update, code] of mutations) {
+    const original = (await w.client.get(target)).item;
+    await w.client.update(target, update);
+    await unchanged(w.pmRoot, () => exportPolicyCard(w.client, id), code);
+    await w.client.update(target, { body: String(original.body), type: original.type, affectedVersion: String(original.affected_version ?? "") });
+  }
+  assert.equal((await replayPolicyCard(w.client, plannedCard)).card.digest, plannedCard.digest);
   await assert.rejects(adoptPolicyCard(w.client, await exportPolicyCard(w.client, id)), refused("card_missing_provenance"));
   const many = spec({ collection_runs: Array.from({ length: 33 }, (_, i) => `rl-run-${i}`) });
   await generation(w.client, many, "rl-many"); await assert.rejects(exportPolicyCard(w.client, "rl-many"), refused("card_limit"));
@@ -423,4 +484,70 @@ test("resume repairs card publication interrupted after a committed promotion", 
     assert.equal(promoted.length, 1);
     assert.equal((await replayPolicyCard(client, promoted[0])).card.digest, committed.digest);
   });
+});
+
+
+test("replay refuses unrelated certified Decisions and foreign lineage citations without any tracker write", async () => {
+  const w = await workspace(); const id = await generation(w.client);
+  const card = await exportPolicyCard(w.client, id);
+  const result = { budget: { tokens: 999999 } };
+  await w.client.create({ id: "rl-unrelated", type: "Decision", title: "Certified unrelated result", body: JSON.stringify({ format: "pm-rl/loop-step/1", state: "complete", input: hashJson("foreign-candidate"), result, digest: hashJson(result), budget: result.budget }) });
+  const unrelated = await exportPolicyCard(w.client, "rl-unrelated");
+  const forged = rehash({ ...card, evidence: [...card.evidence, unrelated.evidence[0]], resource_limits: { ...card.resource_limits, tokens: 999999 } });
+  await unchanged(w.pmRoot, () => replayPolicyCard(w.client, forged), "card_invalid");
+  // A derived name alone cannot make an evaluation result belong to an unplanned generation.
+  await w.client.create({ id: `${id}-evaluation-plan-result`, type: "Decision", title: "Foreign result", body: String((await w.client.get("rl-unrelated")).item.body) });
+  const foreign = await exportPolicyCard(w.client, `${id}-evaluation-plan-result`);
+  await unchanged(w.pmRoot, () => replayPolicyCard(w.client, rehash({ ...card, evidence: [...card.evidence, foreign.evidence[0]], resource_limits: { ...card.resource_limits, tokens: 999999 } })), "card_invalid");
+  assert.deepEqual((await replayPolicyCard(w.client, card)).card, card);
+  await unchanged(w.pmRoot, () => replayPolicyCard(w.client, rehash({ ...card, policy_digest: hashJson("another-policy") })), "card_drift");
+});
+
+test("registration refuses every card limit before generation, history or card writes", async () => {
+  const w = await workspace();
+  const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "schema", "hooks"] });
+  const envFile = join(w.root, "env.json");
+  writeFileSync(envFile, JSON.stringify({ name: "bounded", version: "1", task_suite: ["task"], reward_specification: { goal: 1 } }));
+  const env = ((await harness.runCommand({ command: "rl env register", pmRoot: w.pmRoot, args: [], options: { file: envFile } })).result as RlCommandResult).id!;
+  await harness.runCommand({ command: "rl generation register", pmRoot: w.pmRoot, args: ["rl-seed"], options: { baseCheckpoint: "checkpoint" } });
+  const runs = Array.from({ length: 32 }, (_, index) => `rl-run-${index}-${"r".repeat(110)}`);
+  for (const id of runs) await w.client.create({ id, type: "Run", title: "Collection", environment: env });
+  for (const count of [32, 14]) {
+    const options = { baseCheckpoint: "checkpoint", policy: "policy", parent: "rl-seed", environment: env, collectionRuns: runs.slice(0, count).join(",") };
+    for (let attempt = 0; attempt < 2; attempt += 1) await unchanged(w.pmRoot, () => harness.runCommand({ command: "rl generation register", pmRoot: w.pmRoot, args: [`rl-oversized-${count}`], options }), "card_limit");
+  }
+  const valid = (await harness.runCommand({ command: "rl generation register", pmRoot: w.pmRoot, args: ["rl-bounded"], options: { baseCheckpoint: "checkpoint", policy: "policy", parent: "rl-seed", environment: env, collectionRuns: runs[0] } })).result as RlCommandResult;
+  assert.equal((await exportPolicyCard(w.client, valid.id!)).evidence.length, 4);
+});
+
+test("recursive card batch refuses collision before publishing any card", async () => {
+  const w = await workspace();
+  const result = { configs: [{ samples: 1 }, { samples: 2 }] };
+  await w.client.create({ id: "rl-batch", type: "Decision", title: "Batch", body: JSON.stringify({ format: "pm-rl/loop-step/1", state: "complete", input: hashJson("batch"), result, digest: hashJson(result) }) });
+  const card = await exportPolicyCard(w.client, "rl-batch", 1);
+  await w.client.create({ id: `policy-card-${card.digest}`, type: "Decision", title: "Collision", body: "{}" });
+  for (const update of [{ body: "{}" }, { body: canonicalJson(card as unknown as JsonValue), type: "Task" }, { type: "Decision", affectedVersion: "different" }]) {
+    await w.client.update(`policy-card-${card.digest}`, update);
+    await unchanged(w.pmRoot, () => recordRecursivePolicyCards(w.client, "rl-batch"), "card_drift");
+  }
+  await generation(w.client, spec({ collection_runs: Array.from({ length: 32 }, (_, index) => `rl-missing-${index}`) }), "rl-large");
+  await unchanged(w.pmRoot, () => recordPolicyCard(w.client, "rl-large"), "card_limit");
+});
+
+test("recursive receipt card limits refuse before receipt and history writes", async () => {
+  const w = await workspace();
+  await w.client.create({ id: "rl-approval", type: "Decision", title: "Consent" });
+  await withRlController(w.client, { pmRoot: w.pmRoot, author: "card-test" }, { id: "limits", approval: "rl-approval", recoveryCommand: "resume programme" }, AbortSignal.timeout(60000), async (step) => {
+    await step("programme", {}, async () => ({ config: { samples: 1 } }));
+    await unchanged(w.pmRoot, () => step("proposals", {}, async () => ({ configs: Array(33).fill({ samples: 1 }), checkpoint: prefixCheckpoint(Array<number>(16).fill(0), { regularisation: 0.1, ngram_order: 1, hashing_width: 16 }) as unknown as JsonValue })), "card_limit");
+    assert.deepEqual(await step("proposals", {}, async () => ({ configs: [{ samples: 1 }] })), { configs: [{ samples: 1 }] });
+  });
+});
+
+test("prospective rejection notes and oversized proposed sources refuse without history writes", async () => {
+  const w = await workspace();
+  await generation(w.client, spec({ collection_runs: Array.from({ length: 32 }, (_, index) => `rl-missing-${index}`) }));
+  await unchanged(w.pmRoot, () => recordRefusedPolicyCard(w.client, "rl-seed", "Rejected"), "card_limit");
+  const result = { configs: Array(33).fill({ samples: 1 }) };
+  await unchanged(w.pmRoot, () => validatePolicyCardWrite(w.client, { id: "rl-unwritten", type: "Decision", title: "Proposals", body: JSON.stringify({ format: "pm-rl/loop-step/1", state: "complete", input: hashJson("proposals"), result, digest: hashJson(result) }) }, true), "card_limit");
 });

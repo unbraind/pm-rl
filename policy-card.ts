@@ -28,6 +28,8 @@ export interface PolicyCard {
 /** Maximum exported bytes and direct citations; large trackers remain behind evidence digests. */
 export const POLICY_CARD_MAX_BYTES = 4096;
 const MAX_EVIDENCE = 32;
+/** Only projection fields are needed to validate a not-yet-persisted source. */
+type CardItem = Pick<GetResult["item"], "id" | "type" | "body" | "affected_version" | "fixed_version" | "component" | "environment" | "parent" | "status"> & { readonly notes?: readonly { readonly text: string }[] };
 const SNAPSHOT_FIELDS = "id,type,body,affected_version,fixed_version,component,environment,parent,status,updated_at,notes";
 const EVALUATION_NOTE = "pm-rl/policy-evaluation/1 ";
 const LIMIT_KEYS = ["samples", "evaluation_samples", "fit_steps", "training_steps", "wall_ms", "storage_bytes", "compute_units", "tokens", "active_calls", "candidate_calls", "generations", "candidates", "updates", "timeout_ms", "optimizer_updates", "max_optimizer_updates", "fits", "budget"];
@@ -48,7 +50,7 @@ function identity(value: unknown): string {
   return value;
 }
 /** Domain identity excludes presentation and bookkeeping metadata. */
-function domain(item: GetResult["item"]): JsonValue {
+function domain(item: CardItem): JsonValue {
   return { type: String(item.type), body: String(item.body), version: String(item.affected_version), checkpoint: String(item.fixed_version), policy: String(item.component), environment: String(item.environment), parent: String(item.parent), status: String(item.status), evaluation: item.notes!.filter((note) => note.text.startsWith(EVALUATION_NOTE)).map((note) => note.text) };
 }
 /** Read exact evidence and verify that the current materialized record matches certified history. */
@@ -76,7 +78,7 @@ function limits(value: unknown, result: Record<string, number> = {}): Record<str
   return Object.fromEntries(Object.entries(result).sort(([a], [b]) => a.localeCompare(b)));
 }
 /** Parse only supported generation or completed durable-step sources. */
-function source(item: GetResult["item"]): { value: Record<string, unknown>; outcome: PolicyCard["outcome"]; dependencies: string[]; scope: PolicyCard["training_scope"]; regressions: PolicyCard["known_regressions"] } {
+function source(item: CardItem): { value: Record<string, unknown>; outcome: PolicyCard["outcome"]; dependencies: string[]; scope: PolicyCard["training_scope"]; regressions: PolicyCard["known_regressions"] } {
   if (item.type === "Generation") {
     const spec = extractGenerationSpec(String(item.body), "Policy card generation");
     if (item.affected_version !== hashJson(generationProvenance(spec))) refuse("card_drift");
@@ -102,7 +104,7 @@ function source(item: GetResult["item"]): { value: Record<string, unknown>; outc
   return { value: result, outcome: verdict, dependencies: [], scope: { digest: hashJson(row.input as JsonValue), collection_runs: 0, environment: hashJson(null), reward: hashJson(null) }, regressions: verdict === "refused" ? ["promotion_refused"] : ["evaluation_incomplete"] };
 }
 /** Select one proposed recipe/configuration; no policy parameters are copied into a card. */
-function proposal(item: GetResult["item"], selection: number | null): unknown {
+function proposal(item: CardItem, selection: number | null): unknown {
   const parsed = source(item);
   if (selection === null) return parsed.value;
   const proposals = parsed.value.configs ?? parsed.value.recipes;
@@ -134,7 +136,7 @@ function artifactIdentity(value: unknown, configuration: unknown = null): JsonVa
   return null;
 }
 /** Assemble the same whitelist for export and replay, rejecting oversized cards instead of truncating citations. */
-function assemble(subject: string, item: GetResult["item"], evidence: readonly PolicyCardEvidence[], extraLimits: Readonly<Record<string, number>>, selection: number | null): PolicyCard {
+function assemble(subject: string, item: CardItem, evidence: readonly PolicyCardEvidence[], extraLimits: Readonly<Record<string, number>>, selection: number | null): PolicyCard {
   const parsed = source(item);
   const selected = proposal(item, selection);
   const policy = item.type === "Generation" ? extractGenerationSpec(String(item.body), "Policy identity") : null;
@@ -168,9 +170,14 @@ async function verifyCardAncestry(client: PmClient, leaf: string): Promise<void>
   }
 }
 /** Extract numeric limits from JSON or a package JSON fence, never free text. */
-function bodyLimits(item: GetResult["item"]): Record<string, number> {
+function bodyLimits(item: CardItem): Record<string, number> {
   try { return limits(JSON.parse(String(item.body).replace(/^[\s\S]*?```json\n([\s\S]*?)\n```[\s\S]*$/, "$1"))); }
   catch { return {}; }
+}
+/** Plans and comparison receipts do not declare allowances; only the pinned shadow deployment does. */
+function evidenceLimits(subject: string, item: CardItem): Record<string, number> {
+  const plan = `${subject}-evaluation-plan`;
+  return [plan, `${plan}-result`, `${plan}-shadow-comparison`].includes(item.id) ? {} : bodyLimits(item);
 }
 /** Export an explanation without modifying any tracker. Missing referenced records fail closed. */
 export async function exportPolicyCard(client: PmClient, subject: string, selection: number | null = null): Promise<PolicyCard> {
@@ -183,12 +190,17 @@ export async function validatePromotedPolicyCard(client: PmClient, subject: stri
   // Assemble with the new body so approval citations, limits and verdict size are included.
   await exportSnapshotCard(client, { ...primary, item: { ...primary.item, body } }, null);
 }
+/** Validate rejection metadata before appending its native note or any history. @internal */
+export async function validateRefusedPolicyCard(client: PmClient, subject: string, text: string): Promise<void> {
+  const primary = await snapshot(client, subject);
+  await exportSnapshotCard(client, { ...primary, item: { ...primary.item, notes: [...primary.item.notes!, { text }] } }, null);
+}
 /** Share the bounded projection between certified exports and pre-commit outcome validation. */
-async function exportSnapshotCard(client: PmClient, primary: Awaited<ReturnType<typeof snapshot>>, selection: number | null): Promise<PolicyCard> {
+async function exportSnapshotCard(client: PmClient, primary: { item: CardItem; citation: PolicyCardEvidence }, selection: number | null): Promise<PolicyCard> {
   const subject = primary.citation.id;
   const parsed = source(primary.item);
-  const evidence = [primary.citation]; const resource: Record<string, number> = {};
-  const plan = await optionalItem(client, `${subject}-evaluation-plan`);
+  const evidence = [primary.citation]; const entries: CardItem[] = []; const resource: Record<string, number> = {};
+  const plan = parsed.dependencies.includes(`${subject}-evaluation-plan`) ? await optionalItem(client, `${subject}-evaluation-plan`) : null;
   const dependencies = [...parsed.dependencies, ...(plan === null ? [] : [plan.id])];
   if (plan !== null) {
     for (const suffix of ["-result", "-shadow", "-shadow-comparison"]) {
@@ -198,11 +210,54 @@ async function exportSnapshotCard(client: PmClient, primary: Awaited<ReturnType<
   }
   if (new Set(dependencies).size >= MAX_EVIDENCE) refuse("card_limit");
   for (const id of [...new Set(dependencies)].sort()) {
-    const entry = await snapshot(client, id); evidence.push(entry.citation);
-    // Resource declarations are explanatory bounds, not permission for another backend to spend them.
-    Object.assign(resource, bodyLimits(entry.item));
+    const entry = await snapshot(client, id); evidence.push(entry.citation); entries.push(entry.item);
   }
+  await verifyEvidenceBindings(client, primary.item, entries);
+  for (const entry of entries) Object.assign(resource, evidenceLimits(subject, entry));
   return assemble(subject, primary.item, evidence, resource, selection);
+}
+/** Require a closed citation graph rooted in the certified subject, never caller-added allowances. */
+async function verifyEvidenceBindings(client: PmClient, item: CardItem, entries: readonly CardItem[]): Promise<void> {
+  const ids = entries.map((entry) => entry.id);
+  const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
+  const required = source(item).dependencies.map((id) => normalizeItemId(id, prefix));
+  if (required.some((id) => !ids.includes(id))) refuse("card_missing_provenance");
+  const plan = `${item.id}-evaluation-plan`;
+  const allowed = new Set([...required, ...(required.includes(plan) ? ["-result", "-shadow", "-shadow-comparison"].map((suffix) => `${plan}${suffix}`) : [])]);
+  if (ids.some((id) => !allowed.has(id))) refuse("card_invalid");
+  const planItem = entries.find((entry) => entry.id === plan);
+  if (planItem !== undefined) {
+    const spec = extractGenerationSpec(String(item.body), "Card lineage");
+    const reservation = evidenceBody(planItem); const declared = object(reservation.plan);
+    if (Object.keys(reservation).sort().join(",") !== "incumbent_version,plan" || planItem.type !== "Plan" || declared.candidate !== item.id || declared.incumbent !== spec.parent || declared.incumbent_version !== reservation.incumbent_version || hashJson(declared as JsonValue) !== spec.evaluation_plan || planItem.affected_version !== hashJson({ comparison: spec.evaluation_plan, incumbent_version: reservation.incumbent_version } as JsonValue)) refuse("card_drift");
+    for (const entry of entries.filter((entry) => ["-result", "-shadow", "-shadow-comparison"].some((suffix) => entry.id === `${plan}${suffix}`))) {
+      const body = evidenceBody(entry);
+      if (entry.type !== "Decision") refuse("card_drift");
+      if (entry.id === `${plan}-shadow`) {
+        if (body.generation !== item.id || hashJson(body as JsonValue) !== declared.shadow || entry.affected_version !== declared.shadow) refuse("card_drift");
+      } else if (body.comparison !== (entry.id === `${plan}-result` ? spec.evaluation_plan : declared.shadow)) refuse("card_drift");
+    }
+  }
+}
+/** Decode structured lineage bindings without exposing arbitrary evidence text. */
+function evidenceBody(item: CardItem): Record<string, unknown> {
+  try { return object(JSON.parse(String(item.body))); }
+  catch { return refuse("card_drift"); }
+}
+/** Validate every bounded projection before creating a source or changing its history. @internal */
+export async function validatePolicyCardWrite(client: PmClient, options: Parameters<PmClient["create"]>[0] & { id: string }, recursive = false): Promise<void> {
+  const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
+  const item: CardItem = { id: identity(normalizeItemId(options.id, prefix)), type: options.type!, body: options.body ?? "", affected_version: options.affectedVersion ?? "", fixed_version: options.fixedVersion ?? "", component: options.component ?? "", environment: options.environment ?? "", parent: options.parent ?? "", status: options.status ?? "open", notes: (options.note ?? []).map((text) => ({ text })) };
+  const primary = { item, citation: { id: item.id, at: "9999-12-31T23:59:59.999Z", digest: hashJson(domain(item)) } };
+  await exportSnapshotCard(client, primary, null);
+  if (recursive) {
+    const value = source(item).value;
+    const proposals = value.configs ?? value.recipes;
+    if (Array.isArray(proposals)) {
+      if (proposals.length > MAX_EVIDENCE) refuse("card_limit");
+      for (let index = 0; index < proposals.length; index += 1) await exportSnapshotCard(client, primary, index);
+    }
+  }
 }
 /** Reject non-JSON SDK input with the same typed contract as malformed CLI JSON. */
 function encodedSize(value: Record<string, unknown>): number {
@@ -225,14 +280,10 @@ export async function replayPolicyCard(client: PmClient, value: unknown): Promis
     const entry = await snapshot(client, identity(ref.id), ref.at);
     if (entry.citation.digest !== ref.digest) refuse("card_drift");
     results.push(entry.citation); items.push(entry.item);
-    if (items.length > 1) {
-      Object.assign(resource, bodyLimits(entry.item));
-    }
   }
   if (results[0].id !== subject || new Set(results.map((row) => row.id)).size !== results.length) refuse("card_invalid");
-  const parsed = source(items[0]);
-  const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
-  if (parsed.dependencies.some((id) => !results.some((row) => row.id === normalizeItemId(id, prefix)))) refuse("card_missing_provenance");
+  await verifyEvidenceBindings(client, items[0], items.slice(1));
+  for (const item of items.slice(1)) Object.assign(resource, evidenceLimits(subject, item));
   const card = assemble(subject, items[0], results, resource, selection);
   if (canonicalJson(candidate as JsonValue) !== canonicalJson(card as unknown as JsonValue)) refuse("card_drift");
   return { card, results };
@@ -254,13 +305,18 @@ export async function adoptPolicyCard(client: PmClient, value: unknown): Promise
 }
 /** Retain immutable outcome cards with the candidate; retries verify the winner rather than overwriting it. */
 export async function recordPolicyCard(client: PmClient, subject: string, selection: number | null = null): Promise<PolicyCard> {
-  const card = await exportPolicyCard(client, subject, selection); const id = `policy-card-${card.digest}`;
+  const card = await exportPolicyCard(client, subject, selection);
+  await persistPolicyCard(client, card);
+  return card;
+}
+/** Publish an already validated projection without re-reading a changing source. */
+async function persistPolicyCard(client: PmClient, card: PolicyCard): Promise<void> {
+  const id = `policy-card-${card.digest}`; const subject = card.subject;
   const body = canonicalJson(card as unknown as JsonValue);
   await createOrReadIdentical(client, { id, type: "Decision", title: "Portable policy explanation", body, affectedVersion: card.digest, dep: [subject] }, "card_drift", (item) => {
     if (item.body !== body || item.affected_version !== card.digest) refuse("card_drift");
     return true;
   });
-  return card;
 }
 /** Publish a separate explanation for each proposed candidate as well as the shared phase outcome. */
 export async function recordRecursivePolicyCards(client: PmClient, subject: string): Promise<void> {
@@ -268,6 +324,12 @@ export async function recordRecursivePolicyCards(client: PmClient, subject: stri
   const value = source(item).value;
   const proposals = value.configs ?? value.recipes;
   if (Array.isArray(proposals) && proposals.length > MAX_EVIDENCE) refuse("card_limit");
-  await recordPolicyCard(client, subject);
-  if (Array.isArray(proposals)) for (let index = 0; index < proposals.length; index += 1) await recordPolicyCard(client, subject, index);
+  const cards = [await exportPolicyCard(client, subject)];
+  if (Array.isArray(proposals)) for (let index = 0; index < proposals.length; index += 1) cards.push(await exportPolicyCard(client, subject, index));
+  // Validate all known publication collisions before the first batch write.
+  for (const card of cards) {
+    const existing = await optionalItem(client, `policy-card-${card.digest}`);
+    if (existing !== null && (existing.type !== "Decision" || existing.body !== canonicalJson(card as unknown as JsonValue) || existing.affected_version !== card.digest)) refuse("card_drift");
+  }
+  for (const card of cards) await persistPolicyCard(client, card);
 }
