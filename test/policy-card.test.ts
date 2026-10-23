@@ -656,6 +656,24 @@ test("recursive receipt card limits refuse before receipt and history writes", a
   });
 });
 
+test("sealed rejection outcomes retain one immutable card and retry without tracker writes", async () => {
+  const w = await workspace(); await generation(w.client);
+  await w.client.create({ id: "rl-env", type: "Environment", title: "Environment" });
+  await w.client.create({ id: "rl-run", type: "Run", title: "Collection" });
+  const candidate = spec({ seed: false, policy: "candidate", parent: "rl-seed", collection_runs: ["rl-run"], environment_version: "rl-env", reward_spec_version: "reward" });
+  const id = await generation(w.client, candidate, "rl-rejection");
+  await recordRefusedPolicyCard(w.client, id, "Policy gate refused");
+  const card = await exportPolicyCard(w.client, id);
+  assert.equal(card.outcome, "refused");
+  assert.deepEqual(card.known_regressions, ["promotion_refused"]);
+  assert.equal(card.evaluation.reason_digest, hashJson("Policy gate refused"));
+  assert.equal((await w.client.get(id)).item.affected_version, hashJson(generationProvenance(candidate)));
+  const before = trackerBytes(w.pmRoot);
+  await recordRefusedPolicyCard(w.client, id, "Policy gate refused");
+  assert.deepEqual(trackerBytes(w.pmRoot), before, "retry must not append another policy event or card");
+  assert.equal((await replayPolicyCard(w.client, card)).card.digest, card.digest);
+});
+
 test("prospective rejection notes and oversized proposed sources refuse without history writes", async () => {
   const w = await workspace();
   await generation(w.client, spec({ collection_runs: Array.from({ length: 32 }, (_, index) => `rl-missing-${index}`) }));

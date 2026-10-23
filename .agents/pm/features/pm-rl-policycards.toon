@@ -6,13 +6,13 @@ status: in_progress
 priority: 2
 tags[1]: "gh:unbraind/pm-rl#100"
 created_at: "2026-10-23T14:29:56.651Z"
-updated_at: "2026-10-23T23:12:16.235Z"
+updated_at: "2026-10-23T23:16:07.904Z"
 assignee: codex-agent
 claim_principal: codex-agent
 author: codex-agent
 acceptance_criteria: Missing provenance blocks adoption; replay identifies every cited result; export contains no training examples or credentials; typed SDK and compact TOON/JSON CLI; every recursive candidate and promotion has a card; read-only public tracker validation demonstrates at least two generations; npm and Bun CI release gates pass at unchanged thresholds.
 parent: pm-rl-apvf
-comments[56]{created_at,author,text}:
+comments[57]{created_at,author,text}:
   "2026-10-23T14:31:01.471Z",codex-agent,"Overlap check: current host CLI is 2026.10.23; package SDK remains pinned at 2026.10.20. Inspected CLI command ownership and pm-context context-pack explanations: neither exports learned-policy suitability. Existing pm-rl checkpoint artifacts retain executable state; generation provenance, causal plans, shadow comparisons and recursive improver receipts own the evidence. Cards will reuse SDK complete inventory, certified history reads and content-addressed package hashes. No dependency bump, trainer replacement or context assembler. Plan: minimized digest-only cards, replay/adoption refusals, automatic recursive candidate/outcome publication, non-Git public-copy validation for two generations, targeted local checks and full npm/Bun CI gates."
   "2026-10-23T14:43:18.298Z",codex-agent,"Implemented typed export/replay/adoption-check SDK and CLI, bounded digest-only projection, exact timestamped history citations and retained candidate/promotion cards. Recursive durable phases now retain outcome cards plus one card per proposed configuration/recipe. Local typecheck, lint, duplication and docstring checks passed before the last small additions; targeted regression work is ongoing. Verified the selected pm-ops commit is publicly accessible and MIT licensed; prepared a read-only non-Git copy for two-generation numerical-policy acceptance. Full release gates will run in CI because the shared host is saturated."
   "2026-10-23T14:54:41.570Z",codex-agent,"Behavioral revert proof: disabled only recordRecursivePolicyCards publication; the durable recursive-phase regression failed with 0 retained cards versus 6 required. Restored implementation; targeted suite passed 8/8 with no skips, new module 100% lines/functions and 98.35% branches before final branch cases. The first real-data run passed two promotions, 5 retained cards, 19 replayed citations, 105 training plus 41 held-out items and unchanged 300-file source digest. Compact output measured 2082-2085 JSON bytes and 1544-1547 TOON bytes. Final packed rerun and CI gates pending."
@@ -69,6 +69,7 @@ comments[56]{created_at,author,text}:
   "2026-10-23T23:07:47.718Z",codex-agent,"Self-review found the SDK clears Run fixed_version on terminal-to-active status changes; excluded that duplicate metadata because the Run body already seals configuration. Prospective outcome validation now reserves the maximum safe-integer history-version width, preserving pre-write overflow refusal even when a new policy version crosses a digit boundary. The mutation matrix covers Run status transitions and reserved-looking native notes as well as subject/seed/approval/environment/card annotations."
   "2026-10-23T23:11:30.533Z",codex-agent,"Round-d behavioral revert proofs completed in an isolated text-only source copy against the pinned SDK; regression file SHA-256 unchanged before/after each run and production restored in finally. Reverting only snapshot to its previous timestamp selector (restoring its required updated_at read field) fails both new tests: routine mutations fail ERR_ASSERTION after the first comment changes the fresh digest; policy relevant changes fail card_missing_provenance when exact content is restored and fresh adoption loses the retained card (2/2 failed, exit 1). Reintroducing only the former domain dependency on native evaluation notes (and its required note read field) fails the mutation test at the reserved-looking note, ERR_ASSERTION, 1/1 failed, exit 1. Restored production passed the pinned PM snapshot runner: node --test --test-name-pattern=\"routine tracker mutation|policy relevant changes|citation reads require|concurrent policy replacement\" test/policy-card.test.ts, 4/4 passed, zero failures/skips/cancellations, exit 0, 55.449 seconds. Real SDK history-projection and concurrent compaction tests also passed directly 2/2. Full release coverage remains running; no final gate pass is claimed yet."
   "2026-10-23T23:12:16.235Z",codex-agent,"Additional read-only GitHub inspection confirms CodeRabbit has only an issue-comment receipt saying automatic review was skipped, not a submitted review or outside-diff finding. No review-thread disposition is missing. Existing runner context issue is avoided through the supported none/snapshot override; no new pm CLI/SDK defect was observed. Dist is untracked and rebuilt locally by TypeScript gates."
+  "2026-10-23T23:16:07.904Z",codex-agent,"Focused policy-card suite passed 26/26 with no failures/skips/cancellations. Its coverage isolated a successful rejection-return path only exercised elsewhere by the full suite; added a direct real-tracker regression for sealed rejection publication and byte-identical idempotent retry. The new test passed directly 1/1 and through the pinned PM snapshot runner 1/1 (exit 0). Source and test typecheck, lint, zero duplication across 51 source files, 383 docstrings, changelog generation/check and isolated-identity strict tracker health pass. The follow-up changes tests and tracker receipts only; full npm/Bun CI runs remain pending, with no full gate pass claimed."
 files[20]{path,scope}:
   .gitattributes,project
   checkpoint-artifacts.ts,project
@@ -90,7 +91,7 @@ files[20]{path,scope}:
   test/policy-card.test.ts,project
   test/process.test.ts,project
   test/shadow.test.ts,project
-tests[11]:
+tests[12]:
   - command: node --test test/policy-card.test.ts
     scope: project
     timeout_seconds: 600
@@ -187,6 +188,16 @@ tests[11]:
     provenance:
       author: codex-agent
       created_at: "2026-10-23T23:09:19.939Z"
+      source_kind: local_mutation
+      source_ref: feat/policy-cards
+  - command: "node --test --test-name-pattern=\"sealed rejection outcomes\" test/policy-card.test.ts"
+    scope: project
+    timeout_seconds: 600
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-23T23:14:43.991Z"
       source_kind: local_mutation
       source_ref: feat/policy-cards
 docs[5]{path,scope}:
