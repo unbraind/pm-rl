@@ -65,6 +65,8 @@ export interface ScoreRecord {
 
 /** A policy generation and its provenance, stored as a JSON fence in the item body. */
 export interface GenerationSpec {
+  /** Sealed package evaluation outcome, distinct from mutable tracker annotations. */
+  readonly policy_evaluation?: JsonValue;
   /** Frozen comparison identity when the generation belongs to a predeclared experiment. */
   readonly evaluation_plan?: string;
   /** Content-addressed identity of the base checkpoint the generation started from. */
@@ -379,6 +381,7 @@ export function parseGenerationSpec(text: string, source: string): GenerationSpe
   }
   return {
     ...(evaluationPlan === undefined ? {} : { evaluation_plan: evaluationPlan as string }),
+    ...(record["policy_evaluation"] === undefined ? {} : { policy_evaluation: record["policy_evaluation"] as JsonValue }),
     base_checkpoint: baseCheckpoint,
     policy,
     collection_runs: collectionRuns,

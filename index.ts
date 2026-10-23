@@ -2125,7 +2125,7 @@ interface GenerationRegistrationRequest {
   readonly environment: string | undefined;
   /** Training configuration recorded in the generation's body. */
   readonly config: JsonValue;
-  /** Explanation metadata uses native notes and never changes trainer receipt identity. */
+  /** Sealed evaluation outcome is separate from the training provenance identity. */
   readonly evaluation?: { readonly decision: "promote" | "refuse"; readonly reason_digest: string };
 }
 
@@ -2195,6 +2195,7 @@ async function registerGenerationCore(client: PmClient, request: GenerationRegis
   const reservation = await readEvaluationPlan(client, normalizeItemId(requestedId, String((await client.config("project", "get", "id_prefix")).nested_setting!.value)));
   const spec: GenerationSpec = {
     ...(reservation === null ? {} : { evaluation_plan: reservation.comparison }),
+    ...(request.evaluation === undefined ? {} : { policy_evaluation: request.evaluation }),
     base_checkpoint: baseCheckpoint,
     policy,
     collection_runs: collectionRuns,
@@ -2232,7 +2233,6 @@ async function registerGenerationCore(client: PmClient, request: GenerationRegis
     body: `# ${requestedId}\n\n\`\`\`json\n${JSON.stringify(spec, null, 2)}\n\`\`\``,
     affectedVersion: specHash,
     fixedVersion: baseCheckpoint,
-    ...(request.evaluation === undefined ? {} : { note: [`pm-rl/policy-evaluation/1 ${JSON.stringify(request.evaluation)}`] }),
     component: policy.length > 0 ? policy : baseCheckpoint,
     message: isSeed ? "Register seed RL generation" : "Register candidate RL generation",
     ...(isSeed ? {} : { parent: parentInput, dep: deps, environment: environmentId }),
@@ -3750,11 +3750,12 @@ function terminalPromotionRefusal(error: PmCliExpectedError): boolean {
   return ["contamination_refused", "lineage_cycle", "provenance_unreadable", "budget_exceeded", "budget_undecidable", "already_promoted", "wrong_item_type", "approval_missing_spec", "card_missing_provenance", "card_invalid", "card_drift", "eval_plan_invalid", "eval_plan_drift", "eval_plan_late", "eval_plan_missing", "eval_plan_evidence", "eval_plan_stopping", "eval_plan_refused", "shadow_invalid", "shadow_consent", "shadow_budget", "shadow_drift", "shadow_missing", "shadow_incomplete", "shadow_failed"].includes(code);
 }
 
-/** Preserve final rejection evidence through the SDK's atomic, author-scoped append-once contract. @internal */
+/** Seal final rejection evidence in certified policy content before retaining its card. @internal */
 export async function recordRefusedPolicyCard(client: PmClient, id: string, reason: string | null): Promise<void> {
-  const note = `pm-rl/policy-evaluation/1 ${JSON.stringify({ decision: "refuse", reason_digest: hashJson(reason) })}`;
-  await validateRefusedPolicyCard(client, id, note);
-  await client.notes(id, { add: note, ifAbsent: true });
+  const body = await validateRefusedPolicyCard(client, id, { decision: "refuse", reason_digest: hashJson(reason) });
+  const current = await readCompleteLoopItem(client, id);
+  const existing = extractGenerationSpec(String(current.item.body), "Rejected generation");
+  if (canonicalJson(existing as unknown as JsonValue) !== canonicalJson(extractGenerationSpec(body, "Rejection outcome") as unknown as JsonValue)) await client.update(id, { body });
   await recordPolicyCard(client, id);
 }
 

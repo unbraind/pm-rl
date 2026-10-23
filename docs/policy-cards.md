@@ -12,13 +12,13 @@ pm rl policy-card adopt --file card.json --json
 pm rl policy-card export rl-improver-step-g1-d-t0-proposals --selection 0
 ```
 
-The host renders compact TOON by default and JSON with `--json`. Export and replay read trackers without mutations. Each card is capped at 4 KiB and 32 direct evidence citations; overflow refuses rather than hiding citations. Tracker identifiers and timestamps are the only copied source strings. Training configurations, policy parameters, example text, titles, credentials, raw outcomes and free-text diagnostic messages stay in their original stores. Their domain contents contribute SHA-256 digests. Do not treat a hash as anonymization of low-entropy data, or publish the underlying tracker without a separate privacy review.
+The host renders compact TOON by default and JSON with `--json`. Export and replay read trackers without mutations. Each card is capped at 4 KiB and 32 direct evidence citations; overflow refuses rather than hiding citations. Tracker identifiers and immutable history-version locators are the only copied source strings. Training configurations, policy parameters, example text, titles, credentials, raw outcomes and free-text diagnostic messages stay in their original stores. Their domain contents contribute SHA-256 digests. Do not treat a hash as anonymization of low-entropy data, or publish the underlying tracker without a separate privacy review.
 
 Each card includes a proposal digest and a nullable policy digest, training-scope digest, collection count, environment and reward digests, permitted explanation actions (`inspect`, `evaluate`), numeric resource declarations, fixed regression categories, bounded numeric evaluation diagnostics and evidence locators. The policy digest binds the declared content-addressed checkpoint/policy artifact and its configuration. Evaluation notes do not change it. Unfitted proposals and opaque legacy references have `policy_digest: null`; their `proposal_digest` identifies their definition without claiming a learned policy identity. Unknown evaluation remains `evaluation_incomplete`; an unpromoted candidate cannot pass adoption checks. Resource declarations describe the original experiment; another backend must supply its own consent and enforce its own budget.
 
 ## Recursive coverage
 
-Generation registration records evaluation diagnostics in native SDK notes, leaving replay-critical trainer configuration unchanged. It records the candidate card before promotion; promotion retains a new outcome card. Earlier cards stay unchanged and replay against verified history. The durable inner/outer controller records every completed recursive phase and each member of a proposed recipe/configuration batch. This covers learner trials, improver updates, causal selection outcomes, retained/rejected generations and outcome-ledger receipts. A later improver can enumerate the SDK's complete Decision inventory, select `pm-rl/policy-card/1` bodies and replay their citations before using earlier diagnostics. Checkpoint artifacts continue to own executable state. If card publication is interrupted after a committed promotion, restore storage and run the normal loop resume command; it repairs the explanation before advancing. Publication failures remain retryable operational errors.
+Generation registration seals evaluation diagnostics in the Generation body as `policy_evaluation`, leaving replay-critical trainer configuration unchanged. Native comments and notes, including notes resembling old evaluation markers, are annotations only. It records the candidate card before promotion; promotion retains a new outcome card. Earlier cards stay unchanged and replay against verified history. The durable inner/outer controller records every completed recursive phase and each member of a proposed recipe/configuration batch. This covers learner trials, improver updates, causal selection outcomes, retained/rejected generations and outcome-ledger receipts. A later improver can enumerate the SDK's complete Decision inventory, select `pm-rl/policy-card/1` bodies and replay their citations before using earlier diagnostics. Checkpoint artifacts continue to own executable state. If card publication is interrupted after a committed promotion, restore storage and run the normal loop resume command; it repairs the explanation before advancing. Publication failures remain retryable operational errors.
 
 Generation cards cite parents, collection runs, environments and promotion approvals. When present, they also cite the causal evaluation plan, paired result, shadow deployment and shadow comparison. Existing causal and shadow gates run again on adoption checks. The card does not relax those gates or claim that a single tracker proves transfer to another population.
 
@@ -33,7 +33,7 @@ import { exportPolicyCard, replayPolicyCard, adoptPolicyCard } from 'pm-rl';
 const client = new PmClient({ pmRoot: '.agents/pm', noExtensions: true });
 const card = await exportPolicyCard(client, 'rl-programme-g1');
 const replay = await replayPolicyCard(client, card);
-console.log(replay.results); // Every cited id, timestamp and verified digest.
+console.log(replay.results); // Every cited id, version locator and verified digest.
 await adoptPolicyCard(client, card); // Suitability check; no adoption side effects.
 ```
 
@@ -63,10 +63,22 @@ The public-copy validation script is `test/policy-card.acceptance.ts`; aggregate
 The measured sampled policy means are 0.59765 and 0.685825; the always-closed majority baseline is 36/41 (0.8780487804878049). The receipt keeps this limitation explicit alongside the successful provenance and lifecycle checks.
 
 
-Registration, recursive receipt publication, rejection notes and batch card publication
+Registration, recursive receipt publication, rejection outcomes and batch card publication
 also validate before their associated durable writes. Replay rejects citations outside
 the historical subject's certified dependency graph before collecting resource limits.
 Evaluation and shadow citations must match the subject's pinned comparison lineage.
 The [write-boundary audit](policy-card-write-audit.md) inventories generation, history,
 card, budget, artifact and receipt writes and documents the complete durable-state
 snapshots, including the pinned SDK's derived observation-ledger exception.
+
+A citation selects the first SDK-certified history version with the exact policy-content
+projection. Its `at` field accepts an SDK version coordinate (or a historical timestamp
+on replay). It never selects the latest event or hashes history length. Later comments,
+notes, tags, claims, lifecycle changes and presentation edits preserve that coordinate,
+the retained card and fresh-card adoption. A changed artifact, configuration, collection
+evidence, evaluation verdict or approval produces different content and invalidates
+adoption of the old card; historical replay remains available. Pre-fix cards bound to
+mutable coordinates/notes need re-export and retention after upgrade.
+
+The complete [digest and provenance input inventory](policy-card-write-audit.md#digest-and-provenance-input-inventory)
+records the fields and certified source of every check added by this feature.

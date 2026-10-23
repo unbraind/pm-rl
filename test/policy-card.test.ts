@@ -57,6 +57,49 @@ function refused(code: string) { return (error: unknown) => isPmCliExpectedError
 /** Re-address a deliberately forged card to prove replay does not trust its hash. */
 function rehash(card: PolicyCard): PolicyCard { const { digest: _digest, ...body } = card; return { ...body, digest: hashJson(body as unknown as JsonValue) }; }
 
+test("citation reads require complete verified history and preserve durable compacted version addresses", async () => {
+  const w = await workspace(); const id = await generation(w.client);
+  /** Exercise real bounded and unverified SDK responses, rather than synthetic history records. */
+  class ProjectedHistoryClient extends PmClient {
+    projection: "bounded" | "unverified" | "full" = "bounded";
+    /** Deliberately request an insufficient native history projection from the same real tracker. */
+    override run(action: Parameters<PmClient["run"]>[0], args?: Parameters<PmClient["run"]>[1]): Promise<unknown> {
+      return super.run(action, action === "history" ? { ...args, options: { ...(args?.options as Readonly<Record<string, unknown>>), ...(this.projection === "bounded" ? { limit: "1" } : this.projection === "unverified" ? { verify: false } : { compact: false }) } } : args);
+    }
+  }
+  const projected = new ProjectedHistoryClient({ pmRoot: w.pmRoot, cwd: w.root, author: "card-test", noExtensions: true });
+  for (const projection of ["bounded", "unverified", "full"] as const) {
+    projected.projection = projection;
+    await assert.rejects(exportPolicyCard(projected, id), refused("card_missing_provenance"));
+  }
+  await w.client.comments(id, { add: "Before compaction" });
+  await w.client.historyCompact(id, { force: true });
+  const card = await exportPolicyCard(w.client, id);
+  assert.ok(Number(card.evidence[0].at) > 1);
+  assert.equal((await replayPolicyCard(w.client, card)).card.digest, card.digest);
+  await w.client.notes(id, { add: "After compaction" });
+  assert.equal((await exportPolicyCard(w.client, id)).digest, card.digest);
+});
+
+test("concurrent policy replacement and history compaction cannot certify a vanished content snapshot", async () => {
+  const w = await workspace(); const id = await generation(w.client);
+  /** A real peer change prunes the old content between the current read and history enumeration. */
+  class CompactingPeerClient extends PmClient {
+    /** Complete the peer's legitimate operations before reading the resulting verified history. */
+    override async run(action: Parameters<PmClient["run"]>[0], args?: Parameters<PmClient["run"]>[1]): Promise<unknown> {
+      if (action === "history") {
+        const changed = spec({ training_config: { samples: 20 } });
+        await w.client.update(id, { body: `\`\`\`json\n${JSON.stringify(changed)}\n\`\`\``, affectedVersion: hashJson(generationProvenance(changed)) });
+        await w.client.historyCompact(id, { force: true });
+      }
+      return super.run(action, args);
+    }
+  }
+  const peer = new CompactingPeerClient({ pmRoot: w.pmRoot, cwd: w.root, author: "card-test", noExtensions: true });
+  await assert.rejects(exportPolicyCard(peer, id), refused("card_missing_provenance"));
+  assert.equal((await exportPolicyCard(w.client, id)).resource_limits.samples, 20);
+});
+
 test("minimized cards replay exact evidence, reject forgery and refuse seed adoption without provenance", async () => {
   const w = await workspace(); const id = await generation(w.client);
   const card = await exportPolicyCard(w.client, id);
@@ -123,13 +166,13 @@ test("prospective promoted card overflow refuses before history changes or appro
   const runs: string[] = [];
   let card: PolicyCard;
   for (let index = 0; ; index += 1) {
-    const run = `rl-run-${index}-${"r".repeat(70)}`; runs.push(run);
+    const run = `rl-run-${index}-${"r".repeat(20)}`; runs.push(run);
     await w.client.create({ id: run, type: "Run", title: "Collection", environment: "rl-env" });
     const value = spec({ seed: false, policy: "candidate", parent: "rl-seed", collection_runs: runs, environment_version: "rl-env", reward_spec_version: "reward" });
     if (index === 0) await generation(w.client, value, "rl-candidate");
     else await w.client.update("rl-candidate", { body: `\`\`\`json\n${JSON.stringify(value)}\n\`\`\``, affectedVersion: hashJson(generationProvenance(value)) });
     card = await exportPolicyCard(w.client, "rl-candidate");
-    if (Buffer.byteLength(canonicalJson(card as unknown as JsonValue)) > POLICY_CARD_MAX_BYTES - 300) break;
+    if (Buffer.byteLength(canonicalJson(card as unknown as JsonValue)) > POLICY_CARD_MAX_BYTES - 150) break;
     assert.ok(index < 30);
   }
   await recordPolicyCard(w.client, "rl-candidate");
@@ -212,7 +255,7 @@ test("operational card reads are typed retryable errors and promotion remains re
   // Every successful result comes from the real SDK; only native-shaped failures are injected.
   w.client.get = (async (id, options) => {
     const result = await get(id, options);
-    if (fault !== null && options?.fields?.includes("notes")) {
+    if (fault !== null && options?.fields?.includes("body")) {
       const code = fault; fault = null;
       if (code === "storage_timeout") throw createPmCliExpectedError("Storage request timed out", { exitCode: 4, context: { code } });
       if (code === "unclassified_read") throw createPmCliExpectedError("Storage unavailable", { exitCode: 4, context: { code: "backend_unavailable" } });
@@ -329,7 +372,7 @@ test("generation citations include parents, collection, environments and evaluat
   await assert.rejects(adoptPolicyCard(w.client, await exportPolicyCard(w.client, id)), refused("card_missing_provenance"));
   const many = spec({ collection_runs: Array.from({ length: 33 }, (_, i) => `rl-run-${i}`) });
   await generation(w.client, many, "rl-many"); await assert.rejects(exportPolicyCard(w.client, "rl-many"), refused("card_limit"));
-  await generation(w.client, { ...value, training_config: { policy_card_evaluation: { decision: "refuse" } } }, "rl-rejected");
+  await generation(w.client, { ...value, policy_evaluation: { decision: "refuse" }, training_config: {} }, "rl-rejected");
   await w.client.notes("rl-rejected", { add: 'pm-rl/policy-evaluation/1 {"decision":"refuse"}' });
   assert.deepEqual((await exportPolicyCard(w.client, "rl-rejected")).known_regressions, ["promotion_refused"]);
   await generation(w.client, spec({ training_config: [] }), "rl-null"); assert.deepEqual((await exportPolicyCard(w.client, "rl-null")).resource_limits, {});
@@ -368,6 +411,62 @@ test("CLI card export, replay and adoption checks work with no Git executable an
   } finally { process.env.PATH = oldPath; if (oldCeiling === undefined) delete process.env.GIT_CEILING_DIRECTORIES; else process.env.GIT_CEILING_DIRECTORIES = oldCeiling; }
 });
 
+
+/** Produce a genuinely promoted policy whose body differs from its creation snapshot. */
+async function promotedFixture() {
+  const w = await workspace();
+  const config = { ...JSON.parse(readFileSync(new URL("../examples/loop-bandit.json", import.meta.url), "utf8")) as Record<string, JsonValue>, max_generations: 1 };
+  await w.client.create({ id: "rl-approval", type: "Decision", title: "Consent", body: '```json\n{"permitted_promotions":1}\n```' });
+  const report = await runRlLoop(w.client, { pmRoot: w.pmRoot, author: "card-test" }, { id: "stable-card", config, approval: "rl-approval" });
+  assert.equal(report.promoted, 1);
+  return { ...w, subject: report.generations[0].item };
+}
+
+test("promoted cards survive every routine tracker mutation throughout the certified ancestry", async () => {
+  const w = await promotedFixture();
+  const original = await exportPolicyCard(w.client, w.subject);
+  const ids = new Set([w.subject, ...original.evidence.map((entry) => entry.id), `rl-policy-card-${original.digest}`]);
+  for (const id of ids) {
+    const mutations: readonly [string, () => Promise<unknown>][] = [
+      ["comment", () => w.client.comments(id, { add: "Routine progress comment" })],
+      ["note", () => w.client.notes(id, { add: "Routine private note" })],
+      ["reserved-looking note", () => w.client.notes(id, { add: 'pm-rl/policy-evaluation/1 {"decision":"refuse"}' })],
+      ["tag", () => w.client.update(id, { addTags: ["reviewed"] })],
+      ["claim", () => w.client.claim(id, { force: true })],
+      ["release", () => w.client.release(id)],
+      ["status note", () => w.client.update(id, { status: "in_progress", message: "Routine status note" })],
+      ["unrelated field", () => w.client.update(id, { title: "Annotated result", priority: 3 })],
+    ];
+    for (const [name, mutate] of mutations) {
+      await mutate();
+      const fresh = await exportPolicyCard(w.client, w.subject);
+      assert.deepEqual(fresh, original, `${id}: ${name} must preserve all digests and citations`);
+      assert.equal((await adoptPolicyCard(w.client, fresh)).digest, original.digest, `${id}: ${name} fresh adoption`);
+      assert.equal((await adoptPolicyCard(w.client, original)).digest, original.digest, `${id}: ${name} retained adoption`);
+    }
+  }
+});
+
+test("policy relevant changes invalidate retained promoted cards while preserving historical replay", async () => {
+  const w = await promotedFixture();
+  const original = await exportPolicyCard(w.client, w.subject);
+  const value = extractGenerationSpec(String((await w.client.get(w.subject)).item.body), "Promoted policy");
+  await w.client.create({ id: "rl-other-approval", type: "Decision", title: "Other consent" });
+  await w.client.create({ id: "rl-other-run", type: "Run", title: "Other evidence" });
+  for (const changed of [
+    { ...value, policy: `sha256:${hashJson("changed artifact")}` },
+    { ...value, training_config: { samples: 99 } },
+    { ...value, collection_runs: ["rl-other-run"] },
+    { ...value, approval: "rl-other-approval" },
+    { ...value, policy_evaluation: { decision: "refuse" } },
+  ]) {
+    await w.client.update(w.subject, { body: `\`\`\`json\n${JSON.stringify(changed)}\n\`\`\``, affectedVersion: hashJson(generationProvenance(changed)) });
+    assert.equal((await replayPolicyCard(w.client, original)).card.digest, original.digest);
+    await assert.rejects(adoptPolicyCard(w.client, original), refused("card_drift"));
+    await w.client.update(w.subject, { body: `\`\`\`json\n${JSON.stringify(value)}\n\`\`\``, affectedVersion: hashJson(generationProvenance(value)) });
+    assert.equal((await adoptPolicyCard(w.client, await exportPolicyCard(w.client, w.subject))).digest, original.digest);
+  }
+});
 
 test("real recursive generations retain candidate and promotion cards and pass suitability only after all gates", async () => {
   const w = await workspace();
@@ -413,7 +512,9 @@ test("malformed completed receipts, proposal selectors, numeric diagnostics and 
   await w.client.create({ id: "rl-proposals", type: "Decision", title: "Recipes", body: JSON.stringify({ format: "pm-rl/loop-step/1", state: "complete", input: hashJson("binding"), result, digest: hashJson(result) }) });
   await w.client.notes("rl-limits", { add: "unrelated private note" });
   await w.client.notes("rl-limits", { add: "pm-rl/policy-evaluation/1 invalid-json" });
-  await assert.rejects(exportPolicyCard(w.client, "rl-limits"), refused("card_invalid"));
+  assert.deepEqual((await exportPolicyCard(w.client, "rl-limits")).resource_limits, {});
+  await generation(w.client, spec({ policy_evaluation: null }), "rl-invalid-evaluation");
+  await assert.rejects(exportPolicyCard(w.client, "rl-invalid-evaluation"), refused("card_invalid"));
   const card = await exportPolicyCard(w.client, "rl-proposals", 1);
   assert.equal(card.selection, 1); assert.equal(card.evaluation.decision, "refuse"); assert.equal(card.evaluation.gain, -0.5); assert.equal(card.resource_limits.samples, 9);
   assert.doesNotMatch(JSON.stringify(card), /private-artifact|private-policy/);
@@ -446,7 +547,7 @@ test("materialized evidence drift and oversized complete exports refuse without 
   writeFileSync(path, original.replace('status: open', 'status: in_progress'));
   await assert.rejects(exportPolicyCard(w.client, id), refused("card_missing_provenance"));
   writeFileSync(path, original);
-  const runs = Array.from({ length: 30 }, (_, i) => `rl-run-${i}`);
+  const runs = Array.from({ length: 30 }, (_, i) => `rl-run-${i}-${"r".repeat(30)}`);
   for (const run of runs) await w.client.create({ id: run, type: "Run", title: run });
   await generation(w.client, spec({ collection_runs: runs }), "rl-oversize");
   await assert.rejects(exportPolicyCard(w.client, "rl-oversize"), refused("card_limit"));
@@ -523,7 +624,7 @@ test("registration refuses every card limit before generation, history or card w
   await harness.runCommand({ command: "rl generation register", pmRoot: w.pmRoot, args: ["rl-seed"], options: { baseCheckpoint: "checkpoint" } });
   const runs = Array.from({ length: 32 }, (_, index) => `rl-run-${index}-${"r".repeat(110)}`);
   for (const id of runs) await w.client.create({ id, type: "Run", title: "Collection", environment: env });
-  for (const count of [32, 14]) {
+  for (const count of [32, 18]) {
     const options = { baseCheckpoint: "checkpoint", policy: "policy", parent: "rl-seed", environment: env, collectionRuns: runs.slice(0, count).join(",") };
     for (let attempt = 0; attempt < 2; attempt += 1) await unchanged(w.pmRoot, () => harness.runCommand({ command: "rl generation register", pmRoot: w.pmRoot, args: [`rl-oversized-${count}`], options }), "card_limit");
   }

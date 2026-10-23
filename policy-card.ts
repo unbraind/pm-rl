@@ -1,4 +1,5 @@
 /** Minimized explanations of learned-policy suitability, backed by SDK-certified history. */
+import type { HistoryResult } from "@unbrained/pm-cli/sdk/query";
 import type { GetResult, PmClient } from "@unbrained/pm-cli/sdk/core";
 import { createPmCliExpectedError, EXIT_CODE, normalizeItemId } from "@unbrained/pm-cli/sdk/runtime";
 import { canonicalJson, createOrReadIdentical, hashJson, extractGenerationSpec, generationProvenance, readCompleteLoopItem, type JsonValue } from "./index.ts";
@@ -28,10 +29,10 @@ export interface PolicyCard {
 /** Maximum exported bytes and direct citations; large trackers remain behind evidence digests. */
 export const POLICY_CARD_MAX_BYTES = 4096;
 const MAX_EVIDENCE = 32;
+const PROSPECTIVE_AT = String(Number.MAX_SAFE_INTEGER);
 /** Only projection fields are needed to validate a not-yet-persisted source. */
-type CardItem = Pick<GetResult["item"], "id" | "type" | "body" | "affected_version" | "fixed_version" | "component" | "environment" | "parent" | "status"> & { readonly notes?: readonly { readonly text: string }[] };
-const SNAPSHOT_FIELDS = "id,type,body,affected_version,fixed_version,component,environment,parent,status,updated_at,notes";
-const EVALUATION_NOTE = "pm-rl/policy-evaluation/1 ";
+type CardItem = Pick<GetResult["item"], "id" | "type" | "body" | "affected_version" | "component" | "environment">;
+const SNAPSHOT_FIELDS = "id,type,body,affected_version,component,environment";
 const LIMIT_KEYS = ["samples", "evaluation_samples", "fit_steps", "training_steps", "wall_ms", "storage_bytes", "compute_units", "tokens", "active_calls", "candidate_calls", "generations", "candidates", "updates", "timeout_ms", "optimizer_updates", "max_optimizer_updates", "fits", "budget"];
 
 /** Refuse without echoing potentially private source values. */
@@ -44,25 +45,32 @@ function object(value: unknown): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) refuse("card_invalid");
   return value as Record<string, unknown>;
 }
-/** Bound the only exported source strings to tracker identifiers and historical timestamps. */
+/** Bound copied identities to tracker identifiers; evidence locators come only from certified history. */
 function identity(value: unknown): string {
   if (typeof value !== "string" || !/^[a-z0-9][a-z0-9-]{0,255}$/i.test(value)) refuse("card_invalid");
   return value;
 }
 /** Domain identity excludes presentation and bookkeeping metadata. */
 function domain(item: CardItem): JsonValue {
-  return { type: String(item.type), body: String(item.body), version: String(item.affected_version), checkpoint: String(item.fixed_version), policy: String(item.component), environment: String(item.environment), parent: String(item.parent), status: String(item.status), evaluation: item.notes!.filter((note) => note.text.startsWith(EVALUATION_NOTE)).map((note) => note.text) };
+  const body = item.type === "Generation" ? extractGenerationSpec(String(item.body), "Card content") as unknown as JsonValue : String(item.body);
+  return { id: item.id, type: String(item.type), body, version: String(item.affected_version),
+    ...(item.type === "Run" ? { policy: String(item.component), environment: String(item.environment) } : {}) };
 }
-/** Read exact evidence and verify that the current materialized record matches certified history. */
+/** Read certified content at its first matching immutable version, independent of later tracker activity. */
 async function snapshot(client: PmClient, id: string, at?: string): Promise<{ item: GetResult["item"]; citation: PolicyCardEvidence }> {
   identity(id);
   try {
     const current = (await readCompleteLoopItem(client, id, at, SNAPSHOT_FIELDS)).item;
-    const original = await readCompleteLoopItem(client, id, "1", SNAPSHOT_FIELDS);
-    const timestamp = at ?? (hashJson(domain(current)) === hashJson(domain(original.item)) ? String(original.as_of_timestamp) : String(current.updated_at));
-    const historical = (await readCompleteLoopItem(client, id, timestamp, SNAPSHOT_FIELDS)).item;
-    if (hashJson(domain(current)) !== hashJson(domain(historical))) refuse("card_drift");
-    return { item: historical, citation: { id: identity(historical.id), at: timestamp, digest: hashJson(domain(historical)) } };
+    const digest = hashJson(domain(current));
+    if (at !== undefined) return { item: current, citation: { id: identity(current.id), at, digest } };
+    const history = await client.run("history", { id, options: { compact: true, verify: true, outputLimit: "unbounded", outputBudget: "unbounded" } }) as HistoryResult;
+    if (!history.verification?.ok || history.limit !== null || history.compact_history?.length !== history.count) refuse("card_missing_provenance");
+    for (const row of history.compact_history) {
+      const coordinate = String(row.version ?? row.index);
+      const historical = (await readCompleteLoopItem(client, id, coordinate, SNAPSHOT_FIELDS)).item;
+      if (hashJson(domain(historical)) === digest) return { item: historical, citation: { id: identity(historical.id), at: coordinate, digest } };
+    }
+    return refuse("card_drift");
   } catch (error) {
     rethrowOperationalRead(error);
     return refuse("card_missing_provenance");
@@ -83,12 +91,7 @@ function source(item: CardItem): { value: Record<string, unknown>; outcome: Poli
     const spec = extractGenerationSpec(String(item.body), "Policy card generation");
     if (item.affected_version !== hashJson(generationProvenance(spec))) refuse("card_drift");
     const config = spec.training_config !== null && typeof spec.training_config === "object" && !Array.isArray(spec.training_config) ? spec.training_config as Record<string, unknown> : {};
-    const notes = (item.notes ?? []).filter((note) => note.text.startsWith(EVALUATION_NOTE));
-    let judged: Record<string, unknown> = {};
-    if (notes.length > 0) {
-      try { judged = object(JSON.parse(notes.at(-1)!.text.slice(EVALUATION_NOTE.length))); }
-      catch { return refuse("card_invalid"); }
-    }
+    const judged = spec.policy_evaluation === undefined ? {} : object(spec.policy_evaluation);
     const regression = typeof config.candidate_held_out_mean === "number" && typeof config.incumbent_held_out_mean === "number" &&
       (spec.held_out_score?.direction === "minimize" ? config.candidate_held_out_mean > config.incumbent_held_out_mean : config.candidate_held_out_mean < config.incumbent_held_out_mean);
     return { value: { ...config, policy_card_evaluation: judged }, outcome: spec.seed ? "seed" : spec.promoted ? "promoted" : regression || judged.decision === "refuse" ? "refused" : "candidate",
@@ -186,14 +189,17 @@ export async function exportPolicyCard(client: PmClient, subject: string, select
 /** Validate the complete prospective outcome before promotion consumes budget or changes history. */
 export async function validatePromotedPolicyCard(client: PmClient, subject: string, body: string): Promise<void> {
   const primary = await snapshot(client, subject);
-  // Outcome fields change only fixed-width evidence digests and ISO timestamps.
+  // Outcome fields change fixed-width evidence digests and bounded version coordinates.
   // Assemble with the new body so approval citations, limits and verdict size are included.
-  await exportSnapshotCard(client, { ...primary, item: { ...primary.item, body } }, null);
+  await exportSnapshotCard(client, { ...primary, citation: { ...primary.citation, at: PROSPECTIVE_AT }, item: { ...primary.item, body } }, null);
 }
-/** Validate rejection metadata before appending its native note or any history. @internal */
-export async function validateRefusedPolicyCard(client: PmClient, subject: string, text: string): Promise<void> {
+/** Validate a sealed rejection outcome before changing the generation body or any history. @internal */
+export async function validateRefusedPolicyCard(client: PmClient, subject: string, verdict: JsonValue): Promise<string> {
   const primary = await snapshot(client, subject);
-  await exportSnapshotCard(client, { ...primary, item: { ...primary.item, notes: [...primary.item.notes!, { text }] } }, null);
+  const spec = extractGenerationSpec(String(primary.item.body), "Rejected generation");
+  const body = `\`\`\`json\n${JSON.stringify({ ...spec, policy_evaluation: verdict })}\n\`\`\``;
+  await exportSnapshotCard(client, { ...primary, citation: { ...primary.citation, at: PROSPECTIVE_AT }, item: { ...primary.item, body } }, null);
+  return body;
 }
 /** Share the bounded projection between certified exports and pre-commit outcome validation. */
 async function exportSnapshotCard(client: PmClient, primary: { item: CardItem; citation: PolicyCardEvidence }, selection: number | null): Promise<PolicyCard> {
@@ -250,8 +256,8 @@ function evidenceBody(item: CardItem): Record<string, unknown> {
 /** Validate every bounded projection before creating a source or changing its history. @internal */
 export async function validatePolicyCardWrite(client: PmClient, options: Parameters<PmClient["create"]>[0] & { id: string }, recursive = false): Promise<void> {
   const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
-  const item: CardItem = { id: identity(normalizeItemId(options.id, prefix)), type: options.type!, body: options.body ?? "", affected_version: options.affectedVersion ?? "", fixed_version: options.fixedVersion ?? "", component: options.component ?? "", environment: options.environment ?? "", parent: options.parent ?? "", status: options.status ?? "open", notes: (options.note ?? []).map((text) => ({ text })) };
-  const primary = { item, citation: { id: item.id, at: "9999-12-31T23:59:59.999Z", digest: hashJson(domain(item)) } };
+  const item: CardItem = { id: identity(normalizeItemId(options.id, prefix)), type: options.type!, body: options.body ?? "", affected_version: options.affectedVersion ?? "", component: options.component ?? "", environment: options.environment ?? "" };
+  const primary = { item, citation: { id: item.id, at: PROSPECTIVE_AT, digest: hashJson(domain(item)) } };
   await exportSnapshotCard(client, primary, null);
   if (recursive) {
     const value = source(item).value;
