@@ -40,6 +40,9 @@ test("minimized cards replay exact evidence, reject forgery and refuse seed adop
   const card = await exportPolicyCard(w.client, id);
   assert.equal(card.outcome, "seed"); assert.deepEqual(card.allowed_actions, ["inspect", "evaluate"]);
   assert.equal(card.resource_limits.samples, 10);
+  await w.client.claim(id);
+  await w.client.comments(id, { add: "Bookkeeping must not republish a policy" });
+  assert.equal((await exportPolicyCard(w.client, id)).digest, card.digest);
   assert.doesNotMatch(JSON.stringify(card), /SECRET_SENTINEL|EXAMPLE_SENTINEL|Private title|training_config/);
   assert.equal((await replayPolicyCard(w.client, card)).results.length, 1);
   assert.deepEqual(await recordPolicyCard(w.client, id), await recordPolicyCard(w.client, id));
@@ -90,6 +93,7 @@ test("generation citations include parents, collection, environments and evaluat
   const many = spec({ collection_runs: Array.from({ length: 33 }, (_, i) => `rl-run-${i}`) });
   await generation(w.client, many, "rl-many"); await assert.rejects(exportPolicyCard(w.client, "rl-many"), refused("card_limit"));
   await generation(w.client, { ...value, training_config: { policy_card_evaluation: { decision: "refuse" } } }, "rl-rejected");
+  await w.client.notes("rl-rejected", { add: 'pm-rl/policy-evaluation/1 {"decision":"refuse"}' });
   assert.deepEqual((await exportPolicyCard(w.client, "rl-rejected")).known_regressions, ["promotion_refused"]);
   await generation(w.client, spec({ training_config: [] }), "rl-null"); assert.deepEqual((await exportPolicyCard(w.client, "rl-null")).resource_limits, {});
 });
@@ -167,12 +171,17 @@ test("malformed completed receipts, proposal selectors, numeric diagnostics and 
   assert.deepEqual((await exportPolicyCard(w.client, "rl-limits")).resource_limits, {});
   const result = { recipes: [{ digest: "private-artifact-a" }, { digest: "private-artifact-b" }], promoted: "private-policy", verdict: { decision: "promote", margin: 0.1, uncertainty: 0.2, gain_lower_bound: 0.3, gain: -0.1 }, meta: { verdict: { decision: "refuse" }, trial: { gain: -0.5, samples: 2 }, outcome: null }, config: { samples: 3 }, budget: { samples: 9, tokens: 0 } };
   await w.client.create({ id: "rl-proposals", type: "Decision", title: "Recipes", body: JSON.stringify({ format: "pm-rl/loop-step/1", state: "complete", input: hashJson("binding"), result, digest: hashJson(result) }) });
+  await w.client.notes("rl-limits", { add: "unrelated private note" });
+  await w.client.notes("rl-limits", { add: "pm-rl/policy-evaluation/1 invalid-json" });
+  await assert.rejects(exportPolicyCard(w.client, "rl-limits"), refused("card_invalid"));
   const card = await exportPolicyCard(w.client, "rl-proposals", 1);
   assert.equal(card.selection, 1); assert.equal(card.evaluation.decision, "refuse"); assert.equal(card.evaluation.gain, -0.5); assert.equal(card.resource_limits.samples, 9);
   assert.doesNotMatch(JSON.stringify(card), /private-artifact|private-policy/);
   assert.equal((await replayPolicyCard(w.client, card)).card.policy_digest, card.policy_digest);
   for (const selection of [-1, 0.5, 2, NaN]) await assert.rejects(exportPolicyCard(w.client, "rl-proposals", selection), refused("card_invalid"));
-  await assert.rejects(exportPolicyCard(w.client, "rl-limits", 0), refused("card_invalid"));
+  await generation(w.client);
+  await recordRecursivePolicyCards(w.client, "rl-seed");
+  await assert.rejects(exportPolicyCard(w.client, "rl-seed", 0), refused("card_invalid"));
   await assert.rejects(replayPolicyCard(w.client, { ...card, invalid: 1n }), refused("card_invalid"));
   const oversized = { configs: Array(33).fill({ rate: 1 }) };
   await w.client.create({ id: "rl-many-proposals", type: "Decision", title: "Oversized proposal batch", body: JSON.stringify({ format: "pm-rl/loop-step/1", state: "complete", input: hashJson("binding"), result: oversized, digest: hashJson(oversized) }) });

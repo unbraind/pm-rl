@@ -12,6 +12,8 @@ import { createExtensionTestHarness, type ExtensionTestHarness } from "@unbraine
 
 import extension, {
   environmentInvalidationReason,
+  generationProvenance,
+  extractGenerationSpec,
   hashJson,
   RL_ITEM_TYPES,
   type JsonValue,
@@ -205,7 +207,7 @@ function clientWithIdlessGenerationRow(real: PmClient): PmClient {
  * that commits between this caller's pre-lock read and its acquisition of the
  * writer lock.
  */
-function clientWithConcurrentEditThenFailingClose(real: PmClient, targetId: string, concurrentBody: string, options: { failClose?: boolean; editId?: string; triggerId?: string } = {}): PmClient {
+function clientWithConcurrentEditThenFailingClose(real: PmClient, targetId: string, concurrentBody: string, options: { failClose?: boolean; editId?: string; triggerId?: string; updateProvenance?: boolean } = {}): PmClient {
   const failClose = options.failClose ?? true;
   let edited = false;
   return new Proxy(real, {
@@ -220,7 +222,7 @@ function clientWithConcurrentEditThenFailingClose(real: PmClient, targetId: stri
           const result = await (Reflect.get(target, "get", receiver) as (...a: unknown[]) => Promise<GetResult>).apply(target, arguments_);
           if (!edited && arguments_[0] === (options.triggerId ?? targetId)) {
             edited = true;
-            await real.update(options.editId ?? targetId, { body: concurrentBody, message: "Concurrent peer edit" });
+            await real.update(options.editId ?? targetId, { body: concurrentBody, message: "Concurrent peer edit", ...(options.updateProvenance === true ? { affectedVersion: hashJson(generationProvenance(extractGenerationSpec(concurrentBody, "Peer generation"))) } : {}) });
           }
           return result;
         };
@@ -1524,7 +1526,7 @@ test("a peer edit under the lock survives the promoting write, and one that chan
   // A peer edits training_config, which the promotion decision does not consume.
   const withPeerEdit = String((await client.get(candidate.id!, { fields: "body" })).item.body).replace('"training_config": {}', '"training_config": {\n    "peer": "kept"\n  }');
   const peerClient = new PmClient({ pmRoot, author: "peer" });
-  const sdk = sdkWith(clientWithConcurrentEditThenFailingClose(new PmClient({ pmRoot, author: "pm-rl-test" }), candidate.id!, withPeerEdit, { failClose: false }));
+  const sdk = sdkWith(clientWithConcurrentEditThenFailingClose(new PmClient({ pmRoot, author: "pm-rl-test" }), candidate.id!, withPeerEdit, { failClose: false, updateProvenance: true }));
   void peerClient;
   const promoted = resultOf(await harness.runCommand({ command: "rl generation promote", pmRoot, args: [candidate.id!], options: { approval: approval.item.id, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "peer-edit" }, sdk }));
   assert.equal(promoted.details?.budget_consumed, 1, "the promotion still succeeds");
@@ -1689,7 +1691,7 @@ test("a failed close restores the body that was current when the lock was taken,
   // reaching the revert it exists to check.
   const peerBody = String(original.item.body).replace('"training_config": {}', '"training_config": {\n    "peer": "kept"\n  }');
   assert.notEqual(peerBody, String(original.item.body), "the peer edit must actually differ, or this test proves nothing");
-  const sdk = sdkWith(clientWithConcurrentEditThenFailingClose(new PmClient({ pmRoot, author: "pm-rl-test" }), candidate.id!, peerBody));
+  const sdk = sdkWith(clientWithConcurrentEditThenFailingClose(new PmClient({ pmRoot, author: "pm-rl-test" }), candidate.id!, peerBody, { updateProvenance: true }));
   const failed = await harness.runCommand({ command: "rl generation promote", pmRoot, args: [candidate.id!], options: { approval: approval.item.id, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "x" }, sdk });
   assert.equal(failed.handled, false);
   const reread = await client.get(candidate.id!, { fields: "body" });

@@ -746,8 +746,8 @@ export function idSegment(value: string): string {
 }
 
 /** Read complete current or verified historical domain evidence without an output ceiling. */
-export async function readCompleteLoopItem(client: PmClient, id: string, at?: string): Promise<GetResult> {
-  const result = await client.get(id, { depth: "standard", outputLimit: "unbounded", outputBudget: "unbounded", ...(at === undefined ? {} : { at }) });
+export async function readCompleteLoopItem(client: PmClient, id: string, at?: string, fields?: string): Promise<GetResult> {
+  const result = await client.get(id, { ...(fields === undefined ? { depth: "standard" } : { fields }), outputLimit: "unbounded", outputBudget: "unbounded", ...(at === undefined ? {} : { at }) });
   if (!("item" in result) || "output_budget_exceeded" in result) {
     fail(`Item ${id} was omitted despite an unbounded read request.`, "loop_history_incomplete", EXIT_CODE.CONFLICT);
   }
@@ -2125,6 +2125,8 @@ interface GenerationRegistrationRequest {
   readonly environment: string | undefined;
   /** Training configuration recorded in the generation's body. */
   readonly config: JsonValue;
+  /** Explanation metadata uses native notes and never changes trainer receipt identity. */
+  readonly evaluation?: { readonly decision: "promote" | "refuse"; readonly reason_digest: string };
 }
 
 /**
@@ -2230,6 +2232,7 @@ async function registerGenerationCore(client: PmClient, request: GenerationRegis
     body: `# ${requestedId}\n\n\`\`\`json\n${JSON.stringify(spec, null, 2)}\n\`\`\``,
     affectedVersion: specHash,
     fixedVersion: baseCheckpoint,
+    ...(request.evaluation === undefined ? {} : { note: [`pm-rl/policy-evaluation/1 ${JSON.stringify(request.evaluation)}`] }),
     component: policy.length > 0 ? policy : baseCheckpoint,
     message: isSeed ? "Register seed RL generation" : "Register candidate RL generation",
     ...(isSeed ? {} : { parent: parentInput, dep: deps, environment: environmentId }),
@@ -3918,14 +3921,12 @@ async function executePendingGeneration(client: PmClient, coordinates: Workspace
     policy: receipt.candidate.digest,
     collectionRuns: [runId!],
     environment: prepared.environmentId,
-    config: {
-      ...jsonObject(programme.trainer === "bandit"
-        ? generationTrainingConfig(programme.config, chain.step, generation, receipt as BanditGeneration)
-        : programme.trainer === "systemone"
-          ? systemOneGenerationTrainingConfig(programme.config, chain.step, receipt as SystemOneGeneration)
-          : lmGenerationTrainingConfig(programme.config, chain.step, receipt as LmGeneration), "Trainer configuration"),
-      policy_card_evaluation: { decision: receipt.promoted ? "promote" : "refuse", reason_digest: hashJson(receipt.refusalReason) },
-    },
+    config: programme.trainer === "bandit"
+      ? generationTrainingConfig(programme.config, chain.step, generation, receipt as BanditGeneration)
+      : programme.trainer === "systemone"
+        ? systemOneGenerationTrainingConfig(programme.config, chain.step, receipt as SystemOneGeneration)
+        : lmGenerationTrainingConfig(programme.config, chain.step, receipt as LmGeneration),
+    evaluation: { decision: receipt.promoted ? "promote" : "refuse", reason_digest: hashJson(receipt.refusalReason) },
   }));
   const generationId = String(generationRegistration.id);
   if (trainExecuted) await request.onPhase?.("train", generation);

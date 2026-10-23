@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { init, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
-import { runRlLoop, hashJson, type JsonValue } from "../index.ts";
+import { runRlLoop, resumeRlLoop, rlLoopStatus, hashJson, type JsonValue } from "../index.ts";
 import { buildTrackerLoopCorpus } from "../corpus.ts";
 import { exportPolicyCard, replayPolicyCard, adoptPolicyCard, type PolicyCard } from "../policy-card.ts";
 
@@ -49,6 +49,9 @@ const report = await runRlLoop(client, { pmRoot, author: "card-acceptance" }, { 
   }
 } });
 assert.equal(report.generations.length, 2); assert.equal(report.promoted, 2); assert.equal(laterGenerationReplays, 1);
+const resumed = await resumeRlLoop(client, { pmRoot, author: "card-acceptance" }, { id: "cards", approval: "rl-approval" });
+assert.equal(resumed.resumed_generations, 2); assert.equal(resumed.final_checkpoint, report.final_checkpoint);
+assert.equal((await rlLoopStatus(client, "cards", pmRoot)).stop_reason, report.stop_reason);
 const inventory = (await client.listAllComplete({ includeBody: true })).items;
 const cards = inventory.filter((item) => String(item.id).includes("-policy-card-")).map((item) => JSON.parse(String(item.body)) as PolicyCard);
 const generations = [];
@@ -74,4 +77,4 @@ for (const generation of report.generations) {
 let citedResults = 0;
 for (const card of cards) citedResults += (await replayPolicyCard(client, card)).results.length;
 assert.deepEqual(fingerprint(source), before);
-writeFileSync(output, JSON.stringify({ format: "pm-rl/policy-card-evidence/1", source: { repository: "unbraind/pm-ops", commit, license: "MIT", ...before, digest_after: before.digest }, corpus: { snapshot: corpus.snapshot, training_items: corpus.training_items, held_out_items: corpus.held_out_items, held_out_closed: corpus.held_out_closed }, generations, retained_cards: cards.length, later_generation_replays: laterGenerationReplays, cited_results_replayed: citedResults, samples_consumed: report.samples_consumed, stop_reason: report.stop_reason, elapsed_ms: performance.now() - started, programme_digest: hashJson(corpus.programme), no_git: true, git_absent_from_path: true, source_unchanged: true, limits: ["Finite snapshot status recognition; sampled episodes reuse held-out items.", "Two recursive numerical-policy generations do not establish cross-repository generalization or proposer transfer.", "Adoption checks suitability only; backend consent and normal gates remain required."] }, null, 2) + "\n");
+writeFileSync(output, JSON.stringify({ format: "pm-rl/policy-card-evidence/1", source: { repository: "unbraind/pm-ops", commit, license: "MIT", ...before, digest_after: before.digest }, corpus: { snapshot: corpus.snapshot, training_items: corpus.training_items, held_out_items: corpus.held_out_items, held_out_closed: corpus.held_out_closed }, generations, retained_cards: cards.length, later_generation_replays: laterGenerationReplays, resumed_generations: resumed.resumed_generations, cited_results_replayed: citedResults, samples_consumed: report.samples_consumed, stop_reason: report.stop_reason, elapsed_ms: performance.now() - started, programme_digest: hashJson(corpus.programme), no_git: true, git_absent_from_path: true, source_unchanged: true, limits: ["Finite snapshot status recognition; sampled episodes reuse held-out items.", "Two recursive numerical-policy generations do not establish cross-repository generalization or proposer transfer.", "Adoption checks suitability only; backend consent and normal gates remain required."] }, null, 2) + "\n");

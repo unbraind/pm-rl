@@ -18,7 +18,7 @@ Each card includes a candidate digest, training-scope digest, collection count, 
 
 ## Recursive coverage
 
-Generation registration records the candidate card before promotion; promotion retains a new outcome card. Earlier cards stay unchanged and replay against verified history. The durable inner/outer controller records every completed recursive phase and each member of a proposed recipe/configuration batch. This covers learner trials, improver updates, causal selection outcomes, retained/rejected generations and outcome-ledger receipts. A later improver can enumerate the SDK's complete Decision inventory, select `pm-rl/policy-card/1` bodies and replay their citations before using earlier diagnostics. Checkpoint artifacts continue to own executable state.
+Generation registration records evaluation diagnostics in native SDK notes, leaving replay-critical trainer configuration unchanged. It records the candidate card before promotion; promotion retains a new outcome card. Earlier cards stay unchanged and replay against verified history. The durable inner/outer controller records every completed recursive phase and each member of a proposed recipe/configuration batch. This covers learner trials, improver updates, causal selection outcomes, retained/rejected generations and outcome-ledger receipts. A later improver can enumerate the SDK's complete Decision inventory, select `pm-rl/policy-card/1` bodies and replay their citations before using earlier diagnostics. Checkpoint artifacts continue to own executable state.
 
 Generation cards cite parents, collection runs, environments and promotion approvals. When present, they also cite the causal evaluation plan, paired result, shadow deployment and shadow comparison. Existing causal and shadow gates run again on adoption checks. The card does not relax those gates or claim that a single tracker proves transfer to another population.
 
@@ -50,5 +50,7 @@ Replay reconstructs the minimized explanation from certified historical records;
 ## Without git
 
 Export, replay, adoption checks and automatic recursive cards work in plain-directory trackers without a Git executable. Git-backed public-history dataset construction keeps its existing provenance requirements; cards add no Git subprocesses.
+
+The [example card](../examples/policy-card.json) comes from the validation tracker; replay also requires its cited histories.
 
 The public-copy validation script is `test/policy-card.acceptance.ts`; aggregate measurements are in [policy-card-evidence.json](policy-card-evidence.json). It reads a permission-protected public tracker snapshot, trains two recursive generations, verifies retained candidate/promoted cards, exercises packed CLI TOON/JSON/replay/adoption, and checks every source byte remains unchanged. This is finite-snapshot recognition evidence, not a claim of general intelligence or statistically powered proposer transfer.

@@ -26,6 +26,8 @@ export interface PolicyCard {
 /** Maximum exported bytes and direct citations; large trackers remain behind evidence digests. */
 export const POLICY_CARD_MAX_BYTES = 4096;
 const MAX_EVIDENCE = 32;
+const SNAPSHOT_FIELDS = "id,type,body,affected_version,status,updated_at,notes";
+const EVALUATION_NOTE = "pm-rl/policy-evaluation/1 ";
 const LIMIT_KEYS = ["samples", "evaluation_samples", "fit_steps", "training_steps", "wall_ms", "storage_bytes", "compute_units", "tokens", "active_calls", "candidate_calls", "generations", "candidates", "updates", "timeout_ms", "optimizer_updates", "max_optimizer_updates", "fits", "budget"];
 
 /** Refuse without echoing potentially private source values. */
@@ -45,15 +47,16 @@ function identity(value: unknown): string {
 }
 /** Domain identity excludes presentation and bookkeeping metadata. */
 function domain(item: GetResult["item"]): JsonValue {
-  return { type: String(item.type), body: String(item.body), version: String(item.affected_version), status: String(item.status) };
+  return { type: String(item.type), body: String(item.body), version: String(item.affected_version), status: String(item.status), evaluation: item.notes!.filter((note) => note.text.startsWith(EVALUATION_NOTE)).map((note) => note.text) };
 }
 /** Read exact evidence and verify that the current materialized record matches certified history. */
 async function snapshot(client: PmClient, id: string, at?: string): Promise<{ item: GetResult["item"]; citation: PolicyCardEvidence }> {
   identity(id);
   try {
-    const current = (await readCompleteLoopItem(client, id, at)).item;
-    const timestamp = at ?? String(current.updated_at);
-    const historical = (await readCompleteLoopItem(client, id, timestamp)).item;
+    const current = (await readCompleteLoopItem(client, id, at, SNAPSHOT_FIELDS)).item;
+    const original = await readCompleteLoopItem(client, id, "1", SNAPSHOT_FIELDS);
+    const timestamp = at ?? (hashJson(domain(current)) === hashJson(domain(original.item)) ? String(original.as_of_timestamp) : String(current.updated_at));
+    const historical = (await readCompleteLoopItem(client, id, timestamp, SNAPSHOT_FIELDS)).item;
     if (hashJson(domain(current)) !== hashJson(domain(historical))) refuse("card_drift");
     return { item: historical, citation: { id: identity(historical.id), at: timestamp, digest: hashJson(domain(historical)) } };
   } catch { return refuse("card_missing_provenance"); }
@@ -73,9 +76,14 @@ function source(item: GetResult["item"]): { value: Record<string, unknown>; outc
     const spec = extractGenerationSpec(String(item.body), "Policy card generation");
     if (item.affected_version !== hashJson(generationProvenance(spec))) refuse("card_drift");
     const config = spec.training_config !== null && typeof spec.training_config === "object" && !Array.isArray(spec.training_config) ? spec.training_config as Record<string, unknown> : {};
-    const judged = config.policy_card_evaluation !== null && typeof config.policy_card_evaluation === "object" ? config.policy_card_evaluation as Record<string, unknown> : {};
+    const notes = (item.notes ?? []).filter((note) => note.text.startsWith(EVALUATION_NOTE));
+    let judged: Record<string, unknown> = {};
+    if (notes.length > 0) {
+      try { judged = object(JSON.parse(notes.at(-1)!.text.slice(EVALUATION_NOTE.length))); }
+      catch { return refuse("card_invalid"); }
+    }
     const regression = typeof config.candidate_held_out_mean === "number" && typeof config.incumbent_held_out_mean === "number" && config.candidate_held_out_mean < config.incumbent_held_out_mean;
-    return { value: config, outcome: spec.seed ? "seed" : spec.promoted ? "promoted" : regression || judged.decision === "refuse" ? "refused" : "candidate",
+    return { value: { ...config, policy_card_evaluation: judged }, outcome: spec.seed ? "seed" : spec.promoted ? "promoted" : regression || judged.decision === "refuse" ? "refused" : "candidate",
       dependencies: [...(spec.parent === null ? [] : [spec.parent]), ...spec.collection_runs, ...(spec.environment_version ? [spec.environment_version] : []), ...(spec.approval === null ? [] : [spec.approval]), ...(spec.evaluation_plan === undefined ? [] : [`${item.id}-evaluation-plan`])],
       scope: { digest: hashJson(spec.training_config), collection_runs: spec.collection_runs.length, environment: hashJson(spec.environment_version), reward: hashJson(spec.reward_spec_version) },
       regressions: regression ? ["reward_regression"] : judged.decision === "refuse" ? ["promotion_refused"] : spec.promoted || judged.decision === "promote" ? [] : ["evaluation_incomplete"] };
