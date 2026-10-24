@@ -1386,3 +1386,39 @@ test("legacy rejected generations without sealed evaluations resume with the ori
   assert.equal((sealed.policy_evaluation as Record<string, JsonValue>).decision, "refuse");
   assert.equal((sealed.policy_evaluation as Record<string, JsonValue>).reason_digest, hashJson(expected.refusalReason));
 });
+
+test("loop receipt bindings and payloads refuse hostile replacements without sealing evaluation", async () => {
+  const w = await transitionFixture("receipt-bindings");
+  await w.client.schemaAddType("Note", { folder: "foreign-notes", defaultStatus: "open" });
+  await assert.rejects(runRlLoop(w.client, w.coordinates, { ...w.request, onPhase(phase) { if (phase === "evaluate") throw new Error("pause receipt checks"); } }), /pause receipt checks/);
+  const parsed = parseLoopConfig(w.config); const step = { learningRate: parsed.learningRate, evaluationSamples: parsed.evaluationSamples };
+  const key = `${w.request.id}-g1-step-promote`; const result = { item: w.generationId };
+  const binding = { input: { programme: parsed.digest, generation: 1, source: banditCheckpoint(parsed.initialWeight).digest, step }, approval: "rl-approval" };
+  const running = { format: "pm-rl/loop-step/1", key, input: hashJson(binding), state: "running" };
+  const complete = { ...running, state: "complete", result, digest: hashJson(result) };
+  const before = String((await w.client.get(w.generationId)).item.body);
+  await w.peer.create({ id: key, type: "Decision", title: "Receipt replacement checks", tags: "rl-loop-step", body: JSON.stringify(running) });
+  const replacements = [
+    { type: "Task", body: JSON.stringify(running) }, { type: "Note", body: JSON.stringify(running) },
+    { type: "Decision", body: "# Foreign receipt" },
+    { type: "Decision", body: '{"format":"pm-rl/loop-step/1",' },
+    { type: "Decision", body: JSON.stringify({ ...running, format: "other-package/step/1" }) },
+    { type: "Decision", body: JSON.stringify({ ...running, padding: "x".repeat(1_048_577) }) },
+    { type: "Decision", body: `{"format":"pm-rl/loop-step/1","nested":${"[".repeat(65)}0${"]".repeat(65)}}` },
+    ...[{ key: "foreign-key" }, { input: "foreign-input" }, { state: "foreign-state" }].map((patch) => ({ type: "Decision", body: JSON.stringify({ ...running, ...patch }) })),
+    ...[undefined, null, 17, []].map((result) => ({ type: "Decision", body: JSON.stringify({ ...complete, result }) })),
+    { type: "Decision", body: JSON.stringify({ ...complete, digest: "foreign-checksum" }) },
+  ];
+  for (const [index, replacement] of replacements.entries()) {
+    await w.peer.update(key, replacement);
+    await assert.rejects(resumeRlLoop(w.client, w.coordinates, { id: w.request.id, approval: "rl-approval" }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_step_drift", `replacement ${index}`);
+    assert.equal(String((await w.peer.get(w.generationId)).item.body), before, "receipt rejection cannot stamp the positive evaluation as refused");
+  }
+  await w.peer.update(key, { type: "Decision", body: JSON.stringify(running) });
+  const first = await resumeRlLoop(w.client, w.coordinates, { id: w.request.id, approval: "rl-approval" });
+  const second = await resumeRlLoop(w.peer, { pmRoot: w.pmRoot, author: "peer-evaluator" }, { id: w.request.id, approval: "rl-approval" });
+  assert.equal(first.promoted, 1); assert.equal(second.promoted, 1);
+  assert.equal(first.generations[0].promoted_by, second.generations[0].promoted_by);
+  assert.equal(first.final_checkpoint, second.final_checkpoint); assert.equal(first.samples_consumed, second.samples_consumed);
+  assert.equal((await adoptPolicyCard(w.peer, await exportPolicyCard(w.peer, w.generationId))).outcome, "promoted");
+});

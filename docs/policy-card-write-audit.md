@@ -303,13 +303,13 @@ Focused commands:
 Behavioral revert receipts are recorded on `pm-rl-policycards`. Each proof uses an
 isolated source snapshot, changes only the production discovery function or
 promotion reconciliation catch, runs the unchanged regression, and restores the
-production source in `finally`. Test SHA-256: `21edb7e6df8802dce83abe8d26f5a8cd897d02ceb31f55fe2db3acb42cd49009`.
+production source in `finally`. Test SHA-256: `e01471b5230116820d9e26113e5812e9bd0fe5a818d1b7027fbe0ebaff2359d3`.
 The restored snapshot must match the package source and test bytes before its
 positive regression run. Full release evidence is the CI npm and Bun matrix at
 the pushed head, using the unchanged `release:check` commands and thresholds.
 
 Final sixth-review local receipts: the restored focused suite and the pinned
-PM-linked suite pass 46/46, with zero skips. The shared tracker decoder has
+PM-linked suite pass 47/47, with zero skips. The shared tracker decoder has
 100% lines, branches and functions in the focused native coverage run. Class 1's
 production-only revert fails 1/1 with `SyntaxError`; class 2's production-only
 revert passes 4/15 and fails 11/15, including the original peer-promotion refusal
@@ -331,7 +331,7 @@ lookup cases. Full npm/Bun gates and real Compose tests run in CI.
 Final linked command (also run with `pm test pm-rl-policycards --run --only-last --progress`):
 
 ```sh
-node --test --test-name-pattern='seeded foreign tracker|shared tracker loop interleavings|shared tracker peer refusals|lost controller claim|rejection CAS reconciliation|promotion attribution requires|peer refusal remains|guarded tracker decoder|peer completion receipts|stale legacy refusal|authoritative status read failures|foreign subject types|shared inner promotion headroom|budget and job identity drift|rerunning one loop id|SIGKILL inside real LM collect|approval aliases cannot spend|malformed completed receipts|legacy rejected generations' test/policy-card.test.ts test/meta.test.ts test/process.test.ts test/lm-loop.test.ts
+node --test --test-name-pattern='seeded foreign tracker|shared tracker loop interleavings|shared tracker peer refusals|lost controller claim|rejection CAS reconciliation|promotion attribution requires|peer refusal remains|guarded tracker decoder|peer completion receipts|stale legacy refusal|authoritative status read failures|foreign subject types|shared inner promotion headroom|budget and job identity drift|rerunning one loop id|SIGKILL inside real LM collect|approval aliases cannot spend|malformed completed receipts|legacy rejected generations|loop receipt bindings' test/policy-card.test.ts test/meta.test.ts test/process.test.ts test/lm-loop.test.ts
 ```
 
 The second sixth-review CI run (40078982664) passed all 836 tests on npm
@@ -343,3 +343,17 @@ no sealed evaluation: both controllers retain the original numerical rejection
 and its reason. The snapshot preserves source histories byte-for-byte and never
 rewrites or repairs existing history streams. No production behavior or
 threshold was changed for this coverage completion.
+
+CI run 40082789577 passes all 837 tests in npm Node 22/26 and Bun Node 26
+jobs; policy-card coverage is now 100%, while one index branch remains. The
+additional receipt matrix reaches semantic validation after the shared ownership
+decoder: wrong key, input and state, every malformed payload category, foreign
+Task/Note envelopes, truncated/oversized/deep JSON and a same-tag foreign format.
+All 15 replacements refuse without changing the candidate evaluation. Repair
+through the SDK restores one promotion, identical controller reports and valid
+adoption. No production code or gate threshold was changed for this matrix.
+
+The final pinned PM suite passes 47/47 without failures, cancellations or skips
+under its unchanged 600-second command limit. The broad local LCOV diagnostic
+was stopped after isolating receipt binding/payload guards and is not release
+evidence. Only completed npm/Bun CI release gates certify the full package.
