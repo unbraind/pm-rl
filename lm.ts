@@ -1,3 +1,4 @@
+import { parseBoundedJson } from "./tracker-record.ts";
 /**
  * @module pm-rl/lm
  *
@@ -1738,7 +1739,7 @@ export function parseLmCollectionEvent(event: MetricEvent, config: LmLoopConfig,
   }
   let decoded: unknown;
   try {
-    decoded = JSON.parse(encoded);
+    decoded = parseBoundedJson(encoded);
   } catch {
     expectedFail(`${source} tokens tag is not valid JSON.`, "lm_event_tokens");
   }

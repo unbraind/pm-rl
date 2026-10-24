@@ -1,3 +1,4 @@
+import { parseBoundedJson } from "./tracker-record.ts";
 /** Bounded online observation of declarative policies, without candidate execution authority. */
 import type { GetResult, PmClient } from "@unbrained/pm-cli/sdk/core";
 import { createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
@@ -98,7 +99,7 @@ async function sealed(client: PmClient, id: string): Promise<GetResult["item"] |
   return item;
 }
 /** Decode only package JSON and suppress raw parser diagnostics. */
-function json(body: unknown, receipt: string): unknown { try { return JSON.parse(String(body)); } catch { return refuse("shadow_drift", receipt, "body"); } }
+function json(body: unknown, receipt: string): unknown { try { return parseBoundedJson(String(body)); } catch { return refuse("shadow_drift", receipt, "body"); } }
 /** Content-addressed writes are retry-safe under the SDK's mutation lock. */
 async function seal(client: PmClient, id: string, value: JsonValue): Promise<void> {
   const body = canonicalJson(value); const digest = hashJson(value);

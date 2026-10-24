@@ -1,3 +1,4 @@
+import { parseBoundedJson } from "./tracker-record.ts";
 /**
  * @module pm-rl/gatesim
  *
@@ -151,7 +152,7 @@ export interface SimRealGapReport {
 export function parseGateEnvironmentSpec(text: string, source: string): GateEnvironmentSpec {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(text);
+    parsed = parseBoundedJson(text);
   } catch {
     expectedFail(`${source} is not valid JSON.`, "invalid_gate_environment_json");
   }
@@ -208,7 +209,7 @@ export function parseGateEnvironmentSpec(text: string, source: string): GateEnvi
 export function parseGateResults(text: string, source: string, spec: GateEnvironmentSpec): GateResults {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(text);
+    parsed = parseBoundedJson(text);
   } catch {
     expectedFail(`${source} is not valid JSON.`, "invalid_gate_results");
   }
@@ -334,7 +335,7 @@ export function assertNoCredentials(label: string, text: string): void {
 export function parseEpisodeSpec(text: string, source: string): EpisodeSpec {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(text);
+    parsed = parseBoundedJson(text);
   } catch {
     expectedFail(`${source} is not valid JSON.`, "invalid_episode_json", EXIT_CODE.CONFLICT);
   }
@@ -395,7 +396,7 @@ export function parseEpisodeSpec(text: string, source: string): EpisodeSpec {
 export function parseOutcomeSpec(text: string, source: string): OutcomeSpec {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(text);
+    parsed = parseBoundedJson(text);
   } catch {
     expectedFail(`${source} is not valid JSON.`, "invalid_outcome_json", EXIT_CODE.CONFLICT);
   }

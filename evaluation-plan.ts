@@ -1,9 +1,11 @@
+import { parseBoundedJson } from "./tracker-record.ts";
 /** Predeclared paired policy comparisons with fixed cohorts and equal-weight correlation units. */
 import type { GetResult, PmClient } from "@unbrained/pm-cli/sdk/core";
 import { createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError, normalizeItemId } from "@unbrained/pm-cli/sdk/runtime";
 import { extractGenerationSpec, generationProvenance, hashJson, readCompleteLoopItem, type JsonValue } from "./index.ts";
 import { decidePromotion, type PromotionCriterion, type PromotionDecision } from "./promotion.ts";
 import { enforceShadowComparison } from "./shadow.ts";
+import { rethrowOperationalRead } from "./refuse.ts";
 import type { GenerationSpec, ScoreRecord } from "./lineage.ts";
 
 /** Stable refusals available to SDK consumers and CLI agents. */
@@ -100,12 +102,12 @@ export async function optionalItem(client: PmClient, id: string, at?: string): P
 }
 /** Decode package-owned JSON without leaking raw malformed content through parser errors. */
 function storedJson(body: unknown): unknown {
-  try { return JSON.parse(String(body)); } catch { return refuse("eval_plan_drift"); }
+  try { return parseBoundedJson(String(body)); } catch { return refuse("eval_plan_drift"); }
 }
 /** Read the SDK's verified creation snapshot or refuse unavailable original history. */
 async function createdItem(client: PmClient, id: string): Promise<GetResult["item"]> {
   try { return (await readCompleteLoopItem(client, id, "1")).item; }
-  catch { refuse("eval_plan_drift"); }
+  catch (error) { rethrowOperationalRead(error); refuse("eval_plan_drift"); }
 }
 /** Bind sealed fields to the SDK's verified first history version, allowing unrelated annotations. */
 async function verifyCreatedRecord(client: PmClient, item: GetResult["item"]): Promise<void> {

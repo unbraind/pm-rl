@@ -1,0 +1,16 @@
+id: pm-rl-readusage
+title: Verify mutation-free SDK current reads for provenance audits
+description: "The pinned SDK appends runtime/context-usage.jsonl on ordinary current get calls, so read-only policy validation cannot guarantee literal equality of every tracker byte. Investigate a supported observation-free current-read contract while preserving certified history and materialized-record drift checks. Current refusal tests compare all durable tracker bytes and explicitly exclude the derived usage ledger and renewable locks. Do not change telemetry settings, dependency pins or immutable histories to bypass the distinction."
+type: Task
+status: open
+priority: 3
+tags: []
+created_at: "2026-10-23T22:04:21.242Z"
+updated_at: "2026-10-23T22:05:55.053Z"
+author: codex-agent
+acceptance_criteria: "A real non-Git tracker test distinguishes domain writes from derived observation writes and identifies a supported mutation-free current-read path, or documents the upstream API limitation with synthetic evidence."
+files[1]{path,scope}:
+  docs/policy-card-write-audit.md,project
+docs[1]{path,scope}:
+  docs/policy-card-write-audit.md,project
+body: ""
