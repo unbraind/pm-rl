@@ -2,15 +2,20 @@ id: pm-rl-evalplans
 title: Enforce predeclared causal evaluation plans at promotion
 description: "Declare target populations, correlation units, sample sizes and fixed stopping rules before experiments. Bind plan identity and clustered observations to comparison and generation promotion."
 type: Feature
-status: in_progress
+status: closed
 priority: 2
 tags: []
 created_at: "2026-10-21T21:36:09.182Z"
-updated_at: "2026-10-22T22:08:53.025Z"
+updated_at: "2026-10-24T23:13:31.158Z"
+closed_at: "2026-10-24T21:47:38.368Z"
+completed_at: "2026-10-22T22:30:52.000Z"
 author: codex-agent
 estimated_minutes: 180
 acceptance_criteria: Synthetic correlated cohorts cannot masquerade as independent samples; changed plans invalidate comparison identity. Typed SDK and CLI; compact TOON/JSON; typed refusals with remedies; README and example; non-git real public-tracker validation; npm and Bun CI release gates.
 parent: pm-rl-apvf
+resolution: Promotion binds predeclared causal plans and independent cohort structure; changed plans invalidate comparison identity and correlated cohorts cannot inflate sample counts.
+expected_result: Synthetic correlated cohorts cannot masquerade as independent samples; changed plans invalidate comparison identity. Typed SDK and CLI; compact TOON/JSON; typed refusals with remedies; README and example; non-git real public-tracker validation; npm and Bun CI release gates.
+actual_result: "https://github.com/unbraind/pm-rl/pull/97, merged 2026-10-22T22:30:52Z, merge c52079a5913594fec8692dc44c37216ecce71a60: Promotion binds predeclared causal plans and independent cohort structure; changed plans invalidate comparison identity and correlated cohorts cannot inflate sample counts."
 comments[35]{created_at,author,text}:
   "2026-10-21T21:36:11.512Z",codex-agent,"Overlap rechecked against the pinned CLI SDK declarations and sibling package sources/docs: core Plan/Decision stores decisions but has no causal experiment-plan enforcement; pm-jev owns model calibration/evaluation; pm-context supplies context. Existing pm-rl-rsipower supplies one powered dataset and is retained separately. This item adds reusable immutable plan/comparison enforcement and cluster-aware promotion, stacked on PR #94; must merge after #94. Dependency pins remain unchanged. Local verification will be targeted tests, typecheck and lint; full npm/Bun release gates run in CI due shared CPU load."
   "2026-10-21T21:49:50.172Z",codex-agent,"Implemented fixed paired plans in core Plan records, immutable result Decisions, provenance-pinned comparison identities, and authoritative promotion enforcement. Plans pin incumbent provenance, populations, member-to-unit assignments, sample sizes, fixed stopping, objective and criterion. Equal-unit aggregation counts correlated cohorts once; one sealed result per plan. Existing unplanned controllers retain legacy semantics without causal-plan claims. Non-git public validation measured 95 observations as one repository unit: candidate 0.7684210526 vs incumbent 0.2315789474; naive episode-count gate would promote, clustered gate refuses. Read-only public source digest is unchanged; evidence is descriptive replay, not deployed causal benefit."
@@ -135,4 +140,5 @@ docs[4]{path,scope}:
   docs/evaluation-plan-evidence.json,project
   examples/evaluation-plan.json,project
   README.md,project
+close_reason: "https://github.com/unbraind/pm-rl/pull/97, merged 2026-10-22T22:30:52Z, merge c52079a5913594fec8692dc44c37216ecce71a60: Promotion binds predeclared causal plans and independent cohort structure; changed plans invalidate comparison identity and correlated cohorts cannot inflate sample counts."
 body: ""

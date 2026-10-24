@@ -2,14 +2,19 @@ id: pm-rl-shadow
 title: Observe candidate policies safely before deployment
 description: "Controlled online shadow observation on explicitly consented inputs, with paired resource accounting and validated outcome receipts required by the existing promotion boundary."
 type: Feature
-status: in_progress
+status: closed
 priority: 1
 tags: []
 created_at: "2026-10-23T06:41:11.687Z"
-updated_at: "2026-10-23T08:22:07.469Z"
+updated_at: "2026-10-24T23:13:25.332Z"
+closed_at: "2026-10-24T21:47:37.800Z"
+completed_at: "2026-10-23T08:52:15.000Z"
 author: codex-agent
 acceptance_criteria: Candidate failures never affect active actions; Budgets include both arms; Switching requires a validated outcome comparison through existing promotion and RSI code
 parent: pm-rl-apvf
+resolution: "Consented shadow failures cannot affect active actions, budgets include both arms and switching requires existing validated outcome-comparison/promotion controls."
+expected_result: Candidate failures never affect active actions; Budgets include both arms; Switching requires a validated outcome comparison through existing promotion and RSI code
+actual_result: "https://github.com/unbraind/pm-rl/pull/99, merged 2026-10-23T08:52:15Z, merge ba69b6139aaea389f64c7cad018dc7198c33c7f1: Consented shadow failures cannot affect active actions, budgets include both arms and switching requires existing validated outcome-comparison/promotion controls."
 comments[9]{created_at,author,text}:
   "2026-10-23T06:41:26.255Z",codex-agent,"Overlap checked against the pinned pm SDK and current CLI 2026.10.23, pm-context, pm-jev, and existing pm-rl evaluation, loop, meta proposer and promotion modules. Core owns tracker/history/transactions; pm-context supplies bounded context; pm-jev replays typed decisions. Existing RL loops evaluate/train/promote offline. This feature adds explicitly consented online observation with no candidate mutation authority and reuses predeclared evaluation plans plus the authoritative promotion transaction. Draft PRs 95 and 98 are context only. No dependency bump is needed unless SDK capability inspection proves otherwise."
   "2026-10-23T06:56:27.540Z",codex-agent,"Implemented a bounded declarative shadow interpreter with no executable candidate tools or tracker authority. Consent pins both generation identities, both policy digests, exact minimized input hashes and separate active/candidate allowances; every frozen member reserves two calls including candidate failures. Immutable per-member SDK receipts make retries free and outcome replacement a refusal. Existing evaluation plans and the authoritative promotion transaction require the comparison receipt for online candidates; standalone offline evaluation cannot bypass it. Local linked parser test passes 1/1. Source and packed acceptance use non-git trackers; full release gates will run in CI."
@@ -33,4 +38,5 @@ docs[4]{path,scope}:
   docs/shadow-policy.md,project
   examples/shadow-policy.json,project
   README.md,project
+close_reason: "https://github.com/unbraind/pm-rl/pull/99, merged 2026-10-23T08:52:15Z, merge ba69b6139aaea389f64c7cad018dc7198c33c7f1: Consented shadow failures cannot affect active actions, budgets include both arms and switching requires existing validated outcome-comparison/promotion controls."
 body: ""

@@ -2,18 +2,19 @@ id: pm-rl-8nev
 title: Stabilize Compose cancellation barrier diagnostics under shared host load
 description: "The existing cancellation-plus-cleanup-failure drill missed its partial-artifact barrier during concurrent package validation, then reported the wall watchdog refusal. Preserve current bounds while making trainer startup, timeout attribution and cleanup deterministic under shared host load. This predates the LM integration; its full release gate will independently verify the unchanged case."
 type: Task
-status: in_progress
+status: open
 priority: 3
 tags: []
 created_at: "2026-10-15T22:23:36.056Z"
-updated_at: "2026-10-16T03:47:22.975Z"
+updated_at: "2026-10-24T21:47:39.081Z"
 author: codex-agent
 acceptance_criteria: "Reproduce the startup/barrier timing condition with real containers, retain cleanup evidence and distinguish startup delay from a trainer cancellation failure without weakening resource or coverage limits."
 parent: pm-rl-mjo5
-comments[3]{created_at,author,text}:
+comments[4]{created_at,author,text}:
   "2026-10-15T23:18:24.790Z",codex-agent,"The failed full Bun attempt reported Container did not publish its partial artifact in the existing orphan-recovery drill. It began the 15-second partial-artifact polling interval after first seeing a planned reservation, while the controller still committed its running transition. The revised drill waits on the existing real running-write IPC barrier, reads the job once, then starts the unchanged trainer startup barrier. Tighten fixture matching to a full process job ID so the loop collection step cannot satisfy the running barrier. Keep the 15-second barrier, 30-second trainer allowance and every orphan/recovery/accounting assertion; always kill the owned controller and clean its job container on assertion failure."
   "2026-10-15T23:26:52.822Z",codex-agent,"The lifecycle-barrier drill passed under coverage directly (1/1) and through pm test pm-rl-8nev --run --progress (1/1, case 46658.868 ms, zero skips). An isolated check restoring the old broad fixture-ID predicate also passed (1/1, 51304.099 ms), so the extra predicate change was dropped; it is not claimed as a behavioural revert proof. The final test waits on the existing running-job barrier before the unchanged 15-second trainer-startup interval, reads the reservation once, and always cleans its owned controller/container. The observed failure was the startup-artifact assertion; no production recovery defect was demonstrated. Test image builds now use unique worker names/labels so cleanup cannot remove a peer validation image."
   "2026-10-16T03:47:17.620Z",codex-agent,"Final verification: both complete npm and Bun release gates pass 590/590, zero skips, 100% across all four coverage dimensions. The real orphan drill passes in both. The fixture observes the persisted running state before the unchanged partial-artifact interval and preserves all SIGKILL, no-relaunch, retained-evidence and settlement assertions. Owned cleanup is verified; leave open for orchestrator verification."
+  "2026-10-24T21:47:39.081Z",codex-agent,"Returned to open in the 2026-10-24 sweep: Recorded receipts show an improved running-state barrier, but no merged PR claim or item-comment delivery link establishes attribution for this record. Retain the real-container acceptance for review; no active work."
 files[2]{path,scope}:
   test/compose.test.ts,project
   test/fixtures/process-controller.ts,project

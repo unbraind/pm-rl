@@ -2,18 +2,19 @@ id: pm-rl-9uz4
 title: Reconcile existing tracker health advisories
 description: Strict pm health passes but reports an existing stale in-progress item and legacy provenance role values. Review owner activity and provenance normalization separately from PR #62 lease recovery; preserve audit history and avoid blanket status changes.
 type: Chore
-status: in_progress
+status: open
 priority: 3
 tags: []
 created_at: "2026-10-05T06:41:18.944Z"
-updated_at: "2026-10-22T11:19:16.144Z"
+updated_at: "2026-10-24T21:47:38.785Z"
 author: codex-sol
 parent: pm-rl-hncb
-comments[4]{created_at,author,text}:
+comments[5]{created_at,author,text}:
   "2026-10-15T06:44:15.413Z",codex-agent,"Batch 3 supplemental health: isolated HOME with the pinned CLI passes health --check-only --require-merge-drivers --strict-exit. The normal local environment fails only extension_host_pm_cli_version_skew (pinned host 2026.10.13 versus globally installed pm-github host requirement 2026.10.15). Existing stale-work and historical provenance advisories remain. No history repair, extension repin or CLI bump was performed; these remain separate from the rollout gates."
   "2026-10-21T10:18:57.932Z",codex-agent,"PR #92 review-round optional strict health check reports extension_host_pm_cli_version_skew (pinned host 2026.10.17 versus installed pm-github 2026.10.21), merge_fence_drift:2 after restoring the install-generated unrelated attributes change, stale in-progress items and legacy provenance-role advisories. Retain this existing follow-up; do not rewrite append-only history or bump dependency pins in the review fix. Required release gates are checked separately."
   "2026-10-22T11:17:54.125Z",codex-agent,"PR #96 review verification: pulled remote aa8e9b2287615724769442bbf1045b4183aff0d6; current main remains ce948522e18a37f92e9d3b345371ac924c5fa305 and is already an ancestor. Complete review-thread pagination yields zero unresolved threads. The completed CodeRabbit review reports no actionable comments and no Outside diff range findings. Rechecked all eight original closure records: pm-rl-1bpz -> merged #77/a8d309b; pm-rl-hncb -> dated certification #59/4936113, explicitly historical; pm-rl-yb4q -> both workflow callers retain 67a5e3e; pm-rl-a2zp -> #92/ce94852; pm-rl-meta -> #84/4c7b027; pm-rl-rsi -> #88/d58b91c; pm-rl-whrd -> #80/b255dfa; pm-rl-mjo5 -> #79/2018b58. Every cited merge commit is an ancestor of main, and each implementation/documentation family exists there. Verified 8/8 closure statuses and all 17/17 original changed paths are tracker or CHANGELOG.md. Source parity outside that scope is exact. No record correction or behavioral revert is warranted; this tracker-only evidence check is the regression proof. Preserve the eight pre-existing closures and leave this review/health item in progress."
   "2026-10-22T11:19:09.850Z",codex-agent,"Tracker-only review gates: npm ci passes (130 packages added, 171 audited, zero vulnerabilities). Both pinned pm linked checks pass 2/2: git diff --check and git diff --quiet origin/main HEAD -- . with tracker/CHANGELOG exclusions. Isolated HOME, disabled global/system Git configuration, and the pinned pm health --strict-exit --require-merge-drivers return exit 0 and ok=true after installation; three nonblocking advisories remain (pending telemetry queue, two stale in-progress items, and legacy provenance-role values). Do not alter telemetry or historical records. The previously issued CI rerun is complete: run 39665228601 attempt 2 at aa8e9b2287615724769442bbf1045b4183aff0d6 passes all three jobs. Independently downloaded Bun log verifies 676/676, zero fail/skip/cancel/todo, four 100 percent coverage dimensions over 47 sources, and successful bun install --no-save package-graph installation. The conditional repeated-failure case did not occur; no dependency or installer change is needed. This review changes evidence on pm-rl-9uz4 only; the original eight closure records remain untouched. No new pm CLI/SDK defect found."
+  "2026-10-24T21:47:38.785Z",codex-agent,"Returned to open in the 2026-10-24 sweep: Merged PR 96 verified eight closeouts and clean isolated health, but legacy provenance and environment advisories remain; open PR https://github.com/unbraind/pm-rl/pull/95 still references this health work. No active agent is established."
 files[8]{path,scope}:
   .agents/pm/chores/pm-rl-1bpz.toon,project
   .agents/pm/chores/pm-rl-hncb.toon,project
