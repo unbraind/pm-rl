@@ -495,3 +495,9 @@ Environment alias equivalence to the sealed-request regression; the correspondin
 focused suite passes 3/3. Local typecheck, source/test compilation, lint,
 duplication, docstring, identity and changelog checks pass without changing pins
 or coverage thresholds.
+
+Snapshot exhaustion after concurrent replacement/compaction explicitly reports
+`card_missing_provenance`; an invalid requested current/history provenance seal
+remains `card_drift`. The original history-compaction/current-drift regression
+suite passes 3/3 through the pinned PM snapshot runner after this distinction is
+preserved.

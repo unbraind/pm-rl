@@ -79,7 +79,7 @@ async function snapshot(client: PmClient, id: string, at?: string): Promise<{ it
       const historical = (await readCompleteLoopItem(client, id, coordinate, SNAPSHOT_FIELDS)).item;
       if (hashJson(domain(historical, prefix)) === digest) return { item: historical, citation: { id: identity(historical.id), at: coordinate, digest } };
     }
-    return refuse("card_drift");
+    return refuse("card_missing_provenance");
   } catch (error) {
     if (isPmCliExpectedError(error) && error.context.code === "card_drift") throw error;
     rethrowOperationalRead(error);
