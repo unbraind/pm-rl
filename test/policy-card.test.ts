@@ -7,8 +7,9 @@ import { after, test } from "node:test";
 import { PmClient, type CloseResult } from "@unbrained/pm-cli/sdk/core";
 import { init, isPmCliExpectedError, createPmCliExpectedError, type CloseTaskResult, type PmClientCloseActionOptions } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import extension, { generationProvenance, extractGenerationSpec, hashJson, canonicalJson, readCompleteLoopItem, runRlLoop, resumeRlLoop, withRlController, recordRefusedPolicyCard, type JsonValue, type RlCommandResult } from "../index.ts";
-import { exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordRecursivePolicyCards, recordPolicyCard, POLICY_CARD_MAX_BYTES, validatePolicyCardWrite, type PolicyCard } from "../policy-card.ts";
+import extension, { generationProvenance, extractGenerationSpec, hashJson, canonicalJson, readCompleteLoopItem, runRlLoop, resumeRlLoop, withRlController, recordRefusedPolicyCard, mutateLoopItem, promoteGenerationCore, appendCommentOnce, type JsonValue, type RlCommandResult } from "../index.ts";
+import { exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordRecursivePolicyCards, recordPolicyCard, POLICY_CARD_MAX_BYTES, validatePolicyCardWrite, generationEvidence, verifyRetainedGenerationEvidence, type PolicyCard } from "../policy-card.ts";
+import { encodeEvent, encodeEventSegments } from "../series.ts";
 import { prefixCheckpoint } from "../prefix.ts";
 import type { GenerationSpec } from "../lineage.ts";
 
@@ -354,11 +355,15 @@ test("generation citations include parents, collection, environments and evaluat
   await w.client.update(id, { body: `\`\`\`json\n${JSON.stringify(planned)}\n\`\`\``, affectedVersion: hashJson(generationProvenance(planned)) });
   assert.equal((await exportPolicyCard(w.client, id)).evidence.length, 8);
   assert.equal((await replayPolicyCard(w.client, await exportPolicyCard(w.client, id))).results.length, 8);
-  const plannedCard = await exportPolicyCard(w.client, id);
+  const plannedCard = await recordPolicyCard(w.client, id);
+  await w.client.notes(`${id}-evaluation-plan`, { add: "Routine plan annotation" });
+  await verifyRetainedGenerationEvidence(w.client, id);
   const planId = `${id}-evaluation-plan`;
   const originalResult = String((await w.client.get(`${planId}-result`)).item.body);
   await w.client.update(`${planId}-result`, { body: JSON.stringify({ comparison, observations: [], budget: { tokens: 999999 } }) });
   const bounded = await exportPolicyCard(w.client, id);
+  assert.notEqual(bounded.digest, plannedCard.digest);
+  await assert.rejects(verifyRetainedGenerationEvidence(w.client, id), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_generation_drift");
   assert.equal(bounded.resource_limits.tokens, 0, "comparison evidence cannot introduce resource declarations");
   assert.equal((await replayPolicyCard(w.client, bounded)).card.digest, bounded.digest);
   await w.client.update(`${planId}-result`, { body: originalResult });
@@ -384,6 +389,7 @@ test("generation citations include parents, collection, environments and evaluat
     const original = (await w.client.get(target)).item;
     await w.client.update(target, update);
     await unchanged(w.pmRoot, () => exportPolicyCard(w.client, id), code);
+    await unchanged(w.pmRoot, () => verifyRetainedGenerationEvidence(w.client, id), code);
     await w.client.update(target, { body: String(original.body), type: original.type, affectedVersion: String(original.affected_version ?? "") });
   }
   assert.equal((await replayPolicyCard(w.client, plannedCard)).card.digest, plannedCard.digest);
@@ -589,16 +595,11 @@ test("resume repairs card publication interrupted after a committed promotion", 
     /** Delegate real SDK closes, then obstruct only the not-yet-published explanation. */
     class InterruptedPublisher extends PmClient {
       repair: (() => Promise<void>) | null = null;
-      /** Create a native failure after the real promotion close commits. */
-      override close(id: string, reason: string, options: PmClientCloseActionOptions & { releaseAssignment: true }): Promise<CloseTaskResult>;
-      override close(id: string, reason: string, options?: PmClientCloseActionOptions & { releaseAssignment?: false }): Promise<CloseResult>;
-      override close(id: string, reason: string, options?: PmClientCloseActionOptions & { releaseAssignment?: boolean }): Promise<CloseResult | CloseTaskResult>;
-      override async close(id: string, reason: string, options?: PmClientCloseActionOptions & { releaseAssignment?: boolean }): Promise<CloseResult | CloseTaskResult> {
-        const result = await super.close(id, reason, options);
-        const item = "item" in result ? result.item : result.close.item;
-        if (item.type === "Generation" && this.repair === null) {
-          const card = await exportPolicyCard(this, String(item.id));
-          const cardId = `rl-policy-card-${card.digest}`;
+      /** Obstruct the real promoted-card create after the atomic promotion commits. */
+      override async create(options: Parameters<PmClient["create"]>[0]): ReturnType<PmClient["create"]> {
+        if (options?.id?.startsWith("policy-card-") && this.repair === null && options.body !== undefined && (JSON.parse(options.body) as PolicyCard).outcome === "promoted") {
+          const card = JSON.parse(options.body) as PolicyCard;
+          const cardId = `rl-${options.id}`;
           if (fault === "storage") {
             const obstruction = join(w.pmRoot, "decisions", `${cardId}.toon`); mkdirSync(obstruction);
             this.repair = async () => { rmSync(obstruction, { recursive: true }); };
@@ -607,7 +608,7 @@ test("resume repairs card publication interrupted after a committed promotion", 
             this.repair = async () => { await super.update(cardId, { body: canonicalJson(card as unknown as JsonValue), affectedVersion: card.digest }); };
           }
         }
-        return result;
+        return super.create(options);
       }
     }
     const client = new InterruptedPublisher({ pmRoot: w.pmRoot, cwd: w.root, author: "card-test", noExtensions: true });
@@ -708,6 +709,238 @@ test("prospective rejection notes and oversized proposed sources refuse without 
   await generation(w.client, spec({ collection_runs: Array.from({ length: 32 }, (_, index) => `rl-missing-${index}`) }));
   await unchanged(w.pmRoot, () => recordRefusedPolicyCard(w.client, "rl-seed", "Rejected"), "card_limit");
   await unchanged(w.pmRoot, () => validatePolicyCardWrite(w.client, { id: "rl-empty-source", type: "Decision" }), "card_invalid");
+  await unchanged(w.pmRoot, () => validatePolicyCardWrite(w.client, { id: "rl-unsupported-source", type: "Run" }), "card_invalid");
   const result = { configs: Array(33).fill({ samples: 1 }) };
   await unchanged(w.pmRoot, () => validatePolicyCardWrite(w.client, { id: "rl-unwritten", type: "Decision", title: "Proposals", body: JSON.stringify({ format: "pm-rl/loop-step/1", state: "complete", input: hashJson("proposals"), result, digest: hashJson(result) }) }, true), "card_limit");
+});
+
+
+test("one generation evidence set binds card identity and normal resume for every evidence mutation", { timeout: 600_000 }, async () => {
+  const w = await workspace();
+  await w.client.create({ id: "rl-approval", type: "Decision", title: "Consent", body: '```json\n{"permitted_promotions":1}\n```' });
+  const config = { ...JSON.parse(readFileSync(new URL("../examples/loop-bandit.json", import.meta.url), "utf8")) as Record<string, JsonValue>, max_generations: 1 };
+  const request = { id: "evidence", config, approval: "rl-approval" };
+  const coordinates = { pmRoot: w.pmRoot, author: "card-test" };
+  const report = await runRlLoop(w.client, coordinates, request);
+  const row = report.generations[0]; const original = await exportPolicyCard(w.client, row.item);
+  const baseline = hashJson((await generationEvidence(w.client, row.item)).evidence as unknown as JsonValue);
+  const mutations: { id: string; options: Parameters<PmClient["update"]>[1]; changes: boolean }[] = [];
+  for (const ref of original.evidence) {
+    const item = (await readCompleteLoopItem(w.client, ref.id)).item;
+    mutations.push({ id: ref.id, options: { title: "Routine annotation", comment: ["Routine comment"], note: ["Routine private note"], addTags: ["bookkeeping"] }, changes: false });
+    mutations.push({ id: ref.id, options: { type: "Task" }, changes: true });
+    mutations.push({ id: ref.id, options: { status: "in_progress" }, changes: false });
+    mutations.push({ id: ref.id, options: { affectedVersion: "changed-version" }, changes: true });
+    if (item.type === "Generation") {
+      const value = extractGenerationSpec(String(item.body), "Fixture");
+      const changed = { ...value, training_config: { ...value.training_config as Record<string, JsonValue>, samples: 20 } };
+      mutations.push({ id: ref.id, options: { note: [encodeEvent({ step: 1, metric: "unrelated", value: 1 })] }, changes: false });
+      mutations.push({ id: ref.id, options: { body: `\`\`\`json\n${JSON.stringify(changed)}\n\`\`\``, affectedVersion: hashJson(generationProvenance(changed)) }, changes: true });
+    } else mutations.push({ id: ref.id, options: { body: String(item.body) + "\nChanged evidence." }, changes: true });
+    if (item.type === "Run") {
+      for (const options of [{ component: "peer-policy" }, { environment: "peer-environment" }, { note: [encodeEvent({ step: 999, metric: "return", value: 1 })] }, { note: encodeEventSegments([{ step: 1000, metric: "return", value: 2 }]) }]) mutations.push({ id: ref.id, options, changes: true });
+      mutations.push({ id: ref.id, options: { fixedVersion: "routine-version" }, changes: false });
+    }
+  }
+  for (const mutation of mutations) {
+    const before = (await w.client.get(mutation.id, { fields: "type,status,body,affected_version,component,environment,notes,fixed_version" })).item;
+    await w.client.update(mutation.id, mutation.options);
+    const probe = async () => hashJson((await generationEvidence(w.client, row.item)).evidence as unknown as JsonValue);
+    if (mutation.changes) {
+      await assert.rejects(verifyRetainedGenerationEvidence(w.client, row.item), (error: unknown) => error instanceof Error, JSON.stringify(mutation));
+      await assert.rejects(resumeRlLoop(w.client, coordinates, { id: request.id, approval: request.approval }));
+      const fresh = await exportPolicyCard(w.client, row.item).catch(() => null);
+      assert.ok(fresh === null || fresh.digest !== original.digest, JSON.stringify(mutation));
+      assert.ok(await probe().then((digest) => digest !== baseline, () => true));
+    } else {
+      assert.equal(await probe(), baseline, JSON.stringify(mutation));
+      assert.equal((await exportPolicyCard(w.client, row.item)).digest, original.digest);
+      assert.equal((await resumeRlLoop(w.client, coordinates, { id: request.id, approval: request.approval })).promoted, 1);
+    }
+    const live = await w.client.get(mutation.id);
+    await w.client.update(mutation.id, { message: "Restore fixture state", type: before.type, ...(live.item.status === before.status ? {} : { status: String(before.status) }), body: String(before.body), affectedVersion: String(before.affected_version), component: String(before.component), environment: String(before.environment), fixedVersion: String(before.fixed_version), clearNotes: true });
+    for (const note of before.notes ?? []) await w.client.notes(mutation.id, { add: note.text });
+    assert.equal((await exportPolicyCard(w.client, row.item)).digest, original.digest);
+  }
+});
+
+test("rejection publication refuses a peer body written between validation and commit", async () => {
+  const w = await workspace(); await generation(w.client);
+  const peer = new PmClient({ pmRoot: w.pmRoot, author: "peer", noExtensions: true });
+  const config = w.client.config.bind(w.client); let armed = true;
+  // Configuration resolution happens after all rejection reads, immediately before the SDK item transaction.
+  w.client.config = (async (...args: Parameters<PmClient["config"]>) => {
+    if (armed) { armed = false; const value = spec({ training_config: { samples: 20 } }); await peer.update("rl-seed", { body: `\`\`\`json\n${JSON.stringify(value)}\n\`\`\``, affectedVersion: hashJson(generationProvenance(value)) }); }
+    return config(...args);
+  }) as PmClient["config"];
+  // Arm only when resolving the write coordinates, rather than a projection's id-prefix read.
+  let reads = 0; const get = w.client.get.bind(w.client);
+  w.client.get = (async (...args: Parameters<PmClient["get"]>) => { const result = await get(...args); if (args[0] === "rl-seed") reads++; return result; }) as PmClient["get"];
+  armed = false;
+  const originalConfig = w.client.config.bind(w.client);
+  w.client.config = (async (...args: Parameters<PmClient["config"]>) => { if (reads > 1) armed = true; return originalConfig(...args); }) as PmClient["config"];
+  await assert.rejects(recordRefusedPolicyCard(w.client, "rl-seed", "Refused"), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_write_conflict");
+  assert.equal((extractGenerationSpec(String((await peer.get("rl-seed")).item.body), "Peer").training_config as Record<string, JsonValue>).samples, 20);
+  assert.equal((await peer.listAllComplete({ includeBody: false })).items.filter((item) => item.id.includes("policy-card-")).length, 0);
+});
+
+test("SDK item transactions reject peer changes even when a writer captured a valid body", async () => {
+  const w = await workspace(); await generation(w.client);
+  await verifyRetainedGenerationEvidence(w.client, "rl-seed");
+  const before = await readCompleteLoopItem(w.client, "rl-seed");
+  await w.client.update("rl-seed", { body: "peer body" });
+  await assert.rejects(mutateLoopItem(w.client, before, "Guarded body", (document) => { document.body = "stale body"; return ["body"]; }), /loop_write_conflict|changed after it was read/);
+  assert.equal((await w.client.get("rl-seed")).item.body, "peer body");
+});
+
+
+/** Interleave a real peer write at coordinate resolution after the caller has captured its revision. */
+function peerAtCommit(client: PmClient, change: () => Promise<void>): void {
+  const config = client.config.bind(client); let armed = true;
+  client.config = (async (...args: Parameters<PmClient["config"]>) => {
+    if (armed && new Error().stack?.includes("mutateLoopItem")) { armed = false; await change(); }
+    return config(...args);
+  }) as PmClient["config"];
+}
+
+test("every receipt write preserves a peer winner between read and publication", async (context) => {
+  for (const exists of [true, false]) await context.test(exists ? "running receipt revision" : "deferred receipt creation", async () => {
+    const w = await workspace(); await w.client.create({ id: "rl-approval", type: "Decision", title: "Consent" });
+    const peer = new PmClient({ pmRoot: w.pmRoot, author: "peer", noExtensions: true });
+    const running = JSON.stringify({ format: "pm-rl/loop-step/1", key: "receipt-step-work", input: hashJson({}), state: "running" });
+    if (exists) await peer.create({ id: "receipt-step-work", type: "Decision", title: "Running", body: running });
+    await assert.rejects(withRlController(w.client, { pmRoot: w.pmRoot, author: "card-test" }, { id: "receipt", approval: "rl-approval", recoveryCommand: "resume programme" }, AbortSignal.timeout(60000), async (step) => {
+      await step("programme", {}, async () => ({}));
+      return step("work", {}, async () => {
+        if (exists) await peer.update("receipt-step-work", { body: "peer receipt" });
+        else await peer.create({ id: "receipt-step-work", type: "Decision", title: "Peer", body: "peer receipt" });
+        return { samples: 1 };
+      });
+    }));
+    assert.equal((await peer.get("receipt-step-work")).item.body, "peer receipt");
+  });
+});
+
+test("card creation verifies and preserves a peer collision at the native create boundary", async () => {
+  const w = await workspace(); await generation(w.client);
+  const peer = new PmClient({ pmRoot: w.pmRoot, author: "peer", noExtensions: true });
+  const create = w.client.create.bind(w.client); let armed = true;
+  w.client.create = async (options) => {
+    if (armed) { armed = false; await peer.create({ id: options?.id, type: "Decision", title: "Peer", body: "peer card" }); }
+    return create(options);
+  };
+  await assert.rejects(recordPolicyCard(w.client, "rl-seed"), refused("card_drift"));
+  const card = await exportPolicyCard(w.client, "rl-seed");
+  assert.equal((await peer.get(`policy-card-${card.digest}`)).item.body, "peer card");
+});
+
+test("promotion, approval budget and recovery closure refuse peer changes after their reads", { timeout: 600_000 }, async (context) => {
+  for (const path of ["promotion", "budget", "recovery", "journal"] as const) await context.test(path, async () => {
+    const w = await workspace(); const coordinates = { pmRoot: w.pmRoot, author: "card-test" };
+    await w.client.create({ id: "rl-approval", type: "Decision", title: "Consent", body: '```json\n{"permitted_promotions":1}\n```' });
+    const config = { ...JSON.parse(readFileSync(new URL("../examples/loop-bandit.json", import.meta.url), "utf8")) as Record<string, JsonValue>, max_generations: 1 };
+    const report = await runRlLoop(w.client, coordinates, { id: "race", config, approval: "rl-approval" }); const row = report.generations[0];
+    const current = extractGenerationSpec(String((await w.client.get(row.item)).item.body), "Promoted fixture");
+    const candidate = path === "recovery" ? current : { ...current, promoted: false, approval: null, proxy_score: null, held_out_score: null, gap: null, promotion_evidence: null };
+    await w.client.update(row.item, { status: "in_progress", body: `\`\`\`json\n${JSON.stringify(candidate)}\n\`\`\`` });
+    const peer = new PmClient({ pmRoot: w.pmRoot, author: "peer", noExtensions: true });
+    if (path !== "journal") peerAtCommit(w.client, async () => {
+      if (path === "budget") await peer.update("rl-approval", { body: '```json\n{"permitted_promotions":0}\n```' });
+      else await peer.update(row.item, { body: `\`\`\`json\n${JSON.stringify({ ...candidate, training_config: { ...candidate.training_config as Record<string, JsonValue>, samples: 20 } })}\n\`\`\``, affectedVersion: hashJson(generationProvenance({ ...candidate, training_config: { ...candidate.training_config as Record<string, JsonValue>, samples: 20 } })) });
+    });
+    const execute = path === "recovery" ? resumeRlLoop(w.client, coordinates, { id: "race", approval: "rl-approval" })
+      : promoteGenerationCore(w.client, coordinates, row.item, "rl-approval", current.proxy_score!, current.held_out_score!, "Race drill", path !== "journal" ? undefined : async (event) => {
+          if (event.transition === "committing") {
+            const committed = extractGenerationSpec(String((await peer.get(row.item)).item.body), "Committed fixture");
+            const changed = { ...committed, training_config: { samples: 20 } };
+            await peer.update(row.item, { body: `\`\`\`json\n${JSON.stringify(changed)}\n\`\`\``, affectedVersion: hashJson(generationProvenance(changed)) });
+            throw new Error("Journal commit failure after atomic promotion");
+          }
+        });
+    await assert.rejects(execute, (error: unknown) => path === "journal" ? error instanceof Error && /Journal commit failure/.test(error.message) : isPmCliExpectedError(error) && error.context.code === "loop_write_conflict");
+    const stored = (await peer.get(row.item)).item;
+    assert.equal(stored.status, path === "journal" ? "closed" : "in_progress");
+    if (path !== "budget") assert.equal((extractGenerationSpec(String(stored.body), "Peer winner").training_config as Record<string, JsonValue>).samples, 20);
+    else assert.match(String((await peer.get("rl-approval")).item.body), /"permitted_promotions":0/);
+  });
+});
+
+test("comment receipts use SDK lock-scoped idempotency under two writers", async () => {
+  const w = await workspace(); await generation(w.client);
+  const comments = w.client.comments.bind(w.client); let readers = 0; let release!: () => void;
+  const barrier = new Promise<void>((resolve) => { release = resolve; });
+  w.client.comments = (async (...args: Parameters<PmClient["comments"]>) => {
+    const result = await comments(...args);
+    if (args[1]?.add === undefined) { readers++; if (readers === 2) release(); await barrier; }
+    return result;
+  }) as PmClient["comments"];
+  await Promise.all([appendCommentOnce(w.client, "rl-seed", "Same receipt"), appendCommentOnce(w.client, "rl-seed", "Same receipt")]);
+  const result = await comments("rl-seed", { outputBudget: "unbounded", outputLimit: "unbounded" });
+  assert.ok("comments" in result); assert.equal(result.comments.length, 1);
+});
+
+test("guarded SDK transactions order multiple read dependencies and release their locks after conflict", async () => {
+  const w = await workspace(); await generation(w.client);
+  for (const id of ["rl-guard-a", "rl-guard-b"]) await w.client.create({ id, type: "Decision", title: "Read dependency", body: "original" });
+  const before = await readCompleteLoopItem(w.client, "rl-seed");
+  const dependencies = await Promise.all(["rl-guard-b", "rl-guard-a"].map((id) => readCompleteLoopItem(w.client, id)));
+  await w.client.update("rl-guard-b", { body: "peer evidence" });
+  await assert.rejects(mutateLoopItem(w.client, before, "Guarded dependencies", () => [], dependencies), /changed after it was read/);
+  const fresh = await Promise.all(["rl-guard-b", "rl-guard-a"].map((id) => readCompleteLoopItem(w.client, id)));
+  await mutateLoopItem(w.client, before, "Unchanged dependencies", () => [], fresh);
+  assert.equal((await w.client.get("rl-guard-b")).item.body, "peer evidence");
+});
+
+test("retained evidence cannot authorize changed seed content or a changed candidate disguised as interrupted promotion", async () => {
+  const w = await ancestryFixture();
+  const original = extractGenerationSpec(String((await w.client.get("rl-g2")).item.body), "Fixture");
+  const candidate = { ...original, parent: "rl-g2", promoted: false, approval: null, proxy_score: null, held_out_score: null, gap: null, promotion_evidence: null };
+  await generation(w.client, candidate, "rl-candidate-drift"); await recordPolicyCard(w.client, "rl-candidate-drift");
+  const interrupted = { ...original, parent: "rl-g2" };
+  await w.client.update("rl-candidate-drift", { body: `\`\`\`json\n${JSON.stringify(interrupted)}\n\`\`\``, affectedVersion: hashJson(generationProvenance(interrupted)) });
+  const run = await w.client.get("rl-run-2");
+  await w.client.update("rl-run-2", { component: "peer collection policy" });
+  await assert.rejects(verifyRetainedGenerationEvidence(w.client, "rl-candidate-drift"), /Generation evidence changed/);
+  await w.client.update("rl-run-2", { component: String(run.item.component) });
+  await verifyRetainedGenerationEvidence(w.client, "rl-candidate-drift");
+  const changed = { ...original, parent: "rl-g2", training_config: { samples: 999 } };
+  await w.client.update("rl-candidate-drift", { body: `\`\`\`json\n${JSON.stringify(changed)}\n\`\`\``, affectedVersion: hashJson(generationProvenance(changed)) });
+  await assert.rejects(verifyRetainedGenerationEvidence(w.client, "rl-candidate-drift"), /Generation evidence changed/);
+  const seed = spec({ training_config: { samples: 999 } });
+  await w.client.update("rl-g0", { body: `\`\`\`json\n${JSON.stringify(seed)}\n\`\`\``, affectedVersion: hashJson(generationProvenance(seed)) });
+  await assert.rejects(verifyRetainedGenerationEvidence(w.client, "rl-g0"), /Generation evidence changed/);
+});
+
+
+test("resume preserves native evidence-backend errors instead of sealing a policy refusal", async () => {
+  const w = await workspace(); const coordinates = { pmRoot: w.pmRoot, author: "card-test" };
+  await w.client.create({ id: "rl-approval", type: "Decision", title: "Consent", body: '```json\n{"permitted_promotions":1}\n```' });
+  const config = { ...JSON.parse(readFileSync(new URL("../examples/loop-bandit.json", import.meta.url), "utf8")) as Record<string, JsonValue>, max_generations: 1 };
+  const report = await runRlLoop(w.client, coordinates, { id: "native-evidence", config, approval: "rl-approval" });
+  const list = w.client.listAllComplete.bind(w.client); const native = new TypeError("Evidence backend unavailable");
+  w.client.listAllComplete = async (options) => { await list(options); throw native; };
+  await assert.rejects(resumeRlLoop(w.client, coordinates, { id: "native-evidence", approval: "rl-approval" }), (error: unknown) => error === native);
+  w.client.listAllComplete = list;
+  const current = extractGenerationSpec(String((await w.client.get(report.generations[0].item)).item.body), "Fixture");
+  const changed = { ...current, promoted: false, approval: null, proxy_score: null, held_out_score: null, gap: null, promotion_evidence: null };
+  await w.client.update(report.generations[0].item, { body: `\`\`\`json\n${JSON.stringify(changed)}\n\`\`\`` });
+  await assert.rejects(resumeRlLoop(w.client, coordinates, { id: "native-evidence", approval: "rl-approval" }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_step_drift");
+});
+
+
+test("retained generation evidence compares the whole citation set including later optional results", async () => {
+  const w = await workspace(); await generation(w.client);
+  await w.client.create({ id: "rl-run", type: "Run", title: "Collection" });
+  await w.client.create({ id: "rl-env", type: "Environment", title: "Environment" });
+  const id = "rl-plan-addition";
+  const plan = { candidate: id, incumbent: "rl-seed", incumbent_version: "original" }; const comparison = hashJson(plan);
+  await w.client.create({ id: `${id}-evaluation-plan`, type: "Plan", title: "Pinned plan", body: JSON.stringify({ plan, incumbent_version: "original" }), affectedVersion: hashJson({ comparison, incumbent_version: "original" }) });
+  await generation(w.client, spec({ seed: false, policy: "candidate", parent: "rl-seed", collection_runs: ["rl-run"], environment_version: "rl-env", reward_spec_version: "reward", evaluation_plan: comparison }), id);
+  const before = await recordPolicyCard(w.client, id);
+  await w.client.create({ id: `${id}-evaluation-plan-result`, type: "Decision", title: "Later result", body: JSON.stringify({ comparison }) });
+  const fresh = await exportPolicyCard(w.client, id);
+  assert.equal(fresh.evidence.length, before.evidence.length + 1); assert.notEqual(fresh.digest, before.digest);
+  await assert.rejects(verifyRetainedGenerationEvidence(w.client, id), /Generation evidence changed/);
+  await recordPolicyCard(w.client, id);
+  await verifyRetainedGenerationEvidence(w.client, id);
 });

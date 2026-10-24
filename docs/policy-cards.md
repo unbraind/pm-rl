@@ -74,11 +74,25 @@ snapshots, including the pinned SDK's derived observation-ledger exception.
 A citation selects the first SDK-certified history version with the exact policy-content
 projection. Its `at` field accepts an SDK version coordinate (or a historical timestamp
 on replay). It never selects the latest event or hashes history length. Later comments,
-notes, tags, claims, lifecycle changes and presentation edits preserve that coordinate,
+ordinary notes, tags, claims, lifecycle changes and presentation edits preserve that coordinate,
 the retained card and fresh-card adoption. A changed artifact, configuration, collection
 evidence, evaluation verdict or approval produces different content and invalidates
-adoption of the old card; historical replay remains available. Pre-fix cards bound to
-mutable coordinates/notes need re-export and retention after upgrade.
+adoption of the old card. Decoded metric-bearing Run notes are collection evidence,
+including both legacy and compressed segments; editing, deleting or appending metric
+events also changes the card identity and blocks ordinary loop resume. Card export
+and resume use the same generation evidence graph. Historical replay remains
+available for cards issued with this binding. Pre-fix cards bound to mutable
+coordinates or excluding metric notes need re-export and retention after upgrade.
 
 The complete [digest and provenance input inventory](policy-card-write-audit.md#digest-and-provenance-input-inventory)
 records the fields and certified source of every check added by this feature.
+
+
+Read-derived rejection, promotion, recovery and phase-receipt changes check the
+revision captured before validation or execution inside the SDK item transaction.
+A peer update causes `loop_write_conflict`; retry from current evidence after
+inspecting the peer change. Promotion publishes its body and closure together and
+checks the approval revision while holding the SDK approval item lock. Card and
+absent-receipt publication preserve the native exclusive-create winner. Comment
+receipts use the SDK's lock-scoped append idempotency. See the complete write-path
+inventory in the [concurrency audit](policy-card-write-audit.md#fifth-review-concurrency-and-shared-evidence-audit).

@@ -10,13 +10,13 @@ batches stay at 32 selections. No coverage threshold changes.
 | --- | --- |
 | Generation creation and its creation history | `registerGenerationCore` constructs the complete candidate, including sealed evaluation outcomes, and calls `validatePolicyCardWrite` before schema initialization or `createOrReadIdentical`. `registration refuses every card limit` rejects both citation count and canonical byte overflow twice, comparing every durable tracker file before and after. A bounded candidate then succeeds. |
 | Schema settings, schema document and workspace history | Registration initializes types only after prospective validation. Promotion reads an existing Generation and does not initialize unrelated types. The same registration and promotion snapshots include schema and `_workspace` history. |
-| Promotion body update, close, item history and approval budget | `promoteGenerationCore` validates the complete promoted body, approval citation and allowance before opening its transaction journal, then revalidates under the authoritative writer lock before update/close. `prospective promoted card overflow` checks two refusals against all durable tracker bytes, then consumes the unchanged one-unit budget successfully. No separate counter is written: promoted Generation provenance determines budget consumption. |
-| Promotion transaction journals and compensation receipts | The pre-journal validation precedes `commitWorkspaceTransaction`. The promotion refusal snapshot includes runtime transaction journals, so a compensated transaction with otherwise restored domain fields would still fail. The in-lock validation remains necessary for concurrent changes. |
+| Promotion body update, close, item history and approval budget | `promoteGenerationCore` validates the complete promoted body, approval citation and allowance before opening its transaction journal, then revalidates under the authoritative writer lock. The SDK item transaction checks the captured candidate revision and atomically publishes the promoted body and terminal fields; it also holds the SDK approval item lock and checks the exact approval revision used to authorize budget consumption. `prospective promoted card overflow` checks two refusals against all durable tracker bytes, then consumes the unchanged one-unit budget successfully. No separate counter is written: promoted Generation provenance determines budget consumption. |
+| Promotion transaction journals and compensation receipts | The pre-journal validation precedes `commitWorkspaceTransaction`. Body and closure are now one atomic SDK item mutation; no captured body is restored by compensation. The promotion refusal snapshot includes runtime transaction journals. The in-lock validation remains necessary for concurrent changes. |
 | Immutable policy-card Decisions, dependency edges and their histories | `recordPolicyCard` exports and validates before creating anything. `recordRecursivePolicyCards` computes every projection and checks every known card collision before the first batch write. `recursive card batch refuses collision` checks body, type and identity collisions on a later selection and direct oversized publication without partial shared-card publication. |
-| Sealed rejection outcomes, rejection comments and their histories | `recordRefusedPolicyCard` validates the prospective Generation body before an idempotent body update and card publication. Callers append bookkeeping comments afterwards. `prospective rejection notes` invokes the real rejection writer and requires a byte-identical durable tracker after refusal. |
-| Outer recursive phase Decisions and completion histories | Outer phases validate the full completed receipt before creating/updating its Decision. Newly executed promotion phases also defer their intent receipt until the promotion succeeds, so a deterministic card refusal cannot create a running promotion receipt. `recursive receipt card limits` compares all durable files around an oversized proposal phase, then retries the same key with a valid bounded result. |
+| Sealed rejection outcomes, rejection comments and their histories | `recordRefusedPolicyCard` validates the prospective Generation body after capturing the current revision, before an idempotent guarded SDK body mutation and card publication. The SDK checks that revision again under its native item lock. Callers append bookkeeping comments afterwards. `prospective rejection notes` invokes the real rejection writer and requires a byte-identical durable tracker after refusal. |
+| Outer recursive phase Decisions and completion histories | Outer phases validate the full completed receipt before creating/updating its Decision. Existing/running receipts capture their revision before executing work and complete through the guarded SDK item transaction; absent receipts use native exclusive creation. Newly executed promotion phases also defer their intent receipt until the promotion succeeds, so a deterministic card refusal cannot create a running promotion receipt. `recursive receipt card limits` compares all durable files around an oversized proposal phase, then retries the same key with a valid bounded result. |
 | Checkpoint blobs and append-only artifact ledger roots | `encodeCheckpointArtifacts` offers a pre-publication validator over the actual encoded result. The outer controller validates all projected cards there before publishing any blob or ledger root. The recursive receipt regression includes a real prefix checkpoint and checks that a card refusal publishes neither artifacts nor receipts. |
-| Recovery close and recovered candidate/promoted/refused cards | `reconcileLoopPromotion` exports the complete prospective promoted card before closing an interrupted promotion. Verified complete/refused paths validate cards before advancing; existing real filesystem obstruction and collision tests verify resume repairs post-commit publication failures. |
+| Recovery close and recovered candidate/promoted/refused cards | `reconcileLoopPromotion` exports the complete prospective promoted card before closing an interrupted promotion through the same guarded SDK item transaction. Verified complete/refused paths validate cards before advancing; existing real filesystem obstruction and collision tests verify resume repairs post-commit publication failures. |
 | PM task receipts and documentation | Repository tracker comments, linked files/docs/tests and claim release are intentional task documentation committed with code. These are distinct from the disposable tracker snapshots used for refusal proofs. |
 
 The read-only export, replay and adoption functions do not write domain records.
@@ -78,7 +78,7 @@ it cannot silently change the content already cited by an earlier card.
 
 | Check | Every input and reason for binding it |
 | --- | --- |
-| Citation domain digest (`domain`, `snapshot`, prospective writes) | Canonical item `id` identifies the evidence; `type` defines its interpretation; `affected_version` pins its package content identity. A Generation contributes the parsed specification listed below, excluding body headings/formatting/unknown properties. Other evidence contributes its exact sealed `body` (receipt, approval specification, plan or environment definition). A Run additionally contributes `component` (collection policy artifact) and `environment` (environment identity). Its configuration is already sealed in its body. `fixed_version` is excluded: the SDK clears it during a routine terminal-to-active status transition. These two fields are policy evidence for Runs only; mirror fields on a Generation and generic tracker `parent` are excluded. |
+| Citation domain digest (`domain`, `snapshot`, prospective writes) | Canonical item `id` identifies the evidence; `type` defines its interpretation; `affected_version` pins its package content identity. A Generation contributes the parsed specification listed below, excluding body headings/formatting/unknown properties. Other evidence contributes its exact sealed `body` (receipt, approval specification, plan or environment definition). A Run additionally contributes `component` (collection policy artifact), `environment` (environment identity), and the ordered decoded metric events in its certified historical `notes`, covering both legacy and compressed segments. Ordinary note text, note authors and note timestamps are excluded. The same `generationEvidence` graph defines the citation set for card projection and loop-resume drift checks. Its configuration is already sealed in its body. `fixed_version` is excluded: the SDK clears it during a routine terminal-to-active status transition. These two fields are policy evidence for Runs only; mirror fields on a Generation and generic tracker `parent` are excluded. |
 | Parsed Generation body | `base_checkpoint`, `policy`, `collection_runs`, `training_config`, `environment_version`, `reward_spec_version`, `parent`, `seed`, optional `evaluation_plan`: frozen training lineage, artifact/configuration and evaluation evidence identities. `promoted`, `approval`, `proxy_score`, `held_out_score`, `gap`, `promotion_evidence`: certified promotion outcome and its approval/evaluation citation. Optional `policy_evaluation`: sealed package verdict (fixed decision, reason digest and bounded diagnostics); ordinary tracker notes never supply it. The parser defines the exact projection, so unrelated JSON properties or markdown presentation cannot affect it. |
 | Generation provenance equality (`source`) | `affected_version` equals `hashJson(generationProvenance(spec))`; the provenance subset is optional `evaluation_plan`, `base_checkpoint`, `policy`, `collection_runs`, `training_config`, `environment_version`, `reward_spec_version`, `parent`, `seed`. Promotion outcomes are separate certified policy content and do not rewrite this training identity. |
 | Training scope digests | Generation: entire frozen `training_config`, `environment_version`, `reward_spec_version`; collection count is derived from the pinned `collection_runs`. Recursive phase: sealed receipt `input` digest plus constant null environment/reward sentinels and zero collection count. These describe the exact experiment definition, never tracker counters. |
@@ -149,3 +149,92 @@ history read and asserts unchanged durable tracker bytes. Removing normalization
 from the history read makes that regression fail with a permanent refusal instead
 of the required retryable error. This preserves the earlier operational-read blocker
 while adding the new certified-history selector.
+
+
+## Fifth-review concurrency and shared evidence audit
+
+The fifth review found two valid defects: metric-bearing Run notes did not enter
+card citation identity, and rejection publication wrote a pre-validation body over
+a peer update. GitHub returned zero review threads (no additional page), and all
+20 submitted reviews contained no CodeRabbit review body. There is consequently
+no unresolved thread id or outside-diff review finding to reply to or resolve.
+
+`generationEvidence` is the only graph constructor for both card projection and
+resume verification. Its certified Run snapshots include decoded metric notes;
+cards with this binding replay their exact historical evidence after later changes. Cards exported before the metric-binding fix require re-export. Resume compares that same
+graph against replay-verified retained cards before advancing. Interrupted outcome
+publication can use a retained candidate only when its unchanged training
+provenance and shared citations match the terminal outcome. A later retained
+terminal outcome cannot be hidden by claiming an interrupted promotion. Routine
+Run `fixed_version` changes are ignored on both paths: configuration remains bound
+by the exact sealed body, and the SDK clears that lifecycle field on reopening.
+
+| Item write path | Concurrency guard and regression |
+| --- | --- |
+| Generation and immutable environment/Run registration | Native SDK exclusive create; `createOrReadIdentical` verifies the real collision winner instead of updating it. |
+| Rejection outcome publication | Capture current `updated_at` and body before validation; `mutateLoopItem` compares both inside SDK `mutateItem` under its native item lock. The two-writer test preserves a peer `samples=20` body and provenance, creates no card, and returns retryable `loop_write_conflict`. |
+| Promotion body and lifecycle publication | Re-read and validate in the workspace transaction, then publish body, close status, close timestamp, completion timestamp and evidence in one guarded SDK item transaction. No split body/close operation or captured-body rollback exists. A peer after the read wins without being overwritten. |
+| Promotion budget consumption | Promoted Generation provenance is the budget charge; no independent counter is written. The candidate transaction also locks the approval with the SDK native item lock and compares the revision captured by the authoritative approval read. A peer lowering capacity after that read causes conflict before consumption. Concurrent promoter budget tests still permit only the approved count. |
+| Interrupted promotion close | Uses the captured current item revision and the same atomic terminal mutation. A peer between read and close causes conflict, preserving its body and pending lifecycle state. |
+| Immutable card publication, including recursive selections | SDK exclusive create, with content/type/version verification of an existing or concurrent winner. The collision test interleaves a peer create after the absence read and preserves the peer card while refusing `card_drift`. |
+| Existing/running inner and outer phase receipts | Capture the revision before executing the operation, then complete through `mutateLoopItem`. A peer during execution remains intact and causes conflict. |
+| Absent/deferred phase receipts | SDK exclusive create after deterministic prospective validation; a peer creation during execution wins and is never replaced by an update. |
+| Refusal and terminal comment receipts | Native SDK append with `ifAbsent: true`, performing duplicate detection under its item lock. Two writers that both read an empty comment list retain one receipt. No whole item or captured body is written. |
+| Feature work documentation | Pinned repo-local PM CLI mutations, attributable to `codex-agent`; append-only item history is committed with code. |
+
+The broader mutation matrix checks current card identity, the shared evidence
+fingerprint, retained evidence verification, and actual loop resume after every
+mutation. It covers every direct evidence item, type and content identities,
+Generation configuration, native annotations and status, Run policy/environment,
+Run lifecycle version, and both metric encodings. Evaluation Plan, result, shadow
+and shadow-comparison mutations exercise both graph consumers too. All trackers
+in these regressions are real SDK trackers initialized outside Git.
+
+The SDK transaction is the storage boundary: `mutateItem` owns item locking,
+canonical serialization, workflow/mutation guards, history publication and
+rollback on storage failure. The package captures the expected revision before
+validation/execution, checks it in the locked callback, and preserves the caller's
+author. Approval dependency locks are the same SDK locks observed by ordinary
+CLI and SDK peers; the controller lease alone is not treated as writer exclusion.
+
+Revert proofs and final full-gate counts are recorded on `pm-rl-policycards`.
+
+
+### Fifth-review behavioral revert receipts
+
+The following twelve independent reverts change production behavior only in a
+separate source copy. Regression SHA-256 remains
+`67a8221a59ce240d14972a34e9e9d57a7cef56b492eee3cb632be0d0f47a8e29` throughout, and production is restored in `finally`.
+Every run exits 1 with a behavioral assertion failure. Parent test failures are
+included in the failed/total counts when a named scenario contains subtests.
+Each command is `node --test --test-name-pattern='<pattern>' test/policy-card.test.ts`.
+
+| Removed production behavior | Pattern | Failed / total |
+| --- | --- | --- |
+| `whole-citation-set` | `retained generation evidence compares` | 1 / 1 |
+| `metric-note-binding` | `one generation evidence` | 1 / 1 |
+| `shared-resume-evidence` | `one generation evidence` | 1 / 1 |
+| `rejection-old-body` | `rejection publication` | 1 / 1 |
+| `rejection-target-revision` | `rejection publication` | 1 / 1 |
+| `receipt-target-revision` | `every receipt` | 2 / 3 |
+| `promotion-recovery-target-revision` | `promotion, approval` | 3 / 5 |
+| `approval-budget-revision` | `promotion, approval` | 2 / 5 |
+| `card-collision-verification` | `card creation` | 1 / 1 |
+| `deferred-receipt-exclusive-create` | `every receipt` | 2 / 3 |
+| `no-captured-promotion-compensation` | `promotion, approval` | 2 / 5 |
+| `comment-lock-idempotency` | `comment receipts` | 1 / 1 |
+
+The compensation revert restores a previously captured body after a real peer
+update at the SDK's committing transition. Its failure proves the post-commit
+recovery path preserves peer content as well as the ordinary success path. The
+deferred-create revert changes collision recovery into an update only after a
+real native create collision, so the peer interleaving still executes. The whole
+citation-set revert proves that newly added optional results invalidate the old
+baseline; deliberately retaining a complete fresh card establishes the new set.
+
+The existing native heartbeat regression now holds a real SDK coordinate read
+inside the fenced receipt commit. It still verifies active-phase exclusion, idle
+renewal, successor fencing and unchanged displaced cleanup at its original
+180-second limit. Existing trainer-specific evidence diagnostics run before the
+shared retained-card comparison; detailed decision errors and completed-promotion
+`loop_step_drift` refusals keep their established meaning.

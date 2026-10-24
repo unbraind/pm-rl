@@ -3,6 +3,7 @@ import type { HistoryResult } from "@unbrained/pm-cli/sdk/query";
 import type { GetResult, PmClient } from "@unbrained/pm-cli/sdk/core";
 import { createPmCliExpectedError, EXIT_CODE, normalizeItemId } from "@unbrained/pm-cli/sdk/runtime";
 import { canonicalJson, createOrReadIdentical, hashJson, extractGenerationSpec, generationProvenance, readCompleteLoopItem, type JsonValue } from "./index.ts";
+import { readSeries } from "./series.ts";
 import { optionalItem, enforceEvaluationPlan } from "./evaluation-plan.ts";
 import { rethrowOperationalRead, rethrowProvenanceRead } from "./refuse.ts";
 
@@ -31,8 +32,8 @@ export const POLICY_CARD_MAX_BYTES = 4096;
 const MAX_EVIDENCE = 32;
 const PROSPECTIVE_AT = String(Number.MAX_SAFE_INTEGER);
 /** Only projection fields are needed to validate a not-yet-persisted source. */
-type CardItem = Pick<GetResult["item"], "id" | "type" | "body" | "affected_version" | "component" | "environment">;
-const SNAPSHOT_FIELDS = "id,type,body,affected_version,component,environment";
+type CardItem = Pick<GetResult["item"], "id" | "type" | "body" | "affected_version" | "component" | "environment" | "notes">;
+const SNAPSHOT_FIELDS = "id,type,body,affected_version,component,environment,notes";
 const LIMIT_KEYS = ["samples", "evaluation_samples", "fit_steps", "training_steps", "wall_ms", "storage_bytes", "compute_units", "tokens", "active_calls", "candidate_calls", "generations", "candidates", "updates", "timeout_ms", "optimizer_updates", "max_optimizer_updates", "fits", "budget"];
 
 /** Refuse without echoing potentially private source values. */
@@ -54,7 +55,7 @@ function identity(value: unknown): string {
 function domain(item: CardItem): JsonValue {
   const body = item.type === "Generation" ? extractGenerationSpec(String(item.body), "Card content") as unknown as JsonValue : String(item.body);
   return { id: item.id, type: String(item.type), body, version: String(item.affected_version),
-    ...(item.type === "Run" ? { policy: String(item.component), environment: String(item.environment) } : {}) };
+    ...(item.type === "Run" ? { policy: String(item.component), environment: String(item.environment), metrics: readSeries((item.notes ?? []).map((note) => note.text)).events as unknown as JsonValue } : {}) };
 }
 /** Read certified content at its first matching immutable version, independent of later tracker activity. */
 async function snapshot(client: PmClient, id: string, at?: string): Promise<{ item: GetResult["item"]; citation: PolicyCardEvidence }> {
@@ -203,7 +204,12 @@ export async function validateRefusedPolicyCard(client: PmClient, subject: strin
 }
 /** Share the bounded projection between certified exports and pre-commit outcome validation. */
 async function exportSnapshotCard(client: PmClient, primary: { item: CardItem; citation: PolicyCardEvidence }, selection: number | null): Promise<PolicyCard> {
-  const subject = primary.citation.id;
+  const { evidence, resource } = await generationEvidence(client, primary.citation.id, primary);
+  return assemble(primary.citation.id, primary.item, evidence, resource, selection);
+}
+/** Define the complete generation evidence set once for card identity and loop resume: citations, Runs and decoded metric notes. @internal */
+export async function generationEvidence(client: PmClient, subject: string, selected?: { item: CardItem; citation: PolicyCardEvidence }): Promise<{ primary: CardItem; evidence: PolicyCardEvidence[]; entries: CardItem[]; resource: Record<string, number> }> {
+  const primary = selected ?? await snapshot(client, subject);
   const parsed = source(primary.item);
   const evidence = [primary.citation]; const entries: CardItem[] = []; const resource: Record<string, number> = {};
   const plan = parsed.dependencies.includes(`${subject}-evaluation-plan`) ? await optionalItem(client, `${subject}-evaluation-plan`) : null;
@@ -220,7 +226,30 @@ async function exportSnapshotCard(client: PmClient, primary: { item: CardItem; c
   }
   await verifyEvidenceBindings(client, primary.item, entries);
   for (const entry of entries) Object.assign(resource, evidenceLimits(subject, entry));
-  return assemble(subject, primary.item, evidence, resource, selection);
+  return { primary: primary.item, evidence, entries, resource };
+}
+/** Compare the same evidence with the last retained outcome before a resumed generation advances. @internal */
+export async function verifyRetainedGenerationEvidence(client: PmClient, subject: string): Promise<void> {
+  const fresh = await generationEvidence(client, subject);
+  const listed = await client.listAllComplete({ includeBody: true });
+  const retained = listed.items.filter((item) => item.type === "Decision" && item.id.includes("-policy-card-"))
+    .map((item) => JSON.parse(String(item.body)) as PolicyCard).filter((card) => card.subject === subject);
+  if (retained.length === 0) return;
+  for (const card of retained) await replayPolicyCard(client, card);
+  const outcome = source(fresh.primary).outcome;
+  const terminal = retained.some((card) => card.outcome === "promoted" || card.outcome === "refused");
+  if (terminal && ["candidate", "seed"].includes(outcome)) throw createPmCliExpectedError("A retained terminal promotion cannot be replayed as an unfinished step.", { exitCode: EXIT_CODE.CONFLICT, context: { code: "loop_step_drift" } });
+  const exact = retained.find((card) => canonicalJson(card.evidence as unknown as JsonValue) === canonicalJson(fresh.evidence as unknown as JsonValue));
+  // An interrupted promotion may only have its pre-promotion card; verify every shared citation before repairing publication.
+  const previous = exact ?? retained.find((card) => card.outcome === "candidate") ?? retained[retained.length - 1];
+  const historical = exact === undefined ? await snapshot(client, subject, previous.evidence[0].at) : null;
+  const transition = historical !== null && previous.outcome === "candidate" && ["promoted", "refused"].includes(source(fresh.primary).outcome)
+    && !terminal
+    && hashJson(generationProvenance(extractGenerationSpec(String(historical.item.body), "Retained candidate"))) === hashJson(generationProvenance(extractGenerationSpec(String(fresh.primary.body), "Current outcome")));
+  const current = new Map(fresh.evidence.map((entry) => [entry.id, entry.digest]));
+  if ((exact === undefined && !transition) || previous.evidence.some((entry, index) => (exact !== undefined || index > 0) && current.get(entry.id) !== entry.digest)) {
+    throw createPmCliExpectedError("Generation evidence changed since its retained policy card; restore the certified evidence before resuming.", { exitCode: EXIT_CODE.CONFLICT, context: { code: "loop_generation_drift" } });
+  }
 }
 /** Require a closed citation graph rooted in the certified subject, never caller-added allowances. */
 async function verifyEvidenceBindings(client: PmClient, item: CardItem, entries: readonly CardItem[]): Promise<void> {

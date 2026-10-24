@@ -1642,64 +1642,41 @@ test("a peer contaminating an ANCESTOR under the lock is caught, because the ver
   assert.doesNotMatch(String((await client.get(candidate.id!, { fields: "body" })).item.body), /"promoted": true/, "a refused promotion must leave the record unpromoted");
 });
 
-test("a revert that also fails reports both causes instead of hiding the close error", async () => {
-  // The close error explains what happened; a revert failure must not replace
-  // it. When both fail the situation is worse than either alone — the body
-  // reads as promoted while the item was never closed — so both are reported,
-  // original cause first.
+test("atomic promotion has no separate close or stale-body rollback window", async () => {
   const { root, pmRoot, client, harness } = await workspace();
   const env = await registerEnv(harness, pmRoot, root, "Grid");
   const approval = await client.create({ id: "approval-1", title: "Approval", type: "Decision", status: "open", body: "# approval\n\n```json\n" + JSON.stringify({ permitted_promotions: 1 }) + "\n```" });
   const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed", "ckpt-seed");
   const run = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-1"], options: { environment: env, algorithm: "ckpt-seed" } }));
   const candidate = resultOf(await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-c1"], options: { baseCheckpoint: "ckpt-c1", parent: seed, policy: "ckpt-c1", collectionRuns: run.id, environment: env } }));
+  await client.claim(candidate.id!);
   const failing = sdkWith(clientWithFailingCloseAndFailingRevert(new PmClient({ pmRoot, author: "pm-rl-test" })));
-  // Reported through `fail`, so it is an EXPECTED command error with a stable
-  // code and exit status rather than a plain Error — this is the path an
-  // automated caller most needs to classify. The harness rejects on pm expected
-  // errors and captures anything else into errorMessage, so the rejection here
-  // is itself part of what is being asserted.
-  await assert.rejects(
-    harness.runCommand({ command: "rl generation promote", pmRoot, args: [candidate.id!], options: { approval: approval.item.id, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "x" }, sdk: failing }),
-    (error: Error) => {
-      assert.match(error.message, /close failed after the promoting write/, "the original close error must survive");
-      assert.match(error.message, /revert of the promoting write also failed/, "and the revert failure must be reported alongside it");
-      assert.match(error.message, /still reads as promoted while it was never closed/, "naming the state an operator has to repair");
-      return true;
-    },
-  );
+  const result = resultOf(await harness.runCommand({ command: "rl generation promote", pmRoot, args: [candidate.id!], options: { approval: approval.item.id, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "atomic" }, sdk: failing }));
+  assert.equal(result.details?.budget_consumed, 1);
+  const stored = (await client.get(candidate.id!, { fields: "body,status,closed_at,assignee" })).item;
+  assert.equal(stored.status, "closed"); assert.ok(stored.closed_at); assert.equal(stored.assignee, undefined);
+  assert.match(String(stored.body), /"promoted": true/);
 });
 
-test("a failed close restores the body that was current when the lock was taken, not the one read before it", async () => {
-  // `revertPromotingWrite` writes a captured body back over the promoting write.
-  // Capturing it from the PRE-LOCK read discards any edit a peer landed between
-  // that read and the lock: the revert would resurrect a body the peer had
-  // already replaced, and the peer's write would be gone with no receipt. The
-  // in-lock re-read is the only body that was actually overwritten.
+test("atomic promotion preserves a peer edit observed before its guarded read", async () => {
   const { root, pmRoot, client, harness } = await workspace();
   const env = await registerEnv(harness, pmRoot, root, "Grid");
   const approval = await client.create({ id: "approval-1", title: "Approval", type: "Decision", status: "open", body: "# approval\n\n```json\n" + JSON.stringify({ permitted_promotions: 1 }) + "\n```" });
   const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed", "ckpt-seed");
   const run = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-1"], options: { environment: env, algorithm: "ckpt-seed" } }));
   const candidate = resultOf(await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-c1"], options: { baseCheckpoint: "ckpt-c1", parent: seed, policy: "ckpt-c1", collectionRuns: run.id, environment: env } }));
-  // The peer's edit keeps the record a valid unpromoted generation, so the
-  // in-lock re-read parses and the promotion proceeds to the failing close.
   const original = await client.get(candidate.id!, { fields: "body" });
-  // Edits a field the promotion decision does NOT consume, so the in-lock
-  // change guard lets the promotion proceed to the failing close. A decision
-  // field would be refused first, and this test would then pass without ever
-  // reaching the revert it exists to check.
   const peerBody = String(original.item.body).replace('"training_config": {}', '"training_config": {\n    "peer": "kept"\n  }');
   assert.notEqual(peerBody, String(original.item.body), "the peer edit must actually differ, or this test proves nothing");
   const sdk = sdkWith(clientWithConcurrentEditThenFailingClose(new PmClient({ pmRoot, author: "pm-rl-test" }), candidate.id!, peerBody, { updateProvenance: true }));
   const failed = await harness.runCommand({ command: "rl generation promote", pmRoot, args: [candidate.id!], options: { approval: approval.item.id, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "x" }, sdk });
-  assert.equal(failed.handled, false);
+  assert.equal(failed.handled, true);
   const reread = await client.get(candidate.id!, { fields: "body" });
-  assert.doesNotMatch(String(reread.item.body), /"promoted": true/, "the promoting write must still be reverted");
-  assert.match(String(reread.item.body), /"peer": "kept"/, "the revert must restore the peer's body, not the pre-lock one it never saw");
+  assert.match(String(reread.item.body), /"promoted": true/);
+  assert.match(String(reread.item.body), /"peer": "kept"/, "atomic completion must preserve the peer body observed before its guarded read");
 });
 
-test("a promotion whose close fails reverts its own body write rather than leaving budget consumed", async () => {
+test("atomic promotion records closure and budget consumption together exactly once", async () => {
   const { root, pmRoot, client, harness } = await workspace();
   const failing = sdkWith(clientWithFailingClose(new PmClient({ pmRoot, author: "pm-rl-test" })));
   const env = await registerEnv(harness, pmRoot, root, "Grid");
@@ -1707,19 +1684,11 @@ test("a promotion whose close fails reverts its own body write rather than leavi
   const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed", "ckpt-seed");
   const run = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-1"], options: { environment: env, algorithm: "ckpt-seed" } }));
   const candidate = resultOf(await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-c1"], options: { baseCheckpoint: "ckpt-c1", parent: seed, policy: "ckpt-c1", collectionRuns: run.id, environment: env } }));
-  // The harness captures a non-pm error into errorMessage rather than rejecting;
-  // only pm expected errors propagate as rejections.
-  const failed = await harness.runCommand({ command: "rl generation promote", pmRoot, args: [candidate.id!], options: { approval: approval.item.id, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "x" }, sdk: failing });
-  assert.equal(failed.handled, false);
-  assert.match(String(failed.errorMessage), /close failed after the promoting write/);
-  // The body must NOT read as promoted: a half-applied promotion left in place
-  // would consume the single permitted promotion without ever completing one.
-  const reread = await client.get(candidate.id!, { fields: "body,status" });
-  assert.doesNotMatch(String(reread.item.body), /"promoted": true/);
-  assert.equal(String(reread.item.status), "open");
-  // And the budget it never spent is still available to a real promotion.
-  const recovered = resultOf(await harness.runCommand({ command: "rl generation promote", pmRoot, args: [candidate.id!], options: { approval: approval.item.id, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "recovered" } }));
-  assert.equal(recovered.details?.budget_consumed, 1);
+  const promoted = resultOf(await harness.runCommand({ command: "rl generation promote", pmRoot, args: [candidate.id!], options: { approval: approval.item.id, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "atomic" }, sdk: failing }));
+  assert.equal(promoted.details?.budget_consumed, 1);
+  const stored = (await client.get(candidate.id!, { fields: "body,status,closed_at" })).item;
+  assert.match(String(stored.body), /"promoted": true/); assert.equal(stored.status, "closed"); assert.ok(stored.closed_at);
+  await assert.rejects(harness.runCommand({ command: "rl generation promote", pmRoot, args: [candidate.id!], options: { approval: approval.item.id, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "again" } }), /already promoted/);
 });
 
 test("concurrent promotions of the SAME generation promote it exactly once", async () => {

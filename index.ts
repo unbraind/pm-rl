@@ -206,12 +206,12 @@ import {
   type CommandHandlerContext,
   type ExtensionApi,
 } from "@unbrained/pm-cli/sdk/authoring";
-import { commitWorkspaceTransaction, type CommitWorkspaceTransactionOptions, type LogNote } from "@unbrained/pm-cli/sdk";
+import { commitWorkspaceTransaction, applyTerminalOrderingPolicy, mutateItem, readSettings, runWithActiveExtensions, type CommitWorkspaceTransactionOptions, type ItemDocument, resolveRuntimeStatusRegistry, type LogNote } from "@unbrained/pm-cli/sdk";
 import { PmClient, type GetResult, type ItemMetadata } from "@unbrained/pm-cli/sdk/core";
 import { acquireLock, certifyCompleteListResult, createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError, normalizeItemId, type PmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 
 import { parseJsonRecord, rethrowOperationalRead, rethrowProvenanceRead } from "./refuse.ts";
-import { exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordRecursivePolicyCards, recordPolicyCard, validatePromotedPolicyCard, validatePolicyCardWrite, validateRefusedPolicyCard } from "./policy-card.ts";
+import { exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordRecursivePolicyCards, recordPolicyCard, validatePromotedPolicyCard, validatePolicyCardWrite, validateRefusedPolicyCard, verifyRetainedGenerationEvidence } from "./policy-card.ts";
 import { registerShadowDeployment, observeShadow, compareShadow } from "./shadow.ts";
 import { registerEvaluationPlan, readEvaluationPlan, recordPlanEvaluation, enforceEvaluationPlan } from "./evaluation-plan.ts";
 import { buildTrackerLoopCorpus } from "./corpus.ts";
@@ -752,6 +752,46 @@ export async function readCompleteLoopItem(client: PmClient, id: string, at?: st
     fail(`Item ${id} was omitted despite an unbounded read request.`, "loop_history_incomplete", EXIT_CODE.CONFLICT);
   }
   return result as GetResult;
+}
+
+/** Apply a read-derived change through the SDK item transaction, refusing a stale revision under its item lock. @internal */
+export async function mutateLoopItem(client: PmClient, before: GetResult, message: string, change: (document: ItemDocument, closeStatus: string) => string[], preconditions: readonly GetResult[] = [], author = "pm-rl", op: "update" | "close" = "update"): Promise<GetResult> {
+  const config = await client.config("project", "get", "id_prefix");
+  const pmRoot = dirname(config.settings_path);
+  const settings = await readSettings(pmRoot);
+  const expected = { updated: before.item.updated_at, body: String(before.item.body) };
+  const releases: (() => Promise<void>)[] = [];
+  try {
+    // These are the SDK's native item locks, also observed by ordinary CLI and SDK peer writes.
+    for (const dependency of [...preconditions].sort((a, b) => a.item.id.localeCompare(b.item.id))) {
+      releases.push(await acquireLock(pmRoot, dependency.item.id, settings.locks.ttl_seconds, author, false, false, settings.locks.wait_ms));
+      const current = await readCompleteLoopItem(client, dependency.item.id);
+      if (current.item.updated_at !== dependency.item.updated_at || current.item.body !== dependency.item.body) fail("Promotion evidence or budget changed after it was read; retry from current evidence.", "loop_write_conflict", EXIT_CODE.CONFLICT);
+    }
+    const result = await runWithActiveExtensions({ path: pmRoot }, () => mutateItem({ pmRoot, settings, id: before.item.id, op, author, message, skipNoop: true,
+      mutate: (document) => {
+        if (document.metadata.updated_at !== expected.updated || document.body !== expected.body) fail("Tracker item changed after it was read; retry from current evidence.", "loop_write_conflict", EXIT_CODE.CONFLICT);
+        return { changedFields: change(document, resolveRuntimeStatusRegistry(settings.schema).close_status) };
+      },
+    }));
+    return { item: { ...result.item, body: result.body } };
+  } finally {
+    for (const release of releases.reverse()) await release();
+  }
+}
+
+/** Close a generation and optionally publish its outcome in one guarded SDK item transaction. */
+async function completeLoopGeneration(client: PmClient, before: GetResult, body: string, evidence: string, actual: string, preconditions: readonly GetResult[] = [], author = "pm-rl"): Promise<GetResult> {
+  return mutateLoopItem(client, before, "Complete RL promotion atomically", (document, closeStatus) => {
+    document.body = body;
+    const at = new Date().toISOString();
+    Object.assign(document.metadata, { status: closeStatus, close_reason: "promoted", closed_at: at, completed_at: document.metadata.completed_at ?? at, resolution: evidence,
+      expected_result: "The generation reaches a promoted state with both scores and the direction-aware gap recorded.", actual_result: actual });
+    const fields = ["body", "status", "close_reason", "closed_at", "completed_at", "resolution", "expected_result", "actual_result"];
+    if (document.metadata.assignee !== undefined) { delete document.metadata.assignee; fields.push("assignee"); }
+    fields.push(...applyTerminalOrderingPolicy(document.metadata, { orderingEdges: "preserve" }).changedFields);
+    return fields;
+  }, preconditions, author, "close");
 }
 
 /** Validate that an existing item has the expected domain type. */
@@ -2275,8 +2315,8 @@ async function registerGenerationCore(client: PmClient, request: GenerationRegis
  * @param approvalId - The approval Decision item id.
  * @returns The parsed approval specification and its canonical SDK identity.
  */
-export async function readApprovalSpec(client: PmClient, approvalId: string): Promise<ApprovalSpec & { id: string }> {
-  const approval = await client.get(approvalId, { depth: "deep" });
+export async function readApprovalSpec(client: PmClient, approvalId: string): Promise<ApprovalSpec & { id: string; snapshot: GetResult }> {
+  const approval = await readCompleteLoopItem(client, approvalId);
   if (String(approval.item.type) !== "Decision") {
     fail(`pm rl expected a Decision ${approvalId} as the approval item, not ${String(approval.item.type)}.`, "wrong_approval_type", EXIT_CODE.CONFLICT);
   }
@@ -2285,7 +2325,7 @@ export async function readApprovalSpec(client: PmClient, approvalId: string): Pr
     fail(`Approval item ${approvalId} has no JSON specification fence.`, "approval_missing_spec", EXIT_CODE.CONFLICT);
   }
   const id = approval.item.id;
-  return { ...parseApprovalSpec(approvalFenced, `Approval ${approvalId}`), id };
+  return { ...parseApprovalSpec(approvalFenced, `Approval ${approvalId}`), id, snapshot: approval };
 }
 
 /** Promote a candidate generation after contamination and budget checks pass. */
@@ -2357,7 +2397,7 @@ interface PromotionOutcome {
 }
 
 /**
- * Promote one candidate generation through the transactional, budget-checked flow.
+ * Promote one candidate generation through the transactional, budget-checked flow. @internal
  *
  * Contamination is decided twice — once before the writer lock as a fast
  * refusal and once inside it as the authoritative verdict — and the approved
@@ -2373,9 +2413,10 @@ interface PromotionOutcome {
  * @param proxyScore - The parsed proxy score record.
  * @param heldOutScore - The parsed held-out score record.
  * @param evidence - Human-readable promotion evidence.
+ * @param onTransition - Optional SDK transaction observer for native failure and recovery drills.
  * @returns The promotion's persisted outcome.
  */
-async function promoteGenerationCore(client: PmClient, coordinates: WorkspaceCoordinates, id: string, approvalId: string, proxyScore: ScoreRecord, heldOutScore: ScoreRecord, evidence: string): Promise<PromotionOutcome> {
+export async function promoteGenerationCore(client: PmClient, coordinates: WorkspaceCoordinates, id: string, approvalId: string, proxyScore: ScoreRecord, heldOutScore: ScoreRecord, evidence: string, onTransition?: CommitWorkspaceTransactionOptions["onTransition"]): Promise<PromotionOutcome> {
   const { pmRoot, author } = coordinates;
   const ancestry = await buildAncestry(client, id, true);
   const contamination = findContaminationPath(ancestry, heldOutScore.evaluation_context);
@@ -2418,24 +2459,9 @@ async function promoteGenerationCore(client: PmClient, coordinates: WorkspaceCoo
     };
     return `# ${id}\n\n\`\`\`json\n${JSON.stringify(promotedSpec, null, 2)}\n\`\`\``;
   };
-  // Seeded from the pre-lock read and REPLACED by the in-lock re-read below.
-  // Restoring the pre-lock body would discard an edit another writer landed
-  // between that read and the lock: this value is written back on a failed
-  // close, so it must be the body that was current when the promoting write
-  // overwrote it, not the one this caller happened to see first.
-  let bodyBeforePromotion = String((await getTypedItem(client, id, "Generation")).item.body);
+  const prospective = await getTypedItem(client, id, "Generation");
   canonicalApprovalId = (await readApprovalSpec(client, approvalId)).id;
-  await validatePromotedPolicyCard(client, id, renderPromotedBody(extractGenerationSpec(bodyBeforePromotion, "Prospective promotion")));
-  // Revert the promoting write. The coordinator compensates steps it has already
-  // recorded as applied, and a single-step plan has none — verified empirically:
-  // a step whose `apply` throws runs inspect, apply, then propagates, never
-  // compensate. So `apply` invokes this itself on a failed close rather than
-  // leaving a body that reads as promoted, which would consume budget the
-  // generation never legitimately spent. It is also wired as the step's
-  // `compensate` so a future multi-step plan reverts through the same path.
-  const revertPromotingWrite = async (): Promise<void> => {
-    await client.update(id, { body: bodyBeforePromotion, message: "Revert interrupted pm-rl promotion" });
-  };
+  await validatePromotedPolicyCard(client, id, renderPromotedBody(extractGenerationSpec(String(prospective.item.body), "Prospective promotion")));
   let promotedCount = 0;
   // Neutral like its two neighbours, NOT seeded from `approvalSpec`. That is the
   // pre-lock read, and seeding it here makes this the one variable of the three
@@ -2457,17 +2483,14 @@ async function promoteGenerationCore(client: PmClient, coordinates: WorkspaceCoo
     // performed. Correctness under concurrency comes from the re-check inside
     // the lock instead.
     transactionId: `pm-rl-generation-promote-${id}-${randomUUID()}`,
+    onTransition,
     author,
     lockWaitMs: PROMOTION_LOCK_WAIT_MS,
     steps: [{
       id: "promote-generation",
-      // The durable journal, not this inspection, is what makes a completed
-      // promotion idempotent: replaying a recorded transactionId skips `apply`
-      // regardless of what `inspect` reports (verified empirically). Reporting
-      // a durable "applied" here would also be unreachable, because a generation
-      // that already carries a promoted body is refused by the `already_promoted`
-      // guard long before the transaction opens.
-      inspect: async () => ({ state: "pending" }),
+      // Only this invocation's successful atomic write can report applied. A peer's
+      // promoted body must still reach the authoritative already-promoted refusal.
+      inspect: async () => ({ state: closedStatus === "" ? "pending" : "applied" }),
       apply: async () => {
         // Re-read inside the lock. The pre-lock `already_promoted` check runs on
         // a read every concurrent caller performs before any of them holds the
@@ -2475,8 +2498,7 @@ async function promoteGenerationCore(client: PmClient, coordinates: WorkspaceCoo
         // generation. Only a re-check inside the critical section makes "a
         // generation promotes at most once" true under concurrency.
         const current = await getTypedItem(client, id, "Generation");
-        bodyBeforePromotion = String(current.item.body);
-        const currentSpec = extractGenerationSpec(bodyBeforePromotion, `Generation ${id}`);
+        const currentSpec = extractGenerationSpec(String(current.item.body), `Generation ${id}`);
         if (currentSpec.promoted) {
           fail(`Generation ${id} is already promoted.`, "already_promoted", EXIT_CODE.CONFLICT);
         }
@@ -2515,36 +2537,13 @@ async function promoteGenerationCore(client: PmClient, coordinates: WorkspaceCoo
         }
         const promotedBody = renderPromotedBody(currentSpec);
         await validatePromotedPolicyCard(client, id, promotedBody);
-        await client.update(id, {
-          // Rendered from the IN-LOCK spec, so a peer edit to a field the
-          // promotion decision did not consume survives this write.
-          body: promotedBody,
-          message: `Promote generation: gap=${gap.toFixed(4)}, evidence=${evidence}`,
-        });
-        try {
-          const result = await client.close(id, "promoted", {
-            message: "Promote RL generation",
-            resolution: evidence,
-            expectedResult: "The generation reaches a promoted state with both scores and the direction-aware gap recorded.",
-            actualResult: `Promoted with proxy=${proxyScore.value}, held_out=${heldOutScore.value}, gap=${gap.toFixed(4)}. Budget consumed: ${promotedCount + 1} of ${permittedPromotions}.`,
-          });
-          closedStatus = String(result.item.status);
-        } catch (error) {
-          // The close error is the one that explains what happened; a revert
-          // failure must not replace it. If the revert ALSO fails the situation
-          // is worse than either alone — the body still reads as promoted while
-          // the item was never closed — so both are reported, with the original
-          // cause first, rather than the second error hiding the first.
-          try {
-            await revertPromotingWrite();
-          } catch (revertError) {
-            fail(`${String(error)} — and the revert of the promoting write also failed (${String(revertError)}), so generation ${id} still reads as promoted while it was never closed. Its body must be restored before the approved budget can be counted correctly.`, "revert_failed_after_close_failure", EXIT_CODE.CONFLICT);
-          }
-          throw error;
-        }
+        const result = await completeLoopGeneration(client, current, promotedBody, evidence,
+          `Promoted with proxy=${proxyScore.value}, held_out=${heldOutScore.value}, gap=${gap.toFixed(4)}. Budget consumed: ${promotedCount + 1} of ${permittedPromotions}.`, [lockedApprovalSpec.snapshot], author);
+        closedStatus = String(result.item.status);
         return { status: closedStatus };
       },
-      compensate: revertPromotingWrite,
+      // One atomic item mutation is the only step: a failed apply has nothing to restore.
+      compensate: async () => {},
     }],
   });
   return { status: closedStatus, gap, promotedCount, permittedPromotions };
@@ -2670,6 +2669,8 @@ export interface RlLoopStatusReport {
 
 /** The controller lease acquired around one whole loop execution. */
 interface ControllerLease {
+  /** Attributable writer used by guarded item transactions. */
+  readonly author: string;
   /** Releases the workspace lock; safe to call exactly once. */
   readonly release: () => Promise<void>;
   /** Serialize effects with takeover and reject a displaced controller. */
@@ -3020,7 +3021,7 @@ async function acquireControllerLease(client: PmClient, coordinates: WorkspaceCo
     if (activePhases === 0) heartbeat = guard(async () => undefined).catch(() => undefined);
   }, LOOP_LEASE_TTL_SECONDS * 1000 / 3);
   timer.unref();
-  return { release: async () => { clearInterval(timer); await heartbeat; await release(); }, guard, seedId, processStartTime: ownStart };
+  return { release: async () => { clearInterval(timer); await heartbeat; await release(); }, guard, seedId, processStartTime: ownStart, author: coordinates.author };
 }
 
 /**
@@ -3131,7 +3132,7 @@ export type RefusalAuditContext = PmCliExpectedError["context"] & { audit_commen
  */
 async function appendRefusalAuditComment(client: PmClient, id: string, text: string): Promise<string | undefined> {
   try {
-    await client.comments(id, { add: text });
+    await client.comments(id, { add: text, ifAbsent: true });
     return undefined;
   } catch (error) {
     return error instanceof Error ? error.message : String(error);
@@ -3355,11 +3356,14 @@ async function durableLoopStep(client: PmClient, lease: ControllerLease, id: str
     // Outer phase cards must fit before the first receipt/history write.
     const intent = { id: key, type: "Decision" as const, title: `Loop step ${phase} for ${id}`, body: JSON.stringify(running) };
     const item = existing ?? (cards || phase === "promote" ? null : await client.create(intent));
+    const before = item === null ? null : existing ?? await readCompleteLoopItem(client, String(item.item.id));
     const value = await execute();
     const body = JSON.stringify({ ...running, state: "complete", result: value, digest: hashJson(value) });
     if (cards) await validatePolicyCardWrite(client, { ...intent, body }, true);
     if (item === null) await client.create({ ...intent, body });
-    else await client.update(String(item.item.id), { body });
+    else {
+      await mutateLoopItem(client, before!, "Complete durable loop receipt", (document) => { document.body = body; return ["body"]; }, [], lease.author);
+    }
     return { value, executed: true };
   });
 }
@@ -3398,11 +3402,11 @@ async function readLoopComments(client: PmClient, id: string): Promise<LogNote[]
   return result.comments;
 }
 
-/** Append one comment only when its exact text is not already in the item's history. */
-async function appendCommentOnce(client: PmClient, id: string, text: string): Promise<void> {
+/** Append one comment only when its exact text is not already in the item's history. @internal */
+export async function appendCommentOnce(client: PmClient, id: string, text: string): Promise<void> {
   const comments = await readLoopComments(client, id);
   if (comments.some((comment) => comment.text === text)) return;
-  await client.comments(id, { add: text });
+  await client.comments(id, { add: text, ifAbsent: true });
 }
 
 /** Read complete process outcomes belonging to this programme instance without exposing executable paths. */
@@ -3667,7 +3671,7 @@ async function verifyLoopRun(client: PmClient, programme: LoopProgramme, chain: 
       : lmEnvironmentSpec(programme.config);
   const storedEnvironment = await verifyEnvironmentIdentity(client, String(normalizeRunEnvironment(run.item.environment)), "loop");
   const fences = [...jsonSpecFences(String(run.item.body))];
-  if (run.item.component !== chain.current.digest || run.item.fixed_version !== hashJson(config)
+  if (run.item.component !== chain.current.digest
     || run.item.affected_version !== hashJson(environment) || hashJson(storedEnvironment.spec) !== hashJson(environment)
     || fences.length !== 2 || canonicalJson(JSON.parse(fences[1]) as JsonValue) !== canonicalJson(config)) {
     fail("The persisted collection run does not match its programme, policy and environment.", "loop_generation_drift", EXIT_CODE.CONFLICT);
@@ -3682,6 +3686,10 @@ async function inspectCandidateVerdict(client: PmClient, programme: LoopProgramm
     || spec.collection_runs.length !== 1 || spec.collection_runs[0] !== runId || (spec.promoted && !verified.promoted)) {
     fail("The persisted generation does not match its replayed lineage.", "loop_generation_drift", EXIT_CODE.CONFLICT);
   }
+  await verifyRetainedGenerationEvidence(client, String(item.item.id)).catch((error: unknown) => {
+    if (isPmCliExpectedError(error) && String(error.context.code).startsWith("card_")) fail("The persisted generation evidence changed since certification.", "loop_generation_drift", EXIT_CODE.CONFLICT);
+    throw error;
+  });
   const report: RlLoopGenerationReport = { generation, run: runId, item: String(item.item.id), promoted: spec.promoted,
     held_out_mean: verified.candidateHeldOutMean, candidate_checkpoint: verified.candidate.digest, refusal_reason: null };
   if (spec.promoted) {
@@ -3738,9 +3746,7 @@ async function reconcileLoopPromotion(client: PmClient, lease: ControllerLease, 
     if (item.item.status === "closed") return;
     const spec = extractGenerationSpec(String(item.item.body), "Promoted loop generation");
     await exportPolicyCard(client, itemId);
-    await client.close(itemId, "promoted", { message: "Recover committed RL promotion",
-      resolution: spec.promotion_evidence!, expectedResult: "The already committed promotion reaches its terminal item state once.",
-      actualResult: "Recovered the promotion close boundary; the approved promotion count and scores are unchanged." });
+    await completeLoopGeneration(client, item, String(item.item.body), spec.promotion_evidence!, "Recovered the promotion close boundary; the approved promotion count and scores are unchanged.", [], lease.author);
   });
 }
 
@@ -3751,11 +3757,11 @@ function terminalPromotionRefusal(error: PmCliExpectedError): boolean {
 }
 
 /** Seal final rejection evidence in certified policy content before retaining its card. @internal */
-export async function recordRefusedPolicyCard(client: PmClient, id: string, reason: string | null): Promise<void> {
-  const body = await validateRefusedPolicyCard(client, id, { decision: "refuse", reason_digest: hashJson(reason) });
+export async function recordRefusedPolicyCard(client: PmClient, id: string, reason: string | null, author = "pm-rl"): Promise<void> {
   const current = await readCompleteLoopItem(client, id);
+  const body = await validateRefusedPolicyCard(client, id, { decision: "refuse", reason_digest: hashJson(reason) });
   const existing = extractGenerationSpec(String(current.item.body), "Rejected generation");
-  if (canonicalJson(existing as unknown as JsonValue) !== canonicalJson(extractGenerationSpec(body, "Rejection outcome") as unknown as JsonValue)) await client.update(id, { body });
+  if (canonicalJson(existing as unknown as JsonValue) !== canonicalJson(extractGenerationSpec(body, "Rejection outcome") as unknown as JsonValue)) await mutateLoopItem(client, current, "Seal policy rejection", (document) => { document.body = body; return ["body"]; }, [], author);
   await recordPolicyCard(client, id);
 }
 
@@ -3806,7 +3812,7 @@ async function executeLoopProgramme(client: PmClient, coordinates: WorkspaceCoor
       // The original run recorded the refusal as the candidate's history; a
       // crash between the registration and that comment still gets it, exactly
       // once, because the append is idempotent by text.
-      await prepared.lease.guard(() => recordRefusedPolicyCard(client, inspection.report.item, inspection.refusalReason));
+      await prepared.lease.guard(() => recordRefusedPolicyCard(client, inspection.report.item, inspection.refusalReason, coordinates.author));
       if (inspection.stopReason !== "promotion_refused") await prepared.lease.guard(() => appendCommentOnce(client, inspection.report.item!, `Loop ${request.id} generation ${generation} refused: ${inspection.refusalReason}`));
       terminal = { stopReason: inspection.stopReason, refusalReason: inspection.refusalReason };
       break;
@@ -3967,7 +3973,7 @@ async function executePendingGeneration(client: PmClient, coordinates: Workspace
     // history and stop. A refused candidate never becomes a collector.
     const message = `Loop ${request.id} generation ${generation} refused: ${receipt.refusalReason}`;
     await prepared.lease.guard(async () => {
-      await recordRefusedPolicyCard(client, generationId, receipt.refusalReason);
+      await recordRefusedPolicyCard(client, generationId, receipt.refusalReason, coordinates.author);
       await appendCommentOnce(client, generationId, message);
     });
     chain.reports.push({ generation, run: runId!, item: generationId, promoted: false,
@@ -4009,7 +4015,7 @@ async function executePendingGeneration(client: PmClient, coordinates: Workspace
     if (error !== promotionError || !isPmCliExpectedError(error) || !terminalPromotionRefusal(error)) throw error;
     const message = `Loop ${request.id} generation ${generation} promotion refused: ${error.message}`;
     await prepared.lease.guard(async () => {
-      await recordRefusedPolicyCard(client, generationId, error.message);
+      await recordRefusedPolicyCard(client, generationId, error.message, coordinates.author);
       await appendCommentOnce(client, generationId, message);
     });
     chain.reports.push({ generation, run: runId!, item: generationId, promoted: false,
