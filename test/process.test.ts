@@ -10,7 +10,7 @@ import { runReferenceTrainer, referenceTrainerMain, writeTrainerArtifact } from 
 import { parseLoopProgramme, parseLoopConfig } from "../loop.ts";
 import { mock, test } from "node:test";
 import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
-import { appendDiagnostics, executeProcessTrainer, launchTrainer, transitionProcessJob, stopTrainer, parseProcessAdapter, parseResources, processJobId, processStaging, readProcessJob, referenceTrainerArgv, reserveProcessJob, stagingBytes, validateProcessCompletion, verifiedProcessPolicy, type ProcessCompletion } from "../process.ts";
+import { appendDiagnostics, executeProcessTrainer, launchTrainer, transitionProcessJob, stopTrainer, parseProcessAdapter, parseResources, processJobId, processStaging, processJobBodyId, listProcessJobs, readProcessJob, referenceTrainerArgv, reserveProcessJob, stagingBytes, validateProcessCompletion, verifiedProcessPolicy, type ProcessCompletion } from "../process.ts";
 import { allowance, configuration, processWorkspace, trainingInput } from "./fixtures/process-workspace.ts";
 // Node's parent coverage hooks remain active; SIGKILL-able children must not inherit its raw-report directory.
 delete process.env["NODE_V8_COVERAGE"];
@@ -143,10 +143,34 @@ test("budget and job identity drift refuse execution through real tracker reads"
   const { client, coordinates, approval, pmRoot } = await processWorkspace(); const input = trainingInput(); const id = processJobId(input);
   const job = await reserveProcessJob(client, coordinates, id, input, approval, allowance);
   const original = JSON.stringify(job);
-  for (const patch of [{ format: "foreign" }, { id: "foreign" }, { state: "foreign" }, { settled: "foreign" }, { charge: { ...allowance, training_steps: 0 } }]) {
+  assert.equal(processJobBodyId(original), job.id);
+  for (const body of ["# Markdown", 'pm-rl/process-job/1 prose', '{"format":"other-package/process-job/1"}', '{"format":"pm-rl/process-job/1","id":17}']) assert.equal(processJobBodyId(body), null);
+  for (const patch of [{ format: "foreign" }, { id: "foreign" }, { state: "foreign" }, { settled: "foreign" }, { charge: { ...allowance, training_steps: 0 } }, { completion: undefined }, { completion: [] }, { completion: "foreign" }, { completion: { usage: null } }]) {
     await client.update(id, { body: JSON.stringify({ ...job, ...patch }) }); await assert.rejects(readProcessJob(client, id));
+    if ("state" in patch || "settled" in patch || "charge" in patch || "completion" in patch) await assert.rejects(listProcessJobs(client));
   }
-  await client.update(id, { body: original });
+  const reordered = JSON.stringify(Object.fromEntries(Object.entries(job).sort(([a], [b]) => a.localeCompare(b))));
+  await client.update(id, { body: reordered, removeTags: ["rl-process-job"], addTags: ["other-package"] });
+  assert.deepEqual(await readProcessJob(client, id), job);
+  await client.update(id, { body: original, addTags: ["rl-process-job"], removeTags: ["other-package"] });
+  await client.create({ id: "foreign-job-shape", type: "Task", title: "Foreign job shape", body: JSON.stringify({ format: "pm-rl/process-job/1", id: 17 }) });
+  await client.create({ id: "foreign-job-format", type: "Task", title: "Foreign job format", tags: "rl-process-job", body: JSON.stringify({ format: "other-package/process-job/1" }) });
+  await client.create({ id: processJobId(input, ["foreign-decision"]), type: "Decision", title: "Foreign decision in a process-shaped namespace", body: "# Unrelated package decision" });
+  await client.create({ id: processJobId(input, ["foreign-markdown"]), type: "Task", title: "Foreign Markdown process slot", body: "# Foreign data" });
+  const protocolId = processJobId(input, ["foreign-protocol"]);
+  await client.create({ id: protocolId, type: "Task", title: "Foreign protocol with shared tag", tags: "rl-process-job", body: JSON.stringify({ format: "other-package/process-job/1", id: protocolId }) });
+  await client.create({ id: processJobId(input, ["foreign-copy"]), type: "Task", title: "Copied foreign identity", tags: "rl-process-job", body: original });
+  const suffixCopy = await client.create({ id: `copy-${id}`, type: "Task", title: "Foreign suffix copy", tags: "rl-process-job", body: original });
+  assert.equal(await readProcessJob(client, suffixCopy.item.id), null);
+  const legacyId = processJobId(input, ["legacy-test-launcher"]);
+  await client.create({ id: legacyId, type: "Task", title: "Foreign original in a legacy-shaped slot", body: JSON.stringify({ format: "other-package/process-job/1", id: legacyId }) });
+  await client.update(legacyId, { body: JSON.stringify({ ...job, id: legacyId }) });
+  const get = client.get.bind(client); let replaced = false;
+  client.get = (async (...args: Parameters<typeof client.get>) => {
+    if (!replaced && args[0] === legacyId) { replaced = true; await client.update(legacyId, { body: "# Foreign replacement after inventory" }); }
+    return get(...args);
+  }) as typeof client.get;
+  const listed = await listProcessJobs(client); assert.ok(replaced); assert.equal(listed.length, 1); assert.equal(listed[0].id, job.id);
   assert.throws(() => verifiedProcessPolicy({ ...job, input: "foreign" }, pmRoot, input));
   const approvalItem = await client.get(approval); await client.update(approval, { body: String(approvalItem.item.body).replace('"training_steps":2', '"training_steps":3') });
   await assert.rejects(reserveProcessJob(client, coordinates, id, input, approval, allowance), /budget identity changed/);

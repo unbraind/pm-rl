@@ -6,11 +6,11 @@ status: in_progress
 priority: 2
 tags[1]: "gh:unbraind/pm-rl#100"
 created_at: "2026-10-23T14:29:56.651Z"
-updated_at: "2026-10-24T06:40:03.854Z"
+updated_at: "2026-10-24T08:40:33.758Z"
 author: codex-agent
 acceptance_criteria: Missing provenance blocks adoption; replay identifies every cited result; export contains no training examples or credentials; typed SDK and compact TOON/JSON CLI; every recursive candidate and promotion has a card; read-only public tracker validation demonstrates at least two generations; npm and Bun CI release gates pass at unchanged thresholds.
 parent: pm-rl-apvf
-comments[80]{created_at,author,text}:
+comments[83]{created_at,author,text}:
   "2026-10-23T14:31:01.471Z",codex-agent,"Overlap check: current host CLI is 2026.10.23; package SDK remains pinned at 2026.10.20. Inspected CLI command ownership and pm-context context-pack explanations: neither exports learned-policy suitability. Existing pm-rl checkpoint artifacts retain executable state; generation provenance, causal plans, shadow comparisons and recursive improver receipts own the evidence. Cards will reuse SDK complete inventory, certified history reads and content-addressed package hashes. No dependency bump, trainer replacement or context assembler. Plan: minimized digest-only cards, replay/adoption refusals, automatic recursive candidate/outcome publication, non-Git public-copy validation for two generations, targeted local checks and full npm/Bun CI gates."
   "2026-10-23T14:43:18.298Z",codex-agent,"Implemented typed export/replay/adoption-check SDK and CLI, bounded digest-only projection, exact timestamped history citations and retained candidate/promotion cards. Recursive durable phases now retain outcome cards plus one card per proposed configuration/recipe. Local typecheck, lint, duplication and docstring checks passed before the last small additions; targeted regression work is ongoing. Verified the selected pm-ops commit is publicly accessible and MIT licensed; prepared a read-only non-Git copy for two-generation numerical-policy acceptance. Full release gates will run in CI because the shared host is saturated."
   "2026-10-23T14:54:41.570Z",codex-agent,"Behavioral revert proof: disabled only recordRecursivePolicyCards publication; the durable recursive-phase regression failed with 0 retained cards versus 6 required. Restored implementation; targeted suite passed 8/8 with no skips, new module 100% lines/functions and 98.35% branches before final branch cases. The first real-data run passed two promotions, 5 retained cards, 19 replayed citations, 105 training plus 41 held-out items and unchanged 300-file source digest. Compact output measured 2082-2085 JSON bytes and 1544-1547 TOON bytes. Final packed rerun and CI gates pending."
@@ -91,13 +91,17 @@ comments[80]{created_at,author,text}:
   "2026-10-24T06:08:42.536Z",codex-agent,"Implemented a single bounded parser shared by every package JSON decoder, ownership-filtered card discovery with content-free omission receipts, and authoritative peer promotion reconciliation. Seeded foreign-record regression passes; eight shared-tracker phase interleavings pass and preserve promotion attribution and adoption. Existing whole-generation evidence and fresh-state regressions pass 5/5. Extending refusal and boundary coverage before independent revert proofs."
   "2026-10-24T06:39:29.560Z",codex-agent,"Class 1 behavioral revert: replaced only discoverPolicyCards with the former unguarded inventory decoder. node --test --test-name-pattern='seeded foreign tracker' test/policy-card.test.ts exited 1: 0/1 passed, 1 failed with SyntaxError from a foreign body. Restored the function in finally. Class 2 behavioral revert: replaced only the promotion reconciliation catch with the previous refusal path. node --test --test-name-pattern='shared tracker loop interleavings' test/policy-card.test.ts exited 1: 4/15 passed, 11 failed, including already_promoted and an incorrect zero promotion count. Restored in finally. Test SHA-256 remained db7af2904a544c4852b9c192f3865103b554664b8a32fa70f46e9f79acb73225 throughout both proofs. Source/test bytes were verified against the package worktree after restoration. The real PM-linked focused suite passes 31/31, zero skips, with pm_context_mode=none and workspace_context_mode=snapshot; result tracking is disabled by existing policy, so this comment retains the receipt. Corrected owned-budget/job integrity and refusal-code regressions pass 5/5. No SDK pin or gate threshold changes."
   "2026-10-24T06:40:02.921Z",codex-agent,"Final local verification: the restored isolated source snapshot and pinned PM-linked source snapshot both pass 31/31 with zero skips; the shared decoder has 100% line, branch and function coverage in the focused run. Typecheck, test compilation, lint, zero duplication and the docstring gate pass (52 sources, 397 declarations). Complete decoder/transition audit and independent revert receipts are retained in docs/policy-card-write-audit.md. Current origin/main is already contained in this branch. Local health reports the existing installed extension host version skew; no dependency pins or history were rewritten. Releasing this claim without closing the item; the pushed head must pass the npm and Bun CI release matrix before being considered gate-complete."
-files[23]{path,scope}:
+  "2026-10-24T06:52:46.295Z",codex-agent,"The focused raw coverage probe passes 31/31 and confirms the decoder shape checks are exercised. It identified additional transition guards needing direct coverage: a peer-completed promotion receipt, a peer winning after a legacy refusal observation, and unavailable authoritative-status reads. Adding real-tracker behavioral cases for those guards before the final CI head. The production fixes and original revert-proof assertions remain unchanged."
+  "2026-10-24T08:38:37.872Z",codex-agent,"First full CI run 40071115142 exposed the missing guarded-parser file in the minimal Compose trainer image and replay compatibility failures; corrected the explicit image manifest, deterministic skipped-record inventory, promotion-author expectation after a child process commits, and budget-refusal precedence. Additional real-tracker tests cover legacy reordered records, immutable creation identity, foreign suffix copies, null authoritative job replacement, and damaged owned reservations. Foreign records are skipped while owned capacity corruption remains an integrity refusal. Typecheck, test compilation, lint, duplicate checks and docstrings pass: 52 sources, 403 declarations. Repeating the two production-only revert proofs and the final PM-linked suite before pushing the follow-up."
+  "2026-10-24T08:40:32.681Z",codex-agent,"Final class revert proofs repeated on the exact final production/test snapshot. Class 1: revert only discoverPolicyCards, run node --test --test-name-pattern=\"seeded foreign tracker\" test/policy-card.test.ts: exit 1, 0/1 pass, SyntaxError. Class 2: revert only executePendingGeneration promotion reconciliation catch, run node --test --test-name-pattern=\"shared tracker loop interleavings\" test/policy-card.test.ts: exit 1, 4/15 pass and 11 fail, including peer promotion counted as zero. Both restored in finally; source/test bytes verified equal to the package worktree; unchanged test SHA-256 ebb80010f6303cbf17c9a8fd64aabad97f70df926a14bb2dc4141e4f01dee8eb. PM-linked final focused command passes 44/44, zero failures/cancellations/skips, including deterministic replay, SIGKILL recovery, legacy reservations, ownership copies and authoritative replacement. Existing result tracking is disabled, so this comment retains the receipt. Typecheck, test compilation, lint, zero duplication, docstrings and minimal trainer source smoke pass. origin/main is contained. Full npm and Bun release evidence is required from the follow-up pushed-head CI matrix at unchanged thresholds. No dependency pins, coverage limits or history records rewritten; releasing without closing."
+files[27]{path,scope}:
   .gitattributes,project
   checkpoint-artifacts.ts,project
   evaluation-plan.ts,project
   index.ts,project
   lineage.ts,project
   manifest.json,project
+  meta.ts,project
   package.json,project
   policy-card.ts,project
   process.ts,project
@@ -106,16 +110,19 @@ files[23]{path,scope}:
   test/controller-faults.test.ts,project
   test/durable-loop.test.ts,project
   test/evaluation-plan.test.ts,project
+  test/fixtures/compose.Dockerfile,project
   test/fixtures/durable-lm-controller.ts,project
   test/improver.test.ts,project
   test/lineage.test.ts,project
+  test/lm-loop.test.ts,project
   test/loop.test.ts,project
+  test/meta.test.ts,project
   test/policy-card.acceptance.ts,project
   test/policy-card.test.ts,project
   test/process.test.ts,project
   test/shadow.test.ts,project
   tracker-record.ts,project
-tests[17]:
+tests[21]:
   - command: node --test test/policy-card.test.ts
     scope: project
     timeout_seconds: 600
@@ -271,6 +278,46 @@ tests[17]:
     provenance:
       author: codex-agent
       created_at: "2026-10-24T06:34:59.952Z"
+      source_kind: local_mutation
+      source_ref: feat/policy-cards
+  - command: node --test --test-name-pattern='seeded foreign tracker|shared tracker loop interleavings|shared tracker peer refusals|lost controller claim|rejection CAS reconciliation|promotion attribution requires|peer refusal remains|guarded tracker decoder|peer completion receipts|stale legacy refusal|authoritative status read failures' test/policy-card.test.ts
+    scope: project
+    timeout_seconds: 600
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-24T06:55:42.067Z"
+      source_kind: local_mutation
+      source_ref: feat/policy-cards
+  - command: node --test --test-name-pattern='foreign subject types' test/policy-card.test.ts
+    scope: project
+    timeout_seconds: 60
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-24T06:58:29.790Z"
+      source_kind: local_mutation
+      source_ref: feat/policy-cards
+  - command: node --test --test-name-pattern='seeded foreign tracker|shared tracker loop interleavings|shared tracker peer refusals|lost controller claim|rejection CAS reconciliation|promotion attribution requires|peer refusal remains|guarded tracker decoder|peer completion receipts|stale legacy refusal|authoritative status read failures|foreign subject types|shared inner promotion headroom|budget and job identity drift' test/policy-card.test.ts test/meta.test.ts test/process.test.ts
+    scope: project
+    timeout_seconds: 600
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-24T07:28:09.757Z"
+      source_kind: local_mutation
+      source_ref: feat/policy-cards
+  - command: node --test --test-name-pattern='seeded foreign tracker|shared tracker loop interleavings|shared tracker peer refusals|lost controller claim|rejection CAS reconciliation|promotion attribution requires|peer refusal remains|guarded tracker decoder|peer completion receipts|stale legacy refusal|authoritative status read failures|foreign subject types|shared inner promotion headroom|budget and job identity drift|rerunning one loop id|SIGKILL inside real LM collect|approval aliases cannot spend' test/policy-card.test.ts test/meta.test.ts test/process.test.ts test/lm-loop.test.ts
+    scope: project
+    timeout_seconds: 600
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-24T07:35:14.597Z"
       source_kind: local_mutation
       source_ref: feat/policy-cards
 docs[5]{path,scope}:

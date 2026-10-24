@@ -253,7 +253,8 @@ All root TypeScript JSON decoders now use `tracker-record.ts`; its bounded parse
 is the only root production `JSON.parse`. This includes tracker envelopes, fenced
 contracts, metric notes, history events, checkpoint files and trainer channels.
 Tracker discovery additionally uses `decodeTrackerRecord`: it checks the item type,
-card tag and exact package format before parsing, rejects bodies above 1 MiB or
+package tag or certified legacy creation identity, canonical SDK item identity,
+and exact package format before parsing, rejects bodies above 1 MiB or
 64 nesting levels, and records content-free omission reasons. The shared parser
 also bounds other JSON inputs at 16 MiB and 64 levels. No SDK dependency pin or
 coverage threshold changed.
@@ -265,7 +266,12 @@ tag cannot become provenance. `discoverPolicyCards` and `skippedTrackerRecords`
 expose discovery and omission receipts; loop reports include `skipped_records`.
 Explicitly referenced required evidence still fails with a typed domain integrity
 refusal when damaged. Known owned job/budget records must never disappear from
-accounting merely because their semantic fields drifted.
+accounting merely because their semantic fields drifted. An immutable creation
+header identifies legacy owned records even after tag removal or key reordering.
+Extra-prefix copies cannot inherit a reservation or job identity. Inventory jobs
+are re-read from authoritative state and foreign replacements cannot append null
+entries. Omission receipts are sorted and exclude unrelated ordinary records so
+replayed loop reports remain stable.
 
 Every failed promotion attempt re-reads the authoritative candidate. A verified
 peer promotion advances the chain, counts once, retains its outcome card and is
@@ -297,17 +303,33 @@ Focused commands:
 Behavioral revert receipts are recorded on `pm-rl-policycards`. Each proof uses an
 isolated source snapshot, changes only the production discovery function or
 promotion reconciliation catch, runs the unchanged regression, and restores the
-production source in `finally`. Test SHA-256: `db7af2904a544c4852b9c192f3865103b554664b8a32fa70f46e9f79acb73225`.
+production source in `finally`. Test SHA-256: `ebb80010f6303cbf17c9a8fd64aabad97f70df926a14bb2dc4141e4f01dee8eb`.
 The restored snapshot must match the package source and test bytes before its
 positive regression run. Full release evidence is the CI npm and Bun matrix at
 the pushed head, using the unchanged `release:check` commands and thresholds.
 
 Final sixth-review local receipts: the restored focused suite and the pinned
-PM-linked suite both pass 31/31, with zero skips. The shared tracker decoder has
+PM-linked suite pass 44/44, with zero skips. The shared tracker decoder has
 100% lines, branches and functions in the focused native coverage run. Class 1's
 production-only revert fails 1/1 with `SyntaxError`; class 2's production-only
 revert passes 4/15 and fails 11/15, including the original peer-promotion refusal
 and the incorrect zero count. Both fixes were restored and the source/test bytes
 verified before the positive run. Typecheck, test compilation, lint, zero
-clone/duplication findings and docstrings (52 source files, 397 declarations)
+clone/duplication findings and docstrings (52 source files, 403 declarations)
 pass. The full npm and Bun release matrix remains the required CI evidence.
+
+The first sixth-review CI run exposed a missing shared module in the minimal
+Compose trainer image; its explicit COPY manifest now includes the decoder. A
+dependency-free Node smoke test of exactly those copied sources passes without
+starting Docker on the shared host. LM crash recovery now asserts the actual
+child process promotion author while retaining all existing report/evidence
+comparisons. Authoritative approval-capacity refusal keeps precedence over an
+already-refused candidate. These checks are included in the final focused
+PM-linked command, alongside peer completion, stale refusal and failed status
+lookup cases. Full npm/Bun gates and real Compose tests run in CI.
+
+Final linked command (also run with `pm test pm-rl-policycards --run --only-last --progress`):
+
+```sh
+node --test --test-name-pattern='seeded foreign tracker|shared tracker loop interleavings|shared tracker peer refusals|lost controller claim|rejection CAS reconciliation|promotion attribution requires|peer refusal remains|guarded tracker decoder|peer completion receipts|stale legacy refusal|authoritative status read failures|foreign subject types|shared inner promotion headroom|budget and job identity drift|rerunning one loop id|SIGKILL inside real LM collect|approval aliases cannot spend' test/policy-card.test.ts test/meta.test.ts test/process.test.ts test/lm-loop.test.ts
+```

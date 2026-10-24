@@ -1056,7 +1056,7 @@ test("seeded foreign tracker corpus is skipped across discovery resume export an
     if (mutated.has(digest)) continue; mutated.add(digest);
     const row = await w.client.create({ id: `policy-card-${digest}`, type: "Decision", title: "Foreign shaped envelope", tags: "rl-policy-card", affectedVersion: digest, body: JSON.stringify({ ...body as Record<string, JsonValue>, digest }) }); planted.push(row.item.id);
   }
-  for (const [id, version, digest] of [["rl-policy-card-foreign-copy", template.digest, template.digest], [`policy-card-${template.digest}`, "foreign-version", template.digest], [`policy-card-${"0".repeat(64)}`, "0".repeat(64), "0".repeat(64)]]) {
+  for (const [id, version, digest] of [[`rl-copy-policy-card-${template.digest}`, template.digest, template.digest], ["rl-policy-card-foreign-copy", template.digest, template.digest], [`policy-card-${template.digest}`, "foreign-version", template.digest], [`policy-card-${"0".repeat(64)}`, "0".repeat(64), "0".repeat(64)]]) {
     const row = await w.client.create({ id, type: "Decision", title: "Foreign addressed envelope", tags: "rl-policy-card", affectedVersion: version, body: JSON.stringify({ ...templateBody, digest }) }); planted.push(row.item.id);
   }
   const overflowBody = JSON.stringify({ ...template, evaluation: { gain: "OVERFLOW_NUMBER" } }).replace('"OVERFLOW_NUMBER"', "1e999");
@@ -1143,7 +1143,7 @@ test("shared tracker loop interleavings preserve peer promotion at evaluate prom
 test("guarded tracker decoder bounds and classifies every foreign envelope without throwing", () => {
   const contract = { type: "Decision", tag: "rl-policy-card", format: "pm-rl/policy-card/1", valid: (r: Record<string, unknown>) => r.subject === "rl-valid" };
   const base = { id: "rl-record", type: "Decision", tags: ["rl-policy-card"], body: '{"format":"pm-rl/policy-card/1","subject":"rl-valid"}' };
-  assert.equal(skippedTrackerRecords({} as PmClient).length, 0);
+  assert.equal(skippedTrackerRecords({}).length, 0);
   assert.equal(decodeTrackerRecord(null, base, contract)!.subject, "rl-valid");
   for (const value of [
     { ...base, type: "Task" }, { ...base, tags: [] }, { ...base, tags: null },
@@ -1262,4 +1262,95 @@ test("promotion attribution requires complete certified history and a surviving 
       }
     } }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === (projection === "compacted-peer" ? "loop_step_drift" : "loop_history_incomplete"));
   });
+});
+
+/** Establish one positive generation on a real non-git tracker for boundary scheduling. */
+async function transitionFixture(id: string) {
+  const w = await workspace();
+  await w.client.create({ id: "rl-approval", type: "Decision", title: "Consent", body: '```json\n{"permitted_promotions":1}\n```' });
+  const config = { ...JSON.parse(readFileSync(new URL("../examples/loop-bandit.json", import.meta.url), "utf8")) as Record<string, JsonValue>, max_generations: 1 };
+  const coordinates = { pmRoot: w.pmRoot, author: "card-test" };
+  const peer = new PmClient({ pmRoot: w.pmRoot, cwd: w.root, author: "peer-evaluator", noExtensions: true });
+  const request = { id, config, approval: "rl-approval" };
+  return { ...w, config, coordinates, peer, request, generationId: `rl-${id}-g1` };
+}
+/** Commit the peer's legitimate promotion using scores replayed from the same persisted programme. */
+async function transitionPeer(w: Awaited<ReturnType<typeof transitionFixture>>): Promise<void> {
+  const config = parseLoopConfig(w.config); const step = { learningRate: config.learningRate, evaluationSamples: config.evaluationSamples };
+  const receipt = runLoopGeneration(config, step, 1, banditCheckpoint(config.initialWeight)); const scores = loopPromotionScores(config, step, 1, receipt);
+  await promoteGenerationCore(w.peer, { pmRoot: w.pmRoot, author: "peer-evaluator" }, w.generationId, "rl-approval", parseScoreRecord(scores.proxy_score, "proxy"), parseScoreRecord(scores.held_out_score, "held"), "Peer committed the evaluated candidate");
+}
+
+test("peer completion receipts are reconciled against the actual promotion before counting or adoption", async (context) => {
+  for (const promoted of [true, false]) await context.test(promoted ? "committed peer receipt" : "counterfeit completion receipt", async () => {
+    const w = await transitionFixture(promoted ? "receipt-positive" : "receipt-forged");
+    const execution = runRlLoop(w.client, w.coordinates, { ...w.request, async onPhase(phase) {
+      if (phase !== "evaluate") return;
+      if (promoted) await transitionPeer(w);
+      const config = parseLoopConfig(w.config); const step = { learningRate: config.learningRate, evaluationSamples: config.evaluationSamples };
+      const input = { input: { programme: config.digest, generation: 1, source: banditCheckpoint(config.initialWeight).digest, step }, approval: "rl-approval" };
+      const key = `${w.request.id}-g1-step-promote`; const result = { item: w.generationId };
+      await w.peer.create({ id: key, type: "Decision", title: "Peer step completion", tags: "rl-loop-step", body: JSON.stringify({ format: "pm-rl/loop-step/1", key, input: hashJson(input), state: "complete", result, digest: hashJson(result) }) });
+    } });
+    if (promoted) {
+      const first = await execution; const second = await resumeRlLoop(w.peer, { pmRoot: w.pmRoot, author: "peer-evaluator" }, { id: w.request.id, approval: "rl-approval" });
+      assert.equal(first.promoted, 1); assert.equal(second.promoted, 1); assert.equal(first.generations[0].promoted_by, "peer-evaluator");
+      assert.equal((await adoptPolicyCard(w.client, await exportPolicyCard(w.client, w.generationId))).outcome, "promoted");
+    } else {
+      await assert.rejects(execution, (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_step_drift");
+      const actual = extractGenerationSpec(String((await w.peer.get(w.generationId)).item.body), "Unpromoted receipt source");
+      assert.equal(actual.promoted, false); assert.equal((actual.policy_evaluation as Record<string, JsonValue>).decision, "promote");
+    }
+  });
+});
+
+test("a peer promotion supersedes a stale legacy refusal observation in both loop reports", async () => {
+  const w = await transitionFixture("legacy-observation");
+  await assert.rejects(runRlLoop(w.client, w.coordinates, { ...w.request, onPhase(phase) { if (phase === "evaluate") throw new Error("pause after evaluation"); } }), /pause after evaluation/);
+  await w.peer.comments(w.generationId, { add: `Loop ${w.request.id} generation 1 promotion refused: legacy budget refusal` });
+  const get = w.client.get.bind(w.client); let injected = false;
+  w.client.get = (async (...args: Parameters<PmClient["get"]>) => {
+    if (!injected && args[0] === w.generationId && new Error().stack?.includes("recordRefusedPolicyCard")) { injected = true; await transitionPeer(w); }
+    return get(...args);
+  }) as PmClient["get"];
+  const first = await resumeRlLoop(w.client, w.coordinates, { id: w.request.id, approval: "rl-approval" });
+  const second = await resumeRlLoop(w.peer, { pmRoot: w.pmRoot, author: "peer-evaluator" }, { id: w.request.id, approval: "rl-approval" });
+  assert.ok(injected); assert.equal(first.promoted, 1); assert.equal(second.promoted, 1); assert.equal(first.refusal_reason, null); assert.equal(second.refusal_reason, null);
+  assert.equal(first.generations[0].promoted_by, "peer-evaluator"); assert.equal((await adoptPolicyCard(w.peer, await exportPolicyCard(w.peer, w.generationId))).outcome, "promoted");
+});
+
+test("authoritative status read failures preserve the concurrent transition error without sealing refusal", async (context) => {
+  for (const native of [true, false]) await context.test(native ? "native read failure" : "typed read failure", async () => {
+    const w = await transitionFixture(native ? "status-native" : "status-typed");
+    const get = w.client.get.bind(w.client); const configRead = w.client.config.bind(w.client); let armed = false; let raised = false;
+    w.client.get = (async (...args: Parameters<PmClient["get"]>) => {
+      const result = await get(...args);
+      if (armed && new Error().stack?.includes("rlLoopStatus")) {
+        if (native) throw new TypeError("Native status backend failure");
+        throw createPmCliExpectedError("Status backend unavailable", { exitCode: 4, context: { code: "backend_unavailable" } });
+      }
+      return result;
+    }) as PmClient["get"];
+    w.client.config = (async (...args: Parameters<PmClient["config"]>) => {
+      if (armed && !raised && new Error().stack?.includes("mutateLoopItem")) { raised = true; throw createPmCliExpectedError("Revision changed", { exitCode: 4, context: { code: "loop_write_conflict" } }); }
+      return configRead(...args);
+    }) as PmClient["config"];
+    await assert.rejects(runRlLoop(w.client, w.coordinates, { ...w.request, onPhase(phase) { if (phase === "evaluate") armed = true; } }), (error: unknown) => {
+      assert.ok(isPmCliExpectedError(error)); assert.equal(error.context.code, "loop_write_conflict");
+      const context = error.context as typeof error.context & { authoritative_read_error: string };
+      assert.equal(context.authoritative_read_error, native ? "unavailable" : "provenance_read_retryable"); return true;
+    });
+    const actual = extractGenerationSpec(String((await w.peer.get(w.generationId)).item.body), "Unchanged positive evaluation");
+    assert.equal(actual.promoted, false); assert.equal((actual.policy_evaluation as Record<string, JsonValue>).decision, "promote");
+  });
+});
+
+test("foreign subject types refuse before inspecting unrelated bodies and preserve valid exports", async () => {
+  const w = await workspace(); const valid = await generation(w.client);
+  const foreign = await w.client.create({ id: "rl-foreign-subject", type: "Task", title: "Unrelated tracker content", body: "# Markdown belonging to another package" });
+  await unchanged(w.pmRoot, () => exportPolicyCard(w.client, foreign.item.id), "card_missing_provenance");
+  assert.equal((await exportPolicyCard(w.client, valid)).subject, valid);
+  const design = await w.client.create({ id: "rl-policy-card-design", type: "Decision", title: "Unrelated design", body: "# Policy design discussion" });
+  await discoverPolicyCards(w.client);
+  assert.ok(skippedTrackerRecords(w.client).some((row) => row.id === design.item.id && row.reason === "foreign_tag"));
 });

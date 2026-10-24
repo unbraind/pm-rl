@@ -2512,7 +2512,6 @@ export async function promoteGenerationCore(client: PmClient, coordinates: Works
         if (currentSpec.promoted) {
           fail(`Generation ${id} is already promoted.`, "already_promoted", EXIT_CODE.CONFLICT);
         }
-        if ((currentSpec.policy_evaluation as Record<string, JsonValue> | undefined)?.["decision"] === "refuse") fail("Generation was refused by its evaluator.", "already_refused", EXIT_CODE.CONFLICT);
         if (currentSpec.seed) fail("A seed generation cannot be promoted.", "seed_not_promoted", EXIT_CODE.CONFLICT);
         await enforceEvaluationPlan(client, String(current.item.id), heldOutScore);
         // THE authoritative contamination decision, taken inside the lock over
@@ -2547,6 +2546,7 @@ export async function promoteGenerationCore(client: PmClient, coordinates: Works
         if (promotedCount + retainedHeadroom >= permittedPromotions) {
           fail(`Advancing past the approved promotion budget is refused. ${promotedCount} promotion(s) consumed; ${retainedHeadroom} promotion(s) held for meta search; approval ${approvalId} permits ${permittedPromotions}. Extend approval item ${approvalId} to authorize more promotions.`, "budget_exceeded", EXIT_CODE.CONFLICT);
         }
+        if ((currentSpec.policy_evaluation as Record<string, JsonValue> | undefined)?.["decision"] === "refuse") fail("Generation was refused by its evaluator.", "already_refused", EXIT_CODE.CONFLICT);
         const promotedBody = renderPromotedBody(currentSpec);
         await validatePromotedPolicyCard(client, id, promotedBody);
         const result = await completeLoopGeneration(client, current, promotedBody, evidence,

@@ -266,11 +266,13 @@ function cardShape(row: Record<string, unknown>): boolean {
 export async function discoverPolicyCards(client: PmClient): Promise<PolicyCard[]> {
   const listed = await client.listAllComplete({ includeBody: true });
   const retained: PolicyCard[] = [];
+  const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
   for (const item of listed.items) {
+    if (!item.tags?.includes("rl-policy-card") && !/(?:^|-)policy-card-/.test(item.id)) continue;
     const record = decodeTrackerRecord(client, item, { type: "Decision", tag: "rl-policy-card", format: "pm-rl/policy-card/1", valid: (row) => {
       if (!cardShape(row)) return false;
       const { digest, ...body } = row;
-      return item.id.endsWith(`-policy-card-${digest}`) && item.affected_version === digest && hashJson(body as JsonValue) === digest;
+      return item.id === normalizeItemId(`policy-card-${digest}`, prefix) && item.affected_version === digest && hashJson(body as JsonValue) === digest;
     } });
     if (record !== null) retained.push(record as unknown as PolicyCard);
   }

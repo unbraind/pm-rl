@@ -1,4 +1,4 @@
-import { decodeTrackerRecord, parseBoundedJson } from "./tracker-record.ts";
+import { decodeTrackerRecord, hasTrackerIdentity, parseBoundedJson } from "./tracker-record.ts";
 /** Durable argv-only trainer execution, staged receipts and approved resource reservations. */
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -9,7 +9,7 @@ import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
 import type { WorkspaceTransactionStep, WorkspaceTransactionTransitionContext } from "@unbrained/pm-cli/sdk";
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
-import { EXIT_CODE, isPmCliExpectedError, certifyCompleteListResult } from "@unbrained/pm-cli/sdk/runtime";
+import { EXIT_CODE, isPmCliExpectedError, certifyCompleteListResult, normalizeItemId } from "@unbrained/pm-cli/sdk/runtime";
 import { banditCheckpoint, MAX_BANDIT_FIT_STEPS, type BanditCheckpoint, type BanditExample, type BanditObservation } from "./bandit.ts";
 import { canonicalJson, commitProcessTransaction, loopProcessStartTime, withProcessJobFence, readCompleteLoopItem, type JsonValue } from "./index.ts";
 import { expectedFail } from "./refuse.ts";
@@ -181,6 +181,18 @@ export function processJobId(input: TrainerInput, argv: readonly string[] = refe
 export function processStaging(root: string, id: string): string {
   return join(root, "runtime", "pm-rl", "jobs", id);
 }
+/** Stable job coordinates and protocol markers distinguish process records before body parsing. */
+const PROCESS_RECORD = { type: "Task", tag: "rl-process-job", format: "pm-rl/process-job/1" };
+/** Match only canonical package coordinates, excluding copies with an extra prefix. */
+function processNamespace(prefix: string): (id: string) => boolean {
+  return (id) => { const match = /(?:^|-)(process-[a-f0-9]{64})$/.exec(id); return match !== null && normalizeItemId(match[1], prefix) === id; };
+}
+/** Certify the immutable namespace declaration before treating malformed current data as owned capacity. */
+async function knownProcessRecord(client: PmClient, id: string, prefix: string): Promise<boolean> {
+  const original = (await readCompleteLoopItem(client, id, "1")).item;
+  return original.type === "Task" && hasTrackerIdentity(original, PROCESS_RECORD.format, (key) => normalizeItemId(key, prefix));
+}
+
 /** Read a complete real item and reject omitted output or damaged job bodies. */
 export function readProcessJob<P extends TrainerPolicy>(client: PmClient, id: string, root: string): Promise<ProcessJob<P> | null>;
 export function readProcessJob(client: PmClient, id: string): Promise<ProcessJob<TrainerPolicy> | null>;
@@ -191,14 +203,23 @@ export async function readProcessJob(client: PmClient, id: string, root?: string
     throw error;
   });
   if (item === null) return null;
-  const decoded = decodeTrackerRecord(client, item.item, { type: "Task", format: "pm-rl/process-job/1" });
+  const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
+  const namespace = processNamespace(prefix);
+  const legacy = hasTrackerIdentity(item.item, PROCESS_RECORD.format, (key) => normalizeItemId(key, prefix));
+  let decoded = decodeTrackerRecord(client, item.item, { ...PROCESS_RECORD, namespace, legacy, valid: (row) => row.id === id });
   if (decoded === null) {
-    if (item.item.tags?.includes("rl-process-job")) expectedFail("Owned job envelope drifted.", "process_job_drift");
-    return null;
+    if (!namespace(item.item.id) || !await knownProcessRecord(client, item.item.id, prefix)) return null;
+    // A legacy tag edit cannot hide owned capacity; foreign originals remain skipped.
+    decoded = decodeTrackerRecord(client, item.item, { ...PROCESS_RECORD, namespace, legacy: true, valid: (row) => row.id === id });
+    if (decoded === null) expectedFail("Owned job envelope drifted.", "process_job_drift");
   }
   const job = decoded as unknown as ProcessJob<TrainerPolicy>;
-  if (item.item.type !== "Task" || job.format !== "pm-rl/process-job/1" || job.id !== id || !["planned", "running", "materialized", "evaluated", "promoted", "failed", "cancelled", "invalidated"].includes(job.state)) expectedFail("Job identity or state drifted.", "process_job_drift");
+  if (!["planned", "running", "materialized", "evaluated", "promoted", "failed", "cancelled", "invalidated"].includes(job.state)) expectedFail("Job identity or state drifted.", "process_job_drift");
   parseResources(job.allowance); parseResources(job.charge);
+  if (job.completion !== null) {
+    if (typeof job.completion !== "object" || Array.isArray(job.completion)) expectedFail("Job completion envelope drifted.", "process_job_drift");
+    parseResources(job.completion.usage);
+  }
   if (typeof job.settled !== "boolean" || (!job.settled && processDigest(job.charge) !== processDigest(job.allowance))
     || (job.completion !== null && processDigest(job.charge) !== processDigest(job.completion.usage))) expectedFail("Reservation accounting drifted.", "process_job_drift");
   if (root !== undefined && job.completion?.artifact !== undefined) return { ...job, completion: { ...job.completion, policy: readCheckpointArtifact(root, job.completion.artifact) as TrainerPolicy } };
@@ -235,20 +256,24 @@ export function processJobBodyId(body: string): string | null {
 }
 
 /**
- * Every process job in the tracker, read once through a body-inclusive certified listing.
+ * Enumerate certified job coordinates, then resolve authoritative records before charging capacity.
  *
- * A job body counts only on the item that is that job (item ids carry the tracker prefix), so a job body
- * copied into another item neither double-charges a reservation nor names a job that does not exist.
+ * Package namespace, tags and protocol markers exclude foreign records. Known-owned malformed originals
+ * remain integrity refusals; foreign replacements cannot enter the returned job list as null payloads.
  */
 export async function listProcessJobs(client: PmClient): Promise<ProcessJob<TrainerPolicy>[]> {
   const listed = certifyCompleteListResult(await client.listAllComplete({ includeBody: true }));
   const jobs: ProcessJob<TrainerPolicy>[] = [];
+  const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
+  const namespace = processNamespace(prefix);
   for (const item of listed.items) {
-    const decoded = decodeTrackerRecord(client, item, { type: "Task", format: "pm-rl/process-job/1", valid: (row) => typeof row.id === "string" && ["planned", "running", "materialized", "evaluated", "promoted", "failed", "cancelled", "invalidated"].includes(String(row.state)) });
-    const jobId = decoded === null ? null : String(decoded.id);
-    if (jobId === null || (!item.id.endsWith(`-${jobId}`) && item.id !== jobId)) continue;
-    // Bound to its own existing item, so the job is present.
-    jobs.push((await readProcessJob(client, jobId))!);
+    const coordinate = /(?:^|-)(process-[a-f0-9]{64})$/.exec(item.id);
+    if (coordinate === null || !namespace(item.id)) {
+      if (item.tags?.includes("rl-process-job") || /(?:^|-)process-/.test(item.id)) decodeTrackerRecord(client, item, { ...PROCESS_RECORD, namespace });
+      continue;
+    }
+    const current = await readProcessJob(client, coordinate[1]);
+    if (current !== null) jobs.push(current);
   }
   return jobs;
 }
