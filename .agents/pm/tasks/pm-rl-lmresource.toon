@@ -6,10 +6,12 @@ status: open
 priority: 3
 tags[2]: ci,testing
 created_at: "2026-10-23T23:46:23.082Z"
-updated_at: "2026-10-23T23:46:24.028Z"
+updated_at: "2026-10-24T00:25:02.795Z"
 author: codex-agent
 acceptance_criteria: Capture measured versus declared resources for the failing fixture; reproduce or explain the variability; preserve production resource enforcement and release thresholds.
 parent: pm-rl-apvf
+comments[1]{created_at,author,text}:
+  "2026-10-24T00:25:02.794Z",codex-agent,"Follow-up evidence: the unchanged resource enforcement passed all three full gates at source dc610cb8873ea5c1d9dd98cb87c122c466f9a3ea in CI https://github.com/unbraind/pm-rl/actions/runs/40042540881: npm Node 22/26 and Bun Node 26 each passed 774/774 at 100 percent in all four coverage dimensions. The original resource refusal also passed a focused Node 26 coverage retry 1/1. No resource limit or threshold was relaxed, and the intervening policy-card error-normalization correction did not change LM resource accounting. Keep this item open to capture the missing measured-versus-declared diagnostics and establish the cause of the earlier variability."
 files[3]{path,scope}:
   process-lm-trainer.ts,project
   process-lm.ts,project
