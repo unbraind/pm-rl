@@ -87,5 +87,20 @@ jobs:
           gate_home=$(mktemp -d)
           env HOME="$gate_home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 bun run release:check
 
+      - name: Report uncovered branches after a release failure
+        if: ${{ failure() }}
+        shell: bash
+        run: |
+          if [[ -f coverage/lcov.info ]]; then
+            awk '
+              /^SF:/ { source = substr($0, 4); sub(/^.*\//, "", source) }
+              /^BRDA:/ {
+                split(substr($0, 6), branch, ",")
+                if (branch[4] == "0" || branch[4] == "-")
+                  print source ":" branch[1] ": uncovered branch " branch[2] "/" branch[3]
+              }
+            ' coverage/lcov.info
+          fi
+
       - name: Verify Bun can install the package graph
         run: bun install --no-save

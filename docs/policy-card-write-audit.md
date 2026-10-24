@@ -303,13 +303,13 @@ Focused commands:
 Behavioral revert receipts are recorded on `pm-rl-policycards`. Each proof uses an
 isolated source snapshot, changes only the production discovery function or
 promotion reconciliation catch, runs the unchanged regression, and restores the
-production source in `finally`. Test SHA-256: `e01471b5230116820d9e26113e5812e9bd0fe5a818d1b7027fbe0ebaff2359d3`.
+production source in `finally`. Test SHA-256: `b69e3b15aa4bc2c4e408b6dbd5ec1702b916b0f6ceab7d55e888bf8041f7885e`.
 The restored snapshot must match the package source and test bytes before its
 positive regression run. Full release evidence is the CI npm and Bun matrix at
 the pushed head, using the unchanged `release:check` commands and thresholds.
 
 Final sixth-review local receipts: the restored focused suite and the pinned
-PM-linked suite pass 47/47, with zero skips. The shared tracker decoder has
+PM-linked suite pass 48/48, with zero skips. The shared tracker decoder has
 100% lines, branches and functions in the focused native coverage run. Class 1's
 production-only revert fails 1/1 with `SyntaxError`; class 2's production-only
 revert passes 4/15 and fails 11/15, including the original peer-promotion refusal
@@ -328,10 +328,10 @@ already-refused candidate. These checks are included in the final focused
 PM-linked command, alongside peer completion, stale refusal and failed status
 lookup cases. Full npm/Bun gates and real Compose tests run in CI.
 
-Final linked command (also run with `pm test pm-rl-policycards --run --only-last --progress`):
+Final linked command (also run with `pm test pm-rl-policycards --run --only-index 24 --progress`):
 
 ```sh
-node --test --test-name-pattern='seeded foreign tracker|shared tracker loop interleavings|shared tracker peer refusals|lost controller claim|rejection CAS reconciliation|promotion attribution requires|peer refusal remains|guarded tracker decoder|peer completion receipts|stale legacy refusal|authoritative status read failures|foreign subject types|shared inner promotion headroom|budget and job identity drift|rerunning one loop id|SIGKILL inside real LM collect|approval aliases cannot spend|malformed completed receipts|legacy rejected generations|loop receipt bindings' test/policy-card.test.ts test/meta.test.ts test/process.test.ts test/lm-loop.test.ts
+node --test --test-name-pattern='seeded foreign tracker|shared tracker loop interleavings|shared tracker peer refusals|lost controller claim|rejection CAS reconciliation|promotion attribution requires|peer refusal remains|guarded tracker decoder|peer completion receipts|stale legacy refusal|authoritative status read failures|foreign subject types|shared inner promotion headroom|budget and job identity drift|rerunning one loop id|SIGKILL inside real LM collect|approval aliases cannot spend|malformed completed receipts|legacy rejected generations|loop receipt bindings|unsealed peer candidates' test/policy-card.test.ts test/meta.test.ts test/process.test.ts test/lm-loop.test.ts
 ```
 
 The second sixth-review CI run (40078982664) passed all 836 tests on npm
@@ -353,7 +353,22 @@ All 15 replacements refuse without changing the candidate evaluation. Repair
 through the SDK restores one promotion, identical controller reports and valid
 adoption. No production code or gate threshold was changed for this matrix.
 
-The final pinned PM suite passes 47/47 without failures, cancellations or skips
+The final pinned PM suite passes 48/48 without failures, cancellations or skips
 under its unchanged 600-second command limit. The broad local LCOV diagnostic
 was stopped after isolating receipt binding/payload guards and is not release
 evidence. Only completed npm/Bun CI release gates certify the full package.
+
+Pending authoritative outcomes are also explicit. Typed transition errors carry
+`authoritative_candidate` with the fresh canonical id, promotion flag, bounded
+evaluation enum and observed revision. A peer's removed legacy evaluation stays
+pending across all six concurrent-refusal codes; unrelated native errors retain
+their identity. After restoring the evaluator's evidence, the peer and original
+controller report one promotion with the peer's author and matching checkpoint.
+
+CI failure diagnostics print uncovered LCOV branch locations without changing
+release commands, thresholds or failure status. The step uses GitHub's documented
+[failure condition](https://docs.github.com/en/actions/reference/workflows-and-actions/expressions#failure).
+The YAML parses, its shell command was checked against real LCOV data, and the
+repository workflow check passes 1/1 through PM in the actual Git checkout.
+That Git-dependent check is separate from the 48-case non-git snapshot suite;
+a snapshot lacks the tracked-file inventory required by the publication scanner.

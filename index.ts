@@ -4076,6 +4076,14 @@ async function executePendingGeneration(client: PmClient, coordinates: Workspace
   } catch (error) {
     const authoritative = await readCompleteLoopItem(client, generationId);
     const actual = extractGenerationSpec(String(authoritative.item.body), "Authoritative promotion outcome");
+    if (isPmCliExpectedError(error)) {
+      const decision = (actual.policy_evaluation as Record<string, JsonValue> | undefined)?.["decision"];
+      Object.assign(error.context, { authoritative_candidate: {
+        id: authoritative.item.id, promoted: actual.promoted,
+        evaluation: decision === "promote" ? "promote" : decision === "refuse" ? "refuse" : null,
+        revision: authoritative.item.updated_at,
+      } });
+    }
     if (actual.promoted) {
       // Replay verifies the peer's provenance and approval before counting it. No local rejection is written.
       await inspectCandidateVerdict(client, programme, request, chain, generation, runId!, authoritative, receipt, pending);

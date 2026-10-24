@@ -1422,3 +1422,37 @@ test("loop receipt bindings and payloads refuse hostile replacements without sea
   assert.equal(first.final_checkpoint, second.final_checkpoint); assert.equal(first.samples_consumed, second.samples_consumed);
   assert.equal((await adoptPolicyCard(w.peer, await exportPolicyCard(w.peer, w.generationId))).outcome, "promoted");
 });
+
+test("unsealed peer candidates stay pending across every concurrent transition refusal", async () => {
+  for (const code of ["already_promoted", "already_refused", "lost_claim", "stale_revision", "loop_write_conflict", "compare_and_set_refused", "native_transition"]) {
+    const w = await transitionFixture(`unsealed-${code.replaceAll("_", "-")}`);
+    const config = w.client.config.bind(w.client); let armed = false; let injected = false; let original = "";
+    w.client.config = (async (...args: Parameters<PmClient["config"]>) => {
+      if (armed && !injected && new Error().stack?.includes("mutateLoopItem")) {
+        injected = true; original = String((await w.peer.get(w.generationId)).item.body);
+        const current = extractGenerationSpec(original, "Before peer unsealing");
+        await w.peer.update(w.generationId, { body: `\`\`\`json\n${JSON.stringify({ ...current, policy_evaluation: undefined })}\n\`\`\`` });
+        if (code === "native_transition") throw new TypeError("Native transition interruption");
+        throw createPmCliExpectedError("Concurrent transition refused", { exitCode: 4, context: { code } });
+      }
+      return config(...args);
+    }) as PmClient["config"];
+    await assert.rejects(runRlLoop(w.client, w.coordinates, { ...w.request, onPhase(phase) { if (phase === "evaluate") armed = true; } }), (error: unknown) => {
+      if (code === "native_transition") return error instanceof TypeError && error.message === "Native transition interruption";
+      assert.ok(isPmCliExpectedError(error)); assert.equal(error.context.code, code);
+      const observed = (error.context as typeof error.context & { authoritative_candidate: { id: string; promoted: boolean; evaluation: string | null; revision: string } }).authoritative_candidate;
+      assert.equal(observed.id, w.generationId); assert.equal(observed.promoted, false); assert.equal(observed.evaluation, null); assert.equal(typeof observed.revision, "string");
+      return true;
+    }, code);
+    assert.ok(injected);
+    const pending = extractGenerationSpec(String((await w.peer.get(w.generationId)).item.body), "Authoritative pending candidate");
+    assert.equal(pending.promoted, false); assert.equal(pending.policy_evaluation, undefined, "a transition error cannot invent a refusal");
+    await w.peer.update(w.generationId, { body: original });
+    const peer = await resumeRlLoop(w.peer, { pmRoot: w.pmRoot, author: "peer-evaluator" }, { id: w.request.id, approval: "rl-approval" });
+    const local = await resumeRlLoop(w.client, w.coordinates, { id: w.request.id, approval: "rl-approval" });
+    assert.equal(peer.promoted, 1); assert.equal(local.promoted, 1);
+    assert.equal(peer.generations[0].promoted_by, "peer-evaluator"); assert.equal(local.generations[0].promoted_by, "peer-evaluator");
+    assert.equal(peer.final_checkpoint, local.final_checkpoint);
+    assert.equal((await adoptPolicyCard(w.client, await exportPolicyCard(w.client, w.generationId))).outcome, "promoted");
+  }
+});
