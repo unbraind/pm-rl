@@ -1671,3 +1671,34 @@ test("manual promotion post-commit retry completes its missing immutable outcome
   await recoveryPath(w.pmRoot, "promote", "", "none");
   assert.deepEqual(await recoveryState(w.client), repaired);
 });
+
+
+test("manual promotion retries repair a matching peer commit after the initial read", async () => {
+  const w = await recoveryFixture();
+  const root = mkdtempSync(join(tmpdir(), "rl-peer-recovery-")); roots.push(root);
+  cpSync(w.root, root, { recursive: true });
+  const pmRoot = join(root, relative(w.root, w.pmRoot));
+  const healthy = new PmClient({ pmRoot, cwd: root, author: "card-test", noExtensions: true });
+  await recoveryPath(pmRoot, "promote", "", "none");
+  const expected = await recoveryState(healthy);
+  const get = w.client.get.bind(w.client); let injected = false;
+  w.client.get = (async (...args: Parameters<PmClient["get"]>) => {
+    const captured = await get(...args);
+    if (!injected && args[0] === "rl-candidate" && args[1]?.at === undefined && "item" in captured) {
+      injected = true;
+      assert.equal(extractGenerationSpec(String(captured.item.body), "Captured candidate").promoted, false);
+      // The real peer commits the exact same request, then loses its publication step.
+      assert.equal(await recoveryPath(w.pmRoot, "promote", "card-0:before", "EIO"), null);
+      assert.equal(readFileSync(join(w.root, "fault-hit"), "utf8"), "card-0:before");
+    }
+    return captured;
+  }) as PmClient["get"];
+  const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "schema", "hooks"] });
+  type HostSdk = NonNullable<Parameters<typeof harness.runCommand>[0]["sdk"]>;
+  const result = (await harness.runCommand({ command: "rl generation promote", pmRoot: w.pmRoot, args: ["CANDIDATE"], options: { approval: "APPROVAL", scores: join(w.root, "scores.json"), evidence: "Fixed promotion request" }, sdk: { client: w.client } as unknown as HostSdk })).result as RlCommandResult;
+  assert.ok(injected); assert.equal(result.details?.budget_consumed, 1);
+  assert.deepEqual(await recoveryState(w.client), expected);
+  assert.equal((await adoptPolicyCard(w.client, await exportPolicyCard(w.client, "rl-candidate"))).outcome, "promoted");
+  await recoveryPath(w.pmRoot, "promote", "", "none");
+  assert.deepEqual(await recoveryState(w.client), expected);
+});

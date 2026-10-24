@@ -470,7 +470,7 @@ normal SDK stale-lock recovery is exercised without deleting locks in the test.
 Both proofs use a disposable text-source copy and the unchanged pinned SDK.
 Only production behavior is reverted, and each source is restored in `finally`.
 The unchanged regression file SHA-256 is
-`171b3e13b3df8d5a42b0f4d16d59c1f83910b1305915c6ea38d016899583a285`.
+`32b95056522ba5cc10f2979e670ea5126d1cdfed9f849d41c3a129214f100874`.
 
 - Canonical class: revert only `canonicalizeGenerationSpec` to return the original
   references; run `node --test --test-name-pattern='canonical card property'
@@ -516,3 +516,21 @@ edit. Original trainer-drift, contamination-path and unpromoted assertions are
 retained. The corrected focused suite passes 2/2 directly and through PM; raw V8
 measurements enter both previously missed `index.ts` failure branches. Production
 code and all thresholds/timeouts are unchanged by these fixture corrections.
+
+
+Manual recovery also handles an initial read made stale by a matching peer.
+An `already_promoted` result from the atomic core triggers a fresh sealed-request
+check and finishes publication; different requests still refuse and all other
+errors propagate. The real two-writer regression commits the peer request,
+injects EIO before its card, then returns the original unpromoted SDK read to the
+other writer. Its result, domain/schema/history projection, single-unit budget
+and adoption must equal the fault-free run; another retry is a no-op. The combined
+manual-retry, different-request, concurrent-winner and in-lock contamination suite
+passes 7/7 directly and through PM.
+
+A third production-only revert removes only the stale-read reconciliation from
+the manual handler while retaining initial promoted-state recovery. The matching
+peer regression then fails 1/1 with `already_promoted`. Canonical, initial-retry
+and stale-read reverts all use the unchanged regression hash above, and every
+production edit is restored. This extends the recovery-class proof to both ways
+the committed state can be observed.

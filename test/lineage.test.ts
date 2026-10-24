@@ -1739,12 +1739,13 @@ test("the in-lock already-promoted re-check refuses a peer write the pre-lock re
   const run = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-1"], options: { environment: env, algorithm: "ckpt-seed" } }));
   const candidate = resultOf(await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-c1"], options: { baseCheckpoint: "ckpt-c1", parent: seed, policy: "ckpt-c1", collectionRuns: run.id, environment: env } }));
   const scores = writeScores(root, 12, "held-out-ctx", 9);
+  // The peer sealed different evidence; only an identical request may recover publication.
   await assert.rejects(
     harness.runCommand({
       command: "rl generation promote",
       pmRoot,
       args: [candidate.id!],
-      options: { approval: approval.item.id, scores, evidence: "peer" },
+      options: { approval: approval.item.id, scores, evidence: "different local request" },
       sdk: sdkWith(clientWithPromotedReread(client, candidate.id!)),
     }),
     (error: unknown): boolean => String(error).includes("is already promoted"),

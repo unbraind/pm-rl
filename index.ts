@@ -2382,9 +2382,17 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
   const heldOutScore = parseScoreRecord(heldOutScoreRaw, "held_out_score");
   // The committed Generation is the durable intent/completion marker for step one.
   // An identical retry resumes publication; a different request cannot claim the old promotion.
-  const outcome = spec.promoted
-    ? await recoverManualPromotion(client, generation, approvalId, proxyScore, heldOutScore, evidence)
-    : await promoteGenerationCore(client, { pmRoot: context.pm_root, author: authorFor(context) }, id, approvalId, proxyScore, heldOutScore, evidence);
+  let outcome: PromotionOutcome;
+  if (spec.promoted) outcome = await recoverManualPromotion(client, generation, approvalId, proxyScore, heldOutScore, evidence);
+  else {
+    try { outcome = await promoteGenerationCore(client, { pmRoot: context.pm_root, author: authorFor(context) }, id, approvalId, proxyScore, heldOutScore, evidence); }
+    catch (error) {
+      if (!isPmCliExpectedError(error) || error.context.code !== "already_promoted") throw error;
+      // A matching peer can commit after our first read and fail before publication.
+      // Its sealed request is authoritative; a different request still refuses.
+      outcome = await recoverManualPromotion(client, await getTypedItem(client, id, "Generation"), approvalId, proxyScore, heldOutScore, evidence);
+    }
+  }
   await recordPolicyCard(client, id);
   return {
     action: "rl-generation-promote",
