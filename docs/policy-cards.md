@@ -80,7 +80,8 @@ evidence, evaluation verdict or approval produces different content and invalida
 adoption of the old card. Decoded metric-bearing Run notes are collection evidence,
 including both legacy and compressed segments; editing, deleting or appending metric
 events also changes the card identity and blocks ordinary loop resume. Card export
-and resume use the same generation evidence graph. Historical replay remains
+and resume use the same generation evidence graph. Approval references use the
+SDK canonical identity, so uppercase and short aliases preserve both results. Historical replay remains
 available for cards issued with this binding. Pre-fix cards bound to mutable
 coordinates or excluding metric notes need re-export and retention after upgrade.
 

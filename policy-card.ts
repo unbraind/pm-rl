@@ -52,8 +52,9 @@ function identity(value: unknown): string {
   return value;
 }
 /** Domain identity excludes presentation and bookkeeping metadata. */
-function domain(item: CardItem): JsonValue {
-  const body = item.type === "Generation" ? extractGenerationSpec(String(item.body), "Card content") as unknown as JsonValue : String(item.body);
+function domain(item: CardItem, prefix: string): JsonValue {
+  const generation = item.type === "Generation" ? extractGenerationSpec(String(item.body), "Card content") : null;
+  const body = generation === null ? String(item.body) : { ...generation, approval: generation.approval === null ? null : normalizeItemId(generation.approval, prefix) } as unknown as JsonValue;
   return { id: item.id, type: String(item.type), body, version: String(item.affected_version),
     ...(item.type === "Run" ? { policy: String(item.component), environment: String(item.environment), metrics: readSeries((item.notes ?? []).map((note) => note.text)).events as unknown as JsonValue } : {}) };
 }
@@ -62,14 +63,15 @@ async function snapshot(client: PmClient, id: string, at?: string): Promise<{ it
   identity(id);
   try {
     const current = (await readCompleteLoopItem(client, id, at, SNAPSHOT_FIELDS)).item;
-    const digest = hashJson(domain(current));
+    const prefix = current.type === "Generation" ? String((await client.config("project", "get", "id_prefix").catch(rethrowProvenanceRead)).nested_setting!.value) : "";
+    const digest = hashJson(domain(current, prefix));
     if (at !== undefined) return { item: current, citation: { id: identity(current.id), at, digest } };
     const history = await client.run("history", { id, options: { compact: true, verify: true, outputLimit: "unbounded", outputBudget: "unbounded" } }).catch(rethrowProvenanceRead) as HistoryResult;
     if (!history.verification?.ok || history.limit !== null || history.compact_history?.length !== history.count) refuse("card_missing_provenance");
     for (const row of history.compact_history) {
       const coordinate = String(row.version ?? row.index);
       const historical = (await readCompleteLoopItem(client, id, coordinate, SNAPSHOT_FIELDS)).item;
-      if (hashJson(domain(historical)) === digest) return { item: historical, citation: { id: identity(historical.id), at: coordinate, digest } };
+      if (hashJson(domain(historical, prefix)) === digest) return { item: historical, citation: { id: identity(historical.id), at: coordinate, digest } };
     }
     return refuse("card_drift");
   } catch (error) {
@@ -286,7 +288,7 @@ function evidenceBody(item: CardItem): Record<string, unknown> {
 export async function validatePolicyCardWrite(client: PmClient, options: Parameters<PmClient["create"]>[0] & { id: string }, recursive = false): Promise<void> {
   const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
   const item: CardItem = { id: identity(normalizeItemId(options.id, prefix)), type: options.type!, body: options.body ?? "", affected_version: options.affectedVersion ?? "", component: options.component ?? "", environment: options.environment ?? "" };
-  const primary = { item, citation: { id: item.id, at: PROSPECTIVE_AT, digest: hashJson(domain(item)) } };
+  const primary = { item, citation: { id: item.id, at: PROSPECTIVE_AT, digest: hashJson(domain(item, prefix)) } };
   await exportSnapshotCard(client, primary, null);
   if (recursive) {
     const value = source(item).value;

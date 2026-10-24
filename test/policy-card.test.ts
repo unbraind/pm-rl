@@ -734,6 +734,7 @@ test("one generation evidence set binds card identity and normal resume for ever
     if (item.type === "Generation") {
       const value = extractGenerationSpec(String(item.body), "Fixture");
       const changed = { ...value, training_config: { ...value.training_config as Record<string, JsonValue>, samples: 20 } };
+      if (value.approval !== null) for (const approval of [value.approval.toUpperCase(), value.approval.replace(/^rl-/, "")]) mutations.push({ id: ref.id, options: { body: `\`\`\`json\n${JSON.stringify({ ...value, approval })}\n\`\`\`` }, changes: false });
       mutations.push({ id: ref.id, options: { note: [encodeEvent({ step: 1, metric: "unrelated", value: 1 })] }, changes: false });
       mutations.push({ id: ref.id, options: { body: `\`\`\`json\n${JSON.stringify(changed)}\n\`\`\``, affectedVersion: hashJson(generationProvenance(changed)) }, changes: true });
     } else mutations.push({ id: ref.id, options: { body: String(item.body) + "\nChanged evidence." }, changes: true });
@@ -767,10 +768,10 @@ test("one generation evidence set binds card identity and normal resume for ever
 test("rejection publication refuses a peer body written between validation and commit", async () => {
   const w = await workspace(); await generation(w.client);
   const peer = new PmClient({ pmRoot: w.pmRoot, author: "peer", noExtensions: true });
-  const config = w.client.config.bind(w.client); let armed = true;
+  const config = w.client.config.bind(w.client); let armed = true; let peerWritten = false;
   // Configuration resolution happens after all rejection reads, immediately before the SDK item transaction.
   w.client.config = (async (...args: Parameters<PmClient["config"]>) => {
-    if (armed) { armed = false; const value = spec({ training_config: { samples: 20 } }); await peer.update("rl-seed", { body: `\`\`\`json\n${JSON.stringify(value)}\n\`\`\``, affectedVersion: hashJson(generationProvenance(value)) }); }
+    if (armed && !peerWritten) { armed = false; peerWritten = true; const value = spec({ training_config: { samples: 20 } }); await peer.update("rl-seed", { body: `\`\`\`json\n${JSON.stringify(value)}\n\`\`\``, affectedVersion: hashJson(generationProvenance(value)) }); }
     return config(...args);
   }) as PmClient["config"];
   // Arm only when resolving the write coordinates, rather than a projection's id-prefix read.

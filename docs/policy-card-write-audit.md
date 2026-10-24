@@ -79,7 +79,7 @@ it cannot silently change the content already cited by an earlier card.
 | Check | Every input and reason for binding it |
 | --- | --- |
 | Citation domain digest (`domain`, `snapshot`, prospective writes) | Canonical item `id` identifies the evidence; `type` defines its interpretation; `affected_version` pins its package content identity. A Generation contributes the parsed specification listed below, excluding body headings/formatting/unknown properties. Other evidence contributes its exact sealed `body` (receipt, approval specification, plan or environment definition). A Run additionally contributes `component` (collection policy artifact), `environment` (environment identity), and the ordered decoded metric events in its certified historical `notes`, covering both legacy and compressed segments. Ordinary note text, note authors and note timestamps are excluded. The same `generationEvidence` graph defines the citation set for card projection and loop-resume drift checks. Its configuration is already sealed in its body. `fixed_version` is excluded: the SDK clears it during a routine terminal-to-active status transition. These two fields are policy evidence for Runs only; mirror fields on a Generation and generic tracker `parent` are excluded. |
-| Parsed Generation body | `base_checkpoint`, `policy`, `collection_runs`, `training_config`, `environment_version`, `reward_spec_version`, `parent`, `seed`, optional `evaluation_plan`: frozen training lineage, artifact/configuration and evaluation evidence identities. `promoted`, `approval`, `proxy_score`, `held_out_score`, `gap`, `promotion_evidence`: certified promotion outcome and its approval/evaluation citation. Optional `policy_evaluation`: sealed package verdict (fixed decision, reason digest and bounded diagnostics); ordinary tracker notes never supply it. The parser defines the exact projection, so unrelated JSON properties or markdown presentation cannot affect it. |
+| Parsed Generation body | `base_checkpoint`, `policy`, `collection_runs`, `training_config`, `environment_version`, `reward_spec_version`, `parent`, `seed`, optional `evaluation_plan`: frozen training lineage, artifact/configuration and evaluation evidence identities. `promoted`, `approval`, `proxy_score`, `held_out_score`, `gap`, `promotion_evidence`: certified promotion outcome and its approval/evaluation citation. Approval references are canonical SDK item identities, so uppercase/short aliases preserve identity. Optional `policy_evaluation`: sealed package verdict (fixed decision, reason digest and bounded diagnostics); ordinary tracker notes never supply it. The parser defines the exact projection, so unrelated JSON properties or markdown presentation cannot affect it. |
 | Generation provenance equality (`source`) | `affected_version` equals `hashJson(generationProvenance(spec))`; the provenance subset is optional `evaluation_plan`, `base_checkpoint`, `policy`, `collection_runs`, `training_config`, `environment_version`, `reward_spec_version`, `parent`, `seed`. Promotion outcomes are separate certified policy content and do not rewrite this training identity. |
 | Training scope digests | Generation: entire frozen `training_config`, `environment_version`, `reward_spec_version`; collection count is derived from the pinned `collection_runs`. Recursive phase: sealed receipt `input` digest plus constant null environment/reward sentinels and zero collection count. These describe the exact experiment definition, never tracker counters. |
 | Completed phase provenance | Decision `type`; receipt `format`, terminal `state`, SHA-256-shaped `input`, structured `result`, and equality of `digest` with `hashJson(result)`. The receipt creator hashes the operation's fixed input and encoded result (including content-addressed checkpoint references). Running receipts never qualify. |
@@ -202,39 +202,43 @@ Revert proofs and final full-gate counts are recorded on `pm-rl-policycards`.
 
 ### Fifth-review behavioral revert receipts
 
-The following twelve independent reverts change production behavior only in a
-separate source copy. Regression SHA-256 remains
-`67a8221a59ce240d14972a34e9e9d57a7cef56b492eee3cb632be0d0f47a8e29` throughout, and production is restored in `finally`.
-Every run exits 1 with a behavioral assertion failure. Parent test failures are
-included in the failed/total counts when a named scenario contains subtests.
-Each command is `node --test --test-name-pattern='<pattern>' test/policy-card.test.ts`.
+Fourteen independent reverts change production behavior only in a separate
+source copy. Every run exits 1 with a behavioral AssertionError. Production is
+restored in `finally`; regression files stay unchanged throughout each proof:
 
-| Removed production behavior | Pattern | Failed / total |
+- `test/continuation-faults.test.ts`: `ec17e98181dd36e8fabd250dab22d90bfd3702d00a9377dafb9bbab8e0ddf1cf`.
+- `test/policy-card.test.ts`: `6415e4cb56e87e40396e6f20d2a65a566d0b699deffa6ebef3b5c61b7041bd18`.
+
+Commands are `node --test --test-name-pattern='<pattern>' <file>`. Failed parent
+wrappers are included in failed/total counts for nested scenarios.
+
+| Removed behavior | Regression file and pattern | Failed / total |
 | --- | --- | --- |
-| `whole-citation-set` | `retained generation evidence compares` | 1 / 1 |
-| `metric-note-binding` | `one generation evidence` | 1 / 1 |
-| `shared-resume-evidence` | `one generation evidence` | 1 / 1 |
-| `rejection-old-body` | `rejection publication` | 1 / 1 |
-| `rejection-target-revision` | `rejection publication` | 1 / 1 |
-| `receipt-target-revision` | `every receipt` | 2 / 3 |
-| `promotion-recovery-target-revision` | `promotion, approval` | 3 / 5 |
-| `approval-budget-revision` | `promotion, approval` | 2 / 5 |
-| `card-collision-verification` | `card creation` | 1 / 1 |
-| `deferred-receipt-exclusive-create` | `every receipt` | 2 / 3 |
-| `no-captured-promotion-compensation` | `promotion, approval` | 2 / 5 |
-| `comment-lock-idempotency` | `comment receipts` | 1 / 1 |
+| `legacy-promotion-receipt-refusal` | `test/continuation-faults.test.ts`: `one paused tiny-LM` | 2 / 46 |
+| `canonical-approval-alias` | `test/policy-card.test.ts`: `one generation evidence` | 1 / 1 |
+| `whole-citation-set` | `test/policy-card.test.ts`: `retained generation evidence compares` | 1 / 1 |
+| `metric-note-binding` | `test/policy-card.test.ts`: `one generation evidence` | 1 / 1 |
+| `shared-resume-evidence` | `test/policy-card.test.ts`: `one generation evidence` | 1 / 1 |
+| `rejection-old-body` | `test/policy-card.test.ts`: `rejection publication` | 1 / 1 |
+| `rejection-target-revision` | `test/policy-card.test.ts`: `rejection publication` | 1 / 1 |
+| `receipt-target-revision` | `test/policy-card.test.ts`: `every receipt` | 2 / 3 |
+| `promotion-recovery-target-revision` | `test/policy-card.test.ts`: `promotion, approval` | 3 / 5 |
+| `approval-budget-revision` | `test/policy-card.test.ts`: `promotion, approval` | 2 / 5 |
+| `card-collision-verification` | `test/policy-card.test.ts`: `card creation` | 1 / 1 |
+| `deferred-receipt-exclusive-create` | `test/policy-card.test.ts`: `every receipt` | 2 / 3 |
+| `no-captured-promotion-compensation` | `test/policy-card.test.ts`: `promotion, approval` | 2 / 5 |
+| `comment-lock-idempotency` | `test/policy-card.test.ts`: `comment receipts` | 1 / 1 |
 
-The compensation revert restores a previously captured body after a real peer
-update at the SDK's committing transition. Its failure proves the post-commit
-recovery path preserves peer content as well as the ordinary success path. The
-deferred-create revert changes collision recovery into an update only after a
-real native create collision, so the peer interleaving still executes. The whole
-citation-set revert proves that newly added optional results invalidate the old
-baseline; deliberately retaining a complete fresh card establishes the new set.
+The compensation revert restores a captured body after a real peer update at
+the SDK committing transition. The deferred-create revert switches to update
+only after a native create collision, preserving the real peer interleaving.
+The citation-set revert misses a later optional result. The alias revert rejects
+a logically identical approval identity. The legacy receipt revert permits a
+completed promotion to be treated as unfinished when retained cards are absent.
 
-The existing native heartbeat regression now holds a real SDK coordinate read
-inside the fenced receipt commit. It still verifies active-phase exclusion, idle
-renewal, successor fencing and unchanged displaced cleanup at its original
-180-second limit. Existing trainer-specific evidence diagnostics run before the
-shared retained-card comparison; detailed decision errors and completed-promotion
-`loop_step_drift` refusals keep their established meaning.
+Crash drills hold real SDK reads around the guarded item transaction. They keep
+committed receipt histories byte-identical, recover the native owner without
+extra identity fields, and verify the promotion body and closure commit together.
+The native heartbeat drill retains its original 180-second bound. Trainer-specific
+diagnostics run before the shared evidence comparison, preserving the detailed
+decision errors and completed-promotion `loop_step_drift` contract.
