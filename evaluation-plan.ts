@@ -1,10 +1,12 @@
+import { parseBoundedJson } from "./tracker-record.ts";
 /** Predeclared paired policy comparisons with fixed cohorts and equal-weight correlation units. */
 import type { GetResult, PmClient } from "@unbrained/pm-cli/sdk/core";
-import { createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError, normalizeItemId } from "@unbrained/pm-cli/sdk/runtime";
+import { createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { extractGenerationSpec, generationProvenance, hashJson, readCompleteLoopItem, type JsonValue } from "./index.ts";
 import { decidePromotion, type PromotionCriterion, type PromotionDecision } from "./promotion.ts";
 import { enforceShadowComparison } from "./shadow.ts";
-import type { GenerationSpec, ScoreRecord } from "./lineage.ts";
+import { rethrowOperationalRead } from "./refuse.ts";
+import { canonicalizeIdentifier, type GenerationSpec, type ScoreRecord } from "./lineage.ts";
 
 /** Stable refusals available to SDK consumers and CLI agents. */
 export type EvaluationPlanRefusal = "eval_plan_invalid" | "eval_plan_drift" | "eval_plan_late" | "eval_plan_missing" | "eval_plan_evidence" | "eval_plan_stopping" | "eval_plan_refused";
@@ -100,12 +102,12 @@ export async function optionalItem(client: PmClient, id: string, at?: string): P
 }
 /** Decode package-owned JSON without leaking raw malformed content through parser errors. */
 function storedJson(body: unknown): unknown {
-  try { return JSON.parse(String(body)); } catch { return refuse("eval_plan_drift"); }
+  try { return parseBoundedJson(String(body)); } catch { return refuse("eval_plan_drift"); }
 }
 /** Read the SDK's verified creation snapshot or refuse unavailable original history. */
 async function createdItem(client: PmClient, id: string): Promise<GetResult["item"]> {
   try { return (await readCompleteLoopItem(client, id, "1")).item; }
-  catch { refuse("eval_plan_drift"); }
+  catch (error) { rethrowOperationalRead(error); refuse("eval_plan_drift"); }
 }
 /** Bind sealed fields to the SDK's verified first history version, allowing unrelated annotations. */
 async function verifyCreatedRecord(client: PmClient, item: GetResult["item"]): Promise<void> {
@@ -130,7 +132,7 @@ export async function readEvaluationPlan(client: PmClient, candidate: string): P
 export async function registerEvaluationPlan(client: PmClient, value: unknown): Promise<RegisteredEvaluationPlan> {
   const plan = parseEvaluationPlan(value);
   const prefix = label((await client.config("project", "get", "id_prefix")).nested_setting!.value);
-  if (normalizeItemId(plan.candidate, prefix) !== plan.candidate) refuse("eval_plan_invalid");
+  if (canonicalizeIdentifier(plan.candidate, prefix) !== plan.candidate) refuse("eval_plan_invalid");
   const existing = await readEvaluationPlan(client, plan.candidate);
   if (existing !== null) { if (existing.comparison !== evaluationComparison(plan)) refuse("eval_plan_drift"); return existing; }
   if (await optionalItem(client, plan.candidate) !== null) refuse("eval_plan_late");
@@ -241,6 +243,7 @@ export async function enforceEvaluationPlan(client: PmClient, candidate: string,
   if (result.type !== "Decision" || raw.comparison !== registered.comparison || result.affected_version !== hashJson(raw as JsonValue)) refuse("eval_plan_drift");
   await verifyCreatedRecord(client, result);
   const report = evaluatePlan(registered.plan, raw.observations);
-  if (score.objective !== registered.plan.objective || score.objective_version !== registered.plan.objective_version || score.evaluation_context !== registered.plan.evaluation_context || score.direction !== registered.plan.direction || score.seed_set !== registered.comparison || score.scale !== registered.plan.reward_bounds[1] - registered.plan.reward_bounds[0] || score.value !== report.candidate_mean) refuse("eval_plan_evidence");
+  const prefix = label((await client.config("project", "get", "id_prefix")).nested_setting!.value);
+  if (score.objective !== registered.plan.objective || score.objective_version !== registered.plan.objective_version || canonicalizeIdentifier(score.evaluation_context, prefix) !== canonicalizeIdentifier(registered.plan.evaluation_context, prefix) || score.direction !== registered.plan.direction || score.seed_set !== registered.comparison || score.scale !== registered.plan.reward_bounds[1] - registered.plan.reward_bounds[0] || score.value !== report.candidate_mean) refuse("eval_plan_evidence");
   if (report.verdict.decision !== "promote") refuse("eval_plan_refused");
 }

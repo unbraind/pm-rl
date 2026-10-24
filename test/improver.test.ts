@@ -13,6 +13,7 @@ import { initialImprover, improverArtifact, parseImprover, proposeLearners, upda
 import { buildImproverDataset, chronologicalTask, historyBeforePrediction, projectImproverHistory, readImproverDataset, readImproverTasks, IMPROVER_ROLES, type ImproverDataset, type ImproverTask, type ImproverProjection } from "../improver-data.ts";
 import { compareImprovers, diagnoseImproverLearner, executeImproverFit, improverProcessAttempt, improverAccuracy, improverFeatures, openImproverEnvironment, IMPROVER_CRITERION, IMPROVER_ADAPTER } from "../improver-environment.ts";
 import { improverBudget, improverConfiguration, parseImproverConfig, runRecursiveImprover, selectImprover, summarizeImproverScores, type ImproverConfig, type ImproverScore, type ImproverSearch } from "../recursive-improver.ts";
+import { replayPolicyCard, type PolicyCard } from "../policy-card.ts";
 import { prefixCheckpoint, type PrefixCheckpoint } from "../prefix.ts";
 import { listProcessJobs, processJobId, processStaging, type ProcessInput } from "../process.ts";
 import { prefixTrainerArgv } from "../prefix-trainer.ts";
@@ -401,6 +402,14 @@ test("three recursive generations survive SIGKILL after update, adopt receipts a
   const before = await listProcessJobs(w.client);
   const report = await runRecursiveImprover(w.client, w.coordinates, request);
   assert.equal(report.generations.length, 3); assert.equal(report.budget.fits, 11);
+  const explanationItems = (await w.client.listAllComplete({ includeBody: true })).items.filter((item) => item.id.includes("-policy-card-"));
+  const explanations = explanationItems.map((item) => JSON.parse(String(item.body)) as PolicyCard);
+  for (const generation of [1, 2, 3]) {
+    const outcome = explanations.find((card) => card.subject.endsWith(`-step-g${generation}-generation`))!;
+    assert.equal(outcome.outcome, "refused");
+    assert.equal((await replayPolicyCard(w.client, outcome)).results.length, 1);
+    assert.ok(explanations.some((card) => card.subject.endsWith(`-step-g${generation}-d-t0-proposals`) && card.selection === 0));
+  }
   assert.ok(report.generations.every((row) => row.candidate.ledger !== report.initial.ledger && row.candidate.digest !== row.policy));
   assert.equal(report.generations[2].candidate.arms.reduce((sum, arm) => sum + arm.failure - 1, 0), 3);
   assert.ok(report.generations.every((row) => !row.promoted));

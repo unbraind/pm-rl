@@ -684,3 +684,16 @@ an explicit discovery ceiling.
 Observe a candidate beside the active policy on explicitly consented, minimized inputs with `pm rl shadow register`, `observe` and `compare`, or the typed SDK equivalents. Candidate lookup failures preserve the active decision; both arms consume the reserved budget. The comparison receipt feeds the existing predeclared evaluation and generation promotion gate, so online switching requires validated outcomes and the existing approval. No candidate receives mutation or tool authority.
 
 See [the consent, budget and promotion contract](docs/shadow-policy.md) and [registration example](examples/shadow-policy.json). Policies currently use bounded declarative lookup tables. Registration, reload and promotion share cohort/budget validation; live and loaded receipts share action, reward and disagreement validation. Typed refusals identify the receipt and invalid field.
+
+## Portable policy explanation cards
+
+Export a minimized explanation before moving a learned policy to another agent or backend:
+
+```sh
+pm rl policy-card export rl-programme-g1 --json
+pm rl policy-card export rl-programme-g1
+pm rl policy-card replay --file card.json --json
+pm rl policy-card adopt --file card.json --json
+```
+
+Save the JSON result's unwrapped `details` as `card.json`. Cards contain scope and policy digests, allowed explanation actions, numeric limits, regression diagnostics and exact replayable evidence references. They omit training examples, policy parameters and credentials. Adoption checks the complete ancestry to the root, including every retained card and its evidence. Policy identity binds content-addressed artifacts plus configuration; unfitted proposals use a separate proposal digest. Transient read errors remain retryable and leave the programme resumable. Missing provenance blocks adoption checks; a card grants no execution authority. Recursive candidates, proposals and promotion outcomes retain cards automatically, so later improvers can inspect earlier wins and losses. These commands work without Git. See the [SDK, format, refusals and public-copy evidence](docs/policy-cards.md).

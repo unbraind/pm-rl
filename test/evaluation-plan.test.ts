@@ -48,6 +48,20 @@ async function workspace() {
 /** A held-out score for the planned objective and comparison context. */
 function score(overrides: Partial<ScoreRecord> = {}): ScoreRecord { return { objective: "episode_return", objective_version: "v1", evaluation_context: "held-out", direction: "maximize", seed_set: evaluationComparison(plan()), scale: 1, value: 1, ...overrides }; }
 
+test("transient creation-history read failures leave evaluation plans retryable", async () => {
+  const w = await workspace(); const registered = await registerEvaluationPlan(w.client, plan());
+  const get = w.client.get.bind(w.client); let fail = true;
+  w.client.get = (async (id, options) => {
+    const result = await get(id, options);
+    if (fail && id === registered.id && options?.at === "1") {
+      fail = false; throw Object.assign(new Error("Temporary history read failure"), { code: "EIO" });
+    }
+    return result;
+  }) as PmClient["get"];
+  await assert.rejects(readEvaluationPlan(w.client, "rl-candidate"), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "provenance_read_retryable");
+  assert.equal((await readEvaluationPlan(w.client, "rl-candidate"))?.comparison, registered.comparison);
+});
+
 test("all plan fields and correlation assignments determine comparison identity", () => {
   const p = plan(); const identity = evaluationComparison(p);
   assert.equal(evaluationComparison({ ...p, members: [...p.members].reverse() }), identity);

@@ -1,3 +1,4 @@
+import { parseBoundedJson } from "./tracker-record.ts";
 /** Public-history projections whose observables stop at one seeded event cut. */
 import assert from "node:assert/strict";
 import { hashJson } from "./index.ts";
@@ -37,7 +38,7 @@ export function validateLifecyclePrefix(prefix: readonly string[]): boolean {
 
 /** Extract lifecycle and content changes without retaining author identities or raw public text. */
 export function projectHistoryPrefix(history: string, repo: string, commit: string, item: string, seed: number): PrefixProjection | null {
-  const events = history.split("\n").filter(Boolean).map((line) => JSON.parse(line) as {
+  const events = history.split("\n").filter(Boolean).map((line) => parseBoundedJson(line) as {
     ts?: string; author?: string; op?: string; patch?: readonly { path: string; value?: unknown; op?: string }[];
   });
   const states = events.flatMap((event, index) => (event.patch ?? []).filter((patch) => patch.path === "/metadata/status" && patch.op !== "remove")

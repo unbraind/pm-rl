@@ -1,3 +1,4 @@
+import { parseBoundedJson } from "./tracker-record.ts";
 /** Bounded logistic classifier over hashed normalized history features; no model downloads. */
 import assert from "node:assert/strict";
 import { hashJson, type JsonValue } from "./index.ts";
@@ -111,7 +112,7 @@ export function fitPrefix(payload: PrefixPayload, source: PrefixCheckpoint, lear
 }
 /** Verify schema, digest and feature recipe independently of the fitting process. */
 export function validatePrefixCompletion(content: Buffer, completion: Pick<ProcessCompletion<{ readonly digest: string }>, "policy">, input: Pick<ProcessInput, "prefix">): void {
-  const policy = JSON.parse(content.toString("utf8")) as PrefixCheckpoint;
+  const policy = parseBoundedJson(content.toString("utf8")) as PrefixCheckpoint;
   const verified = prefixCheckpoint(policy.weights, policy.knobs);
   assert.equal(policy.digest, verified.digest, "prefix_checkpoint_identity");
   assert.equal(hashJson(policy as unknown as JsonValue), hashJson(completion.policy as unknown as JsonValue), "prefix_receipt_policy");

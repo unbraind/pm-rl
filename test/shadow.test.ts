@@ -32,7 +32,8 @@ async function workspace(d = deployment()) {
   const root = mkdtempSync(join(tmpdir(), "rl-shadow-")); roots.push(root);
   const initialized = await init("rl", { defaults: true, author: "shadow-test", agentGuidance: "skip" }, { cwd: root });
   const client = new PmClient({ pmRoot: initialized.path, cwd: root, author: "shadow-test", noExtensions: true });
-  for (const [type, folder] of [["Generation", "generations"], ["Run", "runs"]]) await client.schemaAddType(type, { folder, defaultStatus: "open" });
+  for (const [type, folder] of [["Generation", "generations"], ["Run", "runs"], ["Environment", "environments"]]) await client.schemaAddType(type, { folder, defaultStatus: "open" });
+  await client.create({ id: "train-env", type: "Environment", title: "Pinned shadow training environment", body: "{}" });
   await addGeneration(client, "rl-seed", spec(d.active));
   await client.create({ id: d.consent, title: "Explicit shadow input consent", type: "Decision", body: JSON.stringify({ format: "pm-rl/shadow-consent/1", deployment: hashJson(d as unknown as JsonValue) }) });
   return { root, pmRoot: initialized.path, client, d, p: plan(d) };

@@ -566,7 +566,9 @@ test("SIGKILL inside real LM collect and fit writes resumes only unfinished gene
         onPhase(phase, generation) { if (generation === 1) phases.push(phase); } });
       for (const phase of completed) assert.ok(!phases.includes(phase), `completed ${phase} was repeated after ${mode}`);
       assert.deepEqual(await Promise.all(completed.map((phase) => stepHistory(client, pmRoot, phase))), before);
-      assert.deepEqual(stable(resumed), stable(baseline));
+      const promoter = mode === "mid-promote" ? "lm-process-test" : "pm-rl-test";
+      assert.equal(baseline.generations[0]!.promoted_by, "pm-rl-test");
+      assert.deepEqual(stable(resumed), stable({ ...baseline, generations: baseline.generations.map((row) => ({ ...row, promoted_by: promoter })) }));
       assert.equal((await client.get("lm-drill-g1")).item.status, "closed");
       const status = await rlLoopStatus(client, "lm-drill", pmRoot);
       assert.equal(status.samples_consumed, baseline.samples_consumed);
