@@ -4,7 +4,7 @@ import type { HistoryResult } from "@unbrained/pm-cli/sdk/query";
 import type { GetResult, PmClient } from "@unbrained/pm-cli/sdk/core";
 import { createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { canonicalJson, createOrReadIdentical, hashJson, extractGenerationSpec, generationProvenance, readCompleteLoopItem, type JsonValue } from "./index.ts";
-import { canonicalizeIdentifier, canonicalizeGenerationSpec } from "./lineage.ts";
+import { canonicalizeIdentifier, canonicalizeGenerationSpec, type GenerationSpec } from "./lineage.ts";
 import { readSeries } from "./series.ts";
 import { optionalItem, enforceEvaluationPlan } from "./evaluation-plan.ts";
 import { rethrowOperationalRead, rethrowProvenanceRead } from "./refuse.ts";
@@ -53,6 +53,12 @@ function identity(value: unknown): string {
   if (typeof value !== "string" || !/^[a-z0-9][a-z0-9-]{0,255}$/i.test(value)) refuse("card_invalid");
   return value;
 }
+/** Verify the original provenance seal before any canonical identity projection or prospective write. */
+function verifiedGenerationSpec(item: CardItem): GenerationSpec {
+  const original = extractGenerationSpec(String(item.body), "Card provenance");
+  if (item.affected_version !== hashJson(generationProvenance(original))) refuse("card_drift");
+  return original;
+}
 /** Domain identity excludes presentation and bookkeeping metadata. */
 function domain(item: CardItem, prefix: string): JsonValue {
   const generation = item.type === "Generation" ? extractGenerationSpec(String(item.body), "Card content") : null;
@@ -69,7 +75,7 @@ async function snapshot(client: PmClient, id: string, at?: string): Promise<{ it
     id = canonicalizeIdentifier(id, prefix);
     const current = (await readCompleteLoopItem(client, id, at, SNAPSHOT_FIELDS)).item;
     // Validate the requested current/history seal before searching for an equivalent canonical version.
-    if (current.type === "Generation" && current.affected_version !== hashJson(generationProvenance(extractGenerationSpec(String(current.body), "Card provenance")))) refuse("card_drift");
+    if (current.type === "Generation") verifiedGenerationSpec(current);
     const digest = hashJson(domain(current, prefix));
     if (at !== undefined) return { item: current, citation: { id: identity(current.id), at, digest } };
     const history = await client.run("history", { id, options: { compact: true, verify: true, outputLimit: "unbounded", outputBudget: "unbounded" } }).catch(rethrowProvenanceRead) as HistoryResult;
@@ -98,8 +104,7 @@ function limits(value: unknown, result: Record<string, number> = {}): Record<str
 /** Parse only supported generation or completed durable-step sources. */
 function source(item: CardItem, prefix: string): { value: Record<string, unknown>; outcome: PolicyCard["outcome"]; dependencies: string[]; scope: PolicyCard["training_scope"]; regressions: PolicyCard["known_regressions"] } {
   if (item.type === "Generation") {
-    const original = extractGenerationSpec(String(item.body), "Policy card generation");
-    if (item.affected_version !== hashJson(generationProvenance(original))) refuse("card_drift");
+    const original = verifiedGenerationSpec(item);
     const spec = canonicalizeGenerationSpec(original, prefix);
     const config = spec.training_config !== null && typeof spec.training_config === "object" && !Array.isArray(spec.training_config) ? spec.training_config as Record<string, unknown> : {};
     const judged = spec.policy_evaluation === undefined ? {} : object(spec.policy_evaluation);

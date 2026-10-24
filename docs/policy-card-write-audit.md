@@ -501,3 +501,8 @@ Snapshot exhaustion after concurrent replacement/compaction explicitly reports
 remains `card_drift`. The original history-compaction/current-drift regression
 suite passes 3/3 through the pinned PM snapshot runner after this distinction is
 preserved.
+
+`verifiedGenerationSpec` is the shared raw-seal verifier for requested snapshots
+and prospective sources. The snapshot, prospective refusal, canonical graph and
+manual retry suite passes 7/7 through PM after consolidation; both production-only
+class reverts still fail 1/1 with the same unchanged regression file hash.
