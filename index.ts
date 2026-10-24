@@ -763,6 +763,7 @@ export async function mutateLoopItem(client: PmClient, before: GetResult, messag
   const settings = await readSettings(pmRoot);
   const expected = { updated: before.item.updated_at, body: String(before.item.body) };
   const releases: (() => Promise<void>)[] = [];
+  let after: GetResult;
   try {
     // These are the SDK's native item locks, also observed by ordinary CLI and SDK peer writes.
     for (const dependency of [...preconditions].sort((a, b) => a.item.id.localeCompare(b.item.id))) {
@@ -777,16 +778,21 @@ export async function mutateLoopItem(client: PmClient, before: GetResult, messag
         return { changedFields: change(document, registry.close_status, isTerminalStatus(document.metadata.status, registry)) };
       },
     }));
-    return { item: { ...result.item, body: result.body } };
+    after = { item: { ...result.item, body: result.body } };
   } catch (error) {
-    if (isPmCliExpectedError(error) && error.context.code === "loop_write_conflict") {
-      const authoritative = await readCompleteLoopItem(client, before.item.id);
-      Object.assign(error.context, { authoritative_status: authoritative.item.status, authoritative_revision: authoritative.item.updated_at });
+    if (isPmCliExpectedError(error)) {
+      try {
+        const authoritative = await readCompleteLoopItem(client, before.item.id, undefined, "id,status,updated_at");
+        Object.assign(error.context, { authoritative_status: authoritative.item.status, authoritative_revision: authoritative.item.updated_at });
+      } catch (readError) {
+        Object.assign(error.context, { authoritative_item_read_error: isPmCliExpectedError(readError) ? String(readError.context.code) : "unavailable" });
+      }
     }
     throw error;
   } finally {
     for (const release of releases.reverse()) await release();
   }
+  return after;
 }
 
 /** Close a generation and optionally publish its outcome in one guarded SDK item transaction. */

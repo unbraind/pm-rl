@@ -1456,3 +1456,35 @@ test("unsealed peer candidates stay pending across every concurrent transition r
     assert.equal((await adoptPolicyCard(w.client, await exportPolicyCard(w.client, w.generationId))).outcome, "promoted");
   }
 });
+
+test("mutation callback refusals preserve original errors and release dependency claims", async () => {
+  for (const kind of ["native", "typed", "native-read", "typed-read"]) {
+    const w = await workspace(); const id = await generation(w.client);
+    const dependency = await w.client.create({ id: "rl-callback-dependency", type: "Task", title: "Dependency", body: "# Retained dependency" });
+    const before = await readCompleteLoopItem(w.client, id); const dependencyBefore = await readCompleteLoopItem(w.client, dependency.item.id);
+    const failure = kind === "native" ? new TypeError("Native mutation callback failure") : createPmCliExpectedError("Mutation callback refused", { exitCode: 4, context: { code: "stale_revision" } });
+    const get = w.client.get.bind(w.client); let armed = false; let reads = 0;
+    w.client.get = (async (...args: Parameters<PmClient["get"]>) => {
+      const actual = await get(...args);
+      if (armed && args[0] === id) {
+        reads += 1;
+        if (kind === "native-read") throw new TypeError("Native observation failure");
+        if (kind === "typed-read") throw createPmCliExpectedError("Observation backend unavailable", { exitCode: 4, context: { code: "backend_unavailable" } });
+      }
+      return actual;
+    }) as PmClient["get"];
+    try {
+      await assert.rejects(mutateLoopItem(w.client, before, "Rejected callback", () => { armed = true; throw failure; }, [dependencyBefore]), (error: unknown) => error === failure, kind);
+    } finally { armed = false; w.client.get = get; }
+    assert.equal(String((await w.client.get(id)).item.body), String(before.item.body));
+    if (isPmCliExpectedError(failure)) {
+      const context = failure.context as typeof failure.context & { authoritative_status: string; authoritative_revision: string; authoritative_item_read_error: string };
+      assert.ok(reads > 0);
+      if (kind === "typed") { assert.equal(context.authoritative_status, before.item.status); assert.equal(context.authoritative_revision, before.item.updated_at); }
+      else assert.equal(context.authoritative_item_read_error, kind === "native-read" ? "unavailable" : "provenance_read_retryable");
+    }
+    const peer = new PmClient({ pmRoot: w.pmRoot, author: "peer-retry", noExtensions: true });
+    const retried = await mutateLoopItem(peer, await readCompleteLoopItem(peer, id), "Independent retry after callback refusal", () => [], [await readCompleteLoopItem(peer, dependency.item.id)], "peer-retry");
+    assert.equal(String(retried.item.body), String(before.item.body));
+  }
+});
