@@ -1,3 +1,4 @@
+import { parseBoundedJson } from "./tracker-record.ts";
 /** Frozen chronological tasks derived only from verified public committed tracker snapshots. */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -65,7 +66,7 @@ export function historyBeforePrediction(events: readonly HistoryEvent[], timesta
 
 /** Predict one millisecond after creation, independently of any future close time or history length. */
 export function projectImproverHistory(history: string, repo: string, item: string): ImproverProjection | null {
-  const events = history.split("\n").filter(Boolean).map((line) => JSON.parse(line) as HistoryEvent);
+  const events = history.split("\n").filter(Boolean).map((line) => parseBoundedJson(line) as HistoryEvent);
   const times = events.map((event) => Date.parse(event.ts!));
   if (events.length === 0 || !times.every((time, index) => Number.isFinite(time) && (index === 0 || time >= times[index - 1]))) return null;
   const terminal = events.findIndex((event) => event.patch?.some((patch) => patch.path === "/metadata/status" && patch.op !== "remove" && ["closed", "canceled", "cancelled"].includes(String(patch.value))));
@@ -140,7 +141,7 @@ export function buildImproverDataset(directories: readonly string[], output: str
 
 /** A manifest read does not open task examples from any role. */
 export function readImproverDataset(directory: string): ImproverDataset {
-  const { digest, ...record } = JSON.parse(readFileSync(join(directory, "improver-dataset.json"), "utf8")) as ImproverDataset;
+  const { digest, ...record } = parseBoundedJson(readFileSync(join(directory, "improver-dataset.json"), "utf8")) as ImproverDataset;
   assert.ok(record.format === "pm-rl/improver-dataset/1" && hashJson(record as unknown as JsonValue) === digest, "improver_dataset_identity");
   assert.equal(new Set(record.sources.map((source) => source.repo.toLowerCase())).size, record.sources.length, "improver_source_overlap");
   return { ...record, digest };
@@ -148,7 +149,7 @@ export function readImproverDataset(directory: string): ImproverDataset {
 
 /** Verify role, identity, chronology, label availability and item isolation before exposing rows to the evaluator. */
 export function readImproverTasks(directory: string, manifest: ImproverDataset, role: typeof IMPROVER_ROLES[number]): ImproverTask[] {
-  const tasks = JSON.parse(readFileSync(join(directory, `${role}.json`), "utf8")) as ImproverTask[];
+  const tasks = parseBoundedJson(readFileSync(join(directory, `${role}.json`), "utf8")) as ImproverTask[];
   assert.ok(tasks.length > 0 && tasks.length === manifest.splits[role].tasks && hashJson(tasks as unknown as JsonValue) === manifest.splits[role].digest, "improver_split_identity");
   assert.equal(new Set(tasks.map((task) => task.id)).size, tasks.length, "improver_task_duplicate");
   for (const task of tasks) {

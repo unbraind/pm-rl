@@ -1,3 +1,4 @@
+import { parseBoundedJson } from "./tracker-record.ts";
 /**
  * @module pm-rl/lineage
  *
@@ -261,7 +262,7 @@ export function parseScoreRecord(value: unknown, label: string): ScoreRecord {
 export function parseGenerationSpec(text: string, source: string): GenerationSpec {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(text);
+    parsed = parseBoundedJson(text);
   } catch {
     expectedFail(`${source} is not valid JSON.`, "invalid_generation_json");
   }
@@ -420,7 +421,7 @@ export function parseGenerationSpec(text: string, source: string): GenerationSpe
 export function parseApprovalSpec(text: string, source: string): ApprovalSpec {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(text);
+    parsed = parseBoundedJson(text);
   } catch {
     expectedFail(`${source} is not valid JSON.`, "invalid_approval_json");
   }

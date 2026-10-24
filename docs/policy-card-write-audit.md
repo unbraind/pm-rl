@@ -246,3 +246,68 @@ extra identity fields, and verify the promotion body and closure commit together
 The native heartbeat drill retains its original 180-second bound. Trainer-specific
 diagnostics run before the shared evidence comparison, preserving the detailed
 decision errors and completed-promotion `loop_step_drift` contract.
+
+## Sixth review: decoder and concurrent transition classes
+
+All root TypeScript JSON decoders now use `tracker-record.ts`; its bounded parser
+is the only root production `JSON.parse`. This includes tracker envelopes, fenced
+contracts, metric notes, history events, checkpoint files and trainer channels.
+Tracker discovery additionally uses `decodeTrackerRecord`: it checks the item type,
+card tag and exact package format before parsing, rejects bodies above 1 MiB or
+64 nesting levels, and records content-free omission reasons. The shared parser
+also bounds other JSON inputs at 16 MiB and 64 levels. No SDK dependency pin or
+coverage threshold changed.
+
+Cards must satisfy the complete bounded field shape, citation shape, canonical
+content address and version binding before joining the retained-card inventory.
+New cards carry `rl-policy-card`; unrelated Decisions with a card-like id or design
+tag cannot become provenance. `discoverPolicyCards` and `skippedTrackerRecords`
+expose discovery and omission receipts; loop reports include `skipped_records`.
+Explicitly referenced required evidence still fails with a typed domain integrity
+refusal when damaged. Known owned job/budget records must never disappear from
+accounting merely because their semantic fields drifted.
+
+Every failed promotion attempt re-reads the authoritative candidate. A verified
+peer promotion advances the chain, counts once, retains its outcome card and is
+attributed with `promoted_by` from its first certified promoted history version.
+Existing peer refusals preserve their sealed evaluation and reason. Rejection
+publication also re-reads after CAS failure and preserves either terminal winner.
+A peer completion receipt is verified against the actual candidate. A controller
+fenced after a committed promotion returns its error with `authoritative_report`;
+it cannot publish a local terminal refusal. Low-level stale writes include the
+observed authoritative revision/status in their error context.
+
+The seeded corpus includes foreign Decision, Task and Note bodies: Markdown,
+truncated JSON, primitive/array/object shape errors, oversized and deeply nested
+JSON, other-package formats with the same tag, copied cards with wrong addresses,
+wrong version bindings and checksum mismatches. Seeded field mutations include
+correctly hashed but malformed nested envelopes, non-finite JSON numbers and
+citation limits. Resume, discovery, export, promotion and adoption preserve the
+valid records and expose skipped-record reasons. Shared non-git tracker tests
+cover both sides of evaluate/promote/adopt boundaries, native transition refusal
+codes, a peer winning during rejection publication, and a real replaced lease.
+
+Focused commands:
+
+- `node --test --test-name-pattern='seeded foreign tracker' test/policy-card.test.ts`
+- `node --test --test-name-pattern='shared tracker loop interleavings' test/policy-card.test.ts`
+- `node --test --test-name-pattern='shared tracker peer refusals|lost controller claim|rejection CAS reconciliation|promotion attribution requires|peer refusal remains|guarded tracker decoder' test/policy-card.test.ts`
+- `node --test --test-name-pattern='shared inner promotion headroom|malformed completed receipts|prospective rejection notes|budget and job identity drift|seeded foreign tracker' test/meta.test.ts test/policy-card.test.ts test/process.test.ts` (5/5 pass after correcting the four affected-module sweep regressions).
+
+Behavioral revert receipts are recorded on `pm-rl-policycards`. Each proof uses an
+isolated source snapshot, changes only the production discovery function or
+promotion reconciliation catch, runs the unchanged regression, and restores the
+production source in `finally`. Test SHA-256: `db7af2904a544c4852b9c192f3865103b554664b8a32fa70f46e9f79acb73225`.
+The restored snapshot must match the package source and test bytes before its
+positive regression run. Full release evidence is the CI npm and Bun matrix at
+the pushed head, using the unchanged `release:check` commands and thresholds.
+
+Final sixth-review local receipts: the restored focused suite and the pinned
+PM-linked suite both pass 31/31, with zero skips. The shared tracker decoder has
+100% lines, branches and functions in the focused native coverage run. Class 1's
+production-only revert fails 1/1 with `SyntaxError`; class 2's production-only
+revert passes 4/15 and fails 11/15, including the original peer-promotion refusal
+and the incorrect zero count. Both fixes were restored and the source/test bytes
+verified before the positive run. Typecheck, test compilation, lint, zero
+clone/duplication findings and docstrings (52 source files, 397 declarations)
+pass. The full npm and Bun release matrix remains the required CI evidence.

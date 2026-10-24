@@ -7,11 +7,15 @@ import { after, test } from "node:test";
 import { PmClient, type CloseResult } from "@unbrained/pm-cli/sdk/core";
 import { init, isPmCliExpectedError, createPmCliExpectedError, type CloseTaskResult, type PmClientCloseActionOptions } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import extension, { generationProvenance, extractGenerationSpec, hashJson, canonicalJson, readCompleteLoopItem, runRlLoop, resumeRlLoop, withRlController, recordRefusedPolicyCard, mutateLoopItem, promoteGenerationCore, appendCommentOnce, type JsonValue, type RlCommandResult } from "../index.ts";
-import { exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordRecursivePolicyCards, recordPolicyCard, POLICY_CARD_MAX_BYTES, validatePolicyCardWrite, generationEvidence, verifyRetainedGenerationEvidence, type PolicyCard } from "../policy-card.ts";
+import extension, { generationProvenance, extractGenerationSpec, hashJson, canonicalJson, readCompleteLoopItem, runRlLoop, resumeRlLoop, loopLeaseLockId, withRlController, recordRefusedPolicyCard, mutateLoopItem, promoteGenerationCore, appendCommentOnce, type JsonValue, type RlCommandResult } from "../index.ts";
+import { discoverPolicyCards, exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordRecursivePolicyCards, recordPolicyCard, POLICY_CARD_MAX_BYTES, validatePolicyCardWrite, generationEvidence, verifyRetainedGenerationEvidence, type PolicyCard } from "../policy-card.ts";
 import { encodeEvent, encodeEventSegments } from "../series.ts";
 import { prefixCheckpoint } from "../prefix.ts";
-import type { GenerationSpec } from "../lineage.ts";
+import { parseScoreRecord, type GenerationSpec } from "../lineage.ts";
+import { skippedTrackerRecords, decodeTrackerRecord, parseBoundedJson } from "../tracker-record.ts";
+import { parseLoopConfig, loopPromotionScores, runLoopGeneration } from "../loop.ts";
+import { banditCheckpoint } from "../bandit.ts";
+import { listProcessJobs, readProcessJob } from "../process.ts";
 
 const roots: string[] = [];
 after(() => { for (const root of roots) rmSync(root, { recursive: true, force: true }); });
@@ -1003,5 +1007,259 @@ test("promotion, approval fresh-state checks preserve peer recovery, terminal an
     }
     const stored = (await peer.get(row.item)).item;
     assert.equal(stored.body, peerBody); assert.equal(stored.status, mode === "terminal" ? "closed" : "in_progress");
+  });
+});
+
+/** Deterministic seeded permutations keep hostile corpus regressions reproducible. */
+function seededOrder<T>(values: T[], seed: number): T[] {
+  for (let i = values.length - 1; i > 0; i -= 1) { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; const j = seed % (i + 1); [values[i], values[j]] = [values[j], values[i]]; }
+  return values;
+}
+
+test("seeded foreign tracker corpus is skipped across discovery resume export and promote", { timeout: 600_000 }, async () => {
+  const w = await workspace();
+  await w.client.create({ id: "rl-approval", type: "Decision", title: "Consent", body: '```json\n{"permitted_promotions":1}\n```' });
+  const config = { ...JSON.parse(readFileSync(new URL("../examples/loop-bandit.json", import.meta.url), "utf8")) as Record<string, JsonValue>, max_generations: 1 };
+  const bodies = ["# Markdown design\nUnrelated policy discussion", '{"format":"pm-rl/policy-card/1",', '[]', 'null', '{"format":"other-package/policy-card/1"}', JSON.stringify({ format: "pm-rl/policy-card/1", subject: 17 }), `{"format":"pm-rl/policy-card/1","nested":${"[".repeat(70)}0${"]".repeat(70)}}`, JSON.stringify({ format: "pm-rl/policy-card/1", text: "x".repeat(1_048_576) })];
+  const planted: string[] = [];
+  for (const [i, body] of seededOrder(bodies, 0x51a7).entries()) for (const type of ["Decision", "Task", "Note"]) {
+    if (type === "Note" && i === 0) await w.client.schemaAddType("Note", { folder: "notes", defaultStatus: "open" });
+    const row = await w.client.create({ id: `rl-policy-card-foreign-${i}-${type.toLowerCase()}`, type, title: "Foreign corpus member", body, tags: "rl-policy-card,rl-policy-card-design" }); planted.push(row.item.id);
+  }
+  const plainTask = await w.client.create({ id: "rl-foreign-plain-task", type: "Task", title: "Foreign plain task", body: "# Unstructured task" }); planted.push(plainTask.item.id);
+  assert.equal(await readProcessJob(w.client, plainTask.item.id), null);
+  assert.deepEqual(await listProcessJobs(w.client), []);
+  assert.equal(await readProcessJob(w.client, planted.find((id) => id.endsWith("-task"))!), null);
+  const template = await exportPolicyCard(w.client, await generation(w.client, spec(), "rl-template"));
+  const { digest: _digest, ...templateBody } = template;
+  const mutations: Record<string, JsonValue>[] = [
+    { subject: "invalid identity" }, { evidence: null }, { evidence: [] }, { evidence: [null] }, { evidence: [{ id: "rl-template", at: 1, digest: "hash" }] },
+    { evidence: [{ id: "rl-template", at: "1", digest: null }] }, { selection: "one" }, { selection: -1 },
+    { training_scope: [] }, { evaluation: null }, { resource_limits: [] }, { allowed_actions: null }, { allowed_actions: ["execute"] },
+    { known_regressions: null }, { outcome: "foreign" }, { proposal_digest: 17 }, { policy_digest: 17 }, { text: "x".repeat(5000) },
+  ];
+  for (const [key, value] of Object.entries(templateBody)) {
+    if (key === "format") continue;
+    mutations.push({ [key]: typeof value === "string" ? null : typeof value === "number" ? "foreign" : Array.isArray(value) ? {} : [] });
+  }
+  for (const key of ["digest", "environment", "reward", "collection_runs"]) mutations.push({ training_scope: { ...template.training_scope, [key]: "foreign" } });
+  mutations.push({ selection: 32 }, { policy_digest: "foreign" }, { proposal_digest: "foreign" }, { proposal_digest: "x".repeat(5000) }, { alien: true },
+    { training_scope: { ...template.training_scope, alien: true } }, { training_scope: { ...template.training_scope, collection_runs: -1 } },
+    { resource_limits: { samples: -1 } }, { resource_limits: { samples: "foreign" } }, { resource_limits: { alien: 1 } },
+    { evaluation: { decision: "foreign" } }, { evaluation: { reason_digest: "foreign" } }, { evaluation: { gain: "foreign" } }, { evaluation: { alien: 1 } },
+    { known_regressions: ["foreign"] }, { evidence: Array(33).fill({ id: "r", at: "1", digest: "x" }) as JsonValue },
+    { evidence: [{ id: "rl-template", at: "0", digest: "0".repeat(64) }] }, { evidence: [{ id: "rl-template", at: "1", digest: "foreign" }] },
+    { evidence: [{ id: "rl-template", at: "1", digest: "0".repeat(64), alien: true }] });
+  const mutated = new Set<string>();
+  for (const patch of seededOrder(mutations, 0x51a7)) {
+    const body = { ...templateBody, ...patch } as unknown as JsonValue; const digest = hashJson(body);
+    if (mutated.has(digest)) continue; mutated.add(digest);
+    const row = await w.client.create({ id: `policy-card-${digest}`, type: "Decision", title: "Foreign shaped envelope", tags: "rl-policy-card", affectedVersion: digest, body: JSON.stringify({ ...body as Record<string, JsonValue>, digest }) }); planted.push(row.item.id);
+  }
+  for (const [id, version, digest] of [["rl-policy-card-foreign-copy", template.digest, template.digest], [`policy-card-${template.digest}`, "foreign-version", template.digest], [`policy-card-${"0".repeat(64)}`, "0".repeat(64), "0".repeat(64)]]) {
+    const row = await w.client.create({ id, type: "Decision", title: "Foreign addressed envelope", tags: "rl-policy-card", affectedVersion: version, body: JSON.stringify({ ...templateBody, digest }) }); planted.push(row.item.id);
+  }
+  const overflowBody = JSON.stringify({ ...template, evaluation: { gain: "OVERFLOW_NUMBER" } }).replace('"OVERFLOW_NUMBER"', "1e999");
+  const overflow = await w.client.create({ id: "rl-policy-card-overflow-number", type: "Decision", title: "Foreign numeric shape", tags: "rl-policy-card", body: overflowBody }); planted.push(overflow.item.id);
+  const malformed = await w.client.create({ id: "rl-policy-card-bad-digest", type: "Decision", title: "Wrong digest type", tags: "rl-policy-card", body: JSON.stringify({ ...templateBody, digest: 17 }) }); planted.push(malformed.item.id);
+  const coordinates = { pmRoot: w.pmRoot, author: "card-test" };
+  const first = await runRlLoop(w.client, coordinates, { id: "hostile", config, approval: "rl-approval", async onPhase(phase) {
+    if (phase === "evaluate") { assert.ok((await discoverPolicyCards(w.client)).length >= 1); assert.equal((await exportPolicyCard(w.client, "rl-hostile-g1")).outcome, "candidate"); }
+  } });
+  assert.equal(first.promoted, 1);
+  const resumed = await resumeRlLoop(w.client, coordinates, { id: "hostile", approval: "rl-approval" });
+  assert.equal(resumed.promoted, 1);
+  const card = await exportPolicyCard(w.client, first.generations[0].item);
+  assert.equal((await adoptPolicyCard(w.client, card)).outcome, "promoted");
+  assert.ok((await discoverPolicyCards(w.client)).some((entry) => entry.digest === card.digest));
+  for (const id of planted) assert.ok(skippedTrackerRecords(w.client).some((row) => row.id === id && row.reason.length > 0), id);
+  assert.ok(resumed.skipped_records!.length >= planted.length);
+});
+
+test("shared tracker loop interleavings preserve peer promotion at evaluate promote and adopt boundaries", { timeout: 600_000 }, async (context) => {
+  for (const boundary of ["evaluate", "before-promote-read", "after-promote-read", "before-promote-write", "after-promote-write", "promote", "before-adopt", "after-adopt", "refusal-already_refused", "refusal-lost_claim", "refusal-stale_revision", "refusal-loop_write_conflict", "refusal-compare_and_set_refused", "refusal-race-peer-promotes"] as const) await context.test(boundary, async () => {
+    const w = await workspace(); const coordinates = { pmRoot: w.pmRoot, author: "card-test" };
+    await w.client.create({ id: "rl-approval", type: "Decision", title: "Consent", body: '```json\n{"permitted_promotions":1}\n```' });
+    const config = { ...JSON.parse(readFileSync(new URL("../examples/loop-bandit.json", import.meta.url), "utf8")) as Record<string, JsonValue>, max_generations: 1 };
+    const peer = new PmClient({ pmRoot: w.pmRoot, cwd: w.root, author: "peer-evaluator", noExtensions: true });
+    let injected = false; let armed = false; let faultRaised = false;
+    /** Apply the real peer transition with scores from the persisted, deterministic evaluation. */
+    async function inject(): Promise<void> {
+      if (injected) return; injected = true;
+      const item = (await peer.get("rl-interleave-g1")).item;
+      const candidate = extractGenerationSpec(String(item.body), "Shared candidate");
+      if (candidate.promoted) return;
+      const parsed = parseLoopConfig(config); const step = { learningRate: parsed.learningRate, evaluationSamples: parsed.evaluationSamples };
+      const receipt = runLoopGeneration(parsed, step, 1, banditCheckpoint(parsed.initialWeight));
+      const scores = loopPromotionScores(parsed, step, 1, receipt);
+      const proxy = parseScoreRecord(scores.proxy_score, "proxy"); const held = parseScoreRecord(scores.held_out_score, "held");
+      if (boundary === "before-promote-write" || boundary === "after-promote-write") {
+        const committed = { ...candidate, promoted: true, approval: "rl-approval", proxy_score: proxy, held_out_score: held, gap: 0, promotion_evidence: "Peer transition at the item transaction boundary" };
+        await peer.update(item.id, { body: `\`\`\`json\n${JSON.stringify(committed)}\n\`\`\`` });
+        await peer.close(item.id, "Peer promotion committed", { resolution: "Peer promotion committed", expectedResult: "Promoted", actualResult: "Promoted" });
+      } else await promoteGenerationCore(peer, { pmRoot: w.pmRoot, author: "peer-evaluator" }, item.id, "rl-approval", proxy, held, "Peer evaluated and promoted the shared candidate");
+    }
+    const get = w.client.get.bind(w.client);
+    w.client.get = (async (...args: Parameters<PmClient["get"]>) => {
+      const target = armed && !injected && args[0] === "rl-interleave-g1" && args[1]?.at === undefined;
+      if (target && boundary === "before-promote-read") await inject();
+      const result = await get(...args);
+      if (target && boundary === "after-promote-read") await inject();
+      if (target && boundary.startsWith("refusal-") && boundary !== "refusal-race-peer-promotes") { await inject(); throw createPmCliExpectedError("Concurrent transition refused", { exitCode: 4, context: { code: boundary.slice(8) } }); }
+      return result;
+    }) as PmClient["get"];
+    const first = await runRlLoop(w.client, coordinates, { id: "interleave", config, approval: "rl-approval", async onPhase(phase) {
+      if (phase === "evaluate") {
+        armed = true;
+        if (boundary === "refusal-race-peer-promotes") {
+          const configRead = w.client.config.bind(w.client);
+          w.client.config = (async (...args: Parameters<PmClient["config"]>) => {
+            if (!faultRaised && new Error().stack?.includes("mutateLoopItem")) { faultRaised = true; peerAtCommit(w.client, inject); throw createPmCliExpectedError("Capacity changed", { exitCode: 4, context: { code: "budget_exceeded" } }); }
+            return configRead(...args);
+          }) as PmClient["config"];
+        }
+        if (boundary === "evaluate") await inject();
+        if (boundary === "before-promote-write") peerAtCommit(w.client, inject);
+      }
+      if (phase === "promote" && (boundary === "promote" || boundary === "after-promote-write")) await inject();
+    } });
+    const peerBody = String((await peer.get(first.generations[0].item)).item.body);
+    assert.equal(await recordRefusedPolicyCard(w.client, first.generations[0].item, "already_promoted"), "promoted");
+    assert.equal(String((await peer.get(first.generations[0].item)).item.body), peerBody);
+    const card = await exportPolicyCard(peer, first.generations[0].item);
+    if (boundary === "before-adopt") await inject();
+    assert.equal((await adoptPolicyCard(w.client, card)).outcome, "promoted");
+    if (boundary === "after-adopt") await inject();
+    const second = await resumeRlLoop(peer, { pmRoot: w.pmRoot, author: "peer-evaluator" }, { id: "interleave", approval: "rl-approval" });
+    assert.ok(injected); assert.equal(first.promoted, 1); assert.equal(second.promoted, 1);
+    assert.equal(first.generations[0].promoted_by, second.generations[0].promoted_by);
+    assert.equal(first.final_checkpoint, second.final_checkpoint);
+    const actual = extractGenerationSpec(String((await peer.get(first.generations[0].item)).item.body), "Actual shared outcome");
+    assert.equal(actual.promoted, true); assert.equal((actual.policy_evaluation as Record<string, JsonValue>).decision, "promote");
+    assert.equal((await adoptPolicyCard(peer, await exportPolicyCard(peer, first.generations[0].item))).outcome, "promoted");
+  });
+});
+
+test("guarded tracker decoder bounds and classifies every foreign envelope without throwing", () => {
+  const contract = { type: "Decision", tag: "rl-policy-card", format: "pm-rl/policy-card/1", valid: (r: Record<string, unknown>) => r.subject === "rl-valid" };
+  const base = { id: "rl-record", type: "Decision", tags: ["rl-policy-card"], body: '{"format":"pm-rl/policy-card/1","subject":"rl-valid"}' };
+  assert.equal(skippedTrackerRecords({} as PmClient).length, 0);
+  assert.equal(decodeTrackerRecord(null, base, contract)!.subject, "rl-valid");
+  for (const value of [
+    { ...base, type: "Task" }, { ...base, tags: [] }, { ...base, tags: null },
+    { ...base, body: "# foreign" }, { ...base, body: "x".repeat(1_048_577) },
+    { ...base, body: '{"format":"pm-rl/policy-card/1",' },
+    { ...base, body: `{"format":"pm-rl/policy-card/1","v":${"[".repeat(65)}0${"]".repeat(65)}}` },
+    { ...base, body: '{"format":"foreign","comment":"pm-rl/policy-card/1"}' },
+    { ...base, body: '{"format":"pm-rl/policy-card/1","subject":1}' },
+  ]) assert.equal(decodeTrackerRecord(null, value, contract), null);
+  for (const body of ["null", "[]", "1"]) assert.equal(decodeTrackerRecord(null, { type: "Decision", body }, { type: "Decision" }), null);
+  assert.equal(decodeTrackerRecord(null, { type: "Decision", body: "{}" }, { type: "Decision" })!.format, undefined);
+  assert.equal(decodeTrackerRecord(null, base, { type: "Decision", valid() { throw new Error("invalid shape"); } }), null);
+  const quoted = { quoted: '["\\]' };
+  assert.deepEqual(parseBoundedJson(JSON.stringify(quoted)), quoted);
+  assert.throws(() => parseBoundedJson("[".repeat(65)), /decoding bounds/);
+  assert.throws(() => parseBoundedJson("x".repeat(16_777_217)), /decoding bounds/);
+});
+
+test("peer refusal remains attributed to its own evaluation after local CAS refusal", async () => {
+  const w = await workspace(); const id = await generation(w.client);
+  const peer = new PmClient({ pmRoot: w.pmRoot, author: "peer-evaluator", noExtensions: true });
+  const before = extractGenerationSpec(String((await peer.get(id)).item.body), "Candidate");
+  const refusedSpec = { ...before, policy_evaluation: { decision: "refuse", reason_digest: hashJson("peer reason") } };
+  await peer.update(id, { body: `\`\`\`json\n${JSON.stringify(refusedSpec)}\n\`\`\`` });
+  const body = String((await peer.get(id)).item.body);
+  assert.equal(await recordRefusedPolicyCard(w.client, id, "already_refused"), "refused");
+  assert.equal(String((await peer.get(id)).item.body), body);
+});
+
+test("shared tracker peer refusals survive evaluate and promotion CAS boundaries in both loop reports", { timeout: 600_000 }, async (context) => {
+  for (const boundary of ["evaluate", "promotion-cas", "promotion-refusal-cas"] as const) await context.test(boundary, async () => {
+    const w = await workspace();
+    const peer = new PmClient({ pmRoot: w.pmRoot, cwd: w.root, author: "peer-evaluator", noExtensions: true });
+    await w.client.create({ id: "rl-approval", type: "Decision", title: "Consent", body: '```json\n{"permitted_promotions":1}\n```' });
+    const config = { ...JSON.parse(readFileSync(new URL("../examples/loop-bandit.json", import.meta.url), "utf8")) as Record<string, JsonValue>, max_generations: 1 };
+    let peerBody = "";
+    /** Seal the peer's own refusal using the real SDK, preserving its independent reason. */
+    async function refusePeer(): Promise<void> {
+      const item = (await peer.get("rl-refusal-g1")).item;
+      const candidate = extractGenerationSpec(String(item.body), "Peer refusal source");
+      peerBody = `\`\`\`json\n${JSON.stringify({ ...candidate, policy_evaluation: { decision: "refuse", reason_digest: hashJson("peer independent refusal") } })}\n\`\`\``;
+      await peer.update(item.id, { body: peerBody });
+    }
+    const first = await runRlLoop(w.client, { pmRoot: w.pmRoot, author: "card-test" }, { id: "refusal", config, approval: "rl-approval", async onPhase(phase) {
+      if (phase === "evaluate") {
+        if (boundary === "evaluate") await refusePeer();
+        else if (boundary === "promotion-cas") peerAtCommit(w.client, refusePeer);
+        else {
+          const configRead = w.client.config.bind(w.client); let raised = false;
+          w.client.config = (async (...args: Parameters<PmClient["config"]>) => {
+            if (!raised && new Error().stack?.includes("mutateLoopItem")) { raised = true; peerAtCommit(w.client, refusePeer); throw createPmCliExpectedError("Capacity changed", { exitCode: 4, context: { code: "budget_exceeded" } }); }
+            return configRead(...args);
+          }) as PmClient["config"];
+        }
+      }
+    } });
+    const second = await resumeRlLoop(peer, { pmRoot: w.pmRoot, author: "peer-evaluator" }, { id: "refusal", approval: "rl-approval" });
+    assert.equal(first.promoted, 0); assert.equal(second.promoted, 0);
+    assert.equal(first.refusal_reason, second.refusal_reason);
+    assert.match(first.refusal_reason!, new RegExp(hashJson("peer independent refusal")));
+    assert.equal(String((await peer.get("rl-refusal-g1")).item.body), peerBody);
+  });
+});
+
+test("lost controller claim reports the committed peer state without recording a local refusal", { timeout: 600_000 }, async () => {
+  const w = await workspace();
+  await w.client.create({ id: "rl-approval", type: "Decision", title: "Consent", body: '```json\n{"permitted_promotions":1}\n```' });
+  const config = { ...JSON.parse(readFileSync(new URL("../examples/loop-bandit.json", import.meta.url), "utf8")) as Record<string, JsonValue>, max_generations: 1 };
+  const lock = join(w.pmRoot, "locks", `${loopLeaseLockId("fenced")}.lock`);
+  await assert.rejects(runRlLoop(w.client, { pmRoot: w.pmRoot, author: "card-test" }, { id: "fenced", config, approval: "rl-approval", onPhase(phase) {
+    if (phase === "promote") { const lease = JSON.parse(readFileSync(lock, "utf8")) as Record<string, unknown>; writeFileSync(lock, JSON.stringify({ ...lease, token: "peer-token" })); }
+  } }), (error: unknown) => {
+    assert.ok(isPmCliExpectedError(error)); assert.equal(error.context.code, "loop_lease_lost");
+    assert.equal((error.context as typeof error.context & { authoritative_report: { promoted: number } }).authoritative_report.promoted, 1); return true;
+  });
+  const candidate = extractGenerationSpec(String((await w.client.get("rl-fenced-g1")).item.body), "Actual committed state");
+  assert.equal(candidate.promoted, true); assert.equal((candidate.policy_evaluation as Record<string, JsonValue>).decision, "promote");
+  rmSync(lock);
+  const peer = new PmClient({ pmRoot: w.pmRoot, cwd: w.root, author: "peer-controller", noExtensions: true });
+  const resumed = await resumeRlLoop(peer, { pmRoot: w.pmRoot, author: "peer-controller" }, { id: "fenced", approval: "rl-approval" });
+  assert.equal(resumed.promoted, 1); assert.equal(resumed.generations[0].promoted_by, "card-test");
+});
+
+test("rejection CAS reconciliation preserves the peer terminal body for promotion and refusal", async (context) => {
+  for (const promoted of [true, false]) await context.test(promoted ? "promoted peer" : "refused peer", async () => {
+    const w = await workspace();
+    await w.client.create({ id: "rl-approval", type: "Decision", title: "Consent", body: '```json\n{"permitted_promotions":1}\n```' });
+    const config = { ...JSON.parse(readFileSync(new URL("../examples/loop-bandit.json", import.meta.url), "utf8")) as Record<string, JsonValue>, max_generations: 1 };
+    const completed = await runRlLoop(w.client, { pmRoot: w.pmRoot, author: "card-test" }, { id: "rejection-race", config, approval: "rl-approval" });
+    const id = completed.generations[0].item;
+    const terminal = extractGenerationSpec(String((await w.client.get(id)).item.body), "Terminal fixture");
+    const candidate = { ...terminal, promoted: false, approval: null, proxy_score: null, held_out_score: null, gap: null, promotion_evidence: null };
+    await w.client.update(id, { body: `\`\`\`json\n${JSON.stringify(candidate)}\n\`\`\`` });
+    const peer = new PmClient({ pmRoot: w.pmRoot, author: "peer-evaluator", noExtensions: true });
+    const peerBody = `\`\`\`json\n${JSON.stringify(promoted ? terminal : { ...candidate, policy_evaluation: { decision: "refuse", reason_digest: hashJson("peer refusal") } })}\n\`\`\``;
+    peerAtCommit(w.client, async () => { await peer.update(id, { body: peerBody }); });
+    assert.equal(await recordRefusedPolicyCard(w.client, id, "local CAS refusal"), promoted ? "promoted" : "refused");
+    assert.equal(String((await peer.get(id)).item.body), peerBody);
+  });
+});
+
+test("promotion attribution requires complete certified history and a surviving committed version", async (context) => {
+  for (const projection of ["bounded", "unverified", "full", "compacted-peer"] as const) await context.test(projection, async () => {
+    const w = await workspace();
+    await w.client.create({ id: "rl-approval", type: "Decision", title: "Consent", body: '```json\n{"permitted_promotions":1}\n```' });
+    const config = { ...JSON.parse(readFileSync(new URL("../examples/loop-bandit.json", import.meta.url), "utf8")) as Record<string, JsonValue>, max_generations: 1 };
+    const run = w.client.run.bind(w.client);
+    w.client.run = ((action, args) => run(action, action === "history" && new Error().stack?.includes("promotionAuthor") && projection !== "compacted-peer"
+      ? { ...args, options: { ...(args?.options as Record<string, unknown>), ...(projection === "bounded" ? { limit: "1" } : projection === "unverified" ? { verify: false } : { compact: false }) } } : args)) as PmClient["run"];
+    await assert.rejects(runRlLoop(w.client, { pmRoot: w.pmRoot, author: "card-test" }, { id: "attribution", config, approval: "rl-approval", async onPhase(phase) {
+      if (phase === "promote" && projection === "compacted-peer") {
+        const peer = new PmClient({ pmRoot: w.pmRoot, author: "peer-evaluator", noExtensions: true });
+        const item = (await peer.get("rl-attribution-g1")).item; const current = extractGenerationSpec(String(item.body), "Before peer compaction");
+        await peer.update(item.id, { body: `\`\`\`json\n${JSON.stringify({ ...current, promoted: false, approval: null, proxy_score: null, held_out_score: null, gap: null, promotion_evidence: null })}\n\`\`\`` });
+        await peer.historyCompact(item.id, { force: true });
+      }
+    } }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === (projection === "compacted-peer" ? "loop_step_drift" : "loop_history_incomplete"));
   });
 });

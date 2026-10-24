@@ -1,3 +1,4 @@
+import { parseBoundedJson } from "./tracker-record.ts";
 /**
  * @module pm-rl/refuse
  *
@@ -81,7 +82,7 @@ export function asJsonObject(value: unknown, source: string, code: string = "inv
 export function parseJsonRecord(text: string, source: string, invalidJsonCode: string, exitCode: number = EXIT_CODE.USAGE): Record<string, unknown> {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(text);
+    parsed = parseBoundedJson(text);
   } catch {
     expectedFail(`${source} is not valid JSON.`, invalidJsonCode, exitCode);
   }

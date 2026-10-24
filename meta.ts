@@ -1,3 +1,4 @@
+import { decodeTrackerRecord } from "./tracker-record.ts";
 /** Durable recipe search over sealed tracker compartments, using the existing trainer and promotion gate. */
 import assert from "node:assert/strict";
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
@@ -90,7 +91,9 @@ async function metaApproval(client: PmClient, id: string): Promise<{ id: string;
   assert.equal(item.item.type, "Decision", "meta_approval_required");
   const fence = /```json\n([\s\S]+?)\n```/.exec(String(item.item.body));
   assert.ok(fence !== null, "meta_approval_spec");
-  const spec = JSON.parse(fence[1]) as { meta_budget: Record<string, number> };
+  const decoded = decodeTrackerRecord(client, { ...item.item, body: fence[1] }, { type: "Decision", valid: (row) => row.meta_budget !== null && typeof row.meta_budget === "object" });
+  assert.ok(decoded !== null, "meta_approval_spec");
+  const spec = decoded as { meta_budget: Record<string, number> };
   assert.ok(spec.meta_budget !== null && typeof spec.meta_budget === "object", "meta_budget_required");
   for (const key of ["training_samples", "proposal_calls", "recipe_promotions"]) {
     assert.ok(Number.isSafeInteger(spec.meta_budget[key]) && spec.meta_budget[key] >= 0, "meta_budget_bound");
@@ -102,11 +105,9 @@ async function metaApproval(client: PmClient, id: string): Promise<{ id: string;
 
 /** Parse reservation envelopes independent of JSON spacing; unrelated text cannot charge or conceal an allowance. */
 export function metaReservation(body: string): { id: string; approval: string; charge: Record<string, number>; promotion_headroom: number } | null {
-  if (!body.includes("pm-rl/meta-reservation/1")) return null;
-  try {
-    const record = JSON.parse(body) as { format: string; id: string; approval: string; charge: Record<string, number>; promotion_headroom: number };
-    return record.format === "pm-rl/meta-reservation/1" ? record : null;
-  } catch { return null; }
+  const row = decodeTrackerRecord(null, { type: "Decision", body }, { type: "Decision", format: "pm-rl/meta-reservation/1", valid: (r) => typeof r.id === "string" && typeof r.approval === "string" && r.charge !== null && typeof r.charge === "object" && !Array.isArray(r.charge) });
+  return row as ReturnType<typeof metaReservation>;
+
 }
 
 /** Read only the SDK-canonical receipt identity; unreadable evidence never becomes an absent reservation or intent. */
@@ -163,7 +164,9 @@ async function reserveMeta(client: PmClient, coordinates: ProcessCoordinates, re
     const previous = await readMetaReceipt(client, key);
     if (previous === null) return { state: "pending" };
     assert.equal(previous.item.type, "Decision", "meta_reservation_drift");
-    const record = JSON.parse(String(previous.item.body)) as { format: string; id: string; binding: string; approval: string; charge: JsonValue; promotion_headroom: number };
+    const decoded = decodeTrackerRecord(client, previous.item, { type: "Decision", format: "pm-rl/meta-reservation/1" });
+    assert.ok(decoded !== null, "meta_reservation_drift");
+    const record = decoded as { format: string; id: string; binding: string; approval: string; charge: JsonValue; promotion_headroom: number };
     assert.equal(record.binding, binding, "meta_reservation_drift");
     assert.equal(record.format, "pm-rl/meta-reservation/1", "meta_reservation_drift");
     assert.equal(record.id, key, "meta_reservation_drift");
@@ -197,7 +200,7 @@ async function reserveMeta(client: PmClient, coordinates: ProcessCoordinates, re
       const consumed = items.items.some((item) => item.type === "Generation") ? await promotedGenerationIdsUnderApproval(client, approval.id) : [];
       const totalPromotions = consumed.length + await retainedMetaPromotionHeadroom(client, approval.id, consumed) + promotionHeadroom;
       assert.ok(Number.isSafeInteger(totalPromotions) && totalPromotions <= approval.promotions, "meta_promotion_budget_exhausted");
-      await client.create({ id: key, type: "Decision", title: "Reserved bounded recipe search", body: JSON.stringify({ format: "pm-rl/meta-reservation/1", id: key, binding, approval: approval.id, charge, promotion_headroom: promotionHeadroom }) });
+      await client.create({ id: key, type: "Decision", tags: "rl-meta-reservation", title: "Reserved bounded recipe search", body: JSON.stringify({ format: "pm-rl/meta-reservation/1", id: key, binding, approval: approval.id, charge, promotion_headroom: promotionHeadroom }) });
     },
     // Conservative reservations survive transaction recovery and are never refunded by search itself.
     async compensate() {},
@@ -260,7 +263,9 @@ export async function durableRecipeProposals(client: PmClient, id: string, reque
   const previous = await readMetaReceipt(client, key);
   if (previous !== null) {
     assert.equal(previous.item.type, "Decision", "meta_proposal_drift");
-    const record = JSON.parse(String(previous.item.body)) as { id: string; binding: string; state: string; result: { recipes: Recipe[]; proposer: string }; digest: string };
+    const decoded = decodeTrackerRecord(client, previous.item, { type: "Decision" });
+    assert.ok(decoded !== null, "meta_proposal_drift");
+    const record = decoded as { id: string; binding: string; state: string; result: { recipes: Recipe[]; proposer: string }; digest: string };
     assert.equal(record.id, key, "meta_proposal_drift");
     assert.equal(record.binding, binding, "meta_proposal_drift");
     if (record.state === "complete") {

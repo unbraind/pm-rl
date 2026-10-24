@@ -71,6 +71,7 @@
     "docs/shadow-policy.md",
     "docs/shadow-evidence.json",
     "dist/policy-card.*",
+    "dist/tracker-record.*",
     "docs/policy-cards.md",
     "docs/policy-card-write-audit.md",
     "docs/policy-card-evidence.json"

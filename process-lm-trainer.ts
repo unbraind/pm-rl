@@ -1,3 +1,4 @@
+import { parseBoundedJson } from "./tracker-record.ts";
 /** Packaged TypeScript LM entrypoint implementing the shared durable process protocol. */
 import { createHash } from "node:crypto";
 import { closeSync, fsyncSync, openSync, writeFileSync } from "node:fs";
@@ -13,7 +14,7 @@ import { isMainInvocation } from "./scripts/script-launcher.ts";
 export async function runLmTrainer(stdin: Readable = process.stdin, stdout: Writable = process.stdout, directory = "."): Promise<void> {
   let text = "";
   for await (const chunk of stdin) text += String(chunk);
-  const { job, input } = JSON.parse(text) as { job: string; input: ProcessInput<{ readonly digest: string }> };
+  const { job, input } = parseBoundedJson(text) as { job: string; input: ProcessInput<{ readonly digest: string }> };
   const start = performance.now(); const cpu = process.cpuUsage();
   const { config, source, payload } = restoreLmProcessInput(input);
   stdout.write(`${JSON.stringify({ type: "progress", job, usage: { training_steps: 0, wall_ms: 0, storage_bytes: 0, compute_units: 0, tokens: 0 } })}\n`);

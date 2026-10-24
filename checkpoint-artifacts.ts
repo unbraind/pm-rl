@@ -1,3 +1,4 @@
+import { parseBoundedJson } from "./tracker-record.ts";
 /** Immutable checkpoint blobs and an append-only promotion/audit ledger, independent of Git. */
 import { createHash, randomUUID } from "node:crypto";
 import { closeSync, constants, fstatSync, fsyncSync, linkSync, mkdirSync, openSync, readSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
@@ -80,7 +81,7 @@ export function readCheckpointArtifact(root: string, ref: CheckpointArtifact): u
 }
 /** Normalize malformed blob or ledger JSON into the same fail-closed integrity error. */
 function parseArtifactJson(content: Buffer): unknown {
-  try { return JSON.parse(content.toString("utf8")); }
+  try { return parseBoundedJson(content.toString("utf8")); }
   catch { expectedFail("Checkpoint artifact or ledger is not JSON.", "checkpoint_artifact_corrupt"); }
 }
 /** Resolve a public audit coordinate without needing a staging path or a Git repository. */

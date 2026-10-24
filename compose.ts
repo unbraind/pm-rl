@@ -1,3 +1,4 @@
+import { parseBoundedJson } from "./tracker-record.ts";
 /** Controller-owned Docker Compose lifecycle for the durable process trainer protocol. */
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -52,7 +53,7 @@ export async function stopComposeTrainer(directory: string, id: string, image: s
   let resources: unknown = null;
   if (limits !== undefined && container.length > 0) {
     const inspected = await promisify(execFile)("docker", ["container", "inspect", container, "--format", '{"memory_bytes":{{.HostConfig.Memory}},"nano_cpus":{{.HostConfig.NanoCpus}},"oom_killed":{{.State.OOMKilled}},"exit_code":{{.State.ExitCode}},"network":{{json .HostConfig.NetworkMode}},"user":{{json .Config.User}}}'], options);
-    resources = JSON.parse(inspected.stdout) as unknown;
+    resources = parseBoundedJson(inspected.stdout) as unknown;
   }
   if (container.length > 0) await promisify(execFile)("docker", ["container", "rm", "--force", container], options);
   await promisify(execFile)("docker", [...composeArgs(directory, id), "down", "--timeout", "0"], options);

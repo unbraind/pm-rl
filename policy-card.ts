@@ -1,3 +1,4 @@
+import { decodeTrackerRecord, parseBoundedJson } from "./tracker-record.ts";
 /** Minimized explanations of learned-policy suitability, backed by SDK-certified history. */
 import type { HistoryResult } from "@unbrained/pm-cli/sdk/query";
 import type { GetResult, PmClient } from "@unbrained/pm-cli/sdk/core";
@@ -102,9 +103,11 @@ function source(item: CardItem): { value: Record<string, unknown>; outcome: Poli
       scope: { digest: hashJson(spec.training_config), collection_runs: spec.collection_runs.length, environment: hashJson(spec.environment_version), reward: hashJson(spec.reward_spec_version) },
       regressions: regression ? ["reward_regression"] : judged.decision === "refuse" ? ["promotion_refused"] : spec.promoted || judged.decision === "promote" ? [] : ["evaluation_incomplete"] };
   }
-  let row: Record<string, unknown>;
-  try { row = object(JSON.parse(String(item.body))); } catch { return refuse("card_invalid"); }
-  if (item.type !== "Decision" || row.format !== "pm-rl/loop-step/1" || row.state !== "complete" || typeof row.input !== "string" || !/^[a-f0-9]{64}$/.test(row.input) || row.result === null || typeof row.result !== "object" || row.digest !== hashJson(row.result as JsonValue)) refuse("card_missing_provenance");
+  if (item.type !== "Decision") return refuse(String(item.body).trim() === "" ? "card_invalid" : "card_missing_provenance");
+  if (String(item.body).trimStart().startsWith("{") && !String(item.body).includes('"pm-rl/loop-step/1"')) return refuse("card_missing_provenance");
+  const row = decodeTrackerRecord(null, item, { type: "Decision", format: "pm-rl/loop-step/1" });
+  if (row === null) return refuse("card_invalid");
+  if (row.state !== "complete" || typeof row.input !== "string" || !/^[a-f0-9]{64}$/.test(row.input) || row.result === null || typeof row.result !== "object" || row.digest !== hashJson(row.result as JsonValue)) refuse("card_missing_provenance");
   const result = object(row.result);
   const verdict = result.promoted === true || result.promoted !== null && typeof result.promoted === "string" ? "promoted" : result.promoted === false ? "refused" : "recorded";
   return { value: result, outcome: verdict, dependencies: [], scope: { digest: hashJson(row.input as JsonValue), collection_runs: 0, environment: hashJson(null), reward: hashJson(null) }, regressions: verdict === "refused" ? ["promotion_refused"] : ["evaluation_incomplete"] };
@@ -165,7 +168,7 @@ async function verifyCardAncestry(client: PmClient, leaf: string): Promise<void>
     if (fresh.policy_digest === null) refuse("card_missing_provenance");
     const retained = await snapshot(client, `policy-card-${fresh.digest}`);
     if (retained.item.type !== "Decision" || retained.item.affected_version !== fresh.digest || retained.item.body !== canonicalJson(fresh as unknown as JsonValue)) refuse("card_drift");
-    await replayPolicyCard(client, JSON.parse(String(retained.item.body)));
+    await replayPolicyCard(client, parseBoundedJson(String(retained.item.body)));
     const generation = (await snapshot(client, fresh.subject)).item;
     const spec = extractGenerationSpec(String(generation.body), "Policy ancestry");
     if (!spec.seed) {
@@ -177,7 +180,7 @@ async function verifyCardAncestry(client: PmClient, leaf: string): Promise<void>
 }
 /** Extract numeric limits from JSON or a package JSON fence, never free text. */
 function bodyLimits(item: CardItem): Record<string, number> {
-  try { return limits(JSON.parse(String(item.body).replace(/^[\s\S]*?```json\n([\s\S]*?)\n```[\s\S]*$/, "$1"))); }
+  try { return limits(parseBoundedJson(String(item.body).replace(/^[\s\S]*?```json\n([\s\S]*?)\n```[\s\S]*$/, "$1"))); }
   catch { return {}; }
 }
 /** Plans and comparison receipts do not declare allowances; only the pinned shadow deployment does. */
@@ -230,12 +233,53 @@ export async function generationEvidence(client: PmClient, subject: string, sele
   for (const entry of entries) Object.assign(resource, evidenceLimits(subject, entry));
   return { primary: primary.item, evidence, entries, resource };
 }
+/** Match complete fixed record fields before a foreign shape can reach evidence replay. */
+function fields(row: Record<string, unknown>, expected: string): boolean { return Object.keys(row).sort().join(",") === expected; }
+/** Recognize a bounded content digest without coercing foreign values. */
+function digestShape(value: unknown): boolean { return typeof value === "string" && /^[a-f0-9]{64}$/.test(value); }
+/** Validate the complete portable envelope; semantic evidence drift remains a separate provenance refusal. */
+function cardShape(row: Record<string, unknown>): boolean {
+  if (!fields(row, "allowed_actions,digest,evaluation,evidence,format,known_regressions,outcome,policy_digest,proposal_digest,resource_limits,selection,subject,training_scope") || encodedSize(row) > POLICY_CARD_MAX_BYTES) return false;
+  identity(row.subject);
+  if (row.selection !== null && (!Number.isSafeInteger(row.selection) || Number(row.selection) < 0 || Number(row.selection) >= MAX_EVIDENCE)) return false;
+  if (!digestShape(row.digest) || !digestShape(row.proposal_digest) || row.policy_digest !== null && !digestShape(row.policy_digest)) return false;
+  if (!["seed", "candidate", "promoted", "refused", "recorded"].includes(String(row.outcome))) return false;
+  if (!Array.isArray(row.allowed_actions) || row.allowed_actions.join(",") !== "inspect,evaluate" || !Array.isArray(row.known_regressions)
+    || row.known_regressions.some((entry) => !["reward_regression", "promotion_refused", "evaluation_incomplete"].includes(String(entry)))) return false;
+  const scope = object(row.training_scope);
+  if (!fields(scope, "collection_runs,digest,environment,reward") || !digestShape(scope.digest) || !digestShape(scope.environment) || !digestShape(scope.reward)
+    || !Number.isSafeInteger(scope.collection_runs) || Number(scope.collection_runs) < 0) return false;
+  for (const [key, value] of Object.entries(object(row.resource_limits))) if (!LIMIT_KEYS.includes(key) || !Number.isSafeInteger(value) || Number(value) < 0) return false;
+  for (const [key, value] of Object.entries(object(row.evaluation))) {
+    if (key === "decision") { if (value !== "promote" && value !== "refuse") return false; }
+    else if (key === "reason_digest") { if (!digestShape(value)) return false; }
+    else if (!["gain", "gain_lower_bound", "margin", "uncertainty", "candidate_held_out_mean", "incumbent_held_out_mean", "candidate_mean", "incumbent_mean", "samples", "independent_units"].includes(key) || typeof value !== "number" || !Number.isFinite(value)) return false;
+  }
+  if (!Array.isArray(row.evidence) || row.evidence.length === 0 || row.evidence.length > MAX_EVIDENCE) return false;
+  for (const citation of row.evidence) {
+    const ref = object(citation); identity(ref.id);
+    if (!fields(ref, "at,digest,id") || typeof ref.at !== "string" || !/^[1-9][0-9]*$/.test(ref.at) || !digestShape(ref.digest)) return false;
+  }
+  return true;
+}
+/** Discover supported cards using type, tag and version before parsing unrelated tracker bodies. */
+export async function discoverPolicyCards(client: PmClient): Promise<PolicyCard[]> {
+  const listed = await client.listAllComplete({ includeBody: true });
+  const retained: PolicyCard[] = [];
+  for (const item of listed.items) {
+    const record = decodeTrackerRecord(client, item, { type: "Decision", tag: "rl-policy-card", format: "pm-rl/policy-card/1", valid: (row) => {
+      if (!cardShape(row)) return false;
+      const { digest, ...body } = row;
+      return item.id.endsWith(`-policy-card-${digest}`) && item.affected_version === digest && hashJson(body as JsonValue) === digest;
+    } });
+    if (record !== null) retained.push(record as unknown as PolicyCard);
+  }
+  return retained;
+}
 /** Compare the same evidence with the last retained outcome before a resumed generation advances. @internal */
 export async function verifyRetainedGenerationEvidence(client: PmClient, subject: string): Promise<void> {
   const fresh = await generationEvidence(client, subject);
-  const listed = await client.listAllComplete({ includeBody: true });
-  const retained = listed.items.filter((item) => item.type === "Decision" && item.id.includes("-policy-card-"))
-    .map((item) => JSON.parse(String(item.body)) as PolicyCard).filter((card) => card.subject === subject);
+  const retained = (await discoverPolicyCards(client)).filter((card) => card.subject === subject);
   if (retained.length === 0) return;
   for (const card of retained) await replayPolicyCard(client, card);
   const outcome = source(fresh.primary).outcome;
@@ -281,7 +325,7 @@ async function verifyEvidenceBindings(client: PmClient, item: CardItem, entries:
 }
 /** Decode structured lineage bindings without exposing arbitrary evidence text. */
 function evidenceBody(item: CardItem): Record<string, unknown> {
-  try { return object(JSON.parse(String(item.body))); }
+  try { return object(parseBoundedJson(String(item.body))); }
   catch { return refuse("card_drift"); }
 }
 /** Validate every bounded projection before creating a source or changing its history. @internal */
@@ -353,7 +397,7 @@ export async function recordPolicyCard(client: PmClient, subject: string, select
 async function persistPolicyCard(client: PmClient, card: PolicyCard): Promise<void> {
   const id = `policy-card-${card.digest}`; const subject = card.subject;
   const body = canonicalJson(card as unknown as JsonValue);
-  await createOrReadIdentical(client, { id, type: "Decision", title: "Portable policy explanation", body, affectedVersion: card.digest, dep: [subject] }, "card_drift", (item) => {
+  await createOrReadIdentical(client, { id, type: "Decision", title: "Portable policy explanation", tags: "rl-policy-card", body, affectedVersion: card.digest, dep: [subject] }, "card_drift", (item) => {
     if (item.body !== body || item.affected_version !== card.digest) refuse("card_drift");
     return true;
   });
