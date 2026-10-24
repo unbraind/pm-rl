@@ -6,11 +6,11 @@ status: in_progress
 priority: 2
 tags[1]: "gh:unbraind/pm-rl#100"
 created_at: "2026-10-23T14:29:56.651Z"
-updated_at: "2026-10-24T14:21:10.457Z"
+updated_at: "2026-10-24T15:00:20.976Z"
 author: codex-agent
 acceptance_criteria: Missing provenance blocks adoption; replay identifies every cited result; export contains no training examples or credentials; typed SDK and compact TOON/JSON CLI; every recursive candidate and promotion has a card; read-only public tracker validation demonstrates at least two generations; npm and Bun CI release gates pass at unchanged thresholds.
 parent: pm-rl-apvf
-comments[99]{created_at,author,text}:
+comments[101]{created_at,author,text}:
   "2026-10-23T14:31:01.471Z",codex-agent,"Overlap check: current host CLI is 2026.10.23; package SDK remains pinned at 2026.10.20. Inspected CLI command ownership and pm-context context-pack explanations: neither exports learned-policy suitability. Existing pm-rl checkpoint artifacts retain executable state; generation provenance, causal plans, shadow comparisons and recursive improver receipts own the evidence. Cards will reuse SDK complete inventory, certified history reads and content-addressed package hashes. No dependency bump, trainer replacement or context assembler. Plan: minimized digest-only cards, replay/adoption refusals, automatic recursive candidate/outcome publication, non-Git public-copy validation for two generations, targeted local checks and full npm/Bun CI gates."
   "2026-10-23T14:43:18.298Z",codex-agent,"Implemented typed export/replay/adoption-check SDK and CLI, bounded digest-only projection, exact timestamped history citations and retained candidate/promotion cards. Recursive durable phases now retain outcome cards plus one card per proposed configuration/recipe. Local typecheck, lint, duplication and docstring checks passed before the last small additions; targeted regression work is ongoing. Verified the selected pm-ops commit is publicly accessible and MIT licensed; prepared a read-only non-Git copy for two-generation numerical-policy acceptance. Full release gates will run in CI because the shared host is saturated."
   "2026-10-23T14:54:41.570Z",codex-agent,"Behavioral revert proof: disabled only recordRecursivePolicyCards publication; the durable recursive-phase regression failed with 0 retained cards versus 6 required. Restored implementation; targeted suite passed 8/8 with no skips, new module 100% lines/functions and 98.35% branches before final branch cases. The first real-data run passed two promotions, 5 retained cards, 19 replayed citations, 105 training plus 41 held-out items and unchanged 300-file source digest. Compact output measured 2082-2085 JSON bytes and 1544-1547 TOON bytes. Final packed rerun and CI gates pending."
@@ -110,6 +110,8 @@ comments[99]{created_at,author,text}:
   "2026-10-24T14:00:27.430Z",codex-agent,"The history-compaction/current-drift correction passes 3/3 through the pinned PM snapshot runner, plus local typecheck and lint. The superseded CI run was canceled after finding the classification mismatch; it is not gate evidence. The correction head will receive fresh npm/Node 22, npm/Node 26 and Bun/Node 26 full release gates. Both class revert proofs and unchanged regression hash remain recorded above."
   "2026-10-24T14:19:55.958Z",codex-agent,"Consolidated the duplicated raw provenance-seal guard into verifiedGenerationSpec, shared by requested snapshots and prospective card sources. This preserves both refusal classifications and the identical pre-canonicalization integrity check while avoiding a redundant branch whose normal exported-source path is now intercepted earlier by snapshot verification. No coverage thresholds or tests were weakened. Focused snapshot, prospective refusal, canonical graph and manual retry regressions are being rerun on the shared helper."
   "2026-10-24T14:21:09.415Z",codex-agent,"Shared raw-seal validation is complete: the final snapshot/prospective-refusal/canonical-graph/manual-retry command passes 7/7 through the pinned PM snapshot runner. Both production-only class reverts were rerun from the current source and each fails 1/1 as intended with unchanged regression SHA-256 171b3e13b3df8d5a42b0f4d16d59c1f83910b1305915c6ea38d016899583a285. The complete local policy-card run on the previous source passed 241/242; its sole failure was the compaction refusal classification already corrected and verified through PM. Property and all crash cases passed. A fresh final-head CI run replaces superseded runs; no canceled run is gate evidence. Typecheck, test compilation and lint pass; the shared verifier removes duplicate raw-seal logic without weakening validation or thresholds."
+  "2026-10-24T14:58:38.208Z",codex-agent,"Final-head CI Node 26 npm completed 989 tests with 987 passing and two fixture failures; policy-card.ts, lineage.ts and all other modules measured 100%, while the two intended index.ts branches were unentered. The trainer-receipt crash fixture still matched an unqualified create id after registration began sending canonical ids, so its injection never fired; it now matches the canonical id and explicitly asserts the boundary was interrupted. The ancestry-contamination fixture changed the parent body without its provenance seal, causing the earlier raw-seal guard to refuse before contamination; it now performs a legitimate peer body+seal update, retaining the contamination/path/unpromoted assertions. No production behavior, thresholds, timeouts or refusal assertions are weakened."
+  "2026-10-24T15:00:19.946Z",codex-agent,"Both CI fixture corrections pass 2/2 directly and through the pinned PM snapshot runner. Raw V8 union measurements confirm the previously uncovered trainer-receipt drift failure at index.ts line 4032 and in-lock ancestor-contamination failure at line 2570 each execute once. All three CI jobs on the previous head completed with the same two fixture failures (987/989); the production card and canonicalization modules measured 100%. This correction changes tests only, adds an explicit injection-reached assertion, preserves the original refusal/path/outcome assertions, and leaves every threshold and timeout unchanged. A fresh head will run the complete npm and Bun release gates."
 files[29]{path,scope}:
   .gitattributes,project
   .github/workflows/ci.yml,project
@@ -140,7 +142,7 @@ files[29]{path,scope}:
   test/process.test.ts,project
   test/shadow.test.ts,project
   tracker-record.ts,project
-tests[30]:
+tests[31]:
   - command: node --test test/policy-card.test.ts
     scope: project
     timeout_seconds: 600
@@ -426,6 +428,16 @@ tests[30]:
     provenance:
       author: codex-agent
       created_at: "2026-10-24T14:19:57.714Z"
+      source_kind: local_mutation
+      source_ref: feat/policy-cards
+  - command: "node --test --test-name-pattern=\"rehashed trainer receipts|peer contaminating an ANCESTOR\" test/durable-loop.test.ts test/lineage.test.ts"
+    scope: project
+    timeout_seconds: 60
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-24T14:58:39.215Z"
       source_kind: local_mutation
       source_ref: feat/policy-cards
 docs[5]{path,scope}:

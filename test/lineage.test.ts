@@ -1634,7 +1634,8 @@ test("a peer contaminating an ANCESTOR under the lock is caught, because the ver
   const seedBody = String((await client.get(seed, { fields: "body" })).item.body);
   const contaminatedSeed = seedBody.replace(/"environment_version": "[^"]*"/, `"environment_version": ${JSON.stringify(holdout)}`);
   assert.notEqual(contaminatedSeed, seedBody, "the peer edit must change the seed, or nothing is injected");
-  const sdk = sdkWith(clientWithConcurrentEditThenFailingClose(new PmClient({ pmRoot, author: "pm-rl-test" }), candidate.id!, contaminatedSeed, { failClose: false, editId: seed, triggerId: String(approval.item.id) }));
+  // A legitimate peer edit must update its provenance seal so the test reaches the contamination decision.
+  const sdk = sdkWith(clientWithConcurrentEditThenFailingClose(new PmClient({ pmRoot, author: "pm-rl-test" }), candidate.id!, contaminatedSeed, { failClose: false, editId: seed, triggerId: String(approval.item.id), updateProvenance: true }));
   const settled = await harness.runCommand({ command: "rl generation promote", pmRoot, args: [candidate.id!], options: { approval: approval.item.id, scores: writeScores(root, 12, holdout, 9), evidence: "ancestor" }, sdk }).then(() => "promoted").catch((error: Error) => error.message);
   assert.notEqual(settled, "promoted", "a promotion whose ancestry became contaminated under the lock must not succeed");
   assert.match(String(settled), /reachable from the candidate's training data/, `the refusal must be the contamination verdict itself, got: ${String(settled)}`);

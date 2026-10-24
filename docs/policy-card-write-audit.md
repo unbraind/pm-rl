@@ -506,3 +506,13 @@ preserved.
 and prospective sources. The snapshot, prospective refusal, canonical graph and
 manual retry suite passes 7/7 through PM after consolidation; both production-only
 class reverts still fail 1/1 with the same unchanged regression file hash.
+
+The first complete release run executed 989 tests and identified two existing
+fixture assumptions that no longer reached their intended boundary: the trainer
+crash hook matched an unqualified id, and the ancestry peer edit omitted its new
+provenance seal. The fixtures now match the canonical candidate id with an
+explicit injection assertion, and update body plus seal for the legitimate peer
+edit. Original trainer-drift, contamination-path and unpromoted assertions are
+retained. The corrected focused suite passes 2/2 directly and through PM; raw V8
+measurements enter both previously missed `index.ts` failure branches. Production
+code and all thresholds/timeouts are unchanged by these fixture corrections.
