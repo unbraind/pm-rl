@@ -210,7 +210,7 @@ import {
 } from "@unbrained/pm-cli/sdk/authoring";
 import { commitWorkspaceTransaction, applyTerminalOrderingPolicy, mutateItem, readSettings, runWithActiveExtensions, type CommitWorkspaceTransactionOptions, type ItemDocument, resolveRuntimeStatusRegistry, type LogNote } from "@unbrained/pm-cli/sdk";
 import { PmClient, type GetResult, type ItemMetadata } from "@unbrained/pm-cli/sdk/core";
-import { acquireLock, certifyCompleteListResult, createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError, isTerminalStatus, normalizeItemId, type PmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
+import { acquireLock, certifyCompleteListResult, createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError, isTerminalStatus, type PmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 
 import { parseJsonRecord, rethrowOperationalRead, rethrowProvenanceRead } from "./refuse.ts";
 import { exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordRecursivePolicyCards, recordPolicyCard, validatePromotedPolicyCard, validatePolicyCardWrite, validateRefusedPolicyCard, discoverPolicyCards, verifyRetainedGenerationEvidence } from "./policy-card.ts";
@@ -237,6 +237,9 @@ import {
 
 import {
   buildLineageAncestry,
+  canonicalizeIdentifier,
+  canonicalizeGenerationSpec,
+  canonicalizeScoreRecord,
   directionAwareGap,
   findContaminationPath,
   GENERATION_EDGE_TYPES,
@@ -1940,9 +1943,10 @@ function normalizeRunEnvironment(value: string | undefined): string | undefined 
  * @returns The ancestry from the head back to the seed.
  */
 async function buildAncestry(client: PmClient, headId: string, strict: boolean): Promise<AncestryEntry[]> {
+  const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
   const ancestry: AncestryEntry[] = [];
   const visited = new Set<string>();
-  let currentId: string | null = headId;
+  let currentId: string | null = canonicalizeIdentifier(headId, prefix);
   while (currentId !== null) {
     if (visited.has(currentId)) {
       // A repeat means the parent chain loops, so the walk can never reach a
@@ -1974,7 +1978,7 @@ async function buildAncestry(client: PmClient, headId: string, strict: boolean):
     let spec: GenerationSpec;
     try {
       const item = await getTypedItem(client, currentId, "Generation");
-      spec = extractGenerationSpec(String(item.item.body), `Generation ${currentId}`);
+      spec = canonicalizeGenerationSpec(extractGenerationSpec(String(item.item.body), `Generation ${currentId}`), prefix);
     } catch (error) {
       if (strict) throw error;
       break;
@@ -2012,7 +2016,7 @@ async function buildAncestry(client: PmClient, headId: string, strict: boolean):
       // padding there IS reachable and is trimmed at the parse boundary.
       const environment = normalizeRunEnvironment(run.item.environment);
       if (typeof environment === "string" && environment.length > 0) {
-        runEnvironments.set(runId, environment);
+        runEnvironments.set(runId, canonicalizeIdentifier(environment, prefix));
         continue;
       }
       if (strict) {
@@ -2086,6 +2090,7 @@ export async function promotedGenerationIdsUnderApproval(client: PmClient, appro
 
 /** Find generation item ids that are not a parent of any other generation. */
 async function findGenerationHeads(client: PmClient): Promise<string[]> {
+  const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
   const result = await client.list({ type: "Generation", status: "all", noTruncate: true, fields: "id,body" });
   const parentIds = new Set<string>();
   const allIds: string[] = [];
@@ -2113,7 +2118,7 @@ async function findGenerationHeads(client: PmClient): Promise<string[]> {
       continue;
     }
     allIds.push(item.id);
-    if (typeof parent === "string" && parent.length > 0) parentIds.add(parent);
+    if (typeof parent === "string" && parent.length > 0) parentIds.add(canonicalizeIdentifier(parent, prefix));
   }
   return allIds.filter((id) => !parentIds.has(id)).sort();
 }
@@ -2201,9 +2206,10 @@ interface GenerationRegistrationRequest {
  * @returns The command result naming the created generation and its identities.
  */
 async function registerGenerationCore(client: PmClient, request: GenerationRegistrationRequest): Promise<RlCommandResult> {
-  const requestedId = request.id;
+  const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
+  const requestedId = canonicalizeIdentifier(request.id, prefix);
   const baseCheckpoint = request.baseCheckpoint;
-  const parentInput = request.parent;
+  const parentInput = request.parent === null ? null : canonicalizeIdentifier(request.parent, prefix);
   const config = request.config;
   const isSeed = parentInput === null;
   let policy = "";
@@ -2222,7 +2228,7 @@ async function registerGenerationCore(client: PmClient, request: GenerationRegis
       fail(`Parent generation ${parentInput} is not promoted. Only a promoted generation (or the seed) may parent a candidate.`, "parent_not_promoted", EXIT_CODE.CONFLICT);
     }
     policy = request.policy;
-    collectionRuns = [...request.collectionRuns];
+    collectionRuns = [...new Set(request.collectionRuns.map((id) => canonicalizeIdentifier(id, prefix)))].sort();
     if (collectionRuns.length === 0) {
       fail("pm rl generation register requires --collection-runs for a non-seed generation.", "missing_collection_runs");
     }
@@ -2248,7 +2254,7 @@ async function registerGenerationCore(client: PmClient, request: GenerationRegis
     }
     deps = [environmentId, ...collectionRuns];
   }
-  const reservation = await readEvaluationPlan(client, normalizeItemId(requestedId, String((await client.config("project", "get", "id_prefix")).nested_setting!.value)));
+  const reservation = await readEvaluationPlan(client, requestedId);
   const spec: GenerationSpec = {
     ...(reservation === null ? {} : { evaluation_plan: reservation.comparison }),
     ...(request.evaluation === undefined ? {} : { policy_evaluation: request.evaluation }),
@@ -2346,19 +2352,19 @@ export async function readApprovalSpec(client: PmClient, approvalId: string): Pr
 
 /** Promote a candidate generation after contamination and budget checks pass. */
 async function promoteGeneration(context: CommandHandlerContext): Promise<RlCommandResult> {
-  const id = requiredArgument(context, "a generation id");
+  const requestedId = requiredArgument(context, "a generation id");
   // Already trimmed: `stringOption` returns `value.trim()`. The normalization
   // that matters for the budget is at the PARSE boundary, because a generation
   // body can be authored without ever passing through this flag.
-  const approvalId = stringOption(context, "approval")!;
+  const requestedApproval = stringOption(context, "approval")!;
   const scoresPath = stringOption(context, "scores")!;
   const evidence = stringOption(context, "evidence")!;
   const client = clientFor(context);
+  const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
+  const id = canonicalizeIdentifier(requestedId, prefix);
+  const approvalId = canonicalizeIdentifier(requestedApproval, prefix);
   const generation = await getTypedItem(client, id, "Generation");
   const spec = extractGenerationSpec(String(generation.item.body), `Generation ${id}`);
-  if (spec.promoted) {
-    fail(`Generation ${id} is already promoted.`, "already_promoted", EXIT_CODE.CONFLICT);
-  }
   if (spec.seed) {
     fail(`The seed generation ${id} is registered, not promoted. Promote a candidate generation instead.`, "seed_not_promoted", EXIT_CODE.CONFLICT);
   }
@@ -2374,7 +2380,11 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
     fail("Promotion scores require a held_out_score. A generation without both a proxy and a held-out score cannot be promoted.", "missing_held_out_score");
   }
   const heldOutScore = parseScoreRecord(heldOutScoreRaw, "held_out_score");
-  const outcome = await promoteGenerationCore(client, { pmRoot: context.pm_root, author: authorFor(context) }, id, approvalId, proxyScore, heldOutScore, evidence);
+  // The committed Generation is the durable intent/completion marker for step one.
+  // An identical retry resumes publication; a different request cannot claim the old promotion.
+  const outcome = spec.promoted
+    ? await recoverManualPromotion(client, generation, approvalId, proxyScore, heldOutScore, evidence)
+    : await promoteGenerationCore(client, { pmRoot: context.pm_root, author: authorFor(context) }, id, approvalId, proxyScore, heldOutScore, evidence);
   await recordPolicyCard(client, id);
   return {
     action: "rl-generation-promote",
@@ -2390,6 +2400,23 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
       evidence,
     },
   };
+}
+
+/** Resume after the atomic promotion boundary using its sealed request, without another budget mutation. */
+async function recoverManualPromotion(client: PmClient, generation: GetResult, approvalId: string, proxy: ScoreRecord, held: ScoreRecord, evidence: string): Promise<PromotionOutcome> {
+  const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
+  const spec = canonicalizeGenerationSpec(extractGenerationSpec(String(generation.item.body), "Committed promotion"), prefix);
+  if (canonicalizeIdentifier(approvalId, prefix) !== canonicalizeIdentifier(spec.approval!, prefix)
+    || canonicalJson(canonicalizeScoreRecord(proxy, prefix) as unknown as JsonValue) !== canonicalJson(spec.proxy_score as unknown as JsonValue)
+    || canonicalJson(canonicalizeScoreRecord(held, prefix) as unknown as JsonValue) !== canonicalJson(spec.held_out_score as unknown as JsonValue)
+    || evidence !== spec.promotion_evidence) {
+    fail(`Generation ${generation.item.id} is already promoted by a different request.`, "already_promoted", EXIT_CODE.CONFLICT);
+  }
+  // Verify the current source and all citations before repairing its publication.
+  await exportPolicyCard(client, generation.item.id);
+  const approval = await readApprovalSpec(client, approvalId);
+  const consumed = await promotedGenerationIdsUnderApproval(client, approval.id);
+  return { status: String(generation.item.status), gap: spec.gap!, promotedCount: consumed.length - 1, permittedPromotions: approval.permitted_promotions };
 }
 
 /** The workspace coordinates a transactional promotion needs outside the client. */
@@ -2434,12 +2461,14 @@ interface PromotionOutcome {
  */
 export async function promoteGenerationCore(client: PmClient, coordinates: WorkspaceCoordinates, id: string, approvalId: string, proxyScore: ScoreRecord, heldOutScore: ScoreRecord, evidence: string, onTransition?: CommitWorkspaceTransactionOptions["onTransition"]): Promise<PromotionOutcome> {
   const { pmRoot, author } = coordinates;
+  const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
+  const evaluationEnvironment = canonicalizeIdentifier(heldOutScore.evaluation_context, prefix);
   const ancestry = await buildAncestry(client, id, true);
-  const contamination = findContaminationPath(ancestry, heldOutScore.evaluation_context);
+  const contamination = findContaminationPath(ancestry, evaluationEnvironment);
   if (contamination !== null) {
     fail(`Promotion refused: the evaluation set is reachable from the candidate's training data over provenance edges. Path: ${renderContaminationPath(contamination)}`, "contamination_refused", EXIT_CODE.CONFLICT);
   }
-  const gap = directionAwareGap(proxyScore, heldOutScore);
+  const gap = directionAwareGap(canonicalizeScoreRecord(proxyScore, prefix), canonicalizeScoreRecord(heldOutScore, prefix));
   // Called for its refusals, not its value: it rejects a non-Decision approval,
   // a missing JSON fence, and an unparseable spec BEFORE the writer lock is
   // taken, so an obviously invalid approval never queues behind a live promotion.
@@ -2536,7 +2565,7 @@ export async function promoteGenerationCore(client: PmClient, coordinates: Works
         // the critical section — the price of the analysis and the write being
         // atomic, which is what makes the refusal a gate rather than a hint.
         const lockedAncestry = await buildAncestry(client, id, true);
-        const lockedContamination = findContaminationPath(lockedAncestry, heldOutScore.evaluation_context);
+        const lockedContamination = findContaminationPath(lockedAncestry, evaluationEnvironment);
         if (lockedContamination !== null) {
           fail(`Promotion refused: the evaluation set is reachable from the candidate's training data over provenance edges. Path: ${renderContaminationPath(lockedContamination)}`, "contamination_refused", EXIT_CODE.CONFLICT);
         }
@@ -5210,7 +5239,7 @@ export const RL_COMMANDS = [
   defineCommand({ name: "rl eval plan show", description: "Show compact predeclared comparison identity and fixed stopping sizes.", arguments: [{ name: "candidate", required: true, description: "Reserved candidate generation id." }], run: async (context) => {
     const client = clientFor(context);
     const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
-    const registered = await readEvaluationPlan(client, normalizeItemId(requiredArgument(context, "a candidate id"), prefix));
+    const registered = await readEvaluationPlan(client, canonicalizeIdentifier(requiredArgument(context, "a candidate id"), prefix));
     if (registered === null) fail("No predeclared plan. Register one before creating a fresh candidate.", "eval_plan_missing", EXIT_CODE.CONFLICT);
     return { action: "rl-eval-plan-show", id: registered.id, details: { comparison: registered.comparison, candidate: registered.plan.candidate, incumbent: registered.plan.incumbent, stopping: registered.plan.stopping } };
   } }),

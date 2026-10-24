@@ -20,7 +20,7 @@ import { parseBoundedJson } from "./tracker-record.ts";
  * without standing up a real workspace for every branch.
  */
 
-import { EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
+import { EXIT_CODE, normalizeItemId } from "@unbrained/pm-cli/sdk/runtime";
 
 import type { JsonValue } from "./index.ts";
 import { asJsonObject, expectedFail } from "./refuse.ts";
@@ -98,6 +98,22 @@ export interface GenerationSpec {
   readonly gap: number | null;
   /** Human-readable promotion evidence, or null if not promoted. */
   readonly promotion_evidence: string | null;
+}
+
+/** Resolve tracker aliases and case before identity comparison, ordering, deduplication or hashing. */
+export function canonicalizeIdentifier(id: string, prefix: string): string { return normalizeItemId(id, prefix); }
+
+/** Resolve the Environment reference while retaining objective, seed and artifact label domains. */
+export function canonicalizeScoreRecord(score: ScoreRecord, prefix: string): ScoreRecord { return { ...score, evaluation_context: canonicalizeIdentifier(score.evaluation_context, prefix) }; }
+
+/** Canonicalize only tracker references; artifact digests and arbitrary training labels retain their own domains. */
+export function canonicalizeGenerationSpec(spec: GenerationSpec, prefix: string): GenerationSpec {
+  return { ...spec, proxy_score: spec.proxy_score === null ? null : canonicalizeScoreRecord(spec.proxy_score, prefix),
+    held_out_score: spec.held_out_score === null ? null : canonicalizeScoreRecord(spec.held_out_score, prefix),
+    parent: spec.parent === null ? null : canonicalizeIdentifier(spec.parent, prefix),
+    approval: spec.approval === null ? null : canonicalizeIdentifier(spec.approval, prefix),
+    environment_version: spec.environment_version === "" ? "" : canonicalizeIdentifier(spec.environment_version, prefix),
+    collection_runs: [...new Set(spec.collection_runs.map((id) => canonicalizeIdentifier(id, prefix)))].sort() };
 }
 
 /** Approval spec stored as a JSON fence in a Decision item body. */

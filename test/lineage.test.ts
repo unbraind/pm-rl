@@ -1064,7 +1064,7 @@ test("promotion refuses an unreadable collection run while lineage still renders
   await assert.rejects(
     harness.runCommand({ command: "rl generation promote", pmRoot, args: [candidate.item.id], options: { approval: approval.item.id, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "x" } }),
     (error: Error) => {
-      assert.match(error.message, /collection run missing-run of generation/);
+      assert.match(error.message, /collection run rl-missing-run of generation/);
       assert.match(error.message, /could not be resolved/);
       return true;
     },
@@ -1081,7 +1081,7 @@ test("promotion refuses an unreadable collection run while lineage still renders
   await assert.rejects(
     harness.runCommand({ command: "rl generation promote", pmRoot, args: [noEnvCandidate.item.id], options: { approval: approval.item.id, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "x" } }),
     (error: Error) => {
-      assert.match(error.message, /collection run run-noenv of generation/);
+      assert.match(error.message, /collection run rl-run-noenv of generation/);
       assert.match(error.message, /records no environment/);
       return true;
     },

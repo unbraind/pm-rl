@@ -1,5 +1,8 @@
 /** Portable explanation regressions exercise real SDK histories in plain-directory trackers. */
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { recoveryPath, type RecoveryPath, type FaultMode } from "./policy-card-recovery-worker.ts";
 import { mkdtempSync, cpSync, rmSync, writeFileSync, mkdirSync, symlinkSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, basename, dirname, relative } from "node:path";
@@ -7,7 +10,7 @@ import { after, test } from "node:test";
 import { PmClient, type CloseResult } from "@unbrained/pm-cli/sdk/core";
 import { init, isPmCliExpectedError, createPmCliExpectedError, type CloseTaskResult, type PmClientCloseActionOptions } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import extension, { generationProvenance, extractGenerationSpec, hashJson, canonicalJson, readCompleteLoopItem, runRlLoop, resumeRlLoop, loopLeaseLockId, withRlController, recordRefusedPolicyCard, mutateLoopItem, promoteGenerationCore, appendCommentOnce, type JsonValue, type RlCommandResult } from "../index.ts";
+import extension, { RL_ITEM_TYPES, generationProvenance, extractGenerationSpec, hashJson, canonicalJson, readCompleteLoopItem, runRlLoop, resumeRlLoop, loopLeaseLockId, withRlController, recordRefusedPolicyCard, mutateLoopItem, promoteGenerationCore, appendCommentOnce, type JsonValue, type RlCommandResult } from "../index.ts";
 import { discoverPolicyCards, exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordRecursivePolicyCards, recordPolicyCard, POLICY_CARD_MAX_BYTES, validatePolicyCardWrite, generationEvidence, verifyRetainedGenerationEvidence, type PolicyCard } from "../policy-card.ts";
 import { encodeEvent, encodeEventSegments } from "../series.ts";
 import { prefixCheckpoint } from "../prefix.ts";
@@ -775,18 +778,10 @@ test("one generation evidence set binds card identity and normal resume for ever
 test("rejection publication refuses a peer body written between validation and commit", async () => {
   const w = await workspace(); await generation(w.client);
   const peer = new PmClient({ pmRoot: w.pmRoot, author: "peer", noExtensions: true });
-  const config = w.client.config.bind(w.client); let armed = true; let peerWritten = false;
-  // Configuration resolution happens after all rejection reads, immediately before the SDK item transaction.
-  w.client.config = (async (...args: Parameters<PmClient["config"]>) => {
-    if (armed && !peerWritten) { armed = false; peerWritten = true; const value = spec({ training_config: { samples: 20 } }); await peer.update("rl-seed", { body: `\`\`\`json\n${JSON.stringify(value)}\n\`\`\``, affectedVersion: hashJson(generationProvenance(value)) }); }
-    return config(...args);
-  }) as PmClient["config"];
-  // Arm only when resolving the write coordinates, rather than a projection's id-prefix read.
-  let reads = 0; const get = w.client.get.bind(w.client);
-  w.client.get = (async (...args: Parameters<PmClient["get"]>) => { const result = await get(...args); if (args[0] === "rl-seed") reads++; return result; }) as PmClient["get"];
-  armed = false;
-  const originalConfig = w.client.config.bind(w.client);
-  w.client.config = (async (...args: Parameters<PmClient["config"]>) => { if (reads > 1) armed = true; return originalConfig(...args); }) as PmClient["config"];
+  peerAtCommit(w.client, async () => {
+    const value = spec({ training_config: { samples: 20 } });
+    await peer.update("rl-seed", { body: `\`\`\`json\n${JSON.stringify(value)}\n\`\`\``, affectedVersion: hashJson(generationProvenance(value)) });
+  });
   await assert.rejects(recordRefusedPolicyCard(w.client, "rl-seed", "Refused"), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_write_conflict");
   assert.equal((extractGenerationSpec(String((await peer.get("rl-seed")).item.body), "Peer").training_config as Record<string, JsonValue>).samples, 20);
   assert.equal((await peer.listAllComplete({ includeBody: false })).items.filter((item) => item.id.includes("policy-card-")).length, 0);
@@ -1487,4 +1482,192 @@ test("mutation callback refusals preserve original errors and release dependency
     const retried = await mutateLoopItem(peer, await readCompleteLoopItem(peer, id), "Independent retry after callback refusal", () => [], [await readCompleteLoopItem(peer, dependency.item.id)], "peer-retry");
     assert.equal(String(retried.item.body), String(before.item.body));
   }
+});
+
+/** Reproducible integer generator; the seed and case index identify every failing card. */
+function cardRandom(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => { state ^= state << 13; state ^= state >>> 17; state ^= state << 5; return state >>> 0; };
+}
+
+test("canonical card property: 512 seeded alias duplicate case ordering and foreign-record round trips", { timeout: 600_000 }, async () => {
+  const seeds = [0x100, 0x5eed, 0xc0ffee, 0x7fffffff];
+  for (const seed of seeds) {
+    const random = cardRandom(seed); const w = await workspace();
+    await generation(w.client);
+    await w.client.create({ id: "rl-env", type: "Environment", title: "Collection environment" });
+    for (let run = 0; run < 4; run += 1) await w.client.create({ id: `rl-run-${run}`, type: "Run", title: "Collection", environment: "rl-env" });
+    for (const [index, body] of ["# foreign", "{", '{"format":"foreign"}', '[1,2,3]'].entries()) {
+      await w.client.create({ id: `rl-foreign-${index}`, type: index % 2 === 0 ? "Task" : "Decision", title: "Foreign record", body });
+    }
+    /** Mix short and qualified aliases, including mixed case, before the production boundary. */
+    const alias = (id: string): string => {
+      const value = random() % 2 === 0 ? id.replace(/^rl-/, "") : id;
+      return [...value].map((char) => random() % 2 === 0 ? char.toUpperCase() : char).join("");
+    };
+    for (let index = 0; index < 128; index += 1) {
+      const ids = Array.from({ length: 1 + random() % 4 }, (_, run) => `rl-run-${run}`);
+      // More than 32 raw references must remain bounded by their canonical set, not raw alias count.
+      const mixed = Array.from({ length: 2 + random() % 40 }, () => alias(ids[random() % ids.length]));
+      mixed.push(...ids.map(alias));
+      const value = spec({ seed: false, policy: "candidate", parent: alias("rl-seed"), collection_runs: mixed, environment_version: alias("rl-env"), reward_spec_version: "reward", training_config: { samples: 1 + random() % 100 } });
+      const id = await generation(w.client, value, `rl-property-${index}`);
+      const card = await exportPolicyCard(w.client, alias(id));
+      const bytes = canonicalJson(card as unknown as JsonValue);
+      const replayed = (await replayPolicyCard(w.client, JSON.parse(bytes) as unknown)).card;
+      assert.equal(canonicalJson(replayed as unknown as JsonValue), bytes, `seed=${seed} case=${index}: replay`);
+      assert.equal(canonicalJson(await exportPolicyCard(w.client, replayed.subject, replayed.selection) as unknown as JsonValue), bytes, `seed=${seed} case=${index}: re-export`);
+      assert.equal(card.training_scope.collection_runs, ids.length);
+      assert.deepEqual(card.evidence.map((entry) => entry.id), [id, "rl-env", ...ids, "rl-seed"]);
+      // The raw history seal still verifies the original bytes; the card identity uses canonical references.
+      const canonical = { ...value, parent: "rl-seed", collection_runs: ids, environment_version: "rl-env" };
+      await w.client.update(id, { body: `\`\`\`json\n${JSON.stringify(canonical)}\n\`\`\``, affectedVersion: hashJson(generationProvenance(canonical)) });
+      assert.equal((await exportPolicyCard(w.client, id)).digest, card.digest, `seed=${seed} case=${index}: alias-equivalent content`);
+    }
+    assert.equal((await discoverPolicyCards(w.client)).length, 0);
+  }
+});
+
+
+/** Compare all package-owned records and their certified operation counts, excluding clocks and attempt journals. */
+async function recoveryState(client: PmClient): Promise<unknown> {
+  const records = (await client.listAllComplete({ includeBody: true })).items;
+  const items = await Promise.all(records.sort((a, b) => a.id.localeCompare(b.id)).map(async (item) => {
+    const current = await readCompleteLoopItem(client, item.id);
+    const history = await client.run("history", { id: item.id, options: { compact: true, verify: true, outputLimit: "unbounded", outputBudget: "unbounded" } }) as { count: number; verification: { ok: boolean } };
+    assert.equal(history.verification.ok, true);
+    const row = current.item;
+    return { id: row.id, type: row.type, status: row.status, body: row.body, version: row.affected_version, parent: row.parent, deps: row.dependencies, component: row.component, environment: row.environment, history: history.count };
+  }));
+  const schema = Object.fromEntries(Object.entries(trackerBytes((await client.config("project", "get", "id_prefix")).settings_path.replace(/[/\\][^/\\]+$/, ""))).filter(([path]) => /^(?:config|settings|schemas?)[/.]/.test(path)));
+  return { items, schema };
+}
+
+/** Launch an actual disposable process so SIGKILL bypasses all catch/finally cleanup. */
+async function killRecovery(pmRoot: string, path: RecoveryPath, boundary: string): Promise<void> {
+  const worker = fileURLToPath(new URL("./policy-card-recovery-worker.ts", import.meta.url));
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(process.execPath, [worker, pmRoot, path, boundary, "kill"], { stdio: ["ignore", "ignore", "pipe"] });
+    let diagnostics = "";
+    child.stderr.setEncoding("utf8"); child.stderr.on("data", (chunk: string) => { diagnostics += chunk; });
+    child.on("error", reject);
+    child.on("exit", (code, signal) => { if (signal === "SIGKILL") resolve(); else reject(new Error(`Worker failed to reach kill boundary: ${code} ${signal} ${diagnostics}`)); });
+  });
+}
+
+/** Build one promotable non-git tracker with immutable seed and candidate cards. */
+async function recoveryFixture() {
+  const base = await workspace();
+  await base.client.create({ id: "rl-env", type: "Environment", title: "Collection environment" });
+  await base.client.create({ id: "rl-approval", type: "Decision", title: "One promotion", body: '```json\n{"permitted_promotions":1,"resource_budget":{"wall_ms":100}}\n```' });
+  await generation(base.client, spec({ base_checkpoint: `sha256:${hashJson(0)}`, policy: `sha256:${hashJson(1)}`, training_config: { samples: 10 } }));
+  await recordPolicyCard(base.client, "rl-seed");
+  await base.client.create({ id: "rl-run", type: "Run", title: "Collection", environment: "rl-env", component: `sha256:${hashJson(1)}` });
+  await generation(base.client, spec({ base_checkpoint: `sha256:${hashJson(1)}`, policy: `sha256:${hashJson(2)}`, seed: false, parent: "rl-seed", collection_runs: ["rl-run"], environment_version: "rl-env", reward_spec_version: "reward", training_config: { samples: 10 } }), "rl-candidate");
+  await recordPolicyCard(base.client, "rl-candidate");
+  const proposals = { configs: [{ samples: 2 }, { samples: 3 }] };
+  await base.client.create({ id: "rl-proposals", type: "Decision", title: "Completed proposals", body: JSON.stringify({ format: "pm-rl/loop-step/1", state: "complete", input: hashJson({}), result: proposals, digest: hashJson(proposals) }) });
+  const score = { objective: "return", objective_version: "1", evaluation_context: "held-out", seed_set: "fixed", direction: "maximize", scale: 1, value: 0.8 };
+  writeFileSync(join(base.root, "scores.json"), JSON.stringify({ proxy_score: score, held_out_score: score }));
+  return { ...base, score };
+}
+
+test("recoverable card transactions finish every EIO ENOSPC and SIGKILL boundary without duplicate effects", { timeout: 600_000 }, async (context) => {
+  const base = await recoveryFixture();
+  /** Clone the same non-git baseline, retaining identical historical citation coordinates. */
+  const clone = () => {
+    const root = mkdtempSync(join(tmpdir(), "rl-recovery-")); roots.push(root);
+    cpSync(base.root, root, { recursive: true });
+    const pmRoot = join(root, relative(base.root, base.pmRoot));
+    return { root, pmRoot, client: new PmClient({ pmRoot, cwd: root, author: "card-test", noExtensions: true }) };
+  };
+  const cases: readonly [RecoveryPath, readonly string[]][] = [
+    ["register", [...RL_ITEM_TYPES.flatMap((type) => [`schema-${type.name}:before`, `schema-${type.name}:after`]), "receipt:before", "receipt:after", "card-0:before", "card-0:after"]],
+    ["promote", ["seal:before", "seal:after", "card-0:before", "card-0:after"]],
+    ["reject", ["seal:before", "seal:after", "card-0:before", "card-0:after"]],
+    ["evaluate", ["receipt:before", "receipt:after", "card-0:before", "card-0:after", "card-1:before", "card-1:after", "card-2:before", "card-2:after"]],
+    ["publish", ["card-0:before", "card-0:after", "card-1:before", "card-1:after", "card-2:before", "card-2:after"]],
+    ["export", ["read:before", "read:after"]], ["adopt", ["read:before", "read:after"]],
+  ];
+  for (const [path, boundaries] of cases) {
+    // Read-only paths start from a complete promotion; every write path starts from the same candidate.
+    if (path === "export") await recoveryPath(base.pmRoot, "promote", "", "none");
+    const healthy = clone(); await recoveryPath(healthy.pmRoot, path, "", "none");
+    const expected = await recoveryState(healthy.client);
+    for (const boundary of boundaries) for (const mode of ["EIO", "ENOSPC", "kill"] as const satisfies readonly FaultMode[]) {
+      await context.test(`${path} ${boundary} ${mode}`, async () => {
+        const w = clone();
+        if (mode === "kill") await killRecovery(w.pmRoot, path, boundary);
+        else {
+          // The pinned command harness returns null for native failures; typed provenance retries propagate.
+          const failed = await recoveryPath(w.pmRoot, path, boundary, mode).then((value) => (path === "promote" || path === "register") && value === null,
+            (error: unknown) => error instanceof Error && "code" in error && error.code === mode || isPmCliExpectedError(error) && error.context.code === "provenance_read_retryable");
+          assert.equal(failed, true, "injected fault must reach the public failure channel");
+        }
+        assert.equal(readFileSync(join(w.root, "fault-hit"), "utf8"), boundary);
+        await recoveryPath(w.pmRoot, path, "", "none");
+        assert.deepEqual(await recoveryState(w.client), expected, "all domain records and operation counts equal the fault-free tracker");
+        const once = await recoveryState(w.client);
+        await recoveryPath(w.pmRoot, path, "", "none");
+        assert.deepEqual(await recoveryState(w.client), once, "a second retry has no domain effect");
+        if (path === "promote" || path === "adopt" || path === "export") assert.equal((await adoptPolicyCard(w.client, await exportPolicyCard(w.client, "rl-candidate"))).outcome, "promoted");
+        if (path === "reject") assert.equal((await exportPolicyCard(w.client, "rl-candidate")).outcome, "refused");
+      });
+    }
+  }
+});
+
+
+test("manual promotion retries repair missing publication and refuse different sealed requests", async () => {
+  const w = await recoveryFixture();
+  await recoveryPath(w.pmRoot, "promote", "", "none");
+  const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "schema", "hooks"] });
+  for (const override of [
+    { approval: "different" }, { evidence: "different" },
+    { scores: "different-proxy.json" }, { scores: "different-held.json" },
+  ]) {
+    for (const kind of ["proxy", "held"]) writeFileSync(join(w.root, `different-${kind}.json`), JSON.stringify({ proxy_score: { ...w.score, value: kind === "proxy" ? 0.7 : 0.8 }, held_out_score: { ...w.score, value: kind === "held" ? 0.7 : 0.8 } }));
+    const options = { approval: "APPROVAL", scores: join(w.root, "scores.json"), evidence: "Fixed promotion request", ...override };
+    if (options.scores.startsWith("different-")) options.scores = join(w.root, options.scores);
+    const bytes = trackerBytes(w.pmRoot);
+    await assert.rejects(harness.runCommand({ command: "rl generation promote", pmRoot: w.pmRoot, args: ["CANDIDATE"], options }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "already_promoted");
+    assert.deepEqual(trackerBytes(w.pmRoot), bytes);
+  }
+  const aliases = join(w.root, "alias-scores.json");
+  writeFileSync(aliases, JSON.stringify({ proxy_score: { ...w.score, evaluation_context: "RL-HELD-OUT" }, held_out_score: { ...w.score, evaluation_context: "Held-Out" } }));
+  const beforeRetry = await recoveryState(w.client);
+  await harness.runCommand({ command: "rl generation promote", pmRoot: w.pmRoot, args: ["CANDIDATE"], options: { approval: "APPROVAL", scores: aliases, evidence: "Fixed promotion request" } });
+  assert.deepEqual(await recoveryState(w.client), beforeRetry);
+  assert.equal((await adoptPolicyCard(w.client, await exportPolicyCard(w.client, "rl-candidate"))).outcome, "promoted");
+});
+
+
+test("canonical citation graph excludes the subject and refuses reordered portable envelopes", async () => {
+  const w = await workspace(); await generation(w.client);
+  await w.client.create({ id: "rl-run", type: "Run", title: "Collection" });
+  await w.client.create({ id: "rl-env", type: "Environment", title: "Collection environment" });
+  const value = spec({ seed: false, policy: "candidate", parent: "SEED", collection_runs: ["run", "RL-RUN"], environment_version: "ENV", reward_spec_version: "reward" });
+  await generation(w.client, value, "rl-canonical");
+  const card = await exportPolicyCard(w.client, "CANONICAL");
+  assert.equal((await replayPolicyCard(w.client, card)).card.digest, card.digest);
+  await assert.rejects(replayPolicyCard(w.client, rehash({ ...card, evidence: [card.evidence[0], ...card.evidence.slice(1).reverse()] })), refused("card_drift"));
+  for (const patch of [{ parent: "CANONICAL" }, { collection_runs: ["canonical", "RL-CANONICAL"] }, { environment_version: "canonical" }]) {
+    const changed = { ...value, ...patch };
+    await w.client.update("rl-canonical", { body: `\`\`\`json\n${JSON.stringify(changed)}\n\`\`\``, affectedVersion: hashJson(generationProvenance(changed)) });
+    await assert.rejects(exportPolicyCard(w.client, "canonical"), refused("card_missing_provenance"));
+  }
+});
+
+test("manual promotion post-commit retry completes its missing immutable outcome", async () => {
+  const w = await recoveryFixture();
+  assert.equal(await recoveryPath(w.pmRoot, "promote", "card-0:before", "EIO"), null);
+  assert.equal(readFileSync(join(w.root, "fault-hit"), "utf8"), "card-0:before");
+  const card = await exportPolicyCard(w.client, "rl-candidate");
+  assert.equal(card.outcome, "promoted");
+  await assert.rejects(adoptPolicyCard(w.client, card), refused("card_missing_provenance"));
+  await recoveryPath(w.pmRoot, "promote", "", "none");
+  assert.equal((await adoptPolicyCard(w.client, card)).digest, card.digest);
+  const repaired = await recoveryState(w.client);
+  await recoveryPath(w.pmRoot, "promote", "", "none");
+  assert.deepEqual(await recoveryState(w.client), repaired);
 });

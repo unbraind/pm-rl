@@ -6,13 +6,11 @@ status: in_progress
 priority: 2
 tags[1]: "gh:unbraind/pm-rl#100"
 created_at: "2026-10-23T14:29:56.651Z"
-updated_at: "2026-10-24T13:22:50.853Z"
-assignee: codex-agent
-claim_principal: codex-agent
+updated_at: "2026-10-24T13:55:18.732Z"
 author: codex-agent
 acceptance_criteria: Missing provenance blocks adoption; replay identifies every cited result; export contains no training examples or credentials; typed SDK and compact TOON/JSON CLI; every recursive candidate and promotion has a card; read-only public tracker validation demonstrates at least two generations; npm and Bun CI release gates pass at unchanged thresholds.
 parent: pm-rl-apvf
-comments[92]{created_at,author,text}:
+comments[95]{created_at,author,text}:
   "2026-10-23T14:31:01.471Z",codex-agent,"Overlap check: current host CLI is 2026.10.23; package SDK remains pinned at 2026.10.20. Inspected CLI command ownership and pm-context context-pack explanations: neither exports learned-policy suitability. Existing pm-rl checkpoint artifacts retain executable state; generation provenance, causal plans, shadow comparisons and recursive improver receipts own the evidence. Cards will reuse SDK complete inventory, certified history reads and content-addressed package hashes. No dependency bump, trainer replacement or context assembler. Plan: minimized digest-only cards, replay/adoption refusals, automatic recursive candidate/outcome publication, non-Git public-copy validation for two generations, targeted local checks and full npm/Bun CI gates."
   "2026-10-23T14:43:18.298Z",codex-agent,"Implemented typed export/replay/adoption-check SDK and CLI, bounded digest-only projection, exact timestamped history citations and retained candidate/promotion cards. Recursive durable phases now retain outcome cards plus one card per proposed configuration/recipe. Local typecheck, lint, duplication and docstring checks passed before the last small additions; targeted regression work is ongoing. Verified the selected pm-ops commit is publicly accessible and MIT licensed; prepared a read-only non-Git copy for two-generation numerical-policy acceptance. Full release gates will run in CI because the shared host is saturated."
   "2026-10-23T14:54:41.570Z",codex-agent,"Behavioral revert proof: disabled only recordRecursivePolicyCards publication; the durable recursive-phase regression failed with 0 retained cards versus 6 required. Restored implementation; targeted suite passed 8/8 with no skips, new module 100% lines/functions and 98.35% branches before final branch cases. The first real-data run passed two promotions, 5 retained cards, 19 replayed citations, 105 training plus 41 held-out items and unchanged 300-file source digest. Compact output measured 2082-2085 JSON bytes and 1544-1547 TOON bytes. Final packed rerun and CI gates pending."
@@ -105,7 +103,10 @@ comments[92]{created_at,author,text}:
   "2026-10-24T11:43:03.653Z",codex-agent,"CI 40088775653 Node 26 passes 839/839 tests, zero skips; failure-only diagnostics identify the remaining uncovered branch at index.ts:787 in mutateLoopItem catch/finally. Reclaimed to test native and typed mutation callback errors, authoritative-read failures and dependency release through the real SDK. Broadening metadata observation beyond the single loop_write_conflict code closes the generic typed-refusal class while preserving original errors."
   "2026-10-24T11:53:07.585Z",codex-agent,"Final mutation/refusal verification: all typed mutation errors re-read current id/status/revision metadata; observation failure records only a bounded code and preserves the original error. Native and typed callback failures leave item bytes unchanged and release dependency claims, proven by an independent writer retry. Success snapshots its result before unlock and returns after finally, eliminating the unreachable normal-completion join without changing cleanup semantics. Three SDK transaction tests pass 3/3 and enter all 15 raw V8 ranges in mutateLoopItem. Final non-git PM suite passes 49/49, zero failures/cancellations/skips; the Git-dependent workflow check separately passes 1/1. Typecheck, test compilation, lint, zero duplication, docstrings (52 sources, 403 declarations) and workflow validation pass. Final test SHA-256 146c0564cc09ec973d358688e850ea7e1b67a56408dbbbea79e86a93a5b8a167. Production-only reverts: discovery 0/1 pass with SyntaxError; promotion reconciliation 4/15 pass, 11 fail; narrowing metadata observation back to loop_write_conflict fails 1/1. All exit 1, restore in finally and match source/test bytes afterward. Full npm/Bun CI at unchanged thresholds remains required on the final pushed head. Releasing without closing."
   "2026-10-24T13:22:50.853Z",codex-agent,"Round 7: auditing canonical identifier flow before every identity set, sort, digest and comparison, and resumable promotion/publication step boundaries. Will add seeded round-trip properties and fault-boundary recovery proofs, retain unchanged coverage gates, and use CI npm/Bun release gates."
-files[28]{path,scope}:
+  "2026-10-24T13:33:27.293Z",codex-agent,"Canonicalization property passed 512 generated cards (seeds 0x100, 0x5eed, 0xc0ffee, 0x7fffffff; 128 each), including more than 32 raw aliases collapsing below the canonical citation bound and byte-identical replay/re-export. Shared lineage canonicalizer now serves generation registration, ancestry, card domain/scope/dependencies/bindings and retained-evidence comparison. Fault matrix is exercising real EIO/ENOSPC and SIGKILL before/after promotion seal, rejection seal, completed evaluation receipt, each recursive card, and read-only export/adoption; checking native error wrapping and retries before recording final counts."
+  "2026-10-24T13:50:03.208Z",codex-agent,"Round 7 production-only revert proofs (unchanged regression SHA-256 c9d838737d3f727b53000a6b962d437a297bdacfe503652056dc3293acb18acc): (1) reverted only canonicalizeGenerationSpec to preserve raw references; node --test --test-name-pattern=\"canonical card property\" test/policy-card.test.ts failed 1/1 with card_missing_provenance on generated aliases. (2) reverted only the manual promotion handler committed-state resume branch to already_promoted; node --test --test-name-pattern=\"manual promotion post-commit retry\" test/policy-card.test.ts failed 1/1 with already_promoted after the promotion committed and its output was missing. Both source changes restored in finally in an isolated text copy; tests unchanged through each proof. Restored self-citation/order and post-commit tests pass 2/2. Full fault matrix plus mismatch test passes 146/146: 48 boundaries x EIO/ENOSPC/SIGKILL = 144 injections, plus parent and mismatch test, with fault-free domain-state/schema equality and second-retry no-op checks. See docs/policy-card-write-audit.md for the complete identifier-operation and durable-marker inventory."
+  "2026-10-24T13:55:17.377Z",codex-agent,"Round 7 local implementation complete: PM snapshot property/fault/mismatch suite passed 147/147 (512 cards; four seeds; 48 boundaries x 3 fault modes), final focused sealed-request alias/self-citation/order/post-commit suite passed 3/3 through PM, evaluation-plan suite passed 29/29, and selected registration/lineage/concurrency regressions passed 11/11. Final production-only reverts both fail 1/1 as intended (card_missing_provenance and already_promoted), restored suite passes 3/3, and the final unchanged test SHA-256 is 171b3e13b3df8d5a42b0f4d16d59c1f83910b1305915c6ea38d016899583a285. Typecheck, build and test compilation, lint, zero duplication, docstrings, identity and changelog checks pass locally. No dependency pin or coverage threshold changes. Source is ready for exact-head CI npm and Bun release gates; CI URLs and final counts will be retained in PR 100. Known pinned SDK gap: the extension command test harness returns null for some native I/O faults; tests verify that failure channel and the injection receipt before public retry. Domain-state recovery equivalence excludes clocks, derived observations, leases and attempt journals; exact settings/schema bytes and certified item operation counts are included."
+files[29]{path,scope}:
   .gitattributes,project
   .github/workflows/ci.yml,project
   checkpoint-artifacts.ts,project
@@ -129,12 +130,13 @@ files[28]{path,scope}:
   test/lm-loop.test.ts,project
   test/loop.test.ts,project
   test/meta.test.ts,project
+  test/policy-card-recovery-worker.ts,project
   test/policy-card.acceptance.ts,project
   test/policy-card.test.ts,project
   test/process.test.ts,project
   test/shadow.test.ts,project
   tracker-record.ts,project
-tests[26]:
+tests[28]:
   - command: node --test test/policy-card.test.ts
     scope: project
     timeout_seconds: 600
@@ -380,6 +382,26 @@ tests[26]:
     provenance:
       author: codex-agent
       created_at: "2026-10-24T11:49:04.034Z"
+      source_kind: local_mutation
+      source_ref: feat/policy-cards
+  - command: "node --test --test-name-pattern=\"canonical card property|recoverable card transactions|manual promotion retries\" test/policy-card.test.ts"
+    scope: project
+    timeout_seconds: 600
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-24T13:44:03.520Z"
+      source_kind: local_mutation
+      source_ref: feat/policy-cards
+  - command: "node --test --test-name-pattern=\"manual promotion retries|manual promotion post-commit retry|canonical citation graph\" test/policy-card.test.ts"
+    scope: project
+    timeout_seconds: 60
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-24T13:54:21.067Z"
       source_kind: local_mutation
       source_ref: feat/policy-cards
 docs[5]{path,scope}:

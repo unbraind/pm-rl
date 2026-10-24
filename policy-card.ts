@@ -2,8 +2,9 @@ import { decodeTrackerRecord, parseBoundedJson } from "./tracker-record.ts";
 /** Minimized explanations of learned-policy suitability, backed by SDK-certified history. */
 import type { HistoryResult } from "@unbrained/pm-cli/sdk/query";
 import type { GetResult, PmClient } from "@unbrained/pm-cli/sdk/core";
-import { createPmCliExpectedError, EXIT_CODE, normalizeItemId } from "@unbrained/pm-cli/sdk/runtime";
+import { createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { canonicalJson, createOrReadIdentical, hashJson, extractGenerationSpec, generationProvenance, readCompleteLoopItem, type JsonValue } from "./index.ts";
+import { canonicalizeIdentifier, canonicalizeGenerationSpec } from "./lineage.ts";
 import { readSeries } from "./series.ts";
 import { optionalItem, enforceEvaluationPlan } from "./evaluation-plan.ts";
 import { rethrowOperationalRead, rethrowProvenanceRead } from "./refuse.ts";
@@ -55,16 +56,20 @@ function identity(value: unknown): string {
 /** Domain identity excludes presentation and bookkeeping metadata. */
 function domain(item: CardItem, prefix: string): JsonValue {
   const generation = item.type === "Generation" ? extractGenerationSpec(String(item.body), "Card content") : null;
-  const body = generation === null ? String(item.body) : { ...generation, approval: generation.approval === null ? null : normalizeItemId(generation.approval, prefix) } as unknown as JsonValue;
-  return { id: item.id, type: String(item.type), body, version: String(item.affected_version),
-    ...(item.type === "Run" ? { policy: String(item.component), environment: String(item.environment), metrics: readSeries((item.notes ?? []).map((note) => note.text)).events as unknown as JsonValue } : {}) };
+  const canonical = generation === null ? null : canonicalizeGenerationSpec(generation, prefix);
+  const body = canonical === null ? String(item.body) : canonical as unknown as JsonValue;
+  return { id: item.id, type: String(item.type), body, version: canonical === null ? String(item.affected_version) : hashJson(generationProvenance(canonical)),
+    ...(item.type === "Run" ? { policy: String(item.component), environment: item.environment ? canonicalizeIdentifier(String(item.environment), prefix) : String(item.environment), metrics: readSeries((item.notes ?? []).map((note) => note.text)).events as unknown as JsonValue } : {}) };
 }
 /** Read certified content at its first matching immutable version, independent of later tracker activity. */
 async function snapshot(client: PmClient, id: string, at?: string): Promise<{ item: GetResult["item"]; citation: PolicyCardEvidence }> {
   identity(id);
   try {
+    const prefix = String((await client.config("project", "get", "id_prefix").catch(rethrowProvenanceRead)).nested_setting!.value);
+    id = canonicalizeIdentifier(id, prefix);
     const current = (await readCompleteLoopItem(client, id, at, SNAPSHOT_FIELDS)).item;
-    const prefix = current.type === "Generation" ? String((await client.config("project", "get", "id_prefix").catch(rethrowProvenanceRead)).nested_setting!.value) : "";
+    // Validate the requested current/history seal before searching for an equivalent canonical version.
+    if (current.type === "Generation" && current.affected_version !== hashJson(generationProvenance(extractGenerationSpec(String(current.body), "Card provenance")))) refuse("card_drift");
     const digest = hashJson(domain(current, prefix));
     if (at !== undefined) return { item: current, citation: { id: identity(current.id), at, digest } };
     const history = await client.run("history", { id, options: { compact: true, verify: true, outputLimit: "unbounded", outputBudget: "unbounded" } }).catch(rethrowProvenanceRead) as HistoryResult;
@@ -76,6 +81,7 @@ async function snapshot(client: PmClient, id: string, at?: string): Promise<{ it
     }
     return refuse("card_drift");
   } catch (error) {
+    if (isPmCliExpectedError(error) && error.context.code === "card_drift") throw error;
     rethrowOperationalRead(error);
     return refuse("card_missing_provenance");
   }
@@ -90,10 +96,11 @@ function limits(value: unknown, result: Record<string, number> = {}): Record<str
   return Object.fromEntries(Object.entries(result).sort(([a], [b]) => a.localeCompare(b)));
 }
 /** Parse only supported generation or completed durable-step sources. */
-function source(item: CardItem): { value: Record<string, unknown>; outcome: PolicyCard["outcome"]; dependencies: string[]; scope: PolicyCard["training_scope"]; regressions: PolicyCard["known_regressions"] } {
+function source(item: CardItem, prefix: string): { value: Record<string, unknown>; outcome: PolicyCard["outcome"]; dependencies: string[]; scope: PolicyCard["training_scope"]; regressions: PolicyCard["known_regressions"] } {
   if (item.type === "Generation") {
-    const spec = extractGenerationSpec(String(item.body), "Policy card generation");
-    if (item.affected_version !== hashJson(generationProvenance(spec))) refuse("card_drift");
+    const original = extractGenerationSpec(String(item.body), "Policy card generation");
+    if (item.affected_version !== hashJson(generationProvenance(original))) refuse("card_drift");
+    const spec = canonicalizeGenerationSpec(original, prefix);
     const config = spec.training_config !== null && typeof spec.training_config === "object" && !Array.isArray(spec.training_config) ? spec.training_config as Record<string, unknown> : {};
     const judged = spec.policy_evaluation === undefined ? {} : object(spec.policy_evaluation);
     const regression = typeof config.candidate_held_out_mean === "number" && typeof config.incumbent_held_out_mean === "number" &&
@@ -113,8 +120,8 @@ function source(item: CardItem): { value: Record<string, unknown>; outcome: Poli
   return { value: result, outcome: verdict, dependencies: [], scope: { digest: hashJson(row.input as JsonValue), collection_runs: 0, environment: hashJson(null), reward: hashJson(null) }, regressions: verdict === "refused" ? ["promotion_refused"] : ["evaluation_incomplete"] };
 }
 /** Select one proposed recipe/configuration; no policy parameters are copied into a card. */
-function proposal(item: CardItem, selection: number | null): unknown {
-  const parsed = source(item);
+function proposal(item: CardItem, selection: number | null, prefix: string): unknown {
+  const parsed = source(item, prefix);
   if (selection === null) return parsed.value;
   const proposals = parsed.value.configs ?? parsed.value.recipes;
   if (!Number.isSafeInteger(selection) || selection < 0 || !Array.isArray(proposals) || selection >= proposals.length) refuse("card_invalid");
@@ -145,9 +152,9 @@ function artifactIdentity(value: unknown, configuration: unknown = null): JsonVa
   return null;
 }
 /** Assemble the same whitelist for export and replay, rejecting oversized cards instead of truncating citations. */
-function assemble(subject: string, item: CardItem, evidence: readonly PolicyCardEvidence[], extraLimits: Readonly<Record<string, number>>, selection: number | null): PolicyCard {
-  const parsed = source(item);
-  const selected = proposal(item, selection);
+function assemble(subject: string, item: CardItem, evidence: readonly PolicyCardEvidence[], extraLimits: Readonly<Record<string, number>>, selection: number | null, prefix: string): PolicyCard {
+  const parsed = source(item, prefix);
+  const selected = proposal(item, selection, prefix);
   const policy = item.type === "Generation" ? extractGenerationSpec(String(item.body), "Policy identity") : null;
   const policyIdentity = policy === null ? selection === null ? artifactIdentity(selected) : null
     : [policy.base_checkpoint, policy.policy].filter(Boolean).every((reference) => /^sha256:[a-f0-9]{64}$/.test(reference)) ? { checkpoint: policy.base_checkpoint, policy: policy.policy, configuration: policy.training_config } : null;
@@ -209,13 +216,15 @@ export async function validateRefusedPolicyCard(client: PmClient, subject: strin
 }
 /** Share the bounded projection between certified exports and pre-commit outcome validation. */
 async function exportSnapshotCard(client: PmClient, primary: { item: CardItem; citation: PolicyCardEvidence }, selection: number | null): Promise<PolicyCard> {
-  const { evidence, resource } = await generationEvidence(client, primary.citation.id, primary);
-  return assemble(primary.citation.id, primary.item, evidence, resource, selection);
+  const { evidence, resource, prefix } = await generationEvidence(client, primary.citation.id, primary);
+  return assemble(primary.citation.id, primary.item, evidence, resource, selection, prefix);
 }
 /** Define the complete generation evidence set once for card identity and loop resume: citations, Runs and decoded metric notes. @internal */
-export async function generationEvidence(client: PmClient, subject: string, selected?: { item: CardItem; citation: PolicyCardEvidence }): Promise<{ primary: CardItem; evidence: PolicyCardEvidence[]; entries: CardItem[]; resource: Record<string, number> }> {
+export async function generationEvidence(client: PmClient, subject: string, selected?: { item: CardItem; citation: PolicyCardEvidence }): Promise<{ primary: CardItem; evidence: PolicyCardEvidence[]; entries: CardItem[]; resource: Record<string, number>; prefix: string }> {
+  const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
+  subject = canonicalizeIdentifier(subject, prefix);
   const primary = selected ?? await snapshot(client, subject);
-  const parsed = source(primary.item);
+  const parsed = source(primary.item, prefix);
   const evidence = [primary.citation]; const entries: CardItem[] = []; const resource: Record<string, number> = {};
   const plan = parsed.dependencies.includes(`${subject}-evaluation-plan`) ? await optionalItem(client, `${subject}-evaluation-plan`) : null;
   const dependencies = [...parsed.dependencies, ...(plan === null ? [] : [plan.id])];
@@ -225,13 +234,14 @@ export async function generationEvidence(client: PmClient, subject: string, sele
       if (found !== null) dependencies.push(found.id);
     }
   }
+  if (dependencies.includes(primary.item.id)) refuse("card_missing_provenance");
   if (new Set(dependencies).size >= MAX_EVIDENCE) refuse("card_limit");
   for (const id of [...new Set(dependencies)].sort()) {
     const entry = await snapshot(client, id); evidence.push(entry.citation); entries.push(entry.item);
   }
   await verifyEvidenceBindings(client, primary.item, entries);
   for (const entry of entries) Object.assign(resource, evidenceLimits(subject, entry));
-  return { primary: primary.item, evidence, entries, resource };
+  return { primary: primary.item, evidence, entries, resource, prefix };
 }
 /** Match complete fixed record fields before a foreign shape can reach evidence replay. */
 function fields(row: Record<string, unknown>, expected: string): boolean { return Object.keys(row).sort().join(",") === expected; }
@@ -272,7 +282,7 @@ export async function discoverPolicyCards(client: PmClient): Promise<PolicyCard[
     const record = decodeTrackerRecord(client, item, { type: "Decision", tag: "rl-policy-card", format: "pm-rl/policy-card/1", valid: (row) => {
       if (!cardShape(row)) return false;
       const { digest, ...body } = row;
-      return item.id === normalizeItemId(`policy-card-${digest}`, prefix) && item.affected_version === digest && hashJson(body as JsonValue) === digest;
+      return item.id === canonicalizeIdentifier(`policy-card-${digest}`, prefix) && item.affected_version === digest && hashJson(body as JsonValue) === digest;
     } });
     if (record !== null) retained.push(record as unknown as PolicyCard);
   }
@@ -281,19 +291,20 @@ export async function discoverPolicyCards(client: PmClient): Promise<PolicyCard[
 /** Compare the same evidence with the last retained outcome before a resumed generation advances. @internal */
 export async function verifyRetainedGenerationEvidence(client: PmClient, subject: string): Promise<void> {
   const fresh = await generationEvidence(client, subject);
+  subject = canonicalizeIdentifier(subject, fresh.prefix);
   const retained = (await discoverPolicyCards(client)).filter((card) => card.subject === subject);
   if (retained.length === 0) return;
   for (const card of retained) await replayPolicyCard(client, card);
-  const outcome = source(fresh.primary).outcome;
+  const outcome = source(fresh.primary, fresh.prefix).outcome;
   const terminal = retained.some((card) => card.outcome === "promoted" || card.outcome === "refused");
   if (terminal && ["candidate", "seed"].includes(outcome)) throw createPmCliExpectedError("A retained terminal promotion cannot be replayed as an unfinished step.", { exitCode: EXIT_CODE.CONFLICT, context: { code: "loop_step_drift" } });
   const exact = retained.find((card) => canonicalJson(card.evidence as unknown as JsonValue) === canonicalJson(fresh.evidence as unknown as JsonValue));
   // An interrupted promotion may only have its pre-promotion card; verify every shared citation before repairing publication.
   const previous = exact ?? retained.find((card) => card.outcome === "candidate") ?? retained[retained.length - 1];
   const historical = exact === undefined ? await snapshot(client, subject, previous.evidence[0].at) : null;
-  const transition = historical !== null && previous.outcome === "candidate" && ["promoted", "refused"].includes(source(fresh.primary).outcome)
+  const transition = historical !== null && previous.outcome === "candidate" && ["promoted", "refused"].includes(source(fresh.primary, fresh.prefix).outcome)
     && !terminal
-    && hashJson(generationProvenance(extractGenerationSpec(String(historical.item.body), "Retained candidate"))) === hashJson(generationProvenance(extractGenerationSpec(String(fresh.primary.body), "Current outcome")));
+    && hashJson(generationProvenance(canonicalizeGenerationSpec(extractGenerationSpec(String(historical.item.body), "Retained candidate"), fresh.prefix))) === hashJson(generationProvenance(canonicalizeGenerationSpec(extractGenerationSpec(String(fresh.primary.body), "Current outcome"), fresh.prefix)));
   const current = new Map(fresh.evidence.map((entry) => [entry.id, entry.digest]));
   if ((exact === undefined && !transition) || previous.evidence.some((entry, index) => (exact !== undefined || index > 0) && current.get(entry.id) !== entry.digest)) {
     throw createPmCliExpectedError("Generation evidence changed since its retained policy card; restore the certified evidence before resuming.", { exitCode: EXIT_CODE.CONFLICT, context: { code: "loop_generation_drift" } });
@@ -303,21 +314,21 @@ export async function verifyRetainedGenerationEvidence(client: PmClient, subject
 async function verifyEvidenceBindings(client: PmClient, item: CardItem, entries: readonly CardItem[]): Promise<void> {
   const ids = entries.map((entry) => entry.id);
   const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
-  const required = source(item).dependencies.map((id) => normalizeItemId(id, prefix));
+  const required = source(item, prefix).dependencies;
   if (required.some((id) => !ids.includes(id))) refuse("card_missing_provenance");
   const plan = `${item.id}-evaluation-plan`;
   const allowed = new Set([...required, ...(required.includes(plan) ? ["-result", "-shadow", "-shadow-comparison"].map((suffix) => `${plan}${suffix}`) : [])]);
   if (ids.some((id) => !allowed.has(id))) refuse("card_invalid");
   const planItem = entries.find((entry) => entry.id === plan);
   if (planItem !== undefined) {
-    const spec = extractGenerationSpec(String(item.body), "Card lineage");
+    const spec = canonicalizeGenerationSpec(extractGenerationSpec(String(item.body), "Card lineage"), prefix);
     const reservation = evidenceBody(planItem); const declared = object(reservation.plan);
-    if (Object.keys(reservation).sort().join(",") !== "incumbent_version,plan" || planItem.type !== "Plan" || declared.candidate !== item.id || declared.incumbent !== spec.parent || declared.incumbent_version !== reservation.incumbent_version || hashJson(declared as JsonValue) !== spec.evaluation_plan || planItem.affected_version !== hashJson({ comparison: spec.evaluation_plan, incumbent_version: reservation.incumbent_version } as JsonValue)) refuse("card_drift");
+    if (Object.keys(reservation).sort().join(",") !== "incumbent_version,plan" || planItem.type !== "Plan" || canonicalizeIdentifier(String(declared.candidate), prefix) !== item.id || canonicalizeIdentifier(String(declared.incumbent), prefix) !== spec.parent || declared.incumbent_version !== reservation.incumbent_version || hashJson(declared as JsonValue) !== spec.evaluation_plan || planItem.affected_version !== hashJson({ comparison: spec.evaluation_plan, incumbent_version: reservation.incumbent_version } as JsonValue)) refuse("card_drift");
     for (const entry of entries.filter((entry) => ["-result", "-shadow", "-shadow-comparison"].some((suffix) => entry.id === `${plan}${suffix}`))) {
       const body = evidenceBody(entry);
       if (entry.type !== "Decision") refuse("card_drift");
       if (entry.id === `${plan}-shadow`) {
-        if (body.generation !== item.id || hashJson(body as JsonValue) !== declared.shadow || entry.affected_version !== declared.shadow) refuse("card_drift");
+        if (canonicalizeIdentifier(String(body.generation), prefix) !== item.id || hashJson(body as JsonValue) !== declared.shadow || entry.affected_version !== declared.shadow) refuse("card_drift");
       } else {
         const comparison = entry.id === `${plan}-result` ? spec.evaluation_plan : declared.shadow;
         if (typeof comparison !== "string" || body.comparison !== comparison) refuse("card_drift");
@@ -333,11 +344,11 @@ function evidenceBody(item: CardItem): Record<string, unknown> {
 /** Validate every bounded projection before creating a source or changing its history. @internal */
 export async function validatePolicyCardWrite(client: PmClient, options: Parameters<PmClient["create"]>[0] & { id: string }, recursive = false): Promise<void> {
   const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
-  const item: CardItem = { id: identity(normalizeItemId(options.id, prefix)), type: options.type!, body: options.body ?? "", affected_version: options.affectedVersion ?? "", component: options.component ?? "", environment: options.environment ?? "" };
+  const item: CardItem = { id: identity(canonicalizeIdentifier(options.id, prefix)), type: options.type!, body: options.body ?? "", affected_version: options.affectedVersion ?? "", component: options.component ?? "", environment: options.environment ?? "" };
   const primary = { item, citation: { id: item.id, at: PROSPECTIVE_AT, digest: hashJson(domain(item, prefix)) } };
   await exportSnapshotCard(client, primary, null);
   if (recursive) {
-    const value = source(item).value;
+    const value = source(item, prefix).value;
     const proposals = value.configs ?? value.recipes;
     if (Array.isArray(proposals)) {
       if (proposals.length > MAX_EVIDENCE) refuse("card_limit");
@@ -354,7 +365,8 @@ function encodedSize(value: Record<string, unknown>): number {
 export async function replayPolicyCard(client: PmClient, value: unknown): Promise<{ card: PolicyCard; results: readonly PolicyCardEvidence[] }> {
   const candidate = object(value);
   if (encodedSize(candidate) > POLICY_CARD_MAX_BYTES) refuse("card_limit");
-  const subject = identity(candidate.subject);
+  const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
+  const subject = canonicalizeIdentifier(identity(candidate.subject), prefix);
   const selection = candidate.selection;
   if (selection !== null && typeof selection !== "number") refuse("card_invalid");
   if (!Array.isArray(candidate.evidence) || candidate.evidence.length === 0) refuse("card_missing_provenance");
@@ -370,7 +382,7 @@ export async function replayPolicyCard(client: PmClient, value: unknown): Promis
   if (results[0].id !== subject || new Set(results.map((row) => row.id)).size !== results.length) refuse("card_invalid");
   await verifyEvidenceBindings(client, items[0], items.slice(1));
   for (const item of items.slice(1)) Object.assign(resource, evidenceLimits(subject, item));
-  const card = assemble(subject, items[0], results, resource, selection);
+  const card = assemble(subject, items[0], [results[0], ...results.slice(1).sort((left, right) => left.id.localeCompare(right.id))], resource, selection, prefix);
   if (canonicalJson(candidate as JsonValue) !== canonicalJson(card as unknown as JsonValue)) refuse("card_drift");
   return { card, results };
 }
@@ -406,8 +418,9 @@ async function persistPolicyCard(client: PmClient, card: PolicyCard): Promise<vo
 }
 /** Publish a separate explanation for each proposed candidate as well as the shared phase outcome. */
 export async function recordRecursivePolicyCards(client: PmClient, subject: string): Promise<void> {
+  const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
   const item = (await readCompleteLoopItem(client, subject)).item;
-  const value = source(item).value;
+  const value = source(item, prefix).value;
   const proposals = value.configs ?? value.recipes;
   if (Array.isArray(proposals) && proposals.length > MAX_EVIDENCE) refuse("card_limit");
   const cards = [await exportPolicyCard(client, subject)];

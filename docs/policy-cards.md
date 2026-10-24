@@ -97,3 +97,15 @@ checks the approval revision while holding the SDK approval item lock. Card and
 absent-receipt publication preserve the native exclusive-create winner. Comment
 receipts use the SDK's lock-scoped append idempotency. See the complete write-path
 inventory in the [concurrency audit](policy-card-write-audit.md#fifth-review-concurrency-and-shared-evidence-audit).
+
+
+Identical manual promotion retries finish an interrupted card publication from
+its committed Generation. The sealed approval, proxy/held-out scores and evidence
+must match; a retry never consumes another promotion. Registration, evaluation
+and recursive publication also retain their completed domain records and finish
+missing cards on retry. Export/replay/adopt remain read-only certification.
+
+Tracker references resolve through the shared canonicalizer before dependency
+sets, scope counts, ordering and logical digests. Short/qualified aliases and
+case/order/duplicate variants cannot create duplicate citations. Original SDK
+history and provenance seals are still verified before canonical projection.

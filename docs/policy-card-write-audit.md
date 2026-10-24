@@ -387,3 +387,111 @@ the candidate bytes and release dependency claims; an independent writer can
 retry successfully. Narrowing only this observer back to loop_write_conflict
 is independently reverted in the callback regression, in addition to the two
 class-level reverts above.
+
+## Canonical identities and recoverable publication
+
+`canonicalizeIdentifier` in `lineage.ts` is the single tracker-reference
+canonicalizer. It delegates alias, prefix and case resolution to the pinned SDK.
+`canonicalizeGenerationSpec` applies it to parent, approval, environment and all
+collection Runs and score Environment references **before** their first set, sort, scope count or logical digest.
+Artifact/checkpoint/reward/comparison digests and cohort member labels belong to
+different identity domains; they are never interpreted as tracker aliases.
+
+The complete identity-operation audit was repeated with
+`rg -n 'new Set|\.sort\(|hashJson\(|normalizeItemId'` over the card, lineage,
+command and evaluation-plan modules, and with set/sort searches over the recursive
+controllers, shadow module and tracker decoder. The call sites are:
+
+| Boundary | Canonical input to identity operations |
+| --- | --- |
+| Generation registration | Requested id and parent resolve before creation/comparison; Run aliases resolve before deduplication, sort, provenance hashing and dependency creation. Environment lookup returns the canonical SDK id. |
+| Ancestry and lineage heads | Head/parent references resolve before visited/parent sets; collection references and Run environments resolve before the Run map, contamination comparison and pure deterministic lineage sorting. Both score Environment references resolve before gap comparability, held-out contamination, sealed-request retry and pinned evaluation-context comparisons. |
+| Snapshot/citation lookup | Validate identifier shape, resolve with the project prefix, then read certified current/history content. Every returned citation uses the SDK canonical id. |
+| Generation domain digest | Verify the original stored provenance seal before selecting historical content. Logical body/version digests use the canonical specification, including canonical Run multiplicity and order. This preserves historical integrity checks while making alias-equivalent content stable. Run Environment references also resolve before the domain digest. |
+| Source/scope/dependencies | The shared specification projection resolves references before scope environment hashes, collection counts and direct dependency sets. Reject subject/self dependencies after alias resolution. Optional Plan/result/shadow ids are derived from canonical subject/SDK identities. |
+| Graph bindings and allowances | Required and allowed sets use canonical dependencies. Plan candidate/incumbent and shadow-generation comparisons use the same canonicalizer, while their original signed comparison identities remain verified. Resource iteration follows sorted canonical citations. |
+| Replay | Resolve cited ids before digest/duplicate/subject checks. Reconstruct the subject-first, sorted canonical citation envelope before comparing its canonical bytes; reordered or duplicate envelopes cannot acquire another portable identity. |
+| Retained cards, ancestry and batches | Canonical subject/SDK card identities precede retained filters, ancestry visited sets, evidence maps, candidate-to-terminal provenance comparisons and immutable card collision checks. |
+| Other set/sort/hash domains | Resource/JSON keys sort as keys; evaluation cohort ids/units use the evaluation parser's bounded label normalization; shadow member names use its manifest label domain; checkpoint/proposal rankings use content digests; skipped-record ids originate from SDK inventory. No tracker alias set is built from opaque source-body ids. |
+
+The seeded property exercises **512 cards**, 128 for each seed `0x100`, `0x5eed`,
+`0xc0ffee`, `0x7fffffff`. It mixes short/qualified aliases, mixed case, duplicate
+and reordered Runs (including more than 32 raw aliases), varying resources and
+unrelated malformed/foreign tracker records. Every export replays; its replayed
+card and a fresh export are byte-identical canonical JSON. Rewriting only alias
+spelling/order/multiplicity preserves card identity. Separate regressions reject
+self citations and reordered portable envelopes.
+
+### Durable markers and first-incomplete-step recovery
+
+There is no detached in-memory "done" flag. Each step has an existing durable
+domain record that the public retry/resume path verifies:
+
+| Path | Idempotent steps and durable markers |
+| --- | --- |
+| Register | Nine byte-idempotent SDK schema declarations; immutable Generation create-or-read-identical; immutable card publication. A retry checks each declaration/source before completing missing publication. |
+| Manual promote | Atomic guarded SDK Generation body+closure with sealed approval, scores and evidence; immutable promoted card. An identical request resumes from the committed Generation and publishes the missing card, without another promotion mutation or budget charge. Different approvals, scores or evidence still refuse as already promoted. |
+| Evaluate/recursive phase | Completed, input-bound loop-step receipt followed by shared and selected immutable cards. A complete receipt skips evaluation and publishes any missing suffix of cards. |
+| Reject | Guarded sealed Generation evaluation followed by its immutable refusal card. A retained refusal keeps the original reason and finishes publication. |
+| Publish | Preflight every bounded projection/collision, then create-or-read-identical the shared card and each selection. The completed source is the batch marker; each immutable Decision marks a completed publication step. |
+| Export, replay, adopt | Read-only certified operations, without a durable write or transaction marker. Retrying repeats the certification. Adoption succeeds after a publication retry repairs the retained outcome; it does not silently create authority. |
+
+`test/policy-card-recovery-worker.ts` injects **EIO, ENOSPC and actual SIGKILL**
+at all **48 logical boundaries** (144 fault cases):
+
+- Register: before/after each of the nine schema declarations, Generation create
+  and card create (22 boundaries).
+- Promote and reject: before/after the atomic Generation seal and card create
+  (four boundaries each).
+- Evaluate: before/after the completed receipt and each of its three cards
+  (eight boundaries).
+- Recursive publish: before/after each of three cards (six boundaries).
+- Read-only export and adoption: before/after certification (two each).
+
+Each case clones the same real non-git baseline, verifies the precise injection
+point was reached, retries, and compares all domain bodies, ids, types, statuses,
+provenance/dependencies, component/environment fields, certified item-history
+operation counts, and exact settings/schema bytes against the fault-free run.
+A second retry must leave that complete projection unchanged. Positive outcomes
+must remain adoptable and refusals must retain their original verdict. Clock
+fields, SDK read-usage observations, renewable locks and transaction-attempt
+journals are intentionally outside this equality: failed attempts can retain
+operational diagnostics, and separate executions have different clocks. This is
+domain-state equivalence, not a claim of byte-identical attempt journals.
+
+The pinned extension test harness returns `null` for some injected native command
+failures; typed provenance read retries propagate. The tests verify either
+failure channel plus the durable boundary-hit receipt, then require the same
+successful public retry. SIGKILL runs in a child process and bypasses cleanup;
+normal SDK stale-lock recovery is exercised without deleting locks in the test.
+
+### Independent behavioral reverts
+
+Both proofs use a disposable text-source copy and the unchanged pinned SDK.
+Only production behavior is reverted, and each source is restored in `finally`.
+The unchanged regression file SHA-256 is
+`171b3e13b3df8d5a42b0f4d16d59c1f83910b1305915c6ea38d016899583a285`.
+
+- Canonical class: revert only `canonicalizeGenerationSpec` to return the original
+  references; run `node --test --test-name-pattern='canonical card property'
+  test/policy-card.test.ts`. The generated alias corpus fails 1/1 with
+  `card_missing_provenance`; the normalizer is restored.
+- Recovery class: revert only the manual handler's committed-state resume branch
+  to its original `already_promoted` refusal; run `node --test
+  --test-name-pattern='manual promotion post-commit retry'
+  test/policy-card.test.ts`. Publication fails after the real promotion commit;
+  the retry fails 1/1 with `already_promoted`. The resume branch is restored.
+
+The restored focused self-citation/order and post-commit publication suite passes
+3/3, including identical retries with Environment aliases in both scores. The larger fault matrix and mismatch test pass 146/146; the canonical property
+passes 512 generated cases. Full npm/Node and Bun release/coverage evidence is
+provided by the unchanged CI release gate for the pushed head.
+
+
+The pinned PM snapshot runner also passes the property/fault/mismatch command
+147/147 with zero failures, cancellations or skips. The focused graph and
+post-commit command passes 2/2 through that runner. A final source pass adds score
+Environment alias equivalence to the sealed-request regression; the corresponding
+focused suite passes 3/3. Local typecheck, source/test compilation, lint,
+duplication, docstring, identity and changelog checks pass without changing pins
+or coverage thresholds.
