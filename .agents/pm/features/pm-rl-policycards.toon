@@ -2,14 +2,19 @@ id: pm-rl-policycards
 title: Explain learned policy suitability with portable replayable cards
 description: "Export minimized policy suitability, scope, action limits, regressions and evidence digests across agent backends; automatically retain explanations throughout recursive candidate and promotion paths."
 type: Feature
-status: in_progress
+status: closed
 priority: 2
 tags[1]: "gh:unbraind/pm-rl#100"
 created_at: "2026-10-23T14:29:56.651Z"
-updated_at: "2026-10-24T15:17:48.800Z"
+updated_at: "2026-10-24T21:47:38.271Z"
+closed_at: "2026-10-24T21:47:38.243Z"
+completed_at: "2026-10-24T21:47:38.243Z"
 author: codex-agent
 acceptance_criteria: Missing provenance blocks adoption; replay identifies every cited result; export contains no training examples or credentials; typed SDK and compact TOON/JSON CLI; every recursive candidate and promotion has a card; read-only public tracker validation demonstrates at least two generations; npm and Bun CI release gates pass at unchanged thresholds.
 parent: pm-rl-apvf
+resolution: "Portable cards bind canonical provenance and every recursive candidate/promotion, replay cited outcomes without examples or credentials and retain recoverable publication with two-generation public evidence and release CI."
+expected_result: Missing provenance blocks adoption; replay identifies every cited result; export contains no training examples or credentials; typed SDK and compact TOON/JSON CLI; every recursive candidate and promotion has a card; read-only public tracker validation demonstrates at least two generations; npm and Bun CI release gates pass at unchanged thresholds.
+actual_result: "https://github.com/unbraind/pm-rl/pull/100, merged 2026-10-24T16:03:45Z, merge 9949e50b9d18f813f487a34b738fda5ebd7f8e88: Portable cards bind canonical provenance and every recursive candidate/promotion, replay cited outcomes without examples or credentials and retain recoverable publication with two-generation public evidence and release CI."
 comments[103]{created_at,author,text}:
   "2026-10-23T14:31:01.471Z",codex-agent,"Overlap check: current host CLI is 2026.10.23; package SDK remains pinned at 2026.10.20. Inspected CLI command ownership and pm-context context-pack explanations: neither exports learned-policy suitability. Existing pm-rl checkpoint artifacts retain executable state; generation provenance, causal plans, shadow comparisons and recursive improver receipts own the evidence. Cards will reuse SDK complete inventory, certified history reads and content-addressed package hashes. No dependency bump, trainer replacement or context assembler. Plan: minimized digest-only cards, replay/adoption refusals, automatic recursive candidate/outcome publication, non-Git public-copy validation for two generations, targeted local checks and full npm/Bun CI gates."
   "2026-10-23T14:43:18.298Z",codex-agent,"Implemented typed export/replay/adoption-check SDK and CLI, bounded digest-only projection, exact timestamped history citations and retained candidate/promotion cards. Recursive durable phases now retain outcome cards plus one card per proposed configuration/recipe. Local typecheck, lint, duplication and docstring checks passed before the last small additions; targeted regression work is ongoing. Verified the selected pm-ops commit is publicly accessible and MIT licensed; prepared a read-only non-Git copy for two-generation numerical-policy acceptance. Full release gates will run in CI because the shared host is saturated."
@@ -458,4 +463,5 @@ docs[5]{path,scope}:
   docs/policy-cards.md,project
   examples/policy-card.json,project
   README.md,project
+close_reason: "https://github.com/unbraind/pm-rl/pull/100, merged 2026-10-24T16:03:45Z, merge 9949e50b9d18f813f487a34b738fda5ebd7f8e88: Portable cards bind canonical provenance and every recursive candidate/promotion, replay cited outcomes without examples or credentials and retain recoverable publication with two-generation public evidence and release CI."
 body: ""

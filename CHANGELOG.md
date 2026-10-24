@@ -6,6 +6,10 @@
 
 - Environment registration and versioning, immutable once referenced ([pm-rl-et5b](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-et5b.toon))
 - Run lifecycle ingests NDJSON in bounded pm-rl/2 segments, reads pm-rl/1, and measures sustained storage ([pm-rl-dyho](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-dyho.toon))
+- Train a history-prefix learner on the public tracker environment ([pm-rl-prefix](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-prefix.toon))
+- Enforce predeclared causal evaluation plans at promotion ([pm-rl-evalplans](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-evalplans.toon))
+- Explain learned policy suitability with portable replayable cards ([pm-rl-policycards](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-policycards.toon))
+- Observe candidate policies safely before deployment ([pm-rl-shadow](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-shadow.toon))
 - Add Docker Compose execution for the durable process trainer contract ([pm-rl-mjo5](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-mjo5.toon))
 - Train the bounded LM in external Compose jobs across recursive generations ([pm-rl-whrd](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-whrd.toon))
 - Improve bounded training recipes over public tracker histories ([pm-rl-meta](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-meta.toon))
@@ -80,6 +84,7 @@
 
 - Metric series live in item history, never in an item body ([pm-rl-mpd9](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/decisions/pm-rl-mpd9.toon))
 - 100/100/100 coverage and full docstring coverage for pm-rl ([pm-rl-fpon](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-fpon.toon))
+- Keep the HTTP receipt crash drill within its unchanged timeout ([pm-rl-bi4v](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-bi4v.toon))
 - Certify pm-rl on PM CLI/SDK 2026.10.4 and consolidate pending dependency updates ([pm-rl-hncb](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-hncb.toon))
 - Auto-merge green Dependabot updates and group the pm toolchain into one daily PR ([pm-rl-3q1e](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-3q1e.toon))
 - Certify pm CLI 2026.9.23 and adopt the guarded pm-ops merge-driver launcher ([pm-rl-nerp](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-nerp.toon))

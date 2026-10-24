@@ -2,14 +2,19 @@ id: pm-rl-prefix
 title: Train a history-prefix learner on the public tracker environment
 description: "PR 84 acceptance scored 107/214 on meta-validation versus the completed-majority baseline 211/214, and 198/385 on final-test versus 384/385. All candidates retained the zero-weight seed checkpoint because inner fits were refused. Add a bounded learner that actually reads the normalized history prefix, such as the existing LM adapter, on the sealed repository-split tracker environment."
 type: Feature
-status: in_progress
+status: closed
 priority: 2
 tags: []
 created_at: "2026-10-18T07:43:41.188Z"
-updated_at: "2026-10-20T07:54:22.789Z"
+updated_at: "2026-10-24T21:47:38.467Z"
+closed_at: "2026-10-24T21:47:38.459Z"
+completed_at: "2026-10-24T21:47:38.459Z"
 author: codex-agent
 acceptance_criteria: "Train only on training repositories; preserve inner-held-out, meta-validation and final-test boundaries, fixed pre-approved budgets and unchanged promotion gate; report majority baselines, prediction diversity and final-test scores; demonstrate statistically supported improvement or explicitly report a null result without weakening the gate."
 parent: pm-rl-apvf
+resolution: "Training remains confined to frozen training repositories and budgets, reports majority/diversity/calibration/final-test scores and an explicit null result without weakening promotion."
+expected_result: "Train only on training repositories; preserve inner-held-out, meta-validation and final-test boundaries, fixed pre-approved budgets and unchanged promotion gate; report majority baselines, prediction diversity and final-test scores; demonstrate statistically supported improvement or explicitly report a null result without weakening the gate."
+actual_result: "https://github.com/unbraind/pm-rl/pull/89, merged 2026-10-20T09:52:40Z, merge aadf966a77788552ffb57f87874e4aa98254e759: Training remains confined to frozen training repositories and budgets, reports majority/diversity/calibration/final-test scores and an explicit null result without weakening promotion."
 comments[22]{created_at,author,text}:
   "2026-10-18T18:18:15.113Z",codex-agent,"Plan: measure four candidate targets on training repositories only, freeze the selected task and split rules, then fit a bounded hashed prefix learner through the existing reserved process contract. Keep the 0.95 confidence, ten-sample, 0.01 effect gate and release disabled. Retain explicit fit, rejection, diversity, baseline and final-test evidence; verify behavioural reverts and both isolated release gates before opening the PR."
   "2026-10-18T18:19:57.854Z",codex-agent,"Training-repository-only screening on the original sealed commits (1168 eligible items): next lifecycle {closed:959,in_progress:195,canceled:10,open:3,blocked:1}, majority 82.106%; reopened {false:1144,true:24}, 97.945%; item type {Issue:447,Task:295,Chore:270,Feature:142,Decision:9,Epic:5}, 38.271%; median time-to-close {fast:585,slow:583}, 50.086%. Select time-to-close for a bounded binary learner: elapsed time and lifecycle activity plausibly predict remaining duration. Freeze this selection before either outer holdout is scored. Final calibration and all four distributions will use fit items only, excluding inner-held-out items, with a fixed seeded event cut and original source pins."
@@ -69,4 +74,5 @@ docs[9]{path,scope}:
   docs/recursive-improver.md,project
   README.md,project
   RECURSIVE_TRAINING.md,project
+close_reason: "https://github.com/unbraind/pm-rl/pull/89, merged 2026-10-20T09:52:40Z, merge aadf966a77788552ffb57f87874e4aa98254e759: Training remains confined to frozen training repositories and budgets, reports majority/diversity/calibration/final-test scores and an explicit null result without weakening promotion."
 body: ""
