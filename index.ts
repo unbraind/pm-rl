@@ -208,7 +208,7 @@ import {
 } from "@unbrained/pm-cli/sdk/authoring";
 import { commitWorkspaceTransaction, applyTerminalOrderingPolicy, mutateItem, readSettings, runWithActiveExtensions, type CommitWorkspaceTransactionOptions, type ItemDocument, resolveRuntimeStatusRegistry, type LogNote } from "@unbrained/pm-cli/sdk";
 import { PmClient, type GetResult, type ItemMetadata } from "@unbrained/pm-cli/sdk/core";
-import { acquireLock, certifyCompleteListResult, createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError, normalizeItemId, type PmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
+import { acquireLock, certifyCompleteListResult, createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError, isTerminalStatus, normalizeItemId, type PmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 
 import { parseJsonRecord, rethrowOperationalRead, rethrowProvenanceRead } from "./refuse.ts";
 import { exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordRecursivePolicyCards, recordPolicyCard, validatePromotedPolicyCard, validatePolicyCardWrite, validateRefusedPolicyCard, verifyRetainedGenerationEvidence } from "./policy-card.ts";
@@ -755,7 +755,7 @@ export async function readCompleteLoopItem(client: PmClient, id: string, at?: st
 }
 
 /** Apply a read-derived change through the SDK item transaction, refusing a stale revision under its item lock. @internal */
-export async function mutateLoopItem(client: PmClient, before: GetResult, message: string, change: (document: ItemDocument, closeStatus: string) => string[], preconditions: readonly GetResult[] = [], author = "pm-rl", op: "update" | "close" = "update"): Promise<GetResult> {
+export async function mutateLoopItem(client: PmClient, before: GetResult, message: string, change: (document: ItemDocument, closeStatus: string, terminal: boolean) => string[], preconditions: readonly GetResult[] = [], author = "pm-rl", op: "update" | "close" = "update"): Promise<GetResult> {
   const config = await client.config("project", "get", "id_prefix");
   const pmRoot = dirname(config.settings_path);
   const settings = await readSettings(pmRoot);
@@ -771,7 +771,8 @@ export async function mutateLoopItem(client: PmClient, before: GetResult, messag
     const result = await runWithActiveExtensions({ path: pmRoot }, () => mutateItem({ pmRoot, settings, id: before.item.id, op, author, message, skipNoop: true,
       mutate: (document) => {
         if (document.metadata.updated_at !== expected.updated || document.body !== expected.body) fail("Tracker item changed after it was read; retry from current evidence.", "loop_write_conflict", EXIT_CODE.CONFLICT);
-        return { changedFields: change(document, resolveRuntimeStatusRegistry(settings.schema).close_status) };
+        const registry = resolveRuntimeStatusRegistry(settings.schema);
+        return { changedFields: change(document, registry.close_status, isTerminalStatus(document.metadata.status, registry)) };
       },
     }));
     return { item: { ...result.item, body: result.body } };
@@ -782,7 +783,8 @@ export async function mutateLoopItem(client: PmClient, before: GetResult, messag
 
 /** Close a generation and optionally publish its outcome in one guarded SDK item transaction. */
 async function completeLoopGeneration(client: PmClient, before: GetResult, body: string, evidence: string, actual: string, preconditions: readonly GetResult[] = [], author = "pm-rl"): Promise<GetResult> {
-  return mutateLoopItem(client, before, "Complete RL promotion atomically", (document, closeStatus) => {
+  return mutateLoopItem(client, before, "Complete RL promotion atomically", (document, closeStatus, terminal) => {
+    if (terminal) fail("A terminal generation cannot be promoted again.", "generation_terminal", EXIT_CODE.CONFLICT);
     document.body = body;
     const at = new Date().toISOString();
     Object.assign(document.metadata, { status: closeStatus, close_reason: "promoted", closed_at: at, completed_at: document.metadata.completed_at ?? at, resolution: evidence,
@@ -2502,6 +2504,7 @@ export async function promoteGenerationCore(client: PmClient, coordinates: Works
         if (currentSpec.promoted) {
           fail(`Generation ${id} is already promoted.`, "already_promoted", EXIT_CODE.CONFLICT);
         }
+        if (currentSpec.seed) fail("A seed generation cannot be promoted.", "seed_not_promoted", EXIT_CODE.CONFLICT);
         await enforceEvaluationPlan(client, String(current.item.id), heldOutScore);
         // THE authoritative contamination decision, taken inside the lock over
         // the ancestry the verdict actually depends on.
@@ -3323,8 +3326,8 @@ function loopStepInput(programme: LoopProgramme, chain: LoopChain, generation: n
 }
 
 /** Read an immutable completed PM step receipt, refusing changed inputs or damaged payloads. */
-async function readLoopStep(client: PmClient, id: string, phase: string, input: JsonValue): Promise<JsonValue | null> {
-  const item = await readCompleteLoopItem(client, `${id}-step-${phase}`).catch((error: unknown) => isItemNotFound(error) ? null : Promise.reject(error));
+async function readLoopStep(client: PmClient, id: string, phase: string, input: JsonValue, loaded?: GetResult | null): Promise<JsonValue | null> {
+  const item = loaded === undefined ? await readCompleteLoopItem(client, `${id}-step-${phase}`).catch((error: unknown) => isItemNotFound(error) ? null : Promise.reject(error)) : loaded;
   if (item === null) return null;
   let record: Record<string, JsonValue>;
   try {
@@ -3357,6 +3360,8 @@ async function durableLoopStep(client: PmClient, lease: ControllerLease, id: str
     const intent = { id: key, type: "Decision" as const, title: `Loop step ${phase} for ${id}`, body: JSON.stringify(running) };
     const item = existing ?? (cards || phase === "promote" ? null : await client.create(intent));
     const before = item === null ? null : existing ?? await readCompleteLoopItem(client, String(item.item.id));
+    const winner = await readLoopStep(client, id, phase, input, before);
+    if (winner !== null) return { value: winner, executed: false };
     const value = await execute();
     const body = JSON.stringify({ ...running, state: "complete", result: value, digest: hashJson(value) });
     if (cards) await validatePolicyCardWrite(client, { ...intent, body }, true);
@@ -3743,8 +3748,9 @@ async function inspectLoopGeneration(client: PmClient, programme: LoopProgramme,
 async function reconcileLoopPromotion(client: PmClient, lease: ControllerLease, itemId: string): Promise<void> {
   await lease.guard(async () => {
     const item = await getTypedItem(client, itemId, "Generation");
-    if (item.item.status === "closed") return;
     const spec = extractGenerationSpec(String(item.item.body), "Promoted loop generation");
+    if (!spec.promoted) fail("Promotion recovery no longer agrees with current generation evidence.", "loop_step_drift", EXIT_CODE.CONFLICT);
+    if (item.item.status === "closed") return;
     await exportPolicyCard(client, itemId);
     await completeLoopGeneration(client, item, String(item.item.body), spec.promotion_evidence!, "Recovered the promotion close boundary; the approved promotion count and scores are unchanged.", [], lease.author);
   });

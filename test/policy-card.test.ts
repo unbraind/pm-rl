@@ -945,3 +945,63 @@ test("retained generation evidence compares the whole citation set including lat
   await recordPolicyCard(w.client, id);
   await verifyRetainedGenerationEvidence(w.client, id);
 });
+
+test("every receipt honors a peer completion between its initial check and revision capture", async () => {
+  const w = await workspace(); await w.client.create({ id: "rl-approval", type: "Decision", title: "Consent" });
+  const peer = new PmClient({ pmRoot: w.pmRoot, author: "peer", noExtensions: true });
+  const key = "early-peer-step-work";
+  const running = { format: "pm-rl/loop-step/1", key, input: hashJson({}), state: "running" };
+  await peer.create({ id: key, type: "Decision", title: "Running", body: JSON.stringify(running) });
+  const result = { samples: 20 };
+  const body = JSON.stringify({ ...running, state: "complete", result, digest: hashJson(result) });
+  const get = w.client.get.bind(w.client); let injected = false; let executed = false;
+  w.client.get = (async (...args: Parameters<PmClient["get"]>) => {
+    const value = await get(...args);
+    if (!injected && args[0] === key) { injected = true; await peer.update(key, { body }); }
+    return value;
+  }) as PmClient["get"];
+  await withRlController(w.client, { pmRoot: w.pmRoot, author: "card-test" }, { id: "early-peer", approval: "rl-approval", recoveryCommand: "resume programme" }, AbortSignal.timeout(60000), async (step) => {
+    await step("programme", {}, async () => ({}));
+    assert.deepEqual(await step("work", {}, async () => { executed = true; return { samples: 1 }; }), result);
+  });
+  assert.ok(injected); assert.equal(executed, false);
+  assert.equal((await peer.get(key)).item.body, body);
+});
+
+
+test("promotion, approval fresh-state checks preserve peer recovery, terminal and seed decisions", { timeout: 600_000 }, async (context) => {
+  for (const mode of ["recovery", "terminal", "seed"] as const) await context.test(mode, async () => {
+    const w = await workspace(); const coordinates = { pmRoot: w.pmRoot, author: "card-test" };
+    await w.client.create({ id: "rl-approval", type: "Decision", title: "Consent", body: '```json\n{"permitted_promotions":1}\n```' });
+    const config = { ...JSON.parse(readFileSync(new URL("../examples/loop-bandit.json", import.meta.url), "utf8")) as Record<string, JsonValue>, max_generations: 1 };
+    const report = await runRlLoop(w.client, coordinates, { id: "fresh-state", config, approval: "rl-approval" }); const row = report.generations[0];
+    const current = extractGenerationSpec(String((await w.client.get(row.item)).item.body), "Promoted fixture");
+    const candidate = { ...current, promoted: false, approval: null, proxy_score: null, held_out_score: null, gap: null, promotion_evidence: null };
+    const peer = new PmClient({ pmRoot: w.pmRoot, author: "peer", noExtensions: true });
+    let peerBody = `\`\`\`json\n${JSON.stringify(candidate)}\n\`\`\``;
+    if (mode === "recovery") {
+      await peer.update(row.item, { status: "in_progress" });
+      const get = w.client.get.bind(w.client); let injected = false;
+      w.client.get = (async (...args: Parameters<PmClient["get"]>) => {
+        if (!injected && args[0] === row.item && new Error().stack?.includes("reconcileLoopPromotion")) { injected = true; await peer.update(row.item, { body: peerBody }); }
+        return get(...args);
+      }) as PmClient["get"];
+      await assert.rejects(resumeRlLoop(w.client, coordinates, { id: "fresh-state", approval: "rl-approval" }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_step_drift");
+      assert.ok(injected);
+    } else {
+      await peer.update(row.item, { body: peerBody, ...(mode === "seed" ? { status: "in_progress" } : {}) });
+      let injected = false;
+      await assert.rejects(promoteGenerationCore(w.client, coordinates, row.item, "rl-approval", current.proxy_score!, current.held_out_score!, "Fresh state drill", async (event) => {
+        if (mode === "seed" && !injected && event.transition === "prepared") {
+          injected = true;
+          const seed = spec({ base_checkpoint: candidate.base_checkpoint, policy: candidate.policy });
+          peerBody = `\`\`\`json\n${JSON.stringify(seed)}\n\`\`\``;
+          await peer.update(row.item, { body: peerBody, affectedVersion: hashJson(generationProvenance(seed)) });
+        }
+      }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === (mode === "seed" ? "seed_not_promoted" : "generation_terminal"));
+      if (mode === "seed") assert.ok(injected);
+    }
+    const stored = (await peer.get(row.item)).item;
+    assert.equal(stored.body, peerBody); assert.equal(stored.status, mode === "terminal" ? "closed" : "in_progress");
+  });
+});

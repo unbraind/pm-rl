@@ -96,7 +96,7 @@ it cannot silently change the content already cited by an earlier card.
 | Checkpoint pre-publication validation | Existing checkpoint artifact content digests, encoded operation result and fixed operation input feed the prospective completed receipt. The added callback changes validation order only, before any blob or ledger publication. No tracker metadata enters these identities. |
 
 Excluded from every card content hash: `updated_at`, current/total history length,
-comments, notes (including reserved-looking text), tags, assignee/claim/release state,
+comments, ordinary notes (including reserved-looking text), tags, assignee/claim/release state,
 tracker status/status messages, titles, priorities, acceptance criteria and unrelated
 custom fields. SDK chain verification still detects unauthorized materialized edits
 to *any* tracker field; that storage-integrity check is distinct from binding a
@@ -173,11 +173,11 @@ by the exact sealed body, and the SDK clears that lifecycle field on reopening.
 | --- | --- |
 | Generation and immutable environment/Run registration | Native SDK exclusive create; `createOrReadIdentical` verifies the real collision winner instead of updating it. |
 | Rejection outcome publication | Capture current `updated_at` and body before validation; `mutateLoopItem` compares both inside SDK `mutateItem` under its native item lock. The two-writer test preserves a peer `samples=20` body and provenance, creates no card, and returns retryable `loop_write_conflict`. |
-| Promotion body and lifecycle publication | Re-read and validate in the workspace transaction, then publish body, close status, close timestamp, completion timestamp and evidence in one guarded SDK item transaction. No split body/close operation or captured-body rollback exists. A peer after the read wins without being overwritten. |
+| Promotion body and lifecycle publication | Re-read and validate in the workspace transaction, then publish body, close status, close timestamp, completion timestamp and evidence in one guarded SDK item transaction. No split body/close operation or captured-body rollback exists. A peer after the read wins without being overwritten. The authoritative read refuses seed conversions, and the locked terminal mutation refuses an already-terminal candidate. |
 | Promotion budget consumption | Promoted Generation provenance is the budget charge; no independent counter is written. The candidate transaction also locks the approval with the SDK native item lock and compares the revision captured by the authoritative approval read. A peer lowering capacity after that read causes conflict before consumption. Concurrent promoter budget tests still permit only the approved count. |
-| Interrupted promotion close | Uses the captured current item revision and the same atomic terminal mutation. A peer between read and close causes conflict, preserving its body and pending lifecycle state. |
+| Interrupted promotion close | Uses the captured current item revision and the same atomic terminal mutation. The fresh read first requires an actually promoted body; a peer before that read is preserved and causes `loop_step_drift`. A peer between read and close causes conflict, preserving its body and pending lifecycle state. |
 | Immutable card publication, including recursive selections | SDK exclusive create, with content/type/version verification of an existing or concurrent winner. The collision test interleaves a peer create after the absence read and preserves the peer card while refusing `card_drift`. |
-| Existing/running inner and outer phase receipts | Capture the revision before executing the operation, then complete through `mutateLoopItem`. A peer during execution remains intact and causes conflict. |
+| Existing/running inner and outer phase receipts | Capture the revision before executing the operation and validate completion again in that exact revision. A peer completion between the first check and capture is honored without execution. Complete through `mutateLoopItem`; a peer during execution remains intact and causes conflict. |
 | Absent/deferred phase receipts | SDK exclusive create after deterministic prospective validation; a peer creation during execution wins and is never replaced by an update. |
 | Refusal and terminal comment receipts | Native SDK append with `ifAbsent: true`, performing duplicate detection under its item lock. Two writers that both read an empty comment list retain one receipt. No whole item or captured body is written. |
 | Feature work documentation | Pinned repo-local PM CLI mutations, attributable to `codex-agent`; append-only item history is committed with code. |
@@ -202,18 +202,22 @@ Revert proofs and final full-gate counts are recorded on `pm-rl-policycards`.
 
 ### Fifth-review behavioral revert receipts
 
-Fourteen independent reverts change production behavior only in a separate
+Eighteen independent reverts change production behavior only in a separate
 source copy. Every run exits 1 with a behavioral AssertionError. Production is
 restored in `finally`; regression files stay unchanged throughout each proof:
 
 - `test/continuation-faults.test.ts`: `ec17e98181dd36e8fabd250dab22d90bfd3702d00a9377dafb9bbab8e0ddf1cf`.
-- `test/policy-card.test.ts`: `6415e4cb56e87e40396e6f20d2a65a566d0b699deffa6ebef3b5c61b7041bd18`.
+- `test/policy-card.test.ts`: `6eee08cf9e5300e8b6377c8eca17dab1539aacc800352d231a79dd7be929cfb9`.
 
 Commands are `node --test --test-name-pattern='<pattern>' <file>`. Failed parent
 wrappers are included in failed/total counts for nested scenarios.
 
 | Removed behavior | Regression file and pattern | Failed / total |
 | --- | --- | --- |
+| `recovery-fresh-promotion-state` | `test/policy-card.test.ts`: `promotion, approval fresh-state` | 2 / 4 |
+| `terminal-close-refusal` | `test/policy-card.test.ts`: `promotion, approval fresh-state` | 2 / 4 |
+| `fresh-seed-refusal` | `test/policy-card.test.ts`: `promotion, approval fresh-state` | 2 / 4 |
+| `receipt-peer-completion-state` | `test/policy-card.test.ts`: `every receipt honors` | 1 / 1 |
 | `legacy-promotion-receipt-refusal` | `test/continuation-faults.test.ts`: `one paused tiny-LM` | 2 / 46 |
 | `canonical-approval-alias` | `test/policy-card.test.ts`: `one generation evidence` | 1 / 1 |
 | `whole-citation-set` | `test/policy-card.test.ts`: `retained generation evidence compares` | 1 / 1 |
@@ -221,12 +225,12 @@ wrappers are included in failed/total counts for nested scenarios.
 | `shared-resume-evidence` | `test/policy-card.test.ts`: `one generation evidence` | 1 / 1 |
 | `rejection-old-body` | `test/policy-card.test.ts`: `rejection publication` | 1 / 1 |
 | `rejection-target-revision` | `test/policy-card.test.ts`: `rejection publication` | 1 / 1 |
-| `receipt-target-revision` | `test/policy-card.test.ts`: `every receipt` | 2 / 3 |
-| `promotion-recovery-target-revision` | `test/policy-card.test.ts`: `promotion, approval` | 3 / 5 |
-| `approval-budget-revision` | `test/policy-card.test.ts`: `promotion, approval` | 2 / 5 |
+| `receipt-target-revision` | `test/policy-card.test.ts`: `every receipt` | 2 / 4 |
+| `promotion-recovery-target-revision` | `test/policy-card.test.ts`: `promotion, approval` | 3 / 9 |
+| `approval-budget-revision` | `test/policy-card.test.ts`: `promotion, approval` | 2 / 9 |
 | `card-collision-verification` | `test/policy-card.test.ts`: `card creation` | 1 / 1 |
-| `deferred-receipt-exclusive-create` | `test/policy-card.test.ts`: `every receipt` | 2 / 3 |
-| `no-captured-promotion-compensation` | `test/policy-card.test.ts`: `promotion, approval` | 2 / 5 |
+| `deferred-receipt-exclusive-create` | `test/policy-card.test.ts`: `every receipt` | 2 / 4 |
+| `no-captured-promotion-compensation` | `test/policy-card.test.ts`: `promotion, approval` | 2 / 9 |
 | `comment-lock-idempotency` | `test/policy-card.test.ts`: `comment receipts` | 1 / 1 |
 
 The compensation revert restores a captured body after a real peer update at
