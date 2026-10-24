@@ -303,13 +303,13 @@ Focused commands:
 Behavioral revert receipts are recorded on `pm-rl-policycards`. Each proof uses an
 isolated source snapshot, changes only the production discovery function or
 promotion reconciliation catch, runs the unchanged regression, and restores the
-production source in `finally`. Test SHA-256: `ebb80010f6303cbf17c9a8fd64aabad97f70df926a14bb2dc4141e4f01dee8eb`.
+production source in `finally`. Test SHA-256: `21edb7e6df8802dce83abe8d26f5a8cd897d02ceb31f55fe2db3acb42cd49009`.
 The restored snapshot must match the package source and test bytes before its
 positive regression run. Full release evidence is the CI npm and Bun matrix at
 the pushed head, using the unchanged `release:check` commands and thresholds.
 
 Final sixth-review local receipts: the restored focused suite and the pinned
-PM-linked suite pass 44/44, with zero skips. The shared tracker decoder has
+PM-linked suite pass 46/46, with zero skips. The shared tracker decoder has
 100% lines, branches and functions in the focused native coverage run. Class 1's
 production-only revert fails 1/1 with `SyntaxError`; class 2's production-only
 revert passes 4/15 and fails 11/15, including the original peer-promotion refusal
@@ -331,5 +331,15 @@ lookup cases. Full npm/Bun gates and real Compose tests run in CI.
 Final linked command (also run with `pm test pm-rl-policycards --run --only-last --progress`):
 
 ```sh
-node --test --test-name-pattern='seeded foreign tracker|shared tracker loop interleavings|shared tracker peer refusals|lost controller claim|rejection CAS reconciliation|promotion attribution requires|peer refusal remains|guarded tracker decoder|peer completion receipts|stale legacy refusal|authoritative status read failures|foreign subject types|shared inner promotion headroom|budget and job identity drift|rerunning one loop id|SIGKILL inside real LM collect|approval aliases cannot spend' test/policy-card.test.ts test/meta.test.ts test/process.test.ts test/lm-loop.test.ts
+node --test --test-name-pattern='seeded foreign tracker|shared tracker loop interleavings|shared tracker peer refusals|lost controller claim|rejection CAS reconciliation|promotion attribution requires|peer refusal remains|guarded tracker decoder|peer completion receipts|stale legacy refusal|authoritative status read failures|foreign subject types|shared inner promotion headroom|budget and job identity drift|rerunning one loop id|SIGKILL inside real LM collect|approval aliases cannot spend|malformed completed receipts|legacy rejected generations' test/policy-card.test.ts test/meta.test.ts test/process.test.ts test/lm-loop.test.ts
 ```
+
+The second sixth-review CI run (40078982664) passed all 836 tests on npm
+Node 22/26 and Bun Node 26, but the unchanged 100% branch gate remained at
+99.97% in aggregate. The local probe located the malformed receipt refusal
+path; the additional legacy test exercises evaluation absence during resume. The final tests cover every
+invalid completed-receipt field and a real SDK-created pre-card snapshot with
+no sealed evaluation: both controllers retain the original numerical rejection
+and its reason. The snapshot preserves source histories byte-for-byte and never
+rewrites or repairs existing history streams. No production behavior or
+threshold was changed for this coverage completion.

@@ -1,8 +1,8 @@
 /** Portable explanation regressions exercise real SDK histories in plain-directory trackers. */
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, symlinkSync, readFileSync, readdirSync } from "node:fs";
+import { mkdtempSync, cpSync, rmSync, writeFileSync, mkdirSync, symlinkSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, dirname, relative } from "node:path";
+import { join, basename, dirname, relative } from "node:path";
 import { after, test } from "node:test";
 import { PmClient, type CloseResult } from "@unbrained/pm-cli/sdk/core";
 import { init, isPmCliExpectedError, createPmCliExpectedError, type CloseTaskResult, type PmClientCloseActionOptions } from "@unbrained/pm-cli/sdk/runtime";
@@ -541,7 +541,10 @@ test("malformed completed receipts, proposal selectors, numeric diagnostics and 
     ["bad-format", "{}", "card_missing_provenance"],
     ["bad-result", JSON.stringify({ format: "pm-rl/loop-step/1", state: "complete", input: hashJson("binding"), result: [], digest: hashJson([]) }), "card_invalid"],
   ];
-  for (const [id, body, code] of receipts) {
+  const completed = { format: "pm-rl/loop-step/1", state: "complete", input: hashJson("binding"), result: {}, digest: hashJson({}) };
+  const invalidFields = [{ state: "running" }, { input: 17 }, { input: "not-a-digest" }, { result: null }, { result: 17 }, { digest: "foreign-checksum" }];
+  const invalidReceipts: readonly [string, string, string][] = invalidFields.map((patch, index) => [`invalid-receipt-${index}`, JSON.stringify({ ...completed, ...patch }), "card_missing_provenance"]);
+  for (const [id, body, code] of [...receipts, ...invalidReceipts]) {
     await w.client.create({ id: `rl-${id}`, type: "Decision", title: id, body });
     await assert.rejects(exportPolicyCard(w.client, `rl-${id}`), refused(code));
   }
@@ -1353,4 +1356,33 @@ test("foreign subject types refuse before inspecting unrelated bodies and preser
   const design = await w.client.create({ id: "rl-policy-card-design", type: "Decision", title: "Unrelated design", body: "# Policy design discussion" });
   await discoverPolicyCards(w.client);
   assert.ok(skippedTrackerRecords(w.client).some((row) => row.id === design.item.id && row.reason === "foreign_tag"));
+});
+
+
+test("legacy rejected generations without sealed evaluations resume with the original verdict", async () => {
+  const w = await transitionFixture("legacy-rejection");
+  const config = { ...w.config, minimum_improvement: 0.99 };
+  await assert.rejects(runRlLoop(w.client, w.coordinates, { ...w.request, config, onPhase(phase) { if (phase === "evaluate") throw new Error("pause legacy evaluator"); } }), /pause legacy evaluator/);
+  const retained = (await discoverPolicyCards(w.client)).filter((card) => card.subject === w.generationId);
+  assert.ok(retained.length > 0);
+  // Build a pre-card snapshot without changing any existing source or history stream.
+  const root = mkdtempSync(join(tmpdir(), "rl-legacy-")); roots.push(root); const pmRoot = join(root, ".agents", "pm");
+  cpSync(w.pmRoot, pmRoot, { recursive: true, filter: (path) => !/(?:^|-)policy-card-/.test(basename(path)) });
+  const client = new PmClient({ pmRoot, cwd: root, author: "card-test", noExtensions: true });
+  const peer = new PmClient({ pmRoot, cwd: root, author: "peer-evaluator", noExtensions: true });
+  const coordinates = { pmRoot, author: "card-test" };
+  assert.equal((await discoverPolicyCards(client)).length, 0);
+  const item = (await client.get(w.generationId)).item;
+  const current = extractGenerationSpec(String(item.body), "Legacy evaluator");
+  await client.update(w.generationId, { body: `\`\`\`json\n${JSON.stringify({ ...current, policy_evaluation: undefined })}\n\`\`\`` });
+  const parsed = parseLoopConfig(config); const step = { learningRate: parsed.learningRate, evaluationSamples: parsed.evaluationSamples };
+  const expected = runLoopGeneration(parsed, step, 1, banditCheckpoint(parsed.initialWeight));
+  assert.equal(expected.promoted, false);
+  const first = await resumeRlLoop(client, coordinates, { id: w.request.id, approval: "rl-approval" });
+  const second = await resumeRlLoop(peer, { pmRoot, author: "peer-evaluator" }, { id: w.request.id, approval: "rl-approval" });
+  assert.equal(first.promoted, 0); assert.equal(second.promoted, 0);
+  assert.equal(first.refusal_reason, expected.refusalReason); assert.equal(second.refusal_reason, first.refusal_reason);
+  const sealed = extractGenerationSpec(String((await peer.get(w.generationId)).item.body), "Sealed legacy verdict");
+  assert.equal((sealed.policy_evaluation as Record<string, JsonValue>).decision, "refuse");
+  assert.equal((sealed.policy_evaluation as Record<string, JsonValue>).reason_digest, hashJson(expected.refusalReason));
 });
