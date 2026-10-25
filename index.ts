@@ -11,7 +11,7 @@ import { decodeTrackerRecord, skippedTrackerRecords, parseBoundedJson } from "./
 
 export { runBanditProgramme, type BanditCheckpoint, type BanditExample, type BanditGeneration, type BanditProgramme, type BanditResult } from "./bandit.ts";
 export { checkpointArtifactPath, collectCheckpointArtifacts, readCheckpointArtifact, readCheckpointLedger, type CheckpointArtifact } from "./checkpoint-artifacts.ts";
-export { buildTrackerLoopCorpus, corpusHeldOut, sealTrackerLoopCorpus, verifyTrackerLoopCorpus, type CorpusRow, type TrackerLoopCorpus } from "./corpus.ts";
+export { buildIntakeLoopCorpus, intakeHeuristic, projectIntakeHistory, sealIntakeCorpus, type IntakeRow, buildTrackerLoopCorpus, corpusHeldOut, sealTrackerLoopCorpus, verifyTrackerLoopCorpus, type CorpusRow, type TrackerLoopCorpus } from "./corpus.ts";
 
 export { banditCheckpoint, executeBanditStep, validatedBanditDatasets, type BanditDatasets, type BanditObservation, type BanditStepInput, type BanditStopReason } from "./bandit.ts";
 
@@ -216,7 +216,7 @@ import { parseJsonRecord, rethrowOperationalRead, rethrowProvenanceRead } from "
 import { exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordRecursivePolicyCards, recordPolicyCard, validatePromotedPolicyCard, validatePolicyCardWrite, validateRefusedPolicyCard, discoverPolicyCards, verifyRetainedGenerationEvidence } from "./policy-card.ts";
 import { registerShadowDeployment, observeShadow, compareShadow } from "./shadow.ts";
 import { registerEvaluationPlan, readEvaluationPlan, recordPlanEvaluation, enforceEvaluationPlan } from "./evaluation-plan.ts";
-import { buildTrackerLoopCorpus } from "./corpus.ts";
+import { buildIntakeLoopCorpus, buildTrackerLoopCorpus } from "./corpus.ts";
 import { decodeCheckpointArtifacts, encodeCheckpointArtifacts, collectCheckpointArtifacts, inspectCheckpointArtifact } from "./checkpoint-artifacts.ts";
 
 import { encodeEventSegments, parseNdjsonStream, readSeries, type MetricEvent } from "./series.ts";
@@ -3312,7 +3312,7 @@ interface LoopPrepared {
 /** The walk's verdict for one generation's persisted state. */
 type GenerationInspection =
   | { readonly kind: "complete"; readonly report: RlLoopGenerationReport; readonly advance: GenerationAdvance }
-  | { readonly kind: "refused"; readonly report: RlLoopGenerationReport; readonly stopReason: RlLoopReport["stop_reason"]; readonly refusalReason: string }
+  | { readonly kind: "refused"; readonly receipt: BanditGeneration | SystemOneGeneration | LmGeneration; readonly report: RlLoopGenerationReport; readonly stopReason: RlLoopReport["stop_reason"]; readonly refusalReason: string }
   | { readonly kind: "budget_stop" }
   | { readonly kind: "pending"; readonly pending: GenerationPending };
 
@@ -3765,16 +3765,16 @@ async function inspectCandidateVerdict(client: PmClient, programme: LoopProgramm
   const prior = (await readLoopComments(client, String(item.item.id))).find((comment) => comment.text.startsWith(prefix));
   if (prior !== undefined) {
     const refusalReason = prior.text.slice(prefix.length);
-    return { kind: "refused", report: { ...report, refusal_reason: refusalReason }, stopReason: "promotion_refused", refusalReason };
+    return { kind: "refused", receipt: verified, report: { ...report, refusal_reason: refusalReason }, stopReason: "promotion_refused", refusalReason };
   }
   const evaluation = spec.policy_evaluation as Record<string, JsonValue> | undefined;
   if (verified.promoted && evaluation?.["decision"] === "refuse") {
     const refusalReason = `Policy evaluation refused (reason digest ${String(evaluation["reason_digest"])}).`;
-    return { kind: "refused", report: { ...report, refusal_reason: refusalReason }, stopReason: "promotion_refused", refusalReason };
+    return { kind: "refused", receipt: verified, report: { ...report, refusal_reason: refusalReason }, stopReason: "promotion_refused", refusalReason };
   }
   if (verified.promoted) return { kind: "pending", pending };
   const refusalReason = sealedRefusalReason(spec, verified.refusalReason)!;
-  return { kind: "refused", report: { ...report, refusal_reason: refusalReason }, stopReason: verified.stopReason!, refusalReason };
+  return { kind: "refused", receipt: verified, report: { ...report, refusal_reason: refusalReason }, stopReason: verified.stopReason!, refusalReason };
 }
 
 /** Verify a persisted event prefix against the replayed expected events. */
@@ -3915,6 +3915,8 @@ async function executeLoopProgramme(client: PmClient, coordinates: WorkspaceCoor
       chain.reports.push(inspection.report);
       chain.consumed += generationCost(programme);
       if (inspection.stopReason !== "promotion_refused") await prepared.lease.guard(() => appendCommentOnce(client, inspection.report.item!, `Loop ${request.id} generation ${generation} refused: ${inspection.refusalReason}`));
+      await finishProcessGeneration(client, coordinates, prepared.lease, programme.trainer !== "systemone" ? programme.config : null, chain, generation, inspection.receipt as BanditGeneration | LmGeneration, inspection.stopReason === "promotion_refused" ? "invalidated" : "failed", inspection.refusalReason, request);
+      if (advanceRejectedProposal(programme, chain, inspection.refusalReason, inspection.stopReason)) { chain.resumed += 1; continue; }
       terminal = { stopReason: inspection.stopReason, refusalReason: inspection.refusalReason };
       break;
     }
@@ -4084,6 +4086,7 @@ async function executePendingGeneration(client: PmClient, coordinates: Workspace
     chain.reports.push({ generation, run: runId!, item: generationId, promoted: false,
       held_out_mean: receipt.candidateHeldOutMean, candidate_checkpoint: receipt.candidate.digest, refusal_reason: refusalReason });
     await finishProcessGeneration(client, coordinates, prepared.lease, programme.trainer !== "systemone" ? programme.config : null, chain, generation, receipt as BanditGeneration | LmGeneration, "failed", refusalReason!, request);
+    if (advanceRejectedProposal(programme, chain, refusalReason!, receipt.stopReason!)) return { terminal: null };
     return { terminal: { stopReason: receipt.stopReason!, refusalReason: refusalReason! } };
   }
   // Promote through the existing transactional, budget-checked flow. An
@@ -4167,6 +4170,13 @@ async function executePendingGeneration(client: PmClient, coordinates: Workspace
   chain.parent = generationId;
   chain.step = deriveNextStepConfig(programme.config, chain.step, receipt.candidateHeldOutMean - receipt.incumbentHeldOutMean);
   return { terminal: null };
+}
+
+/** A separately sealed exploration mode retries item refusals with a smaller step, never a refused collector. */
+function advanceRejectedProposal(programme: LoopProgramme, chain: LoopChain, refusalReason: string, reason: RlLoopReport["stop_reason"]): boolean {
+  if (programme.trainer !== "bandit" || !programme.config.retryRejected || reason !== "evaluation_rejected" || !refusalReason.startsWith("item_")) return false;
+  chain.step = deriveNextStepConfig(programme.config, chain.step, -programme.config.minimumImprovement);
+  return true;
 }
 
 /** Advance the process lifecycle alongside the existing held-out and promotion gates. */
@@ -4305,6 +4315,7 @@ export async function rlLoopStatus(client: PmClient, id: string, pmRoot?: string
     if (inspection.kind === "refused") {
       generations.push(statusOf(inspection.report, "refused"));
       chain.consumed += generationCost(programme);
+      if (advanceRejectedProposal(programme, chain, inspection.refusalReason, inspection.stopReason)) { chain.resumed += 1; continue; }
       terminal = { stopReason: inspection.stopReason, refusalReason: inspection.refusalReason };
       break;
     }
@@ -4453,7 +4464,11 @@ async function buildCorpusCommand(context: CommandHandlerContext): Promise<RlCom
     return join(parent, basename(path));
   };
   const target = destination(output);
-  const corpus = await buildTrackerLoopCorpus(new PmClient({ pmRoot: source, noExtensions: true }), readJsonFile(stringOption(context, "file")!, "Corpus bounds"));
+  const bounds = readJsonFile(stringOption(context, "file")!, "Corpus bounds");
+  const client = new PmClient({ pmRoot: source, noExtensions: true });
+  const corpus = (bounds as Record<string, JsonValue> | null)?.objective === "intake-issue-balanced-v1"
+    ? await buildIntakeLoopCorpus(client, bounds, (id) => readFileSync(join(source, "history", `${id}.jsonl`), "utf8"))
+    : await buildTrackerLoopCorpus(client, bounds);
   destination(output);
   destination(target);
   try {
@@ -4465,7 +4480,7 @@ async function buildCorpusCommand(context: CommandHandlerContext): Promise<RlCom
     throw error;
   }
   return { action: "rl-corpus-build", details: { snapshot: corpus.snapshot, training_items: corpus.training_items,
-    held_out_items: corpus.held_out_items, held_out_closed: corpus.held_out_closed } };
+    held_out_items: corpus.held_out_items, ...("held_out_closed" in corpus ? { held_out_closed: corpus.held_out_closed } : { held_out_positive: corpus.held_out_positive }) } };
 }
 
 /** Build a commit-pinned public tracker dataset through the installed command contract. */

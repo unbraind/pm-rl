@@ -1,0 +1,26 @@
+{
+  "initial_weight": 0,
+  "fit_steps": 256,
+  "seed": 42,
+  "max_generations": 3,
+  "samples_per_generation": 1024,
+  "budget": 3072,
+  "learning_rate": 1,
+  "minimum_improvement": 0.01,
+  "maximum_gap": 0.2,
+  "evaluation_samples": 40000,
+  "confidence": 0.95,
+  "min_samples": 10,
+  "adapter": {
+    "kind": "process-bandit",
+    "allowance": {
+      "training_steps": 256,
+      "wall_ms": 30000,
+      "storage_bytes": 262144,
+      "compute_units": 10000,
+      "tokens": 0
+    }
+  },
+  "feature_mode": "title-tokens-v1",
+  "retry_rejected": true
+}
