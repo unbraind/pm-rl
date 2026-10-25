@@ -309,14 +309,22 @@ test("parent controller heartbeat skips an active step, renews idle ownership an
   await inWorkspace(async ({ root, pmRoot, client, approval }) => {
     const path = join(pmRoot, "locks", `${loopLeaseLockId(id)}.lock`);
     const interval = LOOP_LEASE_TTL_SECONDS / 3 * 1000 + 1500;
-    const update = client.update.bind(client);
+    const configRead = client.config.bind(client);
+    const get = client.get.bind(client);
+    let collectRead = false;
     let held = false;
     let successor: Record<string, unknown> | undefined;
     let baseline: Record<string, string> | undefined;
     let releaseSuccessor: (() => Promise<void>) | undefined;
-    client.update = async (key, options) => {
-      const result = await update(key, options);
-      if (!held && key.endsWith(`${id}-g1-step-collect`) && String(options?.body).includes('"state":"complete"')) {
+    client.get = (async (...args: Parameters<PmClient["get"]>) => {
+      const result = await get(...args);
+      if (args[0].endsWith(`${id}-g1-step-collect`)) collectRead = true;
+      return result;
+    }) as PmClient["get"];
+    // Coordinate resolution is a real SDK read inside the fenced receipt commit.
+    client.config = async (...args: Parameters<PmClient["config"]>) => {
+      const result = await configRead(...args);
+      if (!held && collectRead && new Error().stack?.includes("mutateLoopItem")) {
         held = true;
         const active = readNativeLock(path);
         await new Promise<void>((resolve) => { setTimeout(resolve, interval); });
@@ -347,7 +355,7 @@ test("parent controller heartbeat skips an active step, renews idle ownership an
       assert.deepEqual(readNativeLock(path), successor);
       assert.deepEqual(domainFiles(pmRoot), baseline, "displaced cleanup must preserve the successor claim and completed steps");
       await assert.rejects(client.get(`${id}-g1-step-train`));
-    } finally { Object.assign(client, { update }); await releaseSuccessor?.(); }
+    } finally { Object.assign(client, { config: configRead, get }); await releaseSuccessor?.(); }
   });
 });
 

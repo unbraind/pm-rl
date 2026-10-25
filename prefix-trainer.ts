@@ -1,3 +1,4 @@
+import { parseBoundedJson } from "./tracker-record.ts";
 /** Packaged history-prefix trainer using the existing stdin, NDJSON and durable disk contract. */
 import { join } from "node:path";
 import type { Readable, Writable } from "node:stream";
@@ -16,7 +17,7 @@ export function prefixTrainerArgv(moduleUrl = import.meta.url): readonly string[
 export async function runPrefixTrainer(stdin: Readable, stdout: Writable, directory: string): Promise<void> {
   let text = "";
   for await (const chunk of stdin) text += String(chunk);
-  const { job, input, artifactRoot = directory } = JSON.parse(text) as { job: string; input: ProcessInput<PrefixCheckpoint>; artifactRoot?: string };
+  const { job, input, artifactRoot = directory } = parseBoundedJson(text) as { job: string; input: ProcessInput<PrefixCheckpoint>; artifactRoot?: string };
   const start = performance.now(); const cpu = process.cpuUsage();
   const policy = fitPrefix(input.prefix!, input.source, input.training_config.learning_rate);
   const artifact = await encodeCheckpointArtifacts(artifactRoot, `job:${job}:staged`, policy) as CheckpointArtifact;

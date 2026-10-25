@@ -1,0 +1,70 @@
+{
+  "format": "pm-rl/policy-card-evidence/1",
+  "source": {
+    "repository": "unbraind/pm-ops",
+    "commit": "eba7d5262fd75e67afce0caad29dae7dc7dfbaeb",
+    "license": "MIT",
+    "digest": "7a40de59c78bdb15972d3c98078ced3f205d5c8a9c92dc5e6e993c84a5dd3a6f",
+    "files": 300,
+    "digest_after": "7a40de59c78bdb15972d3c98078ced3f205d5c8a9c92dc5e6e993c84a5dd3a6f"
+  },
+  "corpus": {
+    "snapshot": "e45e6205eddf35edc2167d253a2ef1fb5ce2a4c4116557497f1e24da2230b656",
+    "training_items": 105,
+    "held_out_items": 41,
+    "held_out_closed": 36
+  },
+  "generations": [
+    {
+      "generation": 1,
+      "promoted": true,
+      "sampled_held_out_mean": 0.59765,
+      "retained_cards": 2,
+      "outcomes": [
+        "promoted",
+        "candidate"
+      ],
+      "evidence_results": 5,
+      "card_digest": "b2c7a197b529174fc55aa7c457a66ae7679eac64823c76b1cb090d4df80815b2",
+      "json_bytes": 2061,
+      "toon_bytes": 1518,
+      "missing_provenance": "card_missing_provenance"
+    },
+    {
+      "generation": 2,
+      "promoted": true,
+      "sampled_held_out_mean": 0.685825,
+      "retained_cards": 2,
+      "outcomes": [
+        "promoted",
+        "candidate"
+      ],
+      "evidence_results": 5,
+      "card_digest": "99c502574b0eca364672e0172a80c11ccb3b37ede4ab6c8d32f4c5a313bd7254",
+      "json_bytes": 2058,
+      "toon_bytes": 1515,
+      "missing_provenance": "card_missing_provenance"
+    }
+  ],
+  "majority_baseline_accuracy": 0.8780487804878049,
+  "sampled_policies_beat_majority": [
+    false,
+    false
+  ],
+  "retained_cards": 5,
+  "later_generation_replays": 1,
+  "resumed_generations": 2,
+  "cited_results_replayed": 19,
+  "samples_consumed": 512,
+  "stop_reason": "generation_limit",
+  "elapsed_ms": 35529.806819,
+  "programme_digest": "92f502a18f0ca613cba0b25bc064208eb3fdc4344b23cad6625ec71c41811732",
+  "no_git": true,
+  "git_absent_from_path": true,
+  "source_unchanged": true,
+  "limits": [
+    "Finite snapshot status recognition; sampled episodes reuse held-out items.",
+    "Two recursive numerical-policy generations do not establish cross-repository generalization or proposer transfer.",
+    "Adoption checks suitability only; backend consent and normal gates remain required."
+  ]
+}

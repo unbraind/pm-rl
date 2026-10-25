@@ -593,3 +593,121 @@ It does not mutate a tracker, grant a budget, execute an LLM, or launch a hosted
 job. Evaluation is an adaptive validation set; a separate final benchmark is
 needed after repeated selection. See [the execution contract](RECURSIVE_TRAINING.md)
 for the local process and Compose adapters; [the decision adapter](docs/durable-systemone-validation.md) documents the implemented frozen-model calibration trainer.
+
+## Predeclared causal evaluation plans
+
+Declare the target population, selection rule, member-to-correlation-unit mapping,
+exact observation and independent-unit counts, objective, bounded reward scale,
+criterion and fixed stopping rule **before creating a candidate or its collection
+runs**. The plan also pins the incumbent generation's provenance hash. The
+[example plan](examples/evaluation-plan.json) and [paired observations](examples/evaluation-observations.json)
+form a powered synthetic positive control:
+
+```bash
+pm init rl --defaults
+pm rl generation register rl-seed --base-checkpoint checkpoint
+pm rl eval plan register --file examples/evaluation-plan.json
+pm rl eval plan show rl-candidate --json
+# Create the collection run and register rl-candidate with parent rl-seed.
+pm rl eval plan evaluate rl-candidate --file examples/evaluation-observations.json --json
+# Supply matching held-out scores to the existing generation promotion command.
+pm rl generation promote rl-candidate --approval rl-approval --scores scores.json --evidence "Predeclared paired comparison"
+```
+
+Use full canonical generation IDs and the incumbent's `spec_hash` from registration
+as `incumbent_version`. Copy and adjust the example for your tracker before declaring
+it. TOON is the default; `--json` returns the same compact summary: comparison hash,
+observation/unit counts, equal-unit means, statistical verdict and remedy. Cohorts
+and raw observations remain in the Plan and result Decision, available through
+complete item reads (`pm get <plan-id> --depth standard --output-limit unbounded
+--output-budget unbounded`). Output size does not grow with cohort size. For promotion,
+set the held-out score's `seed_set` to the registered comparison hash, `scale`
+to the declared reward-bound width, and `value` to exactly equal the report's
+`candidate_mean`. Copy that mean unrounded from the `--json` output, since TOON
+may format numbers differently. All three fields are checked against the frozen
+plan and sealed evidence; rounding the mean causes an `eval_plan_evidence` refusal.
+
+Each member supplies one candidate and incumbent outcome. The evaluator first
+averages within each declared correlation unit, then weights units equally and
+uses the **number of units** in the existing Hoeffding promotion gate. A hundred
+related items in one project cannot count as a hundred independent samples.
+Rewards are centered on the declared lower bound and rescaled to `[0, 1]` before
+averaging and computing confidence bounds; the effect threshold is divided by
+the declared reward width. This keeps large common offsets and subnormal scales
+from erasing uncertainty. Ties never promote. Reported `candidate_mean` and
+`incumbent_mean` retain the declared reward units; the statistical `verdict`
+bounds, epsilons, margin and reason use the normalized units.
+Unknown members, duplicates, supplied aggregate counts, changed objective/scale,
+missing observations, extra observations and adaptive stopping are refused. Up to
+10,000 members are supported. This fixed-stop format allows one sealed paired
+look per plan, including a statistical refusal; retrying identical evidence is
+idempotent. Changing a population, grouping, stopping size, criterion or incumbent
+provenance changes comparison identity and requires a fresh plan/candidate.
+Plan reads, evaluation retries and promotions compare sealed fields against the
+SDK's verified version-one history snapshot. Replacing observations or a plan
+and recomputing its hash is refused with `eval_plan_drift`. Missing, corrupt or
+compacted-away original history also refuses; unrelated annotations remain allowed.
+Candidate provenance is checked against its creation snapshot, while creation
+order uses the original candidate and collection-run timestamps. Deleting a plan
+and removing the candidate's pin cannot discard a reservation retained in history.
+This relies on the SDK's append-only history: privileged rewriting of the original
+history itself is outside this enforcement boundary.
+
+`rl generation register` pins an existing plan in generation provenance. Both
+manual and controller promotions re-read the plan and sealed outcomes inside the
+existing promotion transaction; missing plans, comparison drift, changed parents,
+late predeclarations, mismatched held-out scores and refused bounds stop promotion
+with stable `eval_plan_*` codes and a remedy. The original contamination and
+approval-budget checks still apply. Existing unplanned workflows retain their
+legacy behavior and carry no predeclared causal-evaluation claim. A reserved
+candidate remains gated even if its caller omits plan flags; a generation pin
+also makes a deleted plan a refusal.
+
+The typed SDK exports `EvaluationPlan`, `EvaluationObservation`,
+`EvaluationPlanReport`, `EvaluationPlanRefusal`, `parseEvaluationPlan`,
+`evaluationComparison`, `registerEvaluationPlan`, `readEvaluationPlan`,
+`evaluatePlan`, `recordPlanEvaluation` and `enforceEvaluationPlan`. Tracker methods
+accept a real `PmClient`; `evaluatePlan` is pure. Plans and results use core Plan
+and Decision records; this does not replace pm-jev's decision-model calibration
+or the separate powered-corpus dataset work.
+
+Independence between declared units, truthful cohort membership, outcome
+measurement and appropriate target-population selection remain experiment-design
+assumptions. Paired policy replay alone does not establish a randomized causal
+effect in a deployed population. The gate enforces the declared design and a
+conservative bound; it cannot detect semantic correlations hidden from the plan
+or prevent external peeking. Repeated experiments require their own selection or
+multiplicity analysis. [Public tracker validation](docs/evaluation-plan-evidence.json)
+records aggregate replay measurements and the unchanged read-only source digest.
+The acceptance runner takes a read-only public tracker copy, an output report,
+the public source commit and a packed package archive:
+`node test/evaluation-plan.acceptance.ts <tracker-copy> <report.json> <commit> <package.tgz>`.
+It installs the archive into a plain scratch tracker and runs the real JSON/TOON
+CLI with Git absent from `PATH`.
+
+## Without git
+
+Tracker-based environments, runs, evaluations, predeclared plans, shadow
+observation/comparison, generation promotion and lineage work in plain directories without Git. Public-history
+dataset/improver builders and Git-tree episode replay need Git provenance. Plan
+registration, evaluation and promotion are tested with Git absent from `PATH` and
+an explicit discovery ceiling.
+
+## Shadow policy deployment
+
+Observe a candidate beside the active policy on explicitly consented, minimized inputs with `pm rl shadow register`, `observe` and `compare`, or the typed SDK equivalents. Candidate lookup failures preserve the active decision; both arms consume the reserved budget. The comparison receipt feeds the existing predeclared evaluation and generation promotion gate, so online switching requires validated outcomes and the existing approval. No candidate receives mutation or tool authority.
+
+See [the consent, budget and promotion contract](docs/shadow-policy.md) and [registration example](examples/shadow-policy.json). Policies currently use bounded declarative lookup tables. Registration, reload and promotion share cohort/budget validation; live and loaded receipts share action, reward and disagreement validation. Typed refusals identify the receipt and invalid field.
+
+## Portable policy explanation cards
+
+Export a minimized explanation before moving a learned policy to another agent or backend:
+
+```sh
+pm rl policy-card export rl-programme-g1 --json
+pm rl policy-card export rl-programme-g1
+pm rl policy-card replay --file card.json --json
+pm rl policy-card adopt --file card.json --json
+```
+
+Save the JSON result's unwrapped `details` as `card.json`. Cards contain scope and policy digests, allowed explanation actions, numeric limits, regression diagnostics and exact replayable evidence references. They omit training examples, policy parameters and credentials. Adoption checks the complete ancestry to the root, including every retained card and its evidence. Policy identity binds content-addressed artifacts plus configuration; unfitted proposals use a separate proposal digest. Transient read errors remain retryable and leave the programme resumable. Missing provenance blocks adoption checks; a card grants no execution authority. Recursive candidates, proposals and promotion outcomes retain cards automatically, so later improvers can inspect earlier wins and losses. These commands work without Git. See the [SDK, format, refusals and public-copy evidence](docs/policy-cards.md).

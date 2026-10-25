@@ -19,16 +19,40 @@ async function barrier(): Promise<void> {
 }
 const update = client.update.bind(client);
 client.update = async (id, options) => {
-  const body = options?.body;
-  const midCollection = mode === "mid-collect" && options?.note !== undefined;
-  const publishedStep = typeof body === "string" && body.includes('"state":"complete"') && id.endsWith(`step-${mode}`);
-  const uncommittedFit = mode === "mid-train" && typeof body === "string" && id.endsWith("step-train") && body.includes('"state":"complete"');
-  if (!held && uncommittedFit) { held = true; await barrier(); }
   const result = await update(id, options);
-  const midPromotion = mode === "mid-promote" && id.endsWith("-g1") && typeof body === "string" && body.includes('"promoted": true');
-  if (!held && (midCollection || publishedStep || midPromotion)) { held = true; await barrier(); }
+  if (!held && mode === "mid-collect" && options?.note !== undefined) { held = true; await barrier(); }
   return result;
 };
+let step = "";
+let candidate = false;
+const get = client.get.bind(client);
+client.get = (async (...args: Parameters<PmClient["get"]>) => {
+  const result = await get(...args);
+  if (!("item" in result)) throw new Error("LM controller read omitted its source item.");
+  const body = String(result.item.body);
+  if (body.includes('"state":"running"')) step = args[0].split("-step-").at(-1)!;
+  if (args[0].endsWith("-g1") && result.item.type === "Generation") {
+    candidate = true;
+    if (!held && mode === "mid-promote" && body.includes('"promoted": true')) {
+      held = true;
+      if ((await get(args[0], { fields: "status" })).item.status !== "closed") throw new Error("Promotion body and closure must commit together.");
+      await barrier();
+    }
+  }
+  return result;
+}) as PmClient["get"];
+const configRead = client.config.bind(client);
+client.config = async (...args: Parameters<PmClient["config"]>) => {
+  const result = await configRead(...args);
+  // Hold the real fenced operation at its SDK coordinate read, before the item transaction.
+  const committing = new Error().stack?.includes("mutateLoopItem");
+  const uncommittedFit = mode === "mid-train" && step === "train";
+  const committedFit = mode === "train" && step === "evaluate";
+  const committedEvaluation = mode === "evaluate" && candidate;
+  if (!held && committing && (uncommittedFit || committedFit || committedEvaluation)) { held = true; await barrier(); }
+  return result;
+};
+
 try {
   if (mode === "race") { process.send!("starting"); await new Promise<void>((resolve) => { process.once("message", () => resolve()); }); }
   const report = await runRlLoop(client, { pmRoot, author: "lm-process-test" }, {

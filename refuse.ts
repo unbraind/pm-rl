@@ -1,3 +1,4 @@
+import { parseBoundedJson } from "./tracker-record.ts";
 /**
  * @module pm-rl/refuse
  *
@@ -10,7 +11,33 @@
  * fail-closed discipline is written once instead of drifting per file.
  */
 
-import { createPmCliExpectedError, EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
+import { createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError, type PmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
+
+/** Type transient storage failures for retry, preserving unrelated native and coordinator errors. */
+export function rethrowOperationalRead(error: unknown): asserts error is PmCliExpectedError {
+  const code = isPmCliExpectedError(error) ? error.context.code : error !== null && typeof error === "object" && "code" in error ? error.code : "";
+  if (/(?:EIO|EAGAIN|EBUSY|ENOENT|TIMEDOUT|TIMEOUT|TIMED_OUT|ABORT_ERR|provenance_read_retryable)/i.test(String(code)) || error instanceof Error && error.name === "TimeoutError") {
+    retryProvenanceRead();
+  }
+  if (!isPmCliExpectedError(error)) throw error;
+}
+
+/** Normalize item and history read failures consistently; only certified integrity or absence may refuse provenance. */
+export function rethrowProvenanceRead(error: unknown): never {
+  rethrowOperationalRead(error);
+  if (!isProvenanceReadFailure(error)) retryProvenanceRead();
+  throw error;
+}
+
+/** Only explicit SDK absence or integrity classifications establish a provenance failure. */
+export function isProvenanceReadFailure(error: PmCliExpectedError): boolean {
+  return error.exitCode === EXIT_CODE.NOT_FOUND || ["item_document_invalid", "history_target_out_of_range", "history_drift", "card_drift"].includes(String(error.context.code));
+}
+
+/** Report an unavailable read without declaring the underlying policy permanently invalid. */
+export function retryProvenanceRead(): never {
+  expectedFail("Provenance read temporarily unavailable. Retry the same operation or resume the programme after storage recovers; no promotion refusal was recorded.", "provenance_read_retryable", EXIT_CODE.CONFLICT);
+}
 
 /**
  * Throw an expected command error with stable machine context.
@@ -55,7 +82,7 @@ export function asJsonObject(value: unknown, source: string, code: string = "inv
 export function parseJsonRecord(text: string, source: string, invalidJsonCode: string, exitCode: number = EXIT_CODE.USAGE): Record<string, unknown> {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(text);
+    parsed = parseBoundedJson(text);
   } catch {
     expectedFail(`${source} is not valid JSON.`, invalidJsonCode, exitCode);
   }

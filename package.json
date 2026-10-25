@@ -69,7 +69,17 @@
     "docs/baseline-frontier.md",
     "docs/baseline-frontier-evidence.json",
     "docs/intake-objective.md",
-    "docs/intake-objective-evidence.json"
+    "docs/intake-objective-evidence.json",
+    "dist/evaluation-plan.*",
+    "docs/evaluation-plan-evidence.json",
+    "dist/shadow.*",
+    "docs/shadow-policy.md",
+    "docs/shadow-evidence.json",
+    "dist/policy-card.*",
+    "dist/tracker-record.*",
+    "docs/policy-cards.md",
+    "docs/policy-card-write-audit.md",
+    "docs/policy-card-evidence.json"
   ],
   "engines": {
     "node": ">=22.18.0"
@@ -145,7 +155,10 @@
       "test/improver.test.ts",
       "test/corpus.test.ts",
       "test/baseline.test.ts",
-      "test/objective.test.ts"
+      "test/objective.test.ts",
+      "test/evaluation-plan.test.ts",
+      "test/shadow.test.ts",
+      "test/policy-card.test.ts"
     ],
     "thresholds": {
       "statements": 100,
@@ -184,12 +197,12 @@
     "@babel/eslint-parser": "8.0.7",
     "@babel/plugin-syntax-typescript": "8.0.3",
     "@types/node": "26.6.5",
-    "@unbrained/pm-cli": "2026.10.17",
+    "@unbrained/pm-cli": "2026.10.20",
     "eslint": "10.13.0",
     "jiti": "2.7.0",
     "jscpd": "5.4.1",
-    "pm-changelog": "2026.10.16",
-    "pm-ops": "2026.10.17",
+    "pm-changelog": "2026.10.20",
+    "pm-ops": "2026.10.20",
     "typescript": "7.0.2"
   },
   "peerDependencies": {
@@ -242,7 +255,12 @@
       "docs/baseline-frontier.md",
       "docs/baseline-frontier-evidence.json",
       "docs/intake-objective.md",
-      "docs/intake-objective-evidence.json"
+      "docs/intake-objective-evidence.json",
+      "docs/evaluation-plan-evidence.json",
+      "docs/shadow-policy.md",
+      "docs/shadow-evidence.json",
+      "docs/policy-cards.md",
+      "docs/policy-card-write-audit.md"
     ],
     "examples": [
       "README.md",
@@ -255,7 +273,11 @@
       "examples/loop-process.json",
       "examples/meta-approval.md",
       "examples/loop-corpus.json",
-      "examples/loop-intake-objective.json"
+      "examples/loop-intake-objective.json",
+      "examples/evaluation-plan.json",
+      "examples/evaluation-observations.json",
+      "examples/shadow-policy.json",
+      "examples/policy-card.json"
     ]
   }
 }

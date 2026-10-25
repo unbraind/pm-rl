@@ -1,3 +1,4 @@
+import { parseBoundedJson } from "./tracker-record.ts";
 /**
  * @module pm-rl/lineage
  *
@@ -19,7 +20,7 @@
  * without standing up a real workspace for every branch.
  */
 
-import { EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
+import { EXIT_CODE, normalizeItemId } from "@unbrained/pm-cli/sdk/runtime";
 
 import type { JsonValue } from "./index.ts";
 import { asJsonObject, expectedFail } from "./refuse.ts";
@@ -65,6 +66,10 @@ export interface ScoreRecord {
 
 /** A policy generation and its provenance, stored as a JSON fence in the item body. */
 export interface GenerationSpec {
+  /** Sealed package evaluation outcome, distinct from mutable tracker annotations. */
+  readonly policy_evaluation?: JsonValue;
+  /** Frozen comparison identity when the generation belongs to a predeclared experiment. */
+  readonly evaluation_plan?: string;
   /** Content-addressed identity of the base checkpoint the generation started from. */
   readonly base_checkpoint: string;
   /** Content-addressed identity of the policy that collected the training data; empty for the seed. */
@@ -93,6 +98,22 @@ export interface GenerationSpec {
   readonly gap: number | null;
   /** Human-readable promotion evidence, or null if not promoted. */
   readonly promotion_evidence: string | null;
+}
+
+/** Resolve tracker aliases and case before identity comparison, ordering, deduplication or hashing. */
+export function canonicalizeIdentifier(id: string, prefix: string): string { return normalizeItemId(id, prefix); }
+
+/** Resolve the Environment reference while retaining objective, seed and artifact label domains. */
+export function canonicalizeScoreRecord(score: ScoreRecord, prefix: string): ScoreRecord { return { ...score, evaluation_context: canonicalizeIdentifier(score.evaluation_context, prefix) }; }
+
+/** Canonicalize only tracker references; artifact digests and arbitrary training labels retain their own domains. */
+export function canonicalizeGenerationSpec(spec: GenerationSpec, prefix: string): GenerationSpec {
+  return { ...spec, proxy_score: spec.proxy_score === null ? null : canonicalizeScoreRecord(spec.proxy_score, prefix),
+    held_out_score: spec.held_out_score === null ? null : canonicalizeScoreRecord(spec.held_out_score, prefix),
+    parent: spec.parent === null ? null : canonicalizeIdentifier(spec.parent, prefix),
+    approval: spec.approval === null ? null : canonicalizeIdentifier(spec.approval, prefix),
+    environment_version: spec.environment_version === "" ? "" : canonicalizeIdentifier(spec.environment_version, prefix),
+    collection_runs: [...new Set(spec.collection_runs.map((id) => canonicalizeIdentifier(id, prefix)))].sort() };
 }
 
 /** Approval spec stored as a JSON fence in a Decision item body. */
@@ -257,11 +278,13 @@ export function parseScoreRecord(value: unknown, label: string): ScoreRecord {
 export function parseGenerationSpec(text: string, source: string): GenerationSpec {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(text);
+    parsed = parseBoundedJson(text);
   } catch {
     expectedFail(`${source} is not valid JSON.`, "invalid_generation_json");
   }
   const record = asJsonObject(parsed, source);
+  const evaluationPlan = record["evaluation_plan"];
+  if (evaluationPlan !== undefined && (typeof evaluationPlan !== "string" || !/^[a-f0-9]{64}$/.test(evaluationPlan))) expectedFail(`${source} requires a SHA-256 evaluation_plan comparison; register a fresh planned candidate.`, "invalid_evaluation_plan");
   const baseCheckpoint = asString(record, "base_checkpoint", source);
   const policy = asString(record, "policy", source, false);
   const collectionRunsRaw = record["collection_runs"];
@@ -374,6 +397,8 @@ export function parseGenerationSpec(text: string, source: string): GenerationSpe
     }
   }
   return {
+    ...(evaluationPlan === undefined ? {} : { evaluation_plan: evaluationPlan as string }),
+    ...(record["policy_evaluation"] === undefined ? {} : { policy_evaluation: record["policy_evaluation"] as JsonValue }),
     base_checkpoint: baseCheckpoint,
     policy,
     collection_runs: collectionRuns,
@@ -412,7 +437,7 @@ export function parseGenerationSpec(text: string, source: string): GenerationSpe
 export function parseApprovalSpec(text: string, source: string): ApprovalSpec {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(text);
+    parsed = parseBoundedJson(text);
   } catch {
     expectedFail(`${source} is not valid JSON.`, "invalid_approval_json");
   }

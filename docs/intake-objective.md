@@ -1,6 +1,6 @@
 # Creation-time Issue routing with balanced accuracy
 
-This builds on **#94 and #95 and must merge after both**. Work is tracked on
+This includes the updated **PR #95 branch and current main**, including the already merged #94. No PR merge is needed during this run. Work is tracked on
 [pm-rl-baseline](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-baseline.toon).
 The old snapshot-status task and all three negative results remain in
 [baseline-frontier.md](baseline-frontier.md). No candidate in this experiment
@@ -179,3 +179,48 @@ unchanged checkpoints and no additional jobs. Independently reverting only
 balanced scoring, balanced fitting or heuristic refusal fails its regression
 (one failure each); restored code passes all three. The draft has no substantive
 reviewer approval. No item is closed and no PR or package is merged or released.
+
+
+## Current bounded-cycle acceptance
+
+The promotion gate, balanced objective and durable decision receipt are the
+deliverables. Zero promoted candidates remain an honest measured result. The
+same controller executes collect → external train → held-out evaluate → gate →
+promote-or-refuse → record; Generation/process/policy-card items and a seed
+comment persist the decision. Only a promoted successor becomes the next
+collector. The inherited PR #95 recovery fix also finishes interrupted refused
+process jobs before a sealed retry advances.
+
+```sh
+pm rl corpus build --from-tracker source/.agents/pm \
+  --file node_modules/pm-rl/examples/loop-intake-objective.json --output sealed.json
+pm rl loop run intake-cycle --file sealed.json --approval corpus-approval --json
+pm rl loop resume intake-cycle --approval corpus-approval --json
+pm rl loop status intake-cycle --json
+```
+
+The separate approval must allow the declared three promotions and resource
+bounds stated above. Reusing the same loop id resumes the sealed programme,
+incumbent and charges rather than starting a new allowance. The script runner
+shown above provides a reproducible public-copy acceptance of the same cycle.
+
+The new 96-case seeded property generates unequal class sizes and arbitrary
+candidate/incumbent/constant/heuristic score vectors. Acceptance is equivalent
+to every paired stratified bootstrap lower bound strictly exceeding the
+unchanged threshold. Equality with any of the four baselines always refuses.
+The production kernel still requires the original additional gates. Removing
+only the heuristic predicate makes this property fail; the restored kernel
+passes. Original objective, fitting, seal and no-git acceptance remain required.
+
+The main integration retains locale-independent corpus and source-inventory
+ordering, bounded checkpoint JSON parsing, causal plans, policy cards and CAS
+behavior. The new intake seal uses the same locale-independent ordering too.
+
+Readiness remains blocked by preserved divergent tracker history. The permitted
+normal reconciliation cannot prove the inherited epic snapshot, and combining
+both PRs preserves their separate baseline-item histories as well. No existing
+history entry is rewritten, force-reconciled or re-anchored. Current CI must pass
+strict health before executing its unchanged npm/Bun full release gates; old
+green counts above are historical evidence only. Exhaustive current-head
+write-path interleaving/crash and complete coverage certification remain missing
+while that prerequisite fails. Existing health follow-up: `pm-rl-9uz4`.

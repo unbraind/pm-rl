@@ -1,3 +1,4 @@
+import { parseBoundedJson } from "./tracker-record.ts";
 /** Immutable checkpoint blobs and an append-only promotion/audit ledger, independent of Git. */
 import { createHash, randomUUID } from "node:crypto";
 import { closeSync, constants, fstatSync, fsyncSync, linkSync, mkdirSync, openSync, readSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
@@ -80,7 +81,7 @@ export function readCheckpointArtifact(root: string, ref: CheckpointArtifact): u
 }
 /** Normalize malformed blob or ledger JSON into the same fail-closed integrity error. */
 function parseArtifactJson(content: Buffer): unknown {
-  try { return JSON.parse(content.toString("utf8")); }
+  try { return parseBoundedJson(content.toString("utf8")); }
   catch { expectedFail("Checkpoint artifact or ledger is not JSON.", "checkpoint_artifact_corrupt"); }
 }
 /** Resolve a public audit coordinate without needing a staging path or a Git repository. */
@@ -112,7 +113,7 @@ async function withArtifactLock<T>(root: string, operation: () => T): Promise<T>
   try { return operation(); } finally { await release(); }
 }
 /** Replace checkpoint objects with portable references and publish their audit roots before exposing any reference. */
-export async function encodeCheckpointArtifacts(root: string, key: string, value: unknown): Promise<unknown> {
+export async function encodeCheckpointArtifacts(root: string, key: string, value: unknown, beforePublish?: (encoded: unknown) => Promise<void>): Promise<unknown> {
   const blobs = new Map<string, { ref: CheckpointArtifact; content: Buffer }>();
   /** Walk only JSON values; complete checkpoint objects are the leaves of the persisted receipt. */
   const encode = (node: unknown): unknown => {
@@ -135,6 +136,7 @@ export async function encodeCheckpointArtifacts(root: string, key: string, value
     return Object.fromEntries(Object.entries(record).map(([name, child]) => [name, encode(child)]));
   };
   const encoded = encode(value);
+  await beforePublish?.(encoded);
   if (blobs.size === 0) return encoded;
   const entry: CheckpointLedgerEntry = { format: "pm-rl/checkpoint-ledger/1", key, artifacts: [...blobs.values()].map(({ ref }) => ref) };
   const content = Buffer.from(JSON.stringify(entry));

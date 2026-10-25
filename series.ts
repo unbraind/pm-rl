@@ -1,3 +1,4 @@
+import { parseBoundedJson } from "./tracker-record.ts";
 // Metric events: the one shape the whole package is built around.
 //
 // A training run emits a monotonically growing series of measurements, and where
@@ -343,7 +344,7 @@ export function decodeEvent(text: string): MetricEvent | null {
   const payload = trimmed.slice(EVENT_ENVELOPE.length + 1);
   let parsed: unknown;
   try {
-    parsed = JSON.parse(payload);
+    parsed = parseBoundedJson(payload);
   } catch {
     throw new MetricEventError(
       "malformed_event",
@@ -391,7 +392,7 @@ export function parseNdjsonStream(text: string): MetricEvent[] {
     if (line.length === 0) continue;
     let parsed: unknown;
     try {
-      parsed = JSON.parse(line);
+      parsed = parseBoundedJson(line);
     } catch {
       throw new MetricEventError(
         "malformed_line",

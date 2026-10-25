@@ -1,15 +1,16 @@
 id: pm-rl-baseline
-title: Beat the constant baseline with item-paired recursive promotion gates
+title: Gate recursive proposals with paired held-out baseline evidence
 description: "Build on PR #94 with a bounded title-feature learner, held-out item confidence intervals against incumbent and constants, and at least three measured recursive proposal attempts on the same public corpus. Preserve contamination, approvals, resource accounting, resume and cancellation. Report refusals honestly."
 type: Task
 status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-21T16:53:13.328Z"
-updated_at: "2026-10-21T23:10:10.939Z"
+updated_at: "2026-10-25T00:15:57.851Z"
 author: codex-agent
+acceptance_criteria: "Randomized paired evidence accepts exactly when every declared baseline lower bound strictly exceeds the unchanged effect threshold, with ties refused; A bounded cycle records promotions and refusals on tracker items and resumes each declared phase boundary without duplicate fits or charges"
 parent: pm-rl-apvf
-comments[23]{created_at,author,text}:
+comments[34]{created_at,author,text}:
   "2026-10-21T16:53:34.594Z",codex-agent,"Pre-change diagnosis: PR #94 uses one logistic weight times a strictly positive log-title-length feature. Its greedy classifier is necessarily constant, so more samples, higher learning rate or more updates cannot make it useful. The held-out set has 36 closed and 5 other items, so always-closed scores 36/41=0.8780487805; the stochastic reward correctly penalizes uncertainty and cannot be substituted with greedy accuracy. Eight updates and 256 samples learn the majority slowly (0.5980 then 0.6810), but capacity is the primary defect. Holding every identical projected length in one partition is conservative yet prevents renamed-input leakage; retain this exact split. Proposed bounded intercept plus hashed title-word vector has no status/ID features and keeps all title-identical inputs together. Add deterministic paired bootstrap confidence intervals over held-out items against BOTH constant actions and the incumbent, in addition to existing sampled, exact-improvement and gap gates. Increase only explicit approved fit/sample allowances; retain every failed frontier and never relax the gate. Existing prefix/rsipower items cover broader chronological forecasting and transfer, distinct from this snapshot-recognition child."
   "2026-10-21T17:00:36.485Z",codex-agent,"Implementation in progress: bounded 64-column title-only features plus an intercept, unchanged source-action importance weighting, versioned vector checkpoint digests and full resume verification. Item-paired percentile bootstrap uses 8192 deterministic resamples, 41 held-out items rather than 40000 repeated rollouts, and Bonferroni-adjusted intervals for incumbent and both constant actions. Existing sampled confidence/effect, exact improvement and gap gates remain additional requirements. A preliminary numerical probe still trails the constant baseline; no win is claimed. Explicit sealed retry_rejected exploration will attempt three generations while keeping refused checkpoints out of collection and preserving all per-job reservations. Legacy scalar programmes keep their exact identities and stop semantics."
   "2026-10-21T17:11:46.623Z",codex-agent,"Three real external attempts on the same public pm-ops commit and original split are complete: n_train=105, n_held_out=41, baseline=36/41=0.8780487805. Held-out expected rewards and nominal 95% item-bootstrap CIs: g1 0.8713980699 [0.7743570291,0.9668509885], g2 0.8645003749 [0.7683455624,0.9579166612], g3 0.8534392510 [0.7593053408,0.9436312068]. All three are refused against the constant; zero promoted successors. Every collection used the unchanged seed policy; the derived learning rates were 1,0.5,0.25. The baseline still wins and no gate was weakened. Each job charged 256 optimizer updates exactly once; 3072 actions were collected. Resume verified all three, preserved checkpoint bytes, launched no new job, and status agreed. Source inventory bytes are unchanged. Execution used a PATH without Git and a plain controller tracker. Complete metrics, adjusted paired differences and full digests are in docs/baseline-frontier-evidence.json. Diagnostic log-loss fitting was worse (first score 0.7492), so it was not adopted."
@@ -33,7 +34,21 @@ comments[23]{created_at,author,text}:
   "2026-10-21T22:45:13.681Z",codex-agent,"Additional original-task feature diagnosis: the same frozen keyword flag occurs in 17/77 closed versus 9/28 other training titles, and 8/36 closed versus 2/5 other held-out titles. It is not a closed-status indicator; title semantics describe the work, while snapshot status reflects work completion. Public source visibility and MIT licence were verified independently. The new target instead uses the creator's intake type; the fixed heuristic is stronger than all measured new candidates. Typecheck, build, test-build, lint excluding retained ignored runtime snapshots, docstrings (50 sources,344 declarations), zero duplication and identity audit pass. Full release validation remains delegated to unchanged npm/Bun CI as requested."
   "2026-10-21T22:46:23.394Z",codex-agent,"Pinned tracker-linked objective suite passed 7/7 with zero failures/skips in snapshot workspace context and PM context none (179.215 seconds). The project disables automatic test-result tracking, so this comment retains the result without changing configuration. Original legacy-focused suite passed 6/6; behavioral revert proofs are recorded above. The final standalone suite also exercises the installed corpus command and malformed-bound refusal. The PR will target main and explicitly depend on both 94 and 95; parent heads are verified ancestors before push. Full npm/Bun release CI is pending; no local full gate or merge/release claim."
   "2026-10-21T23:09:58.056Z",codex-agent,"Complete source CI at 3b818e645e5e189fafa6d136b53a8d031ac3809c passes: npm run release:check on Node 22 and Node 26, and bun run release:check on Node 26/Bun 1.3.14, each 707/707 with zero failures/skips/cancellations/todos. Independently downloaded all three completed logs: 50 authored sources, statements/lines/branches/functions 100/100/100/100,344 documented declarations. Strict fresh tracker health, unscoped lint, identity, zero duplication, production audit, attestation, packaging, changelog, Bun install and CodeQL pass. Run https://github.com/unbraind/pm-rl/actions/runs/39689016234 . Latest standalone suite passes 7/7; linked suite 7/7; Node 26 combined focused suite 13/13. The actual public experiment replays on validated source with all three refused generations, unchanged checkpoints, status agreement and no new jobs. The constant shortcut is removed by construction, but no candidate beats the frozen heuristic; zero promotions and no gate weakening. PR 98 remains draft against main, after 94 and 95; draft review was skipped and is not approval. No new pm CLI/SDK defect was found. A final documentation/tracker receipt commit will retain identical executable source and run final-head CI. Releasing the claim; item remains in progress for orchestrator verification. No merge or release."
-files[16]{path,scope}:
+  "2026-10-22T13:57:43.396Z",codex-agent,"Follow-up after PR #94 squash merge: inspect and update draft PR #95 against origin/main using the same merge-only approach as PR #97. Preserve vector training, item-paired gates, all measured baseline-refusal limitations and draft status. Regenerate CHANGELOG.md and ignored dist rather than hand-merging outputs; run full unchanged npm/Bun release gates. Prior behavioral revert proofs will be retained where feature behavior remains byte-identical. Do not claim that any measured real candidate beats the constant baseline or promote this draft to ready."
+  "2026-10-22T14:08:49.505Z",codex-agent,"Merged main 2663828 into draft PR #95. Used the known shared #94 content at 56e2854 to resolve the add/add overlap while retaining the baseline vector learner and item-paired gates. Explicitly combined the feature-bearing corpus rows with main locale-independent ordering; retained current main publication guards, complete source snapshots, locale regression and all added corpus regressions. Combined corpus and baseline tests pass 25/25, zero fail/skip/cancel/todo; build and test compilation pass. Existing baseline runtime functions and feature tests match the prior reviewed head, so their prior revert proofs remain applicable. The epic ownership conflict retains latest main unclaimed ownership and merged context. Ran the prescribed pm merge reconcile once: one receipt reconciled, zero entries rehashed or patch-repaired, no remaining drift. Independently verified all existing main epic and prior baseline history bytes remain exact prefixes; history is append-only. Regenerated changelog and ignored dist; run full unchanged npm/Bun gates on this merged candidate. The three historical real attempts still have zero promotions and do not beat the constant baseline; preserve draft status."
+  "2026-10-22T14:28:43.694Z",codex-agent,"Merged-head CI run 39793575010 has completed the Node 26 npm and Bun 1.3.14 release commands: each reports 701/701 tests, zero failures/skips/cancellations/todos, and 100/100/100/100 coverage across 50 authored sources. Bun package graph installation passes. Node 22 remains pending completion. The newly linked combined corpus/baseline command also passes 25/25 through pm test in an isolated snapshot. Existing behavioral revert proofs remain applicable because this update combines unchanged baseline behavior with already-tested main corpus fixes."
+  "2026-10-22T14:32:02.691Z",codex-agent,"Main-update validation is complete at source merge 07e12fdc23ba249de2eab8d570db3d20af40ca54. CI run 39793575010 completed npm run release:check on Node 22 and Node 26, and bun run release:check on Node 26 with Bun 1.3.14. Every completed log independently verifies 701/701 tests, zero failures/skips/cancellations/todos, 50 authored sources and coverage 100/100/100/100 at unchanged thresholds. All three release steps, fresh strict tracker health and Bun package graph installation report success; 344 declarations, lint, duplication, audit, attestation, packaging and changelog checks pass. CodeQL passes. Local npm ci, generated changelog check, dist rebuild/check and linked corpus/baseline tests 25/25 also pass. No new runtime behavior was introduced by conflict resolution, so the prior vector-dispatch and item-gate behavioral revert proofs remain valid; earlier external evidence still has zero promoted successors. Draft status and dependency pins are preserved. The final receipt changes tracker evidence only, with unchanged source and tests. No PR merge, thread reply or resolution, or package release was performed."
+  "2026-10-22T14:33:32.173Z",codex-agent,"Final prepared-environment strict health is ok:true with only the existing telemetry queue, stale-item and legacy provenance advisories. Restoring the unchanged tracked attributes after prepare reproduces the pre-existing merge_fence_drift:2 advisory owned by pm-rl-9uz4; no merge tooling or attribute policy was changed. CI strict health passes after its normal npm ci prepare step. Existing item and epic history prefixes remain intact, and added tracker records pass the local-path privacy check."
+  "2026-10-25T00:00:09.154Z",codex-agent,"Owner acceptance pass for PR 95 then PR 98: preserve newer main evaluation/card/CAS behavior, deliver mandatory paired incumbent and baseline gates as infrastructure, add randomized gate equivalence and equality refusal, repeat the public corpus in a plain tracker, verify bounded cycle recovery/concurrency, and use unchanged npm/Bun CI release gates. Zero promotions remain a valid measured result. No merge or release is authorized."
+  "2026-10-25T00:07:02.467Z",codex-agent,"Main merge preserves the newer bounded JSON decoder, policy-card/evaluation-plan paths, native CAS and truthful peer outcomes. Added a verified-receipt field to resumed refusal inspections and settle their process lifecycle under the existing controller guard before deriving the next rejected proposal. Seven real plain-tracker boundary schedules pass, including active peer-controller attempts and concurrent comment insertion. The permitted single reconciliation returned ok:false/no_receipt_set_proves_snapshot for the inherited epic reconciliation event versus newer main history. Every original record is retained verbatim, no history repair or force was used, and CI readiness remains blocked pending owner resolution under pm-rl-9uz4. Local managed pm-github has an SDK host-version skew too; fresh CI installs no local extension."
+  "2026-10-25T00:07:34.231Z",codex-agent,"Fresh public-corpus acceptance passes on a git-free PATH and plain controller tracker. Same public pm-ops commit, 300 unchanged source files, 105 training and 41 held-out items, 36 held-out closed. Constant reward 0.8780487805, candidate rewards 0.8713980699 / 0.8645003749 / 0.8534392510. Three refusals, zero promotions. Resume verifies all three with unchanged checkpoint bytes and no new jobs; 256 updates per fit, 3072 collection actions. Fresh receipt appended in docs/baseline-frontier-evidence.json. An earlier local rerun exposed an accidental status-path edit; typecheck caught it, it was removed, and this fresh rerun completed successfully."
+  "2026-10-25T00:12:32.279Z",codex-agent,"PR 98 acceptance: merge updated PR 95 branch (which includes current main), preserve balanced creation-title intake scoring and all four mandatory paired comparisons, add randomized stratified score-vector equivalence and equality refusal, rerun the same public corpus without Git, and retain bounded-cycle recovery. This explicitly removes the previous must-merge-after-95 constraint: PR 98 includes the PR 95 branch. Both remain draft while current tracker-history health blocks complete CI release evidence."
+  "2026-10-25T00:15:49.950Z",codex-agent,"PR 98 fresh real-data acceptance passes on the same public MIT tracker commit, git-free PATH and plain controller tracker: 300 unchanged source files, 104 training (68 Issue / 36 other), 42 held-out (22 Issue / 20 other). Constants 0.5; fixed heuristic 0.6545454545; candidate balanced rewards 0.6080315976 / 0.5915538072 / 0.5667374267. Three refusals, zero promotions, 256 steps charged once per fit and 3072 actions. Resume preserves all checkpoint bytes and adds no jobs. Fresh receipt appended to docs/intake-objective-evidence.json. The gate/objective/decision receipt are infrastructure, and no predictive win is claimed."
+  "2026-10-25T00:15:53.835Z",codex-agent,"PR 98 current targeted checks pass: randomized stratified rule plus bootstrap/projection/seal/fitting 5/5, remaining objective real-process/no-git/replay 3/3, main corpus publication and English/Danish ordering 3/3; pinned pm test snapshot execution 5/5. Behavioral revert in an isolated copy: replace only the heuristic refusal predicate with false; the 96-case property fails 0/1 (exit 1). Restore the predicate: 5/5 focused checks pass. npm run typecheck, npm run lint and npm run build pass. Conflict resolution includes PR 95 source 7c0b00d and all of main 0025c8b while preserving every original epic/baseline/lintruntime history entry. Strict health remains false for inherited epic divergence and the combined baseline history, plus the pre-existing local managed-extension version skew. No history force/repair/re-anchor, dependency bump or gate relaxation. Current full CI and exhaustive write-path certification remain required before ready."
+files[20]{path,scope}:
+  .agents/pm/epics/pm-rl-apvf.toon,project
+  .agents/pm/history/pm-rl-apvf.jsonl,project
+  .agents/pm/merge-receipts/157aa69e-7db3-438c-8d91-9b5dbdbe3786.json,project
   bandit.ts,project
   corpus.ts,project
   examples/loop-corpus-baseline.json,project
@@ -46,11 +61,12 @@ files[16]{path,scope}:
   README.md,project
   scripts/live-baseline.ts,project
   test/baseline.test.ts,project
+  test/corpus.test.ts,project
   test/fixtures/baseline-no-git.ts,project
   test/fixtures/compose.Dockerfile,project
   test/fixtures/intake-no-git.ts,project
   test/objective.test.ts,project
-tests[2]:
+tests[6]:
   - command: node --test test/baseline.test.ts
     path: test/baseline.test.ts
     scope: project
@@ -60,6 +76,33 @@ tests[2]:
     provenance:
       author: codex-agent
       created_at: "2026-10-21T17:03:09.799Z"
+      source_kind: local_mutation
+      source_ref: feat/rsi-beats-baseline
+  - command: git diff --check --cached
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-22T14:08:46.724Z"
+      source_kind: local_mutation
+      source_ref: feat/rsi-beats-baseline
+  - command: node --test test/corpus.test.ts test/baseline.test.ts
+    scope: project
+    timeout_seconds: 600
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-22T14:26:56.707Z"
+      source_kind: local_mutation
+      source_ref: feat/rsi-beats-baseline
+  - command: "node --test --test-name-pattern=\"paired gate property|vector capacity|constant\" test/baseline.test.ts"
+    scope: project
+    timeout_seconds: 600
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-25T00:07:14.437Z"
       source_kind: local_mutation
       source_ref: feat/rsi-beats-baseline
   - command: node --test test/objective.test.ts
@@ -72,7 +115,18 @@ tests[2]:
       created_at: "2026-10-21T22:41:35.567Z"
       source_kind: local_mutation
       source_ref: feat/rsi-objective
-docs[4]{path,scope}:
+  - command: "node --test --test-name-pattern=\"balanced bootstrap|balanced gate property|intake projection|intake corpus|balanced collection\" test/objective.test.ts"
+    scope: project
+    timeout_seconds: 600
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-25T00:13:26.864Z"
+      source_kind: local_mutation
+      source_ref: feat/rsi-objective
+docs[5]{path,scope}:
+  CHANGELOG.md,project
   docs/baseline-frontier-evidence.json,project
   docs/baseline-frontier.md,project
   docs/intake-objective-evidence.json,project

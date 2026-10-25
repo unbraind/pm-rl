@@ -76,7 +76,7 @@ export function sealTrackerLoopCorpus(items: readonly Pick<ItemMetadata, "id" | 
     if (seen.has(item.id)) corpusRefusal("corpus_duplicate_item");
     seen.add(item.id);
     return { item: hashJson(item.id), content: hashJson({ title, status: item.status }), length: Math.min(256, [...title].length), ...(bounds["feature_mode"] === undefined ? {} : { features: titleFeatures(title) }), closed: item.status === "closed" };
-  }).sort((left, right) => left.item.localeCompare(right.item));
+  }).sort((left, right) => left.item < right.item ? -1 : 1);
   const snapshot = hashJson(rows as unknown as JsonValue);
   const { training, evaluation } = corpusDatasets(rows, snapshot);
   if (training.length < 2 || evaluation.length < 2) corpusRefusal("corpus_insufficient_split");
@@ -164,7 +164,7 @@ export function sealIntakeCorpus(items: readonly Pick<ItemMetadata, "id" | "titl
     if (typeof item.id !== "string" || !item.id.trim() || typeof item.title !== "string" || typeof item.type !== "string" || !item.type.trim()) corpusRefusal("corpus_invalid_item");
     const title = item.title.normalize("NFKC").trim().replaceAll(/\s+/g, " ").toLowerCase();
     return { item: hashJson(item.id), content: hashJson({ title, type: item.type }), length: Math.min(256, [...title].length), features: titleFeatures(title), label: item.type === "Issue", heuristic: intakeHeuristic(title) };
-  }).sort((left, right) => left.item.localeCompare(right.item));
+  }).sort((left, right) => left.item < right.item ? -1 : 1);
   const snapshot = hashJson(rows as unknown as JsonValue);
   const programme: JsonValue = { ...bounds, corpus: { format: "pm-rl/intake-corpus/1", snapshot, rows: rows as unknown as JsonValue },
     environment: { name: "Creation-title Issue routing with balanced accuracy", version: snapshot }, ...intakeDatasets(rows, snapshot) };

@@ -37,6 +37,29 @@ test("balanced bootstrap keeps every constant at one half despite imbalance and 
   for (const labels of [[], [false], [true, true]]) assert.throws(() => itemBootstrap([0, 1], 0.95, labels), /item_bootstrap_classes/);
 });
 
+test("balanced gate property: random paired vectors beat every baseline iff all stratified lower bounds clear the threshold", () => {
+  let state = 0x81726;
+  const random = () => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state / 0x1_0000_0000; };
+  let passed = 0; let refused = 0;
+  for (let trial = 0; trial < 96; trial += 1) {
+    const negative = 10 + Math.floor(random() * 8); const positive = 10 + Math.floor(random() * 15);
+    const labels = Array.from({ length: negative + positive }, (_, index) => index >= negative);
+    const candidate = labels.map(() => 0.7 + random() * 0.3);
+    const baselines = Array.from({ length: 4 }, (_, baseline) => candidate.map((value) => trial % 5 === baseline + 1 ? value : random() * 0.4));
+    const rewards = candidate.map((_, index) => [baselines[1][index], baselines[2][index]] as const);
+    const threshold = [0, 0.01, 0.05][trial % 3];
+    const evidence = pairedItemEvidence(candidate, baselines[0], rewards, 0.95, 10, threshold, { labels, heuristic: baselines[3] });
+    const lowers = baselines.map((baseline) => itemBootstrap(candidate.map((value, index) => value - baseline[index]), 1 - 0.05 / 4, labels).lower);
+    assert.equal(evidence.accepted, lowers.every((lower) => lower > threshold), `stratified trial ${trial}`);
+    if (evidence.accepted) passed += 1; else refused += 1;
+    for (let baseline = 0; baseline < 4; baseline += 1) {
+      const tied = baselines.map((values, index) => index === baseline ? candidate : values);
+      assert.equal(pairedItemEvidence(candidate, tied[0], candidate.map((_, index) => [tied[1][index], tied[2][index]]), 0.95, 10, threshold, { labels, heuristic: tied[3] }).accepted, false);
+    }
+  }
+  assert.ok(passed > 0 && refused > 0);
+});
+
 test("intake projection stops at the creation event and title features never depend on labels", () => {
   const first = { op: "create", patch: ["id", "title", "type"].map((field) => ({ op: "add", path: `/metadata/${field}`, value: { id: "one", title: "fix crash", type: "Issue" }[field] })) };
   assert.deepEqual(projectIntakeHistory(`${JSON.stringify(first)}\n${JSON.stringify({ op: "update", patch: [{ path: "/metadata/title", value: "future outcome" }] })}`), { id: "one", title: "fix crash", type: "Issue" });

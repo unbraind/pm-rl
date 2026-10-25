@@ -313,6 +313,26 @@ test("one paused tiny-LM loop refuses receipt corruption and lost collection evi
         assert.equal(await storedBody(client, `${LOOP}-g1-step-promote`), promotionBody);
       });
     });
+    await context.test("legacy completion receipts refuse an unpromoted generation without retained cards", async () => {
+      const canonical = (await client.get(candidateId)).item.id;
+      const inventory = await client.listAllComplete({ includeBody: true });
+      for (const item of inventory.items) {
+        if (item.type !== "Decision" || !item.id.includes("-policy-card-")) continue;
+        const card = JSON.parse(String(item.body)) as { subject?: unknown };
+        if (card.subject === canonical) await client.delete(item.id);
+      }
+      const body = await storedBody(client, candidateId);
+      const fenced = /```json\n([\s\S]+?)\n```/.exec(body);
+      assert.ok(fenced?.[1] !== undefined);
+      const spec = receipt(fenced[1]);
+      Object.assign(spec, { promoted: false, approval: null, proxy_score: null, held_out_score: null, gap: null, promotion_evidence: null });
+      const reverted = body.replace(fenced[1], JSON.stringify(spec));
+      await withBody(client, candidateId, reverted, async () => {
+        await refuses(resume, ["loop_step_drift"]);
+        assert.equal(await storedBody(client, candidateId), reverted);
+      });
+    });
+
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

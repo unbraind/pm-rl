@@ -1,6 +1,6 @@
 # Item-paired baseline gates for recursive tracker proposals
 
-This builds on PR #94 and must merge after it. The new task is tracked by
+This promotion-gate infrastructure includes the already merged PR #94. Work is tracked by
 [pm-rl-baseline](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-baseline.toon),
 a child of [pm-rl-apvf](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/epics/pm-rl-apvf.toon).
 
@@ -159,3 +159,52 @@ history verification passes. Fresh CI tracker health passes in all variants.
 The owner contract excludes merge-tooling work, so that clone configuration and
 standing tracker advisories remain unchanged. This is separate from source
 coverage and the measured learner frontier.
+
+
+## Bounded cycle and current acceptance
+
+After corpus sealing and a separately authorized resource Decision, the command
+below runs collect → external train → evaluate → gate → promote-or-refuse → record.
+Every attempt records its checkpoint and item-paired evidence on a Generation,
+immutable policy-card Decisions, process receipts and a terminal seed comment.
+The next generation collects only with the retained incumbent: a promoted
+checkpoint replaces it; a refused proposal never does.
+
+```sh
+pm rl corpus build --from-tracker source/.agents/pm \
+  --file node_modules/pm-rl/examples/loop-corpus-baseline.json --output sealed.json
+pm rl loop run paired-cycle --file sealed.json --approval corpus-approval --json
+pm rl loop resume paired-cycle --approval corpus-approval --json
+pm rl loop status paired-cycle --json
+```
+
+The explicit three-attempt approval requires 768 training steps, 90,000 wall
+milliseconds, 786,432 storage bytes, 30,000 compute units and zero tokens, with
+three permitted promotions. Reusing the loop id resumes its sealed programme;
+it never resets those allowances. This objective compares the incumbent and
+both constant policies. PR #98 adds the balanced intake objective and its
+mandatory frozen heuristic comparison; it includes this branch so neither PR
+requires the other to merge during this run.
+
+The 2026-10-25 acceptance adds 96 seeded random score-vector cases plus ties
+against each baseline, asserting that the item gate accepts exactly when all
+paired lower bounds exceed the unchanged threshold. The complete promotion
+still requires every original sampled, exact, contamination and approval gate.
+
+The new boundary drill uses one non-git tracker per schedule, a real competing
+SDK client and real external fits. It injects crashes after collect/train/evaluate
+and before/after refusal and terminal-comment publication. Resume verifies all
+proposals, finishes their process lifecycle, preserves foreign records with
+skip reasons, and cannot double-charge or duplicate decision comments. Positive
+vector schedules also cover collect/train/evaluate/promote crashes, a real peer
+promotion, truthful attribution and successor collection from the winner.
+Main's native item CAS, approval locks, owner-verified release, foreign decoding
+and EIO/ENOSPC/SIGKILL transaction tests remain required acceptance.
+
+The current merge retains a divergent inherited epic reconciliation event and
+main's newer epic history verbatim. The single permitted normal reconciliation
+cannot prove that combined snapshot (`no_receipt_set_proves_snapshot`), and
+strict health reports `history_drift_chain_mismatch:pm-rl-apvf`. No force,
+history rewrite or re-anchor is authorized. This blocks readiness and the CI
+health prerequisite; historical green release runs above are not current-head
+release evidence. The existing health follow-up is `pm-rl-9uz4`.

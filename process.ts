@@ -1,3 +1,4 @@
+import { decodeTrackerRecord, hasTrackerIdentity, parseBoundedJson } from "./tracker-record.ts";
 /** Durable argv-only trainer execution, staged receipts and approved resource reservations. */
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -8,7 +9,7 @@ import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
 import type { WorkspaceTransactionStep, WorkspaceTransactionTransitionContext } from "@unbrained/pm-cli/sdk";
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
-import { EXIT_CODE, isPmCliExpectedError, certifyCompleteListResult } from "@unbrained/pm-cli/sdk/runtime";
+import { EXIT_CODE, isPmCliExpectedError, certifyCompleteListResult, normalizeItemId } from "@unbrained/pm-cli/sdk/runtime";
 import { banditCheckpoint, MAX_BANDIT_FIT_STEPS, type BanditCheckpoint, type BanditExample, type BanditObservation } from "./bandit.ts";
 import { canonicalJson, commitProcessTransaction, loopProcessStartTime, withProcessJobFence, readCompleteLoopItem, type JsonValue } from "./index.ts";
 import { expectedFail } from "./refuse.ts";
@@ -180,6 +181,18 @@ export function processJobId(input: TrainerInput, argv: readonly string[] = refe
 export function processStaging(root: string, id: string): string {
   return join(root, "runtime", "pm-rl", "jobs", id);
 }
+/** Stable job coordinates and protocol markers distinguish process records before body parsing. */
+const PROCESS_RECORD = { type: "Task", tag: "rl-process-job", format: "pm-rl/process-job/1" };
+/** Match only canonical package coordinates, excluding copies with an extra prefix. */
+function processNamespace(prefix: string): (id: string) => boolean {
+  return (id) => { const match = /(?:^|-)(process-[a-f0-9]{64})$/.exec(id); return match !== null && normalizeItemId(match[1], prefix) === id; };
+}
+/** Certify the immutable namespace declaration before treating malformed current data as owned capacity. */
+async function knownProcessRecord(client: PmClient, id: string, prefix: string): Promise<boolean> {
+  const original = (await readCompleteLoopItem(client, id, "1")).item;
+  return original.type === "Task" && hasTrackerIdentity(original, PROCESS_RECORD.format, (key) => normalizeItemId(key, prefix));
+}
+
 /** Read a complete real item and reject omitted output or damaged job bodies. */
 export function readProcessJob<P extends TrainerPolicy>(client: PmClient, id: string, root: string): Promise<ProcessJob<P> | null>;
 export function readProcessJob(client: PmClient, id: string): Promise<ProcessJob<TrainerPolicy> | null>;
@@ -190,9 +203,23 @@ export async function readProcessJob(client: PmClient, id: string, root?: string
     throw error;
   });
   if (item === null) return null;
-  const job = JSON.parse(String(item.item.body)) as ProcessJob<TrainerPolicy>;
-  if (item.item.type !== "Task" || job.format !== "pm-rl/process-job/1" || job.id !== id || !["planned", "running", "materialized", "evaluated", "promoted", "failed", "cancelled", "invalidated"].includes(job.state)) expectedFail("Job identity or state drifted.", "process_job_drift");
+  const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
+  const namespace = processNamespace(prefix);
+  const legacy = hasTrackerIdentity(item.item, PROCESS_RECORD.format, (key) => normalizeItemId(key, prefix));
+  let decoded = decodeTrackerRecord(client, item.item, { ...PROCESS_RECORD, namespace, legacy, valid: (row) => row.id === id });
+  if (decoded === null) {
+    if (!namespace(item.item.id) || !await knownProcessRecord(client, item.item.id, prefix)) return null;
+    // A legacy tag edit cannot hide owned capacity; foreign originals remain skipped.
+    decoded = decodeTrackerRecord(client, item.item, { ...PROCESS_RECORD, namespace, legacy: true, valid: (row) => row.id === id });
+    if (decoded === null) expectedFail("Owned job envelope drifted.", "process_job_drift");
+  }
+  const job = decoded as unknown as ProcessJob<TrainerPolicy>;
+  if (!["planned", "running", "materialized", "evaluated", "promoted", "failed", "cancelled", "invalidated"].includes(job.state)) expectedFail("Job identity or state drifted.", "process_job_drift");
   parseResources(job.allowance); parseResources(job.charge);
+  if (job.completion !== null) {
+    if (typeof job.completion !== "object" || Array.isArray(job.completion)) expectedFail("Job completion envelope drifted.", "process_job_drift");
+    parseResources(job.completion.usage);
+  }
   if (typeof job.settled !== "boolean" || (!job.settled && processDigest(job.charge) !== processDigest(job.allowance))
     || (job.completion !== null && processDigest(job.charge) !== processDigest(job.completion.usage))) expectedFail("Reservation accounting drifted.", "process_job_drift");
   if (root !== undefined && job.completion?.artifact !== undefined) return { ...job, completion: { ...job.completion, policy: readCheckpointArtifact(root, job.completion.artifact) as TrainerPolicy } };
@@ -208,7 +235,7 @@ async function approvedResources(client: PmClient, approval: string): Promise<{ 
   const item = await readCompleteLoopItem(client, approval);
   const fence = /```json\n([\s\S]+?)\n```/u.exec(String(item.item.body));
   if (item.item.type !== "Decision" || fence === null) expectedFail("An existing approved resource Decision is required.", "process_budget_invalid");
-  const spec = JSON.parse(fence[1]) as Record<string, unknown>;
+  const spec = parseBoundedJson(fence[1]) as Record<string, unknown>;
   return { budget: parseResources(spec["resource_budget"]), digest: processDigest(spec), id: String(item.item.id) };
 }
 /** Refuse a changed budget identity before adopting, evaluating or promoting a job. */
@@ -223,27 +250,30 @@ export async function verifyProcessJobBudget(client: PmClient, job: ProcessJob<T
  * Returns the job's own id (item ids carry the tracker prefix, job ids do not), or null for any other body.
  */
 export function processJobBodyId(body: string): string | null {
-  if (!body.includes("pm-rl/process-job/1")) return null;
-  try {
-    const parsed = Object(JSON.parse(body)) as { format?: unknown; id?: unknown };
-    return parsed.format === "pm-rl/process-job/1" && typeof parsed.id === "string" ? parsed.id : null;
-  } catch { return null; }
+  const row = decodeTrackerRecord(null, { type: "Task", body }, { type: "Task", format: "pm-rl/process-job/1", valid: (value) => typeof value.id === "string" });
+  return row === null ? null : String(row.id);
+
 }
 
 /**
- * Every process job in the tracker, read once through a body-inclusive certified listing.
+ * Enumerate certified job coordinates, then resolve authoritative records before charging capacity.
  *
- * A job body counts only on the item that is that job (item ids carry the tracker prefix), so a job body
- * copied into another item neither double-charges a reservation nor names a job that does not exist.
+ * Package namespace, tags and protocol markers exclude foreign records. Known-owned malformed originals
+ * remain integrity refusals; foreign replacements cannot enter the returned job list as null payloads.
  */
 export async function listProcessJobs(client: PmClient): Promise<ProcessJob<TrainerPolicy>[]> {
   const listed = certifyCompleteListResult(await client.listAllComplete({ includeBody: true }));
   const jobs: ProcessJob<TrainerPolicy>[] = [];
+  const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
+  const namespace = processNamespace(prefix);
   for (const item of listed.items) {
-    const jobId = processJobBodyId(String(item.body));
-    if (jobId === null || (!item.id.endsWith(`-${jobId}`) && item.id !== jobId)) continue;
-    // Bound to its own existing item, so the job is present.
-    jobs.push((await readProcessJob(client, jobId))!);
+    const coordinate = /(?:^|-)(process-[a-f0-9]{64})$/.exec(item.id);
+    if (coordinate === null || !namespace(item.id)) {
+      if (item.tags?.includes("rl-process-job") || /(?:^|-)process-/.test(item.id)) decodeTrackerRecord(client, item, { ...PROCESS_RECORD, namespace });
+      continue;
+    }
+    const current = await readProcessJob(client, coordinate[1]);
+    if (current !== null) jobs.push(current);
   }
   return jobs;
 }
@@ -262,7 +292,7 @@ export async function reserveProcessJob(client: PmClient, coordinates: ProcessCo
       }
       const job: ProcessJob<TrainerPolicy> = { format: "pm-rl/process-job/1", id, input: processDigest(input), binding: input.identity, approval: approved.id, budget_digest: approved.digest,
         state: "planned", allowance, charge: allowance, settled: false, completion: null, outcome: "reserved" };
-      await client.create({ id, type: "Task", title: `Process trainer ${id.slice(-12)}`, body: JSON.stringify(job) });
+      await client.create({ id, type: "Task", tags: "rl-process-job", title: `Process trainer ${id.slice(-12)}`, body: JSON.stringify(job) });
     },
     async compensate() { const job = (await readProcessJob(client, id))!; await client.update(id, { body: JSON.stringify({ ...job, state: "failed", settled: true, charge: zeroResources(), outcome: "reservation_compensated" }) }); },
   };
@@ -295,11 +325,12 @@ export async function transitionProcessJob<P extends TrainerPolicy>(client: PmCl
   }] });
   return (await readProcessJob<P>(client, job.id, coordinates.pmRoot))!;
 }
-/** Measure all retained flat staging files, rejecting links and directories rather than following them. */
+/** Measure retained flat staging files, skipping vanished entries and rejecting links or directories. */
 export function stagingBytes(directory: string): number {
   let bytes = 0;
   for (const name of readdirSync(directory)) {
-    const stat = lstatSync(join(directory, name));
+    const stat = lstatSync(join(directory, name), { throwIfNoEntry: false });
+    if (stat === undefined) continue;
     if (!stat.isFile()) expectedFail("Staging contains an unsupported file or symbolic link.", "process_checkpoint_invalid");
     bytes += stat.size;
   }
@@ -311,22 +342,22 @@ export function validateProcessCompletion<P extends TrainerPolicy>(directory: st
   const bytes = stagingBytes(directory);
   if (bytes > allowance.storage_bytes || lstatSync(join(directory, "completion.json")).size > 65_536) expectedFail("Trainer exceeded staging storage allowance.", "process_limit_exceeded");
   if (input.prefix !== undefined && lstatSync(join(directory, "completion.json")).size > 4096) expectedFail("Prefix staging receipt exceeds 4096 bytes.", "process_receipt_invalid");
-  const value = JSON.parse(readFileSync(join(directory, "completion.json"), "utf8")) as ProcessCompletion<P>;
+  const value = parseBoundedJson(readFileSync(join(directory, "completion.json"), "utf8")) as ProcessCompletion<P>;
   if (value.format !== "pm-rl/process-completion/1" || value.job !== id || value.checkpoint !== "checkpoint.json"
     || processDigest(value.training_config) !== processDigest(input.training_config) || value.source_policy !== input.source.digest
     || processDigest(value.lineage) !== processDigest(input.lineage)) expectedFail("Completion lineage or configuration drifted.", "process_receipt_invalid");
   if (lstatSync(join(directory, value.checkpoint)).size > (input.lm?.config.limits.maxCheckpointBytes ?? 4096)) expectedFail("Checkpoint exceeds its schema bound.", "process_checkpoint_invalid");
   let content = readFileSync(join(directory, value.checkpoint));
   if (value.artifact !== undefined) {
-    if (input.prefix === undefined || processDigest(JSON.parse(content.toString("utf8"))) !== processDigest(value.artifact) || value.policy.digest !== value.artifact.policy || value.digest !== value.artifact.digest) expectedFail("Checkpoint reference differs from its completion.", "process_checkpoint_invalid");
+    if (input.prefix === undefined || processDigest(parseBoundedJson(content.toString("utf8"))) !== processDigest(value.artifact) || value.policy.digest !== value.artifact.policy || value.digest !== value.artifact.digest) expectedFail("Checkpoint reference differs from its completion.", "process_checkpoint_invalid");
     content = Buffer.from(JSON.stringify(readCheckpointArtifact(artifactRoot, value.artifact)));
   } else if (input.prefix !== undefined) expectedFail("Prefix checkpoint requires an artifact reference.", "process_checkpoint_invalid");
   const digest = `sha256:${createHash("sha256").update(content).digest("hex")}`;
   if (digest !== value.digest) expectedFail("Checkpoint content digest or parameters are invalid.", "process_checkpoint_invalid");
   if (input.lm !== undefined) validateLmProcessCheckpoint(content, value, input);
-  else if (input.prefix !== undefined) validatePrefixCompletion(content, { policy: JSON.parse(content.toString("utf8")) as P }, input);
+  else if (input.prefix !== undefined) validatePrefixCompletion(content, { policy: parseBoundedJson(content.toString("utf8")) as P }, input);
   else {
-    const policy = JSON.parse(content.toString("utf8")) as BanditCheckpoint;
+    const policy = parseBoundedJson(content.toString("utf8")) as BanditCheckpoint;
     try {
       if (processDigest(policy) !== processDigest(value.policy) || !Number.isFinite(policy.weight) || Math.abs(policy.weight) > 20 || policy.digest !== banditCheckpoint(policy.weight, policy.coefficients).digest) throw new Error("bandit_checkpoint");
     } catch { expectedFail("Checkpoint content digest or parameters are invalid.", "process_checkpoint_invalid"); }
@@ -335,7 +366,7 @@ export function validateProcessCompletion<P extends TrainerPolicy>(directory: st
   if (usage.training_steps !== input.training_config.steps || usage.storage_bytes !== content.length) expectedFail("Completion lacks measured training or checkpoint use.", "process_receipt_invalid");
   for (const key of RESOURCE_KEYS) if (usage[key] > allowance[key]) expectedFail(`Trainer exceeded reserved ${key}.`, "process_limit_exceeded");
   if (lstatSync(join(directory, "runner.json")).size > 4096) expectedFail("Trainer identity metadata exceeds its schema bound.", "process_receipt_invalid");
-  const runner = JSON.parse(readFileSync(join(directory, "runner.json"), "utf8")) as { started_at: number };
+  const runner = parseBoundedJson(readFileSync(join(directory, "runner.json"), "utf8")) as { started_at: number };
   if (!Number.isSafeInteger(runner.started_at) || runner.started_at <= 0 || runner.started_at > lstatSync(join(directory, "completion.json")).mtimeMs + 1) expectedFail("Trainer wall identity is invalid.", "process_receipt_invalid");
   const wall = Math.max(usage.wall_ms, Math.ceil(lstatSync(join(directory, "completion.json")).mtimeMs - runner.started_at));
   if (wall > allowance.wall_ms) expectedFail("Trainer exceeded observed wall allowance.", "process_limit_exceeded");
@@ -390,9 +421,9 @@ export async function launchTrainer(directory: string, id: string, input: Traine
       while ((newline = pending.indexOf("\n")) >= 0) {
         const line = pending.slice(0, newline); pending = pending.slice(newline + 1);
         writeFileSync(join(directory, "events.ndjson"), `${line}\n`, { flag: "a" });
-        const event = JSON.parse(line) as { type: string; job: string; usage: Resources; receipt: ProcessCompletion };
+        const event = parseBoundedJson(line) as { type: string; job: string; usage: Resources; receipt: ProcessCompletion };
         if (complete || event.job !== id || !["progress", "complete"].includes(event.type)) expectedFail("Invalid trainer event sequence.", "process_channel_invalid");
-        if (event.type === "complete") { complete = true; const finalUsage = parseResources(event.receipt.usage); for (const key of RESOURCE_KEYS) if (finalUsage[key] < measured[key]) expectedFail("Completion regressed measured use.", "process_limit_exceeded"); if (stagingBytes(directory) > allowance.storage_bytes || lstatSync(join(directory, "completion.json")).size > 65_536) expectedFail("Completion channel exceeded its schema bound.", "process_channel_invalid"); const disk = JSON.parse(readFileSync(join(directory, "completion.json"), "utf8")) as unknown; if (processDigest(event.receipt) !== processDigest(disk)) expectedFail("Stream completion differs from durable receipt.", "process_receipt_invalid"); }
+        if (event.type === "complete") { complete = true; const finalUsage = parseResources(event.receipt.usage); for (const key of RESOURCE_KEYS) if (finalUsage[key] < measured[key]) expectedFail("Completion regressed measured use.", "process_limit_exceeded"); if (stagingBytes(directory) > allowance.storage_bytes || lstatSync(join(directory, "completion.json")).size > 65_536) expectedFail("Completion channel exceeded its schema bound.", "process_channel_invalid"); const disk = parseBoundedJson(readFileSync(join(directory, "completion.json"), "utf8")) as unknown; if (processDigest(event.receipt) !== processDigest(disk)) expectedFail("Stream completion differs from durable receipt.", "process_receipt_invalid"); }
         else {
           const usage = parseResources(event.usage);
           for (const key of RESOURCE_KEYS) if (usage[key] < measured[key] || usage[key] > allowance[key]) expectedFail(`Progress exceeded or regressed ${key}.`, "process_limit_exceeded");
@@ -438,7 +469,7 @@ function failedProcessCharge(directory: string, allowance: Resources): Resources
     if (!existsSync(join(directory, name)) || !lstatSync(join(directory, name)).isFile() || lstatSync(join(directory, name)).size > 65_536) continue;
     for (const line of readFileSync(join(directory, name), "utf8").split("\n").filter((line) => line.length > 0)) {
       try {
-        const value = JSON.parse(line) as { usage?: Resources; receipt?: { usage: Resources } };
+        const value = parseBoundedJson(line) as { usage?: Resources; receipt?: { usage: Resources } };
         const usage = parseResources(value.usage ?? value.receipt!.usage);
         charge = Object.fromEntries(RESOURCE_KEYS.map((key) => [key, Math.max(charge[key], usage[key])])) as Resources;
       } catch { /* Unreadable reports retain the conservative reserved charge. */ }
@@ -479,7 +510,7 @@ async function executeReservedProcessJob(client: PmClient, coordinates: ProcessC
         catch (error) { cleanupFailed(error); }
       }
       else if (existsSync(join(directory, "runner.json"))) {
-        const runner = JSON.parse(readFileSync(join(directory, "runner.json"), "utf8")) as { pid: number; start: string };
+        const runner = parseBoundedJson(readFileSync(join(directory, "runner.json"), "utf8")) as { pid: number; start: string };
         stopTrainer(runner.pid, runner.start);
       }
     }

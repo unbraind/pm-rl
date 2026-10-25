@@ -1,0 +1,59 @@
+{
+  "format": "pm-rl/policy-card/1",
+  "subject": "rl-cards-g1",
+  "selection": null,
+  "policy_digest": "c8f6e065fbda74ce7223bb837744eb1f09e0fa6a931bd38b75038eb6c1fcd0df",
+  "proposal_digest": "81a3bf8e89040411554095a077636142556545f07d035a82c8100e24e658f2b3",
+  "evaluation": {
+    "samples": 256,
+    "incumbent_held_out_mean": 0.499825,
+    "candidate_held_out_mean": 0.59765,
+    "decision": "promote",
+    "reason_digest": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+  },
+  "outcome": "promoted",
+  "training_scope": {
+    "digest": "5718e2cbe53631a99d9d1bea95727d83310c73e93815760dea53b224a44ea6f4",
+    "collection_runs": 1,
+    "environment": "0d357a5857f3cf4bf909fc7db385aaa1c8bbb62f13222c280297fff5c9da4444",
+    "reward": "7618d04fc739998b65b6c602cc3ee4cdf6d910aac947dc435d5b59f2e181a815"
+  },
+  "allowed_actions": [
+    "inspect",
+    "evaluate"
+  ],
+  "known_regressions": [],
+  "resource_limits": {
+    "evaluation_samples": 40000,
+    "fit_steps": 8,
+    "samples": 256
+  },
+  "evidence": [
+    {
+      "id": "rl-cards-g1",
+      "at": "2",
+      "digest": "e53e61cd5ce1547e42cdeae02504e514bdd12407e5048c0001ebe4f6630065fe"
+    },
+    {
+      "id": "rl-approval",
+      "at": "1",
+      "digest": "7fd46766c19157b677b71bc84e272041c63c8bd685bf66c02895bc89e1e5682e"
+    },
+    {
+      "id": "rl-cards-g1-collect",
+      "at": "2",
+      "digest": "54f92a15874bbdb56db8ee1f9e240a7b0f93ff5792ef64cff4f26e527c8ab63f"
+    },
+    {
+      "id": "rl-cards-seed",
+      "at": "1",
+      "digest": "dcc4723591683145f90f4094e2d502911a00c7c7c374688b5d58869f65c85e2e"
+    },
+    {
+      "id": "rl-env-tracker-snapshot-closed-stat-e45e6205eddf35edc2167d253a2e-ea844b709ab2",
+      "at": "1",
+      "digest": "e6e64d2ed32aa7ff69c167f7ba563566369156368fd3129e728ebb38ed3ffc95"
+    }
+  ],
+  "digest": "b2c7a197b529174fc55aa7c457a66ae7679eac64823c76b1cb090d4df80815b2"
+}
