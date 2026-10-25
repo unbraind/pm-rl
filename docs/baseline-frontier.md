@@ -208,3 +208,12 @@ strict health reports `history_drift_chain_mismatch:pm-rl-apvf`. No force,
 history rewrite or re-anchor is authorized. This blocks readiness and the CI
 health prerequisite; historical green release runs above are not current-head
 release evidence. The existing health follow-up is `pm-rl-9uz4`.
+
+
+The final randomized cases include arbitrary crossing score vectors and correlated
+noisy effects, including positive point averages whose paired lower bound fails.
+Replacing only the lower-bound decision predicates with point-mean predicates
+fails the seeded property (0/1); disabling the constant gate in #95 or heuristic
+gate in #98 also fails it (0/1 each). Restored focused commands pass 4/4 and
+5/5 respectively. This guards the statistical bound itself, in addition to ties
+and clear wins.

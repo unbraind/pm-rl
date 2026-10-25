@@ -41,8 +41,9 @@ test("paired gate property: random vectors pass iff every paired lower bound cle
   let passed = 0; let refused = 0;
   for (let trial = 0; trial < 96; trial += 1) {
     const size = 10 + Math.floor(random() * 11);
-    const candidate = Array.from({ length: size }, () => 0.65 + random() * 0.35);
-    const baselines = Array.from({ length: 3 }, (_, baseline) => candidate.map((value) => trial % 4 === baseline + 1 ? value : random() * 0.4));
+    const candidate = Array.from({ length: size }, random);
+    const baselines = Array.from({ length: 3 }, () => candidate.map((value) => trial % 4 === 0 ? value * random() * 0.4
+      : trial % 4 === 1 ? Math.max(0, Math.min(1, value + (random() - 0.6) * 0.6)) : trial % 4 === 2 ? random() : value));
     const threshold = [0, 0.01, 0.05][trial % 3];
     const rewards = candidate.map((_, index) => [baselines[1][index], baselines[2][index]] as const);
     const evidence = pairedItemEvidence(candidate, baselines[0], rewards, 0.95, 10, threshold);
