@@ -121,6 +121,7 @@
       "test/compare.test.ts",
       "test/continuation-faults.test.ts",
       "test/controller-faults.test.ts",
+      "test/sdk-adoption.test.ts",
       "test/coverage-gate.test.ts",
       "test/durable-loop.test.ts",
       "test/decision-recovery.test.ts",
