@@ -44,8 +44,9 @@ test("balanced gate property: random paired vectors beat every baseline iff all 
   for (let trial = 0; trial < 96; trial += 1) {
     const negative = 10 + Math.floor(random() * 8); const positive = 10 + Math.floor(random() * 15);
     const labels = Array.from({ length: negative + positive }, (_, index) => index >= negative);
-    const candidate = labels.map(() => 0.7 + random() * 0.3);
-    const baselines = Array.from({ length: 4 }, (_, baseline) => candidate.map((value) => trial % 5 === baseline + 1 ? value : random() * 0.4));
+    const candidate = labels.map(random);
+    const baselines = Array.from({ length: 4 }, () => candidate.map((value) => trial % 4 === 0 ? value * random() * 0.4
+      : trial % 4 === 1 ? Math.max(0, Math.min(1, value + (random() - 0.6) * 0.6)) : trial % 4 === 2 ? random() : value));
     const rewards = candidate.map((_, index) => [baselines[1][index], baselines[2][index]] as const);
     const threshold = [0, 0.01, 0.05][trial % 3];
     const evidence = pairedItemEvidence(candidate, baselines[0], rewards, 0.95, 10, threshold, { labels, heuristic: baselines[3] });

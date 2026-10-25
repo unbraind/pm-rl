@@ -224,3 +224,12 @@ strict health before executing its unchanged npm/Bun full release gates; old
 green counts above are historical evidence only. Exhaustive current-head
 write-path interleaving/crash and complete coverage certification remain missing
 while that prerequisite fails. Existing health follow-up: `pm-rl-9uz4`.
+
+
+The final randomized cases include arbitrary crossing score vectors and correlated
+noisy effects, including positive point averages whose paired lower bound fails.
+Replacing only the lower-bound decision predicates with point-mean predicates
+fails the seeded property (0/1); disabling the constant gate in #95 or heuristic
+gate in #98 also fails it (0/1 each). Restored focused commands pass 4/4 and
+5/5 respectively. This guards the statistical bound itself, in addition to ties
+and clear wins.
