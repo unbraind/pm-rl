@@ -1,3 +1,4 @@
+import { parseBoundedJson } from "./tracker-record.ts";
 /** Public, commit-pinned tracker histories projected to a small redistributable lifecycle task. */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -56,7 +57,7 @@ export function historyBlobs(root: string, commit: string, paths: readonly strin
 export function trackerHistoryExample(history: string, repo: string, commit: string, item: string): TrackerExample | null {
   const prefix: string[] = [];
   for (const line of history.split("\n").filter(Boolean)) {
-    const event = JSON.parse(line) as { patch?: readonly { path: string; value?: unknown; op?: string }[] };
+    const event = parseBoundedJson(line) as { patch?: readonly { path: string; value?: unknown; op?: string }[] };
     for (const patch of event.patch ?? []) {
       if (patch.path !== "/metadata/status" || patch.op === "remove") continue;
       const status = String(patch.value);
@@ -92,7 +93,7 @@ export function buildTrackerDataset(directories: readonly string[], output: stri
     assert.ok(match !== null, "dataset_github_source");
     const repo = match[1];
     assert.ok(!["pm-web", "pm-gpt", "pm-cli"].includes(repo.split("/")[1].toLowerCase()), "dataset_excluded_repo");
-    const metadata = JSON.parse(sourceCommand("gh", ["repo", "view", repo, "--json", "visibility,licenseInfo,nameWithOwner"], root)) as { visibility: string; licenseInfo: { key: string } | null; nameWithOwner: string };
+    const metadata = parseBoundedJson(sourceCommand("gh", ["repo", "view", repo, "--json", "visibility,licenseInfo,nameWithOwner"], root)) as { visibility: string; licenseInfo: { key: string } | null; nameWithOwner: string };
     assert.ok(metadata.visibility === "PUBLIC" && metadata.licenseInfo?.key === "mit" && metadata.nameWithOwner.toLowerCase() === repo.toLowerCase(), "dataset_public_mit_required");
     const pin = options.pins?.find((source) => source.repo === repo);
     assert.ok(options.pins === undefined || pin !== undefined, "dataset_pin_missing");
@@ -152,7 +153,7 @@ export function buildTrackerDataset(directories: readonly string[], output: stri
 
 /** Verify a dataset manifest without opening held-out or final-test compartments. */
 export function readTrackerDataset(directory: string): TrackerDataset {
-  const { digest, ...record } = JSON.parse(readFileSync(join(directory, "dataset.json"), "utf8")) as TrackerDataset;
+  const { digest, ...record } = parseBoundedJson(readFileSync(join(directory, "dataset.json"), "utf8")) as TrackerDataset;
   assert.equal(hashJson(record as unknown as JsonValue), digest, "dataset_manifest_identity");
   assert.ok(record.format === "pm-rl/tracker-dataset/1" && ["terminal-disposition", "history-prefix"].includes(record.task), "dataset_format");
   assert.equal(new Set(record.sources.map((source) => source.repo)).size, record.sources.length, "dataset_duplicate_repo");
@@ -161,7 +162,7 @@ export function readTrackerDataset(directory: string): TrackerDataset {
 
 /** Open exactly one compartment, verifying content identity, provenance, bounds and repository isolation. */
 export function readTrackerSplit(directory: string, manifest: TrackerDataset, split: TrackerSplit): readonly TrackerExample[] {
-  const examples = JSON.parse(readFileSync(resolve(directory, `${split}.json`), "utf8")) as TrackerExample[];
+  const examples = parseBoundedJson(readFileSync(resolve(directory, `${split}.json`), "utf8")) as TrackerExample[];
   const spec = manifest.splits[split];
   assert.equal(hashJson(examples as unknown as JsonValue), spec.digest, "dataset_split_identity");
   assert.ok(examples.length > 0 && examples.length <= 10_000 && examples.length === spec.count, "dataset_split_size");

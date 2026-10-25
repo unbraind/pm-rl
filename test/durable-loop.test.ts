@@ -752,11 +752,13 @@ test("rehashed trainer receipts that disagree with their replay are refused as s
       const request = { id: "forged-resume", config: { ...configValue(endpoint.baseURL), budget: 4 }, approval };
       // Fail candidate registration so the train receipt exists without a registered candidate.
       const create = client.create.bind(client);
+      let injected = false;
       client.create = async (options, ...rest) => {
-        if (options?.id === "forged-resume-g1") throw new Error("crash before candidate registration");
+        if (options?.id === "rl-forged-resume-g1") { injected = true; throw new Error("crash before candidate registration"); }
         return create(options, ...rest);
       };
       await assert.rejects(runRlLoop(client, { pmRoot, author: "rl-test" }, request), /crash before candidate registration/);
+      assert.equal(injected, true, "the canonical candidate creation boundary must be interrupted");
       client.create = create;
       await rehashStepResult(client, "forged-resume-g1-step-train", (result) => { result["stopReason"] = "gap_rejected"; });
       const calls = endpoint.calls();

@@ -274,7 +274,8 @@ export function parsePromotionEvidence(value: unknown): PromotionEvidence | null
  *    gate's input, so a mean outside them means the evidence is not what the
  *    bounds describe).
  * 9. The conservative margin — candidate lower bound minus incumbent upper bound
- *    minus the effect threshold — is non-negative.
+ *    minus the effect threshold — is non-negative, with a strictly positive
+ *    observed improvement. Ties never promote, even if uncertainty underflows.
  *
  * Steps 5 and 6-9 are ordered so a structural refusal (contamination) precedes
  * a statistical one: a contaminated candidate is refused regardless of its
@@ -355,12 +356,12 @@ export function decidePromotion(input: PromotionGateInput): PromotionDecision {
   // For "minimize", lower is better, so the roles invert: promote when the
   // incumbent's best (lowest) case is still above the candidate's worst (highest)
   // case by the effect threshold.
-  const promote = candidate.direction === "maximize"
-    ? candidate.mean - candidateEpsilon - (incumbent.mean + incumbentEpsilon) >= criterion.effectThreshold
-    : incumbent.mean - incumbentEpsilon - (candidate.mean + candidateEpsilon) >= criterion.effectThreshold;
-  const margin = candidate.direction === "maximize"
-    ? candidate.mean - candidateEpsilon - (incumbent.mean + incumbentEpsilon) - criterion.effectThreshold
-    : incumbent.mean - incumbentEpsilon - (candidate.mean + candidateEpsilon) - criterion.effectThreshold;
+  // Center on the other mean before subtracting uncertainty, so a large common
+  // offset cannot round away either confidence allowance. Require actual gain
+  // as well: zero-width or subnormal ranges can have a rounded-zero epsilon.
+  const improvement = candidate.direction === "maximize" ? candidate.mean - incumbent.mean : incumbent.mean - candidate.mean;
+  const margin = improvement - candidateEpsilon - incumbentEpsilon - criterion.effectThreshold;
+  const promote = improvement > 0 && margin >= 0;
   if (!promote) {
     const candidateBound = candidate.direction === "maximize" ? candidate.mean - candidateEpsilon : candidate.mean + candidateEpsilon;
     const incumbentBound = candidate.direction === "maximize" ? incumbent.mean + incumbentEpsilon : incumbent.mean - incumbentEpsilon;

@@ -1,3 +1,4 @@
+import { parseBoundedJson } from "./tracker-record.ts";
 /** Real external TypeScript trainer: stdin request, stdout NDJSON, durable staged checkpoint and receipt. */
 import type { Readable, Writable } from "node:stream";
 import { dirname, join } from "node:path";
@@ -18,7 +19,7 @@ export function writeTrainerArtifact(name: string, value: unknown): void {
 export async function runReferenceTrainer(stdin: Readable = process.stdin, stdout: Writable = process.stdout, directory = "."): Promise<void> {
   let text = "";
   for await (const chunk of stdin) text += String(chunk);
-  const { job, input } = JSON.parse(text) as { job: string; input: ProcessInput };
+  const { job, input } = parseBoundedJson(text) as { job: string; input: ProcessInput };
   const start = performance.now();
   const cpu = process.cpuUsage();
   stdout.write(`${JSON.stringify({ type: "progress", job, usage: { training_steps: 0, wall_ms: 0, storage_bytes: 0, compute_units: 0, tokens: 0 } })}\n`);

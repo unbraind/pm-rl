@@ -1,3 +1,4 @@
+import { parseBoundedJson } from "./tracker-record.ts";
 /**
  * @module pm-rl/systemone
  *
@@ -1210,7 +1211,7 @@ export function parseSystemOneDecisionEvent(event: MetricEvent, metric: string, 
   }
   let decoded: unknown;
   try {
-    decoded = JSON.parse(encoded);
+    decoded = parseBoundedJson(encoded);
   } catch {
     expectedFail(`${source} answers tag is not valid JSON.`, "systemone_event_answers");
   }

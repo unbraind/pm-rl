@@ -102,6 +102,24 @@ test("shared inner promotion headroom refuses before training and reserves atomi
     await w.client.update(reservation.id, { body: JSON.stringify({ ...JSON.parse(body) as Record<string, unknown>, promotion_headroom }) });
     await assert.rejects(runRlMeta(w.client, w.coordinates, requestFor(w, "bad-capacity", config)), /meta_promotion_reservation_charge/);
   }
+  for (const charge of [null, [], "foreign"]) {
+    await w.client.update(reservation.id, { body: JSON.stringify({ ...JSON.parse(body) as Record<string, unknown>, charge }) });
+    await assert.rejects(retainedMetaPromotionHeadroom(w.client, w.approval, []), /meta_reservation_charge/);
+  }
+  for (const id of [null, 17, [], "foreign-identity"]) {
+    await w.client.update(reservation.id, { body: JSON.stringify({ ...JSON.parse(body) as Record<string, unknown>, id }) });
+    await assert.rejects(retainedMetaPromotionHeadroom(w.client, w.approval, []), /meta_reservation_drift/);
+  }
+  await w.client.update(reservation.id, { body: JSON.stringify({ ...JSON.parse(body) as Record<string, unknown>, format: "other-package/reservation/1" }) });
+  await assert.rejects(retainedMetaPromotionHeadroom(w.client, w.approval, []), /meta_reservation_drift/);
+  const reordered = JSON.stringify(Object.fromEntries(Object.entries(JSON.parse(body) as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b))));
+  await w.client.update(reservation.id, { body: reordered, removeTags: ["rl-meta-reservation"], addTags: ["other-package"] });
+  assert.ok(await retainedMetaPromotionHeadroom(w.client, w.approval, []) > 0);
+  await w.client.update(reservation.id, { body, addTags: ["rl-meta-reservation"], removeTags: ["other-package"] });
+  await w.client.create({ id: `copy-${reservation.id}`, type: "Decision", title: "Foreign reservation suffix copy", tags: "rl-meta-reservation", body });
+  await w.client.create({ id: "foreign-copy-reservation", type: "Decision", title: "Foreign copied reservation identity", tags: "rl-meta-reservation", body });
+  await w.client.create({ id: "foreign-package-reservation", type: "Decision", title: "Foreign reservation format", tags: "rl-meta-reservation", body: JSON.stringify({ format: "other-package/reservation/1" }) });
+  assert.ok(await retainedMetaPromotionHeadroom(w.client, w.approval, []) > 0);
 });
 
 test("unfinished meta phases revalidate retained headroom after a completed programme receipt", { timeout: 600_000 }, async () => {

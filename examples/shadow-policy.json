@@ -1,0 +1,54 @@
+{
+  "deployment": {
+    "format": "pm-rl/shadow/1",
+    "consent": "rl-consent",
+    "active": {
+      "event": "hold"
+    },
+    "candidate": {
+      "event": "accept"
+    },
+    "inputs": {
+      "event-0": "8f6e29cfb2f0df76f9f90f221edf3a7b4cfc6ba2e409bb0a78a2c031afd78580"
+    },
+    "budget": {
+      "active_calls": 1,
+      "candidate_calls": 1
+    },
+    "generation": "rl-candidate",
+    "incumbent": "rl-seed"
+  },
+  "plan": {
+    "format": "pm-rl/evaluation-plan/1",
+    "candidate": "rl-candidate",
+    "incumbent": "rl-seed",
+    "incumbent_version": "replace-with-verified-incumbent-provenance",
+    "population": "Explicitly consented events",
+    "selection": "All declared events",
+    "correlation_unit": "tracker",
+    "members": [
+      {
+        "id": "event-0",
+        "unit": "public-tracker"
+      }
+    ],
+    "objective": "decision_reward",
+    "objective_version": "v1",
+    "evaluation_context": "held-out",
+    "direction": "maximize",
+    "reward_bounds": [
+      0,
+      1
+    ],
+    "criterion": {
+      "confidence": 0.95,
+      "minSamples": 10,
+      "effectThreshold": 0.01
+    },
+    "stopping": {
+      "kind": "fixed",
+      "observations": 1,
+      "independent_units": 1
+    }
+  }
+}

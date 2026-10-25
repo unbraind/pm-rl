@@ -6,12 +6,15 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
+import { PmClient } from "@unbrained/pm-cli/sdk/core";
+import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { banditCheckpoint, banditProbability, fitBanditBatch, validatedBanditDatasets } from "../bandit.ts";
 import { itemBootstrap, pairedItemEvidence } from "../item-evaluation.ts";
 import { corpusHeldOut, sealTrackerLoopCorpus, titleFeatures, verifyTrackerLoopCorpus } from "../corpus.ts";
-import { generationTrainingConfig, parseLoopConfig, parseStoredLoopGeneration, runLoopGeneration, seedTrainingConfig, verifyStoredLoopGeneration } from "../loop.ts";
-import { runRlLoop, rlLoopStatus, type JsonValue } from "../index.ts";
-import { executeProcessTrainer, parseProcessAdapter } from "../process.ts";
+import { generationTrainingConfig, loopPromotionScores, parseLoopConfig, parseStoredLoopGeneration, runLoopGeneration, seedTrainingConfig, verifyStoredLoopGeneration } from "../loop.ts";
+import { runRlLoop, resumeRlLoop, rlLoopStatus, appendCommentOnce, promoteGenerationCore, type JsonValue } from "../index.ts";
+import { executeProcessTrainer, parseProcessAdapter, listProcessJobs } from "../process.ts";
+import { parseScoreRecord } from "../lineage.ts";
 import { baselineMain } from "../scripts/live-baseline.ts";
 import { vectorNoGit } from "./fixtures/baseline-no-git.ts";
 import { processWorkspace, trainingInput } from "./fixtures/process-workspace.ts";
@@ -30,6 +33,28 @@ test("item bootstrap counts held-out items and refuses ties, constants, small sa
   assert.throws(() => pairedItemEvidence([1], [], [], 0.95, 1, 0.01), /item_pairing/);
   assert.throws(() => pairedItemEvidence([1], [1], [], 0.95, 1, 0.01), /item_pairing/);
   for (const [values, confidence] of [[[], 0.95], [[NaN], 0.95], [[1], NaN], [[1], 0], [[1], 1]] as const) assert.throws(() => itemBootstrap(values, confidence), /item_bootstrap_input/);
+});
+
+test("paired gate property: random vectors pass iff every paired lower bound clears the threshold; equality always refuses", () => {
+  let state = 0x25791;
+  const random = () => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state / 0x1_0000_0000; };
+  let passed = 0; let refused = 0;
+  for (let trial = 0; trial < 96; trial += 1) {
+    const size = 10 + Math.floor(random() * 11);
+    const candidate = Array.from({ length: size }, () => 0.65 + random() * 0.35);
+    const baselines = Array.from({ length: 3 }, (_, baseline) => candidate.map((value) => trial % 4 === baseline + 1 ? value : random() * 0.4));
+    const threshold = [0, 0.01, 0.05][trial % 3];
+    const rewards = candidate.map((_, index) => [baselines[1][index], baselines[2][index]] as const);
+    const evidence = pairedItemEvidence(candidate, baselines[0], rewards, 0.95, 10, threshold);
+    const lowers = baselines.map((baseline) => itemBootstrap(candidate.map((value, index) => value - baseline[index]), 1 - 0.05 / 3).lower);
+    assert.equal(evidence.accepted, lowers.every((lower) => lower > threshold), `seeded trial ${trial}`);
+    if (evidence.accepted) passed += 1; else refused += 1;
+    for (let baseline = 0; baseline < 3; baseline += 1) {
+      const tied = baselines.map((values, index) => index === baseline ? candidate : values);
+      assert.equal(pairedItemEvidence(candidate, tied[0], candidate.map((_, index) => [tied[1][index], tied[2][index]]), 0.95, 10, threshold).accepted, false);
+    }
+  }
+  assert.ok(passed > 0 && refused > 0);
 });
 
 test("vector capacity learns different actions and replays all coefficients and item evidence", () => {
@@ -167,4 +192,92 @@ test("sealed exploration stops on the original gap and sampled-evidence refusals
     const status = await rlLoopStatus(workspace.client, id, workspace.pmRoot);
     assert.equal(status.stop_reason, reason); assert.equal(status.generations.length, 1);
   }
+});
+
+
+test("refused vector retries converge at every collect train evaluate refusal and terminal boundary on one plain tracker", { timeout: 600_000 }, async (context) => {
+  for (const boundary of ["collect", "train", "evaluate", "refuse-before", "refuse-after", "record-before", "record-after"] as const) await context.test(boundary, async () => {
+    const w = await processWorkspace({ training_steps: 16, wall_ms: 60000, storage_bytes: 524288, compute_units: 20000, tokens: 0 });
+    const lengths = [false, true].flatMap((held) => Array.from({ length: 200 }, (_, i) => i + 40).filter((length) => corpusHeldOut(length) === held).slice(0, 10));
+    const config = sealTrackerLoopCorpus(lengths.map((length) => ({ id: `source-${length}`, title: "t".repeat(length), status: "closed" })), {
+      ...bounds, max_generations: 2, samples_per_generation: 32, budget: 64, fit_steps: 8, evaluation_samples: 512,
+      adapter: { kind: "process-bandit", allowance: { training_steps: 8, wall_ms: 30000, storage_bytes: 262144, compute_units: 10000, tokens: 0 } },
+    }).programme;
+    const peer = new PmClient({ pmRoot: w.pmRoot, cwd: w.root, author: "peer", noExtensions: true });
+    const foreign = await peer.create({ id: "foreign-process", type: "Task", title: "Unrelated record", tags: "rl-process-job", body: "# Foreign package content" });
+    const comments = w.client.comments.bind(w.client); let injected = false; let interleaved = false;
+    const crash = () => { injected = true; throw new Error("vector boundary crash"); };
+    w.client.comments = (async (...args: Parameters<PmClient["comments"]>) => {
+      const text = args[1]?.add;
+      const point = typeof text !== "string" ? null : text.startsWith("Loop boundary generation 1 refused:") ? "refuse" : text.startsWith("Loop boundary terminal report:") ? "record" : null;
+      if (!injected && boundary === `${point}-before`) crash();
+      const result = await comments(...args);
+      if (!injected && boundary === `${point}-after`) crash();
+      return result;
+    }) as PmClient["comments"];
+    await assert.rejects(runRlLoop(w.client, w.coordinates, { id: "boundary", config, approval: w.approval, async onPhase(phase, generation) {
+      if (generation !== 1) return;
+      // A real second controller attempts the competing transition at every phase boundary.
+      await assert.rejects(resumeRlLoop(peer, { pmRoot: w.pmRoot, author: "peer" }, { id: "boundary", approval: w.approval }),
+        (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_controller_active");
+      interleaved = true;
+      if (!injected && phase === boundary) crash();
+    } }), /vector boundary crash/);
+    assert.equal(injected, true); assert.equal(interleaved, true);
+    Object.assign(w.client, { comments });
+    const resumed = await resumeRlLoop(peer, { pmRoot: w.pmRoot, author: "peer" }, { id: "boundary", approval: w.approval });
+    assert.equal(resumed.promoted, 0); assert.equal(resumed.generations.length, 2); assert.equal(resumed.samples_consumed, 64);
+    assert.ok(resumed.generations.every((row) => row.refusal_reason === "item_constant_not_beaten"));
+    const jobs = await listProcessJobs(peer);
+    assert.equal(jobs.length, 2); assert.ok(jobs.every((job) => job.state === "failed" && job.settled && job.charge.training_steps === 8));
+    assert.ok(jobs.every((job) => job.completion!.source_policy === resumed.final_checkpoint));
+    assert.ok(resumed.skipped_records?.some((row) => row.id === foreign.item.id && row.reason === "foreign_identity"));
+    assert.equal((await peer.get(foreign.item.id)).item.body, "# Foreign package content");
+    for (const row of resumed.generations) {
+      const history = readFileSync(join(w.pmRoot, "history", `${row.item}.jsonl`), "utf8");
+      assert.equal(history.split("\n").filter((line) => line.includes('"op":"create"')).length, 1);
+      const message = `Loop boundary generation ${row.generation} refused: item_constant_not_beaten`;
+      await Promise.all([appendCommentOnce(w.client, row.item, message), appendCommentOnce(peer, row.item, message)]);
+      assert.equal((await peer.comments(row.item)).comments.filter((entry) => entry.text === message).length, 1);
+    }
+    const again = await resumeRlLoop(w.client, w.coordinates, { id: "boundary", approval: w.approval });
+    assert.equal(again.final_checkpoint, resumed.final_checkpoint); assert.deepEqual(await listProcessJobs(peer), jobs);
+    assert.equal((await peer.comments(resumed.seed_generation)).comments.filter((entry) => entry.text.startsWith("Loop boundary terminal report:")).length, 1);
+  });
+});
+
+
+test("vector winners survive competing controllers and crashes at every successful cycle boundary", { timeout: 600_000 }, async (context) => {
+  for (const boundary of ["collect", "train", "evaluate", "promote"] as const) await context.test(boundary, async () => {
+    const w = await processWorkspace();
+    const examples = (prefix: string) => Array.from({ length: 40 }, (_, index) => ({ id: `${prefix}-${index}`, feature: prefix === "train" ? 0.1 : 0.2,
+      features: [1, index % 2 === 0 ? 1 : -1], rewards: index % 2 === 0 ? [0, 1] : [1, 0] }));
+    const config = { ...bounds, max_generations: 2, fit_steps: 8, retry_rejected: false, adapter: undefined,
+      environment: { name: "Paired boundary fixture", version: "1" }, training: examples("train"), evaluation: examples("held") } as unknown as JsonValue;
+    const peer = new PmClient({ pmRoot: w.pmRoot, cwd: w.root, author: "peer", noExtensions: true });
+    let injected = false;
+    await assert.rejects(runRlLoop(w.client, w.coordinates, { id: "winner", config, approval: w.approval, async onPhase(phase, generation) {
+      if (generation !== 1 || phase !== boundary) return;
+      injected = true;
+      await assert.rejects(resumeRlLoop(peer, { pmRoot: w.pmRoot, author: "peer" }, { id: "winner", approval: w.approval }),
+        (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_controller_active");
+      if (phase === "evaluate") {
+        const parsed = parseLoopConfig(config); const step = { learningRate: 1, evaluationSamples: 40000 };
+        const receipt = runLoopGeneration(parsed, step, 1, banditCheckpoint(0));
+        const scores = loopPromotionScores(parsed, step, 1, receipt);
+        await promoteGenerationCore(peer, { pmRoot: w.pmRoot, author: "peer" }, "rl-winner-g1", w.approval,
+          parseScoreRecord(scores.proxy_score, "proxy"), parseScoreRecord(scores.held_out_score, "held"), "Peer committed paired-evidence winner");
+      }
+      throw new Error("winner boundary crash");
+    } }), /winner boundary crash/);
+    assert.equal(injected, true);
+    const resumed = await resumeRlLoop(w.client, w.coordinates, { id: "winner", approval: w.approval });
+    assert.equal(resumed.promoted, 2);
+    if (boundary === "evaluate") assert.equal(resumed.generations[0].promoted_by, "peer");
+    assert.equal((await peer.get(resumed.generations[1].run)).item.component, resumed.generations[0].candidate_checkpoint);
+    const status = await rlLoopStatus(peer, "winner", w.pmRoot);
+    assert.equal(status.promoted, resumed.promoted); assert.equal(status.final_checkpoint, resumed.final_checkpoint);
+    const again = await resumeRlLoop(peer, { pmRoot: w.pmRoot, author: "peer" }, { id: "winner", approval: w.approval });
+    assert.equal(again.final_checkpoint, resumed.final_checkpoint);
+  });
 });
