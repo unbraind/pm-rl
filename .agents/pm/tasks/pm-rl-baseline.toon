@@ -2,11 +2,13 @@ id: pm-rl-baseline
 title: Gate recursive proposals with paired held-out baseline evidence
 description: "Build on PR #94 with a bounded title-feature learner, held-out item confidence intervals against incumbent and constants, and at least three measured recursive proposal attempts on the same public corpus. Preserve contamination, approvals, resource accounting, resume and cancellation. Report refusals honestly."
 type: Task
-status: in_progress
+status: closed
 priority: 2
 tags: []
 created_at: "2026-10-21T16:53:13.328Z"
-updated_at: "2026-10-25T02:23:46.670Z"
+updated_at: "2026-10-25T11:27:27.524Z"
+closed_at: "2026-10-25T11:27:27.505Z"
+completed_at: "2026-10-25T04:21:47.000Z"
 author: codex-agent
 acceptance_criteria: "Randomized paired evidence accepts exactly when every declared baseline lower bound strictly exceeds the unchanged effect threshold, with ties refused; A bounded cycle records promotions and refusals on tracker items and resumes each declared phase boundary without duplicate fits or charges; Balanced intake candidates must beat the incumbent, both constants and the frozen keyword heuristic with paired stratified lower effects above the unchanged threshold"
 parent: pm-rl-apvf
@@ -137,4 +139,5 @@ docs[5]{path,scope}:
   docs/baseline-frontier.md,project
   docs/intake-objective-evidence.json,project
   docs/intake-objective.md,project
+close_reason: "https://github.com/unbraind/pm-rl/pull/98 merged 2026-10-25T04:21:47Z, merge 97bb6414aaca8c8bfbe7859c1515ad67d9273ff5: Refuse intake policy promotion without paired wins over every baseline. Reviewed (read-only codex/Claude review, MERGE verdict) with green CI release gates."
 body: ""
