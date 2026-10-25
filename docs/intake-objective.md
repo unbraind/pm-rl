@@ -216,14 +216,22 @@ The main integration retains locale-independent corpus and source-inventory
 ordering, bounded checkpoint JSON parsing, causal plans, policy cards and CAS
 behavior. The new intake seal uses the same locale-independent ordering too.
 
-Readiness remains blocked by preserved divergent tracker history. The permitted
-normal reconciliation cannot prove the inherited epic snapshot, and combining
-both PRs preserves their separate baseline-item histories as well. No existing
-history entry is rewritten, force-reconciled or re-anchored. Current CI must pass
-strict health before executing its unchanged npm/Bun full release gates; old
-green counts above are historical evidence only. Exhaustive current-head
-write-path interleaving/crash and complete coverage certification remain missing
-while that prerequisite fails. Existing health follow-up: `pm-rl-9uz4`.
+The earlier combined branch failed strict health because it spliced divergent
+epic and baseline histories. The owner subsequently authorized main-based
+reconstruction: PR #95 restores the epic item/history exactly from main and
+re-records its intent through the pinned CLI, and this branch merges that
+reconstruction. Since the baseline item does not exist on main, it retains the
+healthy PR #95 branch item/history and re-records its twelve objective-specific
+comments, file/doc links, tests and acceptance criterion with pm commands.
+Main's epic history and PR #95's baseline history are exact byte prefixes.
+
+Pinned strict tracker health now passes. Only obsolete branch-owned merge
+artifacts were removed; no main history, force, history-repair or re-anchor
+operation is involved. The local README-pinned pm-github installation avoids a
+local extension host-version skew without changing dependency pins. Executable
+source, tests, gates and measured numerical/revert evidence remain unchanged.
+Full current-head release and write-path test results are recorded on the PR;
+earlier health-failing runs remain historical failures.
 
 
 The final randomized cases include arbitrary crossing score vectors and correlated

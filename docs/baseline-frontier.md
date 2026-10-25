@@ -201,10 +201,27 @@ promotion, truthful attribution and successor collection from the winner.
 Main's native item CAS, approval locks, owner-verified release, foreign decoding
 and EIO/ENOSPC/SIGKILL transaction tests remain required acceptance.
 
-The current merge retains a divergent inherited epic reconciliation event and
-main's newer epic history verbatim. The single permitted normal reconciliation
-cannot prove that combined snapshot (`no_receipt_set_proves_snapshot`), and
-strict health reports `history_drift_chain_mismatch:pm-rl-apvf`. No force,
-history rewrite or re-anchor is authorized. This blocks readiness and the CI
-health prerequisite; historical green release runs above are not current-head
-release evidence. The existing health follow-up is `pm-rl-9uz4`.
+The earlier merge attempt retained a divergent epic history and failed strict
+health with `history_drift_chain_mismatch:pm-rl-apvf`; its normal reconciliation
+could not prove the combined snapshot. The owner subsequently authorized a
+main-based reconstruction: restore the exact main epic item/history, then
+re-record this branch's intended comments, files, documentation and tests with
+the pinned CLI. Main's history is now a byte-identical prefix of this branch.
+The obsolete branch-only reconciliation artifact and its current item link were
+removed. No force, history-repair or re-anchor command was used.
+
+Pinned strict tracker health now passes, with only the unchanged main provenance
+advisory. The README's pinned local pm-github installation removes a local
+host-version skew without changing dependency pins. Executable source, tests,
+thresholds and all real-data/revert receipts are unchanged by this reconstruction.
+Complete current-head npm/Bun release evidence is reported on the PR and tracker;
+old health-failing runs above remain historical failures.
+
+
+The final randomized cases include arbitrary crossing score vectors and correlated
+noisy effects, including positive point averages whose paired lower bound fails.
+Replacing only the lower-bound decision predicates with point-mean predicates
+fails the seeded property (0/1); disabling the constant gate in #95 or heuristic
+gate in #98 also fails it (0/1 each). Restored focused commands pass 4/4 and
+5/5 respectively. This guards the statistical bound itself, in addition to ties
+and clear wins.
