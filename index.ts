@@ -792,21 +792,15 @@ export async function readCompleteLoopItem(client: PmClient, id: string, at?: st
   return result as GetResult;
 }
 
-/** Apply a read-derived change through the SDK item transaction, refusing a stale revision under its item lock. @internal */
-export async function mutateLoopItem(client: PmClient, before: GetResult, message: string, change: (document: ItemDocument, closeStatus: string, terminal: boolean) => string[], preconditions: readonly GetResult[] = [], author = "pm-rl", op: "update" | "close" = "update"): Promise<GetResult> {
-  identifier(before.item.id); preconditions.forEach((dependency) => identifier(dependency.item.id));
-  const config = await identifierClient(client).config("project", "get", "id_prefix");
-  const pmRoot = dirname(config.settings_path);
-  const settings = await readSettings(pmRoot);
-  const expected = { updated: before.item.updated_at, body: String(before.item.body) };
+/** Hold every certified SDK read through an outcome or publication write, releasing only owned leases. */
+async function withLockedPromotionEvidence<T>(client: PmClient, pmRoot: string, settings: Awaited<ReturnType<typeof readSettings>>, target: string | null, preconditions: readonly GetResult[], author: string, execute: () => Promise<T>): Promise<T> {
   const releases: (() => Promise<void>)[] = [];
-  let after: GetResult;
   try {
     // These are the SDK's native item locks, also observed by ordinary CLI and SDK peer writes.
     const observed = promotionEvidence.getStore();
     const reads = observed?.client === client ? observed.reads : new Map<string, PromotionEvidenceRead[]>();
     const dependencies = new Map(preconditions.map((dependency) => [dependency.item.id, dependency]));
-    const ids = [...new Set([...dependencies.keys(), ...reads.keys()])].filter((id) => id !== before.item.id).sort();
+    const ids = [...new Set([...dependencies.keys(), ...reads.keys()])].filter((id) => id !== target).sort();
     for (const id of ids) releases.push(await acquireStateLock(pmRoot, id, settings.locks.ttl_seconds, author, false, false, settings.locks.wait_ms));
     // All SDK writers now contend on these native leases. Validate after the last acquisition,
     // and retain every lease through the authoritative SDK mutation and its terminal record.
@@ -815,21 +809,37 @@ export async function mutateLoopItem(client: PmClient, before: GetResult, messag
         let current: GetResult["item"] | null;
         try { current = (await readCompleteLoopItem(client, id, projection.at, projection.fields)).item; }
         catch (error) { if (isPmCliExpectedError(error) && error.exitCode === EXIT_CODE.NOT_FOUND) current = null; else throw error; }
-        if (canonicalJson(current as JsonValue) !== canonicalJson(projection.item as JsonValue)) fail("Promotion evidence changed after validation; retry from current evidence. No approval was consumed.", "loop_write_conflict", EXIT_CODE.CONFLICT);
+        if (canonicalJson(current as JsonValue) !== canonicalJson(projection.item as JsonValue)) fail("Promotion evidence changed after validation; retry from current evidence. No new approval was consumed.", "loop_write_conflict", EXIT_CODE.CONFLICT);
       }
       for (const dependency of dependencies.values()) {
         const current = await readCompleteLoopItem(client, dependency.item.id);
         if (current.item.updated_at !== dependency.item.updated_at || current.item.body !== dependency.item.body) fail("Promotion evidence or budget changed after it was read; retry from current evidence.", "loop_write_conflict", EXIT_CODE.CONFLICT);
       }
     });
-    const result = await runWithActiveExtensions({ path: pmRoot }, () => mutateItem({ pmRoot, settings, id: before.item.id, op, author, message, skipNoop: true,
-      mutate: (document) => {
-        if (document.metadata.updated_at !== expected.updated || document.body !== expected.body) fail("Tracker item changed after it was read; retry from current evidence.", "loop_write_conflict", EXIT_CODE.CONFLICT);
-        const registry = resolveRuntimeStatusRegistry(settings.schema);
-        return { changedFields: change(document, registry.close_status, isTerminalStatus(document.metadata.status, registry)) };
-      },
-    }));
-    after = { item: { ...result.item, body: result.body } };
+    return await promotionEvidence.exit(execute);
+  } finally {
+    for (const release of releases.reverse()) await release();
+  }
+}
+
+/** Apply a read-derived change through the SDK item transaction, refusing a stale revision under its item lock. @internal */
+export async function mutateLoopItem(client: PmClient, before: GetResult, message: string, change: (document: ItemDocument, closeStatus: string, terminal: boolean) => string[], preconditions: readonly GetResult[] = [], author = "pm-rl", op: "update" | "close" = "update"): Promise<GetResult> {
+  identifier(before.item.id); preconditions.forEach((dependency) => identifier(dependency.item.id));
+  const config = await identifierClient(client).config("project", "get", "id_prefix");
+  const pmRoot = dirname(config.settings_path);
+  const settings = await readSettings(pmRoot);
+  const expected = { updated: before.item.updated_at, body: String(before.item.body) };
+  try {
+    return await withLockedPromotionEvidence(client, pmRoot, settings, before.item.id, preconditions, author, async () => {
+      const result = await runWithActiveExtensions({ path: pmRoot }, () => mutateItem({ pmRoot, settings, id: before.item.id, op, author, message, skipNoop: true,
+        mutate: (document) => {
+          if (document.metadata.updated_at !== expected.updated || document.body !== expected.body) fail("Tracker item changed after it was read; retry from current evidence.", "loop_write_conflict", EXIT_CODE.CONFLICT);
+          const registry = resolveRuntimeStatusRegistry(settings.schema);
+          return { changedFields: change(document, registry.close_status, isTerminalStatus(document.metadata.status, registry)) };
+        },
+      }));
+      return { item: { ...result.item, body: result.body } };
+    });
   } catch (error) {
     if (isPmCliExpectedError(error)) {
       try {
@@ -840,10 +850,7 @@ export async function mutateLoopItem(client: PmClient, before: GetResult, messag
       }
     }
     throw error;
-  } finally {
-    for (const release of releases.reverse()) await release();
   }
-  return after;
 }
 
 /** Close a generation and optionally publish its outcome in one guarded SDK item transaction. */
@@ -2423,7 +2430,7 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
   let outcome: PromotionOutcome;
   if (spec.promoted) outcome = await recoverManualPromotion(client, generation, approvalId, proxyScore, heldOutScore, evidence);
   else {
-    try { outcome = await promoteGenerationCore(client, { pmRoot: context.pm_root, author: authorFor(context) }, id, approvalId, proxyScore, heldOutScore, evidence); }
+    try { outcome = await promoteGenerationCore(client, { pmRoot: context.pm_root, author: authorFor(context) }, id, approvalId, proxyScore, heldOutScore, evidence); await recordPolicyCard(client, id); }
     catch (error) {
       if (!isPmCliExpectedError(error) || error.context.code !== "already_promoted") throw error;
       // A matching peer can commit after our first read and fail before publication.
@@ -2431,7 +2438,6 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
       outcome = await recoverManualPromotion(client, await getTypedItem(client, id, "Generation"), approvalId, proxyScore, heldOutScore, evidence);
     }
   }
-  await recordPolicyCard(client, id);
   return {
     action: "rl-generation-promote",
     id,
@@ -2449,20 +2455,30 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
 }
 
 /** Resume after the atomic promotion boundary using its sealed request, without another budget mutation. */
-async function recoverManualPromotion(client: PmClient, generation: GetResult, approvalId: string, proxy: ScoreRecord, held: ScoreRecord, evidence: string): Promise<PromotionOutcome> {
-  const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
-  const spec = canonicalizeGenerationSpec(extractGenerationSpec(String(generation.item.body), "Committed promotion"), prefix);
-  if (canonicalizeIdentifier(approvalId, prefix) !== canonicalizeIdentifier(spec.approval!, prefix)
-    || canonicalJson(canonicalizeScoreRecord(proxy, prefix) as unknown as JsonValue) !== canonicalJson(spec.proxy_score as unknown as JsonValue)
-    || canonicalJson(canonicalizeScoreRecord(held, prefix) as unknown as JsonValue) !== canonicalJson(spec.held_out_score as unknown as JsonValue)
-    || evidence !== spec.promotion_evidence) {
-    fail(`Generation ${generation.item.id} is already promoted by a different request.`, "already_promoted", EXIT_CODE.CONFLICT);
-  }
-  // Verify the current source and all citations before repairing its publication.
-  await exportPolicyCard(client, generation.item.id);
-  const approval = await readApprovalSpec(client, approvalId);
-  const consumed = await promotedGenerationIdsUnderApproval(client, approval.id);
-  return { status: String(generation.item.status), gap: spec.gap!, promotedCount: consumed.length - 1, permittedPromotions: approval.permitted_promotions };
+async function recoverManualPromotion(client: PmClient, previous: GetResult, approvalId: string, proxy: ScoreRecord, held: ScoreRecord, evidence: string): Promise<PromotionOutcome> {
+  return withPromotionEvidence(client, async () => {
+    const generation = await getTypedItem(client, previous.item.id, "Generation");
+    const config = await identifierClient(client).config("project", "get", "id_prefix");
+    const prefix = String(config.nested_setting!.value);
+    const spec = canonicalizeGenerationSpec(extractGenerationSpec(String(generation.item.body), "Committed promotion"), prefix);
+    if (!spec.promoted) fail("Committed promotion changed; retry from the current Generation.", "loop_write_conflict", EXIT_CODE.CONFLICT);
+    if (canonicalizeIdentifier(approvalId, prefix) !== canonicalizeIdentifier(spec.approval!, prefix)
+      || canonicalJson(canonicalizeScoreRecord(proxy, prefix) as unknown as JsonValue) !== canonicalJson(spec.proxy_score as unknown as JsonValue)
+      || canonicalJson(canonicalizeScoreRecord(held, prefix) as unknown as JsonValue) !== canonicalJson(spec.held_out_score as unknown as JsonValue)
+      || evidence !== spec.promotion_evidence) {
+      fail(`Generation ${generation.item.id} is already promoted by a different request.`, "already_promoted", EXIT_CODE.CONFLICT);
+    }
+    // Verify the current source and all citations before repairing its publication.
+    await enforceEvaluationPlan(client, generation.item.id, spec.held_out_score!);
+    await exportPolicyCard(client, generation.item.id);
+    const approval = await readApprovalSpec(client, approvalId);
+    const consumed = await promotedGenerationIdsUnderApproval(client, approval.id);
+    const root = dirname(config.settings_path);
+    return withLockedPromotionEvidence(client, root, await readSettings(root), null, [], "pm-rl", async () => {
+      await recordPolicyCard(client, generation.item.id);
+      return { status: String(generation.item.status), gap: spec.gap!, promotedCount: consumed.length - 1, permittedPromotions: approval.permitted_promotions };
+    });
+  });
 }
 
 /** The workspace coordinates a transactional promotion needs outside the client. */
@@ -3887,12 +3903,16 @@ export async function reconcileLoopPromotion(client: PmClient, lease: Pick<Contr
     const item = await getTypedItem(client, itemId, "Generation");
     const spec = extractGenerationSpec(String(item.item.body), "Promoted loop generation");
     if (!spec.promoted) fail("Promotion recovery no longer agrees with current generation evidence.", "loop_step_drift", EXIT_CODE.CONFLICT);
+    await enforceEvaluationPlan(client, item.item.id, spec.held_out_score!);
     const config = await identifierClient(client).config("project", "get", "id_prefix");
     const registry = resolveRuntimeStatusRegistry((await readSettings(dirname(config.settings_path))).schema);
-    if (registry.terminal_done_statuses.has(String(item.item.status))) return;
-    await enforceEvaluationPlan(client, item.item.id, spec.held_out_score!);
+    if (registry.terminal_done_statuses.has(String(item.item.status))) {
+      await recoverManualPromotion(client, item, spec.approval!, spec.proxy_score!, spec.held_out_score!, spec.promotion_evidence!);
+      return;
+    }
     await exportPolicyCard(client, itemId);
     await completeLoopGeneration(client, item, String(item.item.body), spec.promotion_evidence!, "Recovered the promotion close boundary; the approved promotion count and scores are unchanged.", [], lease.author);
+    await recoverManualPromotion(client, item, spec.approval!, spec.proxy_score!, spec.held_out_score!, spec.promotion_evidence!);
   }));
 }
 
@@ -3960,7 +3980,6 @@ async function executeLoopProgramme(client: PmClient, coordinates: WorkspaceCoor
     }
     if (inspection.kind === "complete") {
       await reconcileLoopPromotion(client, prepared.lease, inspection.report.item);
-      await prepared.lease.guard(() => recordPolicyCard(client, inspection.report.item));
       if (programme.trainer === "bandit" && programme.config.process !== undefined) {
         const receipt = runLoopGeneration(programme.config, chain.step, generation, chain.current as BanditCheckpoint, inspection.advance.checkpoint as BanditCheckpoint);
         await finishProcessGeneration(client, coordinates, prepared.lease, programme.config, chain, generation, receipt, "promoted", "promotion_verified", request);

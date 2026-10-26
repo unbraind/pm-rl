@@ -134,56 +134,67 @@ test("promotion holds final checkpoints through the generation write and never s
   const final = report(await recordSequentialEvaluation(base.client, p.candidate, observations(p, 64, true)));
   const checkpoint = `${p.candidate}-evaluation-plan-look-2`;
   const score: ScoreRecord = { objective: p.objective, objective_version: p.objective_version, evaluation_context: p.evaluation_context, direction: p.direction, seed_set: evaluationComparison(p), scale: 1, value: final.candidate_mean };
-  for (const mode of ["after-validation", "while-leased", "cli", "recovery", "missing-score"] as const) {
+  for (const mode of ["after-validation", "while-leased", "cli", "recovery", "missing-score", "manual-recovery", "completed-recovery", "manual-race", "manual-while-leased", "manual-withdrawn", "completed-while-leased", "recovery-while-leased"] as const) {
     const root = mkdtempSync(join(tmpdir(), "rl-promotion-proof-")); roots.push(root); cpSync(base.root, root, { recursive: true });
     const pmRoot = join(root, ".agents/pm");
     const client = new PmClient({ pmRoot, cwd: root, author: "promotion-test", noExtensions: true });
     const peer = new PmClient({ pmRoot, cwd: root, author: "peer", noExtensions: true });
-    const recovering = mode === "recovery" || mode === "missing-score";
+    const manual = ["manual-recovery", "manual-race", "manual-while-leased", "manual-withdrawn"].includes(mode);
+    const recovering = mode === "recovery" || mode === "missing-score" || manual || mode === "completed-recovery" || mode === "completed-while-leased" || mode === "recovery-while-leased";
+    const leased = ["while-leased", "manual-while-leased", "completed-while-leased", "recovery-while-leased"].includes(mode);
     if (recovering) {
       await promoteGenerationCore(client, { pmRoot, author: "promotion-test" }, p.candidate, "rl-approval", { ...score, evaluation_context: "proxy" }, score, "Reviewed evaluation");
-      await peer.update(p.candidate, { status: "in_progress" });
+      if (!manual && mode !== "completed-recovery" && mode !== "completed-while-leased") await peer.update(p.candidate, { status: "in_progress" });
       if (mode === "missing-score") {
         const current = extractGenerationSpec(String((await readCompleteLoopItem(peer, p.candidate)).item.body), "Incomplete promotion");
         await peer.update(p.candidate, { body: `\`\`\`json\n${JSON.stringify({ ...current, held_out_score: null })}\n\`\`\`` });
       }
     }
     const before = await readCompleteLoopItem(peer, p.candidate);
+    let expected = before;
     const get = client.get.bind(client); let sawFinal = false; let injected = false;
-    client.get = (async (...args) => {
+    if (mode === "manual-recovery" || mode === "completed-recovery") { await peer.update(checkpoint, { affectedVersion: "Corrupted before publication repair" }); injected = true; }
+    Object.assign(client, { get: (async (...args) => {
       const result = await get(...args);
+      if (mode === "manual-withdrawn" && !injected && args[0] === p.candidate) {
+        injected = true;
+        const withdrawn = { ...extractGenerationSpec(String(before.item.body), "Withdrawn promotion"), promoted: false, approval: null, proxy_score: null, held_out_score: null, gap: null, promotion_evidence: null };
+        await peer.update(p.candidate, { body: `\`\`\`json\n${JSON.stringify(withdrawn)}\n\`\`\`` });
+        expected = await readCompleteLoopItem(peer, p.candidate);
+      }
       if (args[0] === checkpoint && args[1]?.at === undefined) sawFinal = true;
       const locked = existsSync(join(pmRoot, "locks", `${checkpoint}.lock`));
-      if (!injected && (mode === "while-leased" ? args[0] === checkpoint && locked : sawFinal && args[0] === "rl-approval")) {
+      if (!injected && (leased ? args[0] === checkpoint && locked : sawFinal && args[0] === "rl-approval")) {
         injected = true;
         const wait = process.env.PM_LOCK_WAIT_MS; process.env.PM_LOCK_WAIT_MS = "0";
         try {
           const edit = peer.update(checkpoint, { affectedVersion: "Raced final seal" });
-          if (mode === "while-leased") await assert.rejects(edit, (error: unknown) => isPmCliExpectedError(error) && error.context.code === "lock_conflict");
+          if (leased) await assert.rejects(edit, (error: unknown) => isPmCliExpectedError(error) && error.context.code === "lock_conflict");
           else await edit;
         } finally { if (wait === undefined) delete process.env.PM_LOCK_WAIT_MS; else process.env.PM_LOCK_WAIT_MS = wait; }
       }
       return result;
-    }) as PmClient["get"];
+    }) as PmClient["get"] });
     /** Exercise the public command and the core shared by every recursive controller. */
     async function promote(): Promise<unknown> {
-      if (recovering) return reconcileLoopPromotion(client, { author: "promotion-test", guard: (operation) => withProcessJobFence({ pmRoot, author: "promotion-test" }, "recovery-proof", operation) }, p.candidate);
-      if (mode !== "cli") return promoteGenerationCore(client, { pmRoot, author: "promotion-test" }, p.candidate, "rl-approval", { ...score, evaluation_context: "proxy" }, score, "Reviewed evaluation");
+      if (mode === "recovery" || mode === "missing-score" || mode === "completed-recovery" || mode === "completed-while-leased" || mode === "recovery-while-leased") return reconcileLoopPromotion(client, { author: "promotion-test", guard: (operation) => withProcessJobFence({ pmRoot, author: "promotion-test" }, "recovery-proof", operation) }, p.candidate);
+      if (mode !== "cli" && !manual) return promoteGenerationCore(client, { pmRoot, author: "promotion-test" }, p.candidate, "rl-approval", { ...score, evaluation_context: "proxy" }, score, "Reviewed evaluation");
       const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
       type HostSdk = NonNullable<Parameters<typeof harness.runCommand>[0]["sdk"]>;
       const scores = join(root, "scores.json"); writeFileSync(scores, JSON.stringify({ proxy_score: { ...score, evaluation_context: "proxy" }, held_out_score: score }));
       return harness.runCommand({ command: "rl generation promote", pmRoot, args: [p.candidate], options: { approval: "rl-approval", scores, evidence: "Reviewed evaluation" }, sdk: { client } as unknown as HostSdk });
     }
-    if (mode === "while-leased") await promote();
-    else await assert.rejects(promote(), (error: unknown) => isPmCliExpectedError(error) && error.context.code === (mode === "missing-score" ? "promoted_missing_evidence" : "loop_write_conflict"));
+    if (leased) await promote();
+    else await assert.rejects(promote(), (error: unknown) => isPmCliExpectedError(error) && error.context.code === (mode === "missing-score" ? "promoted_missing_evidence" : mode === "manual-recovery" || mode === "completed-recovery" ? "eval_plan_drift" : "loop_write_conflict"), mode);
     if (mode !== "missing-score") assert.ok(injected, mode);
     if (mode === "missing-score") {
       assert.deepEqual((await readCompleteLoopItem(peer, p.candidate)).item, before.item);
       continue;
     }
+    if (mode === "manual-withdrawn") { assert.deepEqual((await readCompleteLoopItem(peer, p.candidate)).item, expected.item); continue; }
     const live = extractGenerationSpec(String((await readCompleteLoopItem(peer, p.candidate)).item.body), "SDK promotion readback");
     assert.equal(live.promoted, mode === "while-leased" || recovering); assert.equal(live.approval, mode === "while-leased" || recovering ? "rl-approval" : null);
-    if (mode !== "while-leased") assert.deepEqual((await readCompleteLoopItem(peer, p.candidate)).item, before.item);
+    if (mode !== "while-leased" && mode !== "recovery-while-leased") assert.deepEqual((await readCompleteLoopItem(peer, p.candidate)).item, before.item);
     await peer.update(checkpoint, { title: "Lease released after the terminal decision" });
   }
 });

@@ -660,6 +660,8 @@ revision through the terminal write. Changed evidence refuses with
 `loop_write_conflict` before any new approval consumption. Foreign checkpoint records
 are skipped with a reason and left intact. No Git repository or executable is
 needed, and source trackers are never modified by evaluation.
+An already-promoted manual retry revalidates the evaluation before repairing
+publication; changed checkpoint or review evidence refuses that repair.
 
 Both TOON and JSON reports stay independent of cohort size. `sequential` reports
 `state` (`continue`, `sufficient`, `futile`, `exhausted`), `look`, `error_bound`

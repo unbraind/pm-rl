@@ -24,6 +24,10 @@ The shared manual and recursive promotion transaction records every live SDK
 projection used by its authoritative checks, including absent checkpoint slots.
 Recovery of an already committed promotion's close boundary applies the same
 evaluation validation and revision guard; configured done roles come from the SDK.
+Manual retries also revalidate the evaluation before repairing card publication,
+even when the Generation already records a matching committed promotion.
+They re-read that Generation instead of replaying the caller's snapshot, and
+the shared guard holds its source and evidence leases through card publication.
 Before publishing the generation outcome it acquires the SDK's native item
 leases in canonical order and reads each projection again through the SDK.
 Exact readback must match; seals, metadata and relationships are included whenever
