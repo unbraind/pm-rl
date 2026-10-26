@@ -20,8 +20,8 @@ export function writeTrainerArtifact(name: string, value: unknown): void {
 export async function runReferenceTrainer(stdin: Readable = process.stdin, stdout: Writable = process.stdout, directory = "."): Promise<void> {
   let text = "";
   for await (const chunk of stdin) text += String(chunk);
-  const { job, input } = parseBoundedJson(text) as { job: string; input: ProcessInput };
-  identifier(job);
+  const { job: rawJob, input } = parseBoundedJson(text) as { job: string; input: ProcessInput };
+  const job = identifier(rawJob);
   const start = performance.now();
   const cpu = process.cpuUsage();
   stdout.write(`${JSON.stringify({ type: "progress", job, usage: { training_steps: 0, wall_ms: 0, storage_bytes: 0, compute_units: 0, tokens: 0 } })}\n`);

@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { after, test } from "node:test";
 
 import { PmClient, type GetResult } from "@unbrained/pm-cli/sdk/core";
-import { init, isPmCliExpectedError, EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
+import { init, isPmCliExpectedError, normalizeRawItemId, EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness, type ExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 
 import extension, {
@@ -352,6 +352,9 @@ test("parseGenerationSpec accepts the seed and a full candidate and refuses ever
   assert.equal(parsed.parent, "gen-0");
   assert.deepEqual(parsed.collection_runs, ["run-1"]);
   assert.equal((parsed.training_config as { lr?: number }).lr, 0.1);
+  const aliased = parseGenerationSpec(JSON.stringify({ ...candidate, parent: "#GEN-0", collection_runs: ["#RUN-1"] }), "g");
+  assert.equal(aliased.parent, normalizeRawItemId("#GEN-0"));
+  assert.deepEqual(aliased.collection_runs, [normalizeRawItemId("#RUN-1")]);
   // A complete valid record carrying every optional field parses, so later checks are reachable.
   const fullBase = { base_checkpoint: "b", policy: "x", collection_runs: ["r"], training_config: {}, environment_version: "e", reward_spec_version: "rw", parent: "p", seed: false, promoted: false, approval: null, proxy_score: null, held_out_score: null, gap: null, promotion_evidence: null };
   for (const [text, message] of [
@@ -377,13 +380,13 @@ test("parseGenerationSpec accepts the seed and a full candidate and refuses ever
   // The promotion invariant: approval, proxy_score, held_out_score and gap are
   // non-null EXACTLY when promoted is true. A promoted record carrying all four
   // parses; one missing any of them is refused.
-  const promotedBase = { base_checkpoint: "b", policy: "x", collection_runs: ["r"], training_config: {}, environment_version: "e", reward_spec_version: "rw", parent: "p", seed: false, promoted: true, approval: "a", proxy_score: score(2), held_out_score: score(3), gap: 1, promotion_evidence: "ev" };
+  const promotedBase = { base_checkpoint: "b", policy: "x", collection_runs: ["r"], training_config: {}, environment_version: "e", reward_spec_version: "rw", parent: "p", seed: false, promoted: true, approval: "#APPROVAL-1", proxy_score: score(2), held_out_score: score(3), gap: 1, promotion_evidence: "ev" };
   const promoted = parseGenerationSpec(JSON.stringify(promotedBase), "g");
   assert.equal(promoted.promoted, true);
   assert.equal(promoted.proxy_score?.value, 2);
   assert.equal(promoted.held_out_score?.value, 3);
   assert.equal(promoted.gap, 1);
-  assert.equal(promoted.approval, "a");
+  assert.equal(promoted.approval, normalizeRawItemId("#APPROVAL-1"));
   // A promoted record missing any evidence field is refused.
   for (const field of ["approval", "proxy_score", "held_out_score", "gap"] as const) {
     const breaking = { ...promotedBase, [field]: null };

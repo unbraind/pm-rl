@@ -252,7 +252,7 @@ export async function verifyProcessJobBudget(client: PmClient, job: ProcessJob<T
  * Returns the job's own id (item ids carry the tracker prefix, job ids do not), or null for any other body.
  */
 export function processJobBodyId(body: string): string | null {
-  const row = decodeTrackerRecord(null, { type: "Task", body }, { type: "Task", format: "pm-rl/process-job/1", valid: (value) => typeof value.id === "string" });
+  const row = decodeTrackerRecord(null, { type: "Task", body }, { type: "Task", format: "pm-rl/process-job/1", valid: (value) => { value.id = identifier(value.id); return true; } });
   return row === null ? null : String(row.id);
 
 }
@@ -342,12 +342,13 @@ export function stagingBytes(directory: string, callback?: string): number {
 }
 /** Validate the staged completion against immutable input, readable bytes and every resource dimension. */
 export function validateProcessCompletion<P extends TrainerPolicy>(directory: string, id: string, input: ProcessInput<P>, allowance: Resources, artifactRoot = directory): ProcessCompletion<P> {
-  identifier(id);
+  id = canonicalIdentifier(id);
   if (!existsSync(statePath(directory, "completion.json"))) expectedFail("Trainer supplied no completion receipt.", "process_receipt_required");
   const bytes = stagingBytes(directory);
   if (bytes > allowance.storage_bytes || lstatSync(statePath(directory, "completion.json")).size > 65_536) expectedFail("Trainer exceeded staging storage allowance.", "process_limit_exceeded");
   if (input.prefix !== undefined && lstatSync(statePath(directory, "completion.json")).size > 4096) expectedFail("Prefix staging receipt exceeds 4096 bytes.", "process_receipt_invalid");
-  const value = parseBoundedJson(readFileSync(statePath(directory, "completion.json"), "utf8")) as ProcessCompletion<P>;
+  const saved = parseBoundedJson(readFileSync(statePath(directory, "completion.json"), "utf8")) as ProcessCompletion<P>;
+  const value = { ...saved, job: canonicalIdentifier(saved.job) };
   if (value.format !== "pm-rl/process-completion/1" || value.job !== id || value.checkpoint !== "checkpoint.json"
     || processDigest(value.training_config) !== processDigest(input.training_config) || value.source_policy !== input.source.digest
     || processDigest(value.lineage) !== processDigest(input.lineage)) expectedFail("Completion lineage or configuration drifted.", "process_receipt_invalid");

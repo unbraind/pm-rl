@@ -7,7 +7,7 @@ import { Readable, Writable } from "node:stream";
 import { test } from "node:test";
 import extension, { hashJson, type JsonValue, type RlCommandResult } from "../index.ts";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
+import { isPmCliExpectedError, normalizeRawItemId } from "@unbrained/pm-cli/sdk/runtime";
 import { buildTrackerDataset, readTrackerDataset, readTrackerSplit, trackerHistoryExample, TRACKER_SPLITS } from "../dataset.ts";
 import { calibratePrefixTarget, prefixInnerExample, projectHistoryPrefix, validateHistoryPrefix, type HistoryPrefix, type PrefixProjection } from "../prefix-data.ts";
 import { binaryCalibration, fitPrefix, prefixCheckpoint, prefixFeatures, prefixPrediction, prefixProbability, validatePrefixCompletion, validatePrefixKnobs, type PrefixCheckpoint } from "../prefix.ts";
@@ -161,10 +161,14 @@ test("trainer IO publishes exact measured checkpoint evidence and validation ref
   let output = "";
   const sink = new Writable({ write(chunk: Buffer, _encoding, callback) { output += String(chunk); callback(); } });
   const artifactRoot = mkdtempSync(join(tmpdir(), "rl-prefix-artifacts-"));
-  await runPrefixTrainer(Readable.from([JSON.stringify({ job: "synthetic", input, artifactRoot })]), sink, root);
+  await runPrefixTrainer(Readable.from([JSON.stringify({ job: "#Synthetic", input, artifactRoot })]), sink, root);
   const completion = JSON.parse(readFileSync(join(root, "completion.json"), "utf8")) as ProcessCompletion;
   writeFileSync(join(root, "runner.json"), JSON.stringify({ started_at: Date.now() - 1000 }));
-  const verified = validateProcessCompletion(root, "synthetic", input, { training_steps: 1, wall_ms: 30000, storage_bytes: 4096, compute_units: 30000, tokens: 0 }, artifactRoot);
+  assert.equal(completion.job, normalizeRawItemId("#Synthetic"));
+  const verified = validateProcessCompletion(root, "#SYNTHETIC", input, { training_steps: 1, wall_ms: 30000, storage_bytes: 4096, compute_units: 30000, tokens: 0 }, artifactRoot);
+  writeFileSync(join(root, "completion.json"), JSON.stringify({ ...completion, job: "#SYNTHETIC" }));
+  assert.equal(validateProcessCompletion(root, "synthetic", input, { training_steps: 1, wall_ms: 30000, storage_bytes: 4096, compute_units: 30000, tokens: 0 }, artifactRoot).job, normalizeRawItemId("#SYNTHETIC"));
+  writeFileSync(join(root, "completion.json"), JSON.stringify(completion));
   assert.throws(() => validateProcessCompletion(root, "synthetic", input, { training_steps: 1, wall_ms: 30000, storage_bytes: stagingBytes(root) + completion.artifact!.bytes - 1, compute_units: 30000, tokens: 0 }, artifactRoot),
     (error: unknown) => isPmCliExpectedError(error) && error.context.code === "process_limit_exceeded" && error.message.includes("artifact exceeded"));
   const bytes = Buffer.from(JSON.stringify(verified.policy));
