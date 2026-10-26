@@ -54,6 +54,11 @@ test("identifier property: 500 seeded sequences preserve external tripwires acro
   await assert.rejects(async () => identifierClient(client).create(undefined as never));
   const valid = ["rl-a", "prefix-123", "a-b-c", "rl-0", "a".repeat(100), `rl-${"x".repeat(197)}`];
   const invalid = ["..", ".", "", " ", "\t", " padded", "trailing ", "../escape", "../../tripwire/expired", "/absolute", "a/b", "a\\b", "a\0b", "%2e%2e", "%2foutside", "C:\\outside", "C:outside", "x".repeat(256)];
+  for (const checkpoint of [...valid, "sha256:x", `sha256:${"a".repeat(64)}`, "日本語"]) {
+    assert.equal(identifier(checkpoint, "artifact"), checkpoint);
+    assert.equal(parseEvalResultSpec(JSON.stringify({ checkpoint, run_id: "rl-a", benchmark_id: "rl-benchmark", environment_id: "rl-env", environment_spec_hash: "hash", reward_spec_hash: "hash", score: 1, passed: true })).checkpoint, checkpoint);
+    assert.equal(parseTransferSpec(JSON.stringify({ source_environment_id: "rl-env", target_environment_id: "rl-target", checkpoint, run_id: "rl-a", gaps: [{ metric: "reward", gap: 0 }] })).checkpoint, checkpoint);
+  }
   for (const id of valid) {
     const created = await identifierClient(client).create({ id, type: "Task", title: "Boundary fixture" });
     assert.equal((await readCompleteLoopItem(client, id)).item.id, created.item.id);
@@ -88,12 +93,16 @@ test("identifier property: 500 seeded sequences preserve external tripwires acro
     seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
     const id = invalid[sequence < invalid.length ? sequence : seed % invalid.length];
     assert.throws(() => identifier(id), refusal);
+    assert.throws(() => identifier(id, "artifact"), refusal);
+    assert.throws(() => identifier(`sha256:${id}`, "artifact"), refusal);
     for (const field of ["id", "parent", "blockedBy", "environment"]) assert.throws(() => identifierClient(client).create({ id: "refused-sdk-reference", type: "Task", title: "Refused", [field]: id }), refusal);
     assert.throws(() => parseSweepSpec(JSON.stringify({ search_space: { x: [1] }, selection_rule: { kind: "none" }, algorithm: "a", environment_id: "rl-env", environment_spec_hash: "hash", arms: [{ id, config: {} }] })), isPmCliExpectedError);
     assert.throws(() => parseTransferSpec(JSON.stringify({ source_environment_id: "rl-env", target_environment_id: "rl-target", checkpoint: "checkpoint", run_id: id, gaps: [{ metric: "reward", gap: 0 }] })), isPmCliExpectedError);
     assert.throws(() => parseEvalResultSpec(JSON.stringify({ checkpoint: "checkpoint", run_id: id, benchmark_id: "rl-benchmark", environment_id: "rl-env", environment_spec_hash: "hash", reward_spec_hash: "hash", score: 1, passed: true })), isPmCliExpectedError);
+    assert.throws(() => parseEvalResultSpec(JSON.stringify({ checkpoint: id, run_id: "rl-a", benchmark_id: "rl-benchmark", environment_id: "rl-env", environment_spec_hash: "hash", reward_spec_hash: "hash", score: 1, passed: true })), isPmCliExpectedError);
+    assert.throws(() => parseTransferSpec(JSON.stringify({ source_environment_id: "rl-env", target_environment_id: "rl-target", checkpoint: id, run_id: "rl-a", gaps: [{ metric: "reward", gap: 0 }] })), isPmCliExpectedError);
     assert.throws(() => parseBenchmarkSpec(JSON.stringify({ name: "benchmark", version: "1", task_suite: {}, scoring_function: {}, pass_criteria: {}, direction: "maximize", contaminated_environments: [id] })), isPmCliExpectedError);
-    for (const field of ["parent", "approval", "environment_version", "collection_runs"] as const) {
+    for (const field of ["parent", "approval", "environment_version", "collection_runs", "base_checkpoint", "policy"] as const) {
       const record = { base_checkpoint: "checkpoint", policy: "policy", parent: "rl-a", approval: null, environment_version: "rl-environment", reward_spec_version: "v1", collection_runs: ["rl-a"], training_config: {}, seed: false, [field]: field === "collection_runs" ? [id] : id };
       assert.throws(() => parseGenerationSpec(JSON.stringify(record), "Untrusted record"), isPmCliExpectedError);
     }

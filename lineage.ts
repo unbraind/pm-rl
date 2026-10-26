@@ -204,6 +204,7 @@ function asString(record: Record<string, unknown>, key: string, source: string, 
     return "";
   }
   const normalized = value.trim();
+  if (value !== "" && (key === "base_checkpoint" || key === "policy")) identifier(value, "artifact");
   if (normalized.length > 0 && (key === "environment_version" || key === "evaluation_context")) identifier(value, key === "evaluation_context" ? "context" : "item");
   if (required && normalized.length === 0) expectedFail(`${source} requires a non-empty ${key}.`, `empty_${key}`);
   return normalized;

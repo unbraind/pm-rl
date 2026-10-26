@@ -811,7 +811,9 @@ paths refuse; identifiers are never trimmed, decoded or truncated. Human prose,
 explicit input/output directory roots retain their separate contracts. Score
 contexts also admit exact `sha256:` plus 64 lowercase hex digits (optionally
 SDK-prefixed); this schema variant never admits a digest as a path component or
-native item identifier. Checkpoint filenames require an exact unprefixed
+native item identifier. Legacy checkpoint/policy labels use the same single-token
+pattern and 200-byte bound, with an optional literal `sha256:` prefix; they refuse
+padding and traversal before storage. Checkpoint filenames require an exact unprefixed
 `sha256:` digest with 64 lowercase hex digits before extracting its filename.
 File components use the same schema with a 255-byte filename limit.
 Unicode package lease/component names work; native item creation remains subject

@@ -732,9 +732,14 @@ test("registering a candidate refuses an unpromoted parent, a policy-mismatched 
     harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-mismatch"], options: { baseCheckpoint: "ckpt-x", parent: seed, policy: "ckpt-x", collectionRuns: wrongRun.id, environment: env } }),
     /references policy other-policy, not the parent generation's policy ckpt-seed/,
   );
-  // An empty collection-runs list for a non-seed is refused.
+  // Empty/padded identifiers refuse before collection provenance is resolved.
   await assert.rejects(
     harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-noruns"], options: { baseCheckpoint: "ckpt-x", parent: seed, policy: "ckpt-x", collectionRuns: " , ", environment: env } }),
+    (error) => isPmCliExpectedError(error) && error.context.code === "rl_identifier_invalid",
+  );
+  // An omitted collection-runs list retains its actionable missing-option refusal.
+  await assert.rejects(
+    harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-noruns"], options: { baseCheckpoint: "ckpt-x", parent: seed, policy: "ckpt-x", environment: env } }),
     /requires --collection-runs/,
   );
   // A missing base checkpoint is refused.

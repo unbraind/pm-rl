@@ -579,6 +579,7 @@ function fail(message: string, code: string, exitCode: number = EXIT_CODE.USAGE)
 function stringOption(context: CommandHandlerContext, key: string, required = true): string | undefined {
   const camel = key.replaceAll(/_([a-z])/g, (_match, letter: string) => letter.toUpperCase());
   const value = context.options[key] ?? context.options[camel];
+  if (typeof value === "string" && ["checkpoint", "base_checkpoint", "policy"].includes(key)) return identifier(value, "artifact");
   if (typeof value === "string" && ["environment", "parent", "approval", "run", "benchmark", "candidate", "incumbent", "evaluation_context", "source", "target"].includes(key)) return identifier(value);
   if (typeof value === "string" && ["collection_runs", "contaminated_by"].includes(key)) { value.split(",").forEach((id) => identifier(id)); return value; }
   if (typeof value === "string" && value.trim().length > 0) return value.trim();
@@ -667,6 +668,7 @@ function requireJsonStrings(record: Readonly<Record<string, JsonValue>>, keys: r
       fail(`${source} requires a non-empty string ${key}.`, `${codePrefix}_${key}`, exitCode);
     }
     if (key.endsWith("_id")) identifier(value);
+    if (key === "checkpoint") identifier(value, "artifact");
   }
 }
 
@@ -2201,9 +2203,10 @@ interface GenerationRegistrationRequest {
  * @returns The command result naming the created generation and its identities.
  */
 async function registerGenerationCore(client: PmClient, request: GenerationRegistrationRequest): Promise<RlCommandResult> {
+  const baseCheckpoint = identifier(request.baseCheckpoint, "artifact");
+  if (request.policy !== "") identifier(request.policy, "artifact");
   const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
   const requestedId = canonicalizeIdentifier(request.id, prefix);
-  const baseCheckpoint = request.baseCheckpoint;
   const parentInput = request.parent === null ? null : canonicalizeIdentifier(request.parent, prefix);
   const config = request.config;
   const isSeed = parentInput === null;

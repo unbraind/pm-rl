@@ -111,7 +111,7 @@ export function requiredTrimmedString(record: Readonly<Record<string, unknown>>,
     expectedFail(`${source} requires a non-empty string ${key}.`, `${codePrefix}${key}`, exitCode);
   }
   // Preserve raw identifiers; label fields retain their separate whitespace contract.
-  return key === "id" || key.endsWith("_id") ? identifier(value) : value.trim();
+  return key === "id" || key.endsWith("_id") ? identifier(value) : key === "checkpoint" ? identifier(value, "artifact") : value.trim();
 }
 
 /** Read a finite scalar from persisted checkpoint evidence. */
