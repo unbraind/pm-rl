@@ -79,7 +79,9 @@
     "dist/tracker-record.*",
     "docs/policy-cards.md",
     "docs/policy-card-write-audit.md",
-    "docs/policy-card-evidence.json"
+    "docs/policy-card-evidence.json",
+    "dist/sequential-evaluation.*",
+    "docs/sequential-evaluation-evidence.json"
   ],
   "engines": {
     "node": ">=22.18.0"
@@ -159,7 +161,8 @@
       "test/objective.test.ts",
       "test/evaluation-plan.test.ts",
       "test/shadow.test.ts",
-      "test/policy-card.test.ts"
+      "test/policy-card.test.ts",
+      "test/sequential-evaluation.test.ts"
     ],
     "thresholds": {
       "statements": 100,
@@ -278,7 +281,8 @@
       "examples/evaluation-plan.json",
       "examples/evaluation-observations.json",
       "examples/shadow-policy.json",
-      "examples/policy-card.json"
+      "examples/policy-card.json",
+      "examples/sequential-evaluation-plan.json"
     ]
   }
 }

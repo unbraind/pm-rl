@@ -594,6 +594,93 @@ job. Evaluation is an adaptive validation set; a separate final benchmark is
 needed after repeated selection. See [the execution contract](RECURSIVE_TRAINING.md)
 for the local process and Compose adapters; [the decision adapter](docs/durable-systemone-validation.md) documents the implemented frozen-model calibration trainer.
 
+## Reviewed sequential evaluation boundaries
+
+A reviewed sequential plan can stop collection early for sufficient benefit or
+futility. Start with [the sequential example](examples/sequential-evaluation-plan.json).
+Keep the existing plan format, population, objective, reward bounds and complete
+member-to-unit mapping. Replace `stopping` with:
+
+```json
+{
+  "kind": "sequential",
+  "method": "hoeffding-alpha-spending/1",
+  "observations": 100,
+  "independent_units": 100,
+  "unit_order": ["project-0", "project-1", "project-2"],
+  "looks": [10, 25, 50, 100],
+  "review": "rl-sequential-review"
+}
+```
+
+The abbreviated `unit_order` above must contain **all** units exactly once in a
+real plan. Looks are strictly increasing counts of complete independent units;
+the final look equals `independent_units`. Freeze their order before outcomes
+exist. At most 10,000 members and 64 looks are accepted. Arrays must be dense,
+keys exact, rewards finite and inside the declared bounds. Sequential plans
+are capped at 1 MiB; an additional worst-case checkpoint size check ensures
+all declared observations fit the bounded tracker-record decoder. Existing `fixed`
+plans and `evaluate` retain their single-look behavior. Online `shadow` plans
+continue to use their existing fixed protocol; combining `shadow` with sequential
+stopping is refused at the schema boundary.
+
+Review the complete design first: `evaluationComparison(plan)` computes its
+identity through the same strict SDK parser used by registration. Create a
+Decision whose JSON body encodes `JSON.stringify({format:
+"pm-rl/sequential-review/1", comparison: evaluationComparison(plan)})` and whose
+canonical ID is `stopping.review`. This attributable review receipt attests to
+the statistical design; it grants no policy promotion budget. Register the plan
+before creating the candidate or **any** collection run. Plan, review, candidate,
+incumbent and collection creation histories are checked through the SDK.
+
+```bash
+pm rl eval plan register --file examples/sequential-evaluation-plan.json --json
+# Create the collection run and candidate after the plan is sealed.
+# Each file includes every member in the first declared complete unit prefix.
+pm rl eval plan advance rl-sequential-candidate --file look-10.json --json
+pm rl eval plan resume rl-sequential-candidate --json
+pm rl eval plan advance rl-sequential-candidate --file look-25.json
+```
+
+`advance` takes cumulative paired observations, never caller-supplied counts.
+It seals exactly the next look. `resume` revalidates the saved chain without
+adding observations. Retrying an identical old look returns the **latest**
+checkpoint, preserving every accepted observation exactly once. Reordered rows,
+JSON whitespace and CRLF are harmless; changed old outcomes, gaps, edits,
+deletions and looks after a terminal stop refuse. Immutable checkpoint identities
+bind the comparison, slot and previous checkpoint revision. Every retry reads
+current target evidence; there is no replay of a frozen mutation journal.
+SDK token-owned leases serialize package writers; native item locks protect
+current provenance against ordinary SDK mutations. Foreign checkpoint records
+are skipped with a reason and left intact. No Git repository or executable is
+needed, and source trackers are never modified by evaluation.
+
+Both TOON and JSON reports stay independent of cohort size. `sequential` reports
+`state` (`continue`, `sufficient`, `futile`, `exhausted`), `look`, `error_bound`
+and normalized paired-improvement bounds `lower`/`upper` in `[-1, 1]`.
+`continue` means collect **only** the next declared look; other states end this
+plan. `sufficient` is the only state admissible to the existing promotion gate,
+which still checks score bindings, contamination and explicit promotion approval.
+Typed `eval_plan_invalid`, `eval_plan_evidence`, `eval_plan_stopping`,
+`eval_plan_drift`, `eval_plan_missing`, `eval_plan_late` and `eval_plan_refused`
+errors retain conflict exits and remedies. A foreign slot produces a typed
+`status: skipped` result with a fresh-candidate remedy.
+
+The statistical protocol uses [Hoeffding's bounded-variable inequality](https://doi.org/10.1080/01621459.1963.10500830).
+Within-unit means count once, with equal unit weights. Normalize paired rewards
+to `[0,1]`, so oriented unit differences lie in `[-1,1]`. With `K` frozen looks
+and `alpha = 1 - confidence`, the simultaneous half-width at `n` units is
+`sqrt(2 * log(2*K/alpha) / n)`: two-sided failure at one look is at most
+`alpha/K`; a union bound controls any incorrect sufficient/futile boundary by
+`alpha` across the entire plan. Compare the interval to the normalized
+`effectThreshold` only after `minSamples`. Crossing the lower bound stops for
+sufficiency, the upper bound for futility; otherwise the final look exhausts the
+plan. Units must be independent and representative of the same target effect;
+the receipt cannot establish those assumptions. A stopped empirical mean is
+descriptive and can be biased; the simultaneous test controls decision error,
+not an unbiased point estimate or error across multiple candidate plans.
+One public repository remains one correlation unit in the real-data validation.
+
 ## Predeclared causal evaluation plans
 
 Declare the target population, selection rule, member-to-correlation-unit mapping,
@@ -638,7 +725,7 @@ from erasing uncertainty. Ties never promote. Reported `candidate_mean` and
 `incumbent_mean` retain the declared reward units; the statistical `verdict`
 bounds, epsilons, margin and reason use the normalized units.
 Unknown members, duplicates, supplied aggregate counts, changed objective/scale,
-missing observations, extra observations and adaptive stopping are refused. Up to
+missing observations, extra observations and undeclared adaptive stopping are refused. Up to
 10,000 members are supported. This fixed-stop format allows one sealed paired
 look per plan, including a statistical refusal; retrying identical evidence is
 idempotent. Changing a population, grouping, stopping size, criterion or incumbent
