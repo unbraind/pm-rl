@@ -413,6 +413,7 @@ export async function launchTrainer(directory: string, id: string, input: Traine
   const started = performance.now();
   const child = spawn(argv[0], argv.slice(1), { cwd: directory, shell: false, stdio: ["pipe", "pipe", "pipe"] });
   let failure: unknown;
+  let failed = false;
   let complete = false;
   let pending = "";
   let reaped = false;
@@ -423,7 +424,7 @@ export async function launchTrainer(directory: string, id: string, input: Traine
   let measured = zeroResources();
   /** Preserve the first failure; the live ChildProcess handle owns stop authority before identity publication too. */
   const refuse = (error: unknown): void => {
-    failure ??= error;
+    if (!failed) { failure = error; failed = true; }
     if (stopping || reaped || child.pid === undefined || child.exitCode !== null || child.signalCode !== null) return;
     stopping = true;
     for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -484,7 +485,7 @@ export async function launchTrainer(directory: string, id: string, input: Traine
     child.stdin.end(JSON.stringify({ job: id, input, ...(input.prefix === undefined ? {} : { artifactRoot: statePath(artifactRoot) }) }));
     poll();
     await closed;
-    if (failure !== undefined) throw failure;
+    if (failed) throw failure;
     if (!complete || pending.length > 0) expectedFail("Trainer exited without a complete NDJSON receipt.", "process_receipt_required");
   } catch (error) {
     refuse(error);

@@ -243,3 +243,31 @@ test("a false native stop result and emitted error cannot recurse or bypass reap
     assert.throws(() => process.kill(runner.pid, 0), { code: "ESRCH" }); assert.deepEqual(readdirSync(join(pmRoot, "locks")), []);
   } finally { controllerCallbackIO.before = () => undefined; stop.mock.restore(); }
 });
+
+test("primitive callback faults remain failures after successful close and settle once", async (t) => {
+  const budget = { training_steps: 100, wall_ms: 1000000, storage_bytes: 10000000, compute_units: 100000, tokens: 0 };
+  let w = await processWorkspace(budget); let count = 0;
+  const values: unknown[] = [undefined, null, false, 0, NaN, Infinity, -Infinity, "bare failure", Symbol("opaque")];
+  const input = trainingInput(); const fixture = new URL("./fixtures/process-trainer.ts", import.meta.url).pathname;
+  const unhandled: unknown[] = []; const monitor = (error: unknown): void => { unhandled.push(error); };
+  process.on("uncaughtExceptionMonitor", monitor); process.on("unhandledRejection", monitor);
+  try {
+    for (const site of ["stderr.path", "callback.close"]) for (const [index, value] of values.entries()) {
+      await t.test(`${site}/${index}`, async () => {
+        if (++count % 4 === 0) w = await processWorkspace(budget);
+        let injected = false;
+        controllerCallbackIO.before = (current) => { if (current === site && !injected) { injected = true; throw value; } };
+        const command = [process.execPath, fixture, "callback-good", `primitive-${count}`]; const id = processJobId(input, command);
+        await assert.rejects(executeProcessTrainer(w.client, w.coordinates, input, w.approval, { kind: "process-bandit", allowance: { ...allowance, wall_ms: 60000 } }, undefined, command), (error) => isPmCliExpectedError(error) && error.context.code === "process_callback_failed" && typeof error.context.required === "string");
+        assert.ok(injected); controllerCallbackIO.before = () => undefined;
+        const job = (await readProcessJob(w.client, id))!; assert.equal(job.state, "failed"); assert.equal(job.settled, true);
+        const native = await w.client.get(id, { full: true });
+        const history = await readHistoryEntries(getHistoryPath(w.pmRoot, native.item.id), native.item.id);
+        assert.equal(history.filter((entry) => entry.patch.some((patch) => patch.path === "/body" && "value" in patch && typeof patch.value === "string" && patch.value.includes('"state":"failed"'))).length, 1);
+        const runner = JSON.parse(readFileSync(join(processStaging(w.pmRoot, id), "runner.json"), "utf8")) as { pid: number };
+        assert.throws(() => process.kill(runner.pid, 0), { code: "ESRCH" }); assert.deepEqual(readdirSync(join(w.pmRoot, "locks")), []);
+      });
+    }
+    assert.deepEqual(unhandled, []); console.log(JSON.stringify({ primitive_fault_cases: count, unhandled: unhandled.length }));
+  } finally { controllerCallbackIO.before = () => undefined; process.removeListener("uncaughtExceptionMonitor", monitor); process.removeListener("unhandledRejection", monitor); }
+});

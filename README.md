@@ -854,6 +854,8 @@ Every package event, stream, timer and signal handler uses `controllerCallback`.
 Its entire body, including path construction, is guarded; rejected promises are
 observed. Trainer failures stop the owned child, await its close, conservatively
 settle the reservation once and persist a terminal job before releasing its fence.
+Thrown values such as `null` and `undefined` remain failures even after a
+successful child close; they cannot materialize an eligible policy.
 Heartbeat failures retain a terminal audit and release owned claims; cleanup
 still revalidates ownership and waits for all pending heartbeats before releasing
 the lease. Typed `process_callback_failed` errors include a recovery remedy.
