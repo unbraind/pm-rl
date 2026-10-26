@@ -2,14 +2,19 @@ id: pm-rl-sdk-adoption-1025
 title: Adopt SDK native controller locks and transaction recovery
 description: "Resolve both native-lock findings from the 2026-10-25 SDK adoption audit, preserving controller fencing, crash recovery and integrity verification. Related SDK adoption/certification item: pm-rl-hncb."
 type: Task
-status: in_progress
+status: closed
 priority: 1
 tags[2]: audit,sdk-adoption
 created_at: "2026-10-25T16:54:39.212Z"
-updated_at: "2026-10-25T17:09:31.905Z"
+updated_at: "2026-10-26T08:25:13.105Z"
+closed_at: "2026-10-26T08:25:07.328Z"
+completed_at: "2026-10-25T18:01:10.000Z"
 author: codex-agent
 acceptance_criteria: Replace each overlapping implementation with the pinned public SDK or name the exact missing API and retained behavior; provide real non-git differential and regression evidence.
-comments[9]{created_at,author,text}:
+resolution: "PR #106 merged at 2026-10-25T18:01:10Z: All explicit audit acceptance criteria hold: both overlaps name the exact pinned-API prerequisites and retained recovery behavior, as allowed by the criterion. SDK 2026.10.20 lacks acquireLockLease/LockLease.fence and native early recovery. Three real non-git regressions cover dead-holder recovery, transaction transitions and primed-cache corruption; the committed differential compares 357 items on three public corpora. This closes the audit disposition, with zero production replacements; it does not claim newer lease adoption or completion of epic pm-rl-apvf."
+expected_result: "All acceptance criteria and the declared audit scope are proven on current main, with explicit SDK and broader-project boundaries."
+actual_result: "Verified current main contains merged PR #106 (https://github.com/unbraind/pm-rl/pull/106), merge commit 120e20e160897cabe47920713e1b87b6647b2e85, merged_at 2026-10-25T18:01:10Z. Inspected test/sdk-adoption.test.ts and docs/sdk-adoption-1025.md. All explicit audit acceptance criteria hold: both overlaps name the exact pinned-API prerequisites and retained recovery behavior, as allowed by the criterion. SDK 2026.10.20 lacks acquireLockLease/LockLease.fence and native early recovery. Three real non-git regressions cover dead-holder recovery, transaction transitions and primed-cache corruption; the committed differential compares 357 items on three public corpora. This closes the audit disposition, with zero production replacements; it does not claim newer lease adoption or completion of epic pm-rl-apvf. Linked focused verification passed: npm run build && node --test test/sdk-adoption.test.ts. No product source behavior changed in this closure branch. Full npm and Bun release gates are reserved for CI; no new behavioral revert applies to tracker-only changes."
+comments[11]{created_at,author,text}:
   "2026-10-25T16:54:43.394Z",codex-agent,"Searched context, open items, SDK adoption and adoption before creation; no matching active adoption item. Related historical SDK adoption: pm-rl-hncb. Audit findings: index.ts native phase/controller locks and commitProcessTransaction transaction-lock editing. Pinned SDK is 2026.10.20; dependency bumps are prohibited by queue rules. Namespace probe confirms acquireLockLease is absent from both public SDK entrypoints. Inspecting whether either replacement preserves required crash recovery before changing production behavior."
   "2026-10-25T16:57:50.639Z",codex-agent,"Finding 1 cannot be replaced on pinned SDK 2026.10.20: public acquireLockLease and LockLease.fence are missing; acquireLock returns only a token-owned release callback, and native acquisition does not recover a proven-dead main holder before TTL. Keeping controllerMutex, expireDeadControllerMutex, publishControllerIdentity and the main controller guard is required to retain crash recovery and successor fencing. Published SDK 2026.10.25 declarations provide the named lease/fence API and same-host early recovery, so this is a dependency prerequisite, not a missing upstream API in current SDK. Queue rules explicitly prohibit bumping pins. No upstream issue is appropriate for an already shipped API."
   "2026-10-25T16:57:51.724Z",codex-agent,"Finding 2 cannot be replaced on pinned SDK 2026.10.20: commitWorkspaceTransaction.onTransition already forwards every phase receipt, but cannot recover its internal sdk-workspace-transaction lock or publish native process identity before prepared. The regression first proves direct SDK coordination refuses a dead writer and emits no transitions, then proves commitProcessTransaction recovers it and forwards prepared/step_applied/step_recorded/committing/committed. Removing the lock enrichment without SDK native early recovery loses SIGKILL resume. Need the newer SDK lock implementation consumed by commitWorkspaceTransaction; no missing current observer API. Production behavior and dependencies remain unchanged; deleted production lines: zero."
@@ -19,13 +24,32 @@ comments[9]{created_at,author,text}:
   "2026-10-25T17:03:57.704Z",codex-agent,"Targeted prerequisites and public differential are green. Typecheck, test compilation, lint and changelog check pass. Full isolated-identity npm release gate is running; Bun and exact-head CI remain pending. Local strict health is separate: extension_host_pm_cli_version_skew for installed pm-github (pinned host 2026.10.20 versus extension build 2026.10.25) is gate-failing; historical provenance_value_domain_invalid is advisory. Neither finding was introduced by this candidate; no pins, existing history, extension configuration or merge machinery were changed."
   "2026-10-25T17:05:47.263Z",codex-agent,"Reviewable PR opened: https://github.com/unbraind/pm-rl/pull/106 at 1a1816b. It explicitly reports zero replacements and zero production deletions because the unchanged pin cannot preserve recovery under either native-only trial. CI workflow https://github.com/unbraind/pm-rl/actions/runs/40214700698 is queued for npm Node 22, npm Node 26, and Bun Node 26 full release gates; user-requested full npm/Bun evidence will come from CI. The direct local npm gate is additional evidence. Core strict health with --no-extensions passes with the existing advisory only; existing health follow-up pm-rl-9uz4 owns provenance advisories. No history repair was run."
   "2026-10-25T17:09:29.919Z",codex-agent,"Implementation and evidence artifacts are complete. Disposition: 0 findings replaced, 2 retained with exact pin prerequisites, 0 production lines deleted. Tests: 3/3 focused and linked prerequisites, two independent native-only trial failures 0/1 each, 3/3 public tracker differential covering 357 items, typecheck/test compilation/lint/changelog/privacy/history-prefix checks passed. All three initial CI jobs passed fresh tracker health and are running full release gates. Final CI counts and URLs will be maintained in linked PR 106 so recording the outcome does not perpetually change the tested commit. Releasing the implementation claim while full-gate verification continues; item remains in_progress for the orchestrator and review, never closed. No upstream SDK defect remains to file: the required APIs already ship in 2026.10.25."
+  "2026-10-26T08:21:55.765Z",codex-agent,"Verified current main contains merged PR #106 (https://github.com/unbraind/pm-rl/pull/106), merge commit 120e20e160897cabe47920713e1b87b6647b2e85, merged_at 2026-10-25T18:01:10Z. Inspected test/sdk-adoption.test.ts and docs/sdk-adoption-1025.md. All explicit audit acceptance criteria hold: both overlaps name the exact pinned-API prerequisites and retained recovery behavior, as allowed by the criterion. SDK 2026.10.20 lacks acquireLockLease/LockLease.fence and native early recovery. Three real non-git regressions cover dead-holder recovery, transaction transitions and primed-cache corruption; the committed differential compares 357 items on three public corpora. This closes the audit disposition, with zero production replacements; it does not claim newer lease adoption or completion of epic pm-rl-apvf. Plan: run the linked focused verification on unchanged main sources; append only tracker evidence, regenerate the repository changelog and submit a closure PR for full CI."
+  "2026-10-26T08:25:02.664Z",codex-agent,"Verified current main contains merged PR #106 (https://github.com/unbraind/pm-rl/pull/106), merge commit 120e20e160897cabe47920713e1b87b6647b2e85, merged_at 2026-10-25T18:01:10Z. Inspected test/sdk-adoption.test.ts and docs/sdk-adoption-1025.md. All explicit audit acceptance criteria hold: both overlaps name the exact pinned-API prerequisites and retained recovery behavior, as allowed by the criterion. SDK 2026.10.20 lacks acquireLockLease/LockLease.fence and native early recovery. Three real non-git regressions cover dead-holder recovery, transaction transitions and primed-cache corruption; the committed differential compares 357 items on three public corpora. This closes the audit disposition, with zero production replacements; it does not claim newer lease adoption or completion of epic pm-rl-apvf. Linked focused verification passed: npm run build && node --test test/sdk-adoption.test.ts. No product source behavior changed in this closure branch. Full npm and Bun release gates are reserved for CI; no new behavioral revert applies to tracker-only changes."
 files[3]{path,scope,note}:
   test/fixtures/sdk-adoption-read.ts,project,Built baseline and candidate read-only probe
   test/sdk-adoption-differential.ts,project,Baseline and candidate public tracker comparison
   test/sdk-adoption.test.ts,project,Real non-git native recovery and cache integrity prerequisites
-tests[1]{command,scope,timeout_seconds,pm_context_mode,workspace_context_mode,provenance{author,created_at,source_kind,source_ref}}:
-  node --test test/sdk-adoption.test.ts,project,180,none,snapshot,codex-agent,"2026-10-25T16:57:54.868Z",local_mutation,refactor/sdk-adoption-1025
+tests[2]:
+  - command: node --test test/sdk-adoption.test.ts
+    scope: project
+    timeout_seconds: 180
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-25T16:57:54.868Z"
+      source_kind: local_mutation
+      source_ref: refactor/sdk-adoption-1025
+  - command: npm run build && node --test test/sdk-adoption.test.ts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-26T08:23:08.487Z"
+      source_kind: local_mutation
+      source_ref: chore/close-delivered-1026
 docs[2]{path,scope,note}:
   "https://github.com/unbraind/pm-rl/pull/106",global,SDK adoption prerequisite review
   docs/sdk-adoption-1025.md,project,Both pin prerequisites and behavioral replacement refusal proofs
+close_reason: "Delivered by PR #106, merge 120e20e160897cabe47920713e1b87b6647b2e85; inspected test/sdk-adoption.test.ts and docs/sdk-adoption-1025.md."
 body: ""
