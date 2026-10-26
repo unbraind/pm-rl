@@ -61,6 +61,32 @@ CI uses real in-process HTTP servers and never calls Ollama.
 
 ---
 
+## Install and release approval
+
+The first npm release is pending the maintainer's interactive bootstrap. After
+that first publish, the maintainer configures npm trusted publishing for
+`release.yml` and sets the repository variable `PM_RELEASE_APPROVED` to `true`.
+The daily workflow and manual dispatch both require this variable and `main`.
+Publishing uses OIDC with provenance; no stored npm token is needed.
+
+Once published, install the package and compatible pm host, then activate the
+extension in an initialized pm project:
+
+```sh
+npm install pm-rl @unbrained/pm-cli
+npx --no-install pm package install ./node_modules/pm-rl
+
+bun add pm-rl @unbrained/pm-cli
+bunx --bun --no-install pm package install ./node_modules/pm-rl
+
+pm package install npm:pm-rl
+pm rl --help
+```
+
+The package exports its SDK through `main` and `types` and registers commands
+with pm. It has no standalone `bin`: use `npx pm` or `bunx --bun pm` through
+the installed host. npm/Bun dependency installation alone does not activate it.
+
 ## Why this exists
 
 `project management = context management`. An RL programme is one of the most context-heavy
