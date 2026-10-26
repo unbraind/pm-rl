@@ -15,6 +15,7 @@ import extension, {
   generationProvenance,
   extractGenerationSpec,
   hashJson,
+  registerGenerationCore,
   RL_ITEM_TYPES,
   type JsonValue,
   type RlCommandResult,
@@ -717,6 +718,10 @@ test("registering a candidate refuses an unpromoted parent, a policy-mismatched 
   const env = await registerEnv(harness, pmRoot, root, "Train");
   const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed", "ckpt-seed");
   const goodRun = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-good"], options: { environment: env, algorithm: "ckpt-seed" } }));
+  // Internal SDK callers also retain the empty-list guard after CLI intake refuses empty CSV members.
+  await assert.rejects(registerGenerationCore(client, { id: "gen-empty-native", baseCheckpoint: "ckpt-x", parent: seed, policy: "ckpt-x", collectionRuns: [], environment: env, config: {} }),
+    (error) => isPmCliExpectedError(error) && error.context.code === "missing_collection_runs" && error.message === "pm rl generation register requires --collection-runs for a non-seed generation.");
+  await assert.rejects(client.get("gen-empty-native"), /Item gen-empty-native not found/);
   // An unpromoted, non-seed candidate cannot parent another candidate.
   const unpromoted = resultOf(await harness.runCommand({
     command: "rl generation register", pmRoot, args: ["gen-unpromoted"],

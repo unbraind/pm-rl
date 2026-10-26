@@ -2201,8 +2201,9 @@ interface GenerationRegistrationRequest {
  * @param client - Client bound to the target workspace.
  * @param request - The resolved generation provenance.
  * @returns The command result naming the created generation and its identities.
+ * @internal
  */
-async function registerGenerationCore(client: PmClient, request: GenerationRegistrationRequest): Promise<RlCommandResult> {
+export async function registerGenerationCore(client: PmClient, request: GenerationRegistrationRequest): Promise<RlCommandResult> {
   const baseCheckpoint = identifier(request.baseCheckpoint, "artifact");
   if (request.policy !== "") identifier(request.policy, "artifact");
   const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
