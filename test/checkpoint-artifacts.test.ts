@@ -129,7 +129,7 @@ test("artifact addressing verifies bytes, schemas, ledger roots and conservative
   writeFileSync(join(dirname(file), ".pending-interrupted"), "incomplete write");
   assert.deepEqual(await collectCheckpointArtifacts(w.pmRoot), { retained: 2, removed: 1 });
   assert.ok(existsSync(file)); assert.ok(existsSync(join(dirname(file), ".pending-interrupted")));
-  assert.throws(() => checkpointArtifactPath(w.pmRoot, "../../escape"), refuses("checkpoint_artifact_invalid"));
+  assert.throws(() => checkpointArtifactPath(w.pmRoot, "../../escape"), refuses("rl_identifier_invalid"));
   for (const patch of [{ bytes: 0 }, { bytes: 1.5 }, { bytes: MAX_CHECKPOINT_BYTES + 1 }, { format: "old" }, { kind: "other" }, { policy: "bad" }]) assert.throws(() => readCheckpointArtifact(w.pmRoot, { ...ref, ...patch } as CheckpointArtifact), refuses("checkpoint_artifact_invalid"));
   assert.throws(() => inspectCheckpointArtifact(w.pmRoot, `sha256:${"c".repeat(64)}`), refuses("checkpoint_artifact_missing"));
   const original = readFileSync(file);
@@ -304,11 +304,11 @@ test("checkpoint inspection structurally validates every ledger reference withou
   const w = await checkpointWorkspace();
   const ref = await encodeCheckpointArtifacts(w.pmRoot, "healthy", initialImprover()) as CheckpointArtifact;
   const ledger = join(w.pmRoot, "artifacts/pm-rl/ledger");
-  for (const invalid of [null, 1, { ...ref, bytes: 0 }, { ...ref, digest: "../../escape" }]) {
+  for (const [invalid, code] of [[null, "checkpoint_artifact_invalid"], [1, "checkpoint_artifact_invalid"], [{ ...ref, bytes: 0 }, "checkpoint_artifact_invalid"], [{ ...ref, digest: "../../escape" }, "rl_identifier_invalid"]] as const) {
     const text = JSON.stringify({ format: "pm-rl/checkpoint-ledger/1", key: "invalid", artifacts: [invalid] });
     const file = join(ledger, `${createHash("sha256").update(text).digest("hex")}.json`);
     writeFileSync(file, text);
-    assert.throws(() => inspectCheckpointArtifact(w.pmRoot, ref.digest), refuses("checkpoint_artifact_invalid"));
+    assert.throws(() => inspectCheckpointArtifact(w.pmRoot, ref.digest), refuses(code));
     unlinkSync(file);
   }
 });

@@ -579,16 +579,18 @@ function fail(message: string, code: string, exitCode: number = EXIT_CODE.USAGE)
 function stringOption(context: CommandHandlerContext, key: string, required = true): string | undefined {
   const camel = key.replaceAll(/_([a-z])/g, (_match, letter: string) => letter.toUpperCase());
   const value = context.options[key] ?? context.options[camel];
-  if (typeof value === "string" && value.trim().length > 0) return ["environment", "parent", "approval", "run", "benchmark", "candidate", "incumbent", "evaluation_context"].includes(key) ? identifier(value) : value.trim();
+  if (typeof value === "string" && ["environment", "parent", "approval", "run", "benchmark", "candidate", "incumbent", "evaluation_context", "source", "target"].includes(key)) return identifier(value);
+  if (typeof value === "string" && ["collection_runs", "contaminated_by"].includes(key)) { value.split(",").forEach((id) => identifier(id)); return value; }
+  if (typeof value === "string" && value.trim().length > 0) return value.trim();
   if (required) fail(`pm rl requires --${key.replaceAll("_", "-")}.`, `missing_${key}`);
   return undefined;
 }
 
 /** Return the first positional argument or fail with actionable usage. */
-function requiredArgument(context: CommandHandlerContext, label: string): string {
+function requiredArgument(context: CommandHandlerContext, label: string, kind: "item" | "digest" = "item"): string {
   const value = context.args.find((argument) => !argument.startsWith("-"));
   if (value === undefined || value.trim().length === 0) fail(`pm rl requires ${label}.`, "missing_argument");
-  return identifier(value);
+  return identifier(value, kind);
 }
 
 /**
@@ -664,6 +666,7 @@ function requireJsonStrings(record: Readonly<Record<string, JsonValue>>, keys: r
     if (typeof value !== "string" || value.trim().length === 0) {
       fail(`${source} requires a non-empty string ${key}.`, `${codePrefix}_${key}`, exitCode);
     }
+    if (key.endsWith("_id")) identifier(value);
   }
 }
 
@@ -716,7 +719,7 @@ export function parseBenchmarkSpec(text: string, source = "Benchmark file"): Ben
     scoring_function: record.scoring_function!,
     pass_criteria: record.pass_criteria!,
     direction: record.direction,
-    contaminated_environments: [...new Set(contaminatedEnvironments.map((id) => id.trim()))].sort(),
+    contaminated_environments: [...new Set(contaminatedEnvironments.map((id) => identifier(id)))].sort(),
   };
 }
 
@@ -1910,21 +1913,9 @@ export async function environmentInvalidationReason(client: PmClient, envId: str
   }
 }
 
-/** Normalize a Run's environment identity for strict-equality comparison.
- *
- * The pm SDK already trims typed item fields, so padding is not reachable for
- * a metadata field — a Run whose `.toon` literally stores `environment: "  e  "`
- * reads back trimmed. The trim is purely defensive: it pins the security gate
- * (contamination compare) against a future SDK change, and the dependency is
- * asserted by a dedicated test. Both `buildAncestry` and the register command's
- * run-environment check compare this field, so they must normalise it the same
- * way.
- *
- * @param value - The raw `run.item.environment` value.
- * @returns The trimmed string, or the original non-string value unchanged.
- */
+/** Validate the SDK-read Environment reference without trimming an identifier in package code. */
 function normalizeRunEnvironment(value: string | undefined): string | undefined {
-  return typeof value === "string" ? value.trim() : value;
+  return typeof value === "string" ? identifier(value) : value;
 }
 
 /**
@@ -4622,8 +4613,8 @@ async function renderLineageCommand(context: CommandHandlerContext): Promise<RlC
   const client = clientFor(context);
   await ensurePersistentTypes(client);
   let heads: string[];
-  if (headInput !== undefined && headInput.trim().length > 0) {
-    const requestedHead = headInput.trim();
+  if (headInput !== undefined) {
+    const requestedHead = identifier(headInput);
     // Resolved before the tolerant walk. Tolerance exists for an unreadable
     // ANCESTOR; the head the caller named is the request itself, so a missing
     // or wrong-typed head must report that, not an empty ancestry.
@@ -5217,7 +5208,7 @@ export const RL_COMMANDS = [
     { long: "--file", value_name: "path", value_type: "string", required: true, description: "Bounded loop JSON without environment, training or evaluation fields." },
     { long: "--output", value_name: "path", value_type: "string", required: true, description: "New sealed programme JSON; existing files refuse overwrite." },
   ], run: buildCorpusCommand }),
-  defineCommand({ name: "rl checkpoint show", description: "Verify and load a checkpoint from its SHA-256 artifact digest and promotion ledger.", arguments: [{ name: "digest", required: true, description: "SHA-256 artifact digest." }], run: async (context) => ({ action: "rl-checkpoint-show", details: inspectCheckpointArtifact(context.pm_root, requiredArgument(context, "an artifact digest")) }) }),
+  defineCommand({ name: "rl checkpoint show", description: "Verify and load a checkpoint from its SHA-256 artifact digest and promotion ledger.", arguments: [{ name: "digest", required: true, description: "SHA-256 artifact digest." }], run: async (context) => ({ action: "rl-checkpoint-show", details: inspectCheckpointArtifact(context.pm_root, requiredArgument(context, "an artifact digest", "digest")) }) }),
   defineCommand({ name: "rl checkpoint gc", description: "Collect checkpoint blobs unreachable from the promotion/audit ledger.", run: async (context) => ({ action: "rl-checkpoint-gc", details: await collectCheckpointArtifacts(context.pm_root) }) }),
   defineCommand({ name: "rl improver build", description: "Freeze chronological balanced public tracker tasks for recursive proposal-policy evaluation.", arguments: [{ name: "directories", variadic: true, description: "Additional tracker directories." }], flags: [
     { long: "--from-trackers", value_name: "directory", value_type: "string", required: true, description: "First copied public tracker directory." },

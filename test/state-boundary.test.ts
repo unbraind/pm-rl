@@ -8,10 +8,13 @@ import { after, test } from "node:test";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { init, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { acquireStateLock, assertStatePathRoot, checkedStateFile, commitStateTransaction, identifier, identifierClient, statePath } from "../state-boundary.ts";
-import { withEvaluationLease } from "../sequential-evaluation.ts";
+import { recordSequentialEvaluation, withEvaluationLease } from "../sequential-evaluation.ts";
 import { parseEvaluationPlan, registerEvaluationPlan } from "../evaluation-plan.ts";
-import { commitProcessTransaction, withProcessJobFence, loopLeaseLockId, readCompleteLoopItem } from "../index.ts";
+import { parseBenchmarkSpec, parseEvalResultSpec, commitProcessTransaction, withProcessJobFence, loopLeaseLockId, readCompleteLoopItem } from "../index.ts";
 import { parseGenerationSpec } from "../lineage.ts";
+import { parseSweepSpec } from "../sweep.ts";
+import { parseTransferSpec } from "../transfer.ts";
+import { lmCheckpointPath } from "../lm.ts";
 import { processStaging } from "../process.ts";
 import { checkpointArtifactPath } from "../checkpoint-artifacts.ts";
 
@@ -54,6 +57,10 @@ test("identifier property: 500 seeded sequences preserve external tripwires acro
   for (const id of valid) {
     const created = await identifierClient(client).create({ id, type: "Task", title: "Boundary fixture" });
     assert.equal((await readCompleteLoopItem(client, id)).item.id, created.item.id);
+    const canonical = created.item.id;
+    assert.equal(parseSweepSpec(JSON.stringify({ search_space: { x: [1] }, selection_rule: { kind: "none" }, algorithm: "a", environment_id: "rl-env", environment_spec_hash: "hash", arms: [{ id: canonical, config: {} }] })).arms[0].id, canonical);
+    assert.equal(parseTransferSpec(JSON.stringify({ source_environment_id: "rl-env", target_environment_id: "rl-target", checkpoint: "checkpoint", run_id: canonical, gaps: [{ metric: "reward", gap: 0 }] })).run_id, canonical);
+    assert.equal(parseEvalResultSpec(JSON.stringify({ checkpoint: "checkpoint", run_id: canonical, benchmark_id: "rl-benchmark", environment_id: "rl-env", environment_spec_hash: "hash", reward_spec_hash: "hash", score: 1, passed: true })).run_id, canonical);
     await withEvaluationLease(client, id, [created.item.id], async () => {
       const file = statePath(processStaging(pmRoot, id), "checkpoint.json"); mkdirSync(processStaging(pmRoot, id), { recursive: true });
       writeFileSync(file, id); assert.equal(readFileSync(checkedStateFile(file), "utf8"), id);
@@ -81,6 +88,11 @@ test("identifier property: 500 seeded sequences preserve external tripwires acro
     seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
     const id = invalid[sequence < invalid.length ? sequence : seed % invalid.length];
     assert.throws(() => identifier(id), refusal);
+    for (const field of ["id", "parent", "blockedBy", "environment"]) assert.throws(() => identifierClient(client).create({ id: "refused-sdk-reference", type: "Task", title: "Refused", [field]: id }), refusal);
+    assert.throws(() => parseSweepSpec(JSON.stringify({ search_space: { x: [1] }, selection_rule: { kind: "none" }, algorithm: "a", environment_id: "rl-env", environment_spec_hash: "hash", arms: [{ id, config: {} }] })), isPmCliExpectedError);
+    assert.throws(() => parseTransferSpec(JSON.stringify({ source_environment_id: "rl-env", target_environment_id: "rl-target", checkpoint: "checkpoint", run_id: id, gaps: [{ metric: "reward", gap: 0 }] })), isPmCliExpectedError);
+    assert.throws(() => parseEvalResultSpec(JSON.stringify({ checkpoint: "checkpoint", run_id: id, benchmark_id: "rl-benchmark", environment_id: "rl-env", environment_spec_hash: "hash", reward_spec_hash: "hash", score: 1, passed: true })), isPmCliExpectedError);
+    assert.throws(() => parseBenchmarkSpec(JSON.stringify({ name: "benchmark", version: "1", task_suite: {}, scoring_function: {}, pass_criteria: {}, direction: "maximize", contaminated_environments: [id] })), isPmCliExpectedError);
     for (const field of ["parent", "approval", "environment_version", "collection_runs"] as const) {
       const record = { base_checkpoint: "checkpoint", policy: "policy", parent: "rl-a", approval: null, environment_version: "rl-environment", reward_spec_version: "v1", collection_runs: ["rl-a"], training_config: {}, seed: false, [field]: field === "collection_runs" ? [id] : id };
       assert.throws(() => parseGenerationSpec(JSON.stringify(record), "Untrusted record"), isPmCliExpectedError);
@@ -101,6 +113,8 @@ test("identifier property: 500 seeded sequences preserve external tripwires acro
   for (const dep of [null, new Array(1), [1], ["../escape"], ["id=../escape,kind=related"], Array(10001).fill("rl-a")]) assert.throws(() => identifierClient(client).create({ id: "invalid-relation", type: "Task", title: "Refused", dep } as never), refusal);
   // Fixed review case: even the SDK's expired-lock removal must never see this dependency.
   await assert.rejects(registerEvaluationPlan(client, plan("../../tripwire/expired")), refusal);
+  await identifierClient(client).create({ id: "rl-candidate-evaluation-plan", type: "Plan", title: "Untrusted registered plan", body: JSON.stringify({ plan: plan("../../tripwire/expired"), incumbent_version: "v1" }), affectedVersion: "untrusted" });
+  await assert.rejects(recordSequentialEvaluation(client, "rl-candidate", []), refusal);
   assert.equal(treeHash(tripwire), before); assert.ok(existsSync(join(tripwire, "expired.lock")));
   assert.throws(() => parseEvaluationPlan({ ...plan("rl-review") as object, candidate: "../escape" }), refusal);
 });
@@ -114,6 +128,8 @@ test("state paths refuse symlinked roots, intermediate directories, leaves and c
   assert.throws(() => statePath(join(state, "runtime"), "old.lock"), refusal);
   symlinkSync(join(outside, "old.lock"), join(state, "leaf"));
   assert.throws(() => checkedStateFile(join(state, "leaf")), refusal);
+  symlinkSync("cycle", join(state, "cycle"));
+  assert.throws(() => statePath(state, "cycle", "leaf"), refusal);
   symlinkSync(join(outside, "missing"), join(state, "dangling"));
   assert.throws(() => statePath(state, "dangling"), refusal);
   mkdirSync(join(state, "locks")); symlinkSync(outside, join(state, "locks", "valid.lock.stale-cleanup"), "dir");
@@ -123,11 +139,17 @@ test("state paths refuse symlinked roots, intermediate directories, leaves and c
   assert.throws(() => commitStateTransaction({ pmRoot: state, transactionId: "valid", author: "boundary-test", steps: [] }), refusal);
   assert.equal(treeHash(outside), before);
   assert.equal(statePath(state), state);
-  for (const invalidRoot of [undefined, null, "", "\0", "x".repeat(4097)]) assert.throws(() => statePath(invalidRoot as never, "file"), refusal);
+  for (const invalidRoot of [undefined, null, "", "\0", "x".repeat(256), "x".repeat(4097)]) assert.throws(() => statePath(invalidRoot as never, "file"), refusal);
   assert.throws(() => assertStatePathRoot(state, root), refusal);
   assert.throws(() => assertStatePathRoot(state, join(outside, "old.lock")), refusal);
   const context = `sha256:${"a".repeat(64)}`;
   assert.equal(identifier(context, "context"), context);
+  assert.equal(identifier(context, "digest"), context);
+  assert.equal(lmCheckpointPath({ digest: context } as never), `runtime/pm-rl/artifacts/${"a".repeat(64)}.json`);
+  for (const badDigest of [null, "bad", `prefix:${"a".repeat(64)}`, `rl-${context}`, `sha256:${"A".repeat(64)}`]) {
+    assert.throws(() => identifier(badDigest, "digest"), refusal);
+    assert.throws(() => lmCheckpointPath({ digest: badDigest } as never), refusal);
+  }
   assert.equal(identifier(`rl-${context}`, "context"), `rl-${context}`);
   assert.throws(() => identifier(context), refusal);
   assert.throws(() => identifier("sha256:../escape", "context"), refusal);

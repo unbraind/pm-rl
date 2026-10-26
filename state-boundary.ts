@@ -8,12 +8,16 @@ import { acquireLock as sdkAcquireLock, createPmCliExpectedError, EXIT_CODE, get
 /** Refuse unsafe state inputs without exposing their contents in diagnostics. */
 function refused(code: "rl_identifier_invalid" | "rl_state_path_invalid"): never {
   const required = code === "rl_identifier_invalid"
-    ? "Use a nonempty single identifier of at most 200 UTF-8 bytes, with letters, numbers, marks, dots, underscores or hyphens; no whitespace, encoding, separators or dot segments. Resolve pm item aliases through the SDK."
+    ? "Use a nonempty single identifier of at most 200 UTF-8 bytes, with letters, numbers, marks, dots, underscores or hyphens; no whitespace, encoding, separators or dot segments. Resolve pm item aliases through the SDK. Checkpoint digests require sha256: followed by 64 lowercase hex digits."
     : "Use a nonempty NUL-free state root of at most 4096 UTF-8 bytes and descendants with no symbolic links; restore ordinary directories before retrying.";
   throw createPmCliExpectedError(`State boundary refused. ${required}`, { exitCode: EXIT_CODE.USAGE, context: { code, required } });
 }
 /** Validate one identity without trimming, decoding, substituting or truncating it. Native pm references also obey the SDK history-id contract. */
-export function identifier(value: unknown, kind: "item" | "component" | "context" = "item"): string {
+export function identifier(value: unknown, kind: "item" | "component" | "context" | "digest" = "item"): string {
+  if (kind === "digest") {
+    if (typeof value !== "string" || !/^sha256:[a-f0-9]{64}$/.test(value)) refused("rl_identifier_invalid");
+    return value;
+  }
   const digestContext = kind === "context" && typeof value === "string" && /^(?:[a-z0-9]+(?:-[a-z0-9]+)*-)?sha256:[a-f0-9]{64}$/.test(value);
   if (typeof value !== "string" || Buffer.byteLength(value) > (kind === "component" ? 255 : 200) || (!digestContext && !/^(?:#?[\p{L}\p{N}_-]|\.(?=[\p{L}\p{N}_-]))[\p{L}\p{N}\p{M}_.-]*$/u.test(value))) refused("rl_identifier_invalid");
   if (kind === "item") getHistoryPath(".", value);
@@ -25,12 +29,14 @@ export function statePath(root: string, ...components: string[]): string {
   components.forEach((part) => identifier(part, "component"));
   const base = resolve(root); const target = resolve(base, ...components);
   assertStatePathRoot(base, target);
-  let cursor = target;
-  for (;;) {
-    const stat = lstatSync(cursor, { throwIfNoEntry: false });
-    if (stat?.isSymbolicLink()) refused("rl_state_path_invalid");
-    const parent = dirname(cursor); if (parent === cursor) break; cursor = parent;
-  }
+  try {
+    let cursor = target;
+    for (;;) {
+      const stat = lstatSync(cursor, { throwIfNoEntry: false });
+      if (stat?.isSymbolicLink()) refused("rl_state_path_invalid");
+      const parent = dirname(cursor); if (parent === cursor) break; cursor = parent;
+    }
+  } catch { refused("rl_state_path_invalid"); }
   return target;
 }
 /** Assert resolved lexical confinement independently of identifier shape. @internal */
@@ -46,7 +52,7 @@ const itemMethods = new Set(["get", "update", "claim", "release", "close", "reop
 /** Validate native SDK mutation/reference fields once on entry, leaving canonical resolution and semantics to the SDK. */
 function sdkReferences(value: unknown): void {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return;
-  for (const field of ["id", "parent", "blockedBy"]) {
+  for (const field of ["id", "parent", "blockedBy", "environment"]) {
     const reference = (value as Record<string, unknown>)[field];
     if (reference !== undefined && reference !== null) identifier(reference);
   }

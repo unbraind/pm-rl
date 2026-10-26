@@ -1,3 +1,4 @@
+import { identifier } from "./state-boundary.ts";
 import { parseBoundedJson } from "./tracker-record.ts";
 /**
  * @module pm-rl/refuse
@@ -109,7 +110,8 @@ export function requiredTrimmedString(record: Readonly<Record<string, unknown>>,
   if (typeof value !== "string" || value.trim().length === 0) {
     expectedFail(`${source} requires a non-empty string ${key}.`, `${codePrefix}${key}`, exitCode);
   }
-  return value.trim();
+  // Preserve raw identifiers; label fields retain their separate whitespace contract.
+  return key === "id" || key.endsWith("_id") ? identifier(value) : value.trim();
 }
 
 /** Read a finite scalar from persisted checkpoint evidence. */

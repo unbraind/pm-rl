@@ -1,3 +1,4 @@
+import { identifier } from "./state-boundary.ts";
 /**
  * @module pm-rl/sweep
  *
@@ -232,7 +233,7 @@ export function parseSweepSpec(text: string, source = "Sweep specification"): Sw
     if (typeof id !== "string" || id.trim().length === 0 || config === null || typeof config !== "object" || Array.isArray(config)) {
       expectedFail(`${source} requires each arm to carry a non-empty id and a configuration object.`, "invalid_sweep_arms", EXIT_CODE.CONFLICT);
     }
-    arms.push({ id: id.trim(), config: config as JsonValue });
+    arms.push({ id: identifier(id), config: config as JsonValue });
   }
   return {
     search_space: searchSpace,

@@ -6,11 +6,9 @@ status: in_progress
 priority: 2
 tags[1]: "gh:unbraind/pm-rl#107"
 created_at: "2026-10-25T23:52:20.254Z"
-updated_at: "2026-10-26T09:16:33.565Z"
-assignee: codex-agent
-claim_principal: codex-agent
+updated_at: "2026-10-26T10:26:21.104Z"
 author: codex-agent
-comments[14]{created_at,author,text}:
+comments[15]{created_at,author,text}:
   "2026-10-25T23:52:27.192Z",codex-agent,"Overlap check on current CLI 2026.10.25 and sibling package source/docs: pm-rl-evalplans explicitly seals fixed stopping; core SDK exposes tracker transactions and locks, not sequential statistics; pm-jev owns inference receipts, pm-context context selection, pm-rlm inference recursion. No existing alpha-spending evaluation protocol found. This extends pm-rl evaluation plans, retaining promotion approval and contamination gates. Design: predeclared finite looks over frozen complete correlation units, two-sided Hoeffding alpha spending, reviewed rule identity, immutable append-only checkpoint chain with SDK writer serialization and current provenance checks on every retry. No import/export/sync subsystem or status-name classification is introduced."
   "2026-10-26T00:01:50.075Z",codex-agent,"Implemented reviewed finite-look plans, cumulative immutable checkpoint chaining, advance/resume CLI and promotion bindings. Seeded 10,000-trial null/benefit simulations measured zero false efficacy and zero false futility decisions at the declared 0.05 bound; all 10,000 benefit trials stopped early. Targeted real SDK tests pass for restart, old snapshot retries, changed candidate provenance, futility and exhaustion. A 500-sequence SDK model test is running. Production typecheck, lint, duplication and docstrings pass so far; full npm/Bun release evidence will use CI as instructed."
   "2026-10-26T00:13:48.212Z",codex-agent,"Read-only public tracker validation passed using the installed packed CLI with Git absent from PATH. Public source commit 120e20e160897cabe47920713e1b87b6647b2e85: 107 items, 87 done-role items using the SDK status registry, candidate mean 0.8130841121495327 vs incumbent 0.1869158878504673. One repository remains one unit; exhausted/refuse, no promotion. JSON 853 bytes; TOON 730 bytes; one checkpoint, exact restart, source digest unchanged. Linked pm tests pass 3/3 (five focused regressions, typecheck, lint); configured tracking is disabled, so the receipt is recorded here. Behavioral revert controls: removing uncertainty fails null simulation; returning the requested old checkpoint fails restart/old-input regression; restored implementation passes 2/2. All 29 existing fixed-plan tests pass. No core dependency pins, thresholds or history records changed."
@@ -25,7 +23,8 @@ comments[14]{created_at,author,text}:
   "2026-10-26T09:01:06.676Z",codex-agent,"Security validation complete locally: 50/50 focused evaluation and security tests, 9/9 checkpoint/staging checks, 5/5 raw-reference regressions, and the controller recovery scenarios including process takeover, worktree authority and malformed locks pass after the fixes. The 500-sequence security property additionally checks raw stored parent/approval/environment/run references and SDK relationship identifiers. Validation-only revert fails cleanly with Missing expected exception; restored security suite passes 3/3 with 100% targeted boundary-module line/branch/function coverage. Typecheck, test typecheck, lint, documented declarations and zero duplication pass. Full npm/Bun release evidence will come from the PR CI checks; existing public-data evidence is retained unchanged."
   "2026-10-26T09:12:36.622Z",codex-agent,"Final path review adds typed refusal for malformed state roots (empty, non-string, NUL or more than 4096 UTF-8 bytes). Ancestor lstat checks reject links without relying on platform-specific physical-path spelling. Tripwire hashes now include directory/file modes, inodes, sizes and modification/change timestamps plus link targets; the release tripwire is a sibling of the state root. All 3 security tests still pass with 100% targeted boundary coverage. Initial CI run 40296685065 is queued; it will be superseded by the final hardening head."
   "2026-10-26T09:16:33.564Z",codex-agent,"The final transaction entry point validates transaction and step identifiers before recovery touches the workspace lock, and standalone fences validate their state root before process probing. The restored security suite passes 3/3, including 500 invalid transaction retries, with boundary-module 100% line/branch/function coverage; typecheck, test typecheck, lint and 426 documented declarations pass. Awaiting the final-head CI release matrix."
-files[19]{path,scope}:
+  "2026-10-26T10:26:17.970Z",codex-agent,"Completed the package-wide native-reference audit: CSV flags, stored sweep arms, transfer/evaluation references, benchmark contamination IDs and native SDK environment references validate raw identifiers. Checkpoint filenames use the shared exact SHA-256 schema, and valid digest CLI arguments retain their distinct role. The security property now includes a malformed already-registered Plan with the reported review path, positive native-ID parser round trips and cyclic-link/path-error refusals. Identifier-only and path-helper-only revert controls fail; restored security tests pass 3/3 at 100% boundary-module coverage. Sweep/transfer/security checks pass 26/26, raw-reference/CLI checks 4/4, and checkpoint compatibility checks pass after the stricter digest refusals. Full gate receipts are tracked at https://github.com/unbraind/pm-rl/pull/107/checks; the final PR body will record the exact head, run URL and npm/Bun counts. Implementation is complete; releasing the claim for orchestrator verification while CI runs. The item remains in progress."
+files[21]{path,scope}:
   checkpoint-artifacts.ts,project
   compose.ts,project
   dataset.ts,project
@@ -40,8 +39,10 @@ files[19]{path,scope}:
   process-bandit.ts,project
   process-lm-trainer.ts,project
   process.ts,project
+  refuse.ts,project
   sequential-evaluation.ts,project
   state-boundary.ts,project
+  sweep.ts,project
   test/sequential-evaluation.acceptance.ts,project
   test/sequential-evaluation.test.ts,project
   test/state-boundary.test.ts,project

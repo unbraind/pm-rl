@@ -1,4 +1,4 @@
-import { acquireStateLock, statePath, checkedStateFile } from "./state-boundary.ts";
+import { acquireStateLock, statePath, checkedStateFile, identifier } from "./state-boundary.ts";
 import { parseBoundedJson } from "./tracker-record.ts";
 /** Immutable checkpoint blobs and an append-only promotion/audit ledger, independent of Git. */
 import { createHash, randomUUID } from "node:crypto";
@@ -30,7 +30,7 @@ export interface CheckpointLedgerEntry {
 function digestBytes(bytes: Buffer): string { return `sha256:${createHash("sha256").update(bytes).digest("hex")}`; }
 /** Resolve only validated digest names within this tracker's durable artifact store. */
 export function checkpointArtifactPath(root: string, digest: string): string {
-  if (!/^sha256:[a-f0-9]{64}$/.test(digest)) expectedFail("Invalid checkpoint artifact digest.", "checkpoint_artifact_invalid");
+  identifier(digest, "digest");
   return statePath(root, "artifacts", "pm-rl", "sha256", `${digest.slice(7)}.json`);
 }
 /** Reject malformed references before using sizes or names from persisted metadata. */

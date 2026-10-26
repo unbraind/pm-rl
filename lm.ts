@@ -1,4 +1,4 @@
-import { statePath, checkedStateFile } from "./state-boundary.ts";
+import { statePath, checkedStateFile, identifier } from "./state-boundary.ts";
 import { parseBoundedJson } from "./tracker-record.ts";
 /**
  * @module pm-rl/lm
@@ -670,7 +670,7 @@ export function serializeLmCheckpoint(checkpoint: LmCheckpoint, config: Pick<LmL
 
 /** Tracker-relative location of immutable, content-addressed adapter artifacts. */
 export function lmCheckpointPath(checkpoint: LmCheckpoint): string {
-  return `runtime/pm-rl/artifacts/${checkpoint.digest.slice(7)}.json`;
+  return `runtime/pm-rl/artifacts/${identifier(checkpoint.digest, "digest").slice(7)}.json`;
 }
 
 /** Verify the bytes on disk against the canonical checkpoint and its identity. */

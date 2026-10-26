@@ -963,6 +963,7 @@ test("a padded --parent refuses before storing any generation", async () => {
   const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed", "ckpt-seed");
   const run = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-1"], options: { environment: env, algorithm: "ckpt-seed" } }));
   await assert.rejects(harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-padded-parent"], options: { baseCheckpoint: "ckpt-c1", parent: `  ${seed}  `, policy: "ckpt-c1", collectionRuns: run.id, environment: env } }), (error) => isPmCliExpectedError(error) && error.context.code === "rl_identifier_invalid");
+  await assert.rejects(harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-padded-parent"], options: { baseCheckpoint: "ckpt-c1", parent: seed, policy: "ckpt-c1", collectionRuns: ` ${run.id} `, environment: env } }), (error) => isPmCliExpectedError(error) && error.context.code === "rl_identifier_invalid");
   await assert.rejects(client.get("gen-padded-parent"), (error) => isPmCliExpectedError(error) && error.exitCode === 3);
 });
 
