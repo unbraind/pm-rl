@@ -90,8 +90,7 @@ export async function withEvaluationLease<T>(client: PmClient, candidate: string
   return locked(0);
 }
 /** Read all checkpoint slots, rejecting gaps, edits, changed prefixes and evidence after a terminal stop. */
-async function checkpointChain(client: PmClient, registered: RegisteredEvaluationPlan): Promise<{ reports: EvaluationPlanReport[]; rows: readonly unknown[][]; hashes: string[]; skipped: readonly SkippedTrackerRecord[] }> {
-  const rule = registered.plan.stopping as SequentialStopping;
+async function checkpointChain(client: PmClient, registered: RegisteredEvaluationPlan, rule: SequentialStopping): Promise<{ reports: EvaluationPlanReport[]; rows: readonly unknown[][]; hashes: string[]; skipped: readonly SkippedTrackerRecord[] }> {
   const reports: EvaluationPlanReport[] = []; const rows: unknown[][] = []; const hashes: string[] = [];
   for (let index = 0; index < rule.looks.length; index += 1) {
     const id = `${registered.id}-look-${index + 1}`; const item = await optionalItem(client, id);
@@ -118,21 +117,21 @@ export async function readSequentialEvaluation(client: PmClient, candidate: stri
   if (registered.plan.stopping.kind !== "sequential") refuse("eval_plan_stopping");
   await verifiedCandidate(client, candidate, registered);
   await reviewSequentialPlan(client, registered.plan);
-  const chain = await checkpointChain(client, registered);
+  const chain = await checkpointChain(client, registered, registered.plan.stopping);
   return chain.skipped.length > 0 ? { status: "skipped", plan: registered.id, skipped: chain.skipped, remedy: "Leave foreign evidence intact and register a fresh candidate." } : chain.reports.at(-1) ?? null;
 }
 /** Append exactly the next frozen look; retry old cumulative snapshots without recounting or rolling state back. */
 export async function recordSequentialEvaluation(client: PmClient, candidate: string, input: unknown): Promise<SequentialEvaluationResult> {
   return withEvaluationLease(client, candidate, [], async () => {
     const registered = await readEvaluationPlan(client, candidate); if (registered === null) refuse("eval_plan_missing");
-    const rule = registered.plan.stopping as SequentialStopping;
+    const rule = registered.plan.stopping; if (rule.kind !== "sequential") refuse("eval_plan_stopping");
     const source = await readCompleteLoopItem(client, candidate);
     const spec = extractGenerationSpec(String(source.item.body), "Sequential candidate");
     return withEvaluationLease(client, `${candidate}-sources`, [registered.id, candidate, rule.review, registered.plan.incumbent, ...spec.collection_runs], async () => {
       // Sealed reads either return the original reservation or refuse missing/edited history.
       const current = (await readEvaluationPlan(client, candidate))!;
       await verifiedCandidate(client, candidate, current); await reviewSequentialPlan(client, current.plan);
-      const chain = await checkpointChain(client, current);
+      const chain = await checkpointChain(client, current, rule);
       if (chain.skipped.length > 0) return { status: "skipped", plan: current.id, skipped: chain.skipped, remedy: "A foreign record occupies a reserved checkpoint. Leave it intact and register a new plan with a fresh candidate." };
       const report = evaluatePlan(current.plan, input); const rows = normalizedObservations(input as unknown[]);
       const index = report.sequential!.look - 1;
@@ -143,7 +142,7 @@ export async function recordSequentialEvaluation(client: PmClient, candidate: st
       const id = `${current.id}-look-${index + 1}`; const body = JSON.stringify(raw); const version = hashJson(raw as unknown as JsonValue);
       try { await client.create({ id, type: "Decision", title: "Sealed sequential evaluation checkpoint", body, affectedVersion: version, tags: TAG, message: "Seal the next predeclared sequential look" }); }
       catch (error) { if (await optionalItem(client, id) === null) throw error; }
-      const saved = await checkpointChain(client, current);
+      const saved = await checkpointChain(client, current, rule);
       if (saved.skipped.length > 0) return { status: "skipped", plan: current.id, skipped: saved.skipped, remedy: "Leave foreign evidence intact and register a fresh candidate." };
       verifyPrefix(rows, saved.rows[index]);
       return saved.reports.at(-1)!;

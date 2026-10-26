@@ -139,6 +139,8 @@ test("review, sealing, restart, old snapshot replay and promotion gate use live 
   await prepared(w.client, p);
   assert.equal((await registerEvaluationPlan(w.client, p)).comparison, evaluationComparison(p));
   assert.equal(await readSequentialEvaluation(w.client, p.candidate), null);
+  const missingScore: ScoreRecord = { objective: p.objective, objective_version: p.objective_version, evaluation_context: p.evaluation_context, direction: p.direction, seed_set: evaluationComparison(p), scale: 1, value: 0 };
+  await assert.rejects(enforceEvaluationPlan(w.client, p.candidate, missingScore), refusal("eval_plan_missing"));
   const first = report(await recordSequentialEvaluation(w.client, p.candidate, observations(p)));
   assert.equal(first.observations, 16); assert.equal(first.sequential?.state, "continue");
   const restarted = new PmClient({ pmRoot: w.pmRoot, cwd: w.root, author: "restarted-agent", noExtensions: true });
@@ -229,6 +231,8 @@ test("foreign reserved records are skipped with a reason and retained intact", a
   assert.ok("status" in result); assert.equal(result.status, "skipped"); assert.equal(result.skipped[0].reason, "foreign_type");
   assert.deepEqual(await readCompleteLoopItem(w.client, id), before);
   assert.equal((await readSequentialEvaluation(w.client, p.candidate) as { status: string }).status, "skipped");
+  const score: ScoreRecord = { objective: p.objective, objective_version: p.objective_version, evaluation_context: p.evaluation_context, direction: p.direction, seed_set: evaluationComparison(p), scale: 1, value: 0 };
+  await assert.rejects(enforceEvaluationPlan(w.client, p.candidate, score), refusal("eval_plan_missing"));
 });
 
 test("CLI advance and resume use the SDK protocol in a tracker with git absent from PATH", async () => {
@@ -382,4 +386,39 @@ test("create failures re-read current ownership and preserve foreign winners", a
       const result = await recordSequentialEvaluation(w.client, p.candidate, observations(p)); assert.ok("status" in result); assert.equal(result.status, "skipped");
     }
   }
+});
+
+test("registration interleavings and both publication boundaries preserve one reviewed winner", async () => {
+  const previousWait = process.env.PM_LOCK_WAIT_MS; process.env.PM_LOCK_WAIT_MS = "0";
+  const w = await workspace(); const peer = new PmClient({ pmRoot: w.pmRoot, cwd: w.root, author: "peer-agent", noExtensions: true });
+  const state = { current: plan("rl-registration-baseline"), boundary: 0, injectAt: -1, injected: false };
+  /** Create each exact review before the registration under test. */
+  async function review(p: EvaluationPlan): Promise<void> { if (p.stopping.kind !== "sequential") throw new Error("fixture"); await peer.create({ id: p.stopping.review, type: "Decision", title: "Reviewed protocol", body: JSON.stringify({ format: "pm-rl/sequential-review/1", comparison: evaluationComparison(p) }) }); }
+  /** Let a real SDK peer attempt the same reviewed reservation at every observed boundary. */
+  async function step(): Promise<void> {
+    if (state.boundary++ !== state.injectAt) return;
+    state.injected = true;
+    try { assert.equal((await registerEvaluationPlan(peer, state.current)).comparison, evaluationComparison(state.current)); }
+    catch (error) { assert.ok(isPmCliExpectedError(error)); assert.equal(error.context.code, "lock_conflict"); }
+  }
+  const get = w.client.get.bind(w.client); const config = w.client.config.bind(w.client); const create = w.client.create.bind(w.client);
+  w.client.get = (async (...args) => { await step(); try { return await get(...args); } finally { await step(); } }) as PmClient["get"];
+  w.client.config = (async (...args) => { await step(); try { return await config(...args); } finally { await step(); } }) as PmClient["config"];
+  w.client.create = (async (...args) => { await step(); try { return await create(...args); } finally { await step(); } }) as PmClient["create"];
+  try {
+    await review(state.current); await registerEvaluationPlan(w.client, state.current); const boundaries = state.boundary;
+    for (let index = 0; index < boundaries; index += 1) {
+      state.current = plan(`rl-registration-${index}`); state.boundary = 0; state.injectAt = index; state.injected = false;
+      await review(state.current);
+      assert.equal((await registerEvaluationPlan(w.client, state.current)).comparison, evaluationComparison(state.current)); assert.ok(state.injected);
+      assert.equal((await readEvaluationPlan(peer, state.current.candidate))?.comparison, evaluationComparison(state.current));
+    }
+    state.injectAt = -1;
+    const p = await prepared(peer, plan("rl-publication")); const peerCreate = peer.create.bind(peer); let attempts = 0;
+    /** Compete immediately before and after the only durable checkpoint write. */
+    async function compete(): Promise<void> { attempts += 1; await assert.rejects(recordSequentialEvaluation(w.client, p.candidate, observations(p)), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "lock_conflict"); }
+    peer.create = (async (...args) => { await compete(); const result = await peerCreate(...args); await compete(); return result; }) as PmClient["create"];
+    assert.equal(report(await recordSequentialEvaluation(peer, p.candidate, observations(p))).observations, 16); assert.equal(attempts, 2);
+    console.log(JSON.stringify({ registrationBoundaries: boundaries, publicationBoundaries: attempts }));
+  } finally { if (previousWait === undefined) delete process.env.PM_LOCK_WAIT_MS; else process.env.PM_LOCK_WAIT_MS = previousWait; }
 });
