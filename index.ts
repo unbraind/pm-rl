@@ -2750,12 +2750,12 @@ export function loopLeaseLockId(id: string): string {
 
 /** Read a lease; missing is null, while unreadable or malformed records remain ambiguous. */
 async function readLeaseRecord(pmRoot: string, lockId: string): Promise<Record<string, unknown> | null> {
+  const file = statePath(pmRoot, "locks", `${identifier(lockId)}.lock`);
   try {
-    const parsed: unknown = parseBoundedJson(await readFile(statePath(pmRoot, "locks", `${identifier(lockId)}.lock`), "utf8"));
+    const parsed: unknown = parseBoundedJson(await readFile(file, "utf8"));
     if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return {};
     return parsed as Record<string, unknown>;
   } catch (error) {
-    if (isPmCliExpectedError(error)) throw error;
     return (error as NodeJS.ErrnoException).code === "ENOENT" ? null : {};
   }
 }

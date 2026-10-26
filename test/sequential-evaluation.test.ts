@@ -76,6 +76,11 @@ test("strict sequential schemas reject sparse arrays, unknown choices, nonfinite
     const members = large.members.map((member, index) => ({ ...member, [field]: `${index}`.padStart(1024, "x") }));
     assert.throws(() => parseEvaluationPlan({ ...large, members, stopping: { ...large.stopping, kind: "sequential", unit_order: members.map((member) => member.unit) } }), (error) => isPmCliExpectedError(error) && error.context.code === "rl_identifier_invalid");
   }
+  for (const field of ["id", "unit"] as const) {
+    const large = plan("rl-byte-bound", 5000);
+    const members = large.members.map((member, index) => ({ ...member, [field]: `${index}`.padStart(200, "x") }));
+    assert.throws(() => parseEvaluationPlan({ ...large, members, stopping: { ...large.stopping, unit_order: members.map((member) => member.unit) } }), refusal("eval_plan_invalid"));
+  }
   assert.throws(() => evaluateSequentialBoundary({ ...p, stopping: { kind: "fixed", observations: 64, independent_units: 64 } }, 16, 1, 0), refusal("eval_plan_stopping"));
 });
 
@@ -188,8 +193,9 @@ test("500 seeded model-based operation sequences read canonical state through th
     if (sequence % 100 === 0) await w.client.update(p.candidate, { status: statuses[Math.floor(next() * statuses.length)] });
     const count = sequence === 1 || (sequence > 1 && next() < 0.55) ? 64 : 16;
     const input = observations(p, count, true);
-    const transported = input.map((row) => ({ ...row, id: next() < 0.5 ? ` \r\n${row.id} ` : row.id }));
+    const transported = input.map((row) => ({ ...row }));
     const serialized = JSON.stringify(next() < 0.5 ? [...transported].reverse() : transported, null, next() < 0.5 ? 2 : 0).replaceAll("\n", "\r\n");
+    if (next() < 0.5) await assert.rejects(recordSequentialEvaluation(w.client, p.candidate, transported.map((row) => ({ ...row, id: ` \r\n${row.id} ` }))), (error) => isPmCliExpectedError(error) && error.context.code === "rl_identifier_invalid");
     const rewrite = sequence > 1 && next() < 0.35;
     const payload = parseBoundedJson(` \r\n${serialized}\r\n `) as EvaluationObservation[];
     if (rewrite) {
@@ -221,7 +227,7 @@ test("500 seeded model-based operation sequences read canonical state through th
     }
   }
   assert.equal((await w.client.listAllComplete({ includeBody: false })).items.filter((item) => item.type === "Decision").length, 3);
-  console.log(JSON.stringify({ modelSequences: 500, seed: "5eed1025", operationKinds: ["transport", "advance", "old-snapshot-replay", "refused-rewrite", "SDK-export", "custom-status", "relationships"], checkpointRecords: 2 }));
+  console.log(JSON.stringify({ modelSequences: 500, seed: "5eed1025", operationKinds: ["transport", "advance", "old-snapshot-replay", "refused-rewrite", "SDK-export", "custom-status", "relationships", "refused-id-padding"], checkpointRecords: 2 }));
 });
 
 test("foreign reserved records are skipped with a reason and retained intact", async () => {

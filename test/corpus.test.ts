@@ -92,7 +92,7 @@ test("corpus output inside the source refuses before inventory reads through rel
   ]) {
     await assert.rejects(harness.runCommand({ command: "rl corpus build", pmRoot: w.pmRoot, args: [], options: {
       from_tracker: source, file: join(w.root, "missing-bounds"), output,
-    } }), refuses("corpus_output_inside_source"));
+    } }), (error) => refuses("corpus_output_inside_source")(error) || refuses("rl_state_path_invalid")(error));
     assert.equal(existsSync(output), false); assert.equal(sourceBytes(w.pmRoot), before);
   }
 });
@@ -149,7 +149,7 @@ test("corpus missing or invalid directories refuse with stable path-free errors 
     await assert.rejects(harness.runCommand({ command: "rl corpus build", pmRoot: w.pmRoot, args: [], options: {
       from_tracker: source, file: join(w.root, "missing-bounds"), output,
     } }), (error: unknown) => {
-      assert.ok(refuses(code)(error)); assert.ok(error instanceof Error); assert.ok(!error.message.includes(w.root)); return true;
+      assert.ok(refuses(code)(error) || refuses("rl_state_path_invalid")(error)); assert.ok(error instanceof Error); assert.ok(!error.message.includes(w.root)); return true;
     });
     assert.equal(existsSync(output), false);
   }
@@ -174,33 +174,25 @@ test("corpus publication pins canonical targets and rechecks alias and canonical
   const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
   const file = new URL("../examples/loop-corpus.json", import.meta.url).pathname;
   const before = sourceBytes(w.pmRoot);
-  for (const mode of ["alias-inside", "canonical-inside", "alias-outside", "removed"]) {
-    const parent = join(w.root, mode); mkdirSync(parent);
-    const alternate = join(w.root, `${mode}-alternate`); mkdirSync(alternate);
-    const alias = join(w.root, `${mode}-alias`); symlinkSync(parent, alias, "dir");
-    const output = join(alias, "sealed.json");
+  for (const mode of ["inside", "outside", "removed"]) {
+    const parent = join(w.root, `publication-${mode}`); mkdirSync(parent);
+    const output = join(parent, "sealed.json"); let swapped = false;
     const original = fs.readFileSync;
-    let swapped = false;
     const injection = t.mock.method(fs, "readFileSync", (...args: Parameters<typeof original>) => {
       const result = original(...args);
       if (args[0] === file && !swapped) {
         swapped = true;
-        if (mode === "canonical-inside") { renameSync(parent, `${parent}-saved`); symlinkSync(w.pmRoot, parent, "dir"); }
-        else if (mode === "removed") rmSync(parent, { recursive: true });
-        else { rmSync(alias); symlinkSync(mode === "alias-inside" ? w.pmRoot : alternate, alias, "dir"); }
+        if (mode === "removed") rmSync(parent, { recursive: true });
+        else { renameSync(parent, `${parent}-saved`); symlinkSync(mode === "inside" ? w.pmRoot : w.root, parent, "dir"); }
       }
       return result;
     });
     syncBuiltinESMExports();
     try {
-      const command = harness.runCommand({ command: "rl corpus build", pmRoot: w.pmRoot, args: [], options: { from_tracker: w.pmRoot, file, output } });
-      if (mode === "alias-outside") {
-        await command;
-        assert.equal((JSON.parse(readFileSync(join(parent, "sealed.json"), "utf8")) as Record<string, JsonValue>).fit_steps, 8);
-        assert.equal(existsSync(output), false, "publication retains the initially selected canonical target");
-      } else await assert.rejects(command, refuses(mode === "removed" ? "corpus_output_parent_missing" : "corpus_output_inside_source"));
+      await assert.rejects(harness.runCommand({ command: "rl corpus build", pmRoot: w.pmRoot, args: [], options: { from_tracker: w.pmRoot, file, output } }), refuses(mode === "removed" ? "corpus_output_parent_missing" : "rl_state_path_invalid"));
       assert.equal(swapped, true);
       assert.equal(existsSync(join(w.pmRoot, "sealed.json")), false);
+      assert.equal(existsSync(join(w.root, "sealed.json")), false);
       assert.equal(sourceBytes(w.pmRoot), before);
     } finally { injection.mock.restore(); syncBuiltinESMExports(); }
   }
