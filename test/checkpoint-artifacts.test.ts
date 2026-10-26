@@ -146,7 +146,7 @@ test("artifact addressing verifies bytes, schemas, ledger roots and conservative
   writeFileSync(file, original); unlinkSync(file);
   assert.throws(() => readCheckpointArtifact(w.pmRoot, ref), refuses("checkpoint_artifact_missing"));
   symlinkSync(secondOrphan, file);
-  assert.throws(() => readCheckpointArtifact(w.pmRoot, ref), refuses("checkpoint_artifact_corrupt"));
+  assert.throws(() => readCheckpointArtifact(w.pmRoot, ref), refuses("rl_state_path_invalid"));
   unlinkSync(file); writeFileSync(file, original);
   /** A self-consistent byte digest still needs a valid semantic checkpoint identity. */
   const install = (text: string): CheckpointArtifact => {
@@ -221,10 +221,7 @@ test("checkpoint descriptor keeps the validated inode when its path is replaced"
       else if (replacement === "directory") mkdirSync(file);
       else { writeFileSync(file, original); fs.truncateSync(file, MAX_CHECKPOINT_BYTES + 1); }
     };
-    const originalLstat = fs.lstatSync; const originalFstat = fs.fstatSync;
-    const pathStat = mock.method(fs, "lstatSync", (path: fs.PathLike) => {
-      const stat = originalLstat(path); if (path === file) swap(); return stat;
-    });
+    const originalFstat = fs.fstatSync;
     const descriptorStat = mock.method(fs, "fstatSync", (handle: number) => {
       const stat = originalFstat(handle); swap(); return stat;
     });
@@ -234,7 +231,7 @@ test("checkpoint descriptor keeps the validated inode when its path is replaced"
       assert.equal(swapped, true);
       assert.equal(closes.mock.calls.filter((call) => call.arguments[0] === descriptorStat.mock.calls[0].arguments[0]).length, 1, "validated descriptor must close on success");
     } finally {
-      pathStat.mock.restore(); descriptorStat.mock.restore(); closes.mock.restore(); syncBuiltinESMExports();
+      descriptorStat.mock.restore(); closes.mock.restore(); syncBuiltinESMExports();
       fs.rmSync(file, { recursive: true }); fs.renameSync(saved, file);
     }
   }
@@ -245,10 +242,7 @@ test("checkpoint descriptor bounds reads when the validated inode grows or shrin
   const ref = await encodeCheckpointArtifacts(w.pmRoot, "bounded", initialImprover()) as CheckpointArtifact;
   const file = checkpointArtifactPath(w.pmRoot, ref.digest); const original = readFileSync(file);
   for (const size of [0, MAX_CHECKPOINT_BYTES + 100]) {
-    const originalLstat = fs.lstatSync; const originalFstat = fs.fstatSync;
-    const pathStat = mock.method(fs, "lstatSync", (path: fs.PathLike) => {
-      const stat = originalLstat(path); if (path === file) fs.truncateSync(file, size); return stat;
-    });
+    const originalFstat = fs.fstatSync;
     const descriptorStat = mock.method(fs, "fstatSync", (handle: number) => {
       const stat = originalFstat(handle); fs.truncateSync(file, size); return stat;
     });
@@ -261,7 +255,7 @@ test("checkpoint descriptor bounds reads when the validated inode grows or shrin
       assert.ok(total <= original.length + 1, "growth must not cause an unbounded read");
       assert.equal(closes.mock.calls.filter((call) => call.arguments[0] === descriptorStat.mock.calls[0].arguments[0]).length, 1, "validated descriptor must close on size drift");
     } finally {
-      for (const spy of [pathStat, descriptorStat, reads, pathReads, closes]) spy.mock.restore();
+      for (const spy of [descriptorStat, reads, pathReads, closes]) spy.mock.restore();
       syncBuiltinESMExports(); writeFileSync(file, original);
     }
   }

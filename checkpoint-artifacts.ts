@@ -1,9 +1,10 @@
+import { acquireStateLock, statePath, checkedStateFile } from "./state-boundary.ts";
 import { parseBoundedJson } from "./tracker-record.ts";
 /** Immutable checkpoint blobs and an append-only promotion/audit ledger, independent of Git. */
 import { createHash, randomUUID } from "node:crypto";
 import { closeSync, constants, fstatSync, fsyncSync, linkSync, mkdirSync, openSync, readSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { acquireLock } from "@unbrained/pm-cli/sdk/runtime";
+import { dirname } from "node:path";
+
 import { expectedFail } from "./refuse.ts";
 import { prefixCheckpoint, type PrefixCheckpoint } from "./prefix.ts";
 import { parseImprover, type ImproverPolicy } from "./improver.ts";
@@ -30,7 +31,7 @@ function digestBytes(bytes: Buffer): string { return `sha256:${createHash("sha25
 /** Resolve only validated digest names within this tracker's durable artifact store. */
 export function checkpointArtifactPath(root: string, digest: string): string {
   if (!/^sha256:[a-f0-9]{64}$/.test(digest)) expectedFail("Invalid checkpoint artifact digest.", "checkpoint_artifact_invalid");
-  return join(root, "artifacts", "pm-rl", "sha256", `${digest.slice(7)}.json`);
+  return statePath(root, "artifacts", "pm-rl", "sha256", `${digest.slice(7)}.json`);
 }
 /** Reject malformed references before using sizes or names from persisted metadata. */
 function validateReference(ref: CheckpointArtifact): void {
@@ -43,7 +44,7 @@ function validateReference(ref: CheckpointArtifact): void {
 export function readVerifiedFile(file: string, digest: string, bytes?: number): Buffer {
   let content: Buffer;
   try {
-    const handle = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    const handle = openSync(checkedStateFile(file), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     try {
       const stat = fstatSync(handle);
       if (!stat.isFile() || stat.size > MAX_CHECKPOINT_BYTES || (bytes !== undefined && stat.size !== bytes)) throw new Error("invalid file");
@@ -93,23 +94,23 @@ export function inspectCheckpointArtifact(root: string, digest: string): { artif
 }
 /** Fsync a private temporary inode, link it exclusively into its digest name, then fsync the directory. */
 function publishFile(directory: string, digest: string, content: Buffer): void {
-  mkdirSync(directory, { recursive: true });
-  const target = join(directory, `${digest.slice(7)}.json`);
-  const temporary = join(directory, `.pending-${randomUUID()}`);
+  mkdirSync(statePath(directory), { recursive: true });
+  const target = statePath(directory, `${digest.slice(7)}.json`);
+  const temporary = statePath(directory, `.pending-${randomUUID()}`);
   const handle = openSync(temporary, "wx", 0o600);
   try { writeFileSync(handle, content); fsyncSync(handle); } finally { closeSync(handle); }
   try {
-    try { linkSync(temporary, target); }
+    try { linkSync(checkedStateFile(temporary), checkedStateFile(target)); }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; readVerifiedFile(target, digest, content.length); }
     for (const path of [directory, dirname(directory), dirname(dirname(directory)), dirname(dirname(dirname(directory)))]) {
       const directoryHandle = openSync(path, "r");
       try { fsyncSync(directoryHandle); } finally { closeSync(directoryHandle); }
     }
-  } finally { unlinkSync(temporary); }
+  } finally { unlinkSync(checkedStateFile(temporary)); }
 }
 /** Serialize short publication/GC critical sections using the SDK's token-owned tracker lock. */
 async function withArtifactLock<T>(root: string, operation: () => T): Promise<T> {
-  const release = await acquireLock(root, "rl-checkpoint-artifacts", 3600, "pm-rl", false, true, 30_000);
+  const release = await acquireStateLock(root, "rl-checkpoint-artifacts", 3600, "pm-rl", false, true, 30_000);
   try { return operation(); } finally { await release(); }
 }
 /** Replace checkpoint objects with portable references and publish their audit roots before exposing any reference. */
@@ -142,8 +143,8 @@ export async function encodeCheckpointArtifacts(root: string, key: string, value
   const content = Buffer.from(JSON.stringify(entry));
   if (content.length > MAX_CHECKPOINT_BYTES) expectedFail("Checkpoint ledger batch exceeds its storage bound.", "checkpoint_artifact_invalid");
   await withArtifactLock(root, () => {
-    for (const { ref, content } of blobs.values()) publishFile(join(root, "artifacts", "pm-rl", "sha256"), ref.digest, content);
-    publishFile(join(root, "artifacts", "pm-rl", "ledger"), digestBytes(content), content);
+    for (const { ref, content } of blobs.values()) publishFile(statePath(root, "artifacts", "pm-rl", "sha256"), ref.digest, content);
+    publishFile(statePath(root, "artifacts", "pm-rl", "ledger"), digestBytes(content), content);
   });
   return encoded;
 }
@@ -157,10 +158,10 @@ export function decodeCheckpointArtifacts(root: string, value: unknown): unknown
 }
 /** Verify ledger structure and references; certify blob contents only for a full integrity read. */
 function ledgerEntries(root: string, certify: boolean): CheckpointLedgerEntry[] {
-  const directory = join(root, "artifacts", "pm-rl", "ledger");
-  mkdirSync(directory, { recursive: true });
+  const directory = statePath(root, "artifacts", "pm-rl", "ledger");
+  mkdirSync(statePath(directory), { recursive: true });
   return readdirSync(directory).filter((name) => name.endsWith(".json")).sort().map((name) => {
-    const content = readVerifiedFile(join(directory, name), `sha256:${name.slice(0, -5)}`);
+    const content = readVerifiedFile(statePath(directory, name), `sha256:${name.slice(0, -5)}`);
     const entry = parseArtifactJson(content) as CheckpointLedgerEntry;
     if (entry === null || entry.format !== "pm-rl/checkpoint-ledger/1" || typeof entry.key !== "string" || !Array.isArray(entry.artifacts)) expectedFail("Checkpoint promotion ledger is corrupt.", "checkpoint_artifact_corrupt");
     for (const ref of entry.artifacts) {
@@ -177,11 +178,11 @@ export function readCheckpointLedger(root: string): CheckpointLedgerEntry[] { re
 export async function collectCheckpointArtifacts(root: string): Promise<{ retained: number; removed: number }> {
   return withArtifactLock(root, () => {
     const reachable = new Set(readCheckpointLedger(root).flatMap((entry) => entry.artifacts.map((ref) => ref.digest)));
-    const directory = join(root, "artifacts", "pm-rl", "sha256"); mkdirSync(directory, { recursive: true });
+    const directory = statePath(root, "artifacts", "pm-rl", "sha256"); mkdirSync(statePath(directory), { recursive: true });
     let removed = 0;
     for (const name of readdirSync(directory)) {
       if (!/^[a-f0-9]{64}\.json$/.test(name) || reachable.has(`sha256:${name.slice(0, -5)}`)) continue;
-      unlinkSync(join(directory, name)); removed += 1;
+      unlinkSync(statePath(directory, name)); removed += 1;
     }
     return { retained: reachable.size, removed };
   });

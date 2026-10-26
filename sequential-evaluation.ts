@@ -1,3 +1,5 @@
+import { canonicalizeIdentifier } from "./lineage.ts";
+import { identifier, identifierClient } from "./state-boundary.ts";
 /** Reviewed finite-look sequential tests and immutable, resumable evidence checkpoints. */
 import { dirname } from "node:path";
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
@@ -49,7 +51,7 @@ export function parseSequentialStopping(value: unknown, members: readonly Evalua
   const looks = Array.from(p.looks);
   if (looks.some((n, index) => typeof n !== "number" || !Number.isSafeInteger(n) || n < 1 || n > units.size || (index > 0 && n <= looks[index - 1])) || looks[looks.length - 1] !== units.size) refuse("eval_plan_invalid");
   if (typeof p.review !== "string" || p.review.length > 1024 || p.review.trim().length === 0 || p.review !== p.review.trim()) refuse("eval_plan_invalid");
-  return { kind: "sequential", method: "hoeffding-alpha-spending/1", observations: p.observations as number, independent_units: p.independent_units as number, unit_order: [...p.unit_order] as string[], looks: looks as number[], review: p.review };
+  return { kind: "sequential", method: "hoeffding-alpha-spending/1", observations: p.observations as number, independent_units: p.independent_units as number, unit_order: [...p.unit_order] as string[], looks: looks as number[], review: identifier(p.review) };
 }
 /** Compute a simultaneous paired Hoeffding interval by spending alpha/K at each frozen look. */
 export function evaluateSequentialBoundary(plan: EvaluationPlan, n: number, candidate: number, incumbent: number): { sequential: SequentialBoundary; verdict: PromotionDecision } {
@@ -80,8 +82,11 @@ export async function reviewSequentialPlan(client: PmClient, plan: EvaluationPla
 }
 /** Serialize protocol writers with the SDK token-owned lease and lock ordinary SDK provenance writers too. */
 export async function withEvaluationLease<T>(client: PmClient, candidate: string, dependencies: readonly string[], execute: () => Promise<T>): Promise<T> {
-  const root = dirname((await client.config("project", "get", "id_prefix")).settings_path);
-  const ids = [`rl-eval-${hashJson(candidate).slice(0, 32)}`, ...[...new Set(dependencies)].sort()];
+  identifier(candidate); dependencies.forEach((id) => identifier(id));
+  const config = await identifierClient(client).config("project", "get", "id_prefix");
+  const root = dirname(config.settings_path);
+  const prefix = identifier(config.nested_setting!.value);
+  const ids = [`rl-eval-${hashJson(candidate).slice(0, 32)}`, ...[...new Set(dependencies.map((id) => canonicalizeIdentifier(id, prefix)))].sort()];
   /** Reuse the package's SDK fence so killed owners recover with verified process identity. */
   async function locked(index: number): Promise<T> {
     if (index === ids.length) return execute();
@@ -144,7 +149,7 @@ export async function recordSequentialEvaluation(client: PmClient, candidate: st
       if (index > 0) verifyPrefix(chain.rows[index - 1], rows);
       const raw = { format: FORMAT, comparison: current.comparison, previous: chain.hashes[index - 1] ?? null, observations: rows };
       const id = `${current.id}-look-${index + 1}`; const body = JSON.stringify(raw); const version = hashJson(raw as unknown as JsonValue);
-      try { await client.create({ id, type: "Decision", title: "Sealed sequential evaluation checkpoint", body, affectedVersion: version, tags: TAG, message: "Seal the next predeclared sequential look" }); }
+      try { await identifierClient(client).create({ id, type: "Decision", title: "Sealed sequential evaluation checkpoint", body, affectedVersion: version, tags: TAG, message: "Seal the next predeclared sequential look" }); }
       catch (error) { if (await optionalItem(client, id) === null) throw error; }
       const saved = await checkpointChain(client, current, rule);
       if (saved.skipped.length > 0) return { status: "skipped", plan: current.id, skipped: saved.skipped, remedy: "Leave foreign evidence intact and register a fresh candidate." };

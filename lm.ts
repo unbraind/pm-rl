@@ -1,3 +1,4 @@
+import { statePath, checkedStateFile } from "./state-boundary.ts";
 import { parseBoundedJson } from "./tracker-record.ts";
 /**
  * @module pm-rl/lm
@@ -30,7 +31,7 @@ import { parseBoundedJson } from "./tracker-record.ts";
 
 import { createHash, randomUUID } from "node:crypto";
 import { link, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+
 
 import { parseProcessAdapter, type ProcessAdapter } from "./process.ts";
 import { EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
@@ -676,7 +677,7 @@ export function lmCheckpointPath(checkpoint: LmCheckpoint): string {
 export async function verifyLmCheckpointArtifact(pmRoot: string, checkpoint: LmCheckpoint, config: LmLoopConfig): Promise<void> {
   let text: string;
   try {
-    text = await readFile(join(pmRoot, lmCheckpointPath(checkpoint)), "utf8");
+    text = await readFile(statePath(pmRoot, ...lmCheckpointPath(checkpoint).split("/")), "utf8");
   } catch {
     expectedFail("LM checkpoint artifact is missing or unreadable.", "lm_checkpoint_artifact_missing", EXIT_CODE.CONFLICT);
   }
@@ -692,16 +693,16 @@ export async function verifyLmCheckpointArtifact(pmRoot: string, checkpoint: LmC
  * artifact at the content-addressed path, so a resumed loop can still persist it.
  */
 export async function persistLmCheckpoint(pmRoot: string, checkpoint: LmCheckpoint, config: LmLoopConfig, write: typeof writeFile = writeFile): Promise<void> {
-  await mkdir(join(pmRoot, "runtime/pm-rl/artifacts"), { recursive: true });
-  const target = join(pmRoot, lmCheckpointPath(checkpoint));
-  const temporary = `${target}.${randomUUID()}.tmp`;
+  await mkdir(statePath(pmRoot, "runtime", "pm-rl", "artifacts"), { recursive: true });
+  const target = statePath(pmRoot, ...lmCheckpointPath(checkpoint).split("/"));
+  const temporary = statePath(pmRoot, "runtime", "pm-rl", "artifacts", `${checkpoint.digest.slice(7)}.${randomUUID()}.tmp`);
   try {
     await write(temporary, serializeLmCheckpoint(checkpoint, config).text, { flag: "wx" });
-    await link(temporary, target);
+    await link(checkedStateFile(temporary), checkedStateFile(target));
   } catch (error) {
     if (!(error instanceof Error) || !("code" in error) || error.code !== "EEXIST") throw error;
   } finally {
-    await rm(temporary, { force: true });
+    await rm(checkedStateFile(temporary), { force: true });
   }
   await verifyLmCheckpointArtifact(pmRoot, checkpoint, config);
 }

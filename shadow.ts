@@ -1,3 +1,4 @@
+import { identifierClient } from "./state-boundary.ts";
 import { parseBoundedJson } from "./tracker-record.ts";
 /** Bounded online observation of declarative policies, without candidate execution authority. */
 import type { GetResult, PmClient } from "@unbrained/pm-cli/sdk/core";
@@ -105,7 +106,7 @@ async function seal(client: PmClient, id: string, value: JsonValue): Promise<voi
   const body = canonicalJson(value); const digest = hashJson(value);
   const old = await sealed(client, id);
   if (old !== null) { if (old.body !== body || old.affected_version !== digest) refuse("shadow_drift", id, "body"); return; }
-  try { await client.create({ id, type: "Decision", title: "Bounded shadow observation receipt", body, affectedVersion: digest }); }
+  try { await identifierClient(client).create({ id, type: "Decision", title: "Bounded shadow observation receipt", body, affectedVersion: digest }); }
   catch (error) { const winner = await sealed(client, id); if (winner === null) throw error; if (winner.body !== body || winner.affected_version !== digest) refuse("shadow_drift", id, "body"); }
 }
 /** Consent is a pre-existing Decision whose entire immutable body approves one deployment digest. */
@@ -115,7 +116,7 @@ async function consent(client: PmClient, deployment: ShadowDeployment): Promise<
 }
 /** Enumerate all observation slots through the SDK's certified inventory, including unexpected extra charges. */
 async function observationIds(client: PmClient, id: string): Promise<string[]> {
-  return (await client.listAllComplete({ includeBody: false })).items.map((item) => String(item.id))
+  return (await identifierClient(client).listAllComplete({ includeBody: false })).items.map((item) => String(item.id))
     .filter((key) => key.startsWith(`${id}-`) && key !== `${id}-comparison`).sort();
 }
 /** One manifest contract governs registration, reload, resume and actual charged calls. */

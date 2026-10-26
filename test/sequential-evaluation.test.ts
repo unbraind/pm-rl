@@ -74,7 +74,7 @@ test("strict sequential schemas reject sparse arrays, unknown choices, nonfinite
   for (const field of ["id", "unit"] as const) {
     const large = plan("rl-large", 1000);
     const members = large.members.map((member, index) => ({ ...member, [field]: `${index}`.padStart(1024, "x") }));
-    assert.throws(() => parseEvaluationPlan({ ...large, members, stopping: { ...large.stopping, kind: "sequential", unit_order: members.map((member) => member.unit) } }), refusal("eval_plan_invalid"));
+    assert.throws(() => parseEvaluationPlan({ ...large, members, stopping: { ...large.stopping, kind: "sequential", unit_order: members.map((member) => member.unit) } }), (error) => isPmCliExpectedError(error) && error.context.code === "rl_identifier_invalid");
   }
   assert.throws(() => evaluateSequentialBoundary({ ...p, stopping: { kind: "fixed", observations: 64, independent_units: 64 } }, 16, 1, 0), refusal("eval_plan_stopping"));
 });

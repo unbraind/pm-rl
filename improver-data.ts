@@ -1,9 +1,10 @@
+import { statePath } from "./state-boundary.ts";
 import { parseBoundedJson } from "./tracker-record.ts";
 /** Frozen chronological tasks derived only from verified public committed tracker snapshots. */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { buildTrackerDataset, historyBlobs, type TrackerBuildOptions } from "./dataset.ts";
 import { hashJson, type JsonValue } from "./index.ts";
 import { validateHistoryPrefix, type HistoryPrefix } from "./prefix-data.ts";
@@ -104,7 +105,7 @@ export function chronologicalTask(projections: readonly ImproverProjection[], re
 
 /** Verify public visibility and commit reachability before projecting the copied tracker histories. */
 export function buildImproverDataset(directories: readonly string[], output: string, seed = 42, options: TrackerBuildOptions = {}): ImproverDataset {
-  const verification = buildTrackerDataset(directories, join(output, "verification"), seed, { pins: options.pins });
+  const verification = buildTrackerDataset(directories, statePath(output, "verification"), seed, { pins: options.pins });
   const sources = [...verification.sources].sort((a, b) => hashJson({ repo: a.repo, seed }).localeCompare(hashJson({ repo: b.repo, seed }))).map((source, index, all) => ({ repo: source.repo, commit: source.commit,
     role: IMPROVER_ROLES[index < Math.floor(all.length * 0.4) ? 0 : index < Math.floor(all.length * 0.8) ? 1 : 2] }));
   const splits: Record<typeof IMPROVER_ROLES[number], ImproverTask[]> = { development: [], meta: [], audit: [] };
@@ -130,18 +131,18 @@ export function buildImproverDataset(directories: readonly string[], output: str
     assert.ok(splits[role].length > 0, "improver_empty_role");
     splits[role].sort((a, b) => a.id.localeCompare(b.id));
     Object.assign(identities, { [role]: { digest: hashJson(splits[role] as unknown as JsonValue), tasks: splits[role].length } });
-    writeFileSync(join(output, `${role}.json`), JSON.stringify(splits[role]), { flag: "wx" });
+    writeFileSync(statePath(output, `${role}.json`), JSON.stringify(splits[role]), { flag: "wx" });
   }
   const record = { format: "pm-rl/improver-dataset/1" as const, seed, sources, splits: identities, omitted };
   const manifest = { ...record, digest: hashJson(record as unknown as JsonValue) };
-  mkdirSync(output, { recursive: true });
-  writeFileSync(join(output, "improver-dataset.json"), JSON.stringify(manifest, null, 2), { flag: "wx" });
+  mkdirSync(statePath(output), { recursive: true });
+  writeFileSync(statePath(output, "improver-dataset.json"), JSON.stringify(manifest, null, 2), { flag: "wx" });
   return manifest;
 }
 
 /** A manifest read does not open task examples from any role. */
 export function readImproverDataset(directory: string): ImproverDataset {
-  const { digest, ...record } = parseBoundedJson(readFileSync(join(directory, "improver-dataset.json"), "utf8")) as ImproverDataset;
+  const { digest, ...record } = parseBoundedJson(readFileSync(statePath(directory, "improver-dataset.json"), "utf8")) as ImproverDataset;
   assert.ok(record.format === "pm-rl/improver-dataset/1" && hashJson(record as unknown as JsonValue) === digest, "improver_dataset_identity");
   assert.equal(new Set(record.sources.map((source) => source.repo.toLowerCase())).size, record.sources.length, "improver_source_overlap");
   return { ...record, digest };
@@ -149,7 +150,7 @@ export function readImproverDataset(directory: string): ImproverDataset {
 
 /** Verify role, identity, chronology, label availability and item isolation before exposing rows to the evaluator. */
 export function readImproverTasks(directory: string, manifest: ImproverDataset, role: typeof IMPROVER_ROLES[number]): ImproverTask[] {
-  const tasks = parseBoundedJson(readFileSync(join(directory, `${role}.json`), "utf8")) as ImproverTask[];
+  const tasks = parseBoundedJson(readFileSync(statePath(directory, `${role}.json`), "utf8")) as ImproverTask[];
   assert.ok(tasks.length > 0 && tasks.length === manifest.splits[role].tasks && hashJson(tasks as unknown as JsonValue) === manifest.splits[role].digest, "improver_split_identity");
   assert.equal(new Set(tasks.map((task) => task.id)).size, tasks.length, "improver_task_duplicate");
   for (const task of tasks) {

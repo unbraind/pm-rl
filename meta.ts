@@ -1,3 +1,4 @@
+import { identifierClient } from "./state-boundary.ts";
 import { decodeTrackerRecord, hasTrackerIdentity } from "./tracker-record.ts";
 /** Durable recipe search over sealed tracker compartments, using the existing trainer and promotion gate. */
 import assert from "node:assert/strict";
@@ -127,9 +128,9 @@ async function knownMetaReservation(client: PmClient, id: string, prefix: string
 
 /** Read canonical reservation records for one approval, ignoring foreign copies and unrelated Decisions. */
 async function metaReservations(client: PmClient, approval: string): Promise<readonly { prefix: string; record: NonNullable<ReturnType<typeof metaReservation>> }[]> {
-  const items = certifyCompleteListResult(await client.listAllComplete({ includeBody: false }));
+  const items = certifyCompleteListResult(await identifierClient(client).listAllComplete({ includeBody: false }));
   const canonical = (await readApprovalSpec(client, approval)).id;
-  const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
+  const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
   const reservations: { prefix: string; record: NonNullable<ReturnType<typeof metaReservation>> }[] = [];
   for (const item of items.items.filter((entry) => entry.type === "Decision" && entry.id.endsWith("-reservation"))) {
     const current = (await readCompleteLoopItem(client, item.id)).item;
@@ -201,7 +202,7 @@ async function reserveMeta(client: PmClient, coordinates: ProcessCoordinates, re
   await commitProcessTransaction({ ...coordinates, transactionId: `${key}-reserve`, steps: [{ id: "reserve", inspect,
     async apply() {
       const approval = await metaApproval(client, request.approval);
-      const items = certifyCompleteListResult(await client.listAllComplete({ includeBody: false }));
+      const items = certifyCompleteListResult(await identifierClient(client).listAllComplete({ includeBody: false }));
       const charges: Record<string, number>[] = [];
       for (const { record } of await metaReservations(client, approval.id)) {
         for (const key of ["training_samples", "proposal_calls", "recipe_promotions"]) {
@@ -216,7 +217,7 @@ async function reserveMeta(client: PmClient, coordinates: ProcessCoordinates, re
       const consumed = items.items.some((item) => item.type === "Generation") ? await promotedGenerationIdsUnderApproval(client, approval.id) : [];
       const totalPromotions = consumed.length + await retainedMetaPromotionHeadroom(client, approval.id, consumed) + promotionHeadroom;
       assert.ok(Number.isSafeInteger(totalPromotions) && totalPromotions <= approval.promotions, "meta_promotion_budget_exhausted");
-      await client.create({ id: key, type: "Decision", tags: "rl-meta-reservation", title: "Reserved bounded recipe search", body: JSON.stringify({ format: "pm-rl/meta-reservation/1", id: key, binding, approval: approval.id, charge, promotion_headroom: promotionHeadroom }) });
+      await identifierClient(client).create({ id: key, type: "Decision", tags: "rl-meta-reservation", title: "Reserved bounded recipe search", body: JSON.stringify({ format: "pm-rl/meta-reservation/1", id: key, binding, approval: approval.id, charge, promotion_headroom: promotionHeadroom }) });
     },
     // Conservative reservations survive transaction recovery and are never refunded by search itself.
     async compensate() {},
@@ -292,9 +293,9 @@ export async function durableRecipeProposals(client: PmClient, id: string, reque
     assert.equal(record.state, "intent", "meta_proposal_state");
     return { recipes: seededRecipes(incumbent, request.config.seed, generation, request.config.candidates), proposer: "seeded:unresolved-model-attempt" };
   }
-  await client.create({ id: key, type: "Decision", title: "Bounded local recipe inference intent", body: JSON.stringify({ id: key, binding, state: "intent" }) });
+  await identifierClient(client).create({ id: key, type: "Decision", title: "Bounded local recipe inference intent", body: JSON.stringify({ id: key, binding, state: "intent" }) });
   const result = await proposeRecipes(request, incumbent, generation, signal);
-  await client.update(key, { body: JSON.stringify({ id: key, binding, state: "complete", result, digest: hashJson(result as unknown as JsonValue) }) });
+  await identifierClient(client).update(key, { body: JSON.stringify({ id: key, binding, state: "complete", result, digest: hashJson(result as unknown as JsonValue) }) });
   return result;
 }
 
@@ -358,7 +359,7 @@ export async function runRlMeta(client: PmClient, coordinates: ProcessCoordinate
     }) as unknown as MetaReport["final_test"];
     const report: MetaReport = { initial, incumbent, generations, final_test: final, dataset: environment.digest };
     await step("complete", { report: report as unknown as JsonValue }, async () => {
-      await client.update(`${request.id}-step-programme`, { comment: [`Loop ${request.id} terminal report: bounded recipe search complete.`] });
+      await identifierClient(client).update(`${request.id}-step-programme`, { comment: [`Loop ${request.id} terminal report: bounded recipe search complete.`] });
       return { report: report as unknown as JsonValue };
     });
     return report;

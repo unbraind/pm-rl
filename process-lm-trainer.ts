@@ -1,8 +1,9 @@
+import { statePath, identifier } from "./state-boundary.ts";
 import { parseBoundedJson } from "./tracker-record.ts";
 /** Packaged TypeScript LM entrypoint implementing the shared durable process protocol. */
 import { createHash } from "node:crypto";
 import { closeSync, fsyncSync, openSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+
 import type { Readable, Writable } from "node:stream";
 import { trainLmStep, lmTrainingJson, serializeLmCheckpoint } from "./lm.ts";
 import { restoreLmProcessInput, lmFitTokens } from "./process-lm.ts";
@@ -15,12 +16,13 @@ export async function runLmTrainer(stdin: Readable = process.stdin, stdout: Writ
   let text = "";
   for await (const chunk of stdin) text += String(chunk);
   const { job, input } = parseBoundedJson(text) as { job: string; input: ProcessInput<{ readonly digest: string }> };
+  identifier(job);
   const start = performance.now(); const cpu = process.cpuUsage();
   const { config, source, payload } = restoreLmProcessInput(input);
   stdout.write(`${JSON.stringify({ type: "progress", job, usage: { training_steps: 0, wall_ms: 0, storage_bytes: 0, compute_units: 0, tokens: 0 } })}\n`);
   const training = trainLmStep(config, payload.step, payload.generation, source, payload.observations, null);
   const checkpoint = serializeLmCheckpoint(training.candidate, config);
-  const handle = openSync(join(directory, "checkpoint.json"), "wx");
+  const handle = openSync(statePath(directory, "checkpoint.json"), "wx");
   try { writeFileSync(handle, checkpoint.text); fsyncSync(handle); } finally { closeSync(handle); }
   const consumed = process.cpuUsage(cpu);
   const completion: ProcessCompletion<{ readonly digest: string }> = {
@@ -31,7 +33,7 @@ export async function runLmTrainer(stdin: Readable = process.stdin, stdout: Writ
     usage: { training_steps: config.fitSteps, wall_ms: Math.ceil(performance.now() - start), storage_bytes: checkpoint.bytes,
       compute_units: Math.ceil((consumed.user + consumed.system) / 1000), tokens: lmFitTokens(payload) },
   };
-  writeTrainerArtifact(join(directory, "completion.json"), completion);
+  writeTrainerArtifact(statePath(directory, "completion.json"), completion);
   stdout.write(`${JSON.stringify({ type: "complete", job, receipt: completion })}\n`);
 }
 

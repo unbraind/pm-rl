@@ -1,3 +1,4 @@
+import { acquireStateLock, statePath, identifier, checkedStateFile, identifierClient, commitStateTransaction } from "./state-boundary.ts";
 import type { HistoryResult } from "@unbrained/pm-cli/sdk/query";
 import { decodeTrackerRecord, skippedTrackerRecords, parseBoundedJson } from "./tracker-record.ts";
 /**
@@ -195,7 +196,7 @@ import {
 
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { constants as fsConstants, existsSync, lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { open, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { basename, delimiter, dirname, join, relative, resolve, sep } from "node:path";
@@ -209,9 +210,9 @@ import {
   type CommandHandlerContext,
   type ExtensionApi,
 } from "@unbrained/pm-cli/sdk/authoring";
-import { commitWorkspaceTransaction, applyTerminalOrderingPolicy, mutateItem, readSettings, runWithActiveExtensions, type CommitWorkspaceTransactionOptions, type ItemDocument, resolveRuntimeStatusRegistry, type LogNote } from "@unbrained/pm-cli/sdk";
+import { applyTerminalOrderingPolicy, mutateItem, readSettings, runWithActiveExtensions, type CommitWorkspaceTransactionOptions, type ItemDocument, resolveRuntimeStatusRegistry, type LogNote } from "@unbrained/pm-cli/sdk";
 import { PmClient, type GetResult, type ItemMetadata } from "@unbrained/pm-cli/sdk/core";
-import { acquireLock, certifyCompleteListResult, createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError, isTerminalStatus, type PmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
+import { certifyCompleteListResult, createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError, isTerminalStatus, type PmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 
 import { parseJsonRecord, rethrowOperationalRead, rethrowProvenanceRead } from "./refuse.ts";
 import { exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordRecursivePolicyCards, recordPolicyCard, validatePromotedPolicyCard, validatePolicyCardWrite, validateRefusedPolicyCard, discoverPolicyCards, verifyRetainedGenerationEvidence } from "./policy-card.ts";
@@ -578,7 +579,7 @@ function fail(message: string, code: string, exitCode: number = EXIT_CODE.USAGE)
 function stringOption(context: CommandHandlerContext, key: string, required = true): string | undefined {
   const camel = key.replaceAll(/_([a-z])/g, (_match, letter: string) => letter.toUpperCase());
   const value = context.options[key] ?? context.options[camel];
-  if (typeof value === "string" && value.trim().length > 0) return value.trim();
+  if (typeof value === "string" && value.trim().length > 0) return ["environment", "parent", "approval", "run", "benchmark", "candidate", "incumbent", "evaluation_context"].includes(key) ? identifier(value) : value.trim();
   if (required) fail(`pm rl requires --${key.replaceAll("_", "-")}.`, `missing_${key}`);
   return undefined;
 }
@@ -587,7 +588,7 @@ function stringOption(context: CommandHandlerContext, key: string, required = tr
 function requiredArgument(context: CommandHandlerContext, label: string): string {
   const value = context.args.find((argument) => !argument.startsWith("-"));
   if (value === undefined || value.trim().length === 0) fail(`pm rl requires ${label}.`, "missing_argument");
-  return value.trim();
+  return identifier(value);
 }
 
 /**
@@ -754,7 +755,7 @@ export function idSegment(value: string): string {
 
 /** Read complete current or verified historical domain evidence without an output ceiling. */
 export async function readCompleteLoopItem(client: PmClient, id: string, at?: string, fields?: string): Promise<GetResult> {
-  const result = await client.get(id, { ...(fields === undefined ? { depth: "standard" } : { fields }), outputLimit: "unbounded", outputBudget: "unbounded", ...(at === undefined ? {} : { at }) }).catch(rethrowProvenanceRead);
+  const result = await identifierClient(client).get(id, { ...(fields === undefined ? { depth: "standard" } : { fields }), outputLimit: "unbounded", outputBudget: "unbounded", ...(at === undefined ? {} : { at }) }).catch(rethrowProvenanceRead);
   if (!("item" in result) || "output_budget_exceeded" in result) {
     fail(`Item ${id} was omitted despite an unbounded read request.`, "loop_history_incomplete", EXIT_CODE.CONFLICT);
   }
@@ -763,7 +764,8 @@ export async function readCompleteLoopItem(client: PmClient, id: string, at?: st
 
 /** Apply a read-derived change through the SDK item transaction, refusing a stale revision under its item lock. @internal */
 export async function mutateLoopItem(client: PmClient, before: GetResult, message: string, change: (document: ItemDocument, closeStatus: string, terminal: boolean) => string[], preconditions: readonly GetResult[] = [], author = "pm-rl", op: "update" | "close" = "update"): Promise<GetResult> {
-  const config = await client.config("project", "get", "id_prefix");
+  identifier(before.item.id); preconditions.forEach((dependency) => identifier(dependency.item.id));
+  const config = await identifierClient(client).config("project", "get", "id_prefix");
   const pmRoot = dirname(config.settings_path);
   const settings = await readSettings(pmRoot);
   const expected = { updated: before.item.updated_at, body: String(before.item.body) };
@@ -772,7 +774,7 @@ export async function mutateLoopItem(client: PmClient, before: GetResult, messag
   try {
     // These are the SDK's native item locks, also observed by ordinary CLI and SDK peer writes.
     for (const dependency of [...preconditions].sort((a, b) => a.item.id.localeCompare(b.item.id))) {
-      releases.push(await acquireLock(pmRoot, dependency.item.id, settings.locks.ttl_seconds, author, false, false, settings.locks.wait_ms));
+      releases.push(await acquireStateLock(pmRoot, dependency.item.id, settings.locks.ttl_seconds, author, false, false, settings.locks.wait_ms));
       const current = await readCompleteLoopItem(client, dependency.item.id);
       if (current.item.updated_at !== dependency.item.updated_at || current.item.body !== dependency.item.body) fail("Promotion evidence or budget changed after it was read; retry from current evidence.", "loop_write_conflict", EXIT_CODE.CONFLICT);
     }
@@ -819,7 +821,7 @@ async function completeLoopGeneration(client: PmClient, before: GetResult, body:
 async function getTypedItem(client: PmClient, id: string, type: "Decision" | "Environment" | "Run" | "Generation" | "Benchmark" | "EvalResult" | "GateEpisode" | "MergeOutcome" | "Sweep" | "Transfer"): Promise<GetResult> {
   // Benchmarks validate edge roles, which deep presentation reads omit; every
   // other domain type uses the complete, unbounded loop read.
-  const result = type === "Benchmark" ? await client.get(id, { full: true }) : await readCompleteLoopItem(client, id);
+  const result = type === "Benchmark" ? await identifierClient(client).get(id, { full: true }) : await readCompleteLoopItem(client, id);
   if (result.item.type !== type) fail(`pm rl expected ${type} ${id}, not ${String(result.item.type)}.`, "wrong_item_type", EXIT_CODE.CONFLICT);
   return result;
 }
@@ -834,7 +836,7 @@ async function getTypedItem(client: PmClient, id: string, type: "Decision" | "En
  */
 async function ensurePersistentTypes(client: PmClient): Promise<void> {
   for (const itemType of RL_ITEM_TYPES) {
-    await client.schemaAddType(itemType.name, {
+    await identifierClient(client).schemaAddType(itemType.name, {
       folder: itemType.folder,
       alias: [...itemType.aliases],
       description: itemType.description,
@@ -872,7 +874,7 @@ function readJsonFile(path: string, label: string): JsonValue {
  * explicitly unbounded and any omission envelope still fails closed.
  */
 async function readCompleteNotes(client: PmClient, id: string): Promise<LogNote[]> {
-  const result = await client.notes(id, { outputBudget: "unbounded", outputLimit: "unbounded" });
+  const result = await identifierClient(client).notes(id, { outputBudget: "unbounded", outputLimit: "unbounded" });
   if ("output_budget_exceeded" in result) {
     fail(`Run ${id} note history was omitted despite an unbounded read request.`, "metric_history_incomplete", EXIT_CODE.CONFLICT);
   }
@@ -909,7 +911,7 @@ export async function createOrReadIdentical(client: PmClient, options: Parameter
     if (!isItemNotFound(error)) throw error;
   }
   try {
-    return { item: (await client.create(options)).item, created: true };
+    return { item: (await identifierClient(client).create(options)).item, created: true };
   } catch (error) {
     if (!isPmCliExpectedError(error) || error.exitCode !== EXIT_CODE.CONFLICT || !/^Item "[^"]+" already exists$/.test(error.message)) throw error;
     const item = await readMatching();
@@ -1172,7 +1174,7 @@ export const stdinSource: { stream: AsyncIterable<string | Uint8Array> } = {
  */
 async function appendRunMetrics(client: PmClient, runId: string, events: readonly MetricEvent[]): Promise<Readonly<Record<string, unknown>>> {
   const notes = encodeEventSegments(events);
-  await client.update(runId, {
+  await identifierClient(client).update(runId, {
     note: notes,
     message: `Append ${events.length} RL metric event(s) in ${notes.length} bounded segment(s) atomically`,
   });
@@ -1227,7 +1229,7 @@ async function finishRun(context: CommandHandlerContext): Promise<RlCommandResul
     fail(`Run ${id} has no metric events and cannot be finished. Log the trainer's final finite measurements first.`, "run_has_no_metrics", EXIT_CODE.CONFLICT);
   }
   const actualResult = `Run closed with ${series.events.length} metric event(s) and ${series.comments} non-metric note(s).`;
-  const result = await client.close(id, reason, {
+  const result = await identifierClient(client).close(id, reason, {
     message: "Finish RL run",
     resolution: reason,
     expectedResult: "The run reaches a terminal state without rewriting its metric history.",
@@ -1302,7 +1304,7 @@ async function registerBenchmark(context: CommandHandlerContext): Promise<RlComm
   } catch (error) {
     if (!isItemNotFound(error)) throw error;
   }
-  const result = await client.create({
+  const result = await identifierClient(client).create({
     id: requestedId,
     title: `${spec.name} ${spec.version}`,
     type: "Benchmark",
@@ -1357,7 +1359,7 @@ async function recordEvalResult(context: CommandHandlerContext): Promise<RlComma
   if (existingEval !== undefined) {
     return { action: "rl-eval-record", id: String(existingEval.item.id), created: false, details: spec as unknown as Readonly<Record<string, unknown>> };
   }
-  const result = await client.create({
+  const result = await identifierClient(client).create({
     id: requestedId,
     title: `${benchmark.spec.name} ${benchmark.spec.version}: ${checkpoint}`,
     type: "EvalResult",
@@ -1389,7 +1391,7 @@ async function showLeaderboard(context: CommandHandlerContext): Promise<RlComman
   const client = clientFor(context);
   await ensurePersistentTypes(client);
   const benchmark = await verifyBenchmarkIdentity(client, requestedBenchmarkId);
-  const inventory = await client.listAllComplete({ includeBody: true });
+  const inventory = await identifierClient(client).listAllComplete({ includeBody: true });
   const byId = new Map(inventory.items.map((item) => [item.id, item]));
   const environmentCache = new Map<string, Awaited<ReturnType<typeof verifyEnvironmentIdentity>>>();
   const candidates: LeaderboardCandidate[] = [];
@@ -1625,7 +1627,7 @@ async function recordEpisode(context: CommandHandlerContext): Promise<RlCommandR
   if (existingEpisode !== undefined) {
     return { action: "rl-episode-record", id: String(existingEpisode.item.id), created: false, details: episodeDetails(spec, verified.id) };
   }
-  const result = await client.create({
+  const result = await identifierClient(client).create({
     id: requestedId,
     title: `Gates ${verified.spec.name} ${verified.spec.version}: ${(candidateTree ?? patchHash!)!.slice(0, 16)}`,
     type: "GateEpisode",
@@ -1741,7 +1743,7 @@ async function recordOutcome(context: CommandHandlerContext): Promise<RlCommandR
   if (existingOutcome !== undefined) {
     return { action: "rl-outcome-record", id: String(existingOutcome.item.id), created: false, details: spec as unknown as Readonly<Record<string, unknown>> };
   }
-  const result = await client.create({
+  const result = await identifierClient(client).create({
     id: requestedId,
     title: `Merge outcome: ${pullRequest}`,
     type: "MergeOutcome",
@@ -1774,7 +1776,7 @@ async function simRealGap(context: CommandHandlerContext): Promise<RlCommandResu
   const client = clientFor(context);
   await ensurePersistentTypes(client);
   const episodes: Array<{ id: string; spec: EpisodeSpec }> = [];
-  for (const item of (await client.list({ type: "GateEpisode", status: "all", noTruncate: true, fields: "id,body" })).items) {
+  for (const item of (await identifierClient(client).list({ type: "GateEpisode", status: "all", noTruncate: true, fields: "id,body" })).items) {
     // A listed item the SDK types without an id carries no identity to report
     // or pair, so it contributes no row rather than failing the corpus.
     if (item.id === undefined) continue;
@@ -1787,7 +1789,7 @@ async function simRealGap(context: CommandHandlerContext): Promise<RlCommandResu
     episodes.push({ id: item.id, spec: parseEpisodeSpec(text, `Episode ${item.id} specification`) });
   }
   const outcomes: Array<{ id: string; spec: { pull_request: string; merged: boolean } }> = [];
-  for (const item of (await client.list({ type: "MergeOutcome", status: "all", noTruncate: true, fields: "id,body" })).items) {
+  for (const item of (await identifierClient(client).list({ type: "MergeOutcome", status: "all", noTruncate: true, fields: "id,body" })).items) {
     if (item.id === undefined) continue;
     let text: string;
     try {
@@ -1945,7 +1947,7 @@ function normalizeRunEnvironment(value: string | undefined): string | undefined 
  * @returns The ancestry from the head back to the seed.
  */
 async function buildAncestry(client: PmClient, headId: string, strict: boolean): Promise<AncestryEntry[]> {
-  const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
+  const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
   const ancestry: AncestryEntry[] = [];
   const visited = new Set<string>();
   let currentId: string | null = canonicalizeIdentifier(headId, prefix);
@@ -2059,7 +2061,7 @@ export async function promotedGenerationIdsUnderApproval(client: PmClient, appro
   // identity rather than fetching an approval for every historical generation.
   const canonical = (await readApprovalSpec(client, approvalId)).id;
   const identities = new Map<string, string>([[canonical, canonical], [approvalId, canonical]]);
-  const result = await client.list({ type: "Generation", status: "all", noTruncate: true, fields: "id,body" });
+  const result = await identifierClient(client).list({ type: "Generation", status: "all", noTruncate: true, fields: "id,body" });
   const promoted: string[] = [];
   for (const item of result.items) {
     // The SDK types a listed item's `id` as optional; a record without one
@@ -2092,8 +2094,8 @@ export async function promotedGenerationIdsUnderApproval(client: PmClient, appro
 
 /** Find generation item ids that are not a parent of any other generation. */
 async function findGenerationHeads(client: PmClient): Promise<string[]> {
-  const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
-  const result = await client.list({ type: "Generation", status: "all", noTruncate: true, fields: "id,body" });
+  const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
+  const result = await identifierClient(client).list({ type: "Generation", status: "all", noTruncate: true, fields: "id,body" });
   const parentIds = new Set<string>();
   const allIds: string[] = [];
   for (const item of result.items) {
@@ -2208,7 +2210,7 @@ interface GenerationRegistrationRequest {
  * @returns The command result naming the created generation and its identities.
  */
 async function registerGenerationCore(client: PmClient, request: GenerationRegistrationRequest): Promise<RlCommandResult> {
-  const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
+  const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
   const requestedId = canonicalizeIdentifier(request.id, prefix);
   const baseCheckpoint = request.baseCheckpoint;
   const parentInput = request.parent === null ? null : canonicalizeIdentifier(request.parent, prefix);
@@ -2362,7 +2364,7 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
   const scoresPath = stringOption(context, "scores")!;
   const evidence = stringOption(context, "evidence")!;
   const client = clientFor(context);
-  const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
+  const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
   const id = canonicalizeIdentifier(requestedId, prefix);
   const approvalId = canonicalizeIdentifier(requestedApproval, prefix);
   const generation = await getTypedItem(client, id, "Generation");
@@ -2414,7 +2416,7 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
 
 /** Resume after the atomic promotion boundary using its sealed request, without another budget mutation. */
 async function recoverManualPromotion(client: PmClient, generation: GetResult, approvalId: string, proxy: ScoreRecord, held: ScoreRecord, evidence: string): Promise<PromotionOutcome> {
-  const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
+  const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
   const spec = canonicalizeGenerationSpec(extractGenerationSpec(String(generation.item.body), "Committed promotion"), prefix);
   if (canonicalizeIdentifier(approvalId, prefix) !== canonicalizeIdentifier(spec.approval!, prefix)
     || canonicalJson(canonicalizeScoreRecord(proxy, prefix) as unknown as JsonValue) !== canonicalJson(spec.proxy_score as unknown as JsonValue)
@@ -2471,8 +2473,8 @@ interface PromotionOutcome {
  */
 export async function promoteGenerationCore(client: PmClient, coordinates: WorkspaceCoordinates, id: string, approvalId: string, proxyScore: ScoreRecord, heldOutScore: ScoreRecord, evidence: string, onTransition?: CommitWorkspaceTransactionOptions["onTransition"]): Promise<PromotionOutcome> {
   const { pmRoot, author } = coordinates;
-  const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
-  const evaluationEnvironment = canonicalizeIdentifier(heldOutScore.evaluation_context, prefix);
+  const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
+  const evaluationEnvironment = canonicalizeScoreRecord(heldOutScore, prefix).evaluation_context;
   const ancestry = await buildAncestry(client, id, true);
   const contamination = findContaminationPath(ancestry, evaluationEnvironment);
   if (contamination !== null) {
@@ -2528,7 +2530,7 @@ export async function promoteGenerationCore(client: PmClient, coordinates: Works
   // and for the receipt.
   let permittedPromotions = 0;
   let closedStatus = "";
-  await commitWorkspaceTransaction({
+  await commitStateTransaction({
     pmRoot,
     // Unique per invocation. The transaction is used here for MUTUAL EXCLUSION,
     // not for idempotent replay, and the two must not share a key: keying on the
@@ -2752,16 +2754,17 @@ export const LOOP_CANCELLED_EXIT_CODE = 130;
 
 /** Derive the workspace lock id of one loop's controller lease. */
 export function loopLeaseLockId(id: string): string {
-  return `pm-rl-loop-${idSegment(id)}`;
+  return `pm-rl-loop-${identifier(id)}`;
 }
 
 /** Read a lease; missing is null, while unreadable or malformed records remain ambiguous. */
 async function readLeaseRecord(pmRoot: string, lockId: string): Promise<Record<string, unknown> | null> {
   try {
-    const parsed: unknown = parseBoundedJson(await readFile(join(pmRoot, "locks", `${lockId}.lock`), "utf8"));
+    const parsed: unknown = parseBoundedJson(await readFile(statePath(pmRoot, "locks", `${identifier(lockId)}.lock`), "utf8"));
     if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return {};
     return parsed as Record<string, unknown>;
   } catch (error) {
+    if (isPmCliExpectedError(error)) throw error;
     return (error as NodeJS.ErrnoException).code === "ENOENT" ? null : {};
   }
 }
@@ -2819,13 +2822,15 @@ function leaseHolderState(record: Record<string, unknown>, io: LoopProcessIdenti
 
 /** Publish the SDK token and verified holder identity together without exposing partial JSON. */
 async function publishControllerIdentity(lockPath: string, processStartTime: string, renew = false): Promise<void> {
-  const acquired = parseBoundedJson(await readFile(lockPath, "utf8")) as Record<string, unknown>;
-  const temporary = `${lockPath}.${randomUUID()}.tmp`;
+  const acquired = parseBoundedJson(await readFile(checkedStateFile(lockPath), "utf8")) as Record<string, unknown>;
+  const temporary = statePath(dirname(lockPath), `${basename(lockPath)}.${randomUUID()}.tmp`);
+  let created = false;
   try {
     await writeFile(temporary, `${JSON.stringify({ ...acquired, ...(renew ? { created_at: new Date().toISOString() } : {}), hostname: hostname(), process_start_time: processStartTime })}\n`, { encoding: "utf8", flag: "wx" });
-    await rename(temporary, lockPath);
+    created = true;
+    await rename(checkedStateFile(temporary), checkedStateFile(lockPath));
   } finally {
-    await unlink(temporary).catch(() => undefined);
+    if (created) await unlink(checkedStateFile(temporary)).catch(() => undefined);
   }
 }
 
@@ -2848,7 +2853,13 @@ async function expireDeadControllerMutex(root: string, id: string, io: LoopProce
     ? { ...record, hostname: hostname(), process_start_time: Buffer.from(owner.slice(prefix.length).split(":")[0], "base64url").toString("utf8") }
     : record;
   if (leaseHolderState(identity, io) !== "dead") return;
-  const handle = await open(join(root, "locks", `${id}.lock`), "r+").catch((error: unknown) => {
+  await expireControllerRecord(root, id, record);
+}
+
+/** Expire only the observed inode/token; the SDK removes stale locks under its native cleanup lease. */
+async function expireControllerRecord(root: string, id: string, record: Record<string, unknown>): Promise<void> {
+  if (typeof record["token"] !== "string") return;
+  const handle = await open(statePath(root, "locks", `${identifier(id)}.lock`), fsConstants.O_RDWR | fsConstants.O_NOFOLLOW).catch((error: unknown) => {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw error;
   });
@@ -2872,14 +2883,15 @@ export async function commitProcessTransaction(options: CommitWorkspaceTransacti
   // The SDK creates the writer lock with the transaction author as its owner before "prepared". A phase identity
   // there lets expireDeadControllerMutex prove a holder killed in that window dead instead of blocking for the TTL.
   const author = `pm-rl-phase:${hashJson(hostname())}:${Buffer.from(start).toString("base64url")}:${options.author}`;
-  await commitWorkspaceTransaction({ ...options, author, lockTtlSeconds: 1_000_000_000, onTransition: async (context) => {
-    if (context.transition === "prepared") await publishControllerIdentity(join(options.pmRoot, "locks", "sdk-workspace-transaction.lock"), start);
+  await commitStateTransaction({ ...options, author, lockTtlSeconds: 1_000_000_000, onTransition: async (context) => {
+    if (context.transition === "prepared") await publishControllerIdentity(statePath(options.pmRoot, "locks", "sdk-workspace-transaction.lock"), start);
     await options.onTransition?.(context);
   } });
 }
 
 /** Serialize standalone SDK adapter execution on the same owner-verified mutex used by controller phases. */
 export async function withProcessJobFence<T>(coordinates: WorkspaceCoordinates, id: string, execute: () => Promise<T>): Promise<T> {
+  identifier(id);
   const start = loopProcessStartTime(process.pid);
   if (start === null) fail("Cannot establish trainer owner identity.", "process_identity_unavailable");
   const release = await controllerMutex(coordinates.pmRoot, id, coordinates.author, start, undefined);
@@ -2890,9 +2902,9 @@ export async function withProcessJobFence<T>(coordinates: WorkspaceCoordinates, 
 async function controllerMutex(root: string, id: string, author: string, start: string, io: LoopProcessIdentityIO | undefined, waitMs = 5000): Promise<() => Promise<void>> {
   await expireDeadControllerMutex(root, id, io);
   const owner = `pm-rl-phase:${hashJson(hostname())}:${Buffer.from(start).toString("base64url")}:${author}`;
-  const release = await acquireLock(root, id, 1_000_000_000, owner, false, false, waitMs);
+  const release = await acquireStateLock(root, id, 1_000_000_000, owner, false, false, waitMs);
   try {
-    await publishControllerIdentity(join(root, "locks", `${id}.lock`), start);
+    await publishControllerIdentity(statePath(root, "locks", `${id}.lock`), start);
   } catch (error) {
     await release();
     throw error;
@@ -2905,7 +2917,7 @@ function controllerGitMarker(start: string, ceiling: string): string | null {
   const ceilings = ceiling.split(delimiter).filter(Boolean).map((path) => resolve(path));
   let directory = resolve(start);
   for (;;) {
-    const marker = join(directory, ".git");
+    const marker = statePath(directory, ".git");
     if (existsSync(marker)) return marker;
     const parent = dirname(directory);
     if (parent === directory || ceilings.includes(parent)) return null;
@@ -2928,14 +2940,14 @@ export function controllerAuthorityRoot(pmRoot: string, ceiling = process.env["G
       const pointer = /^gitdir: (.+)\r?\n?$/.exec(readFileSync(marker, "utf8"));
       if (pointer === null) throw new Error("invalid gitdir pointer");
       metadata = resolve(dirname(marker), pointer[1].trim());
-    } else if (!existsSync(join(marker, "HEAD")) && !existsSync(join(marker, "objects")) && !existsSync(join(marker, "commondir"))) {
+    } else if (!existsSync(statePath(marker, "HEAD")) && !existsSync(statePath(marker, "objects")) && !existsSync(statePath(marker, "commondir"))) {
       // An empty marker is not a Git repository; standalone trackers remain usable.
       return pmRoot;
     }
-    const commonFile = join(metadata, "commondir");
+    const commonFile = statePath(metadata, "commondir");
     const common = existsSync(commonFile) ? resolve(metadata, readFileSync(commonFile, "utf8").trim()) : metadata;
-    if (!statSync(join(metadata, "HEAD")).isFile() || !statSync(join(common, "objects")).isDirectory()) throw new Error("incomplete Git metadata");
-    return join(realpathSync(common), "pm-rl-controllers");
+    if (!statSync(statePath(metadata, "HEAD")).isFile() || !statSync(statePath(common, "objects")).isDirectory()) throw new Error("incomplete Git metadata");
+    return statePath(realpathSync(common), "pm-rl-controllers");
   } catch {
     fail("Cannot resolve shared controller authority from Git metadata; restore the repository metadata before retrying.", "loop_git_metadata_unavailable", EXIT_CODE.CONFLICT);
   }
@@ -2969,7 +2981,7 @@ async function acquireControllerLease(client: PmClient, coordinates: WorkspaceCo
   // launch journal are shared even when the tracked PM roots diverge.
   const authorityRoot = controllerAuthorityRoot(coordinates.pmRoot);
   const lockId = loopLeaseLockId(id);
-  const lockPath = join(authorityRoot, "locks", `${lockId}.lock`);
+  const lockPath = statePath(authorityRoot, "locks", `${lockId}.lock`);
   const refusal = `Lease ${relative(coordinates.pmRoot, lockPath)}; operator recovery: ${recovery?.command ?? `pm rl loop resume ${id} --approval ${request.approval} --force-takeover`}.`;
   const ownStart = loopProcessStartTime(process.pid, process.platform, request.processIdentityIO);
   if (ownStart === null) {
@@ -2980,7 +2992,7 @@ async function acquireControllerLease(client: PmClient, coordinates: WorkspaceCo
   const releaseRecovery = await controllerMutex(authorityRoot, `${lockId}-recovery`, coordinates.author, ownStart, request.processIdentityIO, 0).catch(async (error: unknown) => {
     if (!isPmCliExpectedError(error) || error.exitCode !== EXIT_CODE.CONFLICT) throw error;
     const holder = await readLeaseRecord(authorityRoot, lockId) ?? await readLeaseRecord(authorityRoot, `${lockId}-recovery`);
-    const phaseLock = relative(coordinates.pmRoot, join(authorityRoot, "locks", `${lockId}-recovery.lock`));
+    const phaseLock = relative(coordinates.pmRoot, statePath(authorityRoot, "locks", `${lockId}-recovery.lock`));
     // --force-takeover cannot clear this phase mutex, so the refusal names the manual recovery instead.
     fail(`Loop ${id} lease recovery is contended (holder ${String(holder?.["owner"])}, lease expiry ${holder === null || !Number.isFinite(controllerExpiry(holder)) ? "unknown" : new Date(controllerExpiry(holder)).toISOString()}). A controller holds the phase mutex ${phaseLock}; if its holder cannot be verified, stop that process and remove ${phaseLock} before retrying. --force-takeover does not clear the phase mutex.`, "loop_controller_active", EXIT_CODE.CONFLICT);
   });
@@ -3003,16 +3015,16 @@ async function acquireControllerLease(client: PmClient, coordinates: WorkspaceCo
       }
       if (request.forceTakeover === true) {
         // Host and owner digests identify the previous holder without publishing machine identity.
-        await client.update(recovery?.auditItem ?? seedId, { comment: [`Loop ${id} forced lease takeover by ${coordinates.author}: ${JSON.stringify({
+        await identifierClient(client).update(recovery?.auditItem ?? seedId, { comment: [`Loop ${id} forced lease takeover by ${coordinates.author}: ${JSON.stringify({
           previous_holder: { pid: typeof record["pid"] === "number" ? record["pid"] : null, process_start_time_digest: hashJson(String(record["process_start_time"])),
             hostname_digest: hashJson(String(record["hostname"])), owner_digest: hashJson(String(record["owner"])) },
           lock: relative(coordinates.pmRoot, lockPath),
         })}`] });
       }
-      await unlink(lockPath);
+      await expireControllerRecord(authorityRoot, lockId, record);
     }
     try {
-      release = await acquireLock(authorityRoot, lockId, LOOP_LEASE_TTL_SECONDS, coordinates.author);
+      release = await acquireStateLock(authorityRoot, lockId, LOOP_LEASE_TTL_SECONDS, coordinates.author, false, false);
     } catch (error) {
       if (!isPmCliExpectedError(error) || error.exitCode !== EXIT_CODE.CONFLICT) throw error;
       fail(`Loop ${id} is already being executed by another controller. ${refusal}`, "loop_controller_active", EXIT_CODE.CONFLICT);
@@ -3056,17 +3068,17 @@ async function acquireControllerLease(client: PmClient, coordinates: WorkspaceCo
     await guard(async () => {
       if (authorityRoot !== coordinates.pmRoot) {
         const authority = new PmClient({ pmRoot: authorityRoot, cwd: dirname(coordinates.pmRoot), author: coordinates.author, noExtensions: true });
-        const releaseInitialization = await acquireLock(authorityRoot, "pm-rl-controller-init", 30, coordinates.author, false, false, 5000);
+        const releaseInitialization = await acquireStateLock(authorityRoot, "pm-rl-controller-init", 30, coordinates.author, false, false, 5000);
         try {
-          await authority.init("rl-controller", { defaults: true, agentGuidance: "skip", author: "pm-rl-controller" });
+          await identifierClient(authority).init("rl-controller", { defaults: true, agentGuidance: "skip", author: "pm-rl-controller" });
         } finally {
           await releaseInitialization();
         }
         const launchId = loopLeaseLockId(id);
         const owner = hashJson(realpathSync(resolve(coordinates.pmRoot)));
-        const previous = await authority.get(launchId).catch((error: unknown) => isItemNotFound(error) ? null : Promise.reject(error));
+        const previous = await identifierClient(authority).get(launchId).catch((error: unknown) => isItemNotFound(error) ? null : Promise.reject(error));
         if (previous === null) {
-          await authority.create({ id: launchId, type: "Decision", title: `Loop ${id} launch authority`, body: owner });
+          await identifierClient(authority).create({ id: launchId, type: "Decision", title: `Loop ${id} launch authority`, body: owner });
         } else if (String(previous.item.body) !== owner) {
           const comments = await readLoopComments(client, seedId).catch((error: unknown) => isItemNotFound(error) ? [] : Promise.reject(error));
           if (!comments.some((comment) => comment.text.startsWith(`Loop ${id} terminal report:`))) {
@@ -3200,7 +3212,7 @@ export type RefusalAuditContext = PmCliExpectedError["context"] & { audit_commen
  */
 async function appendRefusalAuditComment(client: PmClient, id: string, text: string): Promise<string | undefined> {
   try {
-    await client.comments(id, { add: text, ifAbsent: true });
+    await identifierClient(client).comments(id, { add: text, ifAbsent: true });
     return undefined;
   } catch (error) {
     return error instanceof Error ? error.message : String(error);
@@ -3276,7 +3288,7 @@ async function prepareLoopController(client: PmClient, coordinates: WorkspaceCoo
       // continues its persisted programme, while a different configuration under
       // the same id fails here as an identity collision rather than quietly
       // forking the lineage.
-      await client.claim(seedId, { force: true, message: `pm-rl loop controller lease for ${request.id}: ${JSON.stringify({ hostname_digest: hashJson(hostname()), pid: process.pid, process_start_time: lease.processStartTime })}` });
+      await identifierClient(client).claim(seedId, { force: true, message: `pm-rl loop controller lease for ${request.id}: ${JSON.stringify({ hostname_digest: hashJson(hostname()), pid: process.pid, process_start_time: lease.processStartTime })}` });
       return {
         programme,
         seedId,
@@ -3293,7 +3305,7 @@ async function prepareLoopController(client: PmClient, coordinates: WorkspaceCoo
 
 /** Release the controller lease: the seed claim first, then the workspace lock. */
 async function releaseControllerLease(client: PmClient, prepared: LoopPrepared): Promise<void> {
-  await prepared.lease.guard(() => client.release(prepared.lease.seedId)).catch(() => undefined);
+  await prepared.lease.guard(() => identifierClient(client).release(prepared.lease.seedId)).catch(() => undefined);
   await prepared.lease.release();
 }
 
@@ -3418,14 +3430,14 @@ async function durableLoopStep(client: PmClient, lease: ControllerLease, id: str
     const running = { format: "pm-rl/loop-step/1", key, input: hashJson(input), state: "running" };
     // Outer phase cards must fit before the first receipt/history write.
     const intent = { id: key, type: "Decision" as const, title: `Loop step ${phase} for ${id}`, tags: "rl-loop-step", body: JSON.stringify(running) };
-    const item = existing ?? (cards || phase === "promote" ? null : await client.create(intent));
+    const item = existing ?? (cards || phase === "promote" ? null : await identifierClient(client).create(intent));
     const before = item === null ? null : existing ?? await readCompleteLoopItem(client, String(item.item.id));
     const winner = await readLoopStep(client, id, phase, input, before);
     if (winner !== null) return { value: winner, executed: false };
     const value = await execute();
     const body = JSON.stringify({ ...running, state: "complete", result: value, digest: hashJson(value) });
     if (cards) await validatePolicyCardWrite(client, { ...intent, body }, true);
-    if (item === null) await client.create({ ...intent, body });
+    if (item === null) await identifierClient(client).create({ ...intent, body });
     else {
       await mutateLoopItem(client, before!, "Complete durable loop receipt", (document) => { document.body = body; return ["body"]; }, [], lease.author);
     }
@@ -3462,7 +3474,7 @@ async function readRunMetricEvents(client: PmClient, runId: string): Promise<rea
 
 /** Read complete loop outcome comments; omitted history cannot establish a terminal verdict. */
 async function readLoopComments(client: PmClient, id: string): Promise<LogNote[]> {
-  const result = await client.comments(id, { outputBudget: "unbounded", outputLimit: "unbounded" });
+  const result = await identifierClient(client).comments(id, { outputBudget: "unbounded", outputLimit: "unbounded" });
   if ("output_budget_exceeded" in result) fail("Loop comment history was omitted.", "loop_history_incomplete", EXIT_CODE.CONFLICT);
   return result.comments;
 }
@@ -3471,7 +3483,7 @@ async function readLoopComments(client: PmClient, id: string): Promise<LogNote[]
 export async function appendCommentOnce(client: PmClient, id: string, text: string): Promise<void> {
   const comments = await readLoopComments(client, id);
   if (comments.some((comment) => comment.text === text)) return;
-  await client.comments(id, { add: text, ifAbsent: true });
+  await identifierClient(client).comments(id, { add: text, ifAbsent: true });
 }
 
 /** Read complete process outcomes belonging to this programme instance without exposing executable paths. */
@@ -3838,7 +3850,7 @@ function terminalPromotionRefusal(error: PmCliExpectedError): boolean {
 
 /** Read the author of the first certified promoted version, independent of later annotations. */
 async function promotionAuthor(client: PmClient, id: string): Promise<string> {
-  const history = await client.run("history", { id, options: { compact: true, verify: true, outputLimit: "unbounded", outputBudget: "unbounded" } }) as HistoryResult;
+  const history = await identifierClient(client).run("history", { id, options: { compact: true, verify: true, outputLimit: "unbounded", outputBudget: "unbounded" } }) as HistoryResult;
   if (!history.verification?.ok || history.limit !== null || history.compact_history?.length !== history.count) fail("Promotion history is incomplete.", "loop_history_incomplete", EXIT_CODE.CONFLICT);
   for (const row of history.compact_history) {
     const item = await readCompleteLoopItem(client, id, String(row.version ?? row.index));
@@ -3978,7 +3990,7 @@ async function executePendingGeneration(client: PmClient, coordinates: Workspace
       await collectGenerationBatch(client, programme, request, chain, pending, collectingRun);
       const run = await getTypedItem(client, collectingRun, "Run");
       if (String(run.item.status) === "in_progress") {
-        await client.close(collectingRun, "collection complete", { message: "Finish RL run", resolution: "collection complete",
+        await identifierClient(client).close(collectingRun, "collection complete", { message: "Finish RL run", resolution: "collection complete",
           expectedResult: "The run reaches a terminal state without rewriting its metric history.", actualResult: `Collected the generation ${generation} batch for loop ${request.id}.` });
       }
       return { run: collectingRun, events: await readRunMetricEvents(client, collectingRun) as unknown as JsonValue };
@@ -4203,7 +4215,7 @@ async function systemOneReceiptNamespace(client: PmClient, runId: string, create
   if (entries.length === 1) return entries[0].slice(prefix.length);
   if (!create) return null;
   const namespace = randomUUID();
-  await client.update(runId, { comment: [prefix + namespace] });
+  await identifierClient(client).update(runId, { comment: [prefix + namespace] });
   return namespace;
 }
 
@@ -4440,7 +4452,7 @@ async function runLoop(context: CommandHandlerContext): Promise<RlCommandResult>
 /** Resolve a required corpus directory without leaking missing or invalid filesystem coordinates. */
 function corpusDirectory(path: string, kind: "source" | "output_parent"): string {
   try {
-    const directory = realpathSync(path);
+    const directory = realpathSync(statePath(path));
     if (!statSync(directory).isDirectory()) fail("Corpus directory is missing or invalid.", `corpus_${kind}_missing`);
     return directory;
   } catch (error: unknown) {
@@ -4463,13 +4475,13 @@ async function buildCorpusCommand(context: CommandHandlerContext): Promise<RlCom
   const destination = (path: string): string => {
     const parent = corpusDirectory(dirname(path), "output_parent");
     if (`${parent}${sep}`.startsWith(join(source, sep))) fail("Corpus output must be outside the source tracker.", "corpus_output_inside_source", EXIT_CODE.CONFLICT);
-    return join(parent, basename(path));
+    return statePath(parent, basename(path));
   };
   const target = destination(output);
   const bounds = readJsonFile(stringOption(context, "file")!, "Corpus bounds");
   const client = new PmClient({ pmRoot: source, noExtensions: true });
   const corpus = (bounds as Record<string, JsonValue> | null)?.objective === "intake-issue-balanced-v1"
-    ? await buildIntakeLoopCorpus(client, bounds, (id) => readFileSync(join(source, "history", `${id}.jsonl`), "utf8"))
+    ? await buildIntakeLoopCorpus(client, bounds, (id) => readFileSync(statePath(source, "history", `${id}.jsonl`), "utf8"))
     : await buildTrackerLoopCorpus(client, bounds);
   destination(output);
   destination(target);
@@ -4730,13 +4742,13 @@ async function invalidateResults(context: CommandHandlerContext): Promise<RlComm
   const id = requiredArgument(context, "an environment or benchmark id");
   const client = clientFor(context);
   await ensurePersistentTypes(client);
-  const root = await client.get(id, { depth: "deep" });
+  const root = await identifierClient(client).get(id, { depth: "deep" });
   const rootId = String(root.item.id);
   const rootType = String(root.item.type);
   if (rootType !== "Environment" && rootType !== "Benchmark") {
     fail(`pm rl invalidate starts from an environment or benchmark version (${INVALIDATION_ROOT_TYPES.join(", ")}). ${rootId} is ${rootType}, and changing it invalidates no tracked RL result.`, "wrong_invalidation_root", EXIT_CODE.CONFLICT);
   }
-  const inventory = await client.list({ status: "all", noTruncate: true, fields: "id,type,dependencies" });
+  const inventory = await identifierClient(client).list({ status: "all", noTruncate: true, fields: "id,type,dependencies" });
   const items: ItemDependencyEdge[] = [];
   for (const item of inventory.items) {
     // A listed item the SDK types without an id carries no identity to walk
@@ -4841,7 +4853,7 @@ async function refuseTakenPlanIdentity(
     if (!isItemNotFound(error)) throw error;
   }
   try {
-    await client.run("history", { id });
+    await identifierClient(client).run("history", { id });
     fail(reservedMessage, reservedCode, EXIT_CODE.CONFLICT);
   } catch (error) {
     if (!isItemNotFound(error)) throw error;
@@ -4869,7 +4881,7 @@ async function refuseTakenPlanIdentity(
 export async function removePlannedArms(client: PmClient, arms: ReadonlyArray<{ id: string }>, cause: unknown): Promise<void> {
   for (const arm of arms) {
     try {
-      await client.delete(arm.id, { force: true });
+      await identifierClient(client).delete(arm.id, { force: true });
     } catch (removeError) {
       fail(
         `${String(removeError)} — and removing the partially planned arm ${arm.id} also failed while recovering from ${String(cause)}, so the sweep has orphaned arms that must be deleted before it can be re-planned.`,
@@ -4949,7 +4961,7 @@ async function planSweep(context: CommandHandlerContext): Promise<RlCommandResul
   try {
     for (const [index, config] of configs.entries()) {
       const armId = armIds[index]!;
-      const result = await client.create({
+      const result = await identifierClient(client).create({
         id: armId,
         title: armId,
         type: "Run",
@@ -4989,7 +5001,7 @@ async function planSweep(context: CommandHandlerContext): Promise<RlCommandResul
   // then let the original cause surface.
   let sweepResult;
   try {
-    sweepResult = await client.create({
+    sweepResult = await identifierClient(client).create({
       id: requestedId,
       title: requestedId,
       type: "Sweep",
@@ -5109,7 +5121,7 @@ async function recordTransfer(context: CommandHandlerContext): Promise<RlCommand
     run_id: resolvedRunId,
     gaps,
   };
-  const result = await client.create({
+  const result = await identifierClient(client).create({
     id: requestedId,
     title: `Sim-to-real gap at ${checkpoint.slice(0, 16)}`,
     type: "Transfer",
@@ -5159,7 +5171,7 @@ async function showTransferGap(context: CommandHandlerContext): Promise<RlComman
   const resolvedRunId = String(run.item.id);
   const entries: Array<{ id: string; created_at: string; spec: TransferSpec; stale_reason: string | null }> = [];
   const stalenessCache = new Map<string, string | null>();
-  for (const item of (await client.list({ type: "Transfer", status: "all", noTruncate: true, fields: "id,body,created_at" })).items) {
+  for (const item of (await identifierClient(client).list({ type: "Transfer", status: "all", noTruncate: true, fields: "id,body,created_at" })).items) {
     // A listed item without an id carries no identity to plot or name.
     if (item.id === undefined) continue;
     let specText: string;
@@ -5263,7 +5275,7 @@ export const RL_COMMANDS = [
   } }),
   defineCommand({ name: "rl eval plan show", description: "Show compact predeclared comparison identity and declared stopping sizes.", arguments: [{ name: "candidate", required: true, description: "Reserved candidate generation id." }], run: async (context) => {
     const client = clientFor(context);
-    const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
+    const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
     const registered = await readEvaluationPlan(client, canonicalizeIdentifier(requiredArgument(context, "a candidate id"), prefix));
     if (registered === null) fail("No predeclared plan. Register one before creating a fresh candidate.", "eval_plan_missing", EXIT_CODE.CONFLICT);
     return { action: "rl-eval-plan-show", id: registered.id, details: { comparison: registered.comparison, candidate: registered.plan.candidate, incumbent: registered.plan.incumbent, stopping: registered.plan.stopping } };

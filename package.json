@@ -81,7 +81,8 @@
     "docs/policy-card-write-audit.md",
     "docs/policy-card-evidence.json",
     "dist/sequential-evaluation.*",
-    "docs/sequential-evaluation-evidence.json"
+    "docs/sequential-evaluation-evidence.json",
+    "dist/state-boundary.*"
   ],
   "engines": {
     "node": ">=22.18.0"
@@ -162,7 +163,8 @@
       "test/evaluation-plan.test.ts",
       "test/shadow.test.ts",
       "test/policy-card.test.ts",
-      "test/sequential-evaluation.test.ts"
+      "test/sequential-evaluation.test.ts",
+      "test/state-boundary.test.ts"
     ],
     "thresholds": {
       "statements": 100,

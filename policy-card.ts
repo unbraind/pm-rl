@@ -1,3 +1,4 @@
+import { identifierClient } from "./state-boundary.ts";
 import { decodeTrackerRecord, parseBoundedJson } from "./tracker-record.ts";
 /** Minimized explanations of learned-policy suitability, backed by SDK-certified history. */
 import type { HistoryResult } from "@unbrained/pm-cli/sdk/query";
@@ -71,14 +72,14 @@ function domain(item: CardItem, prefix: string): JsonValue {
 async function snapshot(client: PmClient, id: string, at?: string): Promise<{ item: GetResult["item"]; citation: PolicyCardEvidence }> {
   identity(id);
   try {
-    const prefix = String((await client.config("project", "get", "id_prefix").catch(rethrowProvenanceRead)).nested_setting!.value);
+    const prefix = String((await identifierClient(client).config("project", "get", "id_prefix").catch(rethrowProvenanceRead)).nested_setting!.value);
     id = canonicalizeIdentifier(id, prefix);
     const current = (await readCompleteLoopItem(client, id, at, SNAPSHOT_FIELDS)).item;
     // Validate the requested current/history seal before searching for an equivalent canonical version.
     if (current.type === "Generation") verifiedGenerationSpec(current);
     const digest = hashJson(domain(current, prefix));
     if (at !== undefined) return { item: current, citation: { id: identity(current.id), at, digest } };
-    const history = await client.run("history", { id, options: { compact: true, verify: true, outputLimit: "unbounded", outputBudget: "unbounded" } }).catch(rethrowProvenanceRead) as HistoryResult;
+    const history = await identifierClient(client).run("history", { id, options: { compact: true, verify: true, outputLimit: "unbounded", outputBudget: "unbounded" } }).catch(rethrowProvenanceRead) as HistoryResult;
     if (!history.verification?.ok || history.limit !== null || history.compact_history?.length !== history.count) refuse("card_missing_provenance");
     for (const row of history.compact_history) {
       const coordinate = String(row.version ?? row.index);
@@ -226,7 +227,7 @@ async function exportSnapshotCard(client: PmClient, primary: { item: CardItem; c
 }
 /** Define the complete generation evidence set once for card identity and loop resume: citations, Runs and decoded metric notes. @internal */
 export async function generationEvidence(client: PmClient, subject: string, selected?: { item: CardItem; citation: PolicyCardEvidence }): Promise<{ primary: CardItem; evidence: PolicyCardEvidence[]; entries: CardItem[]; resource: Record<string, number>; prefix: string }> {
-  const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
+  const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
   subject = canonicalizeIdentifier(subject, prefix);
   const primary = selected ?? await snapshot(client, subject);
   const parsed = source(primary.item, prefix);
@@ -279,9 +280,9 @@ function cardShape(row: Record<string, unknown>): boolean {
 }
 /** Discover supported cards using type, tag and version before parsing unrelated tracker bodies. */
 export async function discoverPolicyCards(client: PmClient): Promise<PolicyCard[]> {
-  const listed = await client.listAllComplete({ includeBody: true });
+  const listed = await identifierClient(client).listAllComplete({ includeBody: true });
   const retained: PolicyCard[] = [];
-  const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
+  const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
   for (const item of listed.items) {
     if (!item.tags?.includes("rl-policy-card") && !/(?:^|-)policy-card-/.test(item.id)) continue;
     const record = decodeTrackerRecord(client, item, { type: "Decision", tag: "rl-policy-card", format: "pm-rl/policy-card/1", valid: (row) => {
@@ -318,7 +319,7 @@ export async function verifyRetainedGenerationEvidence(client: PmClient, subject
 /** Require a closed citation graph rooted in the certified subject, never caller-added allowances. */
 async function verifyEvidenceBindings(client: PmClient, item: CardItem, entries: readonly CardItem[]): Promise<void> {
   const ids = entries.map((entry) => entry.id);
-  const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
+  const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
   const required = source(item, prefix).dependencies;
   if (required.some((id) => !ids.includes(id))) refuse("card_missing_provenance");
   const plan = `${item.id}-evaluation-plan`;
@@ -348,7 +349,7 @@ function evidenceBody(item: CardItem): Record<string, unknown> {
 }
 /** Validate every bounded projection before creating a source or changing its history. @internal */
 export async function validatePolicyCardWrite(client: PmClient, options: Parameters<PmClient["create"]>[0] & { id: string }, recursive = false): Promise<void> {
-  const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
+  const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
   const item: CardItem = { id: identity(canonicalizeIdentifier(options.id, prefix)), type: options.type!, body: options.body ?? "", affected_version: options.affectedVersion ?? "", component: options.component ?? "", environment: options.environment ?? "" };
   const primary = { item, citation: { id: item.id, at: PROSPECTIVE_AT, digest: hashJson(domain(item, prefix)) } };
   await exportSnapshotCard(client, primary, null);
@@ -370,7 +371,7 @@ function encodedSize(value: Record<string, unknown>): number {
 export async function replayPolicyCard(client: PmClient, value: unknown): Promise<{ card: PolicyCard; results: readonly PolicyCardEvidence[] }> {
   const candidate = object(value);
   if (encodedSize(candidate) > POLICY_CARD_MAX_BYTES) refuse("card_limit");
-  const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
+  const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
   const subject = canonicalizeIdentifier(identity(candidate.subject), prefix);
   const selection = candidate.selection;
   if (selection !== null && typeof selection !== "number") refuse("card_invalid");
@@ -423,7 +424,7 @@ async function persistPolicyCard(client: PmClient, card: PolicyCard): Promise<vo
 }
 /** Publish a separate explanation for each proposed candidate as well as the shared phase outcome. */
 export async function recordRecursivePolicyCards(client: PmClient, subject: string): Promise<void> {
-  const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
+  const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
   const item = (await readCompleteLoopItem(client, subject)).item;
   const value = source(item, prefix).value;
   const proposals = value.configs ?? value.recipes;

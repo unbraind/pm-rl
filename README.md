@@ -798,3 +798,39 @@ pm rl policy-card adopt --file card.json --json
 ```
 
 Save the JSON result's unwrapped `details` as `card.json`. Cards contain scope and policy digests, allowed explanation actions, numeric limits, regression diagnostics and exact replayable evidence references. They omit training examples, policy parameters and credentials. Adoption checks the complete ancestry to the root, including every retained card and its evidence. Policy identity binds content-addressed artifacts plus configuration; unfitted proposals use a separate proposal digest. Transient read errors remain retryable and leave the programme resumable. Missing provenance blocks adoption checks; a card grants no execution authority. Recursive candidates, proposals and promotion outcomes retain cards automatically, so later improvers can inspect earlier wins and losses. These commands work without Git. See the [SDK, format, refusals and public-copy evidence](docs/policy-cards.md).
+
+### Identifier and state-path boundaries
+
+All SDK and CLI item references pass the shared `identifier` schema before SDK
+use. Native item aliases are resolved by the SDK, including configured prefixes;
+creation retains the SDK's alphabet and item-id rules. Package identifiers use
+Unicode letters/numbers/combining marks, dots, underscores and hyphens, bounded to
+200 UTF-8 bytes. A leading `#` is an SDK item-reference alias. `.`, `..`, empty or
+padded values, whitespace, separators, NUL, percent encoding and drive/absolute
+paths refuse; identifiers are never trimmed, decoded or truncated. Human prose,
+explicit input/output directory roots retain their separate contracts. Score
+contexts also admit exact `sha256:` plus 64 lowercase hex digits (optionally
+SDK-prefixed); this schema variant never admits a digest as a path component or
+native item identifier. File components use the same schema with a 255-byte filename limit.
+Unicode package lease/component names work; native item creation remains subject
+to the SDK's own rules.
+
+`statePath` constructs package-owned locks, cleanup gates, checkpoints, artifact
+and ledger files, trainer staging, datasets and temporary filenames under an
+explicit root. It resolves the result, checks confinement, and rejects symlinked
+ancestors, roots and leaves (including dangling links). Git metadata discovery
+and explicit filesystem locations establish roots; they are never identifier
+components. Delayed effects and cleanup recheck their paths. State refusals have
+codes `rl_identifier_invalid` or `rl_state_path_invalid` and a `required` remedy:
+use the documented identifier or restore ordinary state directories. Shorten
+identifiers further when their derived item/filename would exceed these bounds.
+
+Evaluation dependencies are validated before acquiring even the outer lease and
+use SDK-normalized item identities for their native locks. Lock release delegates
+to the SDK's token check inside its cleanup lease; a successor's lock is retained.
+Recovery expires only the observed open inode/token and delegates stale removal
+to that native protocol. A symlinked state tree must be repaired before retrying.
+The seeded security property exercises 500 sequences on a standalone tracker,
+with external tree-hash tripwires, the reported expired review-lock traversal,
+valid prefixes and Unicode component names, invalid identifier forms, symlinked
+roots/directories/leaves/cleanup gates, and a peer replacing a lease.

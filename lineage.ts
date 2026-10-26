@@ -1,3 +1,4 @@
+import { identifier } from "./state-boundary.ts";
 import { parseBoundedJson } from "./tracker-record.ts";
 /**
  * @module pm-rl/lineage
@@ -101,10 +102,13 @@ export interface GenerationSpec {
 }
 
 /** Resolve tracker aliases and case before identity comparison, ordering, deduplication or hashing. */
-export function canonicalizeIdentifier(id: string, prefix: string): string { return normalizeItemId(id, prefix); }
+export function canonicalizeIdentifier(id: string, prefix: string): string { return identifier(normalizeItemId(identifier(id), identifier(prefix))); }
+
+/** Resolve an Environment alias or a content-addressed dataset context without treating a digest as a filename. */
+export function canonicalizeEvaluationContext(context: string, prefix: string): string { return identifier(normalizeItemId(identifier(context, "context"), identifier(prefix)), "context"); }
 
 /** Resolve the Environment reference while retaining objective, seed and artifact label domains. */
-export function canonicalizeScoreRecord(score: ScoreRecord, prefix: string): ScoreRecord { return { ...score, evaluation_context: canonicalizeIdentifier(score.evaluation_context, prefix) }; }
+export function canonicalizeScoreRecord(score: ScoreRecord, prefix: string): ScoreRecord { return { ...score, evaluation_context: canonicalizeEvaluationContext(score.evaluation_context, prefix) }; }
 
 /** Canonicalize only tracker references; artifact digests and arbitrary training labels retain their own domains. */
 export function canonicalizeGenerationSpec(spec: GenerationSpec, prefix: string): GenerationSpec {
@@ -192,27 +196,7 @@ export interface LineageView {
   readonly ancestries: readonly LineageAncestry[];
 }
 
-/**
- * Require a string field to be present and, when checked, non-empty, and return
- * it **trimmed**.
- *
- * Returning the trimmed value is a correctness requirement, not a convenience.
- * The fields read through this helper are identities — environment ids,
- * evaluation contexts, seed sets — and every consumer compares them by strict
- * equality. {@link findContaminationPath} in particular decides whether a
- * candidate's training data reaches the held-out environment by comparing those
- * strings directly. Returning the raw value let `" env-eval "` parse and then
- * never match `"env-eval"`, so the contamination refusal passed for a candidate
- * it was supposed to stop. An identity comparison must not depend on
- * surrounding whitespace.
- *
- * @param record - The parsed JSON object to read from.
- * @param key - Field name to read.
- * @param source - Human-readable label naming the document, used in errors.
- * @param required - When true, a missing or blank value is refused.
- * @returns The trimmed value, or `""` when absent and not required.
- * @throws When the field is required and is absent, non-string, or blank.
- */
+/** Read a label, validating raw item and context references before any label whitespace normalization. */
 function asString(record: Record<string, unknown>, key: string, source: string, required = true): string {
   const value = record[key];
   if (typeof value !== "string") {
@@ -220,6 +204,7 @@ function asString(record: Record<string, unknown>, key: string, source: string, 
     return "";
   }
   const normalized = value.trim();
+  if (normalized.length > 0 && (key === "environment_version" || key === "evaluation_context")) identifier(value, key === "evaluation_context" ? "context" : "item");
   if (required && normalized.length === 0) expectedFail(`${source} requires a non-empty ${key}.`, `empty_${key}`);
   return normalized;
 }
@@ -300,6 +285,7 @@ export function parseGenerationSpec(text: string, source: string): GenerationSpe
   if (collectionRuns.some((run) => run.length === 0)) {
     expectedFail(`${source} requires every collection run id to be a non-empty identity.`, "empty_collection_run");
   }
+  collectionRunsRaw.forEach((run) => identifier(run));
   const trainingConfig = record["training_config"] ?? {};
   const environmentVersion = asString(record, "environment_version", source, false);
   const rewardSpecVersion = asString(record, "reward_spec_version", source, false);
@@ -315,12 +301,9 @@ export function parseGenerationSpec(text: string, source: string): GenerationSpe
   if (parentRaw !== null && typeof parentRaw !== "string") {
     expectedFail(`${source} requires parent to be a string or null.`, "invalid_parent");
   }
-  // A blank or whitespace-only parent string normalizes to null BEFORE the
-  // seed-with-parent check: a seed body that carries `parent: "   "` is
-  // equivalent to one that omits the key, not one that declares a parent.
-  // Non-string validation is already complete above; only string values reach
-  // here, and a non-blank string is kept as-is for trimming at the return.
-  const parent = typeof parentRaw === "string" && parentRaw.trim().length === 0 ? null : parentRaw;
+  // Null denotes an absent parent; supplied identifiers must validate without trimming.
+  if (typeof parentRaw === "string") identifier(parentRaw);
+  const parent = parentRaw;
   const seed = record["seed"] === true;
   if (seed && parent !== null) {
     expectedFail(`${source} declares seed but has a parent.`, "seed_with_parent");
@@ -339,19 +322,12 @@ export function parseGenerationSpec(text: string, source: string): GenerationSpe
   if (approvalRaw !== null && typeof approvalRaw !== "string") {
     expectedFail(`${source} requires approval to be a string or null.`, "invalid_approval");
   }
-  // Normalized at the parse boundary for the same reason as `parent` below: the
-  // approval is an identity compared by strict equality in
-  // countPromotedUnderApproval, which is what bounds the recursive promotion
-  // budget. A promoted record storing `" approval-a "` matches no approval id,
-  // so it consumes none of approval-a's budget while still being promoted — the
-  // budget is bypassed by padding alone. An empty approval is the same bypass
-  // without the padding: it is non-null, so it satisfies the promotion-evidence
-  // invariant below, and it equals no approval id. Reject it rather than store
-  // an identity that names nothing.
+  // Blank approvals remain a domain refusal; nonblank raw identifiers must pass the shared schema.
   const approval = approvalRaw === null ? null : approvalRaw.trim();
   if (approval !== null && approval.length === 0) {
     expectedFail(`${source} requires approval to be a non-empty identity or null.`, "empty_approval");
   }
+  if (approvalRaw !== null) identifier(approvalRaw);
   const proxyScore = record["proxy_score"] === null || record["proxy_score"] === undefined ? null : parseScoreRecord(record["proxy_score"], `${source} proxy_score`);
   const heldOutScore = record["held_out_score"] === null || record["held_out_score"] === undefined ? null : parseScoreRecord(record["held_out_score"], `${source} held_out_score`);
   // Normalize an absent gap to null BEFORE the invariant check below. The
@@ -405,12 +381,7 @@ export function parseGenerationSpec(text: string, source: string): GenerationSpe
     training_config: trainingConfig as JsonValue,
     environment_version: environmentVersion,
     reward_spec_version: rewardSpecVersion,
-    // Trimmed before storing, not only before validating. The stored value is
-    // compared by strict equality for ancestry lookup and head exclusion, so a
-    // padded `" gen-a "` would fail to resolve its parent AND fail to exclude
-    // `gen-a` from the head set — the same padded-identity class as the
-    // contamination gate bypass.
-    parent: typeof parent === "string" ? parent.trim() : null,
+    parent,
     seed,
     promoted,
     approval,

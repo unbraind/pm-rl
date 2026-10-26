@@ -125,7 +125,7 @@ test("two Git worktree processes share launch authority and merge one job's arti
   const loser = launch(join(second, ".agents/pm"), approval, "run"); assert.ok(JSON.stringify((await loser.result).messages).includes("loop_controller_active"));
   winner.child.send("continue"); assert.equal((await winner.result).code, 0);
   const alias = join(root, "alias"); symlinkSync(root, alias, process.platform === "win32" ? "junction" : "dir");
-  const sameWorktree = launch(join(alias, ".agents/pm"), approval, "run"); assert.equal((await sameWorktree.result).code, 0);
+  const sameWorktree = launch(join(alias, ".agents/pm"), approval, "run"); const aliased = await sameWorktree.result; assert.notEqual(aliased.code, 0); assert.ok(JSON.stringify(aliased.messages).includes("rl_state_path_invalid"));
   rmSync(alias);
   const late = launch(join(second, ".agents/pm"), approval, "run"); assert.ok(JSON.stringify((await late.result).messages).includes("loop_launch_elsewhere"));
   const authorityGet = PmClient.prototype.get;
