@@ -52,7 +52,6 @@
 - The release workflow falls back to an unattested npm publish and exits zero ([pm-rl-t43i](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-t43i.toon))
 - Decoding stdin chunk by chunk corrupts a multi-byte character split across a chunk boundary ([pm-rl-irmn](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-irmn.toon))
 - Coverage gate diverges on the runner: readFileSync(0) on stdin throws EAGAIN locally but returns empty on the CI pipe ([pm-rl-avwn](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-avwn.toon))
-- Resolve CodeRabbit round-2 findings on PR 16 ([pm-rl-weum](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-weum.toon))
 - Remove ignored manifest metadata and adopt pm CLI/SDK 2026.8.20 ([pm-rl-tvo2](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-tvo2.toon))
 - The tolerant lineage walk tolerated an unreadable body but not an unresolvable ancestor ([pm-rl-1f1h](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-1f1h.toon))
 - Review round 15: a pre-lock budget seeded the receipt, and four traversal and parsing defects ([pm-rl-g3k0](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-g3k0.toon))
@@ -67,9 +66,7 @@
 - asString returns the untrimmed value, so a padded identity bypasses the contamination gate ([pm-rl-k5xd](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-k5xd.toon))
 - Fix release publish-before-protected-main-push ordering ([pm-rl-wlj0](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-wlj0.toon))
 - The shared script launcher skipped every gate it guarded when a path could not be resolved ([pm-rl-swa0](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-swa0.toon))
-- Converge changelog generation and verification on replace mode ([pm-rl-yjqx](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-yjqx.toon))
 - Resolve CodeRabbit PR 7 review findings across the release gates ([pm-rl-3tdy](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-3tdy.toon))
-- Release bot identity was absent from the allowlist, so the first release would break the audit permanently ([pm-rl-rgt4](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-rgt4.toon))
 - Release gate omits operational scripts, full-history identities, lint, and duplication ([pm-rl-zcqf](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-zcqf.toon))
 - Make fallback-author coverage assert actual PM client wiring ([pm-rl-q7xw](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-q7xw.toon))
 - Gate durable PM project health in CI on pm CLI 2026.8.6 ([pm-rl-e0vc](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-e0vc.toon))
@@ -86,7 +83,6 @@
 - 100/100/100 coverage and full docstring coverage for pm-rl ([pm-rl-fpon](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-fpon.toon))
 - Gate recursive proposals with paired held-out baseline evidence ([pm-rl-baseline](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-baseline.toon))
 - Certify pm-rl on PM CLI/SDK 2026.10.4 and consolidate pending dependency updates ([pm-rl-hncb](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-hncb.toon))
-- Keep the HTTP receipt crash drill within its unchanged timeout ([pm-rl-bi4v](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-bi4v.toon))
 - Auto-merge green Dependabot updates and group the pm toolchain into one daily PR ([pm-rl-3q1e](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-3q1e.toon))
 - Certify pm CLI 2026.9.23 and adopt the guarded pm-ops merge-driver launcher ([pm-rl-nerp](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-nerp.toon))
 - Certify pm CLI 2026.9.17 ([pm-rl-jlom](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-jlom.toon))
@@ -103,3 +99,9 @@
 - Promotion refuses on contamination rather than warning about it ([pm-rl-gyrj](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/decisions/pm-rl-gyrj.toon))
 - Mark stale in_progress items as blocked to clear stale_in_progress health warning ([pm-rl-d3ve](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-d3ve.toon))
 - The changelog heading records the day it was generated, so the gate fails every following day ([pm-rl-yxhe](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-yxhe.toon))
+
+### Closed
+
+- Closed: Resolve CodeRabbit round-2 findings on PR 16 ([pm-rl-weum](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-weum.toon))
+- Closed: Converge changelog generation and verification on replace mode ([pm-rl-yjqx](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-yjqx.toon))
+- Closed: Release bot identity was absent from the allowlist, so the first release would break the audit permanently ([pm-rl-rgt4](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-rgt4.toon))
