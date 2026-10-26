@@ -1,4 +1,4 @@
-import { identifier } from "./state-boundary.ts";
+import { canonicalItemIdentifier, identifier } from "./state-boundary.ts";
 import { parseBoundedJson } from "./tracker-record.ts";
 /**
  * @module pm-rl/lineage
@@ -102,7 +102,7 @@ export interface GenerationSpec {
 }
 
 /** Resolve tracker aliases and case before identity comparison, ordering, deduplication or hashing. */
-export function canonicalizeIdentifier(id: string, prefix: string): string { return identifier(normalizeItemId(identifier(id), identifier(prefix))); }
+export function canonicalizeIdentifier(id: string, prefix: string): string { return canonicalItemIdentifier(id, prefix); }
 
 /** Resolve an Environment alias or a content-addressed dataset context without treating a digest as a filename. */
 export function canonicalizeEvaluationContext(context: string, prefix: string): string { return identifier(normalizeItemId(identifier(context, "context"), identifier(prefix)), "context"); }
@@ -207,7 +207,7 @@ function asString(record: Record<string, unknown>, key: string, source: string, 
   if (value !== "" && (key === "base_checkpoint" || key === "policy")) identifier(value, "artifact");
   if (normalized.length > 0 && (key === "environment_version" || key === "evaluation_context")) identifier(value, key === "evaluation_context" ? "context" : "item");
   if (required && normalized.length === 0) expectedFail(`${source} requires a non-empty ${key}.`, `empty_${key}`);
-  return normalized;
+  return normalized.length > 0 && (key === "environment_version" || key === "evaluation_context") ? identifier(value, key === "evaluation_context" ? "context" : "item") : normalized;
 }
 
 /**
@@ -304,7 +304,7 @@ export function parseGenerationSpec(text: string, source: string): GenerationSpe
   }
   // Null denotes an absent parent; supplied identifiers must validate without trimming.
   if (typeof parentRaw === "string") identifier(parentRaw);
-  const parent = parentRaw;
+  const parent = typeof parentRaw === "string" ? identifier(parentRaw) : parentRaw;
   const seed = record["seed"] === true;
   if (seed && parent !== null) {
     expectedFail(`${source} declares seed but has a parent.`, "seed_with_parent");

@@ -1,4 +1,4 @@
-import { acquireStateLock, statePath, identifier, checkedStateFile, identifierClient, commitStateTransaction } from "./state-boundary.ts";
+import { canonicalIdentifier, canonicalProgrammeId, canonicalProgrammeRequest, acquireStateLock, statePath, identifier, checkedStateFile, identifierClient, commitStateTransaction } from "./state-boundary.ts";
 import type { HistoryResult } from "@unbrained/pm-cli/sdk/query";
 import { decodeTrackerRecord, skippedTrackerRecords, parseBoundedJson } from "./tracker-record.ts";
 /**
@@ -157,7 +157,7 @@ export {
 export { exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordRecursivePolicyCards, recordPolicyCard, POLICY_CARD_MAX_BYTES, type PolicyCard, type PolicyCardEvidence, type PolicyCardRefusal } from "./policy-card.ts";
 export { parseShadowDeployment, shadowInputDigest, registerShadowDeployment, observeShadow, compareShadow, type ShadowPolicy, type ShadowDeployment, type ShadowInput, type ShadowObservation, type ShadowReport, type ShadowRefusal } from "./shadow.ts";
 export { recordSequentialEvaluation, readSequentialEvaluation, type SequentialStopping, type SequentialBoundary, type SequentialEvaluationResult, type SequentialEvaluationSkip } from "./sequential-evaluation.ts";
-export { parseEvaluationPlan, evaluationPlanId, evaluationComparison, registerEvaluationPlan, readEvaluationPlan, evaluatePlan, recordPlanEvaluation, enforceEvaluationPlan, type EvaluationPlan, type EvaluationMember, type EvaluationObservation, type EvaluationPlanReport, type RegisteredEvaluationPlan, type EvaluationPlanRefusal } from "./evaluation-plan.ts";
+export { parseEvaluationPlan, resolveEvaluationPlan, evaluationPlanId, evaluationComparison, registerEvaluationPlan, readEvaluationPlan, evaluatePlan, recordPlanEvaluation, enforceEvaluationPlan, type EvaluationPlan, type EvaluationMember, type EvaluationObservation, type EvaluationPlanReport, type RegisteredEvaluationPlan, type EvaluationPlanRefusal } from "./evaluation-plan.ts";
 
 export { decidePromotion, hoeffdingEpsilon, parsePromotionCriterion, parsePromotionEvidence, type PromotionCriterion, type PromotionDecision, type PromotionEvidence, type PromotionGateInput } from "./promotion.ts";
 export { recipeArtifact, parseRecipe, seededRecipes, INITIAL_RECIPE, RECIPE_BOUNDS, type Recipe, type RecipeKnobs } from "./recipe.ts";
@@ -356,7 +356,7 @@ import {
 } from "./systemone.ts";
 
 import { lmProcessInput, processLmTraining, verifyLmProcessJob } from "./process-lm.ts";
-import { executeProcessTrainer, listProcessJobs, readProcessJob, processJobId, verifiedProcessPolicy, transitionProcessJob, verifyProcessJobBudget, type ProcessJob, type ProcessJobState, type TrainerPolicy } from "./process.ts";
+import { controllerCallback, executeProcessTrainer, listProcessJobs, readProcessJob, processJobId, verifiedProcessPolicy, transitionProcessJob, verifyProcessJobBudget, type ProcessJob, type ProcessJobState, type TrainerPolicy } from "./process.ts";
 export { executeProcessTrainer, reserveProcessJob, readProcessJob, processJobId, processStaging, parseResources, parseProcessAdapter, validateProcessCompletion, referenceTrainerArgv, type ProcessJob, type ProcessCompletion, type ProcessAdapter, type ProcessInput, type Resources } from "./process.ts";
 
 import { banditCheckpoint, type BanditCheckpoint, type BanditGeneration } from "./bandit.ts";
@@ -661,13 +661,13 @@ function parseJsonObject(text: string, source: string, code: string, exitCode: n
 }
 
 /** Require non-empty string values for a domain specification's identity fields. */
-function requireJsonStrings(record: Readonly<Record<string, JsonValue>>, keys: readonly string[], source: string, codePrefix: string, exitCode: number = EXIT_CODE.USAGE): void {
+function requireJsonStrings(record: Record<string, JsonValue>, keys: readonly string[], source: string, codePrefix: string, exitCode: number = EXIT_CODE.USAGE): void {
   for (const key of keys) {
     const value = record[key];
     if (typeof value !== "string" || value.trim().length === 0) {
       fail(`${source} requires a non-empty string ${key}.`, `${codePrefix}_${key}`, exitCode);
     }
-    if (key.endsWith("_id")) identifier(value);
+    if (key.endsWith("_id")) record[key] = identifier(value);
     if (key === "checkpoint") identifier(value, "artifact");
   }
 }
@@ -2734,7 +2734,7 @@ interface ControllerLease {
   /** Releases the workspace lock; safe to call exactly once. */
   readonly release: () => Promise<void>;
   /** Serialize effects with takeover and reject a displaced controller. */
-  readonly guard: <T>(operation: () => Promise<T>) => Promise<T>;
+  readonly guard: <T>(operation: () => Promise<T>, cleanup?: boolean) => Promise<T>;
   /** The seed item id whose claim records durable controller ownership. */
   readonly seedId: string;
   /** The verified birth time captured before acquiring this controller's locks. */
@@ -2749,12 +2749,12 @@ export const LOOP_CANCELLED_EXIT_CODE = 130;
 
 /** Derive the workspace lock id of one loop's controller lease. */
 export function loopLeaseLockId(id: string): string {
-  return `pm-rl-loop-${identifier(id)}`;
+  return `pm-rl-loop-${canonicalIdentifier(id)}`;
 }
 
 /** Read a lease; missing is null, while unreadable or malformed records remain ambiguous. */
 async function readLeaseRecord(pmRoot: string, lockId: string): Promise<Record<string, unknown> | null> {
-  const file = statePath(pmRoot, "locks", `${identifier(lockId)}.lock`);
+  const file = statePath(pmRoot, "locks", `${canonicalIdentifier(lockId)}.lock`);
   try {
     const parsed: unknown = parseBoundedJson(await readFile(file, "utf8"));
     if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return {};
@@ -2872,7 +2872,7 @@ async function expireControllerRecord(root: string, id: string, record: Record<s
 
 /** Recover only demonstrably dead process-owned SDK transaction locks, then publish the new writer's birth identity. */
 export async function commitProcessTransaction(options: CommitWorkspaceTransactionOptions): Promise<void> {
-  identifier(options.transactionId); options.steps.forEach((step) => identifier(step.id));
+  options = { ...options, transactionId: canonicalIdentifier(options.transactionId), steps: options.steps.map((step) => ({ ...step, id: canonicalIdentifier(step.id) })) };
   await expireDeadControllerMutex(options.pmRoot, "sdk-workspace-transaction", undefined);
   const start = loopProcessStartTime(process.pid);
   if (start === null) fail("Cannot establish process transaction identity.", "process_identity_unavailable");
@@ -2887,7 +2887,7 @@ export async function commitProcessTransaction(options: CommitWorkspaceTransacti
 
 /** Serialize standalone SDK adapter execution on the same owner-verified mutex used by controller phases. */
 export async function withProcessJobFence<T>(coordinates: WorkspaceCoordinates, id: string, execute: () => Promise<T>): Promise<T> {
-  identifier(id); statePath(coordinates.pmRoot);
+  id = canonicalIdentifier(id); statePath(coordinates.pmRoot);
   const start = loopProcessStartTime(process.pid);
   if (start === null) fail("Cannot establish trainer owner identity.", "process_identity_unavailable");
   const release = await controllerMutex(coordinates.pmRoot, id, coordinates.author, start, undefined);
@@ -2896,6 +2896,7 @@ export async function withProcessJobFence<T>(coordinates: WorkspaceCoordinates, 
 
 /** Acquire the SDK phase mutex; only proven dead holders are expired for SDK cleanup. */
 async function controllerMutex(root: string, id: string, author: string, start: string, io: LoopProcessIdentityIO | undefined, waitMs = 5000): Promise<() => Promise<void>> {
+  id = canonicalIdentifier(id);
   await expireDeadControllerMutex(root, id, io);
   const owner = `pm-rl-phase:${hashJson(hostname())}:${Buffer.from(start).toString("base64url")}:${author}`;
   const release = await acquireStateLock(root, id, 1_000_000_000, owner, false, false, waitMs);
@@ -2972,7 +2973,7 @@ export function controllerAuthorityRoot(pmRoot: string, ceiling = process.env["G
  * @throws An expected `loop_controller_active` refusal when a live controller holds the lease.
  */
 async function acquireControllerLease(client: PmClient, coordinates: WorkspaceCoordinates, request: RlLoopRequest, seedId: string, recovery?: { readonly command: string; readonly auditItem: string }): Promise<ControllerLease> {
-  const id = request.id;
+  const id = canonicalIdentifier(request.id);
   // Git worktrees share the repository metadata, so the SDK's lease and
   // launch journal are shared even when the tracked PM roots diverge.
   const authorityRoot = controllerAuthorityRoot(coordinates.pmRoot);
@@ -3036,8 +3037,10 @@ async function acquireControllerLease(client: PmClient, coordinates: WorkspaceCo
     await releaseRecovery();
   }
   let activePhases = 0;
+  let heartbeatFailure: unknown;
   /** Fence every effect and completion receipt against controller takeover. */
-  const guard = async <T>(operation: () => Promise<T>): Promise<T> => {
+  const guard = async <T>(operation: () => Promise<T>, cleanup = false): Promise<T> => {
+    if (!cleanup && heartbeatFailure !== undefined) throw heartbeatFailure;
     const observed = await readLeaseRecord(authorityRoot, lockId);
     // A missing or empty captured token can never fence an effect, even if the observed record is equally empty.
     if (observed === null || typeof token !== "string" || token.length === 0 || observed["token"] !== token) fail(`Loop ${id} controller lease was replaced; this controller cannot advance.`, "loop_lease_lost", EXIT_CODE.CONFLICT);
@@ -3087,12 +3090,27 @@ async function acquireControllerLease(client: PmClient, coordinates: WorkspaceCo
     await release();
     throw error;
   }
-  let heartbeat: Promise<void> = Promise.resolve();
-  const timer = setInterval(() => {
-    if (activePhases === 0) heartbeat = guard(async () => undefined).catch(() => undefined);
-  }, LOOP_LEASE_TTL_SECONDS * 1000 / 3);
+  const heartbeats = new Set<Promise<void>>();
+  /** Retain the first observed background failure for the controller's awaited cleanup path. */
+  const heartbeatFailed = (error: unknown): void => {
+    heartbeatFailure ??= isPmCliExpectedError(error) ? error : createPmCliExpectedError("Controller heartbeat failed; resume from durable state after restoring tracker access.", { exitCode: EXIT_CODE.CONFLICT, context: { code: "loop_callback_failed", required: "Restore tracker access and resume with the canonical loop id." } });
+  };
+  const timer = setInterval(controllerCallback("heartbeat", heartbeatFailed, async () => {
+    if (activePhases === 0) {
+      const pending = guard(async () => undefined).catch(heartbeatFailed); heartbeats.add(pending);
+      try { await pending; } finally { heartbeats.delete(pending); }
+    }
+  }), LOOP_LEASE_TTL_SECONDS * 1000 / 3);
   timer.unref();
-  return { release: async () => { clearInterval(timer); await heartbeat; await release(); }, guard, seedId, processStartTime: ownStart, author: coordinates.author };
+  return { release: async () => {
+    clearInterval(timer); await Promise.allSettled([...heartbeats]);
+    try {
+      if (heartbeatFailure !== undefined) {
+        await guard(() => appendCommentOnce(client, recovery?.auditItem ?? seedId, `Loop ${id} terminal callback failure: ${isPmCliExpectedError(heartbeatFailure) ? String(heartbeatFailure.context.code) : "loop_callback_failed"}; resume after restoring tracker access.`), true).catch(() => undefined);
+      }
+    } finally { await release(); }
+    if (heartbeatFailure !== undefined) throw heartbeatFailure;
+  }, guard, seedId, processStartTime: ownStart, author: coordinates.author };
 }
 
 /**
@@ -3129,7 +3147,8 @@ async function acquireControllerLease(client: PmClient, coordinates: WorkspaceCo
  * @returns The bounded terminal report of the executed loop.
  * @throws An expected `loop_cancelled` error when the request's signal aborted.
  */
-export async function runRlLoop(client: PmClient, coordinates: WorkspaceCoordinates, request: RlLoopRequest): Promise<RlLoopReport> {
+export async function runRlLoop(client: PmClient, coordinates: WorkspaceCoordinates, rawRequest: RlLoopRequest): Promise<RlLoopReport> {
+  const request = await canonicalProgrammeRequest(client, rawRequest);
   let programme: LoopProgramme;
   try {
     let configuration = request.config;
@@ -3301,7 +3320,7 @@ async function prepareLoopController(client: PmClient, coordinates: WorkspaceCoo
 
 /** Release the controller lease: the seed claim first, then the workspace lock. */
 async function releaseControllerLease(client: PmClient, prepared: LoopPrepared): Promise<void> {
-  await prepared.lease.guard(() => identifierClient(client).release(prepared.lease.seedId)).catch(() => undefined);
+  await prepared.lease.guard(() => identifierClient(client).release(prepared.lease.seedId), true).catch(() => undefined);
   await prepared.lease.release();
 }
 
@@ -3445,11 +3464,13 @@ async function durableLoopStep(client: PmClient, lease: ControllerLease, id: str
 export type RlDurableStep = (key: string, input: JsonValue, execute: () => Promise<JsonValue>) => Promise<JsonValue>;
 
 /** Reuse the inner lease and fenced receipts with the real approval, supported recovery command and audited operator override. */
-export async function withRlController<T>(client: PmClient, coordinates: WorkspaceCoordinates, request: Pick<RlLoopRequest, "id" | "approval" | "forceTakeover"> & { readonly recoveryCommand: string }, signal: AbortSignal, execute: (step: RlDurableStep) => Promise<T>): Promise<T> {
+export async function withRlController<T>(client: PmClient, coordinates: WorkspaceCoordinates, rawRequest: Pick<RlLoopRequest, "id" | "approval" | "forceTakeover"> & { readonly recoveryCommand: string }, signal: AbortSignal, execute: (step: RlDurableStep) => Promise<T>): Promise<T> {
+  const request = await canonicalProgrammeRequest(client, rawRequest);
   const { id } = request;
   const lease = await acquireControllerLease(client, coordinates, { ...request, config: null, signal }, `${id}-step-programme`, { command: request.recoveryCommand, auditItem: request.approval });
   try {
     return await execute(async (key, input, operation) => {
+      key = canonicalIdentifier(key);
       signal.throwIfAborted();
       const stored = await durableLoopStep(client, lease, id, key, input, async () => await encodeCheckpointArtifacts(coordinates.pmRoot, `step:${id}:${key}`, await operation(), async (value) => {
         const receipt = { format: "pm-rl/loop-step/1", key: `${id}-step-${key}`, input: hashJson(input), state: "complete", result: value, digest: hashJson(value as JsonValue) };
@@ -4293,6 +4314,7 @@ async function completeGenerationEvidence(client: PmClient, programme: Exclude<L
  * @throws An expected NOT_FOUND error when the loop's seed generation does not exist.
  */
 export async function rlLoopStatus(client: PmClient, id: string, pmRoot?: string): Promise<RlLoopStatusReport> {
+  id = await canonicalProgrammeId(client, id);
   const seed = await getTypedItem(client, `${id}-seed`, "Generation");
   const configuration = storedLoopConfiguration(seed);
   const programme = parseLoopProgramme(configuration as JsonValue);
@@ -4408,7 +4430,8 @@ function statusOf(report: RlLoopGenerationReport, phase: RlLoopGenerationStatus[
  * @returns The bounded terminal report of the resumed loop.
  * @throws An expected NOT_FOUND error when the loop's seed generation does not exist.
  */
-export async function resumeRlLoop(client: PmClient, coordinates: WorkspaceCoordinates, request: Omit<RlLoopRequest, "config">): Promise<RlLoopReport> {
+export async function resumeRlLoop(client: PmClient, coordinates: WorkspaceCoordinates, rawRequest: Omit<RlLoopRequest, "config">): Promise<RlLoopReport> {
+  const request = await canonicalProgrammeRequest(client, rawRequest);
   const seed = await getTypedItem(client, `${request.id}-seed`, "Generation");
   const configuration = storedLoopConfiguration(seed);
   return runRlLoop(client, coordinates, { ...request, config: configuration as JsonValue });
@@ -4566,7 +4589,7 @@ function installCancellationSignals(): { controller: AbortController; handlers: 
   const controller = new AbortController();
   const handlers: Array<[NodeJS.Signals, () => void]> = [];
   for (const name of ["SIGINT", "SIGTERM"] as const) {
-    const handler = (): void => { controller.abort(); };
+    const handler = controllerCallback("signal", (error) => { controller.abort(error); }, () => { controller.abort(); });
     handlers.push([name, handler]);
     process.once(name, handler);
   }

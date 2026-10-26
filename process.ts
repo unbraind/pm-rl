@@ -1,4 +1,4 @@
-import { statePath, identifierClient, checkedStateFile, identifier } from "./state-boundary.ts";
+import { canonicalIdentifier, canonicalProgrammeId, canonicalNamespaceIdentifier, statePath, identifierClient, checkedStateFile, identifier } from "./state-boundary.ts";
 import { decodeTrackerRecord, hasTrackerIdentity, parseBoundedJson } from "./tracker-record.ts";
 /** Durable argv-only trainer execution, staged receipts and approved resource reservations. */
 import { spawn } from "node:child_process";
@@ -10,7 +10,7 @@ import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
 import type { WorkspaceTransactionStep, WorkspaceTransactionTransitionContext } from "@unbrained/pm-cli/sdk";
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
-import { EXIT_CODE, isPmCliExpectedError, certifyCompleteListResult, normalizeItemId } from "@unbrained/pm-cli/sdk/runtime";
+import { EXIT_CODE, createPmCliExpectedError, isPmCliExpectedError, certifyCompleteListResult, normalizeItemId } from "@unbrained/pm-cli/sdk/runtime";
 import { banditCheckpoint, MAX_BANDIT_FIT_STEPS, type BanditCheckpoint, type BanditExample, type BanditObservation } from "./bandit.ts";
 import { canonicalJson, commitProcessTransaction, loopProcessStartTime, withProcessJobFence, readCompleteLoopItem, type JsonValue } from "./index.ts";
 import { expectedFail } from "./refuse.ts";
@@ -180,7 +180,7 @@ export function processJobId(input: TrainerInput, argv: readonly string[] = refe
 }
 /** Resolve this job's retained evidence directory under the tracker. */
 export function processStaging(root: string, id: string): string {
-  return statePath(root, "runtime", "pm-rl", "jobs", id);
+  return statePath(root, "runtime", "pm-rl", "jobs", canonicalIdentifier(id));
 }
 /** Stable job coordinates and protocol markers distinguish process records before body parsing. */
 const PROCESS_RECORD = { type: "Task", tag: "rl-process-job", format: "pm-rl/process-job/1" };
@@ -199,6 +199,7 @@ export function readProcessJob<P extends TrainerPolicy>(client: PmClient, id: st
 export function readProcessJob(client: PmClient, id: string): Promise<ProcessJob<TrainerPolicy> | null>;
 /** Read metadata without a root, or hydrate a typed checkpoint using explicit tracker coordinates. */
 export async function readProcessJob(client: PmClient, id: string, root?: string): Promise<ProcessJob<TrainerPolicy> | null> {
+  id = canonicalIdentifier(id);
   const item = await readCompleteLoopItem(client, id).catch((error: unknown) => {
     if (isPmCliExpectedError(error) && error.exitCode === EXIT_CODE.NOT_FOUND) return null;
     throw error;
@@ -207,14 +208,14 @@ export async function readProcessJob(client: PmClient, id: string, root?: string
   const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
   const namespace = processNamespace(prefix);
   const legacy = hasTrackerIdentity(item.item, PROCESS_RECORD.format, (key) => normalizeItemId(key, prefix));
-  let decoded = decodeTrackerRecord(client, item.item, { ...PROCESS_RECORD, namespace, legacy, valid: (row) => row.id === id });
+  let decoded = decodeTrackerRecord(client, item.item, { ...PROCESS_RECORD, namespace, legacy, valid: (row) => typeof row.id === "string" && normalizeItemId(canonicalIdentifier(row.id), prefix) === item.item.id });
   if (decoded === null) {
     if (!namespace(item.item.id) || !await knownProcessRecord(client, item.item.id, prefix)) return null;
     // A legacy tag edit cannot hide owned capacity; foreign originals remain skipped.
-    decoded = decodeTrackerRecord(client, item.item, { ...PROCESS_RECORD, namespace, legacy: true, valid: (row) => row.id === id });
+    decoded = decodeTrackerRecord(client, item.item, { ...PROCESS_RECORD, namespace, legacy: true, valid: (row) => typeof row.id === "string" && normalizeItemId(canonicalIdentifier(row.id), prefix) === item.item.id });
     if (decoded === null) expectedFail("Owned job envelope drifted.", "process_job_drift");
   }
-  const job = decoded as unknown as ProcessJob<TrainerPolicy>;
+  const job = { ...decoded, id: canonicalNamespaceIdentifier(String(decoded.id), prefix) } as unknown as ProcessJob<TrainerPolicy>;
   if (!["planned", "running", "materialized", "evaluated", "promoted", "failed", "cancelled", "invalidated"].includes(job.state)) expectedFail("Job identity or state drifted.", "process_job_drift");
   parseResources(job.allowance); parseResources(job.charge);
   if (job.completion !== null) {
@@ -280,7 +281,8 @@ export async function listProcessJobs(client: PmClient): Promise<ProcessJob<Trai
 }
 
 /** Reserve once under the workspace writer lock, counting every held or settled job on this approval. */
-export async function reserveProcessJob(client: PmClient, coordinates: ProcessCoordinates, id: string, input: TrainerInput, approval: string, allowance: Resources): Promise<ProcessJob<TrainerPolicy>> {
+export async function reserveProcessJob(client: PmClient, coordinates: ProcessCoordinates, rawId: string, input: TrainerInput, approval: string, allowance: Resources): Promise<ProcessJob<TrainerPolicy>> {
+  const id = await canonicalProgrammeId(client, rawId);
   const step: WorkspaceTransactionStep = {
     id: "reserve",
     async inspect() { return { state: await readProcessJob(client, id) === null ? "pending" : "applied" }; },
@@ -327,10 +329,11 @@ export async function transitionProcessJob<P extends TrainerPolicy>(client: PmCl
   return (await readProcessJob<P>(client, job.id, coordinates.pmRoot))!;
 }
 /** Measure retained flat staging files, skipping vanished entries and rejecting links or directories. */
-export function stagingBytes(directory: string): number {
+export function stagingBytes(directory: string, callback?: string): number {
   let bytes = 0;
-  for (const name of readdirSync(directory)) {
-    const stat = lstatSync(statePath(directory, name), { throwIfNoEntry: false });
+  const operation = <T,>(site: string, execute: () => T): T => callback === undefined ? execute() : callbackOperation(`${callback}.staging.${site}`, execute);
+  for (const name of operation("list", () => readdirSync(directory))) {
+    const stat = operation("stat", () => lstatSync(operation("path", () => statePath(directory, name)), { throwIfNoEntry: false }));
     if (stat === undefined) continue;
     if (!stat.isFile()) expectedFail("Staging contains an unsupported file or symbolic link.", "process_checkpoint_invalid");
     bytes += stat.size;
@@ -389,75 +392,103 @@ export function verifiedProcessPolicy<P extends TrainerPolicy>(job: ProcessJob<T
 export function stopTrainer(pid: number, start: string): void {
   if (loopProcessStartTime(pid) === start) process.kill(pid, "SIGKILL");
 }
-/** Launch a real child with bounded NDJSON, wall/storage polling and owner-checked cancellation. */
+/** Observe operation boundaries in real callback execution; tests may inject one failure without replacing SDK behavior. @internal */
+export const controllerCallbackIO: { before: (site: string) => void } = { before: () => undefined };
+/** Run one callback operation under the owning callback's error boundary. @internal */
+export function callbackOperation<T>(site: string, operation: () => T): T { controllerCallbackIO.before(site); return operation(); }
+/** Observe synchronous and asynchronous callback errors without throwing from event dispatch. @internal */
+export function controllerCallback<A extends unknown[]>(name: string, failure: (error: unknown) => void, operation: (...args: A) => void | Promise<void>): (...args: A) => void {
+  /** Failure sinks record the error before cleanup; dispatch must survive even a faulty sink. */
+  const report = (error: unknown): void => { try { failure(error); } catch { /* Never throw from event dispatch or a promise rejection handler. */ } };
+  return (...args) => {
+    try { controllerCallbackIO.before(`callback.${name}`); void Promise.resolve(operation(...args)).catch(report); }
+    catch (error) { report(error); }
+  };
+}
+/** Launch a real child with one stop/reap path for every setup, event, timer and stream failure. */
 export async function launchTrainer(directory: string, id: string, input: TrainerInput, allowance: Resources, argv: readonly string[], signal?: AbortSignal, artifactRoot = directory): Promise<void> {
+  id = canonicalIdentifier(id);
   const startedAt = Date.now();
   const started = performance.now();
   const child = spawn(argv[0], argv.slice(1), { cwd: directory, shell: false, stdio: ["pipe", "pipe", "pipe"] });
   let failure: unknown;
   let complete = false;
   let pending = "";
+  let reaped = false;
+  let stopping = false;
+  let timer: ReturnType<typeof setInterval> | undefined;
   const decoder = new StringDecoder("utf8");
   let outputBytes = 0;
   let measured = zeroResources();
-  let identity: string | null = null;
-  /** Preserve the first refusal while stopping only this child's verified identity. */
-  const refuse = (error: unknown): void => { failure ??= error; if (identity !== null) stopTrainer(child.pid!, identity); };
-  /** Enforce observed wall/storage and monotonic adapter reports while the child is alive. */
-  const poll = (): void => {
-    try {
-      if (signal?.aborted === true) expectedFail("Trainer cancelled; retained artifacts and settled reservation.", "process_cancelled");
-      if (performance.now() - started > allowance.wall_ms || stagingBytes(directory) > allowance.storage_bytes) expectedFail("Trainer exceeded wall or staging allowance.", "process_limit_exceeded");
-    } catch (error) { refuse(error); }
+  /** Preserve the first failure; the live ChildProcess handle owns stop authority before identity publication too. */
+  const refuse = (error: unknown): void => {
+    failure ??= error;
+    if (stopping || reaped || child.pid === undefined || child.exitCode !== null || child.signalCode !== null) return;
+    stopping = true;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try { if (callbackOperation("failure.kill", () => attempt === 1 ? process.kill(child.pid!, "SIGKILL") : child.kill("SIGKILL"))) return; }
+      catch { /* Retry owned-child cleanup after a transient native failure; close is always awaited. */ }
+    }
   };
-  const closed = new Promise<void>((resolve) => {
-    child.once("error", (error) => { failure ??= error; });
-    child.once("close", (code) => { pending += decoder.end(); if (code !== 0) failure ??= new Error("Trainer exited unsuccessfully."); resolve(); });
-  });
-  child.stdout.on("data", (chunk: Buffer) => {
-    try {
+  /** The watchdog and abort handler share the same observed failure path. */
+  const watchdog = (): void => {
+    if (signal?.aborted === true) expectedFail("Trainer cancelled; retained artifacts and settled reservation.", "process_cancelled");
+    if (performance.now() - started > allowance.wall_ms || callbackOperation("poll.staging", () => stagingBytes(directory, "poll")) > allowance.storage_bytes) expectedFail("Trainer exceeded wall or staging allowance.", "process_limit_exceeded");
+  };
+  const poll = controllerCallback("poll", refuse, watchdog);
+  const timerPoll = controllerCallback("timer", refuse, watchdog);
+  const abortPoll = controllerCallback("abort", refuse, watchdog);
+  let close!: () => void;
+  const closed = new Promise<void>((resolve) => { close = resolve; });
+  child.on("error", controllerCallback("error", refuse, (error: Error) => { refuse(error); }));
+  // Reaping acknowledgement is unconditional, including an injected failure in the close callback itself.
+  child.once("close", controllerCallback("close", (error) => { reaped = true; refuse(error); close(); }, (code: number | null) => {
+    reaped = true; pending += decoder.end(); if (code !== 0) refuse(new Error("Trainer exited unsuccessfully.")); close();
+  }));
+  child.stdout.on("data", controllerCallback("stdout", refuse, (chunk: Buffer) => {
       outputBytes += chunk.length;
       if (outputBytes > 65_536) expectedFail("Trainer channel exceeded 65536 bytes.", "process_channel_invalid");
       pending += decoder.write(chunk);
       let newline: number;
       while ((newline = pending.indexOf("\n")) >= 0) {
         const line = pending.slice(0, newline); pending = pending.slice(newline + 1);
-        writeFileSync(statePath(directory, "events.ndjson"), `${line}\n`, { flag: "a" });
+        callbackOperation("stdout.write", () => writeFileSync(callbackOperation("stdout.path", () => statePath(directory, "events.ndjson")), `${line}\n`, { flag: "a" }));
         const event = parseBoundedJson(line) as { type: string; job: string; usage: Resources; receipt: ProcessCompletion };
         if (complete || event.job !== id || !["progress", "complete"].includes(event.type)) expectedFail("Invalid trainer event sequence.", "process_channel_invalid");
-        if (event.type === "complete") { complete = true; const finalUsage = parseResources(event.receipt.usage); for (const key of RESOURCE_KEYS) if (finalUsage[key] < measured[key]) expectedFail("Completion regressed measured use.", "process_limit_exceeded"); if (stagingBytes(directory) > allowance.storage_bytes || lstatSync(statePath(directory, "completion.json")).size > 65_536) expectedFail("Completion channel exceeded its schema bound.", "process_channel_invalid"); const disk = parseBoundedJson(readFileSync(statePath(directory, "completion.json"), "utf8")) as unknown; if (processDigest(event.receipt) !== processDigest(disk)) expectedFail("Stream completion differs from durable receipt.", "process_receipt_invalid"); }
+        if (event.type === "complete") { complete = true; const finalUsage = parseResources(event.receipt.usage); for (const key of RESOURCE_KEYS) if (finalUsage[key] < measured[key]) expectedFail("Completion regressed measured use.", "process_limit_exceeded"); if (callbackOperation("stdout.staging", () => stagingBytes(directory, "stdout")) > allowance.storage_bytes || callbackOperation("stdout.stat", () => lstatSync(callbackOperation("stdout.completion-path", () => statePath(directory, "completion.json")))).size > 65_536) expectedFail("Completion channel exceeded its schema bound.", "process_channel_invalid"); const disk = parseBoundedJson(callbackOperation("stdout.read", () => readFileSync(callbackOperation("stdout.read-path", () => statePath(directory, "completion.json")), "utf8"))) as unknown; if (processDigest(event.receipt) !== processDigest(disk)) expectedFail("Stream completion differs from durable receipt.", "process_receipt_invalid"); }
         else {
           const usage = parseResources(event.usage);
           for (const key of RESOURCE_KEYS) if (usage[key] < measured[key] || usage[key] > allowance[key]) expectedFail(`Progress exceeded or regressed ${key}.`, "process_limit_exceeded");
           measured = usage;
         }
       }
-      poll();
-    } catch (error) { refuse(error); }
-  });
-  child.stderr.on("data", (chunk: Buffer) => {
+
+    poll();
+  }));
+  child.stderr.on("data", controllerCallback("stderr", refuse, (chunk: Buffer) => {
     outputBytes += chunk.length;
-    if (outputBytes > 65_536) { refuse(new Error("Trainer diagnostics exceeded channel allowance.")); return; }
-    appendDiagnostics(statePath(directory, "stderr.log"), chunk, refuse);
-  });
-  await once(child, "spawn");
-  identity = loopProcessStartTime(child.pid!);
-  if (identity === null) { child.kill("SIGKILL"); await closed; expectedFail("Cannot establish trainer process identity.", "process_identity_unavailable"); }
-  const timer = setInterval(poll, 25);
-  signal?.addEventListener("abort", poll);
-  child.stdin.on("error", () => undefined);
+    if (outputBytes > 65_536) throw new Error("Trainer diagnostics exceeded channel allowance.");
+    callbackOperation("stderr.write", () => writeFileSync(callbackOperation("stderr.path", () => statePath(directory, "stderr.log")), chunk, { flag: "a" }));
+  }));
+  child.stdin.on("error", controllerCallback("stdin", refuse, (error: Error) => { refuse(error); }));
   try {
+    await once(child, "spawn");
+    const identity = loopProcessStartTime(child.pid!);
+    if (identity === null) expectedFail("Cannot establish trainer process identity.", "process_identity_unavailable");
+    timer = setInterval(timerPoll, 25);
+    signal?.addEventListener("abort", abortPoll);
     writeFileSync(statePath(directory, "runner.json"), JSON.stringify({ pid: child.pid, start: identity, started_at: startedAt }), { flag: "wx" });
     child.stdin.end(JSON.stringify({ job: id, input, ...(input.prefix === undefined ? {} : { artifactRoot: statePath(artifactRoot) }) }));
     poll();
     await closed;
+    if (failure !== undefined) throw failure;
+    if (!complete || pending.length > 0) expectedFail("Trainer exited without a complete NDJSON receipt.", "process_receipt_required");
   } catch (error) {
     refuse(error);
     await closed;
-    throw error;
-  } finally { clearInterval(timer); signal?.removeEventListener("abort", poll); }
-  if (failure !== undefined) throw failure;
-  if (!complete || pending.length > 0) expectedFail("Trainer exited without a complete NDJSON receipt.", "process_receipt_required");
+    if (isPmCliExpectedError(failure)) throw failure;
+    throw createPmCliExpectedError(`Trainer failed (${failure instanceof Error ? failure.message : String(failure)}); child reaped and reservation settlement required.`, { exitCode: EXIT_CODE.CONFLICT, context: { code: "process_callback_failed", required: "Restore staging access and use a fresh programme for another fit." } });
+  } finally { clearInterval(timer); signal?.removeEventListener("abort", abortPoll); }
 }
 /** Append trainer diagnostics; a failed append becomes a refusal on the stop-and-settle path instead of an escaped throw. */
 export function appendDiagnostics(file: string, chunk: Buffer, refuse: (error: unknown) => void): void {
@@ -468,16 +499,17 @@ function failedProcessCharge(directory: string, allowance: Resources): Resources
   let charge = { ...allowance };
   const files = ["completion.json", "events.ndjson"];
   for (const name of files) {
-    let file: string;
-    try { file = statePath(directory, name); } catch { continue; }
-    if (!existsSync(file) || !lstatSync(file).isFile() || lstatSync(file).size > 65_536) continue;
-    for (const line of readFileSync(file, "utf8").split("\n").filter((line) => line.length > 0)) {
-      try {
-        const value = parseBoundedJson(line) as { usage?: Resources; receipt?: { usage: Resources } };
-        const usage = parseResources(value.usage ?? value.receipt!.usage);
-        charge = Object.fromEntries(RESOURCE_KEYS.map((key) => [key, Math.max(charge[key], usage[key])])) as Resources;
-      } catch { /* Unreadable reports retain the conservative reserved charge. */ }
-    }
+    try {
+      const file = statePath(directory, name);
+      if (!existsSync(file) || !lstatSync(file).isFile() || lstatSync(file).size > 65_536) continue;
+      for (const line of readFileSync(file, "utf8").split("\n").filter((line) => line.length > 0)) {
+        try {
+          const value = parseBoundedJson(line) as { usage?: Resources; receipt?: { usage: Resources } };
+          const usage = parseResources(value.usage ?? value.receipt!.usage);
+          charge = Object.fromEntries(RESOURCE_KEYS.map((key) => [key, Math.max(charge[key], usage[key])])) as Resources;
+        } catch { /* Unreadable reports retain the conservative reserved charge. */ }
+      }
+    } catch { /* Filesystem failures cannot bypass terminal reservation settlement. */ }
   }
   try { charge.storage_bytes = Math.max(charge.storage_bytes, stagingBytes(directory)); }
   catch { /* Unsupported staging remains in place and retains its reserved charge. */ }

@@ -164,7 +164,8 @@
       "test/shadow.test.ts",
       "test/policy-card.test.ts",
       "test/sequential-evaluation.test.ts",
-      "test/state-boundary.test.ts"
+      "test/state-boundary.test.ts",
+      "test/controller-boundaries.test.ts"
     ],
     "thresholds": {
       "statements": 100,

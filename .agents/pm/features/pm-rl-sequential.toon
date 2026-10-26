@@ -6,9 +6,9 @@ status: in_progress
 priority: 2
 tags[1]: "gh:unbraind/pm-rl#107"
 created_at: "2026-10-25T23:52:20.254Z"
-updated_at: "2026-10-26T13:06:53.544Z"
+updated_at: "2026-10-26T17:29:18.339Z"
 author: codex-agent
-comments[25]{created_at,author,text}:
+comments[31]{created_at,author,text}:
   "2026-10-25T23:52:27.192Z",codex-agent,"Overlap check on current CLI 2026.10.25 and sibling package source/docs: pm-rl-evalplans explicitly seals fixed stopping; core SDK exposes tracker transactions and locks, not sequential statistics; pm-jev owns inference receipts, pm-context context selection, pm-rlm inference recursion. No existing alpha-spending evaluation protocol found. This extends pm-rl evaluation plans, retaining promotion approval and contamination gates. Design: predeclared finite looks over frozen complete correlation units, two-sided Hoeffding alpha spending, reviewed rule identity, immutable append-only checkpoint chain with SDK writer serialization and current provenance checks on every retry. No import/export/sync subsystem or status-name classification is introduced."
   "2026-10-26T00:01:50.075Z",codex-agent,"Implemented reviewed finite-look plans, cumulative immutable checkpoint chaining, advance/resume CLI and promotion bindings. Seeded 10,000-trial null/benefit simulations measured zero false efficacy and zero false futility decisions at the declared 0.05 bound; all 10,000 benefit trials stopped early. Targeted real SDK tests pass for restart, old snapshot retries, changed candidate provenance, futility and exhaustion. A 500-sequence SDK model test is running. Production typecheck, lint, duplication and docstrings pass so far; full npm/Bun release evidence will use CI as instructed."
   "2026-10-26T00:13:48.212Z",codex-agent,"Read-only public tracker validation passed using the installed packed CLI with Git absent from PATH. Public source commit 120e20e160897cabe47920713e1b87b6647b2e85: 107 items, 87 done-role items using the SDK status registry, candidate mean 0.8130841121495327 vs incumbent 0.1869158878504673. One repository remains one unit; exhausted/refuse, no promotion. JSON 853 bytes; TOON 730 bytes; one checkpoint, exact restart, source digest unchanged. Linked pm tests pass 3/3 (five focused regressions, typecheck, lint); configured tracking is disabled, so the receipt is recorded here. Behavioral revert controls: removing uncertainty fails null simulation; returning the requested old checkpoint fails restart/old-input regression; restored implementation passes 2/2. All 29 existing fixed-plan tests pass. No core dependency pins, thresholds or history records changed."
@@ -34,7 +34,13 @@ comments[25]{created_at,author,text}:
   "2026-10-26T13:01:45.753Z",codex-agent,"Final-head Bun gate passed all 1049 tests with 100% line/branch/function coverage, but the unchanged statement gate found one unentered V8 block in index.ts (99.99%). Collecting targeted raw coverage to identify the remaining defensive path; no threshold or source exclusion changes."
   "2026-10-26T13:06:09.521Z",codex-agent,"Targeted raw V8 coverage identified the remaining empty-collection guard in internal generation registration. Strict CLI validation now rejects empty CSV members before that guard, while internal SDK callers still need it. Added a real-SDK intake test through an internal declaration-stripped seam: empty native collection lists refuse before environment reads/publication, and SDK readback confirms no generation was created. Kept the guard and all 100% thresholds. npm run typecheck, npm run build, npm run build:test, npm run lint and docstring gate pass (56 sources, 426 declarations)."
   "2026-10-26T13:06:51.063Z",codex-agent,"The targeted internal SDK registration regression passes 1/1, including the SDK missing-item readback. Final exact-head complete npm/Bun release gates will be linked in the PR after this coverage-only test seam update; item remains open for orchestrator verification."
-files[23]{path,scope}:
+  "2026-10-26T14:35:11.026Z",codex-agent,"Re-review identified two blocking classes: raw case-preserving keys can split controller leases for one canonical SDK item, and callback path-confinement failures can escape process cleanup. Auditing all identifier-derived keys and event/stream/timer callbacks. Will add real-tracker contention properties and callback operation fault injection, record independent revert proofs, and rerun targeted/static checks plus complete npm/Bun CI gates."
+  "2026-10-26T15:00:36.073Z",codex-agent,"Implemented shared SDK canonicalization before key/digest construction, including logical programme names and native approval refs, native lease/journal ids, process staging/reservations and evaluation candidate fences. The 500-pair identity property and real Race/race seed-claim race pass. The first real-child callback matrix passed 107 injected cases across 16 operation sites with zero unhandled errors, settled-once SDK history and released leases; extending explicit timer/abort and repeated stop-failure coverage before final verification. SDK 2026.10.20 does not fold NFC/NFD: tests use SDK equivalence as reference; unsafe whitespace remains a typed refusal before any lease, as round-one rules require."
+  "2026-10-26T17:22:46.671Z",codex-agent,"Resumed after host OOM interruption: remote PR head and local HEAD agree at 6b2d4e4; reviewed and retained the uncommitted canonical identity and callback failure-path changes. Updated resource rules enforced: focused tests with at most two workers, no concurrent full suites. Prior callback revert timeout is not behavioral proof; a fresh isolated control removing only controllerCallback guarding now fails with the escaped stdout exception. Restored-source focused boundary verification is running."
+  "2026-10-26T17:25:53.198Z",codex-agent,"Canonical identity behavioral revert proof: in an isolated source copy, changed only identifier() to return its validated raw value instead of SDK normalizeRawItemId(value). Ran node --test --test-concurrency=1 --test-name-pattern='canonical identity property' test/controller-boundaries.test.ts. It failed behaviorally in 0.83 seconds at the fixed Race/race case: two real native SDK leases succeeded, expected exactly one (2 !== 1). No timeout or setup failure in this control. Restored-source 500-pair property and actual concurrent Race/race controller regression passed. Strict whitespace refusal remains before SDK resolution; NFC/NFD equivalence is determined by the pinned SDK, which does not fold those forms."
+  "2026-10-26T17:25:59.644Z",codex-agent,"Callback behavioral revert proof: in a separate isolated source copy, removed only controllerCallback() guarding/Promise rejection observation. Ran node --test --test-concurrency=2 --test-name-pattern='callback wrapper' test/controller-boundaries.test.ts. The test failed with the escaped synchronous Error: stdout. Restored-source wrapper test passes for synchronous and asynchronous failures in stdout/stderr/error/close/stdin/poll/timer/abort/heartbeat/signal callbacks; the same linked command now passes through pm test --run --only-last --progress (1/1). Earlier timeout/setup controls are explicitly excluded from evidence. The production callback path reaps the child, persists one terminal settlement, and releases owned fences; heartbeat cleanup waits for pending work and rechecks ownership."
+  "2026-10-26T17:29:15.828Z",codex-agent,"Review fixes verified: node --test --test-concurrency=2 test/controller-boundaries.test.ts passed 128/128, zero failures/skips/cancellations, including all 122 fault cases across 16 callback filesystem sites, entry/abort/close/timer boundaries, stop failures and both real symlink scenarios; zero unhandled exceptions or rejections. Every case reads terminal job/history through the SDK, checks exactly one settlement, reaped child, released locks, unchanged external sentinel and unchanged replay. Final additional canonical reservation alias and repeated native error-event regressions pass 2/2; focused plan alias/prefix-race regressions pass 3/3. npm run typecheck, npm run build:test, npm run lint, npm run duplicates and npm run docstring pass: 56 source files, 431 documented declarations, zero clones. Both class revert proofs are recorded above. Full npm/Bun unchanged-threshold release gates will run on the pushed commit; final exact-head run URL/counts will be published in PR 107. No local full gate or concurrent full suites run."
+files[28]{path,scope}:
   checkpoint-artifacts.ts,project
   compose.ts,project
   dataset.ts,project
@@ -44,26 +50,34 @@ files[23]{path,scope}:
   lineage.ts,project
   lm.ts,project
   manifest.json,project
+  meta.ts,project
   package.json,project
   prefix-trainer.ts,project
   process-bandit.ts,project
   process-lm-trainer.ts,project
   process.ts,project
+  recursive-improver.ts,project
   refuse.ts,project
   sequential-evaluation.ts,project
   state-boundary.ts,project
   sweep.ts,project
+  test/controller-boundaries.test.ts,project
+  test/evaluation-plan.test.ts,project
+  test/fixtures/process-trainer.ts,project
   test/leaderboard.test.ts,project
   test/lineage.test.ts,project
   test/sequential-evaluation.acceptance.ts,project
   test/sequential-evaluation.test.ts,project
   test/state-boundary.test.ts,project
-tests[5]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[8]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   "node --test --test-name-pattern=\"strict sequential|only complete|null, benefit|boundary input|output validation\" test/sequential-evaluation.test.ts",project,codex-agent,"2026-10-26T00:09:22.064Z",local_mutation,feat/predeclared-sequential-evaluation
   npm run typecheck,project,codex-agent,"2026-10-26T00:09:26.356Z",local_mutation,feat/predeclared-sequential-evaluation
   npm run lint,project,codex-agent,"2026-10-26T00:09:29.574Z",local_mutation,feat/predeclared-sequential-evaluation
   "node --test --test-name-pattern=\"state paths|native release\" test/state-boundary.test.ts",project,codex-agent,"2026-10-26T08:41:57.743Z",local_mutation,feat/predeclared-sequential-evaluation
   "node --test --test-name-pattern=\"benchmark and evaluation parsers\" test/leaderboard.test.ts",project,codex-agent,"2026-10-26T12:16:26.406Z",local_mutation,feat/predeclared-sequential-evaluation
+  "node --test --test-name-pattern=\"callback wrapper\" test/controller-boundaries.test.ts",project,codex-agent,"2026-10-26T15:33:20.353Z",local_mutation,feat/predeclared-sequential-evaluation
+  node --test --test-concurrency=2 test/controller-boundaries.test.ts,project,codex-agent,"2026-10-26T17:27:03.995Z",local_mutation,feat/predeclared-sequential-evaluation
+  "node --test --test-concurrency=1 --test-name-pattern=\"callback wrapper\" test/controller-boundaries.test.ts",project,codex-agent,"2026-10-26T17:27:06.471Z",local_mutation,feat/predeclared-sequential-evaluation
 docs[3]{path,scope}:
   docs/sequential-evaluation-evidence.json,project
   examples/sequential-evaluation-plan.json,project

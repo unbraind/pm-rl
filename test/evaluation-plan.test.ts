@@ -153,7 +153,9 @@ test("real SDK plan reservation, single evaluation and promotion checks work wit
   await assert.rejects(recordPlanEvaluation(w.client, "absent", []), refusal("eval_plan_missing"));
   await assert.rejects(registerEvaluationPlan(w.client, plan({ candidate: "rl-seed", incumbent: "absent" })), refusal("eval_plan_late"));
   await assert.rejects(registerEvaluationPlan(w.client, plan({ candidate: "rl-new", incumbent: "absent" })), refusal("eval_plan_missing"));
-  await assert.rejects(registerEvaluationPlan(w.client, plan({ candidate: "short-id" })), refusal("eval_plan_invalid"));
+  const alias = await registerEvaluationPlan(w.client, plan({ candidate: "short-id" }));
+  assert.equal(alias.plan.candidate, "rl-short-id");
+  assert.deepEqual(await readEvaluationPlan(w.client, "#SHORT-ID"), alias);
 });
 
 test("documented held-out scores copy the unrounded JSON mean and refuse rounded values", async () => {
@@ -402,7 +404,8 @@ test("unreadable stores, invalid incumbents and divergent concurrent writes fail
   await assert.rejects(readEvaluationPlan(w.client, "rl-broken")); rmSync(broken);
   await w.client.create({ id: "rl-task", type: "Task", title: "Wrong incumbent type" });
   await assert.rejects(registerEvaluationPlan(w.client, plan({ incumbent: "rl-task" })), refusal("eval_plan_missing"));
-  await assert.rejects(registerEvaluationPlan(w.client, plan({ incumbent: "seed" })), refusal("eval_plan_missing"));
+  const aliased = await registerEvaluationPlan(w.client, plan({ candidate: "rl-aliased-incumbent", incumbent: "seed" }));
+  assert.equal(aliased.plan.incumbent, "rl-seed");
   await w.client.create({ id: "rl-unversioned", type: "Generation", title: "Unversioned incumbent" });
   await assert.rejects(registerEvaluationPlan(w.client, plan({ incumbent: "rl-unversioned" })), refusal("eval_plan_missing"));
   await assert.rejects(registerEvaluationPlan(w.client, plan({ incumbent_version: "wrong" })), refusal("eval_plan_drift"));
@@ -420,6 +423,17 @@ test("unreadable stores, invalid incumbents and divergent concurrent writes fail
   raw.incumbent_version = "foreign";
   await w.client.update(registered.id, { body: JSON.stringify(raw) });
   await assert.rejects(readEvaluationPlan(w.client, "rl-candidate"), refusal("eval_plan_drift"));
+});
+
+test("plan registration refuses a configured SDK prefix changing after canonical resolution", async () => {
+  const w = await workspace(); const config = w.client.config.bind(w.client); let reads = 0;
+  w.client.config = async (...args: Parameters<typeof w.client.config>) => {
+    const result = await config(...args);
+    if (args[1] === "get" && args[2] === "id_prefix" && ++reads === 1) await config("project", "set", "id_prefix", "other");
+    return result;
+  };
+  try { await assert.rejects(registerEvaluationPlan(w.client, plan()), refusal("eval_plan_invalid")); }
+  finally { await config("project", "set", "id_prefix", "rl"); }
 });
 
 test("generation comparison pins survive parsing and reject malformed or changed plan identities", async () => {

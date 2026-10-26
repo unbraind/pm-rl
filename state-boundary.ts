@@ -3,7 +3,7 @@ import { lstatSync } from "node:fs";
 import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { commitWorkspaceTransaction, type CommitWorkspaceTransactionOptions, looksLikeGenericKeyValueEntry, parseCsvKv } from "@unbrained/pm-cli/sdk";
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
-import { acquireLock as sdkAcquireLock, createPmCliExpectedError, EXIT_CODE, getHistoryPath } from "@unbrained/pm-cli/sdk/runtime";
+import { acquireLock as sdkAcquireLock, createPmCliExpectedError, EXIT_CODE, getHistoryPath, normalizeRawItemId, normalizeItemId } from "@unbrained/pm-cli/sdk/runtime";
 
 /** Refuse unsafe state inputs without exposing their contents in diagnostics. */
 function refused(code: "rl_identifier_invalid" | "rl_state_path_invalid"): never {
@@ -21,7 +21,27 @@ export function identifier(value: unknown, kind: "item" | "component" | "context
   const digestContext = typeof value === "string" && ((kind === "context" && /^(?:[a-z0-9]+(?:-[a-z0-9]+)*-)?sha256:[a-f0-9]{64}$/.test(value)) || (kind === "artifact" && /^sha256:(?:[\p{L}\p{N}_-]|\.(?=[\p{L}\p{N}_-]))[\p{L}\p{N}\p{M}_.-]*$/u.test(value)));
   if (typeof value !== "string" || Buffer.byteLength(value) > (kind === "component" ? 255 : 200) || (!digestContext && !/^(?:#?[\p{L}\p{N}_-]|\.(?=[\p{L}\p{N}_-]))[\p{L}\p{N}\p{M}_.-]*$/u.test(value))) refused("rl_identifier_invalid");
   if (kind === "item") getHistoryPath(".", value);
-  return value;
+  return kind === "item" ? normalizeRawItemId(value) : value;
+}
+/** Resolve a validated package identity with the SDK, preserving strict refusal of padded/unsafe input. */
+export function canonicalIdentifier(value: string): string { return identifier(value); }
+/** Resolve an item reference with the configured SDK prefix before deriving item keys or hashes. */
+export function canonicalItemIdentifier(value: string, prefix: string): string { return identifier(normalizeItemId(identifier(value), identifier(prefix))); }
+/** Project a canonical native id into the package's logical namespace using the SDK's own prefix. */
+export function canonicalNamespaceIdentifier(value: string, prefix: string): string { return identifier(canonicalItemIdentifier(value, prefix).slice(normalizeItemId("", prefix).length)); }
+/** Resolve a logical programme name through the SDK and retain its prefix-free package namespace. */
+export async function canonicalProgrammeId(client: PmClient, value: string): Promise<string> {
+  identifier(value);
+  const config = await identifierClient(client).config("project", "get", "id_prefix");
+  const prefix = identifier(config.nested_setting!.value);
+  return canonicalNamespaceIdentifier(value, prefix);
+}
+/** Canonicalize programme and approval identities before constructing any state, reservation or input digest. */
+export async function canonicalProgrammeRequest<T extends { readonly id: string; readonly approval: string }>(client: PmClient, request: T): Promise<T> {
+  identifier(request.id); identifier(request.approval);
+  const config = await identifierClient(client).config("project", "get", "id_prefix");
+  const prefix = identifier(config.nested_setting!.value);
+  return { ...request, id: canonicalNamespaceIdentifier(request.id, prefix), approval: canonicalItemIdentifier(request.approval, prefix) };
 }
 /** Join validated components beneath an explicit state root, rejecting symlinked roots, ancestors and leaves, including dangling links. */
 export function statePath(root: string, ...components: string[]): string {
@@ -82,17 +102,17 @@ export function identifierClient(client: PmClient): PmClient {
 }
 /** Use the native token-owned SDK lease only after confining its lock and cleanup-gate paths; release revalidates confinement. */
 export async function acquireStateLock(...args: Parameters<typeof sdkAcquireLock>): ReturnType<typeof sdkAcquireLock> {
-  const [root, id] = args; identifier(id);
+  const [root, rawId] = args; const id = canonicalIdentifier(rawId);
   const lock = statePath(root, "locks", `${id}.lock`);
   statePath(root, "locks", `${id}.lock.stale-cleanup`, "owner.json");
-  const release = await sdkAcquireLock(...args);
+  const release = await sdkAcquireLock(root, id, ...args.slice(2) as [number, string, boolean?, boolean?, number?]);
   /** Native release reads its token under the SDK cleanup lease and cannot remove a successor. */
   return async () => { checkedStateFile(lock); statePath(root, "locks", `${id}.lock.stale-cleanup`, "owner.json"); await release(); };
 }
 
 /** Constrain the native journal and writer lease without adding process-tool requirements to SDK-only operations. */
 export function commitStateTransaction(options: CommitWorkspaceTransactionOptions): ReturnType<typeof commitWorkspaceTransaction> {
-  identifier(options.transactionId); options.steps.forEach((step) => identifier(step.id));
+  options = { ...options, transactionId: canonicalIdentifier(options.transactionId), steps: options.steps.map((step) => ({ ...step, id: canonicalIdentifier(step.id) })) };
   statePath(options.pmRoot, "transactions", "sdk", `${options.transactionId}.json`);
   statePath(options.pmRoot, "locks", "sdk-workspace-transaction.lock");
   statePath(options.pmRoot, "locks", "sdk-workspace-transaction.lock.stale-cleanup", "owner.json");

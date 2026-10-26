@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { after, test } from "node:test";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
-import { init, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
+import { init, isPmCliExpectedError, normalizeRawItemId } from "@unbrained/pm-cli/sdk/runtime";
 import { acquireStateLock, assertStatePathRoot, checkedStateFile, commitStateTransaction, identifier, identifierClient, statePath } from "../state-boundary.ts";
 import { recordSequentialEvaluation, withEvaluationLease } from "../sequential-evaluation.ts";
 import { parseEvaluationPlan, registerEvaluationPlan } from "../evaluation-plan.ts";
@@ -83,7 +83,7 @@ test("identifier property: 500 seeded sequences preserve external tripwires acro
   assert.ok((await client.get("relations", { full: true })).item.dependencies?.some((edge) => edge.id === "rl-a"));
   // Unicode is supported for package-owned component/lease identifiers; native create decides its own item-id alphabet.
   for (const id of ["évaluation", "日本語", "e\u0301", "Δ-run", "under_score", ".pending-a"]) {
-    assert.equal(identifier(id), id);
+    assert.equal(identifier(id), normalizeRawItemId(id));
     await withProcessJobFence({ pmRoot, author: "boundary-test" }, id, async () => {
       const file = statePath(pmRoot, "runtime", id); mkdirSync(join(pmRoot, "runtime"), { recursive: true }); writeFileSync(file, id); assert.equal(readFileSync(file, "utf8"), id);
     });

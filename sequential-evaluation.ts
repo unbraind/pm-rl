@@ -86,7 +86,7 @@ export async function withEvaluationLease<T>(client: PmClient, candidate: string
   const config = await identifierClient(client).config("project", "get", "id_prefix");
   const root = dirname(config.settings_path);
   const prefix = identifier(config.nested_setting!.value);
-  const ids = [`rl-eval-${hashJson(candidate).slice(0, 32)}`, ...[...new Set(dependencies.map((id) => canonicalizeIdentifier(id, prefix)))].sort()];
+  const ids = [`rl-eval-${hashJson(canonicalizeIdentifier(candidate, prefix)).slice(0, 32)}`, ...[...new Set(dependencies.map((id) => canonicalizeIdentifier(id, prefix)))].sort()];
   /** Reuse the package's SDK fence so killed owners recover with verified process identity. */
   async function locked(index: number): Promise<T> {
     if (index === ids.length) return execute();
@@ -120,15 +120,17 @@ function verifyPrefix(previous: readonly unknown[], next: readonly unknown[]): v
 export async function readSequentialEvaluation(client: PmClient, candidate: string): Promise<SequentialEvaluationResult | null> {
   const registered = await readEvaluationPlan(client, candidate); if (registered === null) refuse("eval_plan_missing");
   if (registered.plan.stopping.kind !== "sequential") refuse("eval_plan_stopping");
+  candidate = registered.plan.candidate;
   await verifiedCandidate(client, candidate, registered);
   await reviewSequentialPlan(client, registered.plan);
   const chain = await checkpointChain(client, registered, registered.plan.stopping);
   return chain.skipped.length > 0 ? { status: "skipped", plan: registered.id, skipped: chain.skipped, remedy: "Leave foreign evidence intact and register a fresh candidate." } : chain.reports.at(-1) ?? null;
 }
 /** Append exactly the next frozen look; retry old cumulative snapshots without recounting or rolling state back. */
-export async function recordSequentialEvaluation(client: PmClient, candidate: string, input: unknown): Promise<SequentialEvaluationResult> {
-  return withEvaluationLease(client, candidate, [], async () => {
-    const registered = await readEvaluationPlan(client, candidate); if (registered === null) refuse("eval_plan_missing");
+export async function recordSequentialEvaluation(client: PmClient, rawCandidate: string, input: unknown): Promise<SequentialEvaluationResult> {
+  return withEvaluationLease(client, rawCandidate, [], async () => {
+    const registered = await readEvaluationPlan(client, rawCandidate); if (registered === null) refuse("eval_plan_missing");
+    const candidate = registered.plan.candidate;
     const rule = registered.plan.stopping; if (rule.kind !== "sequential") refuse("eval_plan_stopping");
     if (!Array.isArray(input) || input.length > rule.observations) refuse("eval_plan_stopping");
     const rows = normalizedObservations(input);

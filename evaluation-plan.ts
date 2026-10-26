@@ -125,6 +125,9 @@ export async function verifyCreatedRecord(client: PmClient, item: GetResult["ite
 }
 /** Verify the full stored Plan and its provenance, rather than trusting its derived id. */
 export async function readEvaluationPlan(client: PmClient, candidate: string): Promise<RegisteredEvaluationPlan | null> {
+  identifier(candidate);
+  const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
+  candidate = canonicalizeIdentifier(candidate, prefix);
   const id = evaluationPlanId(candidate); const item = await optionalItem(client, id);
   if (item === null) {
     if (await optionalItem(client, id, "1") !== null) refuse("eval_plan_missing");
@@ -137,9 +140,15 @@ export async function readEvaluationPlan(client: PmClient, candidate: string): P
   await verifyCreatedRecord(client, item);
   return { id, comparison, plan, incumbent_version: incumbentVersion, created_at: String(item.created_at) };
 }
+/** Resolve native plan references through the SDK before computing the comparison a Decision reviews. */
+export async function resolveEvaluationPlan(client: PmClient, value: unknown): Promise<EvaluationPlan> {
+  const parsed = parseEvaluationPlan(value);
+  const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
+  return { ...parsed, candidate: canonicalizeIdentifier(parsed.candidate, prefix), incumbent: canonicalizeIdentifier(parsed.incumbent, prefix), stopping: parsed.stopping.kind === "fixed" ? parsed.stopping : { ...parsed.stopping, review: canonicalizeIdentifier(parsed.stopping.review, prefix) } };
+}
 /** Register before candidate creation; repeat identical declarations safely, refusing edited designs. */
 export async function registerEvaluationPlan(client: PmClient, value: unknown): Promise<RegisteredEvaluationPlan> {
-  const plan = parseEvaluationPlan(value);
+  const plan = await resolveEvaluationPlan(client, value);
   if (plan.stopping.kind === "sequential") return withEvaluationLease(client, plan.candidate, [plan.candidate, plan.incumbent, plan.stopping.review], () => registerParsedPlan(client, plan));
   return registerParsedPlan(client, plan);
 }
@@ -246,6 +255,7 @@ export async function verifiedCandidate(client: PmClient, candidate: string, reg
 export async function recordPlanEvaluation(client: PmClient, candidate: string, input: unknown): Promise<EvaluationPlanReport> {
   const registered = await readEvaluationPlan(client, candidate); if (registered === null) refuse("eval_plan_missing");
   if (registered.plan.stopping.kind === "sequential") refuse("eval_plan_stopping");
+  candidate = registered.plan.candidate;
   await verifiedCandidate(client, candidate, registered);
   const report = evaluatePlan(registered.plan, input);
   const rows = normalizedObservations(input as unknown[]);
@@ -274,6 +284,7 @@ export async function enforceEvaluationPlan(client: PmClient, candidate: string,
     await enforceShadowComparison(client, candidate, null);
     return;
   }
+  candidate = registered.plan.candidate;
   await verifiedCandidate(client, candidate, registered);
   await enforceShadowComparison(client, candidate, registered.plan);
   if (registered.plan.stopping.kind === "sequential") {

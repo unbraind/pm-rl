@@ -830,6 +830,29 @@ codes `rl_identifier_invalid` or `rl_state_path_invalid` and a `required` remedy
 use the documented identifier or restore ordinary state directories. Shorten
 identifiers further when their derived item/filename would exceed these bounds.
 
+After strict validation, identifier-derived keys use the SDK's canonical identity.
+`canonicalIdentifier` delegates case and shorthand resolution to
+`normalizeRawItemId`; native references use `normalizeItemId` with the configured
+prefix. Logical programme names retain their prefix-free namespace after SDK
+resolution, so `Race`, `race`, `#RACE` and the configured prefixed spelling share
+controller leases, reservations, receipts and input digests. Literal filenames
+and content-addressed bytes retain their own domains. Whitespace still refuses
+before resolution. Unicode equivalence follows the installed SDK; this package
+does not add its own NFC/NFD folding.
+
+SDK callers preparing a review can use `await resolveEvaluationPlan(client, input)`
+before `evaluationComparison(plan)`. This resolves candidate, incumbent and review
+references before computing the comparison hash that the Decision must review.
+Registration and read/resume use those same canonical references.
+
+Every package event, stream, timer and signal handler uses `controllerCallback`.
+Its entire body, including path construction, is guarded; rejected promises are
+observed. Trainer failures stop the owned child, await its close, conservatively
+settle the reservation once and persist a terminal job before releasing its fence.
+Heartbeat failures retain a terminal audit and release owned claims; cleanup
+still revalidates ownership and waits for all pending heartbeats before releasing
+the lease. Typed `process_callback_failed` errors include a recovery remedy.
+
 Evaluation dependencies are validated before acquiring even the outer lease and
 use SDK-normalized item identities for their native locks. Lock release delegates
 to the SDK's token check inside its cleanup lease; a successor's lock is retained.

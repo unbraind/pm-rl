@@ -5,7 +5,11 @@ import { readFileSync, writeFileSync, symlinkSync, unlinkSync } from "node:fs";
 import { setTimeout } from "node:timers/promises";
 import { runReferenceTrainer } from "../../process-bandit.ts";
 const mode = process.argv[2];
-if (mode === "empty") process.stdin.resume();
+if (mode === "callback-symlink") {
+  process.stdin.resume(); symlinkSync(process.argv[3], "stderr.log"); process.stderr.write("diagnostic after symlink"); await setTimeout(10000);
+} else if (mode === "callback-good") {
+  process.stderr.write("bounded diagnostic"); await setTimeout(50); await runReferenceTrainer(); await setTimeout(50);
+} else if (mode === "empty") process.stdin.resume();
 else if (mode === "hang") {
   process.stdin.resume(); writeFileSync("partial.json", "retained partial checkpoint"); await setTimeout(10000);
 } else if (mode === "stderr") {

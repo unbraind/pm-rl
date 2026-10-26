@@ -1,3 +1,4 @@
+import { canonicalProgrammeRequest } from "./state-boundary.ts";
 /** Two durable recursion levels: learner promotion, then ledger-trained proposer promotion on disjoint trackers. */
 import assert from "node:assert/strict";
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
@@ -78,7 +79,8 @@ export function selectImprover(policy: ImproverPolicy, candidate: ImproverPolicy
 }
 
 /** Resume verified phase receipts and process jobs; immutable inputs and the original deadline fence unfinished work. */
-export async function runRecursiveImprover(client: PmClient, coordinates: ProcessCoordinates, request: ImproverRequest): Promise<ImproverReport> {
+export async function runRecursiveImprover(client: PmClient, coordinates: ProcessCoordinates, rawRequest: ImproverRequest): Promise<ImproverReport> {
+  const request = await canonicalProgrammeRequest(client, rawRequest);
   assert.ok(/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(request.id) && request.id.length <= 12, "improver_programme_id");
   const config = parseImproverConfig(request.config);
   const manifest = readImproverDataset(request.dataset);
