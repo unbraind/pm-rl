@@ -213,6 +213,8 @@ test("500 seeded model-based operation sequences read canonical state through th
       const stored = parseBoundedJson(String(item.body)) as { observations: EvaluationObservation[]; comparison: string; previous: string | null; format: string };
       assert.deepEqual(stored.observations, expected); assert.equal(stored.comparison, evaluationComparison(p));
       assert.equal(stored.format, "pm-rl/sequential-checkpoint/1"); assert.equal(item.type, "Decision");
+      assert.equal(item.id, `${p.candidate}-evaluation-plan-look-${n === 16 ? 1 : 2}`);
+      assert.equal(item.title, "Sealed sequential evaluation checkpoint");
       assert.deepEqual(item.tags, ["pm-rl:sequential-checkpoint"]);
       assert.equal(item.affected_version, hashJson(stored as unknown as JsonValue));
       if (n === 64) assert.equal(stored.previous, (await readCompleteLoopItem(w.client, `${p.candidate}-evaluation-plan-look-1`)).item.affected_version);
@@ -421,4 +423,36 @@ test("registration interleavings and both publication boundaries preserve one re
     assert.equal(report(await recordSequentialEvaluation(peer, p.candidate, observations(p))).observations, 16); assert.equal(attempts, 2);
     console.log(JSON.stringify({ registrationBoundaries: boundaries, publicationBoundaries: attempts }));
   } finally { if (previousWait === undefined) delete process.env.PM_LOCK_WAIT_MS; else process.env.PM_LOCK_WAIT_MS = previousWait; }
+});
+
+test("a predecessor cannot become foreign between validation and dependent checkpoint publication", async () => {
+  const previousWait = process.env.PM_LOCK_WAIT_MS; process.env.PM_LOCK_WAIT_MS = "0";
+  const w = await workspace(); const p = await prepared(w.client);
+  const peer = new PmClient({ pmRoot: w.pmRoot, cwd: w.root, author: "ordinary-sdk-peer", noExtensions: true });
+  await recordSequentialEvaluation(w.client, p.candidate, observations(p));
+  const before = await readCompleteLoopItem(peer, `${p.candidate}-evaluation-plan-look-1`); const create = w.client.create.bind(w.client); let attempted = 0;
+  /** Race the ordinary SDK writer on both sides of the dependent checkpoint creation. */
+  async function compete(): Promise<void> { attempted += 1; await assert.rejects(peer.update(before.item.id, { tags: "foreign" }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "lock_conflict"); }
+  w.client.create = (async (...args) => { await compete(); const result = await create(...args); await compete(); return result; }) as PmClient["create"];
+  try {
+    assert.equal(report(await recordSequentialEvaluation(w.client, p.candidate, observations(p, 64, true))).sequential?.state, "sufficient");
+    assert.equal(attempted, 2); assert.deepEqual(await readCompleteLoopItem(peer, before.item.id), before);
+    await peer.update(before.item.id, { tags: "foreign" });
+    assert.ok("status" in (await recordSequentialEvaluation(w.client, p.candidate, observations(p, 64, true))));
+  } finally { if (previousWait === undefined) delete process.env.PM_LOCK_WAIT_MS; else process.env.PM_LOCK_WAIT_MS = previousWait; }
+});
+
+test("SDK intake snapshots observations before asynchronous provenance and checkpoint reads", async () => {
+  const w = await workspace(); const p = await prepared(w.client); const input = observations(p); const config = w.client.config.bind(w.client); let calls = 0;
+  w.client.config = (async (...args) => {
+    const result = await config(...args);
+    if (++calls === 2) input.push(...observations(p, 64, true).slice(16));
+    return result;
+  }) as PmClient["config"];
+  assert.equal(report(await recordSequentialEvaluation(w.client, p.candidate, input)).observations, 16);
+  assert.equal(input.length, 64);
+  assert.equal(report((await readSequentialEvaluation(w.client, p.candidate))!).observations, 16);
+  assert.equal(report(await recordSequentialEvaluation(w.client, p.candidate, input)).observations, 64);
+  await assert.rejects(recordSequentialEvaluation(w.client, p.candidate, null), refusal("eval_plan_stopping"));
+  await assert.rejects(recordSequentialEvaluation(w.client, p.candidate, Array(65).fill({ id: "x", candidate: 0, incumbent: 0 })), refusal("eval_plan_stopping"));
 });

@@ -59,7 +59,7 @@ export function evaluateSequentialBoundary(plan: EvaluationPlan, n: number, cand
   const epsilon = Math.sqrt(2 * Math.log(2 * rule.looks.length / error) / n);
   const improvement = plan.direction === "maximize" ? candidate - incumbent : incumbent - candidate;
   const threshold = plan.criterion.effectThreshold / (plan.reward_bounds[1] - plan.reward_bounds[0]);
-  // Unattainable effect thresholds stay finite and simply forbid efficacy.
+  // Unattainable effect thresholds forbid efficacy; only the finite interval is emitted.
   const lower = Math.max(-1, improvement - epsilon); const upper = Math.min(1, improvement + epsilon);
   const powered = n >= plan.criterion.minSamples;
   const state = powered && lower > threshold ? "sufficient" : powered && upper < threshold ? "futile" : n === rule.independent_units ? "exhausted" : "continue";
@@ -125,15 +125,19 @@ export async function recordSequentialEvaluation(client: PmClient, candidate: st
   return withEvaluationLease(client, candidate, [], async () => {
     const registered = await readEvaluationPlan(client, candidate); if (registered === null) refuse("eval_plan_missing");
     const rule = registered.plan.stopping; if (rule.kind !== "sequential") refuse("eval_plan_stopping");
+    if (!Array.isArray(input) || input.length > rule.observations) refuse("eval_plan_stopping");
+    const rows = normalizedObservations(input);
+    const requested = evaluatePlan(registered.plan, rows);
+    const predecessors = Array.from({ length: requested.sequential!.look - 1 }, (_, index) => `${registered.id}-look-${index + 1}`);
     const source = await readCompleteLoopItem(client, candidate);
     const spec = extractGenerationSpec(String(source.item.body), "Sequential candidate");
-    return withEvaluationLease(client, `${candidate}-sources`, [registered.id, candidate, rule.review, registered.plan.incumbent, ...spec.collection_runs], async () => {
+    return withEvaluationLease(client, `${candidate}-sources`, [registered.id, candidate, rule.review, registered.plan.incumbent, ...spec.collection_runs, ...predecessors], async () => {
       // Sealed reads either return the original reservation or refuse missing/edited history.
       const current = (await readEvaluationPlan(client, candidate))!;
       await verifiedCandidate(client, candidate, current); await reviewSequentialPlan(client, current.plan);
       const chain = await checkpointChain(client, current, rule);
       if (chain.skipped.length > 0) return { status: "skipped", plan: current.id, skipped: chain.skipped, remedy: "A foreign record occupies a reserved checkpoint. Leave it intact and register a new plan with a fresh candidate." };
-      const report = evaluatePlan(current.plan, input); const rows = normalizedObservations(input as unknown[]);
+      const report = requested;
       const index = report.sequential!.look - 1;
       if (index < chain.reports.length) { verifyPrefix(rows, chain.rows[index]); return chain.reports.at(-1)!; }
       if (index !== chain.reports.length || (index > 0 && chain.reports[index - 1].sequential!.state !== "continue")) refuse("eval_plan_stopping");
