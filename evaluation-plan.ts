@@ -8,7 +8,7 @@ import { extractGenerationSpec, generationProvenance, hashJson, readCompleteLoop
 import { decidePromotion, type PromotionCriterion, type PromotionDecision } from "./promotion.ts";
 import { enforceShadowComparison } from "./shadow.ts";
 import { rethrowOperationalRead } from "./refuse.ts";
-import { canonicalizeEvaluationContext, canonicalizeIdentifier, type GenerationSpec, type ScoreRecord } from "./lineage.ts";
+import { canonicalizeEvaluationContext, canonicalizeGenerationSpec, canonicalizeIdentifier, type GenerationSpec, type ScoreRecord } from "./lineage.ts";
 
 /** Stable refusals available to SDK consumers and CLI agents. */
 export type EvaluationPlanRefusal = "eval_plan_invalid" | "eval_plan_drift" | "eval_plan_late" | "eval_plan_missing" | "eval_plan_evidence" | "eval_plan_stopping" | "eval_plan_refused";
@@ -233,6 +233,8 @@ export function validateEvaluationReport(plan: EvaluationPlan, report: Evaluatio
 }
 /** Require predeclaration before all collection runs and unchanged incumbent provenance. */
 async function verifyTiming(client: PmClient, registered: RegisteredEvaluationPlan, spec: GenerationSpec, createdAt: unknown): Promise<void> {
+  const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
+  spec = canonicalizeGenerationSpec(spec, prefix);
   if (spec.parent !== registered.plan.incumbent) refuse("eval_plan_drift");
   const incumbent = await optionalItem(client, spec.parent);
   if (incumbent === null || incumbent.type !== "Generation" || incumbent.affected_version !== registered.incumbent_version || hashJson(generationProvenance(extractGenerationSpec(String(incumbent.body), "Incumbent generation"))) !== registered.incumbent_version) refuse("eval_plan_drift");

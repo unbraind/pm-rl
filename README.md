@@ -635,6 +635,8 @@ incumbent and collection creation histories are checked through the SDK.
 The review's creation must strictly precede plan creation, and the plan must
 strictly precede both candidate creation and every collection Run. This also
 applies to correctly hashed plans created directly through the SDK.
+Raw historical provenance hashes remain unchanged; subsequent reference comparisons
+resolve SDK aliases to canonical item IDs for both fixed and sequential plans.
 
 ```bash
 pm rl eval plan register --file examples/sequential-evaluation-plan.json --json

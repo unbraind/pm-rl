@@ -231,6 +231,28 @@ test("SDK-sealed plans require review before declaration before every collection
   assert.equal(allowed, 2); assert.equal(refused, 22);
   console.log(JSON.stringify({ chronologicalOrders: 24, validOrders: allowed, refusedOrders: refused, surfaces: 3 }));
 });
+
+test("fixed and sequential provenance resolve SDK aliases after checking the original raw seal", async () => {
+  for (const kind of ["fixed", "sequential"] as const) {
+    const w = await workspace(); const declared = plan(`rl-alias-${kind}`);
+    const p: EvaluationPlan = kind === "fixed" ? { ...declared, stopping: { kind, observations: 64, independent_units: 64 } } : declared;
+    if (p.stopping.kind === "sequential") await w.client.create({ id: p.stopping.review, type: "Decision", title: "Review", body: JSON.stringify({ format: "pm-rl/sequential-review/1", comparison: evaluationComparison(p) }) });
+    await registerEvaluationPlan(w.client, p);
+    const run = `${p.candidate}-run`; await w.client.create({ id: run, type: "Run", title: "Collection" });
+    const raw = { ...spec("RL-SEED", evaluationComparison(p)), collection_runs: [run.toUpperCase()] };
+    await generation(w.client, p.candidate, raw);
+    const original = await readCompleteLoopItem(w.client, p.candidate);
+    // Use native SDK readback as the identity oracle; the package must preserve its raw historical hash.
+    assert.equal((await readCompleteLoopItem(w.client, raw.parent!)).item.id, p.incumbent);
+    assert.equal((await readCompleteLoopItem(w.client, raw.collection_runs[0])).item.id, run);
+    const rows = observations(p, 64, true);
+    let result: EvaluationPlanReport;
+    if (kind === "fixed") result = await recordPlanEvaluation(w.client, p.candidate, rows);
+    else { await recordSequentialEvaluation(w.client, p.candidate, observations(p)); result = report(await recordSequentialEvaluation(w.client, p.candidate, rows)); }
+    await enforceEvaluationPlan(w.client, p.candidate, { objective: p.objective, objective_version: p.objective_version, evaluation_context: p.evaluation_context, direction: p.direction, seed_set: evaluationComparison(p), scale: 1, value: result.candidate_mean });
+    assert.deepEqual((await readCompleteLoopItem(w.client, p.candidate)).item, original.item);
+  }
+});
 /** A deterministic independent generator for reproducible model and simulation traces. */
 function random(seed: number): () => number { let state = seed; return () => { state = (Math.imul(1664525, state) + 1013904223) >>> 0; return state / 2 ** 32; }; }
 /** Fixed provenance independent of evaluation outcomes. */
