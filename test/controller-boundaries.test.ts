@@ -6,9 +6,10 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFil
 import { join } from "node:path";
 import { mock, test } from "node:test";
 import { readHistoryEntries } from "@unbrained/pm-cli/sdk";
+import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import { getHistoryPath, isPmCliExpectedError, normalizeItemId, normalizeRawItemId } from "@unbrained/pm-cli/sdk/runtime";
 import { acquireStateLock, canonicalIdentifier, canonicalItemIdentifier, canonicalProgrammeId, commitStateTransaction } from "../state-boundary.ts";
-import { resolveEvaluationPlan, evaluationComparison, loopLeaseLockId, loopProcessStartTime, withRlController, runRlLoop, type JsonValue } from "../index.ts";
+import extension, { resolveEvaluationPlan, evaluationComparison, loopLeaseLockId, loopProcessStartTime, withRlController, runRlLoop, type JsonValue } from "../index.ts";
 import { controllerCallback, controllerCallbackIO, executeProcessTrainer, processJobId, processStaging, readProcessJob, reserveProcessJob, stopTrainer } from "../process.ts";
 import { allowance, processWorkspace, trainingInput } from "./fixtures/process-workspace.ts";
 
@@ -91,6 +92,31 @@ test("callback wrapper observes synchronous and asynchronous failures in every c
     assert.equal(failures.length, 2);
   }
   assert.doesNotThrow(() => controllerCallback("throwing-sink", () => { throw new Error("sink"); }, () => { throw new Error("operation"); })());
+});
+
+test("actual CLI signal callback failures cancel cleanly and remove owned signal handlers", async () => {
+  for (const fault of [true, false]) {
+    const { pmRoot, root, client, approval } = await processWorkspace();
+    const file = join(root, "programme.json"); writeFileSync(file, readFileSync(new URL("../examples/loop-bandit.json", import.meta.url)));
+    const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
+    const before = [process.listenerCount("SIGINT"), process.listenerCount("SIGTERM")];
+    let injected = false;
+    controllerCallbackIO.before = (site) => { if (site === "callback.signal") { injected = true; if (fault) throw new Error("injected signal callback failure"); } };
+    const register = process.once.bind(process);
+    const dispatch = mock.method(process, "once", (name: string | symbol, listener: (...args: unknown[]) => void) => {
+      const result = register(name, listener);
+      if (name === "SIGTERM" && new Error().stack?.includes("installCancellationSignals")) listener();
+      return result;
+    });
+    try {
+      await assert.rejects(harness.runCommand({ command: "rl loop run", pmRoot, args: ["Signal-Callback"], options: { file, approval }, global: { author: "process-test" } }), (error) => isPmCliExpectedError(error) && error.context.code === "loop_cancelled");
+      assert.ok(injected);
+      assert.equal((await client.get("signal-callback-seed", { full: true })).item.assignee, undefined);
+      assert.ok((await client.comments("signal-callback-seed")).comments.some((entry) => entry.text.includes("cancellation recorded")));
+      assert.deepEqual(readdirSync(join(pmRoot, "locks")), []);
+      assert.deepEqual([process.listenerCount("SIGINT"), process.listenerCount("SIGTERM")], before);
+    } finally { dispatch.mock.restore(); controllerCallbackIO.before = () => undefined; }
+  }
 });
 
 test("callback fault matrix reaps real children and settles each reservation once", { timeout: 600000 }, async (t) => {
