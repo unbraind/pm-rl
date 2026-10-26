@@ -1,5 +1,5 @@
 /** Shared identifier and filesystem boundaries for package-owned state. */
-import { lstatSync, realpathSync } from "node:fs";
+import { lstatSync } from "node:fs";
 import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { commitWorkspaceTransaction, type CommitWorkspaceTransactionOptions, looksLikeGenericKeyValueEntry, parseCsvKv } from "@unbrained/pm-cli/sdk";
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
@@ -9,7 +9,7 @@ import { acquireLock as sdkAcquireLock, createPmCliExpectedError, EXIT_CODE, get
 function refused(code: "rl_identifier_invalid" | "rl_state_path_invalid"): never {
   const required = code === "rl_identifier_invalid"
     ? "Use a nonempty single identifier of at most 200 UTF-8 bytes, with letters, numbers, marks, dots, underscores or hyphens; no whitespace, encoding, separators or dot segments. Resolve pm item aliases through the SDK."
-    : "Use a state root and descendants with no symbolic links; restore ordinary directories before retrying.";
+    : "Use a nonempty NUL-free state root of at most 4096 UTF-8 bytes and descendants with no symbolic links; restore ordinary directories before retrying.";
   throw createPmCliExpectedError(`State boundary refused. ${required}`, { exitCode: EXIT_CODE.USAGE, context: { code, required } });
 }
 /** Validate one identity without trimming, decoding, substituting or truncating it. Native pm references also obey the SDK history-id contract. */
@@ -21,6 +21,7 @@ export function identifier(value: unknown, kind: "item" | "component" | "context
 }
 /** Join validated components beneath an explicit state root, rejecting symlinked roots, ancestors and leaves, including dangling links. */
 export function statePath(root: string, ...components: string[]): string {
+  if (typeof root !== "string" || root.length === 0 || Buffer.byteLength(root) > 4096 || root.includes("\0")) refused("rl_state_path_invalid");
   components.forEach((part) => identifier(part, "component"));
   const base = resolve(root); const target = resolve(base, ...components);
   assertStatePathRoot(base, target);
@@ -28,7 +29,6 @@ export function statePath(root: string, ...components: string[]): string {
   for (;;) {
     const stat = lstatSync(cursor, { throwIfNoEntry: false });
     if (stat?.isSymbolicLink()) refused("rl_state_path_invalid");
-    if (stat !== undefined && realpathSync(cursor) !== cursor) refused("rl_state_path_invalid");
     const parent = dirname(cursor); if (parent === cursor) break; cursor = parent;
   }
   return target;

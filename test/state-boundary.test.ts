@@ -1,7 +1,7 @@
 /** Seeded identifier and path properties against a real standalone SDK tracker. */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, lstatSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, readdirSync, lstatSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { after, test } from "node:test";
@@ -10,7 +10,7 @@ import { init, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { acquireStateLock, assertStatePathRoot, checkedStateFile, commitStateTransaction, identifier, identifierClient, statePath } from "../state-boundary.ts";
 import { withEvaluationLease } from "../sequential-evaluation.ts";
 import { parseEvaluationPlan, registerEvaluationPlan } from "../evaluation-plan.ts";
-import { withProcessJobFence, loopLeaseLockId, readCompleteLoopItem } from "../index.ts";
+import { commitProcessTransaction, withProcessJobFence, loopLeaseLockId, readCompleteLoopItem } from "../index.ts";
 import { parseGenerationSpec } from "../lineage.ts";
 import { processStaging } from "../process.ts";
 import { checkpointArtifactPath } from "../checkpoint-artifacts.ts";
@@ -22,10 +22,11 @@ function treeHash(root: string): string {
   const hash = createHash("sha256");
   /** Walk only the dedicated tripwire, without following any link. */
   function visit(directory: string): void {
+    const directoryStat = lstatSync(directory); hash.update(JSON.stringify([directoryStat.mode, directoryStat.ino, directoryStat.mtimeMs, directoryStat.ctimeMs]));
     for (const name of readdirSync(directory).sort()) {
       const file = join(directory, name); const stat = lstatSync(file);
-      hash.update(relative(root, file));
-      if (stat.isDirectory()) visit(file); else hash.update(readFileSync(file));
+      hash.update(relative(root, file)); hash.update(JSON.stringify([stat.mode, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs]));
+      if (stat.isDirectory()) visit(file); else hash.update(stat.isSymbolicLink() ? readlinkSync(file) : readFileSync(file));
     }
   }
   visit(root); return hash.digest("hex");
@@ -86,6 +87,7 @@ test("identifier property: 500 seeded sequences preserve external tripwires acro
     }
     assert.throws(() => statePath(pmRoot, id), refusal);
     assert.throws(() => commitStateTransaction({ pmRoot, transactionId: id, author: "boundary-test", steps: [] }), refusal);
+    await assert.rejects(commitProcessTransaction({ pmRoot, transactionId: id, author: "boundary-test", steps: [] }), refusal);
     assert.throws(() => processStaging(pmRoot, id), refusal);
     assert.throws(() => loopLeaseLockId(id), refusal);
     assert.throws(() => identifierClient(client).get(id), refusal);
@@ -121,6 +123,7 @@ test("state paths refuse symlinked roots, intermediate directories, leaves and c
   assert.throws(() => commitStateTransaction({ pmRoot: state, transactionId: "valid", author: "boundary-test", steps: [] }), refusal);
   assert.equal(treeHash(outside), before);
   assert.equal(statePath(state), state);
+  for (const invalidRoot of [undefined, null, "", "\0", "x".repeat(4097)]) assert.throws(() => statePath(invalidRoot as never, "file"), refusal);
   assert.throws(() => assertStatePathRoot(state, root), refusal);
   assert.throws(() => assertStatePathRoot(state, join(outside, "old.lock")), refusal);
   const context = `sha256:${"a".repeat(64)}`;
@@ -135,11 +138,12 @@ test("state paths refuse symlinked roots, intermediate directories, leaves and c
 
 test("native release retains a peer successor and rechecks confinement before cleanup", async () => {
   const root = mkdtempSync(join(tmpdir(), "rl-release-")); roots.push(root);
-  const release = await acquireStateLock(root, "valid", 30, "boundary-test");
-  const lock = join(root, "locks", "valid.lock"); const peer = { ...JSON.parse(readFileSync(lock, "utf8")), token: "peer-success" };
+  const state = join(root, "state"); mkdirSync(state);
+  const release = await acquireStateLock(state, "valid", 30, "boundary-test");
+  const lock = join(state, "locks", "valid.lock"); const peer = { ...JSON.parse(readFileSync(lock, "utf8")), token: "peer-success" };
   writeFileSync(lock, JSON.stringify(peer)); await release(); assert.equal(JSON.parse(readFileSync(lock, "utf8")).token, "peer-success");
-  rmSync(lock); const again = await acquireStateLock(root, "valid", 30, "boundary-test");
+  rmSync(lock); const again = await acquireStateLock(state, "valid", 30, "boundary-test");
   const outside = join(root, "tripwire"); mkdirSync(outside); writeFileSync(join(outside, "valid.lock"), "sentinel");
-  const before = treeHash(outside); rmSync(join(root, "locks"), { recursive: true }); symlinkSync(outside, join(root, "locks"), "dir");
+  const before = treeHash(outside); rmSync(join(state, "locks"), { recursive: true }); symlinkSync(outside, join(state, "locks"), "dir");
   await assert.rejects(again(), refusal); assert.equal(treeHash(outside), before);
 });

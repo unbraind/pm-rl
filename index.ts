@@ -2877,6 +2877,7 @@ async function expireControllerRecord(root: string, id: string, record: Record<s
 
 /** Recover only demonstrably dead process-owned SDK transaction locks, then publish the new writer's birth identity. */
 export async function commitProcessTransaction(options: CommitWorkspaceTransactionOptions): Promise<void> {
+  identifier(options.transactionId); options.steps.forEach((step) => identifier(step.id));
   await expireDeadControllerMutex(options.pmRoot, "sdk-workspace-transaction", undefined);
   const start = loopProcessStartTime(process.pid);
   if (start === null) fail("Cannot establish process transaction identity.", "process_identity_unavailable");
@@ -2891,7 +2892,7 @@ export async function commitProcessTransaction(options: CommitWorkspaceTransacti
 
 /** Serialize standalone SDK adapter execution on the same owner-verified mutex used by controller phases. */
 export async function withProcessJobFence<T>(coordinates: WorkspaceCoordinates, id: string, execute: () => Promise<T>): Promise<T> {
-  identifier(id);
+  identifier(id); statePath(coordinates.pmRoot);
   const start = loopProcessStartTime(process.pid);
   if (start === null) fail("Cannot establish trainer owner identity.", "process_identity_unavailable");
   const release = await controllerMutex(coordinates.pmRoot, id, coordinates.author, start, undefined);
