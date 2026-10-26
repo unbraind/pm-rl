@@ -632,6 +632,9 @@ canonical ID is `stopping.review`. This attributable review receipt attests to
 the statistical design; it grants no policy promotion budget. Register the plan
 before creating the candidate or **any** collection run. Plan, review, candidate,
 incumbent and collection creation histories are checked through the SDK.
+The review's creation must strictly precede plan creation, and the plan must
+strictly precede both candidate creation and every collection Run. This also
+applies to correctly hashed plans created directly through the SDK.
 
 ```bash
 pm rl eval plan register --file examples/sequential-evaluation-plan.json --json
@@ -651,7 +654,10 @@ deletions and looks after a terminal stop refuse. Immutable checkpoint identitie
 bind the comparison, slot and previous checkpoint revision. Every retry reads
 current target evidence; there is no replay of a frozen mutation journal.
 SDK token-owned leases serialize package writers; native item locks protect
-current provenance against ordinary SDK mutations. Foreign checkpoint records
+current provenance against ordinary SDK mutations. Manual and recursive promotion,
+including recovery of the close boundary, retain leases over every live evidence
+revision through the terminal write. Changed evidence refuses with
+`loop_write_conflict` before any new approval consumption. Foreign checkpoint records
 are skipped with a reason and left intact. No Git repository or executable is
 needed, and source trackers are never modified by evaluation.
 

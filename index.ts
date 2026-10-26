@@ -194,6 +194,7 @@ import {
   type LmLoopConfig,
 } from "./lm.ts";
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { constants as fsConstants, existsSync, lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
@@ -758,12 +759,36 @@ export function idSegment(value: string): string {
   return segment.length > 0 ? segment : "environment";
 }
 
+/** One SDK projection whose exact current revision contributed to a promotion decision. */
+interface PromotionEvidenceRead { readonly at?: string; readonly fields?: string; readonly item: GetResult["item"] | null }
+const promotionEvidence = new AsyncLocalStorage<{ client: PmClient; reads: Map<string, PromotionEvidenceRead[]> }>();
+/** Collect every live evidence read, including absent slots, until the guarded promotion write. @internal */
+export function withPromotionEvidence<T>(client: PmClient, execute: () => Promise<T>): Promise<T> {
+  return promotionEvidence.run({ client, reads: new Map() }, execute);
+}
+/** Retain SDK projections unchanged; historical coordinates and live revisions remain distinct. */
+function observePromotionEvidence(id: string, fields: string | undefined, item: GetResult["item"] | null, at: string | undefined): void {
+  const reads = promotionEvidence.getStore()!.reads;
+  const previous = reads.get(id) ?? [];
+  if (!previous.some((read) => read.at === at && read.fields === fields && canonicalJson(read.item as JsonValue) === canonicalJson(item as JsonValue))) previous.push({ at, fields, item: structuredClone(item) });
+  reads.set(id, previous);
+}
 /** Read complete current or verified historical domain evidence without an output ceiling. */
 export async function readCompleteLoopItem(client: PmClient, id: string, at?: string, fields?: string): Promise<GetResult> {
-  const result = await identifierClient(client).get(id, { ...(fields === undefined ? { depth: "standard" } : { fields }), outputLimit: "unbounded", outputBudget: "unbounded", ...(at === undefined ? {} : { at }) }).catch(rethrowProvenanceRead);
+  const observing = promotionEvidence.getStore()?.client === client;
+  if (observing) {
+    identifier(id);
+    const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
+    id = canonicalizeIdentifier(id, prefix);
+  }
+  const result = await identifierClient(client).get(id, { ...(fields === undefined ? { depth: "standard" } : { fields }), outputLimit: "unbounded", outputBudget: "unbounded", ...(at === undefined ? {} : { at }) }).catch((error: unknown) => {
+    if (observing && isPmCliExpectedError(error) && error.exitCode === EXIT_CODE.NOT_FOUND) observePromotionEvidence(id, fields, null, at);
+    return rethrowProvenanceRead(error);
+  });
   if (!("item" in result) || "output_budget_exceeded" in result) {
     fail(`Item ${id} was omitted despite an unbounded read request.`, "loop_history_incomplete", EXIT_CODE.CONFLICT);
   }
+  if (observing) observePromotionEvidence(result.item.id, fields, result.item, at);
   return result as GetResult;
 }
 
@@ -778,11 +803,25 @@ export async function mutateLoopItem(client: PmClient, before: GetResult, messag
   let after: GetResult;
   try {
     // These are the SDK's native item locks, also observed by ordinary CLI and SDK peer writes.
-    for (const dependency of [...preconditions].sort((a, b) => a.item.id.localeCompare(b.item.id))) {
-      releases.push(await acquireStateLock(pmRoot, dependency.item.id, settings.locks.ttl_seconds, author, false, false, settings.locks.wait_ms));
-      const current = await readCompleteLoopItem(client, dependency.item.id);
-      if (current.item.updated_at !== dependency.item.updated_at || current.item.body !== dependency.item.body) fail("Promotion evidence or budget changed after it was read; retry from current evidence.", "loop_write_conflict", EXIT_CODE.CONFLICT);
-    }
+    const observed = promotionEvidence.getStore();
+    const reads = observed?.client === client ? observed.reads : new Map<string, PromotionEvidenceRead[]>();
+    const dependencies = new Map(preconditions.map((dependency) => [dependency.item.id, dependency]));
+    const ids = [...new Set([...dependencies.keys(), ...reads.keys()])].filter((id) => id !== before.item.id).sort();
+    for (const id of ids) releases.push(await acquireStateLock(pmRoot, id, settings.locks.ttl_seconds, author, false, false, settings.locks.wait_ms));
+    // All SDK writers now contend on these native leases. Validate after the last acquisition,
+    // and retain every lease through the authoritative SDK mutation and its terminal record.
+    await promotionEvidence.exit(async () => {
+      for (const [id, projections] of reads) for (const projection of projections) {
+        let current: GetResult["item"] | null;
+        try { current = (await readCompleteLoopItem(client, id, projection.at, projection.fields)).item; }
+        catch (error) { if (isPmCliExpectedError(error) && error.exitCode === EXIT_CODE.NOT_FOUND) current = null; else throw error; }
+        if (canonicalJson(current as JsonValue) !== canonicalJson(projection.item as JsonValue)) fail("Promotion evidence changed after validation; retry from current evidence. No approval was consumed.", "loop_write_conflict", EXIT_CODE.CONFLICT);
+      }
+      for (const dependency of dependencies.values()) {
+        const current = await readCompleteLoopItem(client, dependency.item.id);
+        if (current.item.updated_at !== dependency.item.updated_at || current.item.body !== dependency.item.body) fail("Promotion evidence or budget changed after it was read; retry from current evidence.", "loop_write_conflict", EXIT_CODE.CONFLICT);
+      }
+    });
     const result = await runWithActiveExtensions({ path: pmRoot }, () => mutateItem({ pmRoot, settings, id: before.item.id, op, author, message, skipNoop: true,
       mutate: (document) => {
         if (document.metadata.updated_at !== expected.updated || document.body !== expected.body) fail("Tracker item changed after it was read; retry from current evidence.", "loop_write_conflict", EXIT_CODE.CONFLICT);
@@ -2543,7 +2582,7 @@ export async function promoteGenerationCore(client: PmClient, coordinates: Works
       // Only this invocation's successful atomic write can report applied. A peer's
       // promoted body must still reach the authoritative already-promoted refusal.
       inspect: async () => ({ state: closedStatus === "" ? "pending" : "applied" }),
-      apply: async () => {
+      apply: () => withPromotionEvidence(client, async () => {
         // Re-read inside the lock. The pre-lock `already_promoted` check runs on
         // a read every concurrent caller performs before any of them holds the
         // lock, so all of them pass it and would each promote the same
@@ -2595,7 +2634,7 @@ export async function promoteGenerationCore(client: PmClient, coordinates: Works
           `Promoted with proxy=${proxyScore.value}, held_out=${heldOutScore.value}, gap=${gap.toFixed(4)}. Budget consumed: ${promotedCount + 1} of ${permittedPromotions}.`, [lockedApprovalSpec.snapshot], author);
         closedStatus = String(result.item.status);
         return { status: closedStatus };
-      },
+      }),
       // One atomic item mutation is the only step: a failed apply has nothing to restore.
       compensate: async () => {},
     }],
@@ -3842,16 +3881,19 @@ async function inspectLoopGeneration(client: PmClient, programme: LoopProgramme,
   return inspectLmGeneration(pmRoot, client, programme, request, chain, generation);
 }
 
-/** Finish the close half of a committed promotion without applying or charging promotion again. */
-async function reconcileLoopPromotion(client: PmClient, lease: ControllerLease, itemId: string): Promise<void> {
-  await lease.guard(async () => {
+/** Finish the close half of a committed promotion without applying or charging promotion again. @internal */
+export async function reconcileLoopPromotion(client: PmClient, lease: Pick<ControllerLease, "author" | "guard">, itemId: string): Promise<void> {
+  await lease.guard(() => withPromotionEvidence(client, async () => {
     const item = await getTypedItem(client, itemId, "Generation");
     const spec = extractGenerationSpec(String(item.item.body), "Promoted loop generation");
     if (!spec.promoted) fail("Promotion recovery no longer agrees with current generation evidence.", "loop_step_drift", EXIT_CODE.CONFLICT);
-    if (item.item.status === "closed") return;
+    const config = await identifierClient(client).config("project", "get", "id_prefix");
+    const registry = resolveRuntimeStatusRegistry((await readSettings(dirname(config.settings_path))).schema);
+    if (registry.terminal_done_statuses.has(String(item.item.status))) return;
+    await enforceEvaluationPlan(client, item.item.id, spec.held_out_score!);
     await exportPolicyCard(client, itemId);
     await completeLoopGeneration(client, item, String(item.item.body), spec.promotion_evidence!, "Recovered the promotion close boundary; the approved promotion count and scores are unchanged.", [], lease.author);
-  });
+  }));
 }
 
 /** Preserve the sealed evaluator's reason when a peer won the rejection transition. */

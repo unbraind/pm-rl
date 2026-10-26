@@ -71,7 +71,7 @@ export function evaluateSequentialBoundary(plan: EvaluationPlan, n: number, cand
   return { sequential, verdict };
 }
 /** Require an attributable review of this complete design, rather than a free-form approval label. */
-export async function reviewSequentialPlan(client: PmClient, plan: EvaluationPlan): Promise<void> {
+export async function reviewSequentialPlan(client: PmClient, plan: EvaluationPlan, declaredAt?: string): Promise<void> {
   if (plan.stopping.kind !== "sequential") refuse("eval_plan_stopping");
   const review = await optionalItem(client, plan.stopping.review);
   if (review === null || review.type !== "Decision" || review.id !== plan.stopping.review) refuse("eval_plan_evidence");
@@ -79,6 +79,9 @@ export async function reviewSequentialPlan(client: PmClient, plan: EvaluationPla
   try { raw = parseBoundedJson(String(review.body)); } catch { refuse("eval_plan_evidence"); }
   if (raw === null || typeof raw !== "object" || Array.isArray(raw) || Object.keys(raw).length !== 2 || !("format" in raw) || !("comparison" in raw) || raw.format !== "pm-rl/sequential-review/1" || raw.comparison !== evaluationComparison(plan)) refuse("eval_plan_evidence");
   await verifyCreatedRecord(client, review);
+  // A valid seal establishes identity, not temporal precedence. In particular, SDK
+  // creation of a correctly hashed Plan must not bypass the pre-collection review.
+  if (declaredAt !== undefined && !(Date.parse(String(review.created_at)) < Date.parse(declaredAt))) refuse("eval_plan_late");
 }
 /** Serialize protocol writers with the SDK token-owned lease and lock ordinary SDK provenance writers too. */
 export async function withEvaluationLease<T>(client: PmClient, candidate: string, dependencies: readonly string[], execute: () => Promise<T>): Promise<T> {

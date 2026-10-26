@@ -61,7 +61,7 @@ export interface RegisteredEvaluationPlan {
 
 /** Throw an actionable typed refusal without copying tracker content into diagnostics. */
 export function refuse(code: EvaluationPlanRefusal): never {
-  const remedy = code === "eval_plan_stopping" ? "Use advance/resume for a sequential plan, evaluate for a fixed plan, and supply only the next declared complete unit prefix. A changed protocol requires a new plan and fresh candidate." : code === "eval_plan_evidence" ? "Check bounded paired rewards and the Decision reviewing the exact comparison hash. Changed sealed evidence requires a new plan and fresh candidate." : "Register a new plan with a fresh candidate before collection; retain the exact declared cohort, provenance and reviewed stopping protocol.";
+  const remedy = code === "eval_plan_stopping" ? "Use advance/resume for a sequential plan, evaluate for a fixed plan, and supply only the next declared complete unit prefix. A changed protocol requires a new plan and fresh candidate." : code === "eval_plan_evidence" ? "Check bounded paired rewards and the Decision reviewing the exact comparison hash. Changed sealed evidence requires a new plan and fresh candidate." : "Seal the design and any required review before registering a new plan, then create a fresh candidate and collection; retain the exact declared cohort, provenance and reviewed stopping protocol.";
   throw createPmCliExpectedError(`Evaluation plan refused (${code}). ${remedy}`, { exitCode: EXIT_CODE.CONFLICT, context: { code, required: remedy } });
 }
 /** Reject unknown keys so no apparent design choice disappears from comparison identity. */
@@ -138,6 +138,7 @@ export async function readEvaluationPlan(client: PmClient, candidate: string): P
   const comparison = evaluationComparison(plan);
   if (item.type !== "Plan" || item.id !== id || plan.candidate !== candidate || plan.incumbent_version !== incumbentVersion || item.affected_version !== hashJson({ comparison, incumbent_version: incumbentVersion })) refuse("eval_plan_drift");
   await verifyCreatedRecord(client, item);
+  if (plan.stopping.kind === "sequential") await reviewSequentialPlan(client, plan, String(item.created_at));
   return { id, comparison, plan, incumbent_version: incumbentVersion, created_at: String(item.created_at) };
 }
 /** Resolve native plan references through the SDK before computing the comparison a Decision reviews. */

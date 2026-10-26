@@ -1,14 +1,14 @@
 /** Real SDK state machines, finite-look simulations and adversarial sequential evidence. */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync, symlinkSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync, symlinkSync, existsSync, cpSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, test } from "node:test";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { init, isPmCliExpectedError, locateItem, readLocatedItem, readSettings, resolveItemTypeRegistry } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import extension, { generationProvenance, hashJson, readCompleteLoopItem, type RlCommandResult, type JsonValue } from "../index.ts";
+import extension, { extractGenerationSpec, generationProvenance, hashJson, readCompleteLoopItem, mutateLoopItem, withPromotionEvidence, promoteGenerationCore, reconcileLoopPromotion, withProcessJobFence, type RlCommandResult, type JsonValue } from "../index.ts";
 import { parseBoundedJson } from "../tracker-record.ts";
 import { evaluatePlan, evaluationComparison, parseEvaluationPlan, registerEvaluationPlan, readEvaluationPlan, enforceEvaluationPlan, recordPlanEvaluation, type EvaluationPlan, type EvaluationObservation, type EvaluationPlanReport, validateEvaluationReport } from "../evaluation-plan.ts";
 import { evaluateSequentialBoundary, parseSequentialStopping, recordSequentialEvaluation, readSequentialEvaluation, reviewSequentialPlan, withEvaluationLease, type SequentialEvaluationResult } from "../sequential-evaluation.ts";
@@ -16,6 +16,210 @@ import type { GenerationSpec, ScoreRecord } from "../lineage.ts";
 
 const roots: string[] = [];
 after(() => { for (const root of roots) rmSync(root, { recursive: true, force: true }); });
+
+test("promotion revision guard covers arbitrary SDK projections, absent slots and every lease boundary", async () => {
+  const w = await workspace();
+  const peer = new PmClient({ pmRoot: w.pmRoot, cwd: w.root, author: "evidence-peer", noExtensions: true });
+  await w.client.create({ id: "rl-target", title: "Unchanged target" });
+  await w.client.create({ id: "rl-reference", title: "Reference" });
+  const patches: Parameters<PmClient["update"]>[1][] = [
+    { body: "Changed body" }, { affectedVersion: "Changed seal" }, { title: "Changed title" },
+    { parent: "rl-reference" }, { blockedBy: "rl-reference" }, { tags: "changed" }, { status: "in_progress" },
+  ];
+  for (let index = 0; index < patches.length; index += 1) {
+    const id = `rl-evidence-${index}`; await w.client.create({ id, title: "Evidence", type: "Decision", body: "Original" });
+    const before = await readCompleteLoopItem(w.client, "rl-target");
+    await assert.rejects(withPromotionEvidence(w.client, async () => {
+      await readCompleteLoopItem(w.client, id); await readCompleteLoopItem(w.client, id); // identical reads deduplicate
+      await readCompleteLoopItem(w.client, id, "1"); // history is never a current revision
+      await peer.update(id, patches[index]);
+      return mutateLoopItem(w.client, before, "Guarded write", (document) => { document.body = "Unsafe"; return ["body"]; });
+    }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_write_conflict");
+    assert.deepEqual((await readCompleteLoopItem(w.client, "rl-target")).item, before.item);
+    await peer.update(id, { title: "Lease released" });
+  }
+  // Even a missing future look is a dependency: it cannot appear after validation.
+  const before = await readCompleteLoopItem(w.client, "rl-target");
+  await assert.rejects(withPromotionEvidence(w.client, async () => {
+    await assert.rejects(readCompleteLoopItem(w.client, "FuTuRe"));
+    await peer.create({ id: "future", title: "Competing checkpoint" });
+    return mutateLoopItem(w.client, before, "Guarded write", () => []);
+  }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_write_conflict");
+  await w.client.create({ id: "rl-leased", title: "Evidence", affectedVersion: "Original" });
+  const get = w.client.get.bind(w.client); let guarded = false; let boundaries = 0;
+  w.client.get = (async (...args) => {
+    const result = await get(...args);
+    if (guarded && args[0] === "rl-leased") {
+      boundaries += 1;
+      const wait = process.env.PM_LOCK_WAIT_MS; process.env.PM_LOCK_WAIT_MS = "0";
+      try { await assert.rejects(peer.update("rl-leased", { affectedVersion: "Peer edit" }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "lock_conflict"); }
+      finally { if (wait === undefined) delete process.env.PM_LOCK_WAIT_MS; else process.env.PM_LOCK_WAIT_MS = wait; }
+    }
+    return result;
+  }) as PmClient["get"];
+  await withPromotionEvidence(w.client, async () => {
+    await readCompleteLoopItem(w.client, "rl-leased", undefined, "id,affected_version");
+    await assert.rejects(readCompleteLoopItem(w.client, "rl-still-absent"));
+    guarded = true;
+    return mutateLoopItem(w.client, before, "Guarded write", (document) => { document.body = "Safe"; return ["body"]; });
+  });
+  guarded = false; assert.equal(boundaries, 1);
+  await peer.update("rl-leased", { affectedVersion: "Released" });
+  assert.equal((await readCompleteLoopItem(w.client, "rl-target")).item.body, "Safe");
+  const safe = await readCompleteLoopItem(w.client, "rl-target");
+  await assert.rejects(withPromotionEvidence(w.client, async () => {
+    await readCompleteLoopItem(w.client, "rl-leased", undefined, "id,notes");
+    await peer.notes("rl-leased", { add: "A new native metric note" });
+    return mutateLoopItem(w.client, safe, "Projected evidence", () => []);
+  }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_write_conflict");
+  let validation = false;
+  Object.assign(w.client, { get: (async (...args) => {
+    if (validation && args[0] === "rl-leased") throw Object.assign(new Error("Evidence backend failed"), { code: "EIO" });
+    return get(...args);
+  }) as PmClient["get"] });
+  await assert.rejects(withPromotionEvidence(w.client, async () => {
+    await readCompleteLoopItem(w.client, "rl-leased"); validation = true;
+    return mutateLoopItem(w.client, safe, "Unavailable evidence", () => []);
+  }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "provenance_read_retryable");
+  validation = false; Object.assign(w.client, { get });
+  assert.deepEqual((await readCompleteLoopItem(w.client, "rl-target")).item, safe.item);
+  await peer.update("rl-leased", { title: "Released after backend failure" });
+});
+
+test("every promotion guard SDK boundary permits only a current decision or a typed refusal", async () => {
+  const w = await workspace(); const peer = new PmClient({ pmRoot: w.pmRoot, cwd: w.root, author: "interleaving-peer", noExtensions: true });
+  await w.client.create({ id: "rl-write-target", title: "Target" });
+  const get = w.client.get.bind(w.client); const config = w.client.config.bind(w.client);
+  let boundaries = 0;
+  for (let injectAt = -1; injectAt < boundaries; injectAt += 1) {
+    const id = `rl-race-${injectAt + 1}`; await w.client.create({ id, type: "Decision", title: "Evidence", affectedVersion: "original" });
+    const before = await readCompleteLoopItem(w.client, "rl-write-target"); let step = 0; let injected = false; let decision = "";
+    /** Compete using native SDK writes at every before/after SDK operation boundary. */
+    async function boundary(): Promise<void> {
+      if (step++ !== injectAt) return;
+      injected = true; const wait = process.env.PM_LOCK_WAIT_MS; process.env.PM_LOCK_WAIT_MS = "0";
+      try { await peer.update(id, { affectedVersion: "peer" }); }
+      catch (error) { assert.ok(isPmCliExpectedError(error) && error.context.code === "lock_conflict"); }
+      finally { if (wait === undefined) delete process.env.PM_LOCK_WAIT_MS; else process.env.PM_LOCK_WAIT_MS = wait; }
+    }
+    Object.assign(w.client, {
+      get: (async (...args) => { await boundary(); const value = await get(...args); await boundary(); return value; }) as PmClient["get"],
+      config: (async (...args) => { await boundary(); const value = await config(...args); await boundary(); return value; }) as PmClient["config"],
+    });
+    try {
+      const outcome = await withPromotionEvidence(w.client, async () => {
+        decision = String((await readCompleteLoopItem(w.client, id)).item.affected_version);
+        return mutateLoopItem(w.client, before, "Guarded decision", (document) => { document.body = id; return ["body"]; });
+      }).then(() => "applied", (error: unknown) => { assert.ok(isPmCliExpectedError(error) && error.context.code === "loop_write_conflict"); return "refused"; });
+      if (injectAt === -1) boundaries = step;
+      else assert.ok(injected, `boundary ${injectAt}`);
+      if (outcome === "applied") {
+        assert.equal((await readCompleteLoopItem(peer, id)).item.affected_version, decision);
+        assert.equal((await readCompleteLoopItem(peer, "rl-write-target")).item.body, id);
+      } else assert.deepEqual((await readCompleteLoopItem(peer, "rl-write-target")).item, before.item);
+      await peer.update(id, { title: "All leases released" });
+    } finally { Object.assign(w.client, { get, config }); }
+  }
+  assert.ok(boundaries > 0); console.log(JSON.stringify({ promotionGuardSdkBoundaries: boundaries }));
+});
+
+test("promotion holds final checkpoints through the generation write and never spends stale approval", async () => {
+  const base = await workspace();
+  await base.client.schemaAddType("Environment", { folder: "environments", defaultStatus: "open" });
+  await base.client.create({ id: "training", type: "Environment", title: "Training environment" });
+  const p = await prepared(base.client);
+  await base.client.update(`${p.candidate}-run`, { environment: "training" });
+  await base.client.create({ id: "rl-approval", type: "Decision", title: "One promotion", body: '```json\n{"permitted_promotions":1}\n```' });
+  await recordSequentialEvaluation(base.client, p.candidate, observations(p));
+  const final = report(await recordSequentialEvaluation(base.client, p.candidate, observations(p, 64, true)));
+  const checkpoint = `${p.candidate}-evaluation-plan-look-2`;
+  const score: ScoreRecord = { objective: p.objective, objective_version: p.objective_version, evaluation_context: p.evaluation_context, direction: p.direction, seed_set: evaluationComparison(p), scale: 1, value: final.candidate_mean };
+  for (const mode of ["after-validation", "while-leased", "cli", "recovery", "missing-score"] as const) {
+    const root = mkdtempSync(join(tmpdir(), "rl-promotion-proof-")); roots.push(root); cpSync(base.root, root, { recursive: true });
+    const pmRoot = join(root, ".agents/pm");
+    const client = new PmClient({ pmRoot, cwd: root, author: "promotion-test", noExtensions: true });
+    const peer = new PmClient({ pmRoot, cwd: root, author: "peer", noExtensions: true });
+    const recovering = mode === "recovery" || mode === "missing-score";
+    if (recovering) {
+      await promoteGenerationCore(client, { pmRoot, author: "promotion-test" }, p.candidate, "rl-approval", { ...score, evaluation_context: "proxy" }, score, "Reviewed evaluation");
+      await peer.update(p.candidate, { status: "in_progress" });
+      if (mode === "missing-score") {
+        const current = extractGenerationSpec(String((await readCompleteLoopItem(peer, p.candidate)).item.body), "Incomplete promotion");
+        await peer.update(p.candidate, { body: `\`\`\`json\n${JSON.stringify({ ...current, held_out_score: null })}\n\`\`\`` });
+      }
+    }
+    const before = await readCompleteLoopItem(peer, p.candidate);
+    const get = client.get.bind(client); let sawFinal = false; let injected = false;
+    client.get = (async (...args) => {
+      const result = await get(...args);
+      if (args[0] === checkpoint && args[1]?.at === undefined) sawFinal = true;
+      const locked = existsSync(join(pmRoot, "locks", `${checkpoint}.lock`));
+      if (!injected && (mode === "while-leased" ? args[0] === checkpoint && locked : sawFinal && args[0] === "rl-approval")) {
+        injected = true;
+        const wait = process.env.PM_LOCK_WAIT_MS; process.env.PM_LOCK_WAIT_MS = "0";
+        try {
+          const edit = peer.update(checkpoint, { affectedVersion: "Raced final seal" });
+          if (mode === "while-leased") await assert.rejects(edit, (error: unknown) => isPmCliExpectedError(error) && error.context.code === "lock_conflict");
+          else await edit;
+        } finally { if (wait === undefined) delete process.env.PM_LOCK_WAIT_MS; else process.env.PM_LOCK_WAIT_MS = wait; }
+      }
+      return result;
+    }) as PmClient["get"];
+    /** Exercise the public command and the core shared by every recursive controller. */
+    async function promote(): Promise<unknown> {
+      if (recovering) return reconcileLoopPromotion(client, { author: "promotion-test", guard: (operation) => withProcessJobFence({ pmRoot, author: "promotion-test" }, "recovery-proof", operation) }, p.candidate);
+      if (mode !== "cli") return promoteGenerationCore(client, { pmRoot, author: "promotion-test" }, p.candidate, "rl-approval", { ...score, evaluation_context: "proxy" }, score, "Reviewed evaluation");
+      const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
+      type HostSdk = NonNullable<Parameters<typeof harness.runCommand>[0]["sdk"]>;
+      const scores = join(root, "scores.json"); writeFileSync(scores, JSON.stringify({ proxy_score: { ...score, evaluation_context: "proxy" }, held_out_score: score }));
+      return harness.runCommand({ command: "rl generation promote", pmRoot, args: [p.candidate], options: { approval: "rl-approval", scores, evidence: "Reviewed evaluation" }, sdk: { client } as unknown as HostSdk });
+    }
+    if (mode === "while-leased") await promote();
+    else await assert.rejects(promote(), (error: unknown) => isPmCliExpectedError(error) && error.context.code === (mode === "missing-score" ? "promoted_missing_evidence" : "loop_write_conflict"));
+    if (mode !== "missing-score") assert.ok(injected, mode);
+    if (mode === "missing-score") {
+      assert.deepEqual((await readCompleteLoopItem(peer, p.candidate)).item, before.item);
+      continue;
+    }
+    const live = extractGenerationSpec(String((await readCompleteLoopItem(peer, p.candidate)).item.body), "SDK promotion readback");
+    assert.equal(live.promoted, mode === "while-leased" || recovering); assert.equal(live.approval, mode === "while-leased" || recovering ? "rl-approval" : null);
+    if (mode !== "while-leased") assert.deepEqual((await readCompleteLoopItem(peer, p.candidate)).item, before.item);
+    await peer.update(checkpoint, { title: "Lease released after the terminal decision" });
+  }
+});
+
+test("SDK-sealed plans require review before declaration before every collection and candidate", async () => {
+  const w = await workspace();
+  const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
+  /** Enumerate the complete creation-order model, independent of package validation. */
+  function permutations(values: readonly string[]): string[][] { return values.length === 0 ? [[]] : values.flatMap((value) => permutations(values.filter((entry) => entry !== value)).map((rest) => [value, ...rest])); }
+  let allowed = 0; let refused = 0;
+  for (const [index, order] of permutations(["review", "plan", "run", "candidate"]).entries()) {
+    const p = plan(`rl-order-${index}`); if (p.stopping.kind !== "sequential") throw new Error("fixture");
+    const comparison = evaluationComparison(p); const id = `${p.candidate}-evaluation-plan`; const run = `${p.candidate}-run`;
+    for (const action of order) {
+      if (action === "review") await w.client.create({ id: p.stopping.review, type: "Decision", title: "Review", body: JSON.stringify({ format: "pm-rl/sequential-review/1", comparison }) });
+      if (action === "plan") await w.client.create({ id, type: "Plan", title: "SDK sealed plan", body: JSON.stringify({ plan: p, incumbent_version: p.incumbent_version }), affectedVersion: hashJson({ comparison, incumbent_version: p.incumbent_version }) });
+      if (action === "run") await w.client.create({ id: run, type: "Run", title: "Collection" });
+      if (action === "candidate") await generation(w.client, p.candidate, { ...spec("rl-seed", comparison), collection_runs: [run] });
+    }
+    // Correct SDK seals alone must not confer legitimacy on post-data review.
+    let previous: string | null = null;
+    for (const look of [16, 64]) {
+      const body = { format: "pm-rl/sequential-checkpoint/1", comparison, previous, observations: observations(p, look, true) };
+      const digest = hashJson(body as unknown as JsonValue); const slot = look === 16 ? 1 : 2;
+      await w.client.create({ id: `${id}-look-${slot}`, type: "Decision", title: "SDK checkpoint", tags: "pm-rl:sequential-checkpoint", body: JSON.stringify(body), affectedVersion: digest });
+      previous = digest;
+    }
+    const score: ScoreRecord = { objective: p.objective, objective_version: p.objective_version, evaluation_context: p.evaluation_context, direction: p.direction, seed_set: comparison, scale: 1, value: evaluatePlan(p, observations(p, 64, true)).candidate_mean };
+    const valid = order.indexOf("review") < order.indexOf("plan") && order.indexOf("plan") < order.indexOf("run") && order.indexOf("plan") < order.indexOf("candidate");
+    const operations = [() => enforceEvaluationPlan(w.client, p.candidate, score), () => readSequentialEvaluation(w.client, p.candidate), () => harness.runCommand({ command: "rl eval plan resume", pmRoot: w.pmRoot, args: [p.candidate] })];
+    for (const operation of operations) if (valid) await operation(); else await assert.rejects(operation(), refusal("eval_plan_late"));
+    if (valid) allowed += 1; else refused += 1;
+  }
+  assert.equal(allowed, 2); assert.equal(refused, 22);
+  console.log(JSON.stringify({ chronologicalOrders: 24, validOrders: allowed, refusedOrders: refused, surfaces: 3 }));
+});
 /** A deterministic independent generator for reproducible model and simulation traces. */
 function random(seed: number): () => number { let state = seed; return () => { state = (Math.imul(1664525, state) + 1013904223) >>> 0; return state / 2 ** 32; }; }
 /** Fixed provenance independent of evaluation outcomes. */

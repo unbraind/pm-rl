@@ -20,6 +20,26 @@ batches stay at 32 selections. No coverage threshold changes.
 | PM task receipts and documentation | Repository tracker comments, linked files/docs/tests and claim release are intentional task documentation committed with code. These are distinct from the disposable tracker snapshots used for refusal proofs. |
 
 The read-only export, replay and adoption functions do not write domain records.
+The shared manual and recursive promotion transaction records every live SDK
+projection used by its authoritative checks, including absent checkpoint slots.
+Recovery of an already committed promotion's close boundary applies the same
+evaluation validation and revision guard; configured done roles come from the SDK.
+Before publishing the generation outcome it acquires the SDK's native item
+leases in canonical order and reads each projection again through the SDK.
+Exact readback must match; seals, metadata and relationships are included whenever
+the check read them. Verified historical coordinates are re-read separately and
+cannot substitute for current revisions.
+These leases remain held until the terminal generation write completes, so a
+competing ordinary SDK edit either wins before validation and causes a typed
+`loop_write_conflict`, or contends on the same lease. A refusal consumes no
+promotion allowance. This covers fixed results, all sequential checkpoints and
+review records, shadow evidence and ancestry through their shared read boundary.
+
+Sequential plan reads additionally require the original, creation-verified review
+to predate the sealed Plan. Existing plan-before-candidate and plan-before-every-Run
+checks then establish review-before-data transitively. Direct SDK plan creation,
+CLI resume and promotion, and policy adoption use the same validation.
+
 Replay first validates the certified historical subject's exact dependency graph;
 only those bound citations can contribute resource declarations. Evaluation plans
 must bind that subject, its incumbent and its pinned comparison identity. Paired
