@@ -839,6 +839,11 @@ controller leases, reservations, receipts and input digests. Literal filenames
 and content-addressed bytes retain their own domains. Whitespace still refuses
 before resolution. Unicode equivalence follows the installed SDK; this package
 does not add its own NFC/NFD folding.
+Original stored provenance seals are verified before canonical semantic
+projection. Cohort member and correlation-unit labels are case-sensitive opaque
+data, bounded by the same 200-byte single-token pattern; they are never SDK item
+or filesystem keys. This preserves distinct frozen units such as `Unit` and
+`unit`, including in existing fixed-sample plans.
 
 SDK callers preparing a review can use `await resolveEvaluationPlan(client, input)`
 before `evaluationComparison(plan)`. This resolves candidate, incumbent and review
@@ -852,6 +857,8 @@ settle the reservation once and persist a terminal job before releasing its fenc
 Heartbeat failures retain a terminal audit and release owned claims; cleanup
 still revalidates ownership and waits for all pending heartbeats before releasing
 the lease. Typed `process_callback_failed` errors include a recovery remedy.
+Ordinary unsuccessful trainer exits retain the `trainer_failure` outcome and
+existing bounded retry policy, with a typed error and diagnostics remedy.
 
 Evaluation dependencies are validated before acquiring even the outer lease and
 use SDK-normalized item identities for their native locks. Lock release delegates

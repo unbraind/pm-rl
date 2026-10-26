@@ -13,7 +13,7 @@ function refused(code: "rl_identifier_invalid" | "rl_state_path_invalid"): never
   throw createPmCliExpectedError(`State boundary refused. ${required}`, { exitCode: EXIT_CODE.USAGE, context: { code, required } });
 }
 /** Validate one identity without trimming, decoding, substituting or truncating it. Native pm references also obey the SDK history-id contract. */
-export function identifier(value: unknown, kind: "item" | "component" | "context" | "artifact" | "digest" = "item"): string {
+export function identifier(value: unknown, kind: "item" | "component" | "context" | "artifact" | "digest" | "cohort" = "item"): string {
   if (kind === "digest") {
     if (typeof value !== "string" || !/^sha256:[a-f0-9]{64}$/.test(value)) refused("rl_identifier_invalid");
     return value;

@@ -82,7 +82,7 @@ export function parseEvaluationPlan(value: unknown): EvaluationPlan {
   const candidate = identifier(p.candidate); const incumbent = identifier(p.incumbent);
   if (candidate === incumbent) refuse("eval_plan_invalid");
   if (!Array.isArray(p.members) || p.members.length === 0 || p.members.length > 10_000) refuse("eval_plan_invalid");
-  const members = Array.from(p.members, (value): EvaluationMember => { const m = object(value, ["id", "unit"]); return { id: identifier(m.id), unit: identifier(m.unit) }; }).sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  const members = Array.from(p.members, (value): EvaluationMember => { const m = object(value, ["id", "unit"]); return { id: identifier(m.id, "cohort"), unit: identifier(m.unit, "cohort") }; }).sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
   const units = new Set(members.map((m) => m.unit));
   if (new Set(members.map((m) => m.id)).size !== members.length) refuse("eval_plan_invalid");
   const sequential = p.stopping !== null && typeof p.stopping === "object" && "kind" in p.stopping && p.stopping.kind === "sequential";
@@ -180,7 +180,7 @@ export function normalizedObservations(input: readonly unknown[]): EvaluationObs
   return Array.from(input, (value): EvaluationObservation => {
     const row = object(value, ["id", "candidate", "incumbent"]);
     if ([row.candidate, row.incumbent].some((score) => typeof score !== "number" || !Number.isFinite(score))) refuse("eval_plan_evidence");
-    return { id: identifier(row.id), candidate: row.candidate as number, incumbent: row.incumbent as number };
+    return { id: identifier(row.id, "cohort"), candidate: row.candidate as number, incumbent: row.incumbent as number };
   }).sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 }
 /** Recompute paired equal-unit means, counting a correlated cohort once in the bound. */

@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { hostname } from "node:os";
 import { test } from "node:test";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import { acquireLock, certifyCompleteListResult } from "@unbrained/pm-cli/sdk/runtime";
+import { acquireLock, isPmCliExpectedError, certifyCompleteListResult } from "@unbrained/pm-cli/sdk/runtime";
 import extension, { hashJson, runRlLoop, promotedGenerationIdsUnderApproval, type JsonValue, type RlCommandResult, loopLeaseLockId, loopProcessStartTime, LOOP_LEASE_TTL_SECONDS, RL_COMMANDS } from "../index.ts";
 import { compareRecipes, durableRecipeProposals, metaReservation, parseMetaConfig, proposeRecipes, recipeExamples, recipeSuccessor, runRlMeta, scoreTrackerPolicy, retainedMetaPromotionHeadroom, type MetaConfig, type MetaRequest } from "../meta.ts";
 import { INITIAL_RECIPE, recipeArtifact, seededRecipes } from "../recipe.ts";
@@ -575,10 +575,18 @@ test("programme identity cannot hide approval reservations through SDK case fold
   const w = await metaWorkspace(); const request = requestFor(w, "canonical", { ...metaConfig, meta_generations: 1, candidates: 1 });
   const spec = { ...metaSpec, meta_budget: { training_samples: 1024, proposal_calls: 0, recipe_promotions: 1 } };
   await w.client.update(w.approval, { body: `\`\`\`json\n${JSON.stringify(spec)}\n\`\`\`` });
-  for (const id of ["UPPER", "under_score", "", "../outside"]) {
-    await assert.rejects(runRlMeta(w.client, w.coordinates, { ...request, id, onStep() { throw new Error("noncanonical programme reached a write"); } }), /meta_programme_id/);
+  for (const id of ["under_score", "", "../outside"]) {
+    await assert.rejects(runRlMeta(w.client, w.coordinates, { ...request, id, onStep() { throw new Error("noncanonical programme reached a write"); } }), (error) => (isPmCliExpectedError(error) && error.context.code === "rl_identifier_invalid") || (error instanceof Error && /meta_programme_id/.test(error.message)));
   }
   assert.equal(certifyCompleteListResult(await w.client.listAllComplete({ includeBody: false })).items.length, 1, "invalid identities leave only the approval");
+  const alias = await metaWorkspace();
+  const aliased = requestFor(alias, "UPPER", { ...metaConfig, meta_generations: 1, candidates: 1 });
+  await alias.client.update(alias.approval, { body: `\`\`\`json\n${JSON.stringify(spec)}\n\`\`\`` });
+  await assert.rejects(runRlMeta(alias.client, alias.coordinates, { ...aliased, onStep() { throw new Error("canonical pause"); } }), /canonical pause/);
+  const reserved = await alias.client.get("upper-reservation", { full: true });
+  await assert.rejects(runRlMeta(alias.client, alias.coordinates, { ...aliased, id: "upper", onStep() { throw new Error("canonical pause"); } }), /canonical pause/);
+  assert.deepEqual(await alias.client.get("UPPER-reservation", { full: true }), reserved);
+
   await w.client.create({ id: "LEGACY-reservation", type: "Decision", title: "Retained case-folded allocation", body: JSON.stringify({
     format: "pm-rl/meta-reservation/1", id: "LEGACY-reservation", approval: w.approval,
     charge: { training_samples: 1024, proposal_calls: 0, recipe_promotions: 1 }, promotion_headroom: 4,

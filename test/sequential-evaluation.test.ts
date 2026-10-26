@@ -475,4 +475,5 @@ test("SDK intake snapshots observations before asynchronous provenance and check
   assert.equal(report(await recordSequentialEvaluation(w.client, p.candidate, input)).observations, 64);
   await assert.rejects(recordSequentialEvaluation(w.client, p.candidate, null), refusal("eval_plan_stopping"));
   await assert.rejects(recordSequentialEvaluation(w.client, p.candidate, Array(65).fill({ id: "x", candidate: 0, incumbent: 0 })), refusal("eval_plan_stopping"));
+  await assert.rejects(recordSequentialEvaluation(w.client, p.candidate, Array(10001).fill({ id: "x", candidate: 0, incumbent: 0 })), refusal("eval_plan_stopping"));
 });

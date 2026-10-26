@@ -436,6 +436,18 @@ test("plan registration refuses a configured SDK prefix changing after canonical
   finally { await config("project", "set", "id_prefix", "rl"); }
 });
 
+test("fixed cohort labels retain distinct case and unchanged sealed SDK comparisons", async () => {
+  const w = await workspace();
+  const declaration = plan({ candidate: "rl-case-cohort", members: [{ id: "Member", unit: "Unit" }, { id: "member", unit: "unit" }], criterion: { confidence: 0.95, minSamples: 1, effectThreshold: 0 }, stopping: { kind: "fixed", observations: 2, independent_units: 2 } });
+  const registered = await registerEvaluationPlan(w.client, declaration);
+  assert.equal(registered.comparison, evaluationComparison(declaration));
+  assert.deepEqual(registered.plan.members, declaration.members);
+  await generation(w.client, declaration.candidate, { ...spec("rl-seed"), evaluation_plan: registered.comparison });
+  const evaluated = await recordPlanEvaluation(w.client, declaration.candidate, observations(declaration));
+  assert.equal(evaluated.observations, 2); assert.equal(evaluated.independent_units, 2);
+  assert.equal((await readEvaluationPlan(w.client, declaration.candidate))!.comparison, registered.comparison);
+});
+
 test("generation comparison pins survive parsing and reject malformed or changed plan identities", async () => {
   for (const value of [null, "", "wrong", 7]) assert.throws(() => extractGenerationSpec(`\`\`\`json\n${JSON.stringify({ ...spec(), evaluation_plan: value })}\n\`\`\``, "Generation"), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "invalid_evaluation_plan");
   const w = await workspace(); await registerEvaluationPlan(w.client, plan());

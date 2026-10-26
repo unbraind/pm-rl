@@ -1,14 +1,15 @@
 /** Canonical SDK identities and complete callback failure paths on real non-git trackers. */
 import assert from "node:assert/strict";
-import { ChildProcess } from "node:child_process";
+import { ChildProcess, spawn } from "node:child_process";
+import { once } from "node:events";
 import { existsSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { mock, test } from "node:test";
 import { readHistoryEntries } from "@unbrained/pm-cli/sdk";
 import { getHistoryPath, isPmCliExpectedError, normalizeItemId, normalizeRawItemId } from "@unbrained/pm-cli/sdk/runtime";
 import { acquireStateLock, canonicalIdentifier, canonicalItemIdentifier, canonicalProgrammeId, commitStateTransaction } from "../state-boundary.ts";
-import { resolveEvaluationPlan, evaluationComparison, loopLeaseLockId, runRlLoop, type JsonValue } from "../index.ts";
-import { controllerCallback, controllerCallbackIO, executeProcessTrainer, processJobId, processStaging, readProcessJob, reserveProcessJob } from "../process.ts";
+import { resolveEvaluationPlan, evaluationComparison, loopLeaseLockId, loopProcessStartTime, withRlController, runRlLoop, type JsonValue } from "../index.ts";
+import { controllerCallback, controllerCallbackIO, executeProcessTrainer, processJobId, processStaging, readProcessJob, reserveProcessJob, stopTrainer } from "../process.ts";
 import { allowance, processWorkspace, trainingInput } from "./fixtures/process-workspace.ts";
 
 /** Hold both successful native leases until the competing acquisition has returned. */
@@ -165,7 +166,33 @@ test("heartbeat callback failures retain a terminal audit and release the owned 
     const notes = await client.comments("heartbeat-seed");
     assert.equal(notes.comments.filter((entry) => entry.text.includes("terminal callback failure")).length, 1);
     assert.deepEqual(readdirSync(join(pmRoot, "locks")), []);
+    const outer = await processWorkspace(); const outerFault = { injected: false };
+    controllerCallbackIO.before = (site) => { if (site === "callback.heartbeat" && !outerFault.injected) { outerFault.injected = true; throw new Error("outer heartbeat failure"); } };
+    const comments = outer.client.comments.bind(outer.client); let lost = false;
+    outer.client.comments = (async (...args: Parameters<typeof outer.client.comments>) => {
+      const result = await comments(...args);
+      if (args[1]?.add?.includes("terminal callback failure")) { lost = true; throw new Error("lost terminal audit response"); }
+      return result;
+    }) as typeof outer.client.comments;
+    await assert.rejects(withRlController(outer.client, outer.coordinates, { id: "Heartbeat-Outer", approval: outer.approval, recoveryCommand: "resume outer" }, new AbortController().signal, async (step) => {
+      await new Promise<void>((resolve) => { setTimeout(resolve, 75); });
+      await step("check", {}, async () => ({}));
+    }), (error) => isPmCliExpectedError(error) && error.context.code === "loop_callback_failed");
+    assert.ok(outerFault.injected && lost);
+    assert.equal((await comments(outer.approval)).comments.filter((entry) => entry.text.includes("terminal callback failure")).length, 1);
+    assert.deepEqual(readdirSync(join(outer.pmRoot, "locks")), []);
   } finally { controllerCallbackIO.before = () => undefined; clock.mock.restore(); }
+});
+
+test("recovery stops only the exact live trainer birth identity and awaits native reaping", async () => {
+  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"]);
+  await once(child, "spawn");
+  const closed = once(child, "close");
+  try {
+    const identity = loopProcessStartTime(child.pid!); assert.ok(identity);
+    stopTrainer(child.pid!, `${identity}-foreign`); assert.equal(process.kill(child.pid!, 0), true);
+    stopTrainer(child.pid!, identity); assert.equal((await closed)[1], "SIGKILL");
+  } finally { if (child.exitCode === null && child.signalCode === null) { child.kill("SIGKILL"); await closed; } }
 });
 
 test("a false native stop result and emitted error cannot recurse or bypass reaping", async () => {

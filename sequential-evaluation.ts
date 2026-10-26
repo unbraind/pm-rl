@@ -128,12 +128,14 @@ export async function readSequentialEvaluation(client: PmClient, candidate: stri
 }
 /** Append exactly the next frozen look; retry old cumulative snapshots without recounting or rolling state back. */
 export async function recordSequentialEvaluation(client: PmClient, rawCandidate: string, input: unknown): Promise<SequentialEvaluationResult> {
+  identifier(rawCandidate);
+  if (!Array.isArray(input) || input.length > 10_000) refuse("eval_plan_stopping");
+  const rows = normalizedObservations(input);
   return withEvaluationLease(client, rawCandidate, [], async () => {
     const registered = await readEvaluationPlan(client, rawCandidate); if (registered === null) refuse("eval_plan_missing");
     const candidate = registered.plan.candidate;
     const rule = registered.plan.stopping; if (rule.kind !== "sequential") refuse("eval_plan_stopping");
-    if (!Array.isArray(input) || input.length > rule.observations) refuse("eval_plan_stopping");
-    const rows = normalizedObservations(input);
+    if (rows.length > rule.observations) refuse("eval_plan_stopping");
     const requested = evaluatePlan(registered.plan, rows);
     const predecessors = Array.from({ length: requested.sequential!.look - 1 }, (_, index) => `${registered.id}-look-${index + 1}`);
     const source = await readCompleteLoopItem(client, candidate);

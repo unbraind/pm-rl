@@ -3037,7 +3037,7 @@ async function acquireControllerLease(client: PmClient, coordinates: WorkspaceCo
     await releaseRecovery();
   }
   let activePhases = 0;
-  let heartbeatFailure: unknown;
+  let heartbeatFailure: PmCliExpectedError | undefined;
   /** Fence every effect and completion receipt against controller takeover. */
   const guard = async <T>(operation: () => Promise<T>, cleanup = false): Promise<T> => {
     if (!cleanup && heartbeatFailure !== undefined) throw heartbeatFailure;
@@ -3105,8 +3105,10 @@ async function acquireControllerLease(client: PmClient, coordinates: WorkspaceCo
   return { release: async () => {
     clearInterval(timer); await Promise.allSettled([...heartbeats]);
     try {
-      if (heartbeatFailure !== undefined) {
-        await guard(() => appendCommentOnce(client, recovery?.auditItem ?? seedId, `Loop ${id} terminal callback failure: ${isPmCliExpectedError(heartbeatFailure) ? String(heartbeatFailure.context.code) : "loop_callback_failed"}; resume after restoring tracker access.`), true).catch(() => undefined);
+      const failure = heartbeatFailure;
+      if (failure !== undefined) {
+        try { await guard(() => appendCommentOnce(client, recovery?.auditItem ?? seedId, `Loop ${id} terminal callback failure: ${String(failure.context.code)}; resume after restoring tracker access.`), true); }
+        catch { /* Preserve the first failure when audit storage is unavailable or a peer owns the lease. */ }
       }
     } finally { await release(); }
     if (heartbeatFailure !== undefined) throw heartbeatFailure;

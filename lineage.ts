@@ -207,7 +207,7 @@ function asString(record: Record<string, unknown>, key: string, source: string, 
   if (value !== "" && (key === "base_checkpoint" || key === "policy")) identifier(value, "artifact");
   if (normalized.length > 0 && (key === "environment_version" || key === "evaluation_context")) identifier(value, key === "evaluation_context" ? "context" : "item");
   if (required && normalized.length === 0) expectedFail(`${source} requires a non-empty ${key}.`, `empty_${key}`);
-  return normalized.length > 0 && (key === "environment_version" || key === "evaluation_context") ? identifier(value, key === "evaluation_context" ? "context" : "item") : normalized;
+  return normalized;
 }
 
 /**
@@ -277,13 +277,16 @@ export function parseGenerationSpec(text: string, source: string): GenerationSpe
   if (!Array.isArray(collectionRunsRaw) || !collectionRunsRaw.every((run) => typeof run === "string")) {
     expectedFail(`${source} requires a collection_runs array of strings.`, "invalid_collection_runs");
   }
-  // Preserve the domain refusal for blank entries, then resolve each unpadded
-  // native identity through the shared SDK boundary before storing provenance.
-  const trimmedCollectionRuns = collectionRunsRaw.map((run) => run.trim());
-  if (trimmedCollectionRuns.some((run) => run.length === 0)) {
+  // The last stored identity list that was not normalized here. Each entry is
+  // resolved by strict id lookup during the ancestry walk, so a padded entry
+  // resolves nothing and degrades the contamination graph rather than failing
+  // loudly. A blank entry names no run at all and is refused outright, matching
+  // how a blank approval is treated.
+  const collectionRuns = collectionRunsRaw.map((run) => run.trim());
+  if (collectionRuns.some((run) => run.length === 0)) {
     expectedFail(`${source} requires every collection run id to be a non-empty identity.`, "empty_collection_run");
   }
-  const collectionRuns = collectionRunsRaw.map((run) => identifier(run));
+  collectionRunsRaw.forEach((run) => identifier(run));
   const trainingConfig = record["training_config"] ?? {};
   const environmentVersion = asString(record, "environment_version", source, false);
   const rewardSpecVersion = asString(record, "reward_spec_version", source, false);
@@ -301,7 +304,7 @@ export function parseGenerationSpec(text: string, source: string): GenerationSpe
   }
   // Null denotes an absent parent; supplied identifiers must validate without trimming.
   if (typeof parentRaw === "string") identifier(parentRaw);
-  const parent = typeof parentRaw === "string" ? identifier(parentRaw) : parentRaw;
+  const parent = parentRaw;
   const seed = record["seed"] === true;
   if (seed && parent !== null) {
     expectedFail(`${source} declares seed but has a parent.`, "seed_with_parent");
@@ -321,11 +324,11 @@ export function parseGenerationSpec(text: string, source: string): GenerationSpe
     expectedFail(`${source} requires approval to be a string or null.`, "invalid_approval");
   }
   // Blank approvals remain a domain refusal; nonblank raw identifiers must pass the shared schema.
-  let approval = approvalRaw === null ? null : approvalRaw.trim();
+  const approval = approvalRaw === null ? null : approvalRaw.trim();
   if (approval !== null && approval.length === 0) {
     expectedFail(`${source} requires approval to be a non-empty identity or null.`, "empty_approval");
   }
-  if (approvalRaw !== null) approval = identifier(approvalRaw);
+  if (approvalRaw !== null) identifier(approvalRaw);
   const proxyScore = record["proxy_score"] === null || record["proxy_score"] === undefined ? null : parseScoreRecord(record["proxy_score"], `${source} proxy_score`);
   const heldOutScore = record["held_out_score"] === null || record["held_out_score"] === undefined ? null : parseScoreRecord(record["held_out_score"], `${source} held_out_score`);
   // Normalize an absent gap to null BEFORE the invariant check below. The

@@ -444,7 +444,9 @@ export async function launchTrainer(directory: string, id: string, input: Traine
   child.on("error", controllerCallback("error", refuse, (error: Error) => { refuse(error); }));
   // Reaping acknowledgement is unconditional, including an injected failure in the close callback itself.
   child.once("close", controllerCallback("close", (error) => { reaped = true; refuse(error); close(); }, (code: number | null) => {
-    reaped = true; pending += decoder.end(); if (code !== 0) refuse(new Error("Trainer exited unsuccessfully.")); close();
+    reaped = true; pending += decoder.end();
+    if (code !== 0) refuse(createPmCliExpectedError("Trainer exited unsuccessfully; retained artifacts and settled reservation. Inspect the trainer diagnostics before retrying.", { exitCode: EXIT_CODE.CONFLICT, context: { code: "trainer_failure", required: "Inspect retained trainer diagnostics and the approved recovery allowance before retrying." } }));
+    close();
   }));
   child.stdout.on("data", controllerCallback("stdout", refuse, (chunk: Buffer) => {
       outputBytes += chunk.length;
