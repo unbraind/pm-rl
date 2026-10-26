@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, test } from "node:test";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
-import { init, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
+import { init, isPmCliExpectedError, locateItem, readLocatedItem, readSettings, resolveItemTypeRegistry } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import extension, { generationProvenance, hashJson, readCompleteLoopItem, type RlCommandResult, type JsonValue } from "../index.ts";
 import { parseBoundedJson } from "../tracker-record.ts";
@@ -186,11 +186,20 @@ test("500 seeded model-based operation sequences read canonical state through th
     const status = `stage_${Math.floor(next() * 2 ** 32)}`;
     await w.client.schemaAddStatus(status, { role: ["active"] }); statuses.push(status);
   }
+  const settings = await readSettings(w.pmRoot); const registry = resolveItemTypeRegistry(settings);
+  /** Read complete native documents through the SDK, with its schema and normalization rather than a hand-written projection. */
+  async function nativeDocument(id: string) {
+    const located = await locateItem(w.pmRoot, id, settings.id_prefix, settings.item_format, registry.type_to_folder);
+    assert.ok(located); return (await readLocatedItem(located, { schema: settings.schema })).document;
+  }
+  const nativePlan = await nativeDocument(`${p.candidate}-evaluation-plan`);
+  let nativeCandidate = await nativeDocument(p.candidate);
+  const nativeCheckpoints = new Map<number, Awaited<ReturnType<typeof nativeDocument>>>();
   const canonical = await readCompleteLoopItem(w.client, `${p.candidate}-evaluation-plan`);
   const candidate = await readCompleteLoopItem(w.client, p.candidate);
   for (let sequence = 0; sequence < 500; sequence += 1) {
     // Every sequence transports a seeded prior/next input through whitespace/CRLF, imports it, and exports live SDK state.
-    if (sequence % 100 === 0) await w.client.update(p.candidate, { status: statuses[Math.floor(next() * statuses.length)] });
+    if (sequence % 100 === 0) { await w.client.update(p.candidate, { status: statuses[Math.floor(next() * statuses.length)] }); nativeCandidate = await nativeDocument(p.candidate); }
     const count = sequence === 1 || (sequence > 1 && next() < 0.55) ? 64 : 16;
     const input = observations(p, count, true);
     const transported = input.map((row) => ({ ...row }));
@@ -210,12 +219,17 @@ test("500 seeded model-based operation sequences read canonical state through th
       const live = report((await readSequentialEvaluation(w.client, p.candidate))!);
       assert.equal(live.observations, model.has(64) ? 64 : 16);
     }
+    assert.deepEqual(await nativeDocument(`${p.candidate}-evaluation-plan`), nativePlan);
+    assert.deepEqual(await nativeDocument(p.candidate), nativeCandidate);
     const planItem = await readCompleteLoopItem(w.client, `${p.candidate}-evaluation-plan`);
     for (const key of ["id", "type", "body", "affected_version", "title", "parent", "blocked_by", "tags"] as const) assert.deepEqual(planItem.item[key], canonical.item[key]);
     const liveCandidate = await readCompleteLoopItem(w.client, p.candidate);
     for (const key of ["body", "affected_version", "type", "parent", "blocked_by"] as const) assert.deepEqual(liveCandidate.item[key], candidate.item[key]);
     for (const [n, expected] of model) {
       const item = (await readCompleteLoopItem(w.client, `${p.candidate}-evaluation-plan-look-${n === 16 ? 1 : 2}`)).item;
+      const nativeCheckpoint = await nativeDocument(item.id);
+      if (!nativeCheckpoints.has(n)) nativeCheckpoints.set(n, nativeCheckpoint);
+      assert.deepEqual(nativeCheckpoint, nativeCheckpoints.get(n));
       const stored = parseBoundedJson(String(item.body)) as { observations: EvaluationObservation[]; comparison: string; previous: string | null; format: string };
       assert.deepEqual(stored.observations, expected); assert.equal(stored.comparison, evaluationComparison(p));
       assert.equal(stored.format, "pm-rl/sequential-checkpoint/1"); assert.equal(item.type, "Decision");
