@@ -738,5 +738,9 @@ pm rl policy-card adopt --file card.json --json
 
 Save the JSON result's unwrapped `details` as `card.json`. Cards contain scope and policy digests, allowed explanation actions, numeric limits, regression diagnostics and exact replayable evidence references. They omit training examples, policy parameters and credentials. Adoption checks the complete ancestry to the root, including every retained card and its evidence. Policy identity binds content-addressed artifacts plus configuration; unfitted proposals use a separate proposal digest. Transient read errors remain retryable and leave the programme resumable. Missing provenance blocks adoption checks; a card grants no execution authority. Recursive candidates, proposals and promotion outcomes retain cards automatically, so later improvers can inspect earlier wins and losses. These commands work without Git. See the [SDK, format, refusals and public-copy evidence](docs/policy-cards.md).
 
-Release jobs with write permissions are restricted to `unbraind/pm-rl` at job
-level, so a fork cannot run publication with its own approval variable.
+Every workflow job granted write permissions, including CodeQL, Dependabot and
+reusable workflow calls, requires the exact repository `unbraind/pm-rl`.
+The approval variable controls GitHub releases; it does not impose a local npm
+publishing hold. Maintainers run the prepublish checks and authenticate with npm
+for local publication. The first local publish uses `--provenance=false`; daily
+GitHub OIDC releases keep provenance enabled.
