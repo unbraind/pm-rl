@@ -346,7 +346,7 @@ test("stream cleanup retries native throw/false failures and bounds permanent fa
     } finally {
       killed.mock.restore();
       if (mode === "detach-failure" && child !== undefined) delete (child.stdout as unknown as { destroy?: unknown }).destroy;
-      if (child !== undefined && child.exitCode === null && child.signalCode === null) { const closed = once(child, "close"); native.call(child, "SIGKILL"); await closed; }
+      if (child !== undefined && child.exitCode === null && child.signalCode === null) { child.ref(); const closed = once(child, "close"); native.call(child, "SIGKILL"); await closed; }
     }
   });
 });
@@ -361,7 +361,7 @@ test("stream refusal preserves the first error under reentrant native output dur
   try {
     await assert.rejects(streamProcess(process.execPath, ["-e", "process.stdout.write('ready');setInterval(()=>{},1000)"], { cwd: dir.root, timeoutMs: 1000, escalationMs: 1 }, () => { consumed += 1; throw new Error(consumed === 1 ? "original refusal" : "duplicate refusal"); }), /original refusal/);
     assert.equal(consumed, 2); assert.ok(injected); assert.throws(() => process.kill(child!.pid!, 0), { code: "ESRCH" });
-  } finally { kill.mock.restore(); if (child !== undefined && child.exitCode === null && child.signalCode === null) { const closed = once(child, "close"); native.call(child, "SIGKILL"); await closed; } }
+  } finally { kill.mock.restore(); if (child !== undefined && child.exitCode === null && child.signalCode === null) { child.ref(); const closed = once(child, "close"); native.call(child, "SIGKILL"); await closed; } }
 });
 
 test("stream transport reports a real broken stdin pipe", async () => {

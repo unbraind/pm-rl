@@ -289,7 +289,7 @@ test("owned child cleanup retries beyond three failures and settles persistent f
       controllerCallbackIO.before = () => undefined; childKill.mock.restore(); processKill.mock.restore();
       if (pid !== undefined) {
         try {
-          nativeKill(pid, 0); const closed = child === undefined ? undefined : once(child, "close");
+          nativeKill(pid, 0); child?.ref(); const closed = child === undefined ? undefined : once(child, "close");
           nativeKill(pid, "SIGKILL"); await closed;
         } catch (error) { assert.equal((error as NodeJS.ErrnoException).code, "ESRCH"); }
       }
@@ -351,7 +351,7 @@ test("cleanup exhaustion fault matrix observes native detach, identity and close
     } finally {
       controllerCallbackIO.before = () => undefined; Object.assign(loopProcessIdentityIO, { read: identityRead }); childKill.mock.restore(); processKill.mock.restore(); emit.mock.restore();
       if (child !== undefined) for (const stream of [child.stdin, child.stdout, child.stderr]) if (stream !== null) delete (stream as unknown as { destroy?: unknown }).destroy;
-      if (pid !== undefined) { try { nativeKill(pid, 0); const closed = once(child!, "close"); nativeKill(pid, "SIGKILL"); await closed; } catch (error) { assert.equal((error as NodeJS.ErrnoException).code, "ESRCH"); } }
+      if (pid !== undefined) { try { nativeKill(pid, 0); child!.ref(); const closed = once(child!, "close"); nativeKill(pid, "SIGKILL"); await closed; } catch (error) { assert.equal((error as NodeJS.ErrnoException).code, "ESRCH"); } }
     }
   });
 });
