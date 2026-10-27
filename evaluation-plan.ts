@@ -325,7 +325,7 @@ export async function enforceEvaluationPlan(client: PmClient, candidate: string,
   const raw = object(storedJson(result.body), ["comparison", "observations"]);
   if (result.type !== "Decision" || raw.comparison !== registered.comparison || result.affected_version !== hashJson(raw as JsonValue)) refuse("eval_plan_drift");
   await verifyCreatedRecord(client, result);
-  await validateEvaluationOrder(client, [{ id: registered.id, stage: 1 }, { id: candidate, stage: 2 }, { id: result.id, stage: 3 }]);
+  await validateEvaluationOrder(client, [{ id: registered.id, stage: 1 }, { id: result.id, stage: 3 }]);
   const report = evaluatePlan(registered.plan, raw.observations);
   const prefix = label((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
   verifyEvaluationScore(registered, report, score, prefix);

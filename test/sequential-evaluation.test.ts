@@ -271,6 +271,23 @@ test("chronology consumes every SDK history page without imposing a 1000-artifac
   await assert.rejects(validateEvaluationOrder(w.client, artifacts.map((entry) => ({ ...entry, stage: 3 - entry.stage })), 1), refusal("eval_plan_late"));
 });
 
+test("fixed results retain pre-candidate sealing while refusing evidence older than their declaration", async () => {
+  for (const early of [false, true]) {
+    const w = await workspace(); const declared = plan(); const p: EvaluationPlan = { ...declared, stopping: { kind: "fixed", observations: 64, independent_units: 64 } };
+    const comparison = evaluationComparison(p); const body = { comparison, observations: observations(p, 64, true) };
+    /** Seal native evidence independently of package registration, as an SDK consumer may do. */
+    async function seal(): Promise<void> { await w.client.create({ id: `${p.candidate}-evaluation-plan-result`, type: "Decision", title: "SDK fixed result", body: JSON.stringify(body), affectedVersion: hashJson(body as unknown as JsonValue) }); }
+    if (early) await seal();
+    await registerEvaluationPlan(w.client, p);
+    if (!early) await seal();
+    await w.client.create({ id: `${p.candidate}-run`, type: "Run", title: "Collection summary" });
+    await generation(w.client, p.candidate, { ...spec("rl-seed", comparison), collection_runs: [`${p.candidate}-run`] });
+    const score: ScoreRecord = { objective: p.objective, objective_version: p.objective_version, evaluation_context: p.evaluation_context, direction: p.direction, seed_set: comparison, scale: 1, value: evaluatePlan(p, body.observations).candidate_mean };
+    if (early) await assert.rejects(enforceEvaluationPlan(w.client, p.candidate, score), refusal("eval_plan_late"));
+    else await enforceEvaluationPlan(w.client, p.candidate, score);
+  }
+});
+
 test("fixed and sequential provenance resolve SDK aliases after checking the original raw seal", async () => {
   for (const kind of ["fixed", "sequential"] as const) {
     const w = await workspace(); const declared = plan(`rl-alias-${kind}`);
