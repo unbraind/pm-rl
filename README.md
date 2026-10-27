@@ -635,6 +635,10 @@ incumbent and collection creation histories are checked through the SDK.
 The review's creation must strictly precede plan creation, and the plan must
 strictly precede both candidate creation and every collection Run. This also
 applies to correctly hashed plans created directly through the SDK.
+Every sealed look must follow the reviewed Plan and candidate; later looks must
+follow their predecessors. One validator compares SDK creation snapshots and
+native creation-event order on reads, retries and promotion. Pre-sealing a
+correctly hashed checkpoint never makes it eligible for a later declaration.
 Raw historical provenance hashes remain unchanged; subsequent reference comparisons
 resolve SDK aliases to canonical item IDs for both fixed and sequential plans.
 
@@ -871,6 +875,12 @@ still revalidates ownership and waits for all pending heartbeats before releasin
 the lease. Typed `process_callback_failed` errors include a recovery remedy.
 Ordinary unsuccessful trainer exits retain the `trainer_failure` outcome and
 existing bounded retry policy, with a typed error and diagnostics remedy.
+Native stop failures use six bounded attempts with backoff, followed by exact
+birth-identity recovery when available. Failed attempts do not latch cleanup.
+If the owned child still cannot be stopped, `process_stop_failed` conservatively
+settles the reservation, releases leases and retains its runner identity. Stop
+that exact runner and verify it is gone before beginning a fresh programme;
+the terminal record does not claim that an unkillable child was reaped.
 
 Evaluation dependencies are validated before acquiring even the outer lease and
 use SDK-normalized item identities for their native locks. Lock release delegates

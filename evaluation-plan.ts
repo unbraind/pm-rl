@@ -3,6 +3,8 @@ import { evaluateSequentialBoundary, parseSequentialStopping, readSequentialEval
 import { parseBoundedJson } from "./tracker-record.ts";
 /** Predeclared paired policy comparisons with fixed cohorts and equal-weight correlation units. */
 import type { GetResult, PmClient } from "@unbrained/pm-cli/sdk/core";
+import { listMutationEvents } from "@unbrained/pm-cli/sdk";
+import { dirname } from "node:path";
 import { createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { extractGenerationSpec, generationProvenance, hashJson, readCompleteLoopItem, type JsonValue } from "./index.ts";
 import { decidePromotion, type PromotionCriterion, type PromotionDecision } from "./promotion.ts";
@@ -123,6 +125,23 @@ export async function verifyCreatedRecord(client: PmClient, item: GetResult["ite
   const original = await createdItem(client, item.id);
   if ((["id", "type", "body", "created_at", "affected_version"] as const).some((field) => original[field] !== item[field])) refuse("eval_plan_drift");
 }
+/** One lifecycle partial order: review, declaration, collection/candidate, ordered evidence, promotion. @internal */
+export async function validateEvaluationOrder(client: PmClient, artifacts: readonly { id: string; stage: number }[]): Promise<void> {
+  const entries = await Promise.all(artifacts.map(async ({ id, stage }) => ({ id: identifier(id), stage, item: await createdItem(client, id) })));
+  const config = await identifierClient(client).config("project", "get", "id_prefix");
+  const events = await listMutationEvents({ pmRoot: dirname(config.settings_path), item: entries.map((entry) => entry.item.id), type: "create", full: true, limit: 1000 });
+  if (events.has_more) refuse("eval_plan_late");
+  for (const left of entries) {
+    const birth = events.events.findIndex((event) => event.item_id === left.item.id && event.version === 1);
+    if (birth < 0 || events.events[birth].entry?.op !== "create" || !Number.isFinite(Date.parse(String(left.item.created_at)))) refuse("eval_plan_late");
+    for (const right of entries) if (left.stage < right.stage) {
+      const next = events.events.findIndex((event) => event.item_id === right.item.id && event.version === 1);
+      // Check both SDK creation snapshots and authoritative history event order.
+      // Equal clock ticks cannot establish precedence and are refused conservatively.
+      if (!(Date.parse(String(left.item.created_at)) < Date.parse(String(right.item.created_at))) || next <= birth || !(Date.parse(events.events[birth].ts) < Date.parse(events.events[next].ts))) refuse("eval_plan_late");
+    }
+  }
+}
 /** Verify the full stored Plan and its provenance, rather than trusting its derived id. */
 export async function readEvaluationPlan(client: PmClient, candidate: string): Promise<RegisteredEvaluationPlan | null> {
   identifier(candidate);
@@ -232,15 +251,13 @@ export function validateEvaluationReport(plan: EvaluationPlan, report: Evaluatio
   return report;
 }
 /** Require predeclaration before all collection runs and unchanged incumbent provenance. */
-async function verifyTiming(client: PmClient, registered: RegisteredEvaluationPlan, spec: GenerationSpec, createdAt: unknown): Promise<void> {
+async function verifyTiming(client: PmClient, registered: RegisteredEvaluationPlan, spec: GenerationSpec): Promise<void> {
   const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
   spec = canonicalizeGenerationSpec(spec, prefix);
   if (spec.parent !== registered.plan.incumbent) refuse("eval_plan_drift");
   const incumbent = await optionalItem(client, spec.parent);
   if (incumbent === null || incumbent.type !== "Generation" || incumbent.affected_version !== registered.incumbent_version || hashJson(generationProvenance(extractGenerationSpec(String(incumbent.body), "Incumbent generation"))) !== registered.incumbent_version) refuse("eval_plan_drift");
-  for (const timestamp of [createdAt, ...(await Promise.all(spec.collection_runs.map(async (id) => (await createdItem(client, id)).created_at)))]) {
-    if (!(Date.parse(registered.created_at) < Date.parse(String(timestamp)))) refuse("eval_plan_late");
-  }
+  await validateEvaluationOrder(client, [{ id: registered.id, stage: 1 }, ...spec.collection_runs.map((id) => ({ id, stage: 2 })), { id: registered.plan.candidate, stage: 2 }]);
 }
 /** Read the live candidate so SDK callers cannot forge provenance or predeclaration times. */
 export async function verifiedCandidate(client: PmClient, candidate: string, registered: RegisteredEvaluationPlan): Promise<void> {
@@ -252,7 +269,7 @@ export async function verifiedCandidate(client: PmClient, candidate: string, reg
   const unchanged = (["id", "type", "created_at", "affected_version"] as const).map((field) => original[field] === item.item[field]);
   unchanged.push(hashJson(generationProvenance(extractGenerationSpec(String(original.body), "Original candidate generation"))) === item.item.affected_version);
   if (unchanged.includes(false)) refuse("eval_plan_drift");
-  await verifyTiming(client, registered, spec, original.created_at);
+  await verifyTiming(client, registered, spec);
 }
 /** Seal exactly one evaluation, including refusals; a second look requires a fresh plan/candidate. */
 export async function recordPlanEvaluation(client: PmClient, candidate: string, input: unknown): Promise<EvaluationPlanReport> {
@@ -300,6 +317,7 @@ export async function enforceEvaluationPlan(client: PmClient, candidate: string,
   const raw = object(storedJson(result.body), ["comparison", "observations"]);
   if (result.type !== "Decision" || raw.comparison !== registered.comparison || result.affected_version !== hashJson(raw as JsonValue)) refuse("eval_plan_drift");
   await verifyCreatedRecord(client, result);
+  await validateEvaluationOrder(client, [{ id: registered.id, stage: 1 }, { id: candidate, stage: 2 }, { id: result.id, stage: 3 }]);
   const report = evaluatePlan(registered.plan, raw.observations);
   const prefix = label((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
   verifyEvaluationScore(registered, report, score, prefix);

@@ -33,6 +33,7 @@
     "docs/durable-systemone-validation.md",
     "docs/lm-adapter.md",
     "dist/process.*",
+    "dist/owned-stop.*",
     "dist/process-bandit.*",
     "dist/scripts/script-launcher.*",
     "docs/process-trainer.md",

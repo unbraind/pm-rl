@@ -4,7 +4,7 @@ import { identifier, identifierClient } from "./state-boundary.ts";
 import { dirname } from "node:path";
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { hashJson, withProcessJobFence, extractGenerationSpec, readCompleteLoopItem, type JsonValue } from "./index.ts";
-import { evaluatePlan, evaluationComparison, normalizedObservations, optionalItem, readEvaluationPlan, refuse, verifiedCandidate, verifyCreatedRecord, type EvaluationMember, type EvaluationPlan, type EvaluationPlanReport, type RegisteredEvaluationPlan } from "./evaluation-plan.ts";
+import { evaluatePlan, evaluationComparison, normalizedObservations, optionalItem, readEvaluationPlan, refuse, verifiedCandidate, verifyCreatedRecord, validateEvaluationOrder, evaluationPlanId, type EvaluationMember, type EvaluationPlan, type EvaluationPlanReport, type RegisteredEvaluationPlan } from "./evaluation-plan.ts";
 import type { PromotionDecision } from "./promotion.ts";
 import { parseBoundedJson, decodeTrackerRecord, skippedTrackerRecords, type SkippedTrackerRecord } from "./tracker-record.ts";
 
@@ -81,7 +81,7 @@ export async function reviewSequentialPlan(client: PmClient, plan: EvaluationPla
   await verifyCreatedRecord(client, review);
   // A valid seal establishes identity, not temporal precedence. In particular, SDK
   // creation of a correctly hashed Plan must not bypass the pre-collection review.
-  if (declaredAt !== undefined && !(Date.parse(String(review.created_at)) < Date.parse(declaredAt))) refuse("eval_plan_late");
+  if (declaredAt !== undefined) await validateEvaluationOrder(client, [{ id: review.id, stage: 0 }, { id: evaluationPlanId(plan.candidate), stage: 1 }]);
 }
 /** Serialize protocol writers with the SDK token-owned lease and lock ordinary SDK provenance writers too. */
 export async function withEvaluationLease<T>(client: PmClient, candidate: string, dependencies: readonly string[], execute: () => Promise<T>): Promise<T> {
@@ -112,6 +112,7 @@ async function checkpointChain(client: PmClient, registered: RegisteredEvaluatio
     if (index > 0) verifyPrefix(rows[index - 1], raw.observations);
     reports.push(report); rows.push(raw.observations); hashes.push(String(item.affected_version));
   }
+  if (reports.length > 0) await validateEvaluationOrder(client, [{ id: rule.review, stage: 0 }, { id: registered.id, stage: 1 }, { id: registered.plan.candidate, stage: 2 }, ...reports.map((_, slot) => ({ id: `${registered.id}-look-${slot + 1}`, stage: slot + 3 }))]);
   return { reports, rows, hashes, skipped: [] };
 }
 /** A cumulative retry must preserve every already sealed outcome exactly, independent of input row order. */

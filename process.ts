@@ -18,6 +18,7 @@ import { validateLmProcessCheckpoint, type LmProcessPayload } from "./process-lm
 import { validatePrefixCompletion, type PrefixPayload } from "./prefix.ts";
 import { launchComposeTrainer, stopComposeTrainer } from "./compose.ts";
 import { encodeCheckpointArtifacts, readCheckpointArtifact, type CheckpointArtifact } from "./checkpoint-artifacts.ts";
+import { retryOwnedStop, waitForOwnedClose } from "./owned-stop.ts";
 
 /** Independently accounted resource dimensions; all values are nonnegative safe integers. */
 export const RESOURCE_KEYS = ["training_steps", "wall_ms", "storage_bytes", "compute_units", "tokens"] as const;
@@ -390,8 +391,14 @@ export function verifiedProcessPolicy<P extends TrainerPolicy>(job: ProcessJob<T
   return staged.policy;
 }
 /** Kill only an exact, locally verified child birth identity; PID reuse never grants stop authority. */
-export function stopTrainer(pid: number, start: string): void {
-  if (loopProcessStartTime(pid) === start) process.kill(pid, "SIGKILL");
+export async function stopTrainer(pid: number, start: string): Promise<void> {
+  if (!Number.isSafeInteger(pid) || pid < 1 || pid > 2_147_483_647 || typeof start !== "string" || start.length === 0 || start.length > 512) expectedFail("Use the retained positive PID and exact native birth identity for recovery.", "process_job_drift");
+  const stopped = await retryOwnedStop(() => {
+    if (loopProcessStartTime(pid) !== start) return true;
+    process.kill(pid, "SIGKILL");
+    return loopProcessStartTime(pid) !== start;
+  });
+  if (!stopped) expectedFail("Owned trainer stop failed after six bounded attempts; inspect the retained runner identity and stop that exact process before retrying.", "process_stop_failed");
 }
 /** Observe operation boundaries in real callback execution; tests may inject one failure without replacing SDK behavior. @internal */
 export const controllerCallbackIO: { before: (site: string) => void } = { before: () => undefined };
@@ -418,19 +425,51 @@ export async function launchTrainer(directory: string, id: string, input: Traine
   let pending = "";
   let reaped = false;
   let stopping = false;
+  let stopExhausted = false;
+  let stopTask: Promise<void> | undefined;
+  let identity: string | null = null;
   let timer: ReturnType<typeof setInterval> | undefined;
   const decoder = new StringDecoder("utf8");
   let outputBytes = 0;
   let measured = zeroResources();
+  /** Detach only this child's handles after a bounded cleanup failure; retain its runner identity for recovery. */
+  const detach = (): void => {
+    for (const stream of [child.stdin, child.stdout, child.stderr]) {
+      try { stream.removeAllListeners("data"); stream.destroy(); } catch { /* Other handles must still be detached. */ }
+    }
+    try { child.unref(); } catch { /* Terminal failure still settles and releases the owning lease. */ }
+  };
+  /** Never claim reaping when stop authority could not be exercised; settle conservatively instead. */
+  const exhausted = (): void => {
+    stopExhausted = true; failed = true;
+    failure = createPmCliExpectedError("Owned trainer could not be stopped or reaped after bounded retries; its reservation is conservatively settled and runner identity retained.", { exitCode: EXIT_CODE.CONFLICT, context: { code: "process_stop_failed", required: "Stop the exact retained runner identity and verify it is gone before starting a fresh programme." } });
+    close(); detach();
+  };
   /** Preserve the first failure; the live ChildProcess handle owns stop authority before identity publication too. */
   const refuse = (error: unknown): void => {
     if (!failed) { failure = error; failed = true; }
-    if (stopping || reaped || child.pid === undefined || child.exitCode !== null || child.signalCode !== null) return;
+    if (stopping || stopExhausted || reaped) return;
     stopping = true;
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      try { if (callbackOperation("failure.kill", () => attempt === 1 ? process.kill(child.pid!, "SIGKILL") : child.kill("SIGKILL"))) return; }
-      catch { /* Retry owned-child cleanup after a transient native failure; close is always awaited. */ }
-    }
+    stopTask = (async () => {
+      try {
+        let attempt = 0;
+        const stopped = await retryOwnedStop(() => {
+          if (reaped || child.pid === undefined || child.exitCode !== null || child.signalCode !== null) return true;
+          attempt += 1;
+          return callbackOperation("failure.kill", () => attempt === 2 ? process.kill(child.pid!, "SIGKILL") : child.kill("SIGKILL"));
+        });
+        if (!stopped) {
+          if (identity !== null) await stopTrainer(child.pid!, identity);
+          else if (!await retryOwnedStop(() => callbackOperation("failure.fallback-kill", () => child.kill("SIGKILL")))) { exhausted(); return; }
+        }
+        if (!await waitForOwnedClose(closed)) {
+          if (child.exitCode !== null || child.signalCode !== null) detach();
+          if (!await waitForOwnedClose(closed)) exhausted();
+        }
+      } catch { exhausted(); }
+      finally { stopping = false; }
+    })();
+    void stopTask.catch(refuse);
   };
   /** The watchdog and abort handler share the same observed failure path. */
   const watchdog = (): void => {
@@ -477,7 +516,7 @@ export async function launchTrainer(directory: string, id: string, input: Traine
   child.stdin.on("error", controllerCallback("stdin", refuse, (error: Error) => { refuse(error); }));
   try {
     await once(child, "spawn");
-    const identity = loopProcessStartTime(child.pid!);
+    identity = loopProcessStartTime(child.pid!);
     if (identity === null) expectedFail("Cannot establish trainer process identity.", "process_identity_unavailable");
     timer = setInterval(timerPoll, 25);
     signal?.addEventListener("abort", abortPoll);
@@ -492,7 +531,7 @@ export async function launchTrainer(directory: string, id: string, input: Traine
     await closed;
     if (isPmCliExpectedError(failure)) throw failure;
     throw createPmCliExpectedError(`Trainer failed (${failure instanceof Error ? failure.message : String(failure)}); child reaped and reservation settlement required.`, { exitCode: EXIT_CODE.CONFLICT, context: { code: "process_callback_failed", required: "Restore staging access and use a fresh programme for another fit." } });
-  } finally { clearInterval(timer); signal?.removeEventListener("abort", abortPoll); }
+  } finally { await stopTask; clearInterval(timer); signal?.removeEventListener("abort", abortPoll); }
 }
 /** Append trainer diagnostics; a failed append becomes a refusal on the stop-and-settle path instead of an escaped throw. */
 export function appendDiagnostics(file: string, chunk: Buffer, refuse: (error: unknown) => void): void {
@@ -552,12 +591,13 @@ async function executeReservedProcessJob(client: PmClient, coordinates: ProcessC
       }
       else if (existsSync(statePath(directory, "runner.json"))) {
         const runner = parseBoundedJson(readFileSync(statePath(directory, "runner.json"), "utf8")) as { pid: number; start: string };
-        stopTrainer(runner.pid, runner.start);
+        await stopTrainer(runner.pid, runner.start);
       }
     }
     const completion = validateProcessCompletion(directory, id, input, job.allowance, coordinates.pmRoot);
     return await transitionProcessJob(client, coordinates, { ...job, ...diagnostics }, "materialized", "receipt_validated", completion, completion.usage);
   } catch (error) {
+    if (isPmCliExpectedError(error) && error.context.code === "process_stop_failed") cleanupFailed(error);
     const state = signal?.aborted === true ? "cancelled" : "failed";
     const charge = job.state === "planned" ? zeroResources() : failedProcessCharge(directory, job.allowance);
     await transitionProcessJob(client, coordinates, { ...job, ...diagnostics }, state, isPmCliExpectedError(error) ? String(error.context.code) : "trainer_failure", null, charge);

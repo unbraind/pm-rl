@@ -10,6 +10,8 @@ import { promisify } from "node:util";
 import { launchTrainer, type TrainerInput, type ProcessAdapter, type Resources } from "./process.ts";
 import { writeTrainerArtifact } from "./process-bandit.ts";
 import { expectedFail } from "./refuse.ts";
+import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
+import { retryOwnedStop } from "./owned-stop.ts";
 
 /** Derive an isolated Compose project from the full content-bound process job identity. */
 export function composeProject(id: string, directory: string): string {
@@ -41,6 +43,12 @@ function composeArgs(directory: string, id: string): string[] {
 
 /** Stop only this job's Compose project, preserving every host artifact and recording stop evidence. */
 export async function stopComposeTrainer(directory: string, id: string, image: string, reason: string, limits?: Extract<ProcessAdapter, { kind: "compose-lm" }>): Promise<void> {
+  const observed: { container?: string; resources: unknown } = { resources: null };
+  if (!await retryOwnedStop(() => stopComposeAttempt(directory, id, image, reason, observed, limits), isPmCliExpectedError)) expectedFail("Owned container cleanup failed after bounded retries; retain its project and immutable identity for recovery.", "process_stop_failed");
+}
+
+/** Revalidate ownership on every retry and never switch to a successor container sharing the old name. */
+async function stopComposeAttempt(directory: string, id: string, image: string, reason: string, observed: { container?: string; resources: unknown }, limits?: Extract<ProcessAdapter, { kind: "compose-lm" }>): Promise<void> {
   const file = statePath(directory, "compose.json");
   // A crash before config publication cannot have launched a container.
   if (!existsSync(file)) return;
@@ -51,15 +59,16 @@ export async function stopComposeTrainer(directory: string, id: string, image: s
   // then remove its immutable daemon ID so name reuse cannot grant stop authority.
   const listed = await promisify(execFile)("docker", ["container", "ls", "--all", "--no-trunc", "--filter", `name=^/${project}-trainer$`, "--filter", `label=com.docker.compose.project=${project}`, "--filter", "label=com.docker.compose.service=trainer", "--format", "{{.ID}}"], options);
   const container = listed.stdout.trim();
-  let resources: unknown = null;
+  if (observed.container !== undefined && observed.container !== container && container.length > 0) expectedFail("A different container now occupies the retained project; leave that foreign identity intact.", "process_job_drift");
+  observed.container ??= container;
   if (limits !== undefined && container.length > 0) {
     const inspected = await promisify(execFile)("docker", ["container", "inspect", container, "--format", '{"memory_bytes":{{.HostConfig.Memory}},"nano_cpus":{{.HostConfig.NanoCpus}},"oom_killed":{{.State.OOMKilled}},"exit_code":{{.State.ExitCode}},"network":{{json .HostConfig.NetworkMode}},"user":{{json .Config.User}}}'], options);
-    resources = parseBoundedJson(inspected.stdout) as unknown;
+    Object.assign(observed, { resources: parseBoundedJson(inspected.stdout) as unknown });
   }
   if (container.length > 0) await promisify(execFile)("docker", ["container", "rm", "--force", container], options);
   await promisify(execFile)("docker", [...composeArgs(directory, id), "down", "--timeout", "0"], options);
   const evidence = statePath(directory, "compose-stop.json");
-  if (!existsSync(evidence)) writeTrainerArtifact(evidence, { format: "pm-rl/compose-stop/1", job: id, project, reason, ...(limits === undefined ? {} : { resources }) });
+  if (!existsSync(evidence)) writeTrainerArtifact(evidence, { format: "pm-rl/compose-stop/1", job: id, project, reason, ...(limits === undefined ? {} : { resources: observed.resources }) });
 }
 
 /** Run the container as the trainer; the controller owns its reservation, watchdog and cleanup. */

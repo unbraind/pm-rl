@@ -6,9 +6,11 @@ status: in_progress
 priority: 2
 tags[1]: "gh:unbraind/pm-rl#107"
 created_at: "2026-10-25T23:52:20.254Z"
-updated_at: "2026-10-26T23:30:51.615Z"
+updated_at: "2026-10-27T02:00:56.721Z"
+assignee: codex-agent
+claim_principal: codex-agent
 author: codex-agent
-comments[53]{created_at,author,text}:
+comments[58]{created_at,author,text}:
   "2026-10-25T23:52:27.192Z",codex-agent,"Overlap check on current CLI 2026.10.25 and sibling package source/docs: pm-rl-evalplans explicitly seals fixed stopping; core SDK exposes tracker transactions and locks, not sequential statistics; pm-jev owns inference receipts, pm-context context selection, pm-rlm inference recursion. No existing alpha-spending evaluation protocol found. This extends pm-rl evaluation plans, retaining promotion approval and contamination gates. Design: predeclared finite looks over frozen complete correlation units, two-sided Hoeffding alpha spending, reviewed rule identity, immutable append-only checkpoint chain with SDK writer serialization and current provenance checks on every retry. No import/export/sync subsystem or status-name classification is introduced."
   "2026-10-26T00:01:50.075Z",codex-agent,"Implemented reviewed finite-look plans, cumulative immutable checkpoint chaining, advance/resume CLI and promotion bindings. Seeded 10,000-trial null/benefit simulations measured zero false efficacy and zero false futility decisions at the declared 0.05 bound; all 10,000 benefit trials stopped early. Targeted real SDK tests pass for restart, old snapshot retries, changed candidate provenance, futility and exhaustion. A 500-sequence SDK model test is running. Production typecheck, lint, duplication and docstrings pass so far; full npm/Bun release evidence will use CI as instructed."
   "2026-10-26T00:13:48.212Z",codex-agent,"Read-only public tracker validation passed using the installed packed CLI with Git absent from PATH. Public source commit 120e20e160897cabe47920713e1b87b6647b2e85: 107 items, 87 done-role items using the SDK status registry, candidate mean 0.8130841121495327 vs incumbent 0.1869158878504673. One repository remains one unit; exhausted/refuse, no promotion. JSON 853 bytes; TOON 730 bytes; one checkpoint, exact restart, source digest unchanged. Linked pm tests pass 3/3 (five focused regressions, typecheck, lint); configured tracking is disabled, so the receipt is recorded here. Behavioral revert controls: removing uncertainty fails null simulation; returning the requested old checkpoint fails restart/old-input regression; restored implementation passes 2/2. All 29 existing fixed-plan tests pass. No core dependency pins, thresholds or history records changed."
@@ -62,7 +64,12 @@ comments[53]{created_at,author,text}:
   "2026-10-26T23:24:52.176Z",codex-agent,"Final canonical-reference audit found verifyTiming comparing raw SDK-authored Generation parent text against the canonical incumbent, after the historical seal deliberately preserves raw provenance bytes. Adding SDK canonical semantic projection only after verifying the raw creation seal, with fixed/sequential real-SDK alias regressions. This closes the earlier one-canonical-identity requirement without changing historical hashes or opaque cohort labels. Replacement e5ef0ed release run is provisional and will be superseded by the completed class fix; no partial or canceled run is positive gate evidence."
   "2026-10-26T23:30:18.872Z",codex-agent,"Canonical semantic projection regression passes for fixed and sequential native SDK provenance whose original parent and Run references use uppercase aliases. SDK readback first proves the aliases identify the exact same items, then evaluation and promotion enforcement pass while complete Generation readback remains identical, including the raw historical hash. An isolated copy with only verifyTiming restored to e5ef0ed fails with eval_plan_drift at the raw parent comparison; the current implementation passes. This preserves historical seals and opaque cohort-label case while using SDK canonical item identity for semantic comparisons. Production/test typechecks, build, lint, zero duplication and 434 documented declarations pass. Final packed Node/Bun checks now include five new regressions; superseded CI runs remain excluded from acceptance evidence."
   "2026-10-26T23:30:50.460Z",codex-agent,"Final canonical-reference archive passes 5/5 focused regressions under Node and 5/5 under Bun, zero failures: native field/metric-note/absence/backend guards, all eight SDK step boundaries, twelve promotion/recovery paths, all 24 chronology orders across three surfaces and fixed/sequential uppercase provenance aliases with raw hashes preserved. Function-only revert proofs cover the shared lease helper, chronology review, close recovery, manual recovery and canonical timing comparison; every control fails for the intended behavior and current source passes. All required local static checks pass at unchanged thresholds. Releasing the claim before the final source push; the PR and final report will carry exact-head full npm/Bun counts and URL. No merge, release or thread replies are authorized."
-files[35]{path,scope}:
+  "2026-10-27T01:16:13.302Z",codex-agent,"Auto round 2 violates two general contracts: no evaluation evidence may predate its reviewed declaration/data provenance, and a failed stop attempt must never permanently suppress cleanup or prevent terminal reservation settlement. Branch is clean and includes current origin/main. Auditing all fixed/sequential/shadow and promotion/recovery paths for one lifecycle validator with verified SDK history order, plus all local/Compose stop paths for bounded re-entrant cleanup. The newly supplied ordering list reverses previously accepted lifecycle order and valid-path tests; requested explicit clarification while independently fixing cleanup. No separate non-blocking findings were supplied."
+  "2026-10-27T01:48:40.158Z",codex-agent,"Merged current main (toolchain update) without rewriting tracker history. Cleanup changes retry transient native stop failures with bounded backoff and conservatively settle a typed terminal failure if exact owned process authority cannot stop the runner. Original callback fault matrix remains intact. The requested artifact order conflicts with the current advance API: advance currently requires a candidate and its collection Run before creating looks; the ordering clarification remains pending."
+  "2026-10-27T01:56:05.554Z",codex-agent,"Round 2 revert proof (chronology class): disabling only validateEvaluationOrder makes the new real-SDK artifact-pair test fail with Missing expected rejection for correctly sealed checkpoints created before the reviewed Plan (exit 1, 0/1 passed). Restored validator passes all 17 pairwise/fixed orders across SDK enforcement, resume, JSON and TOON command surfaces: 2 compatible orders accepted, 15 out-of-order cases refused. SDK creation snapshots and ordered mutation-event history are both checked. The exact newly requested lifecycle API order is still awaiting clarification; this evidence proves the concrete pre-Plan checkpoint bypass is refused under the existing API contract."
+  "2026-10-27T01:56:07.347Z",codex-agent,"Round 2 revert proof (cleanup class): reverting only launchTrainer to the prior committed function makes both new native-kill scenarios fail the explicit bounded-settlement assertion (exit 1; 0/3 including parent passed). Test cleanup kills and reaps its exact child even on the reverted failure. Restored code retries after three transient native failures; persistent native failures return process_stop_failed, conservatively settle one terminal SDK record, retain runner identity and release every lease. No unhandled exception or rejection. Audit-script cleanup and immutable-container cleanup use the same bounded retry helper; successor container identity is never removed."
+  "2026-10-27T02:00:56.720Z",codex-agent,"Focused checks: typecheck and lint pass; build:test passes after explicit Node timer typing. Shared retry helper passes false-return, four transient errno variants, permanent refusal and missing-close cases. Container cleanup passes 3 scenarios with a local transport fixture (no Docker daemon): three transient failures, six persistent failures, and a successor identity that is never removed. Audit transport passes four native throw/false/permanent/detach fault cases. The pinned pm linked pure test passed 1/1; result tracking is disabled by project policy, so this comment records the receipt. Existing SDK-isolation follow-up remains unchanged. No additional inline review findings exist on PR107."
+files[37]{path,scope}:
   checkpoint-artifacts.ts,project
   compose.ts,project
   dataset.ts,project
@@ -74,6 +81,7 @@ files[35]{path,scope}:
   lm.ts,project
   manifest.json,project
   meta.ts,project
+  owned-stop.ts,project
   package.json,project
   prefix-trainer.ts,project
   process-bandit.ts,project
@@ -82,6 +90,7 @@ files[35]{path,scope}:
   README.md,project
   recursive-improver.ts,project
   refuse.ts,project
+  scripts/audit-git-identities.ts,project
   sequential-evaluation.ts,project
   state-boundary.ts,project
   sweep.ts,project
@@ -98,7 +107,7 @@ files[35]{path,scope}:
   test/sequential-evaluation.acceptance.ts,project
   test/sequential-evaluation.test.ts,project
   test/state-boundary.test.ts,project
-tests[11]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[15]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   "node --test --test-name-pattern=\"strict sequential|only complete|null, benefit|boundary input|output validation\" test/sequential-evaluation.test.ts",project,codex-agent,"2026-10-26T00:09:22.064Z",local_mutation,feat/predeclared-sequential-evaluation
   npm run typecheck,project,codex-agent,"2026-10-26T00:09:26.356Z",local_mutation,feat/predeclared-sequential-evaluation
   npm run lint,project,codex-agent,"2026-10-26T00:09:29.574Z",local_mutation,feat/predeclared-sequential-evaluation
@@ -110,6 +119,10 @@ tests[11]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   "node --test --test-concurrency=2 --test-name-pattern=\"promotion revision guard|every promotion guard|promotion holds final|SDK-sealed plans require\" test/sequential-evaluation.test.ts",project,codex-agent,"2026-10-26T21:46:37.319Z",local_mutation,feat/predeclared-sequential-evaluation
   "node --test --test-concurrency=1 --test-name-pattern=\"strict sequential schemas reject\" test/sequential-evaluation.test.ts",project,codex-agent,"2026-10-26T21:47:00.961Z",local_mutation,feat/predeclared-sequential-evaluation
   "node --test --test-concurrency=1 --test-name-pattern=\"fixed and sequential provenance resolve\" test/sequential-evaluation.test.ts",project,codex-agent,"2026-10-26T23:28:39.036Z",local_mutation,feat/predeclared-sequential-evaluation
+  "node --test --test-concurrency=1 --test-name-pattern=\"every artifact-pair inversion\" test/sequential-evaluation.test.ts",project,codex-agent,"2026-10-27T01:58:37.885Z",local_mutation,feat/predeclared-sequential-evaluation
+  "node --test --test-concurrency=1 --test-name-pattern=\"owned child cleanup|owned stop retry|container cleanup retries\" test/controller-boundaries.test.ts",project,codex-agent,"2026-10-27T01:58:40.877Z",local_mutation,feat/predeclared-sequential-evaluation
+  "node --test --test-concurrency=1 --test-name-pattern=\"stream cleanup retries\" test/audit-git-identities.test.ts",project,codex-agent,"2026-10-27T01:58:43.754Z",local_mutation,feat/predeclared-sequential-evaluation
+  "node --test --test-concurrency=1 --test-name-pattern=\"owned stop retry bounds\" test/controller-boundaries.test.ts",project,codex-agent,"2026-10-27T01:58:46.540Z",local_mutation,feat/predeclared-sequential-evaluation
 docs[4]{path,scope}:
   docs/policy-card-write-audit.md,project
   docs/sequential-evaluation-evidence.json,project

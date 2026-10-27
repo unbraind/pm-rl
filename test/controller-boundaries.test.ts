@@ -3,8 +3,9 @@ import assert from "node:assert/strict";
 import { ChildProcess, spawn } from "node:child_process";
 import { once } from "node:events";
 import { existsSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { mock, test } from "node:test";
+import { clearTimeout, setTimeout } from "node:timers";
 import { readHistoryEntries } from "@unbrained/pm-cli/sdk";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import { getHistoryPath, isPmCliExpectedError, normalizeItemId, normalizeRawItemId } from "@unbrained/pm-cli/sdk/runtime";
@@ -12,6 +13,8 @@ import { acquireStateLock, canonicalIdentifier, canonicalItemIdentifier, canonic
 import extension, { resolveEvaluationPlan, evaluationComparison, loopLeaseLockId, loopProcessStartTime, withRlController, runRlLoop, type JsonValue } from "../index.ts";
 import { controllerCallback, controllerCallbackIO, executeProcessTrainer, processJobId, processStaging, readProcessJob, reserveProcessJob, stopTrainer } from "../process.ts";
 import { allowance, processWorkspace, trainingInput } from "./fixtures/process-workspace.ts";
+import { retryOwnedStop, waitForOwnedClose } from "../owned-stop.ts";
+import { composeConfiguration, stopComposeTrainer } from "../compose.ts";
 
 /** Hold both successful native leases until the competing acquisition has returned. */
 async function contenders(root: string, left: string, right: string, same: boolean): Promise<void> {
@@ -242,6 +245,93 @@ test("a false native stop result and emitted error cannot recurse or bypass reap
     const runner = JSON.parse(readFileSync(join(processStaging(pmRoot, job.id), "runner.json"), "utf8")) as { pid: number };
     assert.throws(() => process.kill(runner.pid, 0), { code: "ESRCH" }); assert.deepEqual(readdirSync(join(pmRoot, "locks")), []);
   } finally { controllerCallbackIO.before = () => undefined; stop.mock.restore(); }
+});
+
+test("owned child cleanup retries beyond three failures and settles persistent failures without latching", { timeout: 120000 }, async (t) => {
+  for (const persistent of [false, true]) await t.test(persistent ? "bounded final failure" : "three transient native failures", async () => {
+    const { client, coordinates, approval, pmRoot } = await processWorkspace(); const input = trainingInput();
+    const command = [process.execPath, new URL("./fixtures/process-trainer.ts", import.meta.url).pathname, "callback-long", String(persistent)];
+    const nativeChildKill = ChildProcess.prototype.kill; const nativeKill = process.kill.bind(process);
+    let attempts = 0; let pid: number | undefined; let child: ChildProcess | undefined;
+    const unhandled: unknown[] = []; const monitor = (error: unknown): void => { unhandled.push(error); };
+    process.on("uncaughtExceptionMonitor", monitor); process.on("unhandledRejection", monitor);
+    /** Fail real native stop dispatches while leaving liveness checks and SDK leases intact. */
+    const fail = (): boolean => { attempts += 1; return persistent || attempts <= 3; };
+    const childKill = mock.method(ChildProcess.prototype, "kill", function (this: ChildProcess, signal?: NodeJS.Signals | number): boolean {
+      if (signal === "SIGKILL") { child = this; pid = this.pid; if (fail()) throw Object.assign(new Error("Transient child stop failure"), { code: "EACCES" }); }
+      return nativeChildKill.call(this, signal);
+    });
+    const processKill = mock.method(process, "kill", (target: number, signal?: NodeJS.Signals | number): true => {
+      if (signal === "SIGKILL") { pid = target; if (fail()) throw Object.assign(new Error("Transient PID stop failure"), { code: "EACCES" }); }
+      return nativeKill(target, signal);
+    });
+    controllerCallbackIO.before = (site) => { if (site === "stderr.path") throw new Error("Require owned-child cleanup"); };
+    const operation = executeProcessTrainer(client, coordinates, input, approval, { kind: "process-bandit", allowance }, undefined, command);
+    const observed = operation.then(() => ({ ok: true, error: undefined }), (error: unknown) => ({ ok: false, error }));
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const result = await Promise.race([observed, new Promise<undefined>((done) => { deadline = setTimeout(() => done(undefined), 8000); })]);
+      assert.notEqual(result, undefined, "cleanup must settle after bounded retries rather than latch after three failures");
+      assert.equal(result!.ok, false);
+      assert.ok(isPmCliExpectedError(result!.error) && result!.error.context.code === (persistent ? "process_stop_failed" : "process_callback_failed"));
+      assert.ok(attempts >= 4); assert.ok(attempts <= 12); assert.ok(pid !== undefined);
+      const job = (await readProcessJob(client, processJobId(input, command)))!;
+      assert.equal(job.state, "failed"); assert.equal(job.settled, true);
+      if (persistent) { assert.equal(job.outcome, "process_stop_failed"); assert.equal(job.cleanup?.code, "cleanup_failed"); assert.equal(nativeKill(pid, 0), true); }
+      else assert.throws(() => nativeKill(pid!, 0), { code: "ESRCH" });
+      for (const key of ["training_steps", "wall_ms", "compute_units", "tokens"] as const) assert.ok(job.charge[key] >= allowance[key]);
+      const native = await client.get(job.id, { full: true });
+      const history = await readHistoryEntries(getHistoryPath(pmRoot, native.item.id), native.item.id);
+      assert.equal(history.filter((entry) => entry.patch.some((patch) => patch.path === "/body" && "value" in patch && typeof patch.value === "string" && patch.value.includes('"state":"failed"'))).length, 1);
+      assert.deepEqual(readdirSync(join(pmRoot, "locks")), []); assert.deepEqual(unhandled, []);
+    } finally {
+      clearTimeout(deadline);
+      controllerCallbackIO.before = () => undefined; childKill.mock.restore(); processKill.mock.restore();
+      if (pid !== undefined) {
+        try {
+          nativeKill(pid, 0); const closed = child === undefined ? undefined : once(child, "close");
+          nativeKill(pid, "SIGKILL"); await closed;
+        } catch (error) { assert.equal((error as NodeJS.ErrnoException).code, "ESRCH"); }
+      }
+      await observed;
+      assert.deepEqual(unhandled, []);
+      process.removeListener("uncaughtExceptionMonitor", monitor); process.removeListener("unhandledRejection", monitor);
+    }
+  });
+});
+
+test("owned stop retry bounds handle false returns, thrown errors, permanent refusals and missing close acknowledgements", async () => {
+  let attempts = 0;
+  assert.equal(await retryOwnedStop(() => { attempts += 1; return attempts > 3; }), true); assert.equal(attempts, 4);
+  attempts = 0; assert.equal(await retryOwnedStop(() => { attempts += 1; return false; }), false); assert.equal(attempts, 6);
+  for (const code of ["EACCES", "ENOSPC", "ENOENT", "EISDIR"]) {
+    attempts = 0;
+    assert.equal(await retryOwnedStop(() => { attempts += 1; if (attempts <= 3) throw Object.assign(new Error("Transient"), { code }); }), true);
+    assert.equal(attempts, 4);
+  }
+  const foreign = new Error("Foreign identity");
+  await assert.rejects(retryOwnedStop(() => { throw foreign; }, () => true), (error) => error === foreign);
+  assert.equal(await waitForOwnedClose(Promise.resolve()), true);
+  assert.equal(await waitForOwnedClose(new Promise(() => {})), false);
+});
+
+test("container cleanup retries transient failures, bounds persistent failures and never switches to a successor identity", async (t) => {
+  for (const mode of ["transient", "persistent", "successor"] as const) await t.test(mode, async () => {
+    const { root } = await processWorkspace(); const directory = join(root, "staging"); const bin = join(root, "bin"); mkdirSync(directory); mkdirSync(bin);
+    const image = `sha256:${"a".repeat(64)}`; const id = `process-${"b".repeat(64)}`;
+    const limits = { kind: "compose-lm", image, allowance, memory_bytes: 67108864, cpus: 1 } as const;
+    writeFileSync(join(directory, "compose.json"), JSON.stringify(composeConfiguration(image, limits)));
+    const state = join(root, "calls.json"); writeFileSync(state, JSON.stringify({ removals: 0, down: 0, foreignRemovals: 0 }));
+    const script = `#!${process.execPath}\nimport fs from 'node:fs'; const file=${JSON.stringify(state)}; const mode=${JSON.stringify(mode)}; const s=JSON.parse(fs.readFileSync(file,'utf8')); const a=process.argv.slice(2); let status=0; if(a[0]==='container'&&a[1]==='ls') console.log(mode==='successor'&&s.removals>0?'foreign-container':mode==='transient'&&s.removals>=4?'':'owned-container'); if(a[1]==='inspect') console.log(JSON.stringify({memory_bytes:67108864,nano_cpus:1000000000,oom_killed:false,exit_code:0,network:'none',user:'65534:65534'})); if(a[1]==='rm'){s.removals++; if(a.includes('foreign-container'))s.foreignRemovals++; if(mode==='persistent'||mode==='successor'||s.removals<=3)status=1;} if(a.includes('down')){s.down++;if(s.down===1)status=1;} fs.writeFileSync(file,JSON.stringify(s));process.exit(status);\n`;
+    writeFileSync(join(bin, "docker"), script, { mode: 0o755 }); const previous = process.env.PATH; process.env.PATH = `${bin}${delimiter}${previous}`;
+    try {
+      if (mode === "transient") { await stopComposeTrainer(directory, id, image, "test", limits); assert.ok(existsSync(join(directory, "compose-stop.json"))); }
+      else await assert.rejects(stopComposeTrainer(directory, id, image, "test", limits), (error: unknown) => isPmCliExpectedError(error) && error.context.code === (mode === "persistent" ? "process_stop_failed" : "process_job_drift"));
+      const calls = JSON.parse(readFileSync(state, "utf8")) as { removals: number; down: number; foreignRemovals: number };
+      assert.equal(calls.foreignRemovals, 0); assert.equal(calls.removals, mode === "transient" ? 4 : mode === "persistent" ? 6 : 1);
+      if (mode === "transient") assert.equal(calls.down, 2);
+    } finally { if (previous === undefined) delete process.env.PATH; else process.env.PATH = previous; }
+  });
 });
 
 test("primitive callback faults remain failures after successful close and settle once", async (t) => {

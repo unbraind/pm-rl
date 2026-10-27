@@ -17,6 +17,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { isMainInvocation } from "./script-launcher.ts";
+import { retryOwnedStop, waitForOwnedClose } from "../owned-stop.ts";
 
 const defaultRepoRoot = resolve(import.meta.dirname, "..");
 const gitTimeoutMs = 120_000;
@@ -58,26 +59,28 @@ export async function streamProcess(
     });
     let settled = false;
     let stderr = "";
+    let acknowledge!: () => void;
+    const closed = new Promise<void>((done) => { acknowledge = done; });
+    child.once("close", acknowledge);
     const escalationMs = options.escalationMs ?? 5_000;
     /** Cancel the timer, terminate the child, and reject with actionable context. */
     const fail = (error: Error): void => {
+      if (settled) return;
       settled = true;
       clearTimeout(timer);
-      child.kill();
-      // SIGTERM is advisory: a child that ignores it, or a descendant holding
-      // the stdio pipes open, keeps the Node event loop referenced after the
-      // promise has rejected, so the release gate can hang after the very
-      // timeout that was meant to bound it. Escalate to SIGKILL on a short
-      // bounded timer, and unreference both timers so neither keeps the loop
-      // alive on its own — the child's stdio does that while it runs.
-      const escalation = setTimeout(() => {
-        child.kill("SIGKILL");
-      }, escalationMs);
-      escalation.unref();
-      child.once("close", () => {
-        clearTimeout(escalation);
-      });
-      reject(error);
+      /** Observe every stop failure and detach only this child's handles on exhaustion. */
+      const cleanup = async (): Promise<void> => {
+        try { child.kill(); } catch { /* Escalation still owns the exact child handle. */ }
+        let escalation: ReturnType<typeof setTimeout> | undefined;
+        try { await Promise.race([closed, new Promise<void>((done) => { escalation = setTimeout(done, escalationMs); })]); }
+        finally { clearTimeout(escalation); }
+        const stopped = await retryOwnedStop(() => child.exitCode !== null || child.signalCode !== null || child.kill("SIGKILL"));
+        if (!stopped || !await waitForOwnedClose(closed)) {
+          for (const stream of [child.stdin, child.stdout, child.stderr]) stream?.destroy();
+          child.unref();
+        }
+      };
+      void cleanup().then(() => reject(error), () => reject(error));
     };
     const timer = setTimeout(() => {
       fail(new Error(`${command} ${arguments_.join(" ")} timed out after ${options.timeoutMs}ms.`));

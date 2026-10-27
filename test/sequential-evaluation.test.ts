@@ -232,6 +232,37 @@ test("SDK-sealed plans require review before declaration before every collection
   console.log(JSON.stringify({ chronologicalOrders: 24, validOrders: allowed, refusedOrders: refused, surfaces: 3 }));
 });
 
+test("every artifact-pair inversion and checkpoints sealed before the reviewed Plan refuse through SDK and CLI", async () => {
+  const w = await workspace();
+  const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
+  const baseline = ["review", "plan", "run", "candidate", "look-1", "look-2"];
+  const orders = [baseline, ["look-1", "look-2", "review", "plan", "run", "candidate"]];
+  for (let left = 0; left < baseline.length; left += 1) for (let right = left + 1; right < baseline.length; right += 1) {
+    const order = [...baseline]; [order[left], order[right]] = [order[right], order[left]]; orders.push(order);
+  }
+  let refused = 0; let allowed = 0;
+  for (const [index, order] of orders.entries()) {
+    const p = plan(`rl-artifact-order-${index}`); if (p.stopping.kind !== "sequential") throw new Error("fixture");
+    const comparison = evaluationComparison(p); const id = `${p.candidate}-evaluation-plan`; const run = `${p.candidate}-run`;
+    const first = { format: "pm-rl/sequential-checkpoint/1", comparison, previous: null, observations: observations(p) };
+    const final = { format: "pm-rl/sequential-checkpoint/1", comparison, previous: hashJson(first as unknown as JsonValue), observations: observations(p, 64, true) };
+    for (const action of order) {
+      if (action === "review") await w.client.create({ id: p.stopping.review, type: "Decision", title: "Review", body: JSON.stringify({ format: "pm-rl/sequential-review/1", comparison }) });
+      if (action === "plan") await w.client.create({ id, type: "Plan", title: "SDK declaration", body: JSON.stringify({ plan: p, incumbent_version: p.incumbent_version }), affectedVersion: hashJson({ comparison, incumbent_version: p.incumbent_version }) });
+      if (action === "run") await w.client.create({ id: run, type: "Run", title: "Collection" });
+      if (action === "candidate") await generation(w.client, p.candidate, { ...spec("rl-seed", comparison), collection_runs: [run] });
+      if (action.startsWith("look-")) { const raw = action === "look-1" ? first : final; await w.client.create({ id: `${id}-${action}`, type: "Decision", title: "SDK sealed look", tags: "pm-rl:sequential-checkpoint", body: JSON.stringify(raw), affectedVersion: hashJson(raw as unknown as JsonValue) }); }
+    }
+    const valid = order.indexOf("review") < order.indexOf("plan") && Math.max(order.indexOf("plan"), order.indexOf("run"), order.indexOf("candidate")) < order.indexOf("look-1") && order.indexOf("plan") < Math.min(order.indexOf("run"), order.indexOf("candidate")) && order.indexOf("look-1") < order.indexOf("look-2");
+    const score: ScoreRecord = { objective: p.objective, objective_version: p.objective_version, evaluation_context: p.evaluation_context, direction: p.direction, seed_set: comparison, scale: 1, value: evaluatePlan(p, final.observations).candidate_mean };
+    const operations = [() => enforceEvaluationPlan(w.client, p.candidate, score), () => readSequentialEvaluation(w.client, p.candidate), ...[false, true].map((json) => () => harness.runCommand({ command: "rl eval plan resume", pmRoot: w.pmRoot, args: [p.candidate], options: { json } }))];
+    for (const operation of operations) if (valid) await operation(); else await assert.rejects(operation(), refusal("eval_plan_late"));
+    if (valid) allowed += 1; else refused += 1;
+  }
+  assert.equal(allowed, 2); assert.equal(refused, 15);
+  console.log(JSON.stringify({ artifactPairs: 15, orders: orders.length, valid: allowed, refused, surfaces: 4, prePlanLooksFixedCase: true }));
+});
+
 test("fixed and sequential provenance resolve SDK aliases after checking the original raw seal", async () => {
   for (const kind of ["fixed", "sequential"] as const) {
     const w = await workspace(); const declared = plan(`rl-alias-${kind}`);
