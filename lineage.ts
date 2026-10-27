@@ -106,7 +106,7 @@ export interface GenerationSpec {
 
 /** Content-linked input graph emitted by the evaluator that read these records. */
 export interface EvaluationEvidence {
-  readonly format: "pm-rl/evaluation-evidence/1";
+  readonly format: "pm-rl/evaluation-evidence/1" | "pm-rl/evaluation-evidence/2";
   readonly comparison: string;
   readonly inputs: readonly { readonly id: string; readonly digest: string; readonly at?: string }[];
   readonly digest: string;

@@ -223,7 +223,7 @@ import { registerShadowDeployment, observeShadow, compareShadow } from "./shadow
 import { recordSequentialEvaluation, readSequentialEvaluation } from "./sequential-evaluation.ts";
 /** Typed persisted input graphs returned by the evaluation SDK. */
 export type { EvaluationEvidence } from "./lineage.ts";
-import { registerEvaluationPlan, readEvaluationPlan, recordPlanEvaluation, enforceEvaluationPlan, enforceEvaluationDecision, readEvaluationDecision, evaluationEvidence, parseEvaluationEvidence, evaluationInputDigest } from "./evaluation-plan.ts";
+import { registerEvaluationPlan, readEvaluationPlan, recordPlanEvaluation, enforceEvaluationPlan, enforceEvaluationDecision, readEvaluationDecision, evaluationEvidence, parseEvaluationEvidence, evaluationInputDigest, decisionSnapshotDigest } from "./evaluation-plan.ts";
 import { buildIntakeLoopCorpus, buildTrackerLoopCorpus } from "./corpus.ts";
 import { decodeCheckpointArtifacts, encodeCheckpointArtifacts, collectCheckpointArtifacts, inspectCheckpointArtifact } from "./checkpoint-artifacts.ts";
 
@@ -858,7 +858,11 @@ export async function verifyCompletedDecisionReceipt(client: PmClient, id: strin
   }
   const sealed = parseBoundedJson(String(original.item.body)) as Record<string, unknown>;
   if ((sealed.decision_evidence !== undefined || body.decision_evidence !== undefined) && canonicalJson(sealed as JsonValue) !== canonicalJson(body as JsonValue)) {
-    throw createPmCliExpectedError(`Completed decision ${id} changed; restore its original receipt.`, { exitCode: EXIT_CODE.CONFLICT, context: { code: "loop_step_drift", item_id: id } });
+    const originalGraph = sealed.decision_evidence as EvaluationEvidence | undefined;
+    const changedGraph = body.decision_evidence as EvaluationEvidence | undefined;
+    const changed = originalGraph?.inputs.find((input, index) => canonicalJson(input as unknown as JsonValue) !== canonicalJson((changedGraph?.inputs?.[index] ?? null) as unknown as JsonValue));
+    const snapshot = changed === undefined ? id : `${changed.id}@${changed.at ?? "unversioned"}`;
+    throw createPmCliExpectedError(`Completed decision ${id} changed at snapshot ${snapshot}; restore its original receipt.`, { exitCode: EXIT_CODE.CONFLICT, context: { code: "loop_step_drift", item_id: id, required: `Restore original snapshot ${snapshot}.` } });
   }
 }
 /** Distinguish terminal evaluator outcomes without interpreting tracker status names. */
@@ -881,15 +885,40 @@ export async function verifyTerminalEvaluationReceipt(client: PmClient, item: Ge
 }
 /** Persist the exact history coordinates of evaluator reads in a durable enclosing step. @internal */
 export async function sealDecisionEvidence(client: PmClient, comparison: string, inputs: readonly GetResult["item"][]): Promise<EvaluationEvidence> {
-  const versions = new Map<string, string>();
-  for (const item of inputs) versions.set(item.id, (await firstDecisionSnapshot(client, item.id, (historical) => evaluationInputDigest(historical, comparison) === evaluationInputDigest(item, comparison), DECISION_INPUT_FIELDS)).at);
-  return evaluationEvidence(comparison, inputs, versions);
+  return decisionReads.exit(async () => {
+    const refs = [];
+    for (const item of inputs) {
+      const digest = decisionSnapshotDigest(item);
+      const original = await firstDecisionSnapshot(client, item.id, (historical) => decisionSnapshotDigest(historical) === digest, DECISION_INPUT_FIELDS);
+      refs.push({ id: item.id, digest, at: original.at });
+    }
+    const body = { format: "pm-rl/evaluation-evidence/2" as const, comparison, inputs: refs };
+    return parseEvaluationEvidence({ ...body, digest: hashJson(body as unknown as JsonValue) });
+  });
+}
+/** Read only a certified historical input; enclosing decisions must not substitute a live projection. @internal */
+export async function readDecisionSnapshot(client: PmClient, id: string, at: string): Promise<GetResult> {
+  return decisionReads.exit(() => readCompleteLoopItem(client, id, at, DECISION_INPUT_FIELDS));
+}
+/** Completed executions consume recorded snapshots, including legacy comparison-based digests. @internal */
+export async function verifyDecisionSnapshots(client: PmClient, evidence: EvaluationEvidence): Promise<void> {
+  for (const input of evidence.inputs) {
+    const snapshot = `${input.id}@${input.at ?? "unversioned"}`;
+    try {
+      if (input.at === undefined) throw createPmCliExpectedError(`Receipt has no certified coordinate for ${snapshot}; restore the original versioned receipt.`, { exitCode: EXIT_CODE.CONFLICT, context: { code: "eval_plan_drift", item_id: input.id } });
+      const historical = await readDecisionSnapshot(client, input.id, input.at);
+      const digest = evidence.format === "pm-rl/evaluation-evidence/2" ? decisionSnapshotDigest(historical.item) : evaluationInputDigest(historical.item, evidence.comparison);
+      if (historical.item.id === input.id && digest === input.digest) continue;
+    } catch (error) { rethrowOperationalRead(error); }
+    throw createPmCliExpectedError(`Restore certified decision snapshot ${snapshot} before replay.`, { exitCode: EXIT_CODE.CONFLICT, context: { code: "eval_plan_drift", item_id: input.id, required: `Restore original snapshot ${snapshot}.` } });
+  }
 }
 /** One replay scope deduplicates upstream decisions while never caching across calls. */
 interface EvidenceVerification { readonly client: PmClient; readonly graphs: Set<string>; readonly subjects: Set<string> }
 const evidenceVerification = new AsyncLocalStorage<EvidenceVerification>();
 /** Revalidate certified versions and live content, using the actual evaluator for every upstream decision. @internal */
 export async function verifyDecisionEvidence(client: PmClient, evidence: EvaluationEvidence): Promise<void> {
+  if (evidence.format !== "pm-rl/evaluation-evidence/1") fail("Promotion requires current evaluator evidence; immutable execution snapshots are replay-only.", "eval_plan_evidence", EXIT_CODE.CONFLICT);
   const current = evidenceVerification.getStore();
   if (current?.client === client) return verifyDecisionInputs(client, evidence, current);
   const scope: EvidenceVerification = { client, graphs: new Set(), subjects: new Set() };
@@ -3632,7 +3661,7 @@ async function readLoopStep(client: PmClient, id: string, phase: string, input: 
   if (result === undefined || result === null || typeof result !== "object" || Array.isArray(result)
     || record["digest"] !== hashJson(result)) fail("Loop step receipt payload is damaged.", "loop_step_drift", EXIT_CODE.CONFLICT);
   await verifyCompletedDecisionReceipt(client, item.item.id, record);
-  if (record["decision_evidence"] !== undefined) await verifyDecisionEvidence(client, parseEvaluationEvidence(record["decision_evidence"]));
+  if (record["decision_evidence"] !== undefined) await verifyDecisionSnapshots(client, parseEvaluationEvidence(record["decision_evidence"]));
   return result;
 }
 

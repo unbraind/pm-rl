@@ -73,15 +73,16 @@ export function refuse(code: EvaluationPlanRefusal, itemId?: string): never {
 /** Strict bounded schema shared by stored promotion receipts and evaluator-produced graphs. */
 export function parseEvaluationEvidence(value: unknown): EvaluationEvidence {
   const row = object(value, ["format", "comparison", "inputs", "digest"]);
-  if (row.format !== "pm-rl/evaluation-evidence/1" || typeof row.comparison !== "string" || !/^[a-f0-9]{64}$/.test(row.comparison) || !Array.isArray(row.inputs) || row.inputs.length === 0 || row.inputs.length > 10_000) refuse("eval_plan_evidence");
+  if ((row.format !== "pm-rl/evaluation-evidence/1" && row.format !== "pm-rl/evaluation-evidence/2") || typeof row.comparison !== "string" || !/^[a-f0-9]{64}$/.test(row.comparison) || !Array.isArray(row.inputs) || row.inputs.length === 0 || row.inputs.length > 10_000) refuse("eval_plan_evidence");
   const inputs = Array.from(row.inputs, (input) => {
     const ref = object(input, input !== null && typeof input === "object" && Object.hasOwn(input, "at") ? ["id", "digest", "at"] : ["id", "digest"]);
     if (typeof ref.id !== "string" || operationIdentifier(ref.id) !== ref.id || typeof ref.digest !== "string" || !/^[a-f0-9]{64}$/.test(ref.digest)) refuse("eval_plan_evidence");
+    if (row.format === "pm-rl/evaluation-evidence/2" && ref.at === undefined) refuse("eval_plan_evidence");
     if (ref.at !== undefined && (typeof ref.at !== "string" || !/^[1-9][0-9]*$/.test(ref.at) || !Number.isSafeInteger(Number(ref.at)))) refuse("eval_plan_evidence");
     return { id: ref.id, digest: ref.digest, ...(ref.at === undefined ? {} : { at: ref.at as string }) };
   });
   if (new Set(inputs.map((input) => input.id)).size !== inputs.length) refuse("eval_plan_evidence");
-  const body = { format: "pm-rl/evaluation-evidence/1" as const, comparison: row.comparison, inputs };
+  const body = { format: row.format as EvaluationEvidence["format"], comparison: row.comparison, inputs };
   if (row.digest !== hashJson(body as unknown as JsonValue)) refuse("eval_plan_evidence");
   return { ...body, digest: row.digest as string };
 }
@@ -90,6 +91,11 @@ export function evaluationInputDigest(item: GetResult["item"], comparison?: stri
   const spec = item.type === "Generation" ? extractGenerationSpec(String(item.body), "Evaluation input") : null;
   const generation = spec === null ? String(item.body) : { provenance: generationProvenance(spec), ...(spec.evaluation_evidence !== undefined && spec.evaluation_evidence.comparison !== comparison ? { upstream_evidence: spec.evaluation_evidence } : {}) };
   return hashJson({ id: item.id, type: String(item.type), body: generation as unknown as JsonValue, version: String(item.affected_version), created_at: String(item.created_at),
+    ...(item.type === "Run" ? { environment: item.environment ?? null, policy: item.component ?? null, metrics: readSeries((item.notes ?? []).map((note) => note.text)).events as unknown as JsonValue } : {}) });
+}
+/** Fingerprint an immutable SDK snapshot without projecting mutable records under a later comparison. */
+export function decisionSnapshotDigest(item: Pick<GetResult["item"], "id" | "type" | "body" | "affected_version" | "created_at" | "component" | "environment" | "notes">): string {
+  return hashJson({ id: item.id, type: String(item.type), body: String(item.body), version: String(item.affected_version), created_at: String(item.created_at),
     ...(item.type === "Run" ? { environment: item.environment ?? null, policy: item.component ?? null, metrics: readSeries((item.notes ?? []).map((note) => note.text)).events as unknown as JsonValue } : {}) });
 }
 /** Seal precisely the records read by this execution, including history-only collection sources. */

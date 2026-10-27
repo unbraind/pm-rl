@@ -3,10 +3,10 @@ import { decodeTrackerRecord, parseBoundedJson } from "./tracker-record.ts";
 /** Minimized explanations of learned-policy suitability, backed by SDK-certified history. */
 import type { GetResult, PmClient } from "@unbrained/pm-cli/sdk/core";
 import { createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
-import { canonicalJson, createOrReadIdentical, hashJson, extractGenerationSpec, generationProvenance, readCompleteLoopItem, firstDecisionSnapshot, verifyDecisionEvidence, verifyCompletedDecisionReceipt, verifyTerminalEvaluationReceipt, type JsonValue } from "./index.ts";
+import { canonicalJson, createOrReadIdentical, hashJson, extractGenerationSpec, generationProvenance, readCompleteLoopItem, firstDecisionSnapshot, readDecisionSnapshot, verifyDecisionSnapshots, verifyDecisionEvidence, verifyCompletedDecisionReceipt, verifyTerminalEvaluationReceipt, type JsonValue } from "./index.ts";
 import { canonicalizeIdentifier, canonicalizeGenerationSpec, type GenerationSpec, type EvaluationEvidence } from "./lineage.ts";
 import { readSeries } from "./series.ts";
-import { optionalItem, enforceEvaluationPlan, readEvaluationDecision, parseEvaluationEvidence, evaluationInputDigest } from "./evaluation-plan.ts";
+import { optionalItem, enforceEvaluationPlan, readEvaluationDecision, parseEvaluationEvidence, evaluationInputDigest, decisionSnapshotDigest } from "./evaluation-plan.ts";
 import { rethrowOperationalRead, rethrowProvenanceRead } from "./refuse.ts";
 
 /** Stable agent-facing refusal reasons; messages and context include a concrete remedy. */
@@ -76,7 +76,7 @@ async function snapshot(client: PmClient, id: string, at?: string): Promise<{ it
   try {
     const prefix = String((await identifierClient(client).config("project", "get", "id_prefix").catch(rethrowProvenanceRead)).nested_setting!.value);
     id = canonicalizeIdentifier(id, prefix);
-    const current = (await readCompleteLoopItem(client, id, at, SNAPSHOT_FIELDS)).item;
+    const current = (at === undefined ? await readCompleteLoopItem(client, id, undefined, SNAPSHOT_FIELDS) : await readDecisionSnapshot(client, id, at)).item;
     // Validate the requested current/history seal before searching for an equivalent canonical version.
     if (current.type === "Generation") verifiedGenerationSpec(current);
     const digest = hashJson(domain(current, prefix));
@@ -118,9 +118,8 @@ function source(item: CardItem, prefix: string): { value: Record<string, unknown
   if (row === null) return refuse("card_invalid", item.id);
   if (row.state !== "complete" || typeof row.input !== "string" || !/^[a-f0-9]{64}$/.test(row.input) || row.result === null || typeof row.result !== "object" || row.digest !== hashJson(row.result as JsonValue)) refuse("card_missing_provenance");
   const result = object(row.result);
-  const receiptInputs = row.decision_evidence === undefined ? [] : parseEvaluationEvidence(row.decision_evidence).inputs.map((input) => input.id);
   const verdict = result.promoted === true || result.promoted !== null && typeof result.promoted === "string" ? "promoted" : result.promoted === false ? "refused" : "recorded";
-  return { value: result, outcome: verdict, dependencies: receiptInputs, scope: { digest: hashJson(row.input as JsonValue), collection_runs: 0, environment: hashJson(null), reward: hashJson(null) }, regressions: verdict === "refused" ? ["promotion_refused"] : ["evaluation_incomplete"] };
+  return { value: result, outcome: verdict, dependencies: [], scope: { digest: hashJson(row.input as JsonValue), collection_runs: 0, environment: hashJson(null), reward: hashJson(null) }, regressions: verdict === "refused" ? ["promotion_refused"] : ["evaluation_incomplete"] };
 }
 /** Select one proposed recipe/configuration; no policy parameters are copied into a card. */
 function proposal(item: CardItem, selection: number | null, prefix: string): unknown {
@@ -237,10 +236,11 @@ export async function generationEvidence(client: PmClient, subject: string, sele
   if (dependencies.includes(primary.item.id)) refuse("card_missing_provenance");
   if (new Set(dependencies).size >= MAX_EVIDENCE) refuse("card_limit");
   for (const id of [...new Set(dependencies)].sort()) {
-    const entry = await snapshot(client, id); evidence.push(entry.citation); entries.push(entry.item);
+    const coordinate = primary.item.type === "Decision" ? decision.graph?.inputs.find((input) => input.id === id)?.at : undefined;
+    const entry = await snapshot(client, id, coordinate); evidence.push(entry.citation); entries.push(entry.item);
   }
   for (const item of entries) {
-    if (item.type !== "Generation") continue;
+    if (primary.item.type === "Decision" || item.type !== "Generation") continue;
     const upstream = extractGenerationSpec(String(item.body), "Cited decision evidence").evaluation_evidence;
     if (upstream !== undefined) await verifyDecisionEvidence(client, upstream);
   }
@@ -256,7 +256,7 @@ async function cardDecisionInputs(client: PmClient, item: CardItem, plan: GetRes
     await verifyCompletedDecisionReceipt(client, item.id, raw, prospective);
     if (raw.decision_evidence === undefined) return { ids: [] };
     const evidence = parseEvaluationEvidence(raw.decision_evidence);
-    await verifyDecisionEvidence(client, evidence);
+    await verifyDecisionSnapshots(client, evidence);
     if (evidence.comparison !== raw.input) refuse("card_drift", item.id);
     return { ids: evidence.inputs.map((input) => input.id), graph: evidence };
   }
@@ -287,7 +287,7 @@ function verifyDecisionBindings(primary: CardItem, entries: readonly CardItem[],
   const sources = new Map([primary, ...entries].map((item) => [item.id, item]));
   for (const input of graph.inputs) {
     const item = sources.get(input.id);
-    if (item === undefined || evaluationInputDigest(item, graph.comparison) !== input.digest) refuse("card_drift", input.id);
+    if (item === undefined || (graph.format === "pm-rl/evaluation-evidence/2" ? decisionSnapshotDigest(item) : evaluationInputDigest(item, graph.comparison)) !== input.digest) refuse("card_drift", input.id);
   }
 }
 /** Match complete fixed record fields before a foreign shape can reach evidence replay. */
@@ -435,11 +435,15 @@ export async function replayPolicyCard(client: PmClient, value: unknown): Promis
   const declared = planItem === undefined ? null : evidenceBody(planItem).plan;
   const sequential = declared !== null && typeof declared === "object" && (declared as Record<string, unknown>).stopping !== null && typeof (declared as Record<string, unknown>).stopping === "object" && ((declared as Record<string, unknown>).stopping as Record<string, unknown>).kind === "sequential";
   if (supplied === undefined && (storedGraph !== undefined || sequential)) refuse("card_drift", subject);
-  if (candidate.decision_evidence !== undefined && items[0].type === "Decision" && (await snapshot(client, subject)).citation.digest !== results[0].digest) refuse("card_drift", subject);
+  if (candidate.decision_evidence !== undefined && items[0].type === "Decision") {
+    const current = await snapshot(client, subject);
+    await verifyCompletedDecisionReceipt(client, subject, object(parseBoundedJson(String(current.item.body))));
+    if (current.citation.digest !== results[0].digest) refuse("card_drift", subject);
+  }
   const decision = candidate.decision_evidence === undefined ? undefined : await cardDecisionInputs(client, items[0], items.slice(1).find((item) => item.id === `${subject}-evaluation-plan`) ?? null);
   if (decision !== undefined && canonicalJson(decision.graph as unknown as JsonValue) !== canonicalJson(supplied as unknown as JsonValue)) refuse("card_drift", subject);
   for (const item of items.slice(1)) {
-    if (item.type !== "Generation") continue;
+    if (items[0].type === "Decision" || item.type !== "Generation") continue;
     const upstream = extractGenerationSpec(String(item.body), "Replayed upstream evidence").evaluation_evidence;
     if (upstream !== undefined) await verifyDecisionEvidence(client, upstream);
   }

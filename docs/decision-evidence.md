@@ -36,8 +36,18 @@ its existing plan or cohort.
 
 Durable steps inherit the inputs of actual nested evaluators rather than
 collecting unrelated controller bookkeeping. Their completed receipt carries
-`decision_evidence`. Replay verifies the original certified versions and live
-decision-bearing content. The first completed SDK snapshot binds the entire
+`decision_evidence` with `format: "pm-rl/evaluation-evidence/2"`. Each input
+contains the canonical SDK ID, verified history coordinate and a digest of the
+snapshot consumed at execution. The fingerprint includes the complete body,
+provenance seal, creation time and Run environment, policy and decoded metrics;
+it does not project a Generation under the enclosing step's comparison.
+Replay reads only those immutable versions. Later promotions, status changes and
+champion changes cannot change an earlier execution or its cards. Snapshot
+corruption refuses with its `id@version` in the typed error and remedy. Existing
+version-one completed receipts use their recorded history coordinates and original
+digest algorithm; no migration or live-state substitution occurs. A receipt with
+no certified coordinate refuses only that replay with a restoration remedy.
+Promotion/rejection graphs retain version one and validate current evidence. The first completed SDK snapshot binds the entire
 receipt; the first terminal snapshot binds a promotion or rejection graph. Removing the graph
 or replacing it with a rehashed subset refuses, including when result values
 remain unchanged. A completed graph-bearing step cannot be downgraded to running to repeat its
@@ -68,7 +78,15 @@ console.log(decision.evidence?.digest, card.decision_evidence?.digest);
 ```
 
 `test/decision-evidence.test.ts` corrupts each input and all input pairs across
-generation, rejected, recursive and proposal-selection cards, including the original
+generation and rejected cards, while frozen recursive and proposal-selection cards
+retain their digests after live source changes, including the original
 review-plus-final-look counterexample. It also checks graph removal/rehashed
 subsets, unrelated inputs, 500 SDK read-back transport sequences with older
 replays/CRLF/relationships/custom active status, and 500 strict-schema cases.
+
+`test/durable-snapshots.test.ts` generates three evaluate/promote cycles and
+replays every earlier completed step and card after each promotion. It covers
+released version-one receipts, all proposal selections, every recorded snapshot
+and every snapshot pair, rehashed corruption, SDK read-back after compensation,
+and refusal without re-executing a completed operation. The same property runs
+against the exact packed artifact under Node and Bun in non-git trackers.

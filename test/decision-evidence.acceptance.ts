@@ -55,6 +55,24 @@ const original = await readCompleteLoopItem(w.client, w.plan.candidate);
 assert.deepEqual(extractGenerationSpec(String(original.item.body), "Packed receipt").evaluation_evidence, decision.evidence);
 await w.client.update("rl-review", { body: "corrupt review" });
 await w.client.update("rl-candidate-evaluation-plan-look-2", { affectedVersion: "corrupt final look" });
+let frozenReplays = 0;
+for (const { file, value } of cards.slice(1)) for (const json of [true, false]) {
+  const selection = value.selection === null ? [] : ["--selection", String(value.selection)];
+  for (const args of [["policy-card", "export", value.subject, ...selection], ["policy-card", "replay", "--file", file]]) {
+    assert.match(command([...args, ...(json ? ["--json"] : [])]), new RegExp(value.digest)); frozenReplays += 1;
+  }
+}
+const frozenGraph = parseEvaluationEvidence(stepBody.decision_evidence);
+const damaged = { format: frozenGraph.format, comparison: frozenGraph.comparison, inputs: frozenGraph.inputs.map((ref, index) => index === 0 ? { ...ref, digest: "0".repeat(64) } : ref) };
+await w.client.update(stepId, { body: JSON.stringify({ ...stepBody, decision_evidence: { ...damaged, digest: hashJson(damaged as unknown as JsonValue) } }) });
+let snapshotRefusals = 0;
+try {
+  for (const json of [true, false]) for (const args of [["policy-card", "export", stepId], ["policy-card", "replay", "--file", cards[1].file]]) {
+    const result = spawnSync(process.execPath, [cli, "rl", ...args, ...(json ? ["--json"] : [])], { cwd: w.root, env, encoding: "utf8" });
+    assert.equal(result.status, 4, result.stdout + result.stderr);
+    assert.match(result.stdout + result.stderr, new RegExp(`${frozenGraph.inputs[0].id}@${frozenGraph.inputs[0].at}`)); snapshotRefusals += 1;
+  }
+} finally { await w.client.update(stepId, { body: String(stepReceipt.item.body) }); }
 let refusals = 0;
 for (const json of [true, false]) for (const args of [
   ["policy-card", "export", w.plan.candidate], ["policy-card", "replay", "--file", cards[0].file],
@@ -67,5 +85,5 @@ for (const json of [true, false]) for (const args of [
   refusals += 1;
 }
 assert.deepEqual(await readCompleteLoopItem(w.client, w.plan.candidate), original);
-const evidence = { packed_sdk: true, installed_cli: true, card_types: cardTypes, graph_inputs: decision.evidence!.inputs.length, max_card_json_bytes: cardBytes, review_and_final_look_refusals: refusals, rehashed_graph_removal_refusals: cards.length, canonical_graph_ids: true, completed_step_downgrade_refusals: 1, json_and_toon: true, promotion_receipt_graph: true, exact_sdk_graph_in_card: true, approval_consumed: 1, source_generation_unchanged_on_refusal: true, non_git: true, git_absent_from_path: true };
+const evidence = { packed_sdk: true, installed_cli: true, card_types: cardTypes, graph_inputs: decision.evidence!.inputs.length, max_card_json_bytes: cardBytes, frozen_live_source_replays: frozenReplays, snapshot_corruption_refusals: snapshotRefusals, review_and_final_look_refusals: refusals, rehashed_graph_removal_refusals: cards.length, canonical_graph_ids: true, completed_step_downgrade_refusals: 1, json_and_toon: true, promotion_receipt_graph: true, exact_sdk_graph_in_card: true, approval_consumed: 1, source_generation_unchanged_on_refusal: true, non_git: true, git_absent_from_path: true };
 writeFileSync(output, JSON.stringify(evidence, null, 2) + "\n"); console.log(JSON.stringify(evidence));

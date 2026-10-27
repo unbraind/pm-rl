@@ -165,6 +165,7 @@
       "test/evaluation-plan.test.ts",
       "test/evaluation-compatibility.test.ts",
       "test/decision-evidence.test.ts",
+      "test/durable-snapshots.test.ts",
       "test/shadow.test.ts",
       "test/policy-card.test.ts",
       "test/sequential-evaluation.test.ts",

@@ -31,7 +31,8 @@ async function corruptDecisionCards(client: PmClient, cards: readonly PolicyCard
         await client.update(id, item.type === "Generation" ? { affectedVersion: "corrupt" } : { body: `${String(item.body ?? "")}\ncorrupt` });
       }
       for (const card of cards) {
-        if (!damaged.some((id) => card.evidence.some((input) => input.id === id))) {
+        // Frozen execution cards intentionally ignore later source mutations; only their own receipt is live.
+        if ((originals.get(card.subject)!.type === "Decision" && !damaged.includes(card.subject)) || !damaged.some((id) => card.evidence.some((input) => input.id === id))) {
           assert.equal((await exportPolicyCard(client, card.subject, card.selection)).digest, card.digest);
           assert.deepEqual((await replayPolicyCard(client, card)).card, card);
           continue;
@@ -118,7 +119,7 @@ test("strict input graph schema has 500 seeded must-allow and must-refuse transp
   let seed = 0x5e17;
   for (let index = 0; index < 500; index += 1) {
     seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
-    const body = { format: "pm-rl/evaluation-evidence/1" as const, comparison: hashJson(index), inputs: [{ id: `rl-input-${seed}`, digest: hashJson(seed), ...(index % 2 ? { at: String(index + 1) } : {}) }] };
+    const body = { format: index % 2 ? "pm-rl/evaluation-evidence/2" as const : "pm-rl/evaluation-evidence/1" as const, comparison: hashJson(index), inputs: [{ id: `rl-input-${seed}`, digest: hashJson(seed), ...(index % 2 ? { at: String(index + 1) } : {}) }] };
     const valid = { ...body, digest: hashJson(body as unknown as JsonValue) };
     assert.deepEqual(parseEvaluationEvidence(JSON.parse(` \r\n${JSON.stringify(valid, null, index % 3 ? 2 : 0).replaceAll("\n", "\r\n")}\r\n`)), valid);
     const malformed = [
@@ -127,6 +128,7 @@ test("strict input graph schema has 500 seeded must-allow and must-refuse transp
       { ...valid, inputs: [{ id: "rl-input", digest: Infinity }] }, { ...valid, inputs: [{ id: "rl-input", digest: "bad" }] },
       { ...valid, inputs: [{ ...body.inputs[0], at: 1 }] }, { ...valid, inputs: [{ ...body.inputs[0], at: "9007199254740992" }] },
       { ...valid, inputs: [{ ...body.inputs[0], at: "0" }] }, { ...valid, inputs: [{ ...body.inputs[0], id: "RL-input" }] },
+      { ...valid, format: "pm-rl/evaluation-evidence/2", inputs: [{ id: "rl-input", digest: hashJson(seed) }] },
     ];
     assert.throws(() => parseEvaluationEvidence(malformed[index < malformed.length ? index : seed % malformed.length]), isPmCliExpectedError);
   }
