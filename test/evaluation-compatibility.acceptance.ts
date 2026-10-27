@@ -7,10 +7,11 @@ import { devNull, tmpdir } from "node:os";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { statePath } from "../state-boundary.ts";
 import { parseGenerationSpec } from "../lineage.ts";
-import { readCompleteLoopItem } from "../index.ts";
+import { readCompleteLoopItem, readEvaluationDecision } from "../index.ts";
+import type { PolicyCard } from "../policy-card.ts";
 import type { EvaluationPlan, EvaluationPlanReport } from "../evaluation-plan.ts";
 
-const fixture = JSON.parse(readFileSync(new URL("./fixtures/released-compatibility.json", import.meta.url), "utf8")) as { plan: EvaluationPlan; rows: unknown[]; report: EvaluationPlanReport; files: Record<string, string>; coordinates: { environment: string; benchmark: string }; benchmark_input: unknown };
+const fixture = JSON.parse(readFileSync(new URL("./fixtures/released-compatibility.json", import.meta.url), "utf8")) as { plan: EvaluationPlan; rows: unknown[]; report: EvaluationPlanReport; files: Record<string, string>; coordinates: { environment: string; benchmark: string; long_candidate: string; long_comparison: string }; benchmark_input: unknown };
 const archive = resolve(process.argv[2]); const output = resolve(process.argv[3]);
 const root = mkdtempSync(join(tmpdir(), "rl-packed-legacy-")); const pmRoot = join(root, ".agents/pm");
 for (const [name, contents] of Object.entries(fixture.files)) { const path = statePath(pmRoot, ...name.split("/")); mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, contents); }
@@ -34,6 +35,9 @@ const plan = join(root, "plan.json"); writeFileSync(plan, JSON.stringify(fixture
 const benchmark = join(root, "benchmark.json"); writeFileSync(benchmark, JSON.stringify(fixture.benchmark_input));
 assert.equal((JSON.parse(command(["benchmark", "register", "--file", benchmark, "--json"])) as { created: boolean }).created, false);
 assert.equal((JSON.parse(command(["eval", "record", "--run", "rl-run", "--benchmark", fixture.coordinates.benchmark, "--checkpoint", "legacy checkpoint:2", "--score", "1", "--passed", "true", "--json"])) as { created: boolean }).created, false);
+const beforeCard = (JSON.parse(command(["policy-card", "export", fixture.plan.candidate, "--json"])) as { details: PolicyCard }).details;
+assert.deepEqual(beforeCard.decision_evidence, (await readEvaluationDecision(client, fixture.plan.candidate)).evidence);
+assert.ok(beforeCard.evidence.some((entry) => entry.id === `${fixture.plan.candidate}-evaluation-plan`));
 const held = { objective: fixture.plan.objective, objective_version: fixture.plan.objective_version, evaluation_context: fixture.plan.evaluation_context, direction: fixture.plan.direction, seed_set: fixture.report.comparison, scale: 1, value: fixture.report.candidate_mean };
 const scores = join(root, "scores.json"); writeFileSync(scores, JSON.stringify({ held_out_score: held, proxy_score: { ...held, evaluation_context: "proxy:legacy" } }));
 const promotion = JSON.parse(command(["generation", "promote", fixture.plan.candidate, "--approval", "rl-approval", "--scores", scores, "--evidence", "Released fixture compatibility", "--json"])) as { details: { budget_consumed: number } };
@@ -42,5 +46,12 @@ const promoted = String((await readCompleteLoopItem(client, fixture.plan.candida
 assert.equal(parseGenerationSpec(promoted, "Packed compatibility").promoted, true);
 assert.deepEqual(await readCompleteLoopItem(client, before.item.id), before);
 command(["policy-card", "export", fixture.plan.candidate, "--json"]);
-const evidence = { producer: "pm-rl@2026.7.31", native_text_files: Object.keys(fixture.files).length, legacy_plans: 18, sdk_oracle_cases: 500, oracle_paths: 13, json_and_toon: true, fixed_report_unchanged: true, declaration_unchanged: true, legacy_retries: 3, promoted: true, approval_consumed: 1, policy_card_exported: true, non_git: true, git_absent_from_path: true };
+const longHeld = { ...held, seed_set: fixture.coordinates.long_comparison };
+writeFileSync(scores, JSON.stringify({ held_out_score: longHeld, proxy_score: { ...longHeld, evaluation_context: "proxy:legacy" } }));
+const longPromotion = JSON.parse(command(["generation", "promote", fixture.coordinates.long_candidate, "--approval", "rl-long-approval", "--scores", scores, "--evidence", "Long released identity", "--json"])) as { details: { budget_consumed: number } };
+assert.equal(longPromotion.details.budget_consumed, 1);
+const longCard = (JSON.parse(command(["policy-card", "export", fixture.coordinates.long_candidate, "--json"])) as { details: PolicyCard }).details;
+assert.ok(longCard.decision_evidence);
+
+const evidence = { producer: "pm-rl@2026.7.31", native_text_files: Object.keys(fixture.files).length, legacy_plans: 18, sdk_oracle_cases: 500, oracle_paths: 13, json_and_toon: true, fixed_report_unchanged: true, declaration_unchanged: true, legacy_retries: 3, promoted: true, approval_consumed: 1, policy_card_exported: true, unlinked_plan_graph: true, long_id_promoted: true, long_card_json_bytes: Buffer.byteLength(JSON.stringify(longCard)), non_git: true, git_absent_from_path: true };
 writeFileSync(output, JSON.stringify(evidence, null, 2) + "\n"); console.log(JSON.stringify(evidence));

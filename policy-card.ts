@@ -231,7 +231,7 @@ export async function generationEvidence(client: PmClient, subject: string, sele
   const parsed = source(primary.item, prefix);
   if (new Set(parsed.dependencies).size >= MAX_EVIDENCE) refuse("card_limit");
   const evidence = [primary.citation]; const entries: CardItem[] = []; const resource: Record<string, number> = {};
-  const plan = parsed.dependencies.includes(`${subject}-evaluation-plan`) ? await optionalItem(client, `${subject}-evaluation-plan`) : null;
+  const plan = primary.item.type === "Generation" && !extractGenerationSpec(String(primary.item.body), "Decision discovery").seed ? await optionalItem(client, `${subject}-evaluation-plan`) : null;
   const decision = await cardDecisionInputs(client, primary.item, plan, primary.citation.at === PROSPECTIVE_AT);
   const dependencies = [...parsed.dependencies, ...decision.ids].filter((id) => id !== primary.item.id || parsed.dependencies.includes(id));
   if (dependencies.includes(primary.item.id)) refuse("card_missing_provenance");
@@ -260,8 +260,10 @@ async function cardDecisionInputs(client: PmClient, item: CardItem, plan: GetRes
     if (evidence.comparison !== raw.input) refuse("card_drift", item.id);
     return { ids: evidence.inputs.map((input) => input.id), graph: evidence };
   }
-  const retained = extractGenerationSpec(String(item.body), "Card decision inputs").evaluation_evidence;
-  if (retained !== undefined || plan !== null && evidenceBody(plan).plan !== null && typeof evidenceBody(plan).plan === "object" && (evidenceBody(plan).plan as Record<string, unknown>).format === "pm-rl/evaluation-plan/1") {
+  const spec = extractGenerationSpec(String(item.body), "Card decision inputs");
+  const retained = spec.evaluation_evidence;
+  const versioned = plan === null ? null : decodeTrackerRecord(spec.evaluation_plan === undefined ? client : null, plan, { type: "Plan", maxBytes: 16_777_216, valid: (row) => row.plan !== null && typeof row.plan === "object" && !Array.isArray(row.plan) && (row.plan as Record<string, unknown>).format === "pm-rl/evaluation-plan/1" });
+  if (retained !== undefined || versioned !== null) {
     try {
       const decision = await readEvaluationDecision(client, item.id, true);
       if (retained !== undefined && retained.digest !== decision.evidence?.digest) refuse("card_drift", item.id);
@@ -271,6 +273,7 @@ async function cardDecisionInputs(client: PmClient, item: CardItem, plan: GetRes
       refuse("card_drift", isPmCliExpectedError(error) ? String(error.context.item_id ?? item.id) : item.id);
     }
   }
+  if (spec.evaluation_plan === undefined) return { ids: [] };
   if (!prospective && plan !== null) await verifyTerminalEvaluationReceipt(client, item);
   const ids: string[] = [];
   if (plan !== null) for (const suffix of ["-result", "-shadow", "-shadow-comparison"]) {
@@ -365,7 +368,8 @@ async function verifyEvidenceBindings(client: PmClient, item: CardItem, entries:
   const allowed = new Set([...required, ...(required.includes(plan) ? ["-result", "-shadow", "-shadow-comparison"].map((suffix) => `${plan}${suffix}`) : [])]);
   if (ids.some((id) => !allowed.has(id))) refuse("card_invalid");
   const planItem = entries.find((entry) => entry.id === plan);
-  if (planItem !== undefined) {
+  if (planItem !== undefined && decision?.graph === undefined) {
+    // Versioned plans were validated by the actual decision reader; legacy explanatory records retain their historical contract.
     const spec = canonicalizeGenerationSpec(extractGenerationSpec(String(item.body), "Card lineage"), prefix);
     const reservation = evidenceBody(planItem); const declared = object(reservation.plan);
     if (Object.keys(reservation).sort().join(",") !== "incumbent_version,plan" || planItem.type !== "Plan" || canonicalizeIdentifier(String(declared.candidate), prefix) !== item.id || canonicalizeIdentifier(String(declared.incumbent), prefix) !== spec.parent || declared.incumbent_version !== reservation.incumbent_version || hashJson(declared as JsonValue) !== spec.evaluation_plan || planItem.affected_version !== hashJson({ comparison: spec.evaluation_plan, incumbent_version: reservation.incumbent_version } as JsonValue)) refuse("card_drift");

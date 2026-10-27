@@ -355,11 +355,12 @@ export async function readEvaluationDecision(client: PmClient, candidate: string
   const captured = await captureDecisionInputs(client, async () => {
     const registered = await readEvaluationPlan(client, candidate);
     if (registered === null) {
-      if (!pending) {
-        const item = await optionalItem(client, candidate);
-        if (item !== null && item.type === "Generation" && extractGenerationSpec(String(item.body), "Candidate generation").evaluation_plan !== undefined) refuse("eval_plan_missing", item.id);
-        await enforceShadowComparison(client, candidate, null);
+      const item = await optionalItem(client, candidate);
+      if (item !== null && item.type === "Generation") {
+        const spec = extractGenerationSpec(String(item.body), "Candidate generation");
+        if (spec.evaluation_plan !== undefined || spec.evaluation_evidence !== undefined) refuse("eval_plan_missing", evaluationPlanId(item.id));
       }
+      if (!pending) await enforceShadowComparison(client, candidate, null);
       return { registered, report: null };
     }
     const resolved = registered.plan.candidate;

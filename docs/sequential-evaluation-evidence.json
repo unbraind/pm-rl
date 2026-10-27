@@ -9,8 +9,8 @@
   "git_absent_from_path": true,
   "items": 107,
   "done_role_items": 87,
-  "cli_json_bytes": 853,
-  "cli_toon_bytes": 730,
+  "cli_json_bytes": 944,
+  "cli_toon_bytes": 816,
   "resumed_exactly": true,
   "checkpoint_records": 1,
   "packed_chronology_refusals": 3,
@@ -34,5 +34,6 @@
     "reason": "Sequential evaluation is exhausted; only a sufficient boundary permits the existing promotion gate."
   },
   "remedy": "Register a new plan and fresh candidate before collecting a different cohort or making another evaluation look.",
+  "evidence_digest": "0f81a4e56a4714fd5377180717b42e0a20fe27528f0e1716fcfb138aebe13d3c",
   "limitation": "Descriptive public replay. One repository is one correlation unit; no causal benefit or deployed promotion claim."
 }

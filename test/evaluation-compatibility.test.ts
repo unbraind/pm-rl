@@ -7,7 +7,8 @@ import { after, test } from "node:test";
 import { PmClient, type GetResult } from "@unbrained/pm-cli/sdk/core";
 import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import extension, { hashJson, parseBenchmarkSpec, parseEvalResultSpec, promoteGenerationCore, registerGenerationCore, readCompleteLoopItem, type JsonValue, type RlCommandResult } from "../index.ts";
+import { exportPolicyCard } from "../policy-card.ts";
+import extension, { hashJson, parseBenchmarkSpec, parseEvalResultSpec, promoteGenerationCore, registerGenerationCore, readEvaluationDecision, readCompleteLoopItem, type JsonValue, type RlCommandResult } from "../index.ts";
 import { enforceEvaluationPlan, evaluatePlan, evaluationComparison, parseEvaluationPlan, readEvaluationPlan, recordPlanEvaluation, registerEvaluationPlan, type EvaluationPlan, type EvaluationPlanReport } from "../evaluation-plan.ts";
 import { parseGenerationSpec, parseScoreRecord, canonicalizeGenerationSpec, canonicalizeScoreRecord, canonicalizeIdentifier, type ScoreRecord } from "../lineage.ts";
 import { requiredTrimmedString } from "../refuse.ts";
@@ -81,6 +82,9 @@ test("released native fixtures read evaluate retry export and promote unchanged 
     const evalRetry = (await harness.runCommand({ command: "rl eval record", pmRoot: w.pmRoot, options: { run: "rl-run", benchmark: fixture.coordinates.benchmark, checkpoint: " legacy checkpoint:2 ", score: "1", passed: true } })).result as RlCommandResult;
     assert.equal(evalRetry.created, false);
     const score = legacyScore();
+    const candidateCard = await exportPolicyCard(w.client, fixture.plan.candidate);
+    assert.deepEqual(candidateCard.decision_evidence, (await readEvaluationDecision(w.client, fixture.plan.candidate)).evidence);
+    assert.ok(candidateCard.evidence.some((entry) => entry.id === `${fixture.plan.candidate}-evaluation-plan`));
     if (surface === "sdk") await promoteGenerationCore(w.client, { pmRoot: w.pmRoot, author: "compatibility-test" }, fixture.plan.candidate, "rl-approval", { ...score, evaluation_context: "proxy:legacy" }, score, "Released fixture compatibility");
     else {
       const file = join(w.root, "scores.json"); writeFileSync(file, JSON.stringify({ proxy_score: { ...score, evaluation_context: "proxy:legacy" }, held_out_score: score }));

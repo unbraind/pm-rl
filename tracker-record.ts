@@ -29,8 +29,8 @@ export function parseBoundedJson(text: string): unknown {
   if (Buffer.byteLength(text) > 16_777_216 || !depthSafe(text)) throw new SyntaxError("JSON exceeds decoding bounds");
   return JSON.parse(text) as unknown;
 }
-/** Decode only the named package envelope; legacy admission requires a caller-verified historical namespace. */
-export function decodeTrackerRecord(client: object | null, item: { readonly id?: string; readonly type?: unknown; readonly tags?: unknown; readonly body?: unknown }, contract: { readonly type: string; readonly tag?: string; readonly legacy?: boolean; readonly namespace?: (id: string) => boolean; readonly format?: string; readonly valid?: (value: Record<string, unknown>) => boolean }): Record<string, unknown> | null {
+/** Decode only the named package envelope; large Plan envelopes may use the existing 16 MiB parser bound. */
+export function decodeTrackerRecord(client: object | null, item: { readonly id?: string; readonly type?: unknown; readonly tags?: unknown; readonly body?: unknown }, contract: { readonly type: string; readonly tag?: string; readonly legacy?: boolean; readonly namespace?: (id: string) => boolean; readonly format?: string; readonly maxBytes?: 16_777_216; readonly valid?: (value: Record<string, unknown>) => boolean }): Record<string, unknown> | null {
   /** Retain one bounded reason per identity, independent of repeated resume reads. */
   function omit(reason: SkippedTrackerRecord["reason"]): null {
     if (client !== null) { const records = skipped.get(client) ?? new Map<string, SkippedTrackerRecord>(); records.set(String(item.id), { id: String(item.id), reason }); skipped.set(client, records); }
@@ -40,7 +40,7 @@ export function decodeTrackerRecord(client: object | null, item: { readonly id?:
   if (contract.namespace !== undefined && !contract.namespace(String(item.id))) return omit("foreign_identity");
   if (contract.tag !== undefined && (!Array.isArray(item.tags) || !item.tags.includes(contract.tag)) && contract.legacy !== true) return omit("foreign_tag");
   const text = String(item.body);
-  if (Buffer.byteLength(text) > 1_048_576) return omit("oversized");
+  if (Buffer.byteLength(text) > (contract.maxBytes ?? 1_048_576)) return omit("oversized");
   if (contract.format !== undefined && !text.includes(JSON.stringify(contract.format))) return omit("foreign_format");
   if (!depthSafe(text)) return omit("too_deep");
   let value: unknown;

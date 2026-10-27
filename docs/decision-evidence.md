@@ -18,7 +18,11 @@ predecessor changes or invalidates the graph. Human annotations and tracker
 status bookkeeping do not change statistical input identity.
 
 New decision-backed policy cards embed exactly the graph returned by the
-reader. Their ordinary citations retain the full explanation sources, including
+reader. Discovery also finds a registered fixed plan when an older Generation
+does not carry the optional `evaluation_plan` field. The decision reader owns
+that compatibility rule; cards do not impose a second Plan-binding rule. Foreign
+unclaimed Plan slots are skipped with a reason. A retained graph requires its
+Plan even when the older Generation has no explicit Plan field. Their ordinary citations retain the full explanation sources, including
 generation approvals and training environments. Generation, recursive-step,
 and individual proposal cards use this shared path. Legacy cards without a graph
 remain readable and historically replayable; they gain no additional authority.

@@ -9,6 +9,7 @@ import { captureDecisionInputs, extractGenerationSpec, hashJson, readCompleteLoo
 import { evaluationEvidence, parseEvaluationEvidence, readEvaluationDecision, validateEvaluationReport } from "../evaluation-plan.ts";
 import { exportPolicyCard, replayPolicyCard, type PolicyCard } from "../policy-card.ts";
 import { recordSequentialEvaluation } from "../sequential-evaluation.ts";
+import { skippedTrackerRecords, decodeTrackerRecord } from "../tracker-record.ts";
 import { decisionFixture } from "./fixtures/decision-evidence.ts";
 
 /** Every refusal must name an actual damaged input, never fail accidentally in JSON or filesystem code. */
@@ -111,6 +112,9 @@ test("graph boundary and seeded 500 transport sequences retain SDK-read native s
 });
 
 test("strict input graph schema has 500 seeded must-allow and must-refuse transports", () => {
+  const envelope = { id: "rl-large-plan", type: "Plan", body: JSON.stringify({ plan: { format: "pm-rl/evaluation-plan/1" }, padding: " ".repeat(1_048_576) }) };
+  assert.equal(decodeTrackerRecord(null, envelope, { type: "Plan" }), null);
+  assert.ok(decodeTrackerRecord(null, envelope, { type: "Plan", maxBytes: 16_777_216 }));
   let seed = 0x5e17;
   for (let index = 0; index < 500; index += 1) {
     seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
@@ -218,8 +222,19 @@ test("fixed review and final look corruption refuses fresh cards and replay from
     await w.client.create({ id: "rl-child-run", title: "Child collection", type: "Run", environment: "rl-training" });
     const child = { ...parent, parent: w.plan.candidate, promoted: false, approval: null, proxy_score: null, held_out_score: null, gap: null, promotion_evidence: null, evaluation_plan: undefined, evaluation_evidence: undefined, collection_runs: ["rl-child-run"] };
     await w.client.create({ id: "rl-child", title: "Child policy", type: "Generation", body: `\`\`\`json\n${JSON.stringify(child)}\n\`\`\``, affectedVersion: hashJson(generationProvenance(child)) });
+    await w.client.create({ id: "rl-child-evaluation-plan", type: "Plan", title: "Foreign plan slot", body: "foreign record" });
     const childCard = await exportPolicyCard(w.client, "rl-child");
     assert.deepEqual((await replayPolicyCard(w.client, childCard)).card, childCard);
+    assert.ok(skippedTrackerRecords(w.client).some((entry) => entry.id === "rl-child-evaluation-plan" && entry.reason === "invalid_json"));
+    for (const foreign of [{}, { plan: null }, { plan: false }, { plan: [] }, { plan: { format: "foreign" } }]) {
+      await w.client.update("rl-child-evaluation-plan", { body: JSON.stringify(foreign) });
+      assert.equal((await exportPolicyCard(w.client, "rl-child")).digest, childCard.digest);
+      assert.ok(skippedTrackerRecords(w.client).some((entry) => entry.id === "rl-child-evaluation-plan" && entry.reason === "invalid_shape"));
+    }
+    const orphan = { ...parent, evaluation_plan: undefined };
+    await w.client.create({ id: "rl-orphan", type: "Generation", title: "Retained graph requires its plan", body: `\`\`\`json\n${JSON.stringify(orphan)}\n\`\`\``, affectedVersion: hashJson(generationProvenance(orphan)) });
+    for (const pending of [true, false]) await assert.rejects(readEvaluationDecision(w.client, "rl-orphan", pending), names(["rl-orphan-evaluation-plan"]));
+
     await w.client.update("rl-review", { body: "corrupt review" });
     await w.client.update("rl-candidate-evaluation-plan-look-2", { affectedVersion: "corrupt checkpoint" });
     for (const alias of [w.plan.candidate, "CANDIDATE", "#RL-CANDIDATE", " rl-candidate "]) {
