@@ -6,9 +6,11 @@ status: open
 priority: 2
 tags[2]: api,evaluation-lifecycle
 created_at: "2026-10-27T05:03:56.149Z"
-updated_at: "2026-10-27T05:04:06.308Z"
+updated_at: "2026-10-27T05:56:09.951Z"
 author: codex-agent
 acceptance_criteria: "Migrate the typed SDK and CLI to one lifecycle contract: Plan sealed -> review approved -> checkpoints/looks recorded -> Run -> candidate -> promotion; document the migration and preserve fixed-sample behavior.; Prove lifecycle ordering independently of wall-clock timestamps, including clock skew, equal timestamps and rollback; every promotion and approval path calls the same validator and adversarial artifact-pair permutations refuse every out-of-order transition."
+comments[1]{created_at,author,text}:
+  "2026-10-27T05:56:09.951Z",codex-agent,"Round 3 correction to the previous scope split: PR 107 now requires complete chronology coverage for all existing artifacts, including every collection Run before the candidate and every cumulative look. That correctness fix stays in pm-rl-sequential. This Feature still exclusively tracks the public lifecycle API migration and clock-independent ordering proof; it does not block that fix or expand its API."
 files[3]{path,scope}:
   evaluation-plan.ts,project
   sequential-evaluation.ts,project

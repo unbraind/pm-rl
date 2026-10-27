@@ -10,7 +10,7 @@ import { init, isPmCliExpectedError, locateItem, readLocatedItem, readSettings, 
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import extension, { extractGenerationSpec, generationProvenance, hashJson, readCompleteLoopItem, mutateLoopItem, withPromotionEvidence, promoteGenerationCore, reconcileLoopPromotion, withProcessJobFence, type RlCommandResult, type JsonValue } from "../index.ts";
 import { parseBoundedJson } from "../tracker-record.ts";
-import { evaluatePlan, evaluationComparison, parseEvaluationPlan, registerEvaluationPlan, readEvaluationPlan, enforceEvaluationPlan, recordPlanEvaluation, validateEvaluationOrder, type EvaluationPlan, type EvaluationObservation, type EvaluationPlanReport, validateEvaluationReport } from "../evaluation-plan.ts";
+import { evaluatePlan, evaluationComparison, parseEvaluationPlan, registerEvaluationPlan, readEvaluationPlan, enforceEvaluationPlan, recordPlanEvaluation, validateEvaluationOrder, evaluationLifecycleArtifacts, validateEvaluationTimeline, type EvaluationPlan, type EvaluationObservation, type EvaluationPlanReport, validateEvaluationReport } from "../evaluation-plan.ts";
 import { evaluateSequentialBoundary, parseSequentialStopping, recordSequentialEvaluation, readSequentialEvaluation, reviewSequentialPlan, withEvaluationLease, type SequentialEvaluationResult } from "../sequential-evaluation.ts";
 import type { GenerationSpec, ScoreRecord } from "../lineage.ts";
 
@@ -223,44 +223,104 @@ test("SDK-sealed plans require review before declaration before every collection
       previous = digest;
     }
     const score: ScoreRecord = { objective: p.objective, objective_version: p.objective_version, evaluation_context: p.evaluation_context, direction: p.direction, seed_set: comparison, scale: 1, value: evaluatePlan(p, observations(p, 64, true)).candidate_mean };
-    const valid = order.indexOf("review") < order.indexOf("plan") && order.indexOf("plan") < order.indexOf("run") && order.indexOf("plan") < order.indexOf("candidate");
+    const valid = order.indexOf("review") < order.indexOf("plan") && order.indexOf("plan") < order.indexOf("run") && order.indexOf("run") < order.indexOf("candidate");
     const operations = [() => enforceEvaluationPlan(w.client, p.candidate, score), () => readSequentialEvaluation(w.client, p.candidate), () => harness.runCommand({ command: "rl eval plan resume", pmRoot: w.pmRoot, args: [p.candidate] })];
     for (const operation of operations) if (valid) await operation(); else await assert.rejects(operation(), refusal("eval_plan_late"));
     if (valid) allowed += 1; else refused += 1;
   }
-  assert.equal(allowed, 2); assert.equal(refused, 22);
+  assert.equal(allowed, 1); assert.equal(refused, 23);
   console.log(JSON.stringify({ chronologicalOrders: 24, validOrders: allowed, refusedOrders: refused, surfaces: 3 }));
 });
 
-test("every artifact-pair inversion and checkpoints sealed before the reviewed Plan refuse through SDK and CLI", async () => {
-  const w = await workspace();
-  const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
-  const baseline = ["review", "plan", "run", "candidate", "look-1", "look-2"];
-  const orders = [baseline, ["look-1", "look-2", "review", "plan", "run", "candidate"]];
-  for (let left = 0; left < baseline.length; left += 1) for (let right = left + 1; right < baseline.length; right += 1) {
-    const order = [...baseline]; [order[left], order[right]] = [order[right], order[left]]; orders.push(order);
-  }
-  let refused = 0; let allowed = 0;
-  for (const [index, order] of orders.entries()) {
-    const p = plan(`rl-artifact-order-${index}`); if (p.stopping.kind !== "sequential") throw new Error("fixture");
-    const comparison = evaluationComparison(p); const id = `${p.candidate}-evaluation-plan`; const run = `${p.candidate}-run`;
-    const first = { format: "pm-rl/sequential-checkpoint/1", comparison, previous: null, observations: observations(p) };
-    const final = { format: "pm-rl/sequential-checkpoint/1", comparison, previous: hashJson(first as unknown as JsonValue), observations: observations(p, 64, true) };
-    for (const action of order) {
-      if (action === "review") await w.client.create({ id: p.stopping.review, type: "Decision", title: "Review", body: JSON.stringify({ format: "pm-rl/sequential-review/1", comparison }) });
-      if (action === "plan") await w.client.create({ id, type: "Plan", title: "SDK declaration", body: JSON.stringify({ plan: p, incumbent_version: p.incumbent_version }), affectedVersion: hashJson({ comparison, incumbent_version: p.incumbent_version }) });
-      if (action === "run") await w.client.create({ id: run, type: "Run", title: "Collection" });
-      if (action === "candidate") await generation(w.client, p.candidate, { ...spec("rl-seed", comparison), collection_runs: [run] });
-      if (action.startsWith("look-")) { const raw = action === "look-1" ? first : final; await w.client.create({ id: `${id}-${action}`, type: "Decision", title: "SDK sealed look", tags: "pm-rl:sequential-checkpoint", body: JSON.stringify(raw), affectedVersion: hashJson(raw as unknown as JsonValue) }); }
+/** Enumerate every permutation without retaining factorial-sized arrays. */
+function* artifactOrders(values: readonly string[]): Generator<string[]> {
+  if (values.length === 0) { yield []; return; }
+  for (const value of values) for (const rest of artifactOrders(values.filter((entry) => entry !== value))) yield [value, ...rest];
+}
+/** Independent lifecycle oracle: all collection sources exist before the candidate; looks are cumulative. */
+function validArtifactOrder(order: readonly string[], runs: readonly string[], looks: readonly string[]): boolean {
+  const position = (id: string): number => order.indexOf(id);
+  return position("review") < position("plan") && runs.every((run) => position("plan") < position(run) && position(run) < position("candidate")) && position("candidate") < position(looks[0]) && looks.every((look, index) => index === 0 || position(looks[index - 1]) < position(look));
+}
+/** Supply the same immutable registered contract to the pure chronology kernel and SDK realizations. */
+function orderContract(p: EvaluationPlan) {
+  return { id: `${p.candidate}-evaluation-plan`, plan: p, comparison: evaluationComparison(p), incumbent_version: p.incumbent_version, created_at: "unused" };
+}
+
+test("generated chronology exhausts ALL permutations of every artifact with one to three Runs and looks", () => {
+  let permutations = 0; let accepted = 0;
+  for (let runCount = 1; runCount <= 3; runCount += 1) for (let lookCount = 1; lookCount <= 3; lookCount += 1) {
+    const p = plan("candidate"); if (p.stopping.kind !== "sequential") throw new Error("fixture");
+    const reviewed: EvaluationPlan = { ...p, stopping: { ...p.stopping, review: "review" } };
+    const runs = Array.from({ length: runCount }, (_, index) => `run-${index + 1}`);
+    const registered = orderContract(reviewed); registered.id = "plan";
+    const artifacts = evaluationLifecycleArtifacts(registered, runs, lookCount);
+    const looks = Array.from({ length: lookCount }, (_, index) => `plan-look-${index + 1}`);
+    const expectedIds = ["review", "plan", ...runs, "candidate", ...looks];
+    assert.deepEqual(artifacts.map((entry) => entry.id), expectedIds); // Omitting ANY consumed artifact fails.
+    for (const order of artifactOrders(expectedIds)) {
+      permutations += 1;
+      const valid = validArtifactOrder(order, runs, looks);
+      const entries = artifacts.map(({ id, stage }) => ({ stage, values: [order.indexOf(id), order.indexOf(id), order.indexOf(id)] }));
+      if (valid) { validateEvaluationTimeline(entries); accepted += 1; }
+      else assert.throws(() => validateEvaluationTimeline(entries), refusal("eval_plan_late"));
     }
-    const valid = order.indexOf("review") < order.indexOf("plan") && Math.max(order.indexOf("plan"), order.indexOf("run"), order.indexOf("candidate")) < order.indexOf("look-1") && order.indexOf("plan") < Math.min(order.indexOf("run"), order.indexOf("candidate")) && order.indexOf("look-1") < order.indexOf("look-2");
-    const score: ScoreRecord = { objective: p.objective, objective_version: p.objective_version, evaluation_context: p.evaluation_context, direction: p.direction, seed_set: comparison, scale: 1, value: evaluatePlan(p, final.observations).candidate_mean };
-    const operations = [() => enforceEvaluationPlan(w.client, p.candidate, score), () => readSequentialEvaluation(w.client, p.candidate), ...[false, true].map((json) => () => harness.runCommand({ command: "rl eval plan resume", pmRoot: w.pmRoot, args: [p.candidate], options: { json } }))];
-    for (const operation of operations) if (valid) await operation(); else await assert.rejects(operation(), refusal("eval_plan_late"));
-    if (valid) allowed += 1; else refused += 1;
+    // Independently corrupt each clock/history coordinate at every cross-stage pair.
+    for (let left = 0; left < artifacts.length; left += 1) for (let right = left + 1; right < artifacts.length; right += 1) {
+      if (artifacts[left].stage === artifacts[right].stage) continue;
+      for (let dimension = 0; dimension < 3; dimension += 1) for (const value of [left, left - 1, NaN, Infinity, -Infinity]) {
+        const entries = artifacts.map((entry, index) => ({ stage: entry.stage, values: [index, index, index] }));
+        entries[right].values[dimension] = value;
+        assert.throws(() => validateEvaluationTimeline(entries), refusal("eval_plan_late"));
+      }
+    }
   }
-  assert.equal(allowed, 2); assert.equal(refused, 15);
-  console.log(JSON.stringify({ artifactPairs: 15, orders: orders.length, valid: allowed, refused, surfaces: 4, prePlanLooksFixedCase: true }));
+  assert.equal(permutations, 460200); assert.equal(accepted, 27);
+  assert.throws(() => evaluationLifecycleArtifacts(orderContract({ ...plan(), stopping: { kind: "fixed", observations: 64, independent_units: 64 } }), [], 0), refusal("eval_plan_stopping"));
+  console.log(JSON.stringify({ exhaustiveArtifactPermutations: permutations, accepted, refused: permutations - accepted, runs: "1-3", looks: "1-3", independentClockAndHistoryFaults: true }));
+});
+
+test("generated SDK chronology witnesses bind every source through promotion resume advance JSON and TOON", async () => {
+  const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
+  let refused = 0; let accepted = 0; let scenarios = 0;
+  for (let runCount = 1; runCount <= 3; runCount += 1) for (let lookCount = 1; lookCount <= 3; lookCount += 1) {
+    const w = await workspace();
+    const runs = Array.from({ length: runCount }, (_, index) => `run-${index + 1}`);
+    const looks = Array.from({ length: lookCount }, (_, index) => `look-${index + 1}`);
+    const baseline = ["review", "plan", ...runs, "candidate", ...looks];
+    const orders = [baseline, [...looks, "review", "plan", ...runs, "candidate"]];
+    // Generated adjacent precedence witnesses include every inversion, including nonadjacent Runs/looks.
+    for (let left = 0; left < baseline.length; left += 1) for (let right = left + 1; right < baseline.length; right += 1) {
+      const order = [...baseline]; [order[left], order[right]] = [order[right], order[left]]; orders.push(order);
+    }
+    // Review's exact counterexample: candidate and first look before the collection Run.
+    if (runCount === 1 && lookCount === 2) orders.push(["review", "plan", "candidate", "look-1", "run-1", "look-2"]);
+    for (const order of orders) {
+      const candidate = `rl-order-${scenarios++}`; const declared = plan(candidate);
+      if (declared.stopping.kind !== "sequential") throw new Error("fixture");
+      const lookSizes = lookCount === 1 ? [64] : lookCount === 2 ? [16, 64] : [8, 16, 64];
+      const p: EvaluationPlan = { ...declared, stopping: { ...declared.stopping, looks: lookSizes } };
+      const registered = orderContract(p); const runIds = runs.map((run) => `${candidate}-${run}`);
+      const bodies: { format: string; comparison: string; previous: string | null; observations: EvaluationObservation[] }[] = [];
+      for (const size of lookSizes) bodies.push({ format: "pm-rl/sequential-checkpoint/1", comparison: registered.comparison, previous: bodies.length === 0 ? null : hashJson(bodies.at(-1)! as unknown as JsonValue), observations: observations(p, size, true) });
+      for (const action of order) {
+        if (action === "review") await w.client.create({ id: p.stopping.kind === "sequential" ? p.stopping.review : "", type: "Decision", title: "Review", body: JSON.stringify({ format: "pm-rl/sequential-review/1", comparison: registered.comparison }) });
+        if (action === "plan") await w.client.create({ id: registered.id, type: "Plan", title: "SDK sealed Plan", body: JSON.stringify({ plan: p, incumbent_version: p.incumbent_version }), affectedVersion: hashJson({ comparison: registered.comparison, incumbent_version: p.incumbent_version }) });
+        if (runs.includes(action)) await w.client.create({ id: `${candidate}-${action}`, type: "Run", title: "Collection" });
+        if (action === "candidate") await generation(w.client, candidate, { ...spec("rl-seed", registered.comparison), collection_runs: runIds });
+        if (looks.includes(action)) { const raw = bodies[looks.indexOf(action)]; await w.client.create({ id: `${registered.id}-${action}`, type: "Decision", title: "SDK sealed look", tags: "pm-rl:sequential-checkpoint", body: JSON.stringify(raw), affectedVersion: hashJson(raw as unknown as JsonValue) }); }
+      }
+      const valid = validArtifactOrder(order, runs, looks);
+      const score: ScoreRecord = { objective: p.objective, objective_version: p.objective_version, evaluation_context: p.evaluation_context, direction: p.direction, seed_set: registered.comparison, scale: 1, value: evaluatePlan(p, bodies.at(-1)!.observations).candidate_mean };
+      const before = (await w.client.listAllComplete({ includeBody: true })).items;
+      const operations = [() => enforceEvaluationPlan(w.client, candidate, score), () => readSequentialEvaluation(w.client, candidate), () => recordSequentialEvaluation(w.client, candidate, bodies.at(-1)!.observations), ...[false, true].map((json) => () => harness.runCommand({ command: "rl eval plan resume", pmRoot: w.pmRoot, args: [candidate], options: { json } }))];
+      for (const operation of operations) if (valid) await operation(); else await assert.rejects(operation(), refusal("eval_plan_late"));
+      assert.deepEqual((await w.client.listAllComplete({ includeBody: true })).items, before);
+      if (valid) accepted += 1; else refused += 1;
+    }
+    console.log(JSON.stringify({ generatedSdkOrderProgress: scenarios, runCount, lookCount }));
+  }
+  console.log(JSON.stringify({ generatedSdkOrderScenarios: scenarios, accepted, refused, surfaces: 5, exactReviewCounterexample: true, nonGit: true }));
 });
 
 test("chronology consumes every SDK history page without imposing a 1000-artifact truncation", async () => {

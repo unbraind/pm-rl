@@ -1,6 +1,6 @@
 /** Public read-only tracker acceptance with installed CLI, SDK role lookup and aggregate-only evidence. */
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync, mkdirSync, symlinkSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
@@ -56,5 +56,27 @@ const restarted = (JSON.parse(command(["resume", plan.candidate, "--json"])) as 
 assert.deepEqual(restarted, report); assert.equal(report.sequential?.state, "exhausted"); assert.equal(report.verdict.decision, "refuse");
 assert.equal(report.observations, items.length); assert.equal(report.independent_units, 1); assert.ok(Math.abs(report.candidate_mean - done / items.length) < 1e-14);
 assert.ok(Buffer.byteLength(json) < 2000); assert.ok(Buffer.byteLength(toon) < 2000); assert.equal(digest(source), before);
-const evidence = { source: "https://github.com/unbraind/pm-rl", commit, snapshot, source_digest: before, source_read_only: true, source_unchanged: true, non_git: true, git_absent_from_path: true, items: items.length, done_role_items: done, cli_json_bytes: Buffer.byteLength(json), cli_toon_bytes: Buffer.byteLength(toon), resumed_exactly: true, checkpoint_records: (await client.listAllComplete({ includeBody: false })).items.filter((item) => String(item.id).includes("-look-")).length, ...report, limitation: "Descriptive public replay. One repository is one correlation unit; no causal benefit or deployed promotion claim." };
+const checkpointRecords = (await client.listAllComplete({ includeBody: false })).items.filter((item) => String(item.id).includes("-look-")).length;
+// A separate synthetic probe exercises the review's exact creation order against the packed CLI.
+const invalid: EvaluationPlan = { ...plan, candidate: "rl-invalid", members: Array.from({ length: 64 }, (_, index) => ({ id: `m${index}`, unit: `u${index}` })), stopping: { kind: "sequential", method: "hoeffding-alpha-spending/1", observations: 64, independent_units: 64, unit_order: Array.from({ length: 64 }, (_, index) => `u${index}`), looks: [16, 64], review: "rl-invalid-review" } };
+const invalidComparison = evaluationComparison(invalid);
+await client.create({ id: "rl-invalid-review", type: "Decision", title: "Synthetic review", body: JSON.stringify({ format: "pm-rl/sequential-review/1", comparison: invalidComparison }) });
+writeFileSync(file, JSON.stringify(invalid)); command(["register", "--file", file, "--json"]);
+const invalidCandidate: GenerationSpec = { ...candidate, evaluation_plan: invalidComparison, collection_runs: ["rl-invalid-run"] };
+await client.create({ id: invalid.candidate, type: "Generation", title: "Synthetic pre-collection candidate", body: `\`\`\`json\n${JSON.stringify(invalidCandidate)}\n\`\`\``, affectedVersion: hashJson(generationProvenance(invalidCandidate)) });
+let previous: string | null = null;
+for (const [slot, count] of [16, 64].entries()) {
+  const observations = invalid.members.slice(0, count).map((member, index) => ({ id: member.id, candidate: index >= 16 ? 1 : 0, incumbent: 0 }));
+  const raw = { format: "pm-rl/sequential-checkpoint/1", comparison: invalidComparison, previous, observations }; const seal = hashJson(raw);
+  await client.create({ id: `rl-invalid-evaluation-plan-look-${slot + 1}`, type: "Decision", title: "Synthetic sealed look", tags: "pm-rl:sequential-checkpoint", body: JSON.stringify(raw), affectedVersion: seal });
+  if (slot === 0) await client.create({ id: "rl-invalid-run", type: "Run", title: "Synthetic late collection" });
+  previous = seal; writeFileSync(rowsFile, JSON.stringify(observations));
+}
+const beforeRefusals = (await client.listAllComplete({ includeBody: true })).items;
+for (const args of [["resume", invalid.candidate], ["resume", invalid.candidate, "--json"], ["advance", invalid.candidate, "--file", rowsFile, "--json"]]) {
+  const result = spawnSync(process.execPath, [cli, "rl", "eval", "plan", ...args], { cwd: root, env, encoding: "utf8" });
+  assert.equal(result.status, 4); assert.match(result.stdout + result.stderr, /eval_plan_late/);
+}
+assert.deepEqual((await client.listAllComplete({ includeBody: true })).items, beforeRefusals); assert.equal(digest(source), before);
+const evidence = { source: "https://github.com/unbraind/pm-rl", commit, snapshot, source_digest: before, source_read_only: true, source_unchanged: true, non_git: true, git_absent_from_path: true, items: items.length, done_role_items: done, cli_json_bytes: Buffer.byteLength(json), cli_toon_bytes: Buffer.byteLength(toon), resumed_exactly: true, checkpoint_records: checkpointRecords, packed_chronology_refusals: 3, packed_chronology_unchanged: true, ...report, limitation: "Descriptive public replay. One repository is one correlation unit; no causal benefit or deployed promotion claim." };
 writeFileSync(output, JSON.stringify(evidence, null, 2) + "\n"); console.log(JSON.stringify(evidence));

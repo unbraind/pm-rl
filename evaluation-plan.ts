@@ -63,7 +63,7 @@ export interface RegisteredEvaluationPlan {
 
 /** Throw an actionable typed refusal without copying tracker content into diagnostics. */
 export function refuse(code: EvaluationPlanRefusal): never {
-  const remedy = code === "eval_plan_stopping" ? "Use advance/resume for a sequential plan, evaluate for a fixed plan, and supply only the next declared complete unit prefix. A changed protocol requires a new plan and fresh candidate." : code === "eval_plan_evidence" ? "Check bounded paired rewards and the Decision reviewing the exact comparison hash. Changed sealed evidence requires a new plan and fresh candidate." : "Seal the design and any required review before registering a new plan, then create a fresh candidate and collection; retain the exact declared cohort, provenance and reviewed stopping protocol.";
+  const remedy = code === "eval_plan_late" ? "Seal required reviews and a new plan before collection; for sequential plans create all collection Runs, then a fresh candidate, then ordered looks. Do not reuse evidence created before its source." : code === "eval_plan_stopping" ? "Use advance/resume for a sequential plan, evaluate for a fixed plan, and supply only the next declared complete unit prefix. A changed protocol requires a new plan and fresh candidate." : code === "eval_plan_evidence" ? "Check bounded paired rewards and the Decision reviewing the exact comparison hash. Changed sealed evidence requires a new plan and fresh candidate." : "Seal the design and any required review before registering a new plan, then create a fresh candidate and collection; retain the exact declared cohort, provenance and reviewed stopping protocol.";
   throw createPmCliExpectedError(`Evaluation plan refused (${code}). ${remedy}`, { exitCode: EXIT_CODE.CONFLICT, context: { code, required: remedy } });
 }
 /** Reject unknown keys so no apparent design choice disappears from comparison identity. */
@@ -125,8 +125,33 @@ export async function verifyCreatedRecord(client: PmClient, item: GetResult["ite
   const original = await createdItem(client, item.id);
   if ((["id", "type", "body", "created_at", "affected_version"] as const).some((field) => original[field] !== item[field])) refuse("eval_plan_drift");
 }
-/** One lifecycle partial order: review, declaration, collection/candidate, ordered evidence, promotion. @internal */
-export async function validateEvaluationOrder(client: PmClient, artifacts: readonly { id: string; stage: number }[], pageSize = 1000): Promise<void> {
+/** Complete current sequential lifecycle; every cumulative look seals every candidate collection Run. @internal */
+export function evaluationLifecycleArtifacts(registered: RegisteredEvaluationPlan, runs: readonly string[], looks: number): { id: string; stage: number }[] {
+  if (registered.plan.stopping.kind !== "sequential") refuse("eval_plan_stopping");
+  return [{ id: registered.plan.stopping.review, stage: 0 }, { id: registered.id, stage: 1 }, ...runs.map((id) => ({ id, stage: 2 })), { id: registered.plan.candidate, stage: 3 }, ...Array.from({ length: looks }, (_, index) => ({ id: `${registered.id}-look-${index + 1}`, stage: index + 4 }))];
+}
+/** Compare durable snapshot timestamps, mutation timestamps and SDK history positions together. @internal */
+export function validateEvaluationTimeline(entries: readonly { stage: number; values: readonly number[] }[]): void {
+  let prior = [-Infinity, -Infinity, -Infinity];
+  for (const stage of [...new Set(entries.map((entry) => entry.stage))].sort((left, right) => left - right)) {
+    const next = [...prior];
+    for (const entry of entries.filter((value) => value.stage === stage)) {
+      // Collection Runs are exchangeable sources, but ALL must precede the candidate and every look.
+      if (!entry.values.every((value, index) => Number.isFinite(value) && value > prior[index])) refuse("eval_plan_late");
+      for (let index = 0; index < entry.values.length; index += 1) next[index] = Math.max(next[index], entry.values[index]);
+    }
+    prior = next;
+  }
+}
+/** One validator expands sequential dependencies itself, so callers cannot omit source Runs. @internal */
+export async function validateEvaluationOrder(client: PmClient, input: readonly { id: string; stage: number }[] | { registered: RegisteredEvaluationPlan; looks: number }, pageSize = 1000): Promise<void> {
+  let artifacts: readonly { id: string; stage: number }[];
+  if ("registered" in input) {
+    const candidate = await readCompleteLoopItem(client, input.registered.plan.candidate);
+    const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
+    const spec = canonicalizeGenerationSpec(extractGenerationSpec(String(candidate.item.body), "Sequential collection provenance"), prefix);
+    artifacts = evaluationLifecycleArtifacts(input.registered, spec.collection_runs, input.looks);
+  } else artifacts = input;
   const entries = await Promise.all(artifacts.map(async ({ id, stage }) => ({ id: identifier(id), stage, item: await createdItem(client, id) })));
   const config = await identifierClient(client).config("project", "get", "id_prefix");
   const events: Awaited<ReturnType<typeof listMutationEvents>>["events"] = [];
@@ -137,18 +162,7 @@ export async function validateEvaluationOrder(client: PmClient, artifacts: reado
   } while (page.has_more);
   const positions = new Map(events.map((event, index) => [event.item_id, index]));
   const times = new Map(events.filter((event) => event.version === 1).map((event) => [event.item_id, event.ts]));
-  let prior = [-Infinity, -Infinity, -Infinity];
-  for (const stage of [...new Set(entries.map((entry) => entry.stage))].sort((left, right) => left - right)) {
-    const next = [...prior];
-    for (const entry of entries.filter((value) => value.stage === stage)) {
-      const values = [Date.parse(String(entry.item.created_at)), Date.parse(String(times.get(entry.item.id))), Number(positions.get(entry.item.id))];
-      // Missing native history becomes NaN and refuses alongside nonfinite or unordered times.
-      // Equal ticks cannot establish precedence; same-stage collection/candidate records are unordered.
-      if (!values.every((value, index) => Number.isFinite(value) && value > prior[index])) refuse("eval_plan_late");
-      for (let index = 0; index < values.length; index += 1) next[index] = Math.max(next[index], values[index]);
-    }
-    prior = next;
-  }
+  validateEvaluationTimeline(entries.map((entry) => ({ stage: entry.stage, values: [Date.parse(String(entry.item.created_at)), Date.parse(String(times.get(entry.item.id))), Number(positions.get(entry.item.id))] })));
 }
 /** Verify the full stored Plan and its provenance, rather than trusting its derived id. */
 export async function readEvaluationPlan(client: PmClient, candidate: string): Promise<RegisteredEvaluationPlan | null> {
@@ -265,7 +279,7 @@ async function verifyTiming(client: PmClient, registered: RegisteredEvaluationPl
   if (spec.parent !== registered.plan.incumbent) refuse("eval_plan_drift");
   const incumbent = await optionalItem(client, spec.parent);
   if (incumbent === null || incumbent.type !== "Generation" || incumbent.affected_version !== registered.incumbent_version || hashJson(generationProvenance(extractGenerationSpec(String(incumbent.body), "Incumbent generation"))) !== registered.incumbent_version) refuse("eval_plan_drift");
-  await validateEvaluationOrder(client, [{ id: registered.id, stage: 1 }, ...spec.collection_runs.map((id) => ({ id, stage: 2 })), { id: registered.plan.candidate, stage: 2 }]);
+  await validateEvaluationOrder(client, registered.plan.stopping.kind === "sequential" ? { registered, looks: 0 } : [{ id: registered.id, stage: 1 }, ...spec.collection_runs.map((id) => ({ id, stage: 2 })), { id: registered.plan.candidate, stage: 2 }]);
 }
 /** Read the live candidate so SDK callers cannot forge provenance or predeclaration times. */
 export async function verifiedCandidate(client: PmClient, candidate: string, registered: RegisteredEvaluationPlan): Promise<void> {

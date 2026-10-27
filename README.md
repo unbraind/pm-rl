@@ -659,10 +659,14 @@ the statistical design; it grants no policy promotion budget. Register the plan
 before creating the candidate or **any** collection run. Plan, review, candidate,
 incumbent and collection creation histories are checked through the SDK.
 The review's creation must strictly precede plan creation, and the plan must
-strictly precede both candidate creation and every collection Run. This also
+strictly precede every collection Run; all collection Runs must precede candidate
+creation. This also
 applies to correctly hashed plans created directly through the SDK.
-Every sealed look must follow the reviewed Plan and candidate; later looks must
-follow their predecessors. One validator compares SDK creation snapshots and
+Every cumulative look is bound to **all** collection Runs in the candidate's
+sealed provenance and must follow those Runs and the candidate; later looks must
+follow their predecessors. Collection Runs may be recorded in any order, but none
+may be created after the candidate or any look. The resulting lifecycle is
+review → Plan → all collection Runs → candidate → ordered looks → promotion. One validator compares SDK creation snapshots and
 native creation-event order on reads, retries and promotion. Pre-sealing a
 correctly hashed checkpoint never makes it eligible for a later declaration.
 Raw historical provenance hashes remain unchanged; subsequent reference comparisons

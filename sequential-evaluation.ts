@@ -112,7 +112,7 @@ async function checkpointChain(client: PmClient, registered: RegisteredEvaluatio
     if (index > 0) verifyPrefix(rows[index - 1], raw.observations);
     reports.push(report); rows.push(raw.observations); hashes.push(String(item.affected_version));
   }
-  if (reports.length > 0) await validateEvaluationOrder(client, [{ id: rule.review, stage: 0 }, { id: registered.id, stage: 1 }, { id: registered.plan.candidate, stage: 2 }, ...reports.map((_, slot) => ({ id: `${registered.id}-look-${slot + 1}`, stage: slot + 3 }))]);
+  await validateEvaluationOrder(client, { registered, looks: reports.length });
   return { reports, rows, hashes, skipped: [] };
 }
 /** A cumulative retry must preserve every already sealed outcome exactly, independent of input row order. */

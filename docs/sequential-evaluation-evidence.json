@@ -13,6 +13,8 @@
   "cli_toon_bytes": 730,
   "resumed_exactly": true,
   "checkpoint_records": 1,
+  "packed_chronology_refusals": 3,
+  "packed_chronology_unchanged": true,
   "sequential": {
     "state": "exhausted",
     "look": 1,
