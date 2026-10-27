@@ -3,8 +3,8 @@ import { identifier, identifierClient, operationIdentifier } from "./state-bound
 /** Reviewed finite-look sequential tests and immutable, resumable evidence checkpoints. */
 import { dirname } from "node:path";
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
-import { hashJson, withProcessJobFence, extractGenerationSpec, readCompleteLoopItem, type JsonValue } from "./index.ts";
-import { evaluatePlan, evaluationComparison, normalizedObservations, optionalItem, readEvaluationPlan, refuse, verifiedCandidate, verifyCreatedRecord, validateEvaluationOrder, evaluationPlanId, type EvaluationMember, type EvaluationPlan, type EvaluationPlanReport, type RegisteredEvaluationPlan } from "./evaluation-plan.ts";
+import { hashJson, withProcessJobFence, extractGenerationSpec, readCompleteLoopItem, captureDecisionInputs, type JsonValue } from "./index.ts";
+import { evaluatePlan, evaluationComparison, normalizedObservations, optionalItem, readEvaluationPlan, refuse, verifiedCandidate, verifyCreatedRecord, validateEvaluationOrder, evaluationPlanId, type EvaluationMember, type EvaluationPlan, type EvaluationPlanReport, type RegisteredEvaluationPlan, evaluationEvidence } from "./evaluation-plan.ts";
 import type { PromotionDecision } from "./promotion.ts";
 import { parseBoundedJson, decodeTrackerRecord, skippedTrackerRecords, type SkippedTrackerRecord } from "./tracker-record.ts";
 
@@ -122,6 +122,15 @@ function verifyPrefix(previous: readonly unknown[], next: readonly unknown[]): v
 }
 /** Revalidate live provenance and complete immutable evidence on every status read and promotion attempt. */
 export async function readSequentialEvaluation(client: PmClient, candidate: string): Promise<SequentialEvaluationResult | null> {
+  return withSequentialEvidence(client, () => readSequentialDecision(client, candidate));
+}
+/** Attach only a compact root; the typed decision reader exposes the complete certified input graph. */
+async function withSequentialEvidence<T extends SequentialEvaluationResult | null>(client: PmClient, execute: () => Promise<T>): Promise<T> {
+  const { value, inputs } = await captureDecisionInputs(client, execute);
+  return value === null || "status" in value ? value : { ...value, evidence_digest: evaluationEvidence(value.comparison, inputs).digest };
+}
+/** Recompute the complete live chain before emitting either statistics or an evidence root. */
+async function readSequentialDecision(client: PmClient, candidate: string): Promise<SequentialEvaluationResult | null> {
   const registered = await readEvaluationPlan(client, candidate); if (registered === null) refuse("eval_plan_missing");
   if (registered.plan.stopping.kind !== "sequential") refuse("eval_plan_stopping");
   candidate = registered.plan.candidate;
@@ -132,6 +141,10 @@ export async function readSequentialEvaluation(client: PmClient, candidate: stri
 }
 /** Append exactly the next frozen look; retry old cumulative snapshots without recounting or rolling state back. */
 export async function recordSequentialEvaluation(client: PmClient, rawCandidate: string, input: unknown): Promise<SequentialEvaluationResult> {
+  return withSequentialEvidence(client, () => recordSequentialDecision(client, rawCandidate, input));
+}
+/** Keep publication and retries inside the same read-derived evidence boundary. */
+async function recordSequentialDecision(client: PmClient, rawCandidate: string, input: unknown): Promise<SequentialEvaluationResult> {
   identifier(rawCandidate);
   if (!Array.isArray(input) || input.length > 10_000) refuse("eval_plan_stopping");
   const rows = normalizedObservations(input, "write");
@@ -153,6 +166,7 @@ export async function recordSequentialEvaluation(client: PmClient, rawCandidate:
       const report = requested;
       const index = report.sequential!.look - 1;
       if (index < chain.reports.length) { verifyPrefix(rows, chain.rows[index]); return chain.reports.at(-1)!; }
+      if ((spec.policy_evaluation as Record<string, JsonValue> | undefined)?.["decision"] === "refuse") refuse("eval_plan_stopping", candidate);
       if (index !== chain.reports.length || (index > 0 && chain.reports[index - 1].sequential!.state !== "continue")) refuse("eval_plan_stopping");
       if (index > 0) verifyPrefix(chain.rows[index - 1], rows);
       const raw = { format: FORMAT, comparison: current.comparison, previous: chain.hashes[index - 1] ?? null, observations: rows };

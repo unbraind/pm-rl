@@ -1,4 +1,4 @@
-import { canonicalIdentifier, canonicalProgrammeId, canonicalProgrammeRequest, acquireStateLock, statePath, identifier, checkedStateFile, identifierClient, commitStateTransaction, schemaIdentity, operationIdentifier, type ValidationMode } from "./state-boundary.ts";
+import { canonicalIdentifier, canonicalProgrammeId, canonicalProgrammeRequest, acquireStateLock, statePath, identifier, checkedStateFile, identifierClient, commitStateTransaction, schemaIdentity, operationIdentifier, DECISION_INPUT_FIELDS, type ValidationMode } from "./state-boundary.ts";
 /** Select released-schema reads or explicit validation of a new declaration. */
 export type { ValidationMode } from "./state-boundary.ts";
 import type { HistoryResult } from "@unbrained/pm-cli/sdk/query";
@@ -159,7 +159,7 @@ export {
 export { exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordRecursivePolicyCards, recordPolicyCard, POLICY_CARD_MAX_BYTES, type PolicyCard, type PolicyCardEvidence, type PolicyCardRefusal } from "./policy-card.ts";
 export { parseShadowDeployment, shadowInputDigest, registerShadowDeployment, observeShadow, compareShadow, type ShadowPolicy, type ShadowDeployment, type ShadowInput, type ShadowObservation, type ShadowReport, type ShadowRefusal } from "./shadow.ts";
 export { recordSequentialEvaluation, readSequentialEvaluation, type SequentialStopping, type SequentialBoundary, type SequentialEvaluationResult, type SequentialEvaluationSkip } from "./sequential-evaluation.ts";
-export { parseEvaluationPlan, resolveEvaluationPlan, evaluationPlanId, evaluationComparison, registerEvaluationPlan, readEvaluationPlan, evaluatePlan, recordPlanEvaluation, enforceEvaluationPlan, type EvaluationPlan, type EvaluationMember, type EvaluationObservation, type EvaluationPlanReport, type RegisteredEvaluationPlan, type EvaluationPlanRefusal } from "./evaluation-plan.ts";
+export { parseEvaluationPlan, resolveEvaluationPlan, evaluationPlanId, evaluationComparison, registerEvaluationPlan, readEvaluationPlan, readEvaluationDecision, parseEvaluationEvidence, evaluatePlan, recordPlanEvaluation, enforceEvaluationPlan, type EvaluationPlan, type EvaluationMember, type EvaluationObservation, type EvaluationPlanReport, type RegisteredEvaluationPlan, type EvaluationPlanRefusal } from "./evaluation-plan.ts";
 
 export { decidePromotion, hoeffdingEpsilon, parsePromotionCriterion, parsePromotionEvidence, type PromotionCriterion, type PromotionDecision, type PromotionEvidence, type PromotionGateInput } from "./promotion.ts";
 export { recipeArtifact, parseRecipe, seededRecipes, INITIAL_RECIPE, RECIPE_BOUNDS, type Recipe, type RecipeKnobs } from "./recipe.ts";
@@ -221,7 +221,9 @@ import { parseJsonRecord, rethrowOperationalRead, rethrowProvenanceRead } from "
 import { exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordRecursivePolicyCards, recordPolicyCard, validatePromotedPolicyCard, validatePolicyCardWrite, validateRefusedPolicyCard, discoverPolicyCards, verifyRetainedGenerationEvidence } from "./policy-card.ts";
 import { registerShadowDeployment, observeShadow, compareShadow } from "./shadow.ts";
 import { recordSequentialEvaluation, readSequentialEvaluation } from "./sequential-evaluation.ts";
-import { registerEvaluationPlan, readEvaluationPlan, recordPlanEvaluation, enforceEvaluationPlan } from "./evaluation-plan.ts";
+/** Typed persisted input graphs returned by the evaluation SDK. */
+export type { EvaluationEvidence } from "./lineage.ts";
+import { registerEvaluationPlan, readEvaluationPlan, recordPlanEvaluation, enforceEvaluationPlan, enforceEvaluationDecision, readEvaluationDecision, evaluationEvidence, parseEvaluationEvidence, evaluationInputDigest } from "./evaluation-plan.ts";
 import { buildIntakeLoopCorpus, buildTrackerLoopCorpus } from "./corpus.ts";
 import { decodeCheckpointArtifacts, encodeCheckpointArtifacts, collectCheckpointArtifacts, inspectCheckpointArtifact } from "./checkpoint-artifacts.ts";
 
@@ -257,7 +259,7 @@ import {
   renderLineageTable,
   DEFAULT_GAP_WINDOW,
   type AncestryEntry,
-  type GenerationSpec,
+  type GenerationSpec, type EvaluationEvidence,
   type LineageAncestry,
   type LineageView,
   type ScoreRecord,
@@ -764,6 +766,30 @@ export function idSegment(value: string): string {
 
 /** One SDK projection whose exact current revision contributed to a promotion decision. */
 interface PromotionEvidenceRead { readonly at?: string; readonly fields?: string; readonly item: GetResult["item"] | null }
+/** SDK-certified records actually read by a decision; nested readers contribute to their enclosing decision too. */
+interface DecisionReads { readonly client: PmClient; readonly inputs: Map<string, GetResult["item"]>; readonly parent?: DecisionReads; readonly childrenOnly: boolean; lastId?: string }
+const decisionReads = new AsyncLocalStorage<DecisionReads>();
+/** Complete SDK domain projection shared by decision input hashing and citations. @internal */
+export { DECISION_INPUT_FIELDS } from "./state-boundary.ts";
+/** Return the inputs read by the decision itself, without maintaining a parallel dependency list. @internal */
+export async function captureDecisionInputs<T>(client: PmClient, execute: () => Promise<T>, childrenOnly = false): Promise<{ value: T; inputs: GetResult["item"][] }> {
+  const state: DecisionReads = { client, inputs: new Map(), parent: decisionReads.getStore(), childrenOnly };
+  return decisionReads.run(state, async () => {
+    try { return { value: await execute(), inputs: [...state.inputs.values()].sort((a, b) => a.id.localeCompare(b.id)) }; }
+    catch (error) {
+      if (!isPmCliExpectedError(error)) throw error;
+      const id = String(error.context.item_id ?? state.lastId ?? "evaluation-input");
+      const message = id === "evaluation-input" || error.message.includes(id) ? error.message : `${error.message} Record ${id}.`;
+      throw createPmCliExpectedError(message, { exitCode: error.exitCode, context: { ...error.context, item_id: id } });
+    }
+  });
+}
+/** Historical reads establish dependencies too; prefer live projections when the validator also reads them. */
+function observeDecisionInput(client: PmClient, item: GetResult["item"], at: string | undefined): void {
+  for (let state = decisionReads.getStore(); state !== undefined; state = state.parent) {
+    if (state.client === client && (!state.childrenOnly || state !== decisionReads.getStore())) { state.lastId = item.id; if (at === undefined || !state.inputs.has(item.id)) state.inputs.set(item.id, structuredClone(item)); }
+  }
+}
 const promotionEvidence = new AsyncLocalStorage<{ client: PmClient; reads: Map<string, PromotionEvidenceRead[]> }>();
 /** Collect every live evidence read, including absent slots, until the guarded promotion write. @internal */
 export function withPromotionEvidence<T>(client: PmClient, execute: () => Promise<T>): Promise<T> {
@@ -786,13 +812,106 @@ export async function readCompleteLoopItem(client: PmClient, id: string, at?: st
   }
   const result = await identifierClient(client).get(id, { ...(fields === undefined ? { depth: "standard" } : { fields }), outputLimit: "unbounded", outputBudget: "unbounded", ...(at === undefined ? {} : { at }) }).catch((error: unknown) => {
     if (observing && isPmCliExpectedError(error) && error.exitCode === EXIT_CODE.NOT_FOUND) observePromotionEvidence(id, fields, null, at);
-    return rethrowProvenanceRead(error);
+    try { return rethrowProvenanceRead(error); }
+    catch (classified) {
+      if (decisionReads.getStore()?.client === client && isPmCliExpectedError(classified)) throw createPmCliExpectedError(classified.message, { exitCode: classified.exitCode, context: { ...classified.context, item_id: id } });
+      throw classified;
+    }
   });
   if (!("item" in result) || "output_budget_exceeded" in result) {
     fail(`Item ${id} was omitted despite an unbounded read request.`, "loop_history_incomplete", EXIT_CODE.CONFLICT);
   }
   if (observing) observePromotionEvidence(result.item.id, fields, result.item, at);
+  const tracing = decisionReads.getStore();
+  if (at === undefined && result.item.type === "Run" && tracing?.client === client && !tracing.childrenOnly && fields !== DECISION_INPUT_FIELDS) {
+    await readCompleteLoopItem(client, result.item.id, undefined, DECISION_INPUT_FIELDS);
+    return result as GetResult;
+  }
+  if (at !== undefined && tracing?.client === client && !tracing.childrenOnly && !tracing.inputs.has(result.item.id)) await readCompleteLoopItem(client, result.item.id);
+  observeDecisionInput(client, result.item, at);
   return result as GetResult;
+}
+
+/** Locate the first certified semantic version through the SDK, retaining compaction coordinates. @internal */
+export async function firstDecisionSnapshot(client: PmClient, id: string, matches: (item: GetResult["item"]) => boolean, fields?: string): Promise<{ item: GetResult["item"]; at: string }> {
+  const history = await identifierClient(client).run("history", { id, options: { compact: true, verify: true, outputLimit: "unbounded", outputBudget: "unbounded" } }) as HistoryResult;
+  if (!history.verification?.ok || history.limit !== null || history.compact_history?.length !== history.count) fail("Decision input history is incomplete.", "loop_history_incomplete", EXIT_CODE.CONFLICT);
+  for (const row of history.compact_history) {
+    const at = String(row.version ?? row.index);
+    const item = (await readCompleteLoopItem(client, id, at, fields)).item;
+    if (matches(item)) return { item, at };
+  }
+  throw createPmCliExpectedError(`Restore certified input ${id} before replaying its receipt.`, { exitCode: EXIT_CODE.CONFLICT, context: { code: "eval_plan_drift", item_id: id } });
+}
+/** A completed receipt cannot shed its input graph or replace it with a freshly rehashed subset. @internal */
+export async function verifyCompletedDecisionReceipt(client: PmClient, id: string, body: Readonly<Record<string, unknown>>, prospective = false): Promise<void> {
+  let original: Awaited<ReturnType<typeof firstDecisionSnapshot>>;
+  try {
+    original = await firstDecisionSnapshot(client, id, (item) => {
+      const row = decodeTrackerRecord(null, item, { type: "Decision", format: "pm-rl/loop-step/1" });
+      return row?.state === "complete";
+    });
+  } catch (error) {
+    if (prospective && isPmCliExpectedError(error) && error.context.code === "eval_plan_drift") return;
+    if (prospective && isPmCliExpectedError(error) && error.exitCode === EXIT_CODE.NOT_FOUND) return;
+    throw error;
+  }
+  const sealed = parseBoundedJson(String(original.item.body)) as Record<string, unknown>;
+  if ((sealed.decision_evidence !== undefined || body.decision_evidence !== undefined) && canonicalJson(sealed as JsonValue) !== canonicalJson(body as JsonValue)) {
+    throw createPmCliExpectedError(`Completed decision ${id} changed; restore its original receipt.`, { exitCode: EXIT_CODE.CONFLICT, context: { code: "loop_step_drift", item_id: id } });
+  }
+}
+/** Distinguish terminal evaluator outcomes without interpreting tracker status names. */
+function terminalEvaluation(spec: GenerationSpec): boolean { return spec.promoted || (spec.policy_evaluation as Record<string, JsonValue> | undefined)?.["decision"] === "refuse"; }
+/** Bind new promotion/rejection graphs to their first terminal SDK snapshot, including removal attempts. @internal */
+export async function verifyTerminalEvaluationReceipt(client: PmClient, item: GetResult["item"]): Promise<void> {
+  const current = extractGenerationSpec(String(item.body), "Decision receipt");
+  let first: Awaited<ReturnType<typeof firstDecisionSnapshot>>;
+  try { first = await firstDecisionSnapshot(client, item.id, (source) => terminalEvaluation(extractGenerationSpec(String(source.body), "Historical decision"))); }
+  catch (error) {
+    if (!terminalEvaluation(current) && isPmCliExpectedError(error) && error.context.code === "eval_plan_drift") return;
+    throw error;
+  }
+  const original = extractGenerationSpec(String(first.item.body), "First decision receipt");
+  /** Outcome fields are sealed together; provenance itself retains its original generation hash. */
+  function outcome(spec: GenerationSpec): JsonValue { return { graph: spec.evaluation_evidence as unknown as JsonValue ?? null, promoted: spec.promoted, approval: spec.approval, proxy: spec.proxy_score as unknown as JsonValue, held_out: spec.held_out_score as unknown as JsonValue, gap: spec.gap, evidence: spec.promotion_evidence, evaluator: spec.policy_evaluation ?? null }; }
+  if ((original.evaluation_evidence !== undefined || current.evaluation_evidence !== undefined) && canonicalJson(outcome(original)) !== canonicalJson(outcome(current))) {
+    throw createPmCliExpectedError(`Terminal decision ${item.id} changed; restore its first receipt.`, { exitCode: EXIT_CODE.CONFLICT, context: { code: "eval_plan_drift", item_id: item.id } });
+  }
+}
+/** Persist the exact history coordinates of evaluator reads in a durable enclosing step. @internal */
+export async function sealDecisionEvidence(client: PmClient, comparison: string, inputs: readonly GetResult["item"][]): Promise<EvaluationEvidence> {
+  const versions = new Map<string, string>();
+  for (const item of inputs) versions.set(item.id, (await firstDecisionSnapshot(client, item.id, (historical) => evaluationInputDigest(historical, comparison) === evaluationInputDigest(item, comparison), DECISION_INPUT_FIELDS)).at);
+  return evaluationEvidence(comparison, inputs, versions);
+}
+/** One replay scope deduplicates upstream decisions while never caching across calls. */
+interface EvidenceVerification { readonly client: PmClient; readonly graphs: Set<string>; readonly subjects: Set<string> }
+const evidenceVerification = new AsyncLocalStorage<EvidenceVerification>();
+/** Revalidate certified versions and live content, using the actual evaluator for every upstream decision. @internal */
+export async function verifyDecisionEvidence(client: PmClient, evidence: EvaluationEvidence): Promise<void> {
+  const current = evidenceVerification.getStore();
+  if (current?.client === client) return verifyDecisionInputs(client, evidence, current);
+  const scope: EvidenceVerification = { client, graphs: new Set(), subjects: new Set() };
+  return evidenceVerification.run(scope, () => verifyDecisionInputs(client, evidence, scope));
+}
+/** Traverse a complete evidence closure once, preserving SDK historical addresses and decision semantics. */
+async function verifyDecisionInputs(client: PmClient, evidence: EvaluationEvidence, scope: EvidenceVerification): Promise<void> {
+  if (scope.graphs.has(evidence.digest)) return;
+  scope.graphs.add(evidence.digest);
+  for (const input of evidence.inputs) {
+    const historical = await readCompleteLoopItem(client, input.id, input.at, DECISION_INPUT_FIELDS);
+    if (historical.item.id !== input.id || evaluationInputDigest(historical.item, evidence.comparison) !== input.digest) throw createPmCliExpectedError(`Restore cited decision input ${input.id} before replay.`, { exitCode: EXIT_CODE.CONFLICT, context: { code: "eval_plan_drift", item_id: input.id } });
+    const current = input.at === undefined ? historical : await readCompleteLoopItem(client, input.id, undefined, DECISION_INPUT_FIELDS);
+    if (evaluationInputDigest(current.item, evidence.comparison) !== input.digest) throw createPmCliExpectedError(`Decision input ${input.id} changed after sealing; restore the cited record.`, { exitCode: EXIT_CODE.CONFLICT, context: { code: "eval_plan_drift", item_id: input.id } });
+    if (current.item.type !== "Generation" || scope.subjects.has(current.item.id)) continue;
+    const nested = extractGenerationSpec(String(current.item.body), "Upstream decision evidence").evaluation_evidence;
+    if (nested !== undefined) {
+      scope.subjects.add(current.item.id);
+      const decision = await readEvaluationDecision(client, current.item.id);
+      if (decision.evidence?.digest !== nested.digest) throw createPmCliExpectedError(`Upstream decision ${current.item.id} does not match its evaluator.`, { exitCode: EXIT_CODE.CONFLICT, context: { code: "eval_plan_drift", item_id: current.item.id } });
+    }
+  }
 }
 
 /** Hold every certified SDK read through an outcome or publication write, releasing only owned leases. */
@@ -2465,6 +2584,7 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
       budget_consumed: outcome.promotedCount + 1,
       budget_permitted: outcome.permittedPromotions,
       evidence,
+      ...(outcome.evidenceDigest === undefined ? {} : { decision_evidence: outcome.evidenceDigest }),
     },
   };
 }
@@ -2491,7 +2611,7 @@ async function recoverManualPromotion(client: PmClient, previous: GetResult, app
     const root = dirname(config.settings_path);
     return withLockedPromotionEvidence(client, root, await readSettings(root), null, [], "pm-rl", async () => {
       await recordPolicyCard(client, generation.item.id);
-      return { status: String(generation.item.status), gap: spec.gap!, promotedCount: consumed.length - 1, permittedPromotions: approval.permitted_promotions };
+      return { status: String(generation.item.status), gap: spec.gap!, promotedCount: consumed.length - 1, permittedPromotions: approval.permitted_promotions, ...(spec.evaluation_evidence === undefined ? {} : { evidenceDigest: spec.evaluation_evidence.digest }) };
     });
   });
 }
@@ -2514,6 +2634,8 @@ interface PromotionOutcome {
   readonly promotedCount: number;
   /** The approval's permitted promotion count, re-read inside the lock. */
   readonly permittedPromotions: number;
+  /** Root of the persisted evaluation inputs when a plan governed this promotion. */
+  readonly evidenceDigest?: string;
 }
 
 /**
@@ -2569,9 +2691,10 @@ export async function promoteGenerationCore(client: PmClient, coordinates: Works
   // the SUCCESS path with no receipt. The revert path had the same defect and
   // was fixed a round earlier; this is its other half.
   let canonicalApprovalId = "";
-  const renderPromotedBody = (base: GenerationSpec): string => {
+  const renderPromotedBody = (base: GenerationSpec, evaluated?: EvaluationEvidence): string => {
     const promotedSpec: GenerationSpec = {
       ...base,
+      ...(evaluated === undefined ? {} : { evaluation_evidence: evaluated }),
       promoted: true,
       approval: canonicalApprovalId,
       proxy_score: proxyScore,
@@ -2595,6 +2718,7 @@ export async function promoteGenerationCore(client: PmClient, coordinates: Works
   // and for the receipt.
   let permittedPromotions = 0;
   let closedStatus = "";
+  let evidenceDigest: string | undefined;
   await commitStateTransaction({
     pmRoot,
     // Unique per invocation. The transaction is used here for MUTUAL EXCLUSION,
@@ -2625,7 +2749,8 @@ export async function promoteGenerationCore(client: PmClient, coordinates: Works
           fail(`Generation ${id} is already promoted.`, "already_promoted", EXIT_CODE.CONFLICT);
         }
         if (currentSpec.seed) fail("A seed generation cannot be promoted.", "seed_not_promoted", EXIT_CODE.CONFLICT);
-        await enforceEvaluationPlan(client, String(current.item.id), heldOutScore);
+        const evaluated = await enforceEvaluationDecision(client, String(current.item.id), heldOutScore);
+        evidenceDigest = evaluated?.digest;
         // THE authoritative contamination decision, taken inside the lock over
         // the ancestry the verdict actually depends on.
         //
@@ -2659,7 +2784,7 @@ export async function promoteGenerationCore(client: PmClient, coordinates: Works
           fail(`Advancing past the approved promotion budget is refused. ${promotedCount} promotion(s) consumed; ${retainedHeadroom} promotion(s) held for meta search; approval ${approvalId} permits ${permittedPromotions}. Extend approval item ${approvalId} to authorize more promotions.`, "budget_exceeded", EXIT_CODE.CONFLICT);
         }
         if ((currentSpec.policy_evaluation as Record<string, JsonValue> | undefined)?.["decision"] === "refuse") fail("Generation was refused by its evaluator.", "already_refused", EXIT_CODE.CONFLICT);
-        const promotedBody = renderPromotedBody(currentSpec);
+        const promotedBody = renderPromotedBody(currentSpec, evaluated);
         await validatePromotedPolicyCard(client, id, promotedBody);
         const result = await completeLoopGeneration(client, current, promotedBody, evidence,
           `Promoted with proxy=${proxyScore.value}, held_out=${heldOutScore.value}, gap=${gap.toFixed(4)}. Budget consumed: ${promotedCount + 1} of ${permittedPromotions}.`, [lockedApprovalSpec.snapshot], author);
@@ -2670,11 +2795,13 @@ export async function promoteGenerationCore(client: PmClient, coordinates: Works
       compensate: async () => {},
     }],
   });
-  return { status: closedStatus, gap, promotedCount, permittedPromotions };
+  return { status: closedStatus, gap, promotedCount, permittedPromotions, ...(evidenceDigest === undefined ? {} : { evidenceDigest }) };
 }
 
 /** One executed generation's persisted record within a loop report. */
 export interface RlLoopGenerationReport {
+  /** Root of the inputs sealed by this generation's promotion decision. */
+  readonly decision_evidence?: string;
   /** One-based generation number. */
   readonly generation: number;
   /** The generation's collection Run item id. */
@@ -3500,10 +3627,12 @@ async function readLoopStep(client: PmClient, id: string, phase: string, input: 
     || (record["state"] !== "running" && record["state"] !== "complete")) {
     fail("Loop step receipt disagrees with its generation and programme.", "loop_step_drift", EXIT_CODE.CONFLICT);
   }
-  if (record["state"] === "running") return null;
+  if (record["state"] === "running") { await verifyCompletedDecisionReceipt(client, item.item.id, record, true); return null; }
   const result = record["result"];
   if (result === undefined || result === null || typeof result !== "object" || Array.isArray(result)
     || record["digest"] !== hashJson(result)) fail("Loop step receipt payload is damaged.", "loop_step_drift", EXIT_CODE.CONFLICT);
+  await verifyCompletedDecisionReceipt(client, item.item.id, record);
+  if (record["decision_evidence"] !== undefined) await verifyDecisionEvidence(client, parseEvaluationEvidence(record["decision_evidence"]));
   return result;
 }
 
@@ -3521,8 +3650,10 @@ async function durableLoopStep(client: PmClient, lease: ControllerLease, id: str
     const before = item === null ? null : existing ?? await readCompleteLoopItem(client, String(item.item.id));
     const winner = await readLoopStep(client, id, phase, input, before);
     if (winner !== null) return { value: winner, executed: false };
-    const value = await execute();
-    const body = JSON.stringify({ ...running, state: "complete", result: value, digest: hashJson(value) });
+    const captured = await captureDecisionInputs(client, execute, true);
+    const value = captured.value;
+    const decision = captured.inputs.length === 0 ? undefined : await sealDecisionEvidence(client, hashJson(input), captured.inputs);
+    const body = JSON.stringify({ ...running, state: "complete", result: value, digest: hashJson(value), ...(decision === undefined ? {} : { decision_evidence: decision }) });
     if (cards) await validatePolicyCardWrite(client, { ...intent, body }, true);
     if (item === null) await identifierClient(client).create({ ...intent, body });
     else {
@@ -3857,6 +3988,7 @@ async function inspectCandidateVerdict(client: PmClient, programme: LoopProgramm
     throw error;
   });
   const report: RlLoopGenerationReport = { generation, run: runId, item: String(item.item.id), promoted: spec.promoted,
+    ...(spec.evaluation_evidence === undefined ? {} : { decision_evidence: spec.evaluation_evidence.digest }),
     ...(spec.promoted ? { promoted_by: await promotionAuthor(client, item.item.id) } : {}),
     held_out_mean: verified.candidateHeldOutMean, candidate_checkpoint: verified.candidate.digest, refusal_reason: null };
   if (spec.promoted) {
@@ -3957,6 +4089,10 @@ async function promotionAuthor(client: PmClient, id: string): Promise<string> {
 
 /** Seal an actual rejection; peer terminal states and CAS refusals are authoritative. @internal */
 export async function recordRefusedPolicyCard(client: PmClient, id: string, reason: string | null, author = "pm-rl"): Promise<"promoted" | "refused"> {
+  return withPromotionEvidence(client, () => sealPolicyRejection(client, id, reason, author));
+}
+/** Hold all decision inputs through the rejection write, with the same SDK revision guard as promotion. */
+async function sealPolicyRejection(client: PmClient, id: string, reason: string | null, author: string): Promise<"promoted" | "refused"> {
   const current = await readCompleteLoopItem(client, id);
   const existing = extractGenerationSpec(String(current.item.body), "Rejected generation");
   if (existing.promoted) { await recordPolicyCard(client, id); return "promoted"; }
@@ -4702,6 +4838,7 @@ async function showGeneration(context: CommandHandlerContext): Promise<RlCommand
       gap: spec.gap,
       promotion_evidence: spec.promotion_evidence,
       ...(spec.evaluation_plan === undefined ? {} : { evaluation_plan: spec.evaluation_plan }),
+      ...(spec.evaluation_evidence === undefined ? {} : { evaluation_evidence: spec.evaluation_evidence }),
     },
   };
 }

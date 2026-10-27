@@ -79,6 +79,7 @@
     "dist/policy-card.*",
     "dist/tracker-record.*",
     "docs/policy-cards.md",
+    "docs/decision-evidence.md",
     "docs/policy-card-write-audit.md",
     "docs/policy-card-evidence.json",
     "dist/sequential-evaluation.*",
@@ -163,6 +164,7 @@
       "test/objective.test.ts",
       "test/evaluation-plan.test.ts",
       "test/evaluation-compatibility.test.ts",
+      "test/decision-evidence.test.ts",
       "test/shadow.test.ts",
       "test/policy-card.test.ts",
       "test/sequential-evaluation.test.ts",
@@ -273,6 +275,7 @@
       "docs/shadow-policy.md",
       "docs/shadow-evidence.json",
       "docs/policy-cards.md",
+      "docs/decision-evidence.md",
       "docs/policy-card-write-audit.md"
     ],
     "examples": [

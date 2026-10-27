@@ -5,6 +5,9 @@ import { commitWorkspaceTransaction, type CommitWorkspaceTransactionOptions, loo
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { acquireLock as sdkAcquireLock, createPmCliExpectedError, EXIT_CODE, getHistoryPath, normalizeRawItemId, normalizeItemId } from "@unbrained/pm-cli/sdk/runtime";
 
+/** Domain projection shared by SDK decision reads and explanation citations. @internal */
+export const DECISION_INPUT_FIELDS = "id,type,body,affected_version,component,environment,notes,created_at,tags";
+
 /** Stored schemas retain their previous language; only new declarations opt into tighter rules. */
 export type ValidationMode = "read" | "write";
 /** Apply new identity rules only to a write, preserving the released parser's trimming on reads. @internal */

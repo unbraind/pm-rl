@@ -1,13 +1,12 @@
-import { identifierClient } from "./state-boundary.ts";
+import { identifierClient, DECISION_INPUT_FIELDS, operationIdentifier } from "./state-boundary.ts";
 import { decodeTrackerRecord, parseBoundedJson } from "./tracker-record.ts";
 /** Minimized explanations of learned-policy suitability, backed by SDK-certified history. */
-import type { HistoryResult } from "@unbrained/pm-cli/sdk/query";
 import type { GetResult, PmClient } from "@unbrained/pm-cli/sdk/core";
 import { createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
-import { canonicalJson, createOrReadIdentical, hashJson, extractGenerationSpec, generationProvenance, readCompleteLoopItem, type JsonValue } from "./index.ts";
-import { canonicalizeIdentifier, canonicalizeGenerationSpec, type GenerationSpec } from "./lineage.ts";
+import { canonicalJson, createOrReadIdentical, hashJson, extractGenerationSpec, generationProvenance, readCompleteLoopItem, firstDecisionSnapshot, verifyDecisionEvidence, verifyCompletedDecisionReceipt, verifyTerminalEvaluationReceipt, type JsonValue } from "./index.ts";
+import { canonicalizeIdentifier, canonicalizeGenerationSpec, type GenerationSpec, type EvaluationEvidence } from "./lineage.ts";
 import { readSeries } from "./series.ts";
-import { optionalItem, enforceEvaluationPlan } from "./evaluation-plan.ts";
+import { optionalItem, enforceEvaluationPlan, readEvaluationDecision, parseEvaluationEvidence, evaluationInputDigest } from "./evaluation-plan.ts";
 import { rethrowOperationalRead, rethrowProvenanceRead } from "./refuse.ts";
 
 /** Stable agent-facing refusal reasons; messages and context include a concrete remedy. */
@@ -17,6 +16,8 @@ export interface PolicyCardEvidence { readonly id: string; readonly at: string; 
 /** Portable explanation only: it confers no execution, mutation or promotion authority. */
 export interface PolicyCard {
   readonly format: "pm-rl/policy-card/1";
+  /** Exact graph returned by the decision reader; absent on released legacy cards. */
+  readonly decision_evidence?: EvaluationEvidence;
   readonly subject: string;
   readonly selection: number | null;
   readonly policy_digest: string | null;
@@ -35,14 +36,14 @@ export const POLICY_CARD_MAX_BYTES = 4096;
 const MAX_EVIDENCE = 32;
 const PROSPECTIVE_AT = String(Number.MAX_SAFE_INTEGER);
 /** Only projection fields are needed to validate a not-yet-persisted source. */
-type CardItem = Pick<GetResult["item"], "id" | "type" | "body" | "affected_version" | "component" | "environment" | "notes">;
-const SNAPSHOT_FIELDS = "id,type,body,affected_version,component,environment,notes";
+type CardItem = Pick<GetResult["item"], "id" | "type" | "body" | "affected_version" | "component" | "environment" | "notes" | "created_at" | "tags">;
+const SNAPSHOT_FIELDS = DECISION_INPUT_FIELDS;
 const LIMIT_KEYS = ["samples", "evaluation_samples", "fit_steps", "training_steps", "wall_ms", "storage_bytes", "compute_units", "tokens", "active_calls", "candidate_calls", "generations", "candidates", "updates", "timeout_ms", "optimizer_updates", "max_optimizer_updates", "fits", "budget"];
 
 /** Refuse without echoing potentially private source values. */
-function refuse(code: PolicyCardRefusal): never {
-  const remedy = "Restore complete original provenance and cited history; export a fresh card after evaluation, with explicit resource limits. Keep the incumbent until its normal promotion gates pass.";
-  throw createPmCliExpectedError(`Policy card refused (${code}). ${remedy}`, { exitCode: EXIT_CODE.CONFLICT, context: { code } });
+function refuse(code: PolicyCardRefusal, itemId?: string): never {
+  const remedy = "Restore complete original provenance and cited history; export a fresh card after evaluation, with explicit resource limits. Keep the incumbent until its normal promotion gates pass." + (code === "card_limit" ? " Cards allow at most 32 direct citations and 4096 bytes; declare a fresh smaller evaluation before collection rather than truncating evidence." : "");
+  throw createPmCliExpectedError(`Policy card refused (${code}).${itemId === undefined ? "" : ` Record ${itemId}.`} ${remedy}`, { exitCode: EXIT_CODE.CONFLICT, context: { code, ...(itemId === undefined ? {} : { item_id: itemId }) } });
 }
 /** Narrow package-owned JSON; malformed evidence never becomes an empty valid record. */
 function object(value: unknown): Record<string, unknown> {
@@ -51,13 +52,14 @@ function object(value: unknown): Record<string, unknown> {
 }
 /** Bound copied identities to tracker identifiers; evidence locators come only from certified history. */
 function identity(value: unknown): string {
-  if (typeof value !== "string" || !/^[a-z0-9][a-z0-9-]{0,255}$/i.test(value)) refuse("card_invalid");
-  return value;
+  try { if (typeof value === "string" && operationIdentifier(value) === value) return value; }
+  catch { return refuse("card_invalid"); }
+  return refuse("card_invalid");
 }
 /** Verify the original provenance seal before any canonical identity projection or prospective write. */
 function verifiedGenerationSpec(item: CardItem): GenerationSpec {
   const original = extractGenerationSpec(String(item.body), "Card provenance");
-  if (item.affected_version !== hashJson(generationProvenance(original))) refuse("card_drift");
+  if (item.affected_version !== hashJson(generationProvenance(original))) refuse("card_drift", item.id);
   return original;
 }
 /** Domain identity excludes presentation and bookkeeping metadata. */
@@ -70,7 +72,7 @@ function domain(item: CardItem, prefix: string): JsonValue {
 }
 /** Read certified content at its first matching immutable version, independent of later tracker activity. */
 async function snapshot(client: PmClient, id: string, at?: string): Promise<{ item: GetResult["item"]; citation: PolicyCardEvidence }> {
-  identity(id);
+  id = operationIdentifier(id);
   try {
     const prefix = String((await identifierClient(client).config("project", "get", "id_prefix").catch(rethrowProvenanceRead)).nested_setting!.value);
     id = canonicalizeIdentifier(id, prefix);
@@ -79,18 +81,12 @@ async function snapshot(client: PmClient, id: string, at?: string): Promise<{ it
     if (current.type === "Generation") verifiedGenerationSpec(current);
     const digest = hashJson(domain(current, prefix));
     if (at !== undefined) return { item: current, citation: { id: identity(current.id), at, digest } };
-    const history = await identifierClient(client).run("history", { id, options: { compact: true, verify: true, outputLimit: "unbounded", outputBudget: "unbounded" } }).catch(rethrowProvenanceRead) as HistoryResult;
-    if (!history.verification?.ok || history.limit !== null || history.compact_history?.length !== history.count) refuse("card_missing_provenance");
-    for (const row of history.compact_history) {
-      const coordinate = String(row.version ?? row.index);
-      const historical = (await readCompleteLoopItem(client, id, coordinate, SNAPSHOT_FIELDS)).item;
-      if (hashJson(domain(historical, prefix)) === digest) return { item: historical, citation: { id: identity(historical.id), at: coordinate, digest } };
-    }
-    return refuse("card_missing_provenance");
+    const match = await firstDecisionSnapshot(client, id, (item) => hashJson(domain(item, prefix)) === digest, SNAPSHOT_FIELDS);
+    return { item: match.item, citation: { id: identity(match.item.id), at: match.at, digest } };
   } catch (error) {
     if (isPmCliExpectedError(error) && error.context.code === "card_drift") throw error;
     rethrowOperationalRead(error);
-    return refuse("card_missing_provenance");
+    return refuse("card_missing_provenance", id);
   }
 }
 /** Collect only named numeric allowances; examples, parameters and arbitrary strings are never copied. */
@@ -119,11 +115,12 @@ function source(item: CardItem, prefix: string): { value: Record<string, unknown
   if (item.type !== "Decision") return refuse(String(item.body).trim() === "" ? "card_invalid" : "card_missing_provenance");
   if (String(item.body).trimStart().startsWith("{") && !String(item.body).includes('"pm-rl/loop-step/1"')) return refuse("card_missing_provenance");
   const row = decodeTrackerRecord(null, item, { type: "Decision", format: "pm-rl/loop-step/1" });
-  if (row === null) return refuse("card_invalid");
+  if (row === null) return refuse("card_invalid", item.id);
   if (row.state !== "complete" || typeof row.input !== "string" || !/^[a-f0-9]{64}$/.test(row.input) || row.result === null || typeof row.result !== "object" || row.digest !== hashJson(row.result as JsonValue)) refuse("card_missing_provenance");
   const result = object(row.result);
+  const receiptInputs = row.decision_evidence === undefined ? [] : parseEvaluationEvidence(row.decision_evidence).inputs.map((input) => input.id);
   const verdict = result.promoted === true || result.promoted !== null && typeof result.promoted === "string" ? "promoted" : result.promoted === false ? "refused" : "recorded";
-  return { value: result, outcome: verdict, dependencies: [], scope: { digest: hashJson(row.input as JsonValue), collection_runs: 0, environment: hashJson(null), reward: hashJson(null) }, regressions: verdict === "refused" ? ["promotion_refused"] : ["evaluation_incomplete"] };
+  return { value: result, outcome: verdict, dependencies: receiptInputs, scope: { digest: hashJson(row.input as JsonValue), collection_runs: 0, environment: hashJson(null), reward: hashJson(null) }, regressions: verdict === "refused" ? ["promotion_refused"] : ["evaluation_incomplete"] };
 }
 /** Select one proposed recipe/configuration; no policy parameters are copied into a card. */
 function proposal(item: CardItem, selection: number | null, prefix: string): unknown {
@@ -158,13 +155,13 @@ function artifactIdentity(value: unknown, configuration: unknown = null): JsonVa
   return null;
 }
 /** Assemble the same whitelist for export and replay, rejecting oversized cards instead of truncating citations. */
-function assemble(subject: string, item: CardItem, evidence: readonly PolicyCardEvidence[], extraLimits: Readonly<Record<string, number>>, selection: number | null, prefix: string): PolicyCard {
+function assemble(subject: string, item: CardItem, evidence: readonly PolicyCardEvidence[], extraLimits: Readonly<Record<string, number>>, selection: number | null, prefix: string, decisionGraph?: EvaluationEvidence): PolicyCard {
   const parsed = source(item, prefix);
   const selected = proposal(item, selection, prefix);
   const policy = item.type === "Generation" ? extractGenerationSpec(String(item.body), "Policy identity") : null;
   const policyIdentity = policy === null ? selection === null ? artifactIdentity(selected) : null
     : [policy.base_checkpoint, policy.policy].filter(Boolean).every((reference) => /^sha256:[a-f0-9]{64}$/.test(reference)) ? { checkpoint: policy.base_checkpoint, policy: policy.policy, configuration: policy.training_config } : null;
-  const body = { format: "pm-rl/policy-card/1" as const, subject, selection, policy_digest: policyIdentity === null ? null : hashJson(policyIdentity), proposal_digest: hashJson(selected as JsonValue), evaluation: evaluation(parsed.value), outcome: parsed.outcome, training_scope: parsed.scope, allowed_actions: ["inspect", "evaluate"] as const,
+  const body = { ...(decisionGraph === undefined ? {} : { decision_evidence: decisionGraph }), format: "pm-rl/policy-card/1" as const, subject, selection, policy_digest: policyIdentity === null ? null : hashJson(policyIdentity), proposal_digest: hashJson(selected as JsonValue), evaluation: evaluation(parsed.value), outcome: parsed.outcome, training_scope: parsed.scope, allowed_actions: ["inspect", "evaluate"] as const,
     known_regressions: parsed.regressions, resource_limits: { ...limits(parsed.value), ...extraLimits }, evidence };
   const card = { ...body, digest: hashJson(body as unknown as JsonValue) };
   if (Buffer.byteLength(canonicalJson(card as unknown as JsonValue)) > POLICY_CARD_MAX_BYTES) refuse("card_limit");
@@ -216,38 +213,79 @@ export async function validatePromotedPolicyCard(client: PmClient, subject: stri
 export async function validateRefusedPolicyCard(client: PmClient, subject: string, verdict: JsonValue): Promise<string> {
   const primary = await snapshot(client, subject);
   const spec = extractGenerationSpec(String(primary.item.body), "Rejected generation");
-  const body = `\`\`\`json\n${JSON.stringify({ ...spec, policy_evaluation: verdict })}\n\`\`\``;
+  const decision = await readEvaluationDecision(client, subject, true);
+  const body = `\`\`\`json\n${JSON.stringify({ ...spec, ...(decision.evidence === null ? {} : { evaluation_evidence: decision.evidence }), policy_evaluation: verdict })}\n\`\`\``;
   await exportSnapshotCard(client, { ...primary, citation: { ...primary.citation, at: PROSPECTIVE_AT }, item: { ...primary.item, body } }, null);
   return body;
 }
 /** Share the bounded projection between certified exports and pre-commit outcome validation. */
 async function exportSnapshotCard(client: PmClient, primary: { item: CardItem; citation: PolicyCardEvidence }, selection: number | null): Promise<PolicyCard> {
-  const { evidence, resource, prefix } = await generationEvidence(client, primary.citation.id, primary);
-  return assemble(primary.citation.id, primary.item, evidence, resource, selection, prefix);
+  const { evidence, resource, prefix, decisionGraph } = await generationEvidence(client, primary.citation.id, primary);
+  return assemble(primary.citation.id, primary.item, evidence, resource, selection, prefix, decisionGraph);
 }
 /** Define the complete generation evidence set once for card identity and loop resume: citations, Runs and decoded metric notes. @internal */
-export async function generationEvidence(client: PmClient, subject: string, selected?: { item: CardItem; citation: PolicyCardEvidence }): Promise<{ primary: CardItem; evidence: PolicyCardEvidence[]; entries: CardItem[]; resource: Record<string, number>; prefix: string }> {
+export async function generationEvidence(client: PmClient, subject: string, selected?: { item: CardItem; citation: PolicyCardEvidence }): Promise<{ primary: CardItem; evidence: PolicyCardEvidence[]; entries: CardItem[]; resource: Record<string, number>; prefix: string; decisionGraph?: EvaluationEvidence }> {
   const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
   subject = canonicalizeIdentifier(subject, prefix);
   const primary = selected ?? await snapshot(client, subject);
   const parsed = source(primary.item, prefix);
+  if (new Set(parsed.dependencies).size >= MAX_EVIDENCE) refuse("card_limit");
   const evidence = [primary.citation]; const entries: CardItem[] = []; const resource: Record<string, number> = {};
   const plan = parsed.dependencies.includes(`${subject}-evaluation-plan`) ? await optionalItem(client, `${subject}-evaluation-plan`) : null;
-  const dependencies = [...parsed.dependencies, ...(plan === null ? [] : [plan.id])];
-  if (plan !== null) {
-    for (const suffix of ["-result", "-shadow", "-shadow-comparison"]) {
-      const found = await optionalItem(client, `${plan.id}${suffix}`);
-      if (found !== null) dependencies.push(found.id);
-    }
-  }
+  const decision = await cardDecisionInputs(client, primary.item, plan, primary.citation.at === PROSPECTIVE_AT);
+  const dependencies = [...parsed.dependencies, ...decision.ids].filter((id) => id !== primary.item.id || parsed.dependencies.includes(id));
   if (dependencies.includes(primary.item.id)) refuse("card_missing_provenance");
   if (new Set(dependencies).size >= MAX_EVIDENCE) refuse("card_limit");
   for (const id of [...new Set(dependencies)].sort()) {
     const entry = await snapshot(client, id); evidence.push(entry.citation); entries.push(entry.item);
   }
-  await verifyEvidenceBindings(client, primary.item, entries);
+  for (const item of entries) {
+    if (item.type !== "Generation") continue;
+    const upstream = extractGenerationSpec(String(item.body), "Cited decision evidence").evaluation_evidence;
+    if (upstream !== undefined) await verifyDecisionEvidence(client, upstream);
+  }
+  verifyDecisionBindings(primary.item, entries, decision.graph);
+  await verifyEvidenceBindings(client, primary.item, entries, decision);
   for (const entry of entries) Object.assign(resource, evidenceLimits(subject, entry));
-  return { primary: primary.item, evidence, entries, resource, prefix };
+  return { primary: primary.item, evidence, entries, resource, prefix, decisionGraph: decision.graph };
+}
+/** Reuse actual evaluator reads; legacy explanatory records without a versioned plan remain inspectable. */
+async function cardDecisionInputs(client: PmClient, item: CardItem, plan: GetResult["item"] | CardItem | null, prospective = false): Promise<{ ids: string[]; graph?: EvaluationEvidence }> {
+  if (item.type === "Decision") {
+    const raw = object(parseBoundedJson(String(item.body)));
+    await verifyCompletedDecisionReceipt(client, item.id, raw, prospective);
+    if (raw.decision_evidence === undefined) return { ids: [] };
+    const evidence = parseEvaluationEvidence(raw.decision_evidence);
+    await verifyDecisionEvidence(client, evidence);
+    if (evidence.comparison !== raw.input) refuse("card_drift", item.id);
+    return { ids: evidence.inputs.map((input) => input.id), graph: evidence };
+  }
+  const retained = extractGenerationSpec(String(item.body), "Card decision inputs").evaluation_evidence;
+  if (retained !== undefined || plan !== null && evidenceBody(plan).plan !== null && typeof evidenceBody(plan).plan === "object" && (evidenceBody(plan).plan as Record<string, unknown>).format === "pm-rl/evaluation-plan/1") {
+    try {
+      const decision = await readEvaluationDecision(client, item.id, true);
+      if (retained !== undefined && retained.digest !== decision.evidence?.digest) refuse("card_drift", item.id);
+      return { ids: decision.evidence!.inputs.map((input) => input.id).filter((id) => id !== item.id), graph: decision.evidence! };
+    } catch (error) {
+      rethrowOperationalRead(error);
+      refuse("card_drift", isPmCliExpectedError(error) ? String(error.context.item_id ?? item.id) : item.id);
+    }
+  }
+  if (!prospective && plan !== null) await verifyTerminalEvaluationReceipt(client, item);
+  const ids: string[] = [];
+  if (plan !== null) for (const suffix of ["-result", "-shadow", "-shadow-comparison"]) {
+    const found = await optionalItem(client, `${plan.id}${suffix}`); if (found !== null) ids.push(found.id);
+  }
+  return { ids };
+}
+/** Every embedded graph input must match the exact SDK snapshot cited by this card. */
+function verifyDecisionBindings(primary: CardItem, entries: readonly CardItem[], graph?: EvaluationEvidence): void {
+  if (graph === undefined) return;
+  const sources = new Map([primary, ...entries].map((item) => [item.id, item]));
+  for (const input of graph.inputs) {
+    const item = sources.get(input.id);
+    if (item === undefined || evaluationInputDigest(item, graph.comparison) !== input.digest) refuse("card_drift", input.id);
+  }
 }
 /** Match complete fixed record fields before a foreign shape can reach evidence replay. */
 function fields(row: Record<string, unknown>, expected: string): boolean { return Object.keys(row).sort().join(",") === expected; }
@@ -255,7 +293,8 @@ function fields(row: Record<string, unknown>, expected: string): boolean { retur
 function digestShape(value: unknown): boolean { return typeof value === "string" && /^[a-f0-9]{64}$/.test(value); }
 /** Validate the complete portable envelope; semantic evidence drift remains a separate provenance refusal. */
 function cardShape(row: Record<string, unknown>): boolean {
-  if (!fields(row, "allowed_actions,digest,evaluation,evidence,format,known_regressions,outcome,policy_digest,proposal_digest,resource_limits,selection,subject,training_scope") || encodedSize(row) > POLICY_CARD_MAX_BYTES) return false;
+  if (!fields(row, `${row.decision_evidence === undefined ? "" : "decision_evidence,"}allowed_actions,digest,evaluation,evidence,format,known_regressions,outcome,policy_digest,proposal_digest,resource_limits,selection,subject,training_scope`.split(",").sort().join(",")) || encodedSize(row) > POLICY_CARD_MAX_BYTES) return false;
+  if (row.decision_evidence !== undefined) parseEvaluationEvidence(row.decision_evidence);
   identity(row.subject);
   if (row.selection !== null && (!Number.isSafeInteger(row.selection) || Number(row.selection) < 0 || Number(row.selection) >= MAX_EVIDENCE)) return false;
   if (!digestShape(row.digest) || !digestShape(row.proposal_digest) || row.policy_digest !== null && !digestShape(row.policy_digest)) return false;
@@ -317,10 +356,10 @@ export async function verifyRetainedGenerationEvidence(client: PmClient, subject
   }
 }
 /** Require a closed citation graph rooted in the certified subject, never caller-added allowances. */
-async function verifyEvidenceBindings(client: PmClient, item: CardItem, entries: readonly CardItem[]): Promise<void> {
+async function verifyEvidenceBindings(client: PmClient, item: CardItem, entries: readonly CardItem[], decision?: { ids: string[]; graph?: EvaluationEvidence }): Promise<void> {
   const ids = entries.map((entry) => entry.id);
   const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
-  const required = source(item, prefix).dependencies;
+  const required = [...source(item, prefix).dependencies, ...(decision?.ids ?? [])].filter((id) => id !== item.id);
   if (required.some((id) => !ids.includes(id))) refuse("card_missing_provenance");
   const plan = `${item.id}-evaluation-plan`;
   const allowed = new Set([...required, ...(required.includes(plan) ? ["-result", "-shadow", "-shadow-comparison"].map((suffix) => `${plan}${suffix}`) : [])]);
@@ -345,7 +384,7 @@ async function verifyEvidenceBindings(client: PmClient, item: CardItem, entries:
 /** Decode structured lineage bindings without exposing arbitrary evidence text. */
 function evidenceBody(item: CardItem): Record<string, unknown> {
   try { return object(parseBoundedJson(String(item.body))); }
-  catch { return refuse("card_drift"); }
+  catch { return refuse("card_drift", item.id); }
 }
 /** Validate every bounded projection before creating a source or changing its history. @internal */
 export async function validatePolicyCardWrite(client: PmClient, options: Parameters<PmClient["create"]>[0] & { id: string }, recursive = false): Promise<void> {
@@ -371,6 +410,7 @@ function encodedSize(value: Record<string, unknown>): number {
 export async function replayPolicyCard(client: PmClient, value: unknown): Promise<{ card: PolicyCard; results: readonly PolicyCardEvidence[] }> {
   const candidate = object(value);
   if (encodedSize(candidate) > POLICY_CARD_MAX_BYTES) refuse("card_limit");
+  const supplied = candidate.decision_evidence === undefined ? undefined : parseEvaluationEvidence(candidate.decision_evidence);
   const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
   const subject = canonicalizeIdentifier(identity(candidate.subject), prefix);
   const selection = candidate.selection;
@@ -386,9 +426,23 @@ export async function replayPolicyCard(client: PmClient, value: unknown): Promis
     results.push(entry.citation); items.push(entry.item);
   }
   if (results[0].id !== subject || new Set(results.map((row) => row.id)).size !== results.length) refuse("card_invalid");
-  await verifyEvidenceBindings(client, items[0], items.slice(1));
+  const storedGraph = items[0].type === "Generation" ? extractGenerationSpec(String(items[0].body), "Replayed receipt").evaluation_evidence : object(parseBoundedJson(String(items[0].body))).decision_evidence;
+  const planItem = items.slice(1).find((item) => item.id === `${subject}-evaluation-plan`);
+  const declared = planItem === undefined ? null : evidenceBody(planItem).plan;
+  const sequential = declared !== null && typeof declared === "object" && (declared as Record<string, unknown>).stopping !== null && typeof (declared as Record<string, unknown>).stopping === "object" && ((declared as Record<string, unknown>).stopping as Record<string, unknown>).kind === "sequential";
+  if (supplied === undefined && (storedGraph !== undefined || sequential)) refuse("card_drift", subject);
+  if (candidate.decision_evidence !== undefined && items[0].type === "Decision" && (await snapshot(client, subject)).citation.digest !== results[0].digest) refuse("card_drift", subject);
+  const decision = candidate.decision_evidence === undefined ? undefined : await cardDecisionInputs(client, items[0], items.slice(1).find((item) => item.id === `${subject}-evaluation-plan`) ?? null);
+  if (decision !== undefined && canonicalJson(decision.graph as unknown as JsonValue) !== canonicalJson(supplied as unknown as JsonValue)) refuse("card_drift", subject);
+  for (const item of items.slice(1)) {
+    if (item.type !== "Generation") continue;
+    const upstream = extractGenerationSpec(String(item.body), "Replayed upstream evidence").evaluation_evidence;
+    if (upstream !== undefined) await verifyDecisionEvidence(client, upstream);
+  }
+  verifyDecisionBindings(items[0], items.slice(1), decision?.graph);
+  await verifyEvidenceBindings(client, items[0], items.slice(1), decision);
   for (const item of items.slice(1)) Object.assign(resource, evidenceLimits(subject, item));
-  const card = assemble(subject, items[0], [results[0], ...results.slice(1).sort((left, right) => left.id.localeCompare(right.id))], resource, selection, prefix);
+  const card = assemble(subject, items[0], [results[0], ...results.slice(1).sort((left, right) => left.id.localeCompare(right.id))], resource, selection, prefix, decision?.graph);
   if (canonicalJson(candidate as JsonValue) !== canonicalJson(card as unknown as JsonValue)) refuse("card_drift");
   return { card, results };
 }

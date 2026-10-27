@@ -6,9 +6,11 @@ status: in_progress
 priority: 2
 tags[1]: "gh:unbraind/pm-rl#107"
 created_at: "2026-10-25T23:52:20.254Z"
-updated_at: "2026-10-27T10:37:14.462Z"
+updated_at: "2026-10-27T14:20:01.415Z"
+assignee: codex-agent
+claim_principal: codex-agent
 author: codex-agent
-comments[82]{created_at,author,text}:
+comments[88]{created_at,author,text}:
   "2026-10-25T23:52:27.192Z",codex-agent,"Overlap check on current CLI 2026.10.25 and sibling package source/docs: pm-rl-evalplans explicitly seals fixed stopping; core SDK exposes tracker transactions and locks, not sequential statistics; pm-jev owns inference receipts, pm-context context selection, pm-rlm inference recursion. No existing alpha-spending evaluation protocol found. This extends pm-rl evaluation plans, retaining promotion approval and contamination gates. Design: predeclared finite looks over frozen complete correlation units, two-sided Hoeffding alpha spending, reviewed rule identity, immutable append-only checkpoint chain with SDK writer serialization and current provenance checks on every retry. No import/export/sync subsystem or status-name classification is introduced."
   "2026-10-26T00:01:50.075Z",codex-agent,"Implemented reviewed finite-look plans, cumulative immutable checkpoint chaining, advance/resume CLI and promotion bindings. Seeded 10,000-trial null/benefit simulations measured zero false efficacy and zero false futility decisions at the declared 0.05 bound; all 10,000 benefit trials stopped early. Targeted real SDK tests pass for restart, old snapshot retries, changed candidate provenance, futility and exhaustion. A 500-sequence SDK model test is running. Production typecheck, lint, duplication and docstrings pass so far; full npm/Bun release evidence will use CI as instructed."
   "2026-10-26T00:13:48.212Z",codex-agent,"Read-only public tracker validation passed using the installed packed CLI with Git absent from PATH. Public source commit 120e20e160897cabe47920713e1b87b6647b2e85: 107 items, 87 done-role items using the SDK status registry, candidate mean 0.8130841121495327 vs incumbent 0.1869158878504673. One repository remains one unit; exhausted/refuse, no promotion. JSON 853 bytes; TOON 730 bytes; one checkpoint, exact restart, source digest unchanged. Linked pm tests pass 3/3 (five focused regressions, typecheck, lint); configured tracking is disabled, so the receipt is recorded here. Behavioral revert controls: removing uncertainty fails null simulation; returning the requested old checkpoint fails restart/old-input regression; restored implementation passes 2/2. All 29 existing fixed-plan tests pass. No core dependency pins, thresholds or history records changed."
@@ -91,7 +93,13 @@ comments[82]{created_at,author,text}:
   "2026-10-27T10:18:12.467Z",codex-agent,"Behavioral revert proofs: changed only parseEvaluationPlan default mode from read to write; unchanged published-schema property failed with rl_identifier_invalid. Restored it, then changed only requiredTrimmedString default mode from read to write; the same 500-case property failed with rl_identifier_invalid. Restored both functions exactly. Command for each: node --test --test-concurrency=1 --test-name-pattern=\"published schema oracle\" test/evaluation-compatibility.test.ts. Final restored targeted run follows. Existing refusal tests remain present and explicitly exercise new-write validation; the stored padded-approval regression still refuses an extra promotion with budget_exceeded."
   "2026-10-27T10:29:15.130Z",codex-agent,"Restored targeted suite passes 6/6 with zero failures, cancellations or skips: node --test --test-concurrency=1 test/evaluation-compatibility.test.ts test/state-boundary.test.ts. This includes the 500 x 13 published-output oracle, 18 Plan reads and native SDK/CLI legacy evaluation/retry/promotion, new-write refusal controls, 500 external-tripwire sequences, symlink confinement and native successor ownership. Linked pure oracle passes 1/1 through pm test. Typecheck, test typecheck, build, lint, duplicate gate (0 clones), docstring gate (57 files/441 declarations) and native strict health pass; health retains the existing provenance advisory. Implementation ca5a5e8d256dfa88bb2ab544c06c9b41870e5ea9 pushed with main fully included. Current full npm/Bun CI is queued: https://github.com/unbraind/pm-rl/actions/runs/40488393574 ; CodeQL https://github.com/unbraind/pm-rl/actions/runs/40488393592 . Poll at most 30 minutes after push as required; final-source packed/public checks continue locally."
   "2026-10-27T10:37:10.343Z",codex-agent,"Final-source validation: 6/6 native/published/boundary tests and 3/3 additional regressions pass, zero failures/cancellations/skips; the latter command is node --test --test-concurrency=1 --test-name-pattern=\"new declarations|a padded --parent|canonical identity property\" test/evaluation-compatibility.test.ts test/lineage.test.ts test/controller-boundaries.test.ts. The extra cases preserve 500 SDK identity-contention pairs, raw new-parent/collection refusals and typed invalid operation diagnostics. Both final packed Node and Bun consumers pass test/evaluation-compatibility.acceptance.ts (archive and aggregate JSON arguments): 66 published native files/18 Plans, 500 oracle cases x13 paths, JSON/TOON, three unchanged legacy retries, one promotion/approval consumption and policy-card export, all without Git. Archive matches all 176 compiled distribution files. Both runtimes also pass test/sequential-evaluation.acceptance.ts against the read-only public copy: 107 items/87 done-role, means 0.8130841121495327 and 0.1869158878504673; one independent unit, exhausted/refused promotion; one exactly resumed checkpoint; three chronology refusals; unchanged source hash; 853 JSON/730 TOON bytes. Node/Bun evidence is identical and public replay equals the existing tracked aggregate byte-for-byte as parsed JSON. New aggregate evidence is docs/evaluation-compatibility-evidence.json. Main is fully included; all three changed native histories retain main as a byte prefix. CI and CodeQL remain queued, so full release counts for this implementation are unavailable."
-files[44]{path,scope}:
+  "2026-10-27T11:20:04.260Z",codex-agent,"Round 5: provenance completeness requires every input that can change promotion or sequential stopping to participate in all cards, receipts and replays that cite the decision. Rechecked clean worktree and remote head; main is fully included. Trace actual decision reads, derive one reusable dependency manifest from that path, audit all summary artifacts and replay consumers, then corrupt individual dependencies and pairs on a non-git tracker. Preserve released fixed-plan behavior and every existing regression; record function-only revert proof, focused tests, packed Node/Bun acceptance and capped CI release evidence."
+  "2026-10-27T11:55:51.528Z",codex-agent,"Implemented one read-derived evaluation graph: captureDecisionInputs observes real SDK reads (including live counterparts of history-only sources), readEvaluationDecision serves enforcement and card construction, and one strict parseEvaluationEvidence schema seals input ids/digests. New sequential SDK reports emit a compact evidence root; promotion bodies retain the complete graph; generation/show/promotion/recovery/loop summaries expose its root. Durable enclosing steps inherit only actual nested evaluator reads and pin their SDK-certified history coordinates, with live revalidation on replay. Completed receipts are bound to their first completed SDK snapshot so a rehashed subset or removed graph cannot silently replace their inputs. Released legacy cards retain their historical replay language; new decision-backed cards validate the exact discovered closure across all selections. Baseline historical/fixed-card and sequential-restart regressions pass 4/4. The non-git property is exercising individual dependencies and every pair across promoted, recursive and selected cards, including review plus final-look corruption; a seeded 500-sequence native SDK read-back transport model covers new graph state, old-input replays, CRLF, relationships and custom active status."
+  "2026-10-27T13:38:14.987Z",codex-agent,"Round 5 class audit: the actual evaluation reader now returns a strict versioned input graph captured from SDK reads. Cards embed exactly that graph; promotion/rejection and durable completed steps retain it; replay checks current content and certified historical coordinates, including upstream decisions. Decision graphs bind the sealed comparison, Plan, review, all looks/cohort observations, collection Run metrics and candidate/incumbent provenance. No independently maintained stopping dependency list remains. Review thread enumeration returned zero additional findings."
+  "2026-10-27T13:38:39.015Z",codex-agent,"Behavioral revert proofs, each restored immediately: reverting only generationEvidence to the previous head fails the graph property with Card must embed the exact decision input graph; reverting only durableLoopStep fails Decision input root missing; reverting only renderPromotedBody fails Promotion receipt must seal all evaluation inputs. Removing only verifyCompletedDecisionReceipt fails the graph-removal/subset test with Missing expected rejection. Commands: node --test --test-concurrency=1 --test-name-pattern=\"decision graph property\" test/decision-evidence.test.ts ; node --test --test-concurrency=1 --test-name-pattern=\"completed promotion\" test/decision-evidence.test.ts . All controls fail for the intended contract; source restored. Earlier chronology, canonical identity, path confinement, callback cleanup and published compatibility regressions remain intact."
+  "2026-10-27T13:49:15.845Z",codex-agent,"Final runtime/test compilation, typecheck, lint and build pass. Duplication remains zero; docstring gate documents 454 declarations over 57 sources. The strict graph schema passes 500 seeded cases; SDK transport passes 500 sequences with older replay, CRLF, parent/blocked-by relationships and a custom active status. The published compatibility file passes 3/3 including its 500 x 13 released-package oracle. Restored exhaustive corruption and receipt tests are running with at most two workers; canceled development runs are excluded from positive evidence. The final archive uses static packed SDK imports and the actual installed CLI; JSON/TOON and transitive replay checks follow."
+  "2026-10-27T14:20:01.411Z",codex-agent,"Restored native regressions pass for completed promotion/step graph removal and subsets, rejection peer-edit revision locking, and the exact review-plus-final-look counterexample across SDK aliases and a downstream policy. Candidate and rejected matrices each completed all 28 individual/pair corruption cases. A later test-only full-record assertion used a pre-mutation updated_at; corrected it to a fresh SDK read before asserting the refused write changes nothing, retaining explicit restored body/version comparisons. Rerunning that test. Added typed protection against rehashed card graph removal, noncanonical serialized graph IDs and completed-step state downgrade; final packed Node/Bun acceptance exercises all three."
+files[48]{path,scope}:
   checkpoint-artifacts.ts,project
   compose.ts,project
   dataset.ts,project
@@ -105,6 +113,7 @@ files[44]{path,scope}:
   meta.ts,project
   owned-stop.ts,project
   package.json,project
+  policy-card.ts,project
   prefix-trainer.ts,project
   process-bandit.ts,project
   process-lm-trainer.ts,project
@@ -118,10 +127,13 @@ files[44]{path,scope}:
   sweep.ts,project
   test/audit-git-identities.test.ts,project
   test/controller-boundaries.test.ts,project
+  test/decision-evidence.acceptance.ts,project
+  test/decision-evidence.test.ts,project
   test/evaluation-compatibility.acceptance.ts,project
   test/evaluation-compatibility.test.ts,project
   test/evaluation-plan.test.ts,project
   test/fixtures/compatibility-inputs.ts,project
+  test/fixtures/decision-evidence.ts,project
   test/fixtures/process-trainer.ts,project
   test/fixtures/released-compatibility-writer.ts,project
   test/fixtures/released-compatibility.json,project
@@ -136,7 +148,7 @@ files[44]{path,scope}:
   test/sequential-evaluation.test.ts,project
   test/state-boundary.test.ts,project
   transfer.ts,project
-tests[24]:
+tests[27]:
   - command: "node --test --test-name-pattern=\"strict sequential|only complete|null, benefit|boundary input|output validation\" test/sequential-evaluation.test.ts"
     scope: project
     provenance:
@@ -308,7 +320,29 @@ tests[24]:
       created_at: "2026-10-27T10:24:50.756Z"
       source_kind: local_mutation
       source_ref: feat/predeclared-sequential-evaluation
-docs[6]{path,scope}:
+  - command: "node --test --test-concurrency=1 --test-name-pattern=\"strict input graph schema|published schema oracle\" test/decision-evidence.test.ts test/evaluation-compatibility.test.ts"
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-27T12:04:00.943Z"
+      source_kind: local_mutation
+      source_ref: feat/predeclared-sequential-evaluation
+  - command: node --test --test-concurrency=1 test/decision-evidence.test.ts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-27T13:40:08.705Z"
+      source_kind: local_mutation
+      source_ref: feat/predeclared-sequential-evaluation
+  - command: node --test --test-concurrency=1 test/evaluation-compatibility.test.ts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-27T13:40:28.935Z"
+      source_kind: local_mutation
+      source_ref: feat/predeclared-sequential-evaluation
+docs[7]{path,scope}:
+  docs/decision-evidence.md,project
   docs/evaluation-compatibility-evidence.json,project
   docs/policy-card-write-audit.md,project
   docs/sequential-evaluation-evidence.json,project

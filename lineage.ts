@@ -1,5 +1,6 @@
 import { identifier, type ValidationMode } from "./state-boundary.ts";
 import { parseBoundedJson } from "./tracker-record.ts";
+import { parseEvaluationEvidence } from "./evaluation-plan.ts";
 /**
  * @module pm-rl/lineage
  *
@@ -67,6 +68,8 @@ export interface ScoreRecord {
 
 /** A policy generation and its provenance, stored as a JSON fence in the item body. */
 export interface GenerationSpec {
+  /** Exact decision inputs sealed with a promotion; absent on released legacy records. */
+  readonly evaluation_evidence?: EvaluationEvidence;
   /** Sealed package evaluation outcome, distinct from mutable tracker annotations. */
   readonly policy_evaluation?: JsonValue;
   /** Frozen comparison identity when the generation belongs to a predeclared experiment. */
@@ -99,6 +102,14 @@ export interface GenerationSpec {
   readonly gap: number | null;
   /** Human-readable promotion evidence, or null if not promoted. */
   readonly promotion_evidence: string | null;
+}
+
+/** Content-linked input graph emitted by the evaluator that read these records. */
+export interface EvaluationEvidence {
+  readonly format: "pm-rl/evaluation-evidence/1";
+  readonly comparison: string;
+  readonly inputs: readonly { readonly id: string; readonly digest: string; readonly at?: string }[];
+  readonly digest: string;
 }
 
 /** Resolve tracker aliases and case before identity comparison, ordering, deduplication or hashing. */
@@ -377,6 +388,7 @@ export function parseGenerationSpec(text: string, source: string, mode: Validati
     }
   }
   return {
+    ...(record["evaluation_evidence"] === undefined ? {} : { evaluation_evidence: parseEvaluationEvidence(record["evaluation_evidence"]) }),
     ...(evaluationPlan === undefined ? {} : { evaluation_plan: evaluationPlan as string }),
     ...(record["policy_evaluation"] === undefined ? {} : { policy_evaluation: record["policy_evaluation"] as JsonValue }),
     base_checkpoint: baseCheckpoint,

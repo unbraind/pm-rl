@@ -6,11 +6,12 @@ import type { GetResult, PmClient } from "@unbrained/pm-cli/sdk/core";
 import { listMutationEvents } from "@unbrained/pm-cli/sdk";
 import { dirname } from "node:path";
 import { createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
-import { extractGenerationSpec, generationProvenance, hashJson, readCompleteLoopItem, type JsonValue } from "./index.ts";
+import { extractGenerationSpec, generationProvenance, hashJson, readCompleteLoopItem, captureDecisionInputs, verifyTerminalEvaluationReceipt, verifyDecisionEvidence, type JsonValue } from "./index.ts";
 import { decidePromotion, type PromotionCriterion, type PromotionDecision } from "./promotion.ts";
 import { enforceShadowComparison } from "./shadow.ts";
 import { rethrowOperationalRead } from "./refuse.ts";
-import { canonicalizeEvaluationContext, canonicalizeGenerationSpec, canonicalizeIdentifier, type GenerationSpec, type ScoreRecord } from "./lineage.ts";
+import { canonicalizeEvaluationContext, canonicalizeGenerationSpec, canonicalizeIdentifier, type GenerationSpec, type ScoreRecord, type EvaluationEvidence } from "./lineage.ts";
+import { readSeries } from "./series.ts";
 
 /** Stable refusals available to SDK consumers and CLI agents. */
 export type EvaluationPlanRefusal = "eval_plan_invalid" | "eval_plan_drift" | "eval_plan_late" | "eval_plan_missing" | "eval_plan_evidence" | "eval_plan_stopping" | "eval_plan_refused";
@@ -40,6 +41,8 @@ export interface EvaluationPlan {
 export interface EvaluationObservation { readonly id: string; readonly candidate: number; readonly incumbent: number }
 /** Compact agent output; full cohorts and raw observations remain in creation-verified tracker records. */
 export interface EvaluationPlanReport {
+  /** Root of the exact SDK input graph; present on sequential SDK results, never inferred from caller scores. */
+  readonly evidence_digest?: string;
   readonly plan: string;
   readonly comparison: string;
   readonly observations: number;
@@ -62,9 +65,37 @@ export interface RegisteredEvaluationPlan {
 }
 
 /** Throw an actionable typed refusal without copying tracker content into diagnostics. */
-export function refuse(code: EvaluationPlanRefusal): never {
+export function refuse(code: EvaluationPlanRefusal, itemId?: string): never {
   const remedy = code === "eval_plan_late" ? "Seal required reviews and a new plan before collection; for sequential plans create all collection Runs, then a fresh candidate, then ordered looks. Do not reuse evidence created before its source." : code === "eval_plan_stopping" ? "Use advance/resume for a sequential plan, evaluate for a fixed plan, and supply only the next declared complete unit prefix. A changed protocol requires a new plan and fresh candidate." : code === "eval_plan_evidence" ? "Check bounded paired rewards and the Decision reviewing the exact comparison hash. Changed sealed evidence requires a new plan and fresh candidate." : "Seal the design and any required review before registering a new plan, then create a fresh candidate and collection; retain the exact declared cohort, provenance and reviewed stopping protocol.";
-  throw createPmCliExpectedError(`Evaluation plan refused (${code}). ${remedy}`, { exitCode: EXIT_CODE.CONFLICT, context: { code, required: remedy } });
+  throw createPmCliExpectedError(`Evaluation plan refused (${code}).${itemId === undefined ? "" : ` Record ${itemId}.`} ${remedy}`, { exitCode: EXIT_CODE.CONFLICT, context: { code, required: remedy, ...(itemId === undefined ? {} : { item_id: itemId }) } });
+}
+
+/** Strict bounded schema shared by stored promotion receipts and evaluator-produced graphs. */
+export function parseEvaluationEvidence(value: unknown): EvaluationEvidence {
+  const row = object(value, ["format", "comparison", "inputs", "digest"]);
+  if (row.format !== "pm-rl/evaluation-evidence/1" || typeof row.comparison !== "string" || !/^[a-f0-9]{64}$/.test(row.comparison) || !Array.isArray(row.inputs) || row.inputs.length === 0 || row.inputs.length > 10_000) refuse("eval_plan_evidence");
+  const inputs = Array.from(row.inputs, (input) => {
+    const ref = object(input, input !== null && typeof input === "object" && Object.hasOwn(input, "at") ? ["id", "digest", "at"] : ["id", "digest"]);
+    if (typeof ref.id !== "string" || operationIdentifier(ref.id) !== ref.id || typeof ref.digest !== "string" || !/^[a-f0-9]{64}$/.test(ref.digest)) refuse("eval_plan_evidence");
+    if (ref.at !== undefined && (typeof ref.at !== "string" || !/^[1-9][0-9]*$/.test(ref.at) || !Number.isSafeInteger(Number(ref.at)))) refuse("eval_plan_evidence");
+    return { id: ref.id, digest: ref.digest, ...(ref.at === undefined ? {} : { at: ref.at as string }) };
+  });
+  if (new Set(inputs.map((input) => input.id)).size !== inputs.length) refuse("eval_plan_evidence");
+  const body = { format: "pm-rl/evaluation-evidence/1" as const, comparison: row.comparison, inputs };
+  if (row.digest !== hashJson(body as unknown as JsonValue)) refuse("eval_plan_evidence");
+  return { ...body, digest: row.digest as string };
+}
+/** Hash decision-bearing content, excluding annotations and mutable promotion bookkeeping. */
+export function evaluationInputDigest(item: GetResult["item"], comparison?: string): string {
+  const spec = item.type === "Generation" ? extractGenerationSpec(String(item.body), "Evaluation input") : null;
+  const generation = spec === null ? String(item.body) : { provenance: generationProvenance(spec), ...(spec.evaluation_evidence !== undefined && spec.evaluation_evidence.comparison !== comparison ? { upstream_evidence: spec.evaluation_evidence } : {}) };
+  return hashJson({ id: item.id, type: String(item.type), body: generation as unknown as JsonValue, version: String(item.affected_version), created_at: String(item.created_at),
+    ...(item.type === "Run" ? { environment: item.environment ?? null, policy: item.component ?? null, metrics: readSeries((item.notes ?? []).map((note) => note.text)).events as unknown as JsonValue } : {}) });
+}
+/** Seal precisely the records read by this execution, including history-only collection sources. */
+export function evaluationEvidence(comparison: string, inputs: readonly GetResult["item"][], versions?: ReadonlyMap<string, string>): EvaluationEvidence {
+  const body = { format: "pm-rl/evaluation-evidence/1" as const, comparison, inputs: inputs.map((item) => ({ id: item.id, digest: evaluationInputDigest(item, comparison), ...(versions === undefined ? {} : { at: versions.get(item.id)! }) })).sort((a, b) => a.id.localeCompare(b.id)) };
+  return parseEvaluationEvidence({ ...body, digest: hashJson(body as unknown as JsonValue) });
 }
 /** Reject unknown keys so no apparent design choice disappears from comparison identity. */
 function object(value: unknown, keys: readonly string[]): Record<string, unknown> {
@@ -123,7 +154,7 @@ async function createdItem(client: PmClient, id: string): Promise<GetResult["ite
 /** Bind sealed fields to the SDK's verified first history version, allowing unrelated annotations. */
 export async function verifyCreatedRecord(client: PmClient, item: GetResult["item"]): Promise<void> {
   const original = await createdItem(client, item.id);
-  if ((["id", "type", "body", "created_at", "affected_version"] as const).some((field) => original[field] !== item[field])) refuse("eval_plan_drift");
+  if ((["id", "type", "body", "created_at", "affected_version"] as const).some((field) => original[field] !== item[field])) refuse("eval_plan_drift", item.id);
 }
 /** Complete current sequential lifecycle; every cumulative look seals every candidate collection Run. @internal */
 export function evaluationLifecycleArtifacts(registered: RegisteredEvaluationPlan, runs: readonly string[], looks: number): { id: string; stage: number }[] {
@@ -265,6 +296,7 @@ export function validateEvaluationReport(plan: EvaluationPlan, report: Evaluatio
     if (value !== null && typeof value === "object") for (const field of Object.values(value)) numeric(field);
   }
   numeric(report);
+  if (report.evidence_digest !== undefined && (typeof report.evidence_digest !== "string" || !/^[a-f0-9]{64}$/.test(report.evidence_digest))) refuse("eval_plan_evidence");
   for (const value of [report.candidate_mean, report.incumbent_mean]) if (value < plan.reward_bounds[0] || value > plan.reward_bounds[1]) refuse("eval_plan_evidence");
   for (const [count, max] of [[report.observations, plan.stopping.observations], [report.independent_units, plan.stopping.independent_units]]) if (!Number.isSafeInteger(count) || count < 1 || count > max) refuse("eval_plan_evidence");
   if (report.sequential !== undefined) {
@@ -318,32 +350,68 @@ export async function recordPlanEvaluation(client: PmClient, candidate: string, 
   }
   return report;
 }
-/** Gate both CLI and controller promotions inside their authoritative writer lock. Legacy candidates have no reservation. */
+/** Read the same validated decision for enforcement and summaries, returning its actual SDK inputs. */
+export async function readEvaluationDecision(client: PmClient, candidate: string, pending = false): Promise<{ registered: RegisteredEvaluationPlan | null; report: EvaluationPlanReport | null; evidence: EvaluationEvidence | null }> {
+  const captured = await captureDecisionInputs(client, async () => {
+    const registered = await readEvaluationPlan(client, candidate);
+    if (registered === null) {
+      if (!pending) {
+        const item = await optionalItem(client, candidate);
+        if (item !== null && item.type === "Generation" && extractGenerationSpec(String(item.body), "Candidate generation").evaluation_plan !== undefined) refuse("eval_plan_missing", item.id);
+        await enforceShadowComparison(client, candidate, null);
+      }
+      return { registered, report: null };
+    }
+    const resolved = registered.plan.candidate;
+    if (pending && await optionalItem(client, resolved) === null) {
+      if (registered.plan.stopping.kind === "sequential") await reviewSequentialPlan(client, registered.plan);
+      return { registered, report: null };
+    }
+    await verifiedCandidate(client, resolved, registered);
+    if (pending && registered.plan.shadow !== undefined && await optionalItem(client, `${registered.id}-shadow-comparison`) === null) return { registered, report: null };
+    await enforceShadowComparison(client, resolved, registered.plan);
+    if (registered.plan.stopping.kind === "sequential") {
+      const latest = await readSequentialEvaluation(client, resolved);
+      if (latest !== null && "status" in latest) refuse("eval_plan_evidence", latest.skipped[0]?.id);
+      return { registered, report: latest };
+    }
+    const result = await optionalItem(client, `${registered.id}-result`);
+    if (result === null) return { registered, report: null };
+    const raw = object(storedJson(result.body), ["comparison", "observations"]);
+    if (result.type !== "Decision" || raw.comparison !== registered.comparison || result.affected_version !== hashJson(raw as JsonValue)) refuse("eval_plan_drift", result.id);
+    await verifyCreatedRecord(client, result);
+    await validateEvaluationOrder(client, [{ id: registered.id, stage: 1 }, { id: result.id, stage: 3 }]);
+    return { registered, report: evaluatePlan(registered.plan, raw.observations) };
+  });
+  for (const item of captured.inputs) {
+    if (item.type !== "Generation" || item.id === captured.value.registered?.plan.candidate) continue;
+    const upstream = extractGenerationSpec(String(item.body), "Upstream evidence").evaluation_evidence;
+    if (upstream !== undefined) await verifyDecisionEvidence(client, upstream);
+  }
+  const evidence = captured.value.registered === null ? null : evaluationEvidence(captured.value.registered.comparison, captured.inputs);
+  const canonicalCandidate = captured.value.registered?.plan.candidate ?? candidate;
+  const candidateItem = captured.inputs.find((item) => item.id === canonicalCandidate && item.type === "Generation");
+  if (candidateItem !== undefined && captured.value.registered !== null) await verifyTerminalEvaluationReceipt(client, candidateItem);
+  const retained = candidateItem === undefined ? undefined : extractGenerationSpec(String(candidateItem.body), "Promotion evidence").evaluation_evidence;
+  if (retained !== undefined && evidence?.digest !== retained.digest) {
+    const expected = new Map(retained.inputs.map((input) => [input.id, input.digest]));
+    const changed = evidence?.inputs.find((input) => expected.get(input.id) !== input.digest)?.id ?? retained.inputs.find((input) => !evidence?.inputs.some((current) => current.id === input.id))?.id;
+    refuse("eval_plan_drift", changed ?? canonicalCandidate);
+  }
+  return { ...captured.value, evidence };
+}
+/** Gate CLI, controller and recovery promotions through the same read-derived evidence graph. */
 export async function enforceEvaluationPlan(client: PmClient, candidate: string, score: ScoreRecord): Promise<void> {
-  const registered = await readEvaluationPlan(client, candidate);
-  if (registered === null) {
-    const item = await optionalItem(client, candidate);
-    if (item !== null && item.type === "Generation" && extractGenerationSpec(String(item.body), "Candidate generation").evaluation_plan !== undefined) refuse("eval_plan_missing");
-    await enforceShadowComparison(client, candidate, null);
-    return;
-  }
-  candidate = registered.plan.candidate;
-  await verifiedCandidate(client, candidate, registered);
-  await enforceShadowComparison(client, candidate, registered.plan);
-  if (registered.plan.stopping.kind === "sequential") {
-    const latest = await readSequentialEvaluation(client, candidate);
-    if (latest === null || "status" in latest) refuse("eval_plan_missing");
-    verifyEvaluationScore(registered, latest, score, label((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value));
-    return;
-  }
-  const result = await optionalItem(client, `${registered.id}-result`); if (result === null) refuse("eval_plan_missing");
-  const raw = object(storedJson(result.body), ["comparison", "observations"]);
-  if (result.type !== "Decision" || raw.comparison !== registered.comparison || result.affected_version !== hashJson(raw as JsonValue)) refuse("eval_plan_drift");
-  await verifyCreatedRecord(client, result);
-  await validateEvaluationOrder(client, [{ id: registered.id, stage: 1 }, { id: result.id, stage: 3 }]);
-  const report = evaluatePlan(registered.plan, raw.observations);
+  await enforceEvaluationDecision(client, candidate, score);
+}
+/** The promotion writer consumes the exact inputs returned by its scoring gate. @internal */
+export async function enforceEvaluationDecision(client: PmClient, candidate: string, score: ScoreRecord): Promise<EvaluationEvidence | undefined> {
+  const decision = await readEvaluationDecision(client, candidate);
+  if (decision.registered === null) return undefined;
+  if (decision.report === null) refuse("eval_plan_missing", decision.registered.id);
   const prefix = label((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
-  verifyEvaluationScore(registered, report, score, prefix);
+  verifyEvaluationScore(decision.registered, decision.report, score, prefix);
+  return decision.evidence!;
 }
 /** Keep promotion score bindings identical for fixed and sequential evidence. */
 function verifyEvaluationScore(registered: RegisteredEvaluationPlan, report: EvaluationPlanReport, score: ScoreRecord, prefix: string): void {

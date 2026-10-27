@@ -843,6 +843,17 @@ pm rl policy-card adopt --file card.json --json
 
 Save the JSON result's unwrapped `details` as `card.json`. Cards contain scope and policy digests, allowed explanation actions, numeric limits, regression diagnostics and exact replayable evidence references. They omit training examples, policy parameters and credentials. Adoption checks the complete ancestry to the root, including every retained card and its evidence. Policy identity binds content-addressed artifacts plus configuration; unfitted proposals use a separate proposal digest. Transient read errors remain retryable and leave the programme resumable. Missing provenance blocks adoption checks; a card grants no execution authority. Recursive candidates, proposals and promotion outcomes retain cards automatically, so later improvers can inspect earlier wins and losses. These commands work without Git. See the [SDK, format, refusals and public-copy evidence](docs/policy-cards.md).
 
+### Complete decision evidence
+
+New decision-backed cards embed the exact SDK input graph returned by the
+promotion evaluator: reviewed Plan, review Decision, every look, cohort data,
+collection Runs and generation provenance. Promotion and completed-step receipts
+seal that graph; replay refuses damaged inputs or a removed/rehashed dependency
+subset with the offending record in `context.item_id`. Sequential command output
+adds a compact `evidence_digest`; `readEvaluationDecision` exposes the full graph.
+Legacy cards and fixed report identities remain readable. See the
+[SDK example, graph contract and regression evidence](docs/decision-evidence.md).
+
 ### Identifier and state-path boundaries
 
 Version-1 readers preserve the published label language and comparison hashes.
