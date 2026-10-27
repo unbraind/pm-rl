@@ -1,0 +1,66 @@
+id: pm-rl-tc1023
+title: "Make the 2026.10.23 pm toolchain bump pass: SDK create fixtures spread an unsupported hash field"
+description: "Continue the existing Dependabot PR changes, preserving valid work and diagnosing failures from full CI job logs. Run the complete package gate, regenerate tracked outputs, and push only to existing Dependabot branches. Never merge or close this item."
+type: Chore
+status: in_progress
+priority: 1
+tags: []
+created_at: "2026-10-26T18:13:24.969Z"
+updated_at: "2026-10-26T23:07:05.004Z"
+author: codex-agent
+acceptance_criteria: The existing Dependabot branch contains the verified fix and package tracker evidence; tracked generated outputs match the toolchain; exact-head CI results are recorded
+comments[13]{created_at,author,text}:
+  "2026-10-26T18:14:14.482Z",codex-agent,"Cause: SDK 2026.10.23 explicitly rejects unknown mutation options (documented GH-1520). Five malformed-lineage fixtures spread generationBody(), which includes an internal hash alongside body, into client.create(). Preserve each fixture body and all assertions while passing only the supported body option. The previous focused lineage run passed 51/51 after this correction. Regenerate the changelog and run npm and Bun release gates with isolated identity."
+  "2026-10-26T18:25:04.894Z",codex-agent,Linked npm run typecheck passed through pm test with source workspace and schema context. Full release gates run directly in the package worktree to preserve dependency and identity isolation. Existing tracker items remain in progress for orchestrator verification.
+  "2026-10-26T19:06:16.351Z",codex-agent,"Progress: corrected-identity focused audit passed 28/28. The complete source release gate is still running through real Compose cancellation, controller crash, staging recovery and orphan-trainer cleanup cases. Those cases have passed so far; the full-suite coverage/result remains pending. The only authored code delta remains the five SDK fixture body-option corrections. No timing, coverage or source-policy thresholds changed."
+  "2026-10-26T20:29:05.862Z",codex-agent,"The first full local npm run was superseded, not accepted: an orchestration CPU-affinity limit made the repository choose one test worker. Preserve its partial receipts, including all three originally failing lineage cases passing. Restart the unchanged full gate with normal available CPU allocation; run npm and Bun in separate isolated worktrees at identical source HEAD 066841cb8880145b6f15233727c287b34801079d. No authored source changes, assertion changes, timeout scaling, coverage changes or skipped tests. The interrupted run is not a full-suite pass."
+  "2026-10-26T20:31:13.972Z",codex-agent,"Correction to the preceding orchestration note: scripts/coverage-gate.ts intentionally sets --test-concurrency=1; CPU affinity did not choose that worker count. Both fresh runs preserve the repository setting. Their separate worktrees allow npm and Bun to execute concurrently without sharing build output or coverage directories. Source and all test/timeout/coverage policy remain unchanged. The interrupted run remains incomplete, and no full-pass claim is made for it."
+  "2026-10-26T21:32:25.660Z",codex-agent,"Both current complete gates reached the unchanged 300000 ms HTTP receipt crash-drill timeout. Existing timing item pm-rl-bi4v was reopened and enriched rather than duplicated. The five supported create-body fixture corrections preserve all lineage assertions. Complete gates continue with no timeout, assertion, coverage or concurrency-policy changes."
+  "2026-10-26T21:59:44.381Z",codex-agent,"Additional full npm gate failures were reported in received-headers/timeout/cancellation recovery and in interrupted-before-dispatch namespace establishment; detailed full-run errors are still pending. The isolated uninstrumented received-headers case passed 1/1 with zero failures, skips or cancellations in 298607.979272 ms (303884.842087 ms including runner startup). Command: node --test --test-reporter=spec --test-name-pattern=\"^received headers, timeout and cancellation recover\" test/decision-recovery.test.ts. This isolated pass does not erase the full-run failure or prove its cause. Complete covered npm and Bun runs remain pending; preserve assertions and deadlines."
+  "2026-10-26T22:06:37.318Z",codex-agent,"The npm gate stopped emitting results after its interrupted-before-dispatch namespace test failed. Read-only process inspection found the decision-recovery worker idle (zero CPU ticks during a two-second sample), no children, and one listening socket after all file cases had reported. The HTTP fixture starts its server before awaiting workspace initialization, outside the cleanup try/finally, so an initialization failure can retain a listener. Only that owned idle test worker was terminated to let the already-failed gate collect remaining results; this run is unaccepted and must not be counted as a complete passing gate. No production process, test assertion, timeout or source code was changed. Bun passed the two non-timeout recovery cases. The detailed npm failure causes still need the runner final report."
+  "2026-10-26T22:34:13.636Z",codex-agent,"Current exact-source regression receipts on 066841cb8880145b6f15233727c287b34801079d: npm: ✔ an edited environment marks every downstream generation invalidated in the lineage (5467.163787ms); npm: ✔ a generation whose environment lacks a hash or a specification fence reports a distinct reason (1630.890992ms); Bun: ✔ an edited environment marks every downstream generation invalidated in the lineage (24127.006849ms); Bun: ✔ a generation whose environment lacks a hash or a specification fence reports a distinct reason (2973.68396ms). Fixture edits pass only generationBody(spec).body through the public create option, leaving the helper internal hash out of mutation options; every lineage assertion is retained. Complete gates are still pending and the npm worker termination and other failure receipts remain unaccepted."
+  "2026-10-26T22:46:02.832Z",codex-agent,"Publication checkpoint: both local release gates have already failed and continue collecting the remaining matrix under shared load. Bun has the unchanged 300000 ms HTTP crash-drill timeout. npm also reported headers/cancellation recovery and interrupted-before-dispatch failures, retained an idle listening fixture worker that required termination, and exceeded the unchanged packed CLI 20-second bound. These runs are unaccepted; no whole-gate pass is claimed. Both originally reported lineage regressions pass in both runs, and the isolated headers/cancellation case passes 1/1. A separate clean publication worktree uses identical authored source to rebuild and regenerate artifacts, run the remaining release checks, and start exact-head CI in parallel. No test, deadline, coverage threshold or concurrency setting is relaxed. Existing follow-ups pm-rl-bi4v and pm-rl-7c7m retain timing and cleanup diagnostics. Final CI and remaining local outcomes will be reported separately."
+  "2026-10-26T22:50:13.529Z",codex-agent,"Clean publication validation passed: npm ci; npm run changelog:full; npm run typecheck; npm run build; npm run lint; npm run duplicates; npm run docstring; npm run verify:release-publish-attestation; npm run audit:identities; npm run audit:prod; npm run pack:dry-run; npm run changelog:check; pm health --strict-exit. Authored source is identical to the ongoing local gate source, with only tracker evidence and regenerated changelog differing. Both original lineage failures pass in npm and Bun. The complete local coverage runs already have failures and remain unaccepted; their remaining cases continue while exact-head CI is started. No skipped tests, lowered thresholds, widened doubles or production workaround were added. Claim released; leave item open for verification."
+  "2026-10-26T23:01:38.852Z",codex-agent,"Stopped npm diagnostic receipt: after the original 300000 ms crash-drill timeout, received-headers recovery failed with ENOENT while the SDK runtime bridge restored a previous fixture working directory that had been removed; interrupted-before-dispatch then failed with uv_cwd. The packed LM CLI child separately exceeded its unchanged 20-second bound. The idle receipt-recovery worker had one leaked listener and required termination. The already-unaccepted npm gate was later ended with SIGINT to flush its buffered errors while Bun and all three exact-head CI jobs continued. Reported partial totals are 554 collected tests: 530 pass, 3 fail, 21 cancelled, zero skips; this is not the complete expected 1026-case gate or an accepted pass. Both non-timeout receipt cases pass in the full Bun run and the headers case passes in isolation. These observations do not establish a separate SDK regression without a controlled baseline. The original lineage regressions pass in both runs with unchanged assertions."
+  "2026-10-26T23:06:56.648Z",codex-agent,"Final local Bun diagnostic was intentionally ended after the unchanged 300000 ms HTTP crash-drill timeout had already made the gate unaccepted. Reported partial totals: 600 collected tests, 581 pass, zero assertion failures, 19 cancellations including the deadline and interrupted remaining files, zero skips; exit 1. This is not a complete 1026-case run or an accepted gate. The npm diagnostic also exited 1 with the partial totals and removed-fixture cwd cascade recorded above. Both originally failing lineage cases pass in both runtimes, and the isolated headers recovery passes. All non-coverage release stages passed in the clean publication worktree. Full exact-head CI is the remaining validation; report its outcome separately. No tests were skipped in source, no assertion, threshold or deadline was changed, and no claim of local full-gate success is made."
+files[3]{path,scope}:
+  test/decision-recovery.test.ts,project
+  test/lineage.test.ts,project
+  test/lm-cli.test.ts,project
+tests[4]:
+  - command: "npm run release:check"
+    scope: project
+    timeout_seconds: 7200
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-26T18:15:32.988Z"
+      source_kind: local_mutation
+  - command: npm run typecheck
+    scope: project
+    timeout_seconds: 600
+    pm_context_mode: schema
+    workspace_context_mode: source
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-26T18:20:47.244Z"
+      source_kind: local_mutation
+  - command: "bun run release:check"
+    scope: project
+    timeout_seconds: 10800
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-26T18:41:42.202Z"
+      source_kind: local_mutation
+  - command: "node --test --test-reporter=spec --test-name-pattern=\"^received headers, timeout and cancellation recover\" test/decision-recovery.test.ts"
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-26T21:59:39.636Z"
+      source_kind: local_mutation
+docs[3]{path,scope}:
+  .agents/pm/tasks/pm-rl-7c7m.toon,project
+  .agents/pm/tasks/pm-rl-bi4v.toon,project
+  CHANGELOG.md,project
+body: ""
