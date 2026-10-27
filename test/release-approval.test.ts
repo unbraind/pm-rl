@@ -102,6 +102,7 @@ test('release activation stays manual without an automatic setup workflow', () =
 
 test('the manifest remains public and names its catalog and public author', () => {
   assert.notEqual(manifest.private, true);
+  assert.ok(manifest.scripts['release:check'].startsWith('node --test --test-concurrency=2 test/release-approval.test.ts test/release-calendar.test.ts && '), 'the complete release gate must execute the workflow and calendar contracts');
   for (const key of ['name', 'version', 'description', 'license', 'repository', 'bugs', 'engines']) assert.ok(manifest[key], key);
   assert.deepEqual(manifest.publishConfig, { access: 'public', provenance: true });
   assert.equal(manifest.homepage, `https://pm-cli.unbrained.dev/packages/${repository.split('/')[1]}`);
