@@ -1,11 +1,9 @@
 # Changelog
 
-## 2026.7.31 - 2026-07-31
+## 2026.10.27 - 2026-10-27
 
 ### Added
 
-- Environment registration and versioning, immutable once referenced ([pm-rl-et5b](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-et5b.toon))
-- Run lifecycle ingests NDJSON in bounded pm-rl/2 segments, reads pm-rl/1, and measures sustained storage ([pm-rl-dyho](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-dyho.toon))
 - Explain learned policy suitability with portable replayable cards ([pm-rl-policycards](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-policycards.toon))
 - Observe candidate policies safely before deployment ([pm-rl-shadow](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-shadow.toon))
 - Enforce predeclared causal evaluation plans at promotion ([pm-rl-evalplans](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-evalplans.toon))
@@ -23,6 +21,7 @@
 - Persisted bounded recursive self-improvement loop (pm rl loop run) ([pm-rl-hjg1](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-hjg1.toon))
 - Execute deterministic bandit policy updates across promoted generations ([pm-rl-s44k](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-s44k.toon))
 - Fail-closed statistically bounded promotion gate for the recursive loop ([pm-rl-gr7j](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-gr7j.toon))
+- Environment registration and versioning, immutable once referenced ([pm-rl-et5b](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-et5b.toon))
 - Sim-to-real transfer measurement and gap reporting ([pm-rl-06n6](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-06n6.toon))
 - Sweep planning: expand a search space into independent child runs ([pm-rl-mqdb](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-mqdb.toon))
 - Determinism receipts, and re-deriving them on demand ([pm-rl-dpug](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-dpug.toon))
@@ -36,6 +35,7 @@
 - An approved generation budget the loop cannot advance past on its own ([pm-rl-qix7](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-qix7.toon))
 - Generation lineage: a policy generation is an item whose parent is the generation that produced its training data ([pm-rl-81oc](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-81oc.toon))
 - Absorb pm 2026.8.7 merge and SDK contracts ([pm-rl-soik](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-soik.toon))
+- Run lifecycle ingests NDJSON in bounded pm-rl/2 segments, reads pm-rl/1, and measures sustained storage ([pm-rl-dyho](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-dyho.toon))
 
 ### Changed
 
@@ -79,8 +79,6 @@
 
 ### Other
 
-- Metric series live in item history, never in an item body ([pm-rl-mpd9](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/decisions/pm-rl-mpd9.toon))
-- 100/100/100 coverage and full docstring coverage for pm-rl ([pm-rl-fpon](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-fpon.toon))
 - Release readiness behind PM_RELEASE_APPROVED ([pm-rl-release-gate](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-release-gate.toon))
 - Make the 2026.10.23 pm toolchain bump pass: SDK create fixtures spread an unsupported hash field ([pm-rl-tc1023](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-tc1023.toon))
 - Adopt SDK native controller locks and transaction recovery ([pm-rl-sdk-adoption-1025](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-sdk-adoption-1025.toon))
@@ -102,6 +100,8 @@
 - Promotion refuses on contamination rather than warning about it ([pm-rl-gyrj](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/decisions/pm-rl-gyrj.toon))
 - Mark stale in_progress items as blocked to clear stale_in_progress health warning ([pm-rl-d3ve](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-d3ve.toon))
 - The changelog heading records the day it was generated, so the gate fails every following day ([pm-rl-yxhe](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-yxhe.toon))
+- Metric series live in item history, never in an item body ([pm-rl-mpd9](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/decisions/pm-rl-mpd9.toon))
+- 100/100/100 coverage and full docstring coverage for pm-rl ([pm-rl-fpon](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-fpon.toon))
 
 ### Closed
 
