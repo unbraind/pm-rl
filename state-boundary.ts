@@ -5,6 +5,24 @@ import { commitWorkspaceTransaction, type CommitWorkspaceTransactionOptions, loo
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { acquireLock as sdkAcquireLock, createPmCliExpectedError, EXIT_CODE, getHistoryPath, normalizeRawItemId, normalizeItemId } from "@unbrained/pm-cli/sdk/runtime";
 
+/** Stored schemas retain their previous language; only new declarations opt into tighter rules. */
+export type ValidationMode = "read" | "write";
+/** Apply new identity rules only to a write, preserving the released parser's trimming on reads. @internal */
+export function schemaIdentity(value: string, kind: "item" | "artifact" | "context" | "cohort", mode: ValidationMode): string { return mode === "write" ? identifier(value, kind) : value.trim(); }
+/** Refuse only the specific unsafe SDK/path operation, identifying its legacy value. @internal */
+export function operationIdentifier(value: unknown, kind: "item" | "component" | "digest" = "item", mode: ValidationMode = "read"): string {
+  try {
+    if (kind !== "item") return identifier(value, kind);
+    const native = identifier(mode === "read" && typeof value === "string" ? normalizeRawItemId(value) : value, "component"); // Existing SDK filenames may exceed the new-write 200-byte limit.
+    getHistoryPath(".", native);
+    return normalizeRawItemId(native);
+  }
+  catch {
+    const named = typeof value === "string" ? value.length <= 1024 ? value : `${value.slice(0, 1024)}…` : `<${value === null ? "null" : typeof value}>`;
+    const required = "Use a safe SDK item reference, state component or content digest for this operation; inspect or export the stored record without changing its sealed data.";
+    throw createPmCliExpectedError(`Cannot use legacy value ${JSON.stringify(named)} for this operation. ${required}`, { exitCode: EXIT_CODE.USAGE, context: { code: "rl_identifier_invalid", value: named, required } });
+  }
+}
 /** Refuse unsafe state inputs without exposing their contents in diagnostics. */
 function refused(code: "rl_identifier_invalid" | "rl_state_path_invalid"): never {
   const required = code === "rl_identifier_invalid"
@@ -23,22 +41,22 @@ export function identifier(value: unknown, kind: "item" | "component" | "context
   if (kind === "item") getHistoryPath(".", value);
   return kind === "item" ? normalizeRawItemId(value) : value;
 }
-/** Resolve a validated package identity with the SDK, preserving strict refusal of padded/unsafe input. */
-export function canonicalIdentifier(value: string): string { return identifier(value); }
+/** Resolve a stored native identity through the SDK, refusing unsafe operations with the original value. */
+export function canonicalIdentifier(value: string): string { return operationIdentifier(value, "item", "write"); }
 /** Resolve an item reference with the configured SDK prefix before deriving item keys or hashes. */
-export function canonicalItemIdentifier(value: string, prefix: string): string { return identifier(normalizeItemId(identifier(value), identifier(prefix))); }
+export function canonicalItemIdentifier(value: string, prefix: string): string { return operationIdentifier(normalizeItemId(operationIdentifier(value), identifier(prefix))); }
 /** Project a canonical native id into the package's logical namespace using the SDK's own prefix. */
-export function canonicalNamespaceIdentifier(value: string, prefix: string): string { return identifier(canonicalItemIdentifier(value, prefix).slice(normalizeItemId("", prefix).length)); }
+export function canonicalNamespaceIdentifier(value: string, prefix: string): string { return operationIdentifier(canonicalItemIdentifier(value, prefix).slice(normalizeItemId("", prefix).length)); }
 /** Resolve a logical programme name through the SDK and retain its prefix-free package namespace. */
 export async function canonicalProgrammeId(client: PmClient, value: string): Promise<string> {
-  identifier(value);
+  operationIdentifier(value, "item", "write");
   const config = await identifierClient(client).config("project", "get", "id_prefix");
   const prefix = identifier(config.nested_setting!.value);
   return canonicalNamespaceIdentifier(value, prefix);
 }
 /** Canonicalize programme and approval identities before constructing any state, reservation or input digest. */
 export async function canonicalProgrammeRequest<T extends { readonly id: string; readonly approval: string }>(client: PmClient, request: T): Promise<T> {
-  identifier(request.id); identifier(request.approval);
+  operationIdentifier(request.id, "item", "write"); operationIdentifier(request.approval, "item", "write");
   const config = await identifierClient(client).config("project", "get", "id_prefix");
   const prefix = identifier(config.nested_setting!.value);
   return { ...request, id: canonicalNamespaceIdentifier(request.id, prefix), approval: canonicalItemIdentifier(request.approval, prefix) };
@@ -46,7 +64,7 @@ export async function canonicalProgrammeRequest<T extends { readonly id: string;
 /** Join validated components beneath an explicit state root, rejecting symlinked roots, ancestors and leaves, including dangling links. */
 export function statePath(root: string, ...components: string[]): string {
   if (typeof root !== "string" || root.length === 0 || Buffer.byteLength(root) > 4096 || root.includes("\0")) refused("rl_state_path_invalid");
-  components.forEach((part) => identifier(part, "component"));
+  components.forEach((part) => operationIdentifier(part, "component"));
   const base = resolve(root); const target = resolve(base, ...components);
   assertStatePathRoot(base, target);
   try {
@@ -74,14 +92,14 @@ function sdkReferences(value: unknown): void {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return;
   for (const field of ["id", "parent", "blockedBy", "environment"]) {
     const reference = (value as Record<string, unknown>)[field];
-    if (reference !== undefined && reference !== null) identifier(reference);
+    if (reference !== undefined && reference !== null) { if (field === "id" || typeof reference !== "string") identifier(reference); else operationIdentifier(reference, "item", "write"); }
   }
   const dependencies = (value as Record<string, unknown>).dep;
   if (dependencies !== undefined) {
     if (!Array.isArray(dependencies) || dependencies.length > 10_000) refused("rl_identifier_invalid");
     for (const dependency of Array.from(dependencies)) {
       if (typeof dependency !== "string") refused("rl_identifier_invalid");
-      identifier(looksLikeGenericKeyValueEntry(dependency) ? parseCsvKv(dependency, "--dep").id : dependency);
+      operationIdentifier(looksLikeGenericKeyValueEntry(dependency) ? parseCsvKv(dependency, "--dep").id : dependency, "item", "write");
     }
   }
 }
@@ -93,7 +111,7 @@ export function identifierClient(client: PmClient): PmClient {
     if (typeof method !== "function") return method;
     /** Preserve the SDK receiver while guarding identifiers before any SDK action. */
     return (...args: unknown[]) => {
-      if (typeof property === "string" && itemMethods.has(property)) identifier(args[0]);
+      if (typeof property === "string" && itemMethods.has(property)) { if (typeof args[0] === "string") operationIdentifier(args[0]); else identifier(args[0]); }
       if (property === "create" || property === "update") sdkReferences(args[property === "create" ? 0 : 1]);
       return Reflect.apply(method, target, args);
     };

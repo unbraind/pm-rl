@@ -151,7 +151,7 @@ test("benchmark and evaluation parsers canonicalize valid provenance and refuse 
     version: "1",
     contaminated_environments: ["env-a", "env-b"],
   });
-  assert.throws(() => parseBenchmarkSpec(JSON.stringify({ ...valid, contaminated_environments: [" env-b "] })),
+  assert.throws(() => parseBenchmarkSpec(JSON.stringify({ ...valid, contaminated_environments: [" env-b "] }), "New benchmark", "write"),
     (error) => isPmCliExpectedError(error) && error.context.code === "rl_identifier_invalid");
   for (const [text, message] of [
     ["bad", /not valid JSON/],
@@ -177,7 +177,7 @@ test("benchmark and evaluation parsers canonicalize valid provenance and refuse 
     environment_id: "env", environment_spec_hash: "spec", reward_spec_hash: "reward",
   });
   for (const key of ["checkpoint", "run_id", "benchmark_id", "environment_id"] as const) {
-    assert.throws(() => parseEvalResultSpec(JSON.stringify({ ...evalSpec, [key]: ` ${evalSpec[key]} ` })),
+    assert.throws(() => parseEvalResultSpec(JSON.stringify({ ...evalSpec, [key]: ` ${evalSpec[key]} ` }), "New evaluation", "write"),
       (error) => isPmCliExpectedError(error) && error.context.code === "rl_identifier_invalid");
   }
   for (const [text, message] of [

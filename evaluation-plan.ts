@@ -1,4 +1,4 @@
-import { identifier, identifierClient } from "./state-boundary.ts";
+import { identifier, identifierClient, operationIdentifier, schemaIdentity, type ValidationMode } from "./state-boundary.ts";
 import { evaluateSequentialBoundary, parseSequentialStopping, readSequentialEvaluation, reviewSequentialPlan, withEvaluationLease, type SequentialStopping, type SequentialBoundary } from "./sequential-evaluation.ts";
 import { parseBoundedJson } from "./tracker-record.ts";
 /** Predeclared paired policy comparisons with fixed cohorts and equal-weight correlation units. */
@@ -72,19 +72,19 @@ function object(value: unknown, keys: readonly string[]): Record<string, unknown
   return value as Record<string, unknown>;
 }
 /** Normalize bounded labels and identities before hashing and comparing them. */
-function label(value: unknown): string {
+function label(value: unknown, kind?: "item" | "cohort" | "context", mode: ValidationMode = "read"): string {
   if (typeof value !== "string" || value.trim().length === 0 || value.length > 1024) refuse("eval_plan_invalid");
-  return value.trim();
+  return kind === undefined ? value.trim() : schemaIdentity(value, kind, mode);
 }
 /** Validate the complete design once, including dense bounded cohorts and a declared stopping protocol. */
-export function parseEvaluationPlan(value: unknown): EvaluationPlan {
+export function parseEvaluationPlan(value: unknown, mode: ValidationMode = "read"): EvaluationPlan {
   const shadowKeys = value !== null && typeof value === "object" && Object.hasOwn(value, "shadow") ? ["shadow"] : [];
   const p = object(value, [...shadowKeys, "format", "candidate", "incumbent", "incumbent_version", "population", "selection", "correlation_unit", "members", "objective", "objective_version", "evaluation_context", "direction", "reward_bounds", "criterion", "stopping"]);
   if (p.format !== "pm-rl/evaluation-plan/1" || (p.direction !== "maximize" && p.direction !== "minimize")) refuse("eval_plan_invalid");
-  const candidate = identifier(p.candidate); const incumbent = identifier(p.incumbent);
+  const candidate = label(p.candidate, "item", mode); const incumbent = label(p.incumbent, "item", mode);
   if (candidate === incumbent) refuse("eval_plan_invalid");
   if (!Array.isArray(p.members) || p.members.length === 0 || p.members.length > 10_000) refuse("eval_plan_invalid");
-  const members = Array.from(p.members, (value): EvaluationMember => { const m = object(value, ["id", "unit"]); return { id: identifier(m.id, "cohort"), unit: identifier(m.unit, "cohort") }; }).sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  const members = Array.from(p.members, (value): EvaluationMember => { const m = object(value, ["id", "unit"]); return { id: label(m.id, "cohort", mode), unit: label(m.unit, "cohort", mode) }; }).sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
   const units = new Set(members.map((m) => m.unit));
   if (new Set(members.map((m) => m.id)).size !== members.length) refuse("eval_plan_invalid");
   const sequential = p.stopping !== null && typeof p.stopping === "object" && "kind" in p.stopping && p.stopping.kind === "sequential";
@@ -96,14 +96,14 @@ export function parseEvaluationPlan(value: unknown): EvaluationPlan {
   const b = p.reward_bounds;
   if (!Array.isArray(b) || b.length !== 2 || Array.from(b).some((v) => typeof v !== "number" || !Number.isFinite(v)) || b[0] >= b[1] || !Number.isFinite(b[1] - b[0])) refuse("eval_plan_invalid");
   const normalized: EvaluationPlan = { ...(shadowKeys.length === 0 ? {} : { shadow: label(p.shadow) }), format: "pm-rl/evaluation-plan/1", candidate, incumbent, incumbent_version: label(p.incumbent_version), population: label(p.population), selection: label(p.selection), correlation_unit: label(p.correlation_unit), members,
-    objective: label(p.objective), objective_version: label(p.objective_version), evaluation_context: identifier(p.evaluation_context, "context"), direction: p.direction as EvaluationPlan["direction"],
+    objective: label(p.objective), objective_version: label(p.objective_version), evaluation_context: label(p.evaluation_context, "context", mode), direction: p.direction as EvaluationPlan["direction"],
     reward_bounds: [b[0] as number, b[1] as number], criterion: { confidence: c.confidence, minSamples: c.minSamples, effectThreshold: c.effectThreshold },
     stopping: sequential ? stopping as SequentialStopping : { kind: "fixed", observations: members.length, independent_units: units.size } };
   if (sequential && Buffer.byteLength(JSON.stringify(normalized)) > 1_048_576) refuse("eval_plan_invalid");
   return normalized;
 }
 /** A stable candidate reservation prevents changing the plan for the same generation. */
-export function evaluationPlanId(candidate: string): string { return `${identifier(candidate)}-evaluation-plan`; }
+export function evaluationPlanId(candidate: string, mode: ValidationMode = "read"): string { return `${label(candidate, "item", mode)}-evaluation-plan`; }
 /** Every plan choice contributes to comparison identity; member order does not. */
 export function evaluationComparison(value: unknown): string { return hashJson(parseEvaluationPlan(value) as unknown as JsonValue); }
 /** Return only a certified absence; malformed, denied and incomplete reads propagate. */
@@ -152,7 +152,7 @@ export async function validateEvaluationOrder(client: PmClient, input: readonly 
     const spec = canonicalizeGenerationSpec(extractGenerationSpec(String(candidate.item.body), "Sequential collection provenance"), prefix);
     artifacts = evaluationLifecycleArtifacts(input.registered, spec.collection_runs, input.looks);
   } else artifacts = input;
-  const entries = await Promise.all(artifacts.map(async ({ id, stage }) => ({ id: identifier(id), stage, item: await createdItem(client, id) })));
+  const entries = await Promise.all(artifacts.map(async ({ id, stage }) => ({ id: operationIdentifier(id), stage, item: await createdItem(client, id) })));
   const config = await identifierClient(client).config("project", "get", "id_prefix");
   const events: Awaited<ReturnType<typeof listMutationEvents>>["events"] = [];
   let cursor: string | undefined; let page: Awaited<ReturnType<typeof listMutationEvents>>;
@@ -166,7 +166,7 @@ export async function validateEvaluationOrder(client: PmClient, input: readonly 
 }
 /** Verify the full stored Plan and its provenance, rather than trusting its derived id. */
 export async function readEvaluationPlan(client: PmClient, candidate: string): Promise<RegisteredEvaluationPlan | null> {
-  identifier(candidate);
+  operationIdentifier(candidate);
   const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
   candidate = canonicalizeIdentifier(candidate, prefix);
   const id = evaluationPlanId(candidate); const item = await optionalItem(client, id);
@@ -183,24 +183,25 @@ export async function readEvaluationPlan(client: PmClient, candidate: string): P
   return { id, comparison, plan, incumbent_version: incumbentVersion, created_at: String(item.created_at) };
 }
 /** Resolve native plan references through the SDK before computing the comparison a Decision reviews. */
-export async function resolveEvaluationPlan(client: PmClient, value: unknown): Promise<EvaluationPlan> {
-  const parsed = parseEvaluationPlan(value);
+export async function resolveEvaluationPlan(client: PmClient, value: unknown, mode: ValidationMode = "read"): Promise<EvaluationPlan> {
+  const parsed = parseEvaluationPlan(value, mode);
   const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
   return { ...parsed, candidate: canonicalizeIdentifier(parsed.candidate, prefix), incumbent: canonicalizeIdentifier(parsed.incumbent, prefix), stopping: parsed.stopping.kind === "fixed" ? parsed.stopping : { ...parsed.stopping, review: canonicalizeIdentifier(parsed.stopping.review, prefix) } };
 }
 /** Register before candidate creation; repeat identical declarations safely, refusing edited designs. */
 export async function registerEvaluationPlan(client: PmClient, value: unknown): Promise<RegisteredEvaluationPlan> {
   const plan = await resolveEvaluationPlan(client, value);
-  if (plan.stopping.kind === "sequential") return withEvaluationLease(client, plan.candidate, [plan.candidate, plan.incumbent, plan.stopping.review], () => registerParsedPlan(client, plan));
-  return registerParsedPlan(client, plan);
+  if (plan.stopping.kind === "sequential") return withEvaluationLease(client, plan.candidate, [plan.candidate, plan.incumbent, plan.stopping.review], () => registerParsedPlan(client, plan, value));
+  return registerParsedPlan(client, plan, value);
 }
 /** Create a previously validated reservation; sequential callers hold all provenance locks. */
-async function registerParsedPlan(client: PmClient, plan: EvaluationPlan): Promise<RegisteredEvaluationPlan> {
+async function registerParsedPlan(client: PmClient, plan: EvaluationPlan, input: unknown): Promise<RegisteredEvaluationPlan> {
   if (plan.stopping.kind === "sequential") await reviewSequentialPlan(client, plan);
   const prefix = label((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
   if (canonicalizeIdentifier(plan.candidate, prefix) !== plan.candidate) refuse("eval_plan_invalid");
   const existing = await readEvaluationPlan(client, plan.candidate);
   if (existing !== null) { if (existing.comparison !== evaluationComparison(plan)) refuse("eval_plan_drift"); return existing; }
+  parseEvaluationPlan(input, "write"); // A retry of an existing declaration is a read, not a new write.
   if (await optionalItem(client, plan.candidate) !== null) refuse("eval_plan_late");
   const incumbent = await optionalItem(client, plan.incumbent);
   if (incumbent === null || incumbent.type !== "Generation" || incumbent.id !== plan.incumbent || typeof incumbent.affected_version !== "string" || incumbent.affected_version.length === 0) refuse("eval_plan_missing");
@@ -218,11 +219,11 @@ async function registerParsedPlan(client: PmClient, plan: EvaluationPlan): Promi
   return (await readEvaluationPlan(client, plan.candidate))!;
 }
 /** Canonical observation order makes floating-point aggregation and evidence retries reproducible. */
-export function normalizedObservations(input: readonly unknown[]): EvaluationObservation[] {
+export function normalizedObservations(input: readonly unknown[], mode: ValidationMode = "read"): EvaluationObservation[] {
   return Array.from(input, (value): EvaluationObservation => {
     const row = object(value, ["id", "candidate", "incumbent"]);
     if ([row.candidate, row.incumbent].some((score) => typeof score !== "number" || !Number.isFinite(score))) refuse("eval_plan_evidence");
-    return { id: identifier(row.id, "cohort"), candidate: row.candidate as number, incumbent: row.incumbent as number };
+    return { id: label(row.id, "cohort", mode), candidate: row.candidate as number, incumbent: row.incumbent as number };
   }).sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 }
 /** Recompute paired equal-unit means, counting a correlated cohort once in the bound. */

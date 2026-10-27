@@ -65,7 +65,7 @@ test("transient creation-history read failures leave evaluation plans retryable"
 test("all plan fields and correlation assignments determine comparison identity", () => {
   const p = plan(); const identity = evaluationComparison(p);
   assert.equal(evaluationComparison({ ...p, members: [...p.members].reverse() }), identity);
-  assert.throws(() => evaluationPlanId(" rl-candidate "), (error) => isPmCliExpectedError(error) && error.context.code === "rl_identifier_invalid");
+  assert.throws(() => evaluationPlanId(" rl-candidate ", "write"), (error) => isPmCliExpectedError(error) && error.context.code === "rl_identifier_invalid");
   const changes: Partial<EvaluationPlan>[] = [ { candidate: "next" }, { incumbent: "other" }, { incumbent_version: "changed" }, { population: "other" }, { selection: "sample" }, { correlation_unit: "session" }, { objective: "accuracy" }, { objective_version: "v2" }, { evaluation_context: "other" }, { direction: "minimize" }, { reward_bounds: [-1, 1] }, { criterion: { ...p.criterion, confidence: 0.99 } }, { criterion: { ...p.criterion, minSamples: 20 } }, { criterion: { ...p.criterion, effectThreshold: 0.1 } }, { members: p.members.map((m) => ({ ...m, unit: `new-${m.unit}` })) }, { members: [...p.members, { id: "extra", unit: "extra" }], stopping: { kind: "fixed", observations: 101, independent_units: 101 } } ];
   for (const change of changes) assert.notEqual(evaluationComparison({ ...p, ...change }), identity);
   assert.equal(parseEvaluationPlan({ ...p, population: "  Population  " }).population, "Population");

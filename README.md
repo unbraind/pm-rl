@@ -845,19 +845,37 @@ Save the JSON result's unwrapped `details` as `card.json`. Cards contain scope a
 
 ### Identifier and state-path boundaries
 
-All SDK and CLI item references pass the shared `identifier` schema before SDK
-use. Native item aliases are resolved by the SDK, including configured prefixes;
+Version-1 readers preserve the published label language and comparison hashes.
+Cohort members such as `case 1`, units such as `session:1`, descriptive contexts,
+checkpoint/policy labels and stored reference padding remain readable and
+evaluable. These labels are data, not filesystem components. Parsers default to
+`"read"`; pass the typed `ValidationMode` value `"write"` to validate a new
+declaration. Registration applies that policy only after confirming that a new
+record is needed, so a retry of an existing legacy declaration remains valid.
+New item definitions retain their 200-byte limit; existing SDK references and
+native leaves use the SDK's filename contract within the 255-byte component
+limit. SDK canonicalization remains authoritative. New promotion journal names
+hash the canonical target ID and include a fresh nonce, avoiding long filenames.
+An unsupported legacy value refuses only the requested SDK/filesystem operation,
+with a typed code, the value and a remedy; its record remains readable/exportable.
+See the [published-writer fixture and compatibility proof](test/fixtures/README-compatibility.md).
+
+SDK and CLI references pass shared operation validation before SDK use.
+New identifiers pass the strict `identifier` schema. Native item aliases are
+resolved by the SDK, including configured prefixes;
 creation retains the SDK's alphabet and item-id rules. Package identifiers use
 Unicode letters/numbers/combining marks, dots, underscores and hyphens, bounded to
 200 UTF-8 bytes. A leading `#` is an SDK item-reference alias. `.`, `..`, empty or
 padded values, whitespace, separators, NUL, percent encoding and drive/absolute
-paths refuse; identifiers are never trimmed, decoded or truncated. Human prose,
+paths refuse on new declarations and state components; they are never silently
+sanitized. Existing SDK reference aliases use the SDK normalizer. Human prose,
 explicit input/output directory roots retain their separate contracts. Score
 contexts also admit exact `sha256:` plus 64 lowercase hex digits (optionally
 SDK-prefixed); this schema variant never admits a digest as a path component or
-native item identifier. Legacy checkpoint/policy labels use the same single-token
+native item identifier. New checkpoint/policy labels use the single-token
 pattern and 200-byte bound, with an optional literal `sha256:` prefix; they refuse
-padding and traversal before storage. Checkpoint filenames require an exact unprefixed
+padding and traversal before storage. Legacy labels retain their read language.
+Checkpoint filenames require an exact unprefixed
 `sha256:` digest with 64 lowercase hex digits before extracting its filename.
 File components use the same schema with a 255-byte filename limit.
 Unicode package lease/component names work; native item creation remains subject

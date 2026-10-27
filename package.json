@@ -162,6 +162,7 @@
       "test/baseline.test.ts",
       "test/objective.test.ts",
       "test/evaluation-plan.test.ts",
+      "test/evaluation-compatibility.test.ts",
       "test/shadow.test.ts",
       "test/policy-card.test.ts",
       "test/sequential-evaluation.test.ts",

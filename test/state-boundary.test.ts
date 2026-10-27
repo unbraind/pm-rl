@@ -72,6 +72,7 @@ test("identifier property: 500 seeded sequences preserve external tripwires acro
     });
   }
   assert.equal((await readCompleteLoopItem(client, "#A")).item.id, "rl-a");
+  for (const alias of [" rl-a ", "RL-A", "#rl-a"]) assert.equal((await identifierClient(client).get(alias)).item.id, (await client.get(alias)).item.id);
   await identifierClient(client).update("rl-a", { priority: 3 });
   await commitStateTransaction({ pmRoot, transactionId: "boundary-native-journal", author: "boundary-test", steps: [{ id: "priority",
     inspect: async () => ({ state: (await readCompleteLoopItem(client, "rl-a")).item.priority === 4 ? "applied" : "pending" }),
@@ -96,22 +97,23 @@ test("identifier property: 500 seeded sequences preserve external tripwires acro
     assert.throws(() => identifier(id, "artifact"), refusal);
     assert.throws(() => identifier(`sha256:${id}`, "artifact"), refusal);
     for (const field of ["id", "parent", "blockedBy", "environment"]) assert.throws(() => identifierClient(client).create({ id: "refused-sdk-reference", type: "Task", title: "Refused", [field]: id }), refusal);
-    assert.throws(() => parseSweepSpec(JSON.stringify({ search_space: { x: [1] }, selection_rule: { kind: "none" }, algorithm: "a", environment_id: "rl-env", environment_spec_hash: "hash", arms: [{ id, config: {} }] })), isPmCliExpectedError);
-    assert.throws(() => parseTransferSpec(JSON.stringify({ source_environment_id: "rl-env", target_environment_id: "rl-target", checkpoint: "checkpoint", run_id: id, gaps: [{ metric: "reward", gap: 0 }] })), isPmCliExpectedError);
-    assert.throws(() => parseEvalResultSpec(JSON.stringify({ checkpoint: "checkpoint", run_id: id, benchmark_id: "rl-benchmark", environment_id: "rl-env", environment_spec_hash: "hash", reward_spec_hash: "hash", score: 1, passed: true })), isPmCliExpectedError);
-    assert.throws(() => parseEvalResultSpec(JSON.stringify({ checkpoint: id, run_id: "rl-a", benchmark_id: "rl-benchmark", environment_id: "rl-env", environment_spec_hash: "hash", reward_spec_hash: "hash", score: 1, passed: true })), isPmCliExpectedError);
-    assert.throws(() => parseTransferSpec(JSON.stringify({ source_environment_id: "rl-env", target_environment_id: "rl-target", checkpoint: id, run_id: "rl-a", gaps: [{ metric: "reward", gap: 0 }] })), isPmCliExpectedError);
-    assert.throws(() => parseBenchmarkSpec(JSON.stringify({ name: "benchmark", version: "1", task_suite: {}, scoring_function: {}, pass_criteria: {}, direction: "maximize", contaminated_environments: [id] })), isPmCliExpectedError);
+    assert.throws(() => parseSweepSpec(JSON.stringify({ search_space: { x: [1] }, selection_rule: { kind: "none" }, algorithm: "a", environment_id: "rl-env", environment_spec_hash: "hash", arms: [{ id, config: {} }] }), "New sweep", "write"), isPmCliExpectedError);
+    assert.throws(() => parseTransferSpec(JSON.stringify({ source_environment_id: "rl-env", target_environment_id: "rl-target", checkpoint: "checkpoint", run_id: id, gaps: [{ metric: "reward", gap: 0 }] }), "New transfer", "write"), isPmCliExpectedError);
+    assert.throws(() => parseEvalResultSpec(JSON.stringify({ checkpoint: "checkpoint", run_id: id, benchmark_id: "rl-benchmark", environment_id: "rl-env", environment_spec_hash: "hash", reward_spec_hash: "hash", score: 1, passed: true }), "New evaluation", "write"), isPmCliExpectedError);
+    assert.throws(() => parseEvalResultSpec(JSON.stringify({ checkpoint: id, run_id: "rl-a", benchmark_id: "rl-benchmark", environment_id: "rl-env", environment_spec_hash: "hash", reward_spec_hash: "hash", score: 1, passed: true }), "New evaluation", "write"), isPmCliExpectedError);
+    assert.throws(() => parseTransferSpec(JSON.stringify({ source_environment_id: "rl-env", target_environment_id: "rl-target", checkpoint: id, run_id: "rl-a", gaps: [{ metric: "reward", gap: 0 }] }), "New transfer", "write"), isPmCliExpectedError);
+    assert.throws(() => parseBenchmarkSpec(JSON.stringify({ name: "benchmark", version: "1", task_suite: {}, scoring_function: {}, pass_criteria: {}, direction: "maximize", contaminated_environments: [id] }), "New benchmark", "write"), isPmCliExpectedError);
     for (const field of ["parent", "approval", "environment_version", "collection_runs", "base_checkpoint", "policy"] as const) {
       const record = { base_checkpoint: "checkpoint", policy: "policy", parent: "rl-a", approval: null, environment_version: "rl-environment", reward_spec_version: "v1", collection_runs: ["rl-a"], training_config: {}, seed: false, [field]: field === "collection_runs" ? [id] : id };
-      assert.throws(() => parseGenerationSpec(JSON.stringify(record), "Untrusted record"), isPmCliExpectedError);
+      assert.throws(() => parseGenerationSpec(JSON.stringify(record), "Untrusted record", "write"), isPmCliExpectedError);
     }
     assert.throws(() => statePath(pmRoot, id), refusal);
     assert.throws(() => commitStateTransaction({ pmRoot, transactionId: id, author: "boundary-test", steps: [] }), refusal);
     await assert.rejects(commitProcessTransaction({ pmRoot, transactionId: id, author: "boundary-test", steps: [] }), refusal);
     assert.throws(() => processStaging(pmRoot, id), refusal);
     assert.throws(() => loopLeaseLockId(id), refusal);
-    assert.throws(() => identifierClient(client).get(id), refusal);
+    if ([" padded", "trailing "].includes(id)) await assert.rejects(async () => identifierClient(client).get(id), (error: unknown) => isPmCliExpectedError(error) && error.exitCode === 3);
+    else assert.throws(() => identifierClient(client).get(id), refusal);
     await assert.rejects(withEvaluationLease(client, "rl-candidate", [id], async () => assert.fail("unsafe dependency executed")), refusal);
     await assert.rejects(withProcessJobFence({ pmRoot, author: "boundary-test" }, id, async () => assert.fail("unsafe fence executed")), refusal);
     await assert.rejects(registerEvaluationPlan(client, plan(id)), (error) => refusal(error) || (isPmCliExpectedError(error) && error.context.code === "eval_plan_invalid"));
@@ -125,7 +127,7 @@ test("identifier property: 500 seeded sequences preserve external tripwires acro
   await identifierClient(client).create({ id: "rl-candidate-evaluation-plan", type: "Plan", title: "Untrusted registered plan", body: JSON.stringify({ plan: plan("../../tripwire/expired"), incumbent_version: "v1" }), affectedVersion: "untrusted" });
   await assert.rejects(recordSequentialEvaluation(client, "rl-candidate", []), refusal);
   assert.equal(treeHash(tripwire), before); assert.ok(existsSync(join(tripwire, "expired.lock")));
-  assert.throws(() => parseEvaluationPlan({ ...plan("rl-review") as object, candidate: "../escape" }), refusal);
+  assert.throws(() => parseEvaluationPlan({ ...plan("rl-review") as object, candidate: "../escape" }, "write"), refusal);
 });
 
 test("state paths refuse symlinked roots, intermediate directories, leaves and cleanup gates", async () => {

@@ -372,7 +372,8 @@ test("parseGenerationSpec accepts the seed and a full candidate and refuses ever
     [JSON.stringify({ ...fullBase }).replace('"gap":null', '"gap":1e999'), /gap to be a finite number or null/],
     [JSON.stringify({ ...fullBase, promotion_evidence: 5 }), /promotion_evidence to be a string or null/],
   ] as Array<[string, RegExp]>) {
-    assert.throws(() => parseGenerationSpec(text, "g"), message);
+    assert.throws(() => parseGenerationSpec(text, "g", "write"), message);
+    assert.throws(() => parseGenerationSpec(text, "g"));
   }
   // The promotion invariant: approval, proxy_score, held_out_score and gap are
   // non-null EXACTLY when promoted is true. A promoted record carrying all four
@@ -408,7 +409,7 @@ test("parseGenerationSpec accepts the seed and a full candidate and refuses ever
   // gen-0 from the head set - the same padded-identity class as the
   // contamination gate bypass fixed earlier in this PR.
   const paddedParent = { ...candidate, parent: "  gen-0  " };
-  assert.throws(() => parseGenerationSpec(JSON.stringify(paddedParent), "g"), /State boundary refused/);
+  assert.throws(() => parseGenerationSpec(JSON.stringify(paddedParent), "g", "write"), /State boundary refused/);
   // A seed body legitimately omits the parent key. Before `parent` collapsed
   // `undefined` to null like every other optional field, that body was refused
   // as invalid_parent with a message saying parent must be a string or null -
@@ -421,8 +422,8 @@ test("parseGenerationSpec accepts the seed and a full candidate and refuses ever
   // equivalent to one that omits the key — it must NOT be refused as
   // seed_with_parent. A non-seed body with a blank parent is still refused as
   // missing_parent, because the normalized null is not a usable parent.
-  assert.throws(() => parseGenerationSpec(JSON.stringify({ ...spec({ seed: true, parent: null }), parent: "   " }), "g"), /State boundary refused/);
-  assert.throws(() => parseGenerationSpec(JSON.stringify({ ...spec({ seed: true, parent: null }), parent: "" }), "g"), /State boundary refused/);
+  assert.throws(() => parseGenerationSpec(JSON.stringify({ ...spec({ seed: true, parent: null }), parent: "   " }), "g", "write"), /State boundary refused/);
+  assert.throws(() => parseGenerationSpec(JSON.stringify({ ...spec({ seed: true, parent: null }), parent: "" }), "g", "write"), /State boundary refused/);
   // A NON-seed body missing the key must still be refused - but for the reason
   // that is true of it (no parent) rather than for a type it never violated.
   const candidateNoParentKey: Record<string, unknown> = { ...candidate };
@@ -432,14 +433,14 @@ test("parseGenerationSpec accepts the seed and a full candidate and refuses ever
   // the comparison is the one bounding the recursive promotion budget. A
   // promoted record storing "  a  " matches no approval id, so it consumes none
   // of a's budget while still counting as promoted everywhere else.
-  assert.throws(() => parseGenerationSpec(JSON.stringify({ ...promotedBase, approval: "  a  " }), "g"), /State boundary refused/);
+  assert.throws(() => parseGenerationSpec(JSON.stringify({ ...promotedBase, approval: "  a  " }), "g", "write"), /State boundary refused/);
   // collection_runs was the last stored identity list left un-normalized. It
   // lives inside the JSON fence, which pm treats as opaque body text and does
   // NOT normalize, so unlike the Run's typed `environment` field a padded entry
   // here IS reachable — and each entry is resolved by strict id lookup during
   // the ancestry walk, so it would resolve nothing and quietly degrade the
   // contamination graph.
-  assert.throws(() => parseGenerationSpec(JSON.stringify({ ...promotedBase, collection_runs: ["  run-a  ", "run-b"] }), "g"), /State boundary refused/);
+  assert.throws(() => parseGenerationSpec(JSON.stringify({ ...promotedBase, collection_runs: ["  run-a  ", "run-b"] }), "g", "write"), /State boundary refused/);
   assert.throws(() => parseGenerationSpec(JSON.stringify({ ...promotedBase, collection_runs: ["run-a", "   "] }), "g"), /collection run id to be a non-empty identity/);
   // A blank approval is the same bypass without the padding: it is non-null, so
   // it satisfies the promotion-evidence invariant above, and it equals no
@@ -529,7 +530,7 @@ test("isGapWidening requires strictly increasing gaps over the full window", () 
  * would bypass the very code path under test.
  */
 test("a padded environment identity refuses before contamination lookup", () => {
-  assert.throws(() => parseGenerationSpec(JSON.stringify(spec({ environment_version: "  env-eval\t", reward_spec_version: "reward-1", collection_runs: ["run-1"], policy: "p1", seed: false, parent: "gen-0" })), "padded"), (error) => isPmCliExpectedError(error) && error.context.code === "rl_identifier_invalid");
+  assert.throws(() => parseGenerationSpec(JSON.stringify(spec({ environment_version: "  env-eval\t", reward_spec_version: "reward-1", collection_runs: ["run-1"], policy: "p1", seed: false, parent: "gen-0" })), "padded", "write"), (error) => isPmCliExpectedError(error) && error.context.code === "rl_identifier_invalid");
 });
 
 test("findContaminationPath follows environment and collection-run edges and is decided on identity", () => {
@@ -977,7 +978,7 @@ test("a padded --parent refuses before storing any generation", async () => {
   await assert.rejects(client.get("gen-padded-parent"), (error) => isPmCliExpectedError(error) && error.exitCode === 3);
 });
 
-test("a promoted generation with a padded approval makes the budget undecidable", async () => {
+test("a legacy promoted generation with a padded approval consumes its budget", async () => {
   // The budget is counted by comparing each promoted generation's stored
   // approval to the approval id with strict equality. Generations are pm items,
   // so a body can be authored by hand or by another tool; if a padded approval
@@ -999,7 +1000,8 @@ test("a promoted generation with a padded approval makes the budget undecidable"
   await assert.rejects(
     harness.runCommand({ command: "rl generation promote", pmRoot, args: ["gen-next"], options: { approval: approvalId, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "second" } }),
     (error: Error) => {
-      assert.match(error.message, /approved budget cannot be established/);
+      assert.match(error.message, /approved promotion budget/);
+      assert.ok(isPmCliExpectedError(error) && error.context.code === "budget_exceeded");
       return true;
     },
   );

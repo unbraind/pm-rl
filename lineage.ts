@@ -1,4 +1,4 @@
-import { canonicalItemIdentifier, identifier } from "./state-boundary.ts";
+import { identifier, type ValidationMode } from "./state-boundary.ts";
 import { parseBoundedJson } from "./tracker-record.ts";
 /**
  * @module pm-rl/lineage
@@ -102,10 +102,13 @@ export interface GenerationSpec {
 }
 
 /** Resolve tracker aliases and case before identity comparison, ordering, deduplication or hashing. */
-export function canonicalizeIdentifier(id: string, prefix: string): string { return canonicalItemIdentifier(id, prefix); }
+export function canonicalizeIdentifier(id: string, prefix: string): string {
+  if (typeof id !== "string" || id.trim().length === 0) identifier(id);
+  return normalizeItemId(id, prefix); // Canonicalization is pure; the SDK/path operation validates representability.
+}
 
 /** Resolve an Environment alias or a content-addressed dataset context without treating a digest as a filename. */
-export function canonicalizeEvaluationContext(context: string, prefix: string): string { return identifier(normalizeItemId(identifier(context, "context"), identifier(prefix)), "context"); }
+export function canonicalizeEvaluationContext(context: string, prefix: string): string { return normalizeItemId(context, identifier(prefix)); }
 
 /** Resolve the Environment reference while retaining objective, seed and artifact label domains. */
 export function canonicalizeScoreRecord(score: ScoreRecord, prefix: string): ScoreRecord { return { ...score, evaluation_context: canonicalizeEvaluationContext(score.evaluation_context, prefix) }; }
@@ -196,16 +199,16 @@ export interface LineageView {
   readonly ancestries: readonly LineageAncestry[];
 }
 
-/** Read a label, validating raw item and context references before any label whitespace normalization. */
-function asString(record: Record<string, unknown>, key: string, source: string, required = true): string {
+/** Read a released label, applying strict identity validation only for a new declaration. */
+function asString(record: Record<string, unknown>, key: string, source: string, required = true, mode: ValidationMode = "read"): string {
   const value = record[key];
   if (typeof value !== "string") {
     if (required) expectedFail(`${source} requires a string ${key}.`, `missing_${key}`);
     return "";
   }
   const normalized = value.trim();
-  if (value !== "" && (key === "base_checkpoint" || key === "policy")) identifier(value, "artifact");
-  if (normalized.length > 0 && (key === "environment_version" || key === "evaluation_context")) identifier(value, key === "evaluation_context" ? "context" : "item");
+  if (mode === "write" && value !== "" && (key === "base_checkpoint" || key === "policy")) identifier(value, "artifact");
+  if (mode === "write" && normalized.length > 0 && (key === "environment_version" || key === "evaluation_context")) identifier(value, key === "evaluation_context" ? "context" : "item");
   if (required && normalized.length === 0) expectedFail(`${source} requires a non-empty ${key}.`, `empty_${key}`);
   return normalized;
 }
@@ -225,12 +228,12 @@ function asString(record: Record<string, unknown>, key: string, source: string, 
  *   cannot be compared — a non-finite value, a non-positive scale, or an unknown
  *   direction.
  */
-export function parseScoreRecord(value: unknown, label: string): ScoreRecord {
+export function parseScoreRecord(value: unknown, label: string, mode: ValidationMode = "read"): ScoreRecord {
   const record = asJsonObject(value, label);
-  const objective = asString(record, "objective", label);
-  const objectiveVersion = asString(record, "objective_version", label);
-  const evaluationContext = asString(record, "evaluation_context", label);
-  const seedSet = asString(record, "seed_set", label);
+  const objective = asString(record, "objective", label, true, mode);
+  const objectiveVersion = asString(record, "objective_version", label, true, mode);
+  const evaluationContext = asString(record, "evaluation_context", label, true, mode);
+  const seedSet = asString(record, "seed_set", label, true, mode);
   const direction = record["direction"];
   if (direction !== "maximize" && direction !== "minimize") {
     expectedFail(`${label} requires a direction of "maximize" or "minimize".`, "invalid_direction");
@@ -261,7 +264,7 @@ export function parseScoreRecord(value: unknown, label: string): ScoreRecord {
  * @throws When the text is not valid JSON, a required field is absent or of the
  *   wrong kind, or a non-seed generation is missing its parent or provenance.
  */
-export function parseGenerationSpec(text: string, source: string): GenerationSpec {
+export function parseGenerationSpec(text: string, source: string, mode: ValidationMode = "read"): GenerationSpec {
   let parsed: unknown;
   try {
     parsed = parseBoundedJson(text);
@@ -271,8 +274,8 @@ export function parseGenerationSpec(text: string, source: string): GenerationSpe
   const record = asJsonObject(parsed, source);
   const evaluationPlan = record["evaluation_plan"];
   if (evaluationPlan !== undefined && (typeof evaluationPlan !== "string" || !/^[a-f0-9]{64}$/.test(evaluationPlan))) expectedFail(`${source} requires a SHA-256 evaluation_plan comparison; register a fresh planned candidate.`, "invalid_evaluation_plan");
-  const baseCheckpoint = asString(record, "base_checkpoint", source);
-  const policy = asString(record, "policy", source, false);
+  const baseCheckpoint = asString(record, "base_checkpoint", source, true, mode);
+  const policy = asString(record, "policy", source, false, mode);
   const collectionRunsRaw = record["collection_runs"];
   if (!Array.isArray(collectionRunsRaw) || !collectionRunsRaw.every((run) => typeof run === "string")) {
     expectedFail(`${source} requires a collection_runs array of strings.`, "invalid_collection_runs");
@@ -286,10 +289,10 @@ export function parseGenerationSpec(text: string, source: string): GenerationSpe
   if (collectionRuns.some((run) => run.length === 0)) {
     expectedFail(`${source} requires every collection run id to be a non-empty identity.`, "empty_collection_run");
   }
-  collectionRunsRaw.forEach((run) => identifier(run));
+  if (mode === "write") collectionRunsRaw.forEach((run) => identifier(run));
   const trainingConfig = record["training_config"] ?? {};
-  const environmentVersion = asString(record, "environment_version", source, false);
-  const rewardSpecVersion = asString(record, "reward_spec_version", source, false);
+  const environmentVersion = asString(record, "environment_version", source, false, mode);
+  const rewardSpecVersion = asString(record, "reward_spec_version", source, false, mode);
   // An absent key collapses to null before validation, as `gap`,
   // `promotion_evidence` and `approval` already do. Without this, a seed body
   // that declares `seed: true` and simply omits the key it has no use for was
@@ -302,9 +305,9 @@ export function parseGenerationSpec(text: string, source: string): GenerationSpe
   if (parentRaw !== null && typeof parentRaw !== "string") {
     expectedFail(`${source} requires parent to be a string or null.`, "invalid_parent");
   }
-  // Null denotes an absent parent; supplied identifiers must validate without trimming.
-  if (typeof parentRaw === "string") identifier(parentRaw);
-  const parent = parentRaw;
+  // Released records normalize blank parents to null; new declarations validate raw identifiers.
+  if (mode === "write" && typeof parentRaw === "string") identifier(parentRaw);
+  const parent = typeof parentRaw === "string" ? parentRaw.trim() || null : parentRaw;
   const seed = record["seed"] === true;
   if (seed && parent !== null) {
     expectedFail(`${source} declares seed but has a parent.`, "seed_with_parent");
@@ -328,9 +331,9 @@ export function parseGenerationSpec(text: string, source: string): GenerationSpe
   if (approval !== null && approval.length === 0) {
     expectedFail(`${source} requires approval to be a non-empty identity or null.`, "empty_approval");
   }
-  if (approvalRaw !== null) identifier(approvalRaw);
-  const proxyScore = record["proxy_score"] === null || record["proxy_score"] === undefined ? null : parseScoreRecord(record["proxy_score"], `${source} proxy_score`);
-  const heldOutScore = record["held_out_score"] === null || record["held_out_score"] === undefined ? null : parseScoreRecord(record["held_out_score"], `${source} held_out_score`);
+  if (mode === "write" && approvalRaw !== null) identifier(approvalRaw);
+  const proxyScore = record["proxy_score"] === null || record["proxy_score"] === undefined ? null : parseScoreRecord(record["proxy_score"], `${source} proxy_score`, mode);
+  const heldOutScore = record["held_out_score"] === null || record["held_out_score"] === undefined ? null : parseScoreRecord(record["held_out_score"], `${source} held_out_score`, mode);
   // Normalize an absent gap to null BEFORE the invariant check below. The
   // invariant compares with `=== null`, so leaving `undefined` here breaks it in
   // both directions: a promoted record with no `gap` key would pass as complete

@@ -1,4 +1,4 @@
-import { identifier } from "./state-boundary.ts";
+import { schemaIdentity, type ValidationMode } from "./state-boundary.ts";
 import { parseBoundedJson } from "./tracker-record.ts";
 /**
  * @module pm-rl/refuse
@@ -105,13 +105,13 @@ export function parseJsonRecord(text: string, source: string, invalidJsonCode: s
  * @returns The trimmed value.
  * @throws When the field is absent, not a string, or blank.
  */
-export function requiredTrimmedString(record: Readonly<Record<string, unknown>>, key: string, source: string, codePrefix: string, exitCode: number = EXIT_CODE.USAGE): string {
+export function requiredTrimmedString(record: Readonly<Record<string, unknown>>, key: string, source: string, codePrefix: string, exitCode: number = EXIT_CODE.USAGE, mode: ValidationMode = "read"): string {
   const value = record[key];
   if (typeof value !== "string" || value.trim().length === 0) {
     expectedFail(`${source} requires a non-empty string ${key}.`, `${codePrefix}${key}`, exitCode);
   }
   // Preserve raw identifiers; label fields retain their separate whitespace contract.
-  return key === "id" || key.endsWith("_id") ? identifier(value) : key === "checkpoint" ? identifier(value, "artifact") : value.trim();
+  return key === "id" || key.endsWith("_id") ? schemaIdentity(value, "item", mode) : key === "checkpoint" ? schemaIdentity(value, "artifact", mode) : value.trim();
 }
 
 /** Read a finite scalar from persisted checkpoint evidence. */

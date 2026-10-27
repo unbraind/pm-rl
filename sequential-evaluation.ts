@@ -1,5 +1,5 @@
 import { canonicalizeIdentifier } from "./lineage.ts";
-import { identifier, identifierClient } from "./state-boundary.ts";
+import { identifier, identifierClient, operationIdentifier } from "./state-boundary.ts";
 /** Reviewed finite-look sequential tests and immutable, resumable evidence checkpoints. */
 import { dirname } from "node:path";
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
@@ -85,7 +85,7 @@ export async function reviewSequentialPlan(client: PmClient, plan: EvaluationPla
 }
 /** Serialize protocol writers with the SDK token-owned lease and lock ordinary SDK provenance writers too. */
 export async function withEvaluationLease<T>(client: PmClient, candidate: string, dependencies: readonly string[], execute: () => Promise<T>): Promise<T> {
-  identifier(candidate); dependencies.forEach((id) => identifier(id));
+  operationIdentifier(candidate, "item", "write"); dependencies.forEach((id) => operationIdentifier(id, "item", "write"));
   const config = await identifierClient(client).config("project", "get", "id_prefix");
   const root = dirname(config.settings_path);
   const prefix = identifier(config.nested_setting!.value);
@@ -134,7 +134,7 @@ export async function readSequentialEvaluation(client: PmClient, candidate: stri
 export async function recordSequentialEvaluation(client: PmClient, rawCandidate: string, input: unknown): Promise<SequentialEvaluationResult> {
   identifier(rawCandidate);
   if (!Array.isArray(input) || input.length > 10_000) refuse("eval_plan_stopping");
-  const rows = normalizedObservations(input);
+  const rows = normalizedObservations(input, "write");
   return withEvaluationLease(client, rawCandidate, [], async () => {
     const registered = await readEvaluationPlan(client, rawCandidate); if (registered === null) refuse("eval_plan_missing");
     const candidate = registered.plan.candidate;

@@ -1,4 +1,6 @@
-import { canonicalIdentifier, canonicalProgrammeId, canonicalProgrammeRequest, acquireStateLock, statePath, identifier, checkedStateFile, identifierClient, commitStateTransaction } from "./state-boundary.ts";
+import { canonicalIdentifier, canonicalProgrammeId, canonicalProgrammeRequest, acquireStateLock, statePath, identifier, checkedStateFile, identifierClient, commitStateTransaction, schemaIdentity, operationIdentifier, type ValidationMode } from "./state-boundary.ts";
+/** Select released-schema reads or explicit validation of a new declaration. */
+export type { ValidationMode } from "./state-boundary.ts";
 import type { HistoryResult } from "@unbrained/pm-cli/sdk/query";
 import { decodeTrackerRecord, skippedTrackerRecords, parseBoundedJson } from "./tracker-record.ts";
 /**
@@ -580,9 +582,9 @@ function fail(message: string, code: string, exitCode: number = EXIT_CODE.USAGE)
 function stringOption(context: CommandHandlerContext, key: string, required = true): string | undefined {
   const camel = key.replaceAll(/_([a-z])/g, (_match, letter: string) => letter.toUpperCase());
   const value = context.options[key] ?? context.options[camel];
-  if (typeof value === "string" && ["checkpoint", "base_checkpoint", "policy"].includes(key)) return identifier(value, "artifact");
-  if (typeof value === "string" && ["environment", "parent", "approval", "run", "benchmark", "candidate", "incumbent", "evaluation_context", "source", "target"].includes(key)) return identifier(value);
-  if (typeof value === "string" && ["collection_runs", "contaminated_by"].includes(key)) { value.split(",").forEach((id) => identifier(id)); return value; }
+  if (typeof value === "string" && ["checkpoint", "base_checkpoint", "policy"].includes(key)) return value; // Labels are validated only when a new record will be written.
+  if (typeof value === "string" && ["environment", "parent", "approval", "run", "benchmark", "candidate", "incumbent", "source", "target"].includes(key)) { operationIdentifier(value); return value; }
+  if (typeof value === "string" && ["collection_runs", "contaminated_by"].includes(key)) { value.split(",").forEach((id) => operationIdentifier(id)); return value; }
   if (typeof value === "string" && value.trim().length > 0) return value.trim();
   if (required) fail(`pm rl requires --${key.replaceAll("_", "-")}.`, `missing_${key}`);
   return undefined;
@@ -592,6 +594,7 @@ function stringOption(context: CommandHandlerContext, key: string, required = tr
 function requiredArgument(context: CommandHandlerContext, label: string, kind: "item" | "digest" = "item"): string {
   const value = context.args.find((argument) => !argument.startsWith("-"));
   if (value === undefined || value.trim().length === 0) fail(`pm rl requires ${label}.`, "missing_argument");
+  if (kind === "item") { operationIdentifier(value); return value; }
   return identifier(value, kind);
 }
 
@@ -662,14 +665,14 @@ function parseJsonObject(text: string, source: string, code: string, exitCode: n
 }
 
 /** Require non-empty string values for a domain specification's identity fields. */
-function requireJsonStrings(record: Record<string, JsonValue>, keys: readonly string[], source: string, codePrefix: string, exitCode: number = EXIT_CODE.USAGE): void {
+function requireJsonStrings(record: Record<string, JsonValue>, keys: readonly string[], source: string, codePrefix: string, exitCode: number = EXIT_CODE.USAGE, mode: ValidationMode = "read"): void {
   for (const key of keys) {
     const value = record[key];
     if (typeof value !== "string" || value.trim().length === 0) {
       fail(`${source} requires a non-empty string ${key}.`, `${codePrefix}_${key}`, exitCode);
     }
-    if (key.endsWith("_id")) record[key] = identifier(value);
-    if (key === "checkpoint") identifier(value, "artifact");
+    if (mode === "write" && key.endsWith("_id")) record[key] = identifier(value);
+    if (mode === "write" && key === "checkpoint") identifier(value, "artifact");
   }
 }
 
@@ -700,7 +703,7 @@ export function parseEnvironmentSpec(text: string, source = "Environment file"):
 }
 
 /** Parse and validate a benchmark specification and canonicalize contamination ids. */
-export function parseBenchmarkSpec(text: string, source = "Benchmark file"): BenchmarkSpec {
+export function parseBenchmarkSpec(text: string, source = "Benchmark file", mode: ValidationMode = "read"): BenchmarkSpec {
   const record = parseJsonObject(text, source, "invalid_benchmark_json");
   requireJsonStrings(record, ["name", "version"], source, "invalid_benchmark");
   for (const key of ["task_suite", "scoring_function", "pass_criteria"] as const) {
@@ -722,14 +725,14 @@ export function parseBenchmarkSpec(text: string, source = "Benchmark file"): Ben
     scoring_function: record.scoring_function!,
     pass_criteria: record.pass_criteria!,
     direction: record.direction,
-    contaminated_environments: [...new Set(contaminatedEnvironments.map((id) => identifier(id)))].sort(),
+    contaminated_environments: [...new Set(contaminatedEnvironments.map((id) => schemaIdentity(id, "item", mode)))].sort(),
   };
 }
 
 /** Parse and validate one stored evaluation provenance record. */
-export function parseEvalResultSpec(text: string, source = "EvalResult"): EvalResultSpec {
+export function parseEvalResultSpec(text: string, source = "EvalResult", mode: ValidationMode = "read"): EvalResultSpec {
   const record = parseJsonObject(text, source, "invalid_eval_result_json", EXIT_CODE.CONFLICT);
-  requireJsonStrings(record, ["checkpoint", "run_id", "benchmark_id", "environment_id", "environment_spec_hash", "reward_spec_hash"], source, "invalid_eval_result", EXIT_CODE.CONFLICT);
+  requireJsonStrings(record, ["checkpoint", "run_id", "benchmark_id", "environment_id", "environment_spec_hash", "reward_spec_hash"], source, "invalid_eval_result", EXIT_CODE.CONFLICT, mode);
   if (typeof record.score !== "number" || !Number.isFinite(record.score)) {
     fail(`${source} score must be finite.`, "invalid_eval_result_score", EXIT_CODE.CONFLICT);
   }
@@ -777,7 +780,7 @@ function observePromotionEvidence(id: string, fields: string | undefined, item: 
 export async function readCompleteLoopItem(client: PmClient, id: string, at?: string, fields?: string): Promise<GetResult> {
   const observing = promotionEvidence.getStore()?.client === client;
   if (observing) {
-    identifier(id);
+    operationIdentifier(id);
     const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
     id = canonicalizeIdentifier(id, prefix);
   }
@@ -824,7 +827,7 @@ async function withLockedPromotionEvidence<T>(client: PmClient, pmRoot: string, 
 
 /** Apply a read-derived change through the SDK item transaction, refusing a stale revision under its item lock. @internal */
 export async function mutateLoopItem(client: PmClient, before: GetResult, message: string, change: (document: ItemDocument, closeStatus: string, terminal: boolean) => string[], preconditions: readonly GetResult[] = [], author = "pm-rl", op: "update" | "close" = "update"): Promise<GetResult> {
-  identifier(before.item.id); preconditions.forEach((dependency) => identifier(dependency.item.id));
+  operationIdentifier(before.item.id); preconditions.forEach((dependency) => operationIdentifier(dependency.item.id));
   const config = await identifierClient(client).config("project", "get", "id_prefix");
   const pmRoot = dirname(config.settings_path);
   const settings = await readSettings(pmRoot);
@@ -945,9 +948,10 @@ async function readCompleteNotes(client: PmClient, id: string): Promise<LogNote[
  * @param options - Complete create envelope with an explicit identity and type.
  * @param collisionCode - Typed refusal when the existing identity differs.
  * @param matches - Checks the stored content and provenance, not just the id.
+ * @param beforeCreate - Validate new-write policy only after certified absence, never on legacy retries.
  * @returns The created or verified item and whether this caller created it.
  */
-export async function createOrReadIdentical(client: PmClient, options: Parameters<PmClient["create"]>[0] & { id: string; type: "Decision" | "Environment" | "Run" | "Generation" }, collisionCode: string, matches: (item: GetResult["item"]) => boolean): Promise<{ item: GetResult["item"]; created: boolean }> {
+export async function createOrReadIdentical(client: PmClient, options: Parameters<PmClient["create"]>[0] & { id: string; type: "Decision" | "Environment" | "Run" | "Generation" }, collisionCode: string, matches: (item: GetResult["item"]) => boolean, beforeCreate?: () => void | Promise<void>): Promise<{ item: GetResult["item"]; created: boolean }> {
   /** Read and validate the winner at either the initial read or collision boundary. */
   async function readMatching(): Promise<GetResult["item"]> {
     const existing = await getTypedItem(client, options.id, options.type);
@@ -961,6 +965,7 @@ export async function createOrReadIdentical(client: PmClient, options: Parameter
   } catch (error) {
     if (!isItemNotFound(error)) throw error;
   }
+  await beforeCreate?.();
   try {
     return { item: (await identifierClient(client).create(options)).item, created: true };
   } catch (error) {
@@ -1335,13 +1340,13 @@ async function verifyBenchmarkIdentity(client: PmClient, benchmarkId: string): P
 /** Register one immutable benchmark suite and its typed contamination edges. */
 async function registerBenchmark(context: CommandHandlerContext): Promise<RlCommandResult> {
   const path = stringOption(context, "file")!;
-  const supplied = parseBenchmarkSpec(readTextFile(path, "Benchmark file"), `Benchmark file ${path}`);
+  const suppliedText = readTextFile(path, "Benchmark file");
+  const supplied = parseBenchmarkSpec(suppliedText, `Benchmark file ${path}`);
   const flagIds = (stringOption(context, "contaminated_by", false) ?? "")
     .split(",")
     .map((id) => id.trim())
     .filter((id) => id.length > 0);
   const client = clientFor(context);
-  await ensurePersistentTypes(client);
   const resolvedContamination = new Set<string>();
   for (const environmentId of [...new Set([...supplied.contaminated_environments, ...flagIds])]) {
     resolvedContamination.add((await verifyEnvironmentIdentity(client, environmentId, "benchmark contamination edges")).id);
@@ -1355,6 +1360,8 @@ async function registerBenchmark(context: CommandHandlerContext): Promise<RlComm
   } catch (error) {
     if (!isItemNotFound(error)) throw error;
   }
+  parseBenchmarkSpec(suppliedText, `Benchmark file ${path}`, "write");
+  await ensurePersistentTypes(client);
   const result = await identifierClient(client).create({
     id: requestedId,
     title: `${spec.name} ${spec.version}`,
@@ -1376,14 +1383,14 @@ async function registerBenchmark(context: CommandHandlerContext): Promise<RlComm
 async function recordEvalResult(context: CommandHandlerContext): Promise<RlCommandResult> {
   const runId = stringOption(context, "run")!;
   const benchmarkId = stringOption(context, "benchmark")!;
-  const checkpoint = stringOption(context, "checkpoint")!;
+  const rawCheckpoint = stringOption(context, "checkpoint")!;
+  const checkpoint = rawCheckpoint.trim();
   const score = Number(stringOption(context, "score")!);
   if (!Number.isFinite(score)) fail("pm rl eval record requires a finite --score.", "invalid_eval_result_score");
   const passedRaw = context.options.passed;
   const passed = typeof passedRaw === "boolean" ? passedRaw : passedRaw === "true" ? true : passedRaw === "false" ? false : undefined;
   if (passed === undefined) fail("pm rl eval record requires --passed true or --passed false.", "invalid_eval_result_passed");
   const client = clientFor(context);
-  await ensurePersistentTypes(client);
   const run = await getTypedItem(client, runId, "Run");
   const resolvedRunId = String(run.item.id);
   const environmentId = normalizeRunEnvironment(run.item.environment);
@@ -1410,6 +1417,8 @@ async function recordEvalResult(context: CommandHandlerContext): Promise<RlComma
   if (existingEval !== undefined) {
     return { action: "rl-eval-record", id: String(existingEval.item.id), created: false, details: spec as unknown as Readonly<Record<string, unknown>> };
   }
+  identifier(rawCheckpoint, "artifact");
+  await ensurePersistentTypes(client);
   const result = await identifierClient(client).create({
     id: requestedId,
     title: `${benchmark.spec.name} ${benchmark.spec.version}: ${checkpoint}`,
@@ -1963,7 +1972,7 @@ export async function environmentInvalidationReason(client: PmClient, envId: str
 
 /** Validate the SDK-read Environment reference without trimming an identifier in package code. */
 function normalizeRunEnvironment(value: string | undefined): string | undefined {
-  return typeof value === "string" ? identifier(value) : value;
+  return typeof value === "string" ? value.trim() : value;
 }
 
 /**
@@ -2193,10 +2202,8 @@ function parseGapWindow(raw: string): number {
 async function registerGeneration(context: CommandHandlerContext): Promise<RlCommandResult> {
   const requestedId = requiredArgument(context, "a generation id");
   const baseCheckpoint = stringOption(context, "base_checkpoint")!;
-  // `stringOption` returns `value.trim()` and maps a blank to `undefined`, so
-  // `parentInput` is already normalized and already non-empty when defined.
-  // Re-trimming here would state a normalization this boundary does not
-  // perform, which is worse than not restating it at all.
+  // Preserve raw references until the SDK resolves them; only a new declaration
+  // applies write policy after an existing immutable registration is ruled out.
   const parentInput = stringOption(context, "parent", false);
   const isSeed = parentInput === undefined;
   const configPath = stringOption(context, "config_file", false);
@@ -2207,7 +2214,7 @@ async function registerGeneration(context: CommandHandlerContext): Promise<RlCom
     baseCheckpoint,
     parent: isSeed ? null : parentInput,
     policy: isSeed ? (stringOption(context, "policy", false) ?? "") : stringOption(context, "policy")!,
-    collectionRuns: isSeed ? [] : stringOption(context, "collection_runs")!.split(",").map((run) => run.trim()).filter((run) => run.length > 0),
+    collectionRuns: isSeed ? [] : stringOption(context, "collection_runs")!.split(","),
     environment: isSeed ? undefined : stringOption(context, "environment")!,
     config,
   });
@@ -2250,8 +2257,8 @@ interface GenerationRegistrationRequest {
  * @internal
  */
 export async function registerGenerationCore(client: PmClient, request: GenerationRegistrationRequest): Promise<RlCommandResult> {
-  const baseCheckpoint = identifier(request.baseCheckpoint, "artifact");
-  if (request.policy !== "") identifier(request.policy, "artifact");
+  operationIdentifier(request.id);
+  const baseCheckpoint = request.baseCheckpoint.trim();
   const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
   const requestedId = canonicalizeIdentifier(request.id, prefix);
   const parentInput = request.parent === null ? null : canonicalizeIdentifier(request.parent, prefix);
@@ -2265,14 +2272,14 @@ export async function registerGenerationCore(client: PmClient, request: Generati
   if (isSeed) {
     // A seed may declare the policy that collected its data; without one the
     // recorded policy is empty and candidates parented to it skip the check.
-    policy = request.policy;
+    policy = request.policy.trim();
   } else {
     const parent = await getTypedItem(client, parentInput!, "Generation");
     const parentSpec = extractGenerationSpec(String(parent.item.body), `Parent generation ${parentInput}`);
     if (!parentSpec.promoted && !parentSpec.seed) {
       fail(`Parent generation ${parentInput} is not promoted. Only a promoted generation (or the seed) may parent a candidate.`, "parent_not_promoted", EXIT_CODE.CONFLICT);
     }
-    policy = request.policy;
+    policy = request.policy.trim();
     collectionRuns = [...new Set(request.collectionRuns.map((id) => canonicalizeIdentifier(id, prefix)))].sort();
     if (collectionRuns.length === 0) {
       fail("pm rl generation register requires --collection-runs for a non-seed generation.", "missing_collection_runs");
@@ -2344,10 +2351,18 @@ export async function registerGenerationCore(client: PmClient, request: Generati
     message: isSeed ? "Register seed RL generation" : "Register candidate RL generation",
     ...(isSeed ? {} : { parent: parentInput, dep: deps, environment: environmentId }),
   };
-  await validatePolicyCardWrite(client, createOptions);
-  await ensurePersistentTypes(client);
   const result = await createOrReadIdentical(client, createOptions, "generation_identity_collision", (item) =>
     item.affected_version === specHash && hashJson(generationProvenance(extractGenerationSpec(String(item.body), `Generation ${requestedId}`))) === specHash,
+    async () => {
+      identifier(request.id);
+      if (request.parent !== null) operationIdentifier(request.parent, "item", "write");
+      if (request.environment !== undefined) operationIdentifier(request.environment, "item", "write");
+      request.collectionRuns.forEach((id) => operationIdentifier(id, "item", "write"));
+      identifier(request.baseCheckpoint, "artifact");
+      if (request.policy !== "") identifier(request.policy, "artifact");
+      await validatePolicyCardWrite(client, createOptions);
+      await ensurePersistentTypes(client);
+    },
   );
   await recordPolicyCard(client, String(result.item.id));
   return {
@@ -2589,7 +2604,7 @@ export async function promoteGenerationCore(client: PmClient, coordinates: Works
     // and every caller reports success for a promotion only one of them
     // performed. Correctness under concurrency comes from the re-check inside
     // the lock instead.
-    transactionId: `pm-rl-generation-promote-${id}-${randomUUID()}`,
+    transactionId: `pm-rl-generation-promote-${hashJson(id).slice(0, 32)}-${randomUUID()}`,
     onTransition,
     author,
     lockWaitMs: PROMOTION_LOCK_WAIT_MS,
@@ -2909,7 +2924,7 @@ async function expireDeadControllerMutex(root: string, id: string, io: LoopProce
 /** Expire only the observed inode/token; the SDK removes stale locks under its native cleanup lease. */
 async function expireControllerRecord(root: string, id: string, record: Record<string, unknown>): Promise<void> {
   if (typeof record["token"] !== "string") return;
-  const handle = await open(statePath(root, "locks", `${identifier(id)}.lock`), fsConstants.O_RDWR | fsConstants.O_NOFOLLOW).catch((error: unknown) => {
+  const handle = await open(statePath(root, "locks", `${operationIdentifier(id)}.lock`), fsConstants.O_RDWR | fsConstants.O_NOFOLLOW).catch((error: unknown) => {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw error;
   });
@@ -4704,7 +4719,7 @@ async function renderLineageCommand(context: CommandHandlerContext): Promise<RlC
   await ensurePersistentTypes(client);
   let heads: string[];
   if (headInput !== undefined) {
-    const requestedHead = identifier(headInput);
+    const requestedHead = operationIdentifier(headInput);
     // Resolved before the tolerant walk. Tolerance exists for an unreadable
     // ANCESTOR; the head the caller named is the request itself, so a missing
     // or wrong-typed head must report that, not an empty ancestry.
@@ -5175,10 +5190,10 @@ async function showSweepStatus(context: CommandHandlerContext): Promise<RlComman
  * specification is refused rather than recorded.
  */
 async function recordTransfer(context: CommandHandlerContext): Promise<RlCommandResult> {
-  const requestedId = requiredArgument(context, "a transfer id");
+  const requestedId = identifier(requiredArgument(context, "a transfer id"));
   const sourceId = stringOption(context, "source")!;
   const targetId = stringOption(context, "target")!;
-  const checkpoint = stringOption(context, "checkpoint")!;
+  const checkpoint = identifier(stringOption(context, "checkpoint")!, "artifact");
   const runId = stringOption(context, "run")!;
   const metricsPath = stringOption(context, "metrics")!;
   const client = clientFor(context);
