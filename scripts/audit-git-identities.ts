@@ -76,7 +76,9 @@ export async function streamProcess(
         finally { clearTimeout(escalation); }
         const stopped = await retryOwnedStop(() => child.exitCode !== null || child.signalCode !== null || child.kill("SIGKILL"));
         if (!stopped || !await waitForOwnedClose(closed)) {
-          for (const stream of [child.stdin, child.stdout, child.stderr]) stream?.destroy();
+          for (const stream of [child.stdin, child.stdout, child.stderr]) {
+            try { stream?.destroy(); } catch { /* Detach the remaining owned handles too. */ }
+          }
           child.unref();
         }
       };

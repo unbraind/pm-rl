@@ -10,7 +10,7 @@ import { init, isPmCliExpectedError, locateItem, readLocatedItem, readSettings, 
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import extension, { extractGenerationSpec, generationProvenance, hashJson, readCompleteLoopItem, mutateLoopItem, withPromotionEvidence, promoteGenerationCore, reconcileLoopPromotion, withProcessJobFence, type RlCommandResult, type JsonValue } from "../index.ts";
 import { parseBoundedJson } from "../tracker-record.ts";
-import { evaluatePlan, evaluationComparison, parseEvaluationPlan, registerEvaluationPlan, readEvaluationPlan, enforceEvaluationPlan, recordPlanEvaluation, type EvaluationPlan, type EvaluationObservation, type EvaluationPlanReport, validateEvaluationReport } from "../evaluation-plan.ts";
+import { evaluatePlan, evaluationComparison, parseEvaluationPlan, registerEvaluationPlan, readEvaluationPlan, enforceEvaluationPlan, recordPlanEvaluation, validateEvaluationOrder, type EvaluationPlan, type EvaluationObservation, type EvaluationPlanReport, validateEvaluationReport } from "../evaluation-plan.ts";
 import { evaluateSequentialBoundary, parseSequentialStopping, recordSequentialEvaluation, readSequentialEvaluation, reviewSequentialPlan, withEvaluationLease, type SequentialEvaluationResult } from "../sequential-evaluation.ts";
 import type { GenerationSpec, ScoreRecord } from "../lineage.ts";
 
@@ -261,6 +261,14 @@ test("every artifact-pair inversion and checkpoints sealed before the reviewed P
   }
   assert.equal(allowed, 2); assert.equal(refused, 15);
   console.log(JSON.stringify({ artifactPairs: 15, orders: orders.length, valid: allowed, refused, surfaces: 4, prePlanLooksFixedCase: true }));
+});
+
+test("chronology consumes every SDK history page without imposing a 1000-artifact truncation", async () => {
+  const w = await workspace(); const p = await prepared(w.client); if (p.stopping.kind !== "sequential") throw new Error("fixture");
+  const artifacts = [{ id: p.stopping.review, stage: 0 }, { id: `${p.candidate}-evaluation-plan`, stage: 1 }, { id: `${p.candidate}-run`, stage: 2 }, { id: p.candidate, stage: 2 }];
+  await validateEvaluationOrder(w.client, artifacts, 1);
+  await validateEvaluationOrder(w.client, artifacts, 2);
+  await assert.rejects(validateEvaluationOrder(w.client, artifacts.map((entry) => ({ ...entry, stage: 3 - entry.stage })), 1), refusal("eval_plan_late"));
 });
 
 test("fixed and sequential provenance resolve SDK aliases after checking the original raw seal", async () => {

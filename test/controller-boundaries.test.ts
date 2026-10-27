@@ -10,7 +10,7 @@ import { readHistoryEntries } from "@unbrained/pm-cli/sdk";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import { getHistoryPath, isPmCliExpectedError, normalizeItemId, normalizeRawItemId } from "@unbrained/pm-cli/sdk/runtime";
 import { acquireStateLock, canonicalIdentifier, canonicalItemIdentifier, canonicalProgrammeId, commitStateTransaction } from "../state-boundary.ts";
-import extension, { resolveEvaluationPlan, evaluationComparison, loopLeaseLockId, loopProcessStartTime, withRlController, runRlLoop, type JsonValue } from "../index.ts";
+import extension, { resolveEvaluationPlan, evaluationComparison, loopLeaseLockId, loopProcessStartTime, loopProcessIdentityIO, withRlController, runRlLoop, type JsonValue } from "../index.ts";
 import { controllerCallback, controllerCallbackIO, executeProcessTrainer, processJobId, processStaging, readProcessJob, reserveProcessJob, stopTrainer } from "../process.ts";
 import { allowance, processWorkspace, trainingInput } from "./fixtures/process-workspace.ts";
 import { retryOwnedStop, waitForOwnedClose } from "../owned-stop.ts";
@@ -219,8 +219,8 @@ test("recovery stops only the exact live trainer birth identity and awaits nativ
   const closed = once(child, "close");
   try {
     const identity = loopProcessStartTime(child.pid!); assert.ok(identity);
-    stopTrainer(child.pid!, `${identity}-foreign`); assert.equal(process.kill(child.pid!, 0), true);
-    stopTrainer(child.pid!, identity); assert.equal((await closed)[1], "SIGKILL");
+    await stopTrainer(child.pid!, `${identity}-foreign`); assert.equal(process.kill(child.pid!, 0), true);
+    await stopTrainer(child.pid!, identity); assert.equal((await closed)[1], "SIGKILL");
   } finally { if (child.exitCode === null && child.signalCode === null) { child.kill("SIGKILL"); await closed; } }
 });
 
@@ -301,6 +301,7 @@ test("owned child cleanup retries beyond three failures and settles persistent f
 });
 
 test("owned stop retry bounds handle false returns, thrown errors, permanent refusals and missing close acknowledgements", async () => {
+  for (const [pid, start] of [[0, "birth"], [-1, "birth"], [Infinity, "birth"], [1.5, "birth"], [2147483648, "birth"], [1, ""], [1, "a".repeat(513)], [1, null]] as const) await assert.rejects(stopTrainer(pid, start as string), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "process_job_drift");
   let attempts = 0;
   assert.equal(await retryOwnedStop(() => { attempts += 1; return attempts > 3; }), true); assert.equal(attempts, 4);
   attempts = 0; assert.equal(await retryOwnedStop(() => { attempts += 1; return false; }), false); assert.equal(attempts, 6);
@@ -313,6 +314,46 @@ test("owned stop retry bounds handle false returns, thrown errors, permanent ref
   await assert.rejects(retryOwnedStop(() => { throw foreign; }, () => true), (error) => error === foreign);
   assert.equal(await waitForOwnedClose(Promise.resolve()), true);
   assert.equal(await waitForOwnedClose(new Promise(() => {})), false);
+});
+
+test("cleanup exhaustion fault matrix observes native detach, identity and close failures", async (t) => {
+  for (const mode of ["stdin", "stdout", "stderr", "unref", "identity", "false-success", "close-lost", "close-deferred"] as const) await t.test(mode, async () => {
+    const { client, coordinates, approval, pmRoot } = await processWorkspace(); const input = trainingInput();
+    const command = [process.execPath, new URL("./fixtures/process-trainer.ts", import.meta.url).pathname, "callback-long", mode];
+    const nativeChildKill = ChildProcess.prototype.kill; const nativeKill = process.kill.bind(process); const nativeEmit = ChildProcess.prototype.emit; const identityRead = loopProcessIdentityIO.read;
+    let child: ChildProcess | undefined; let pid: number | undefined; let deferred: unknown[] | undefined; let injected = false;
+    if (mode === "identity") Object.assign(loopProcessIdentityIO, { read: (file: string) => { if (/^\/proc\/\d+\/stat$/.test(file) && file !== `/proc/${process.pid}/stat`) throw new Error("Child identity unavailable"); return identityRead(file); } });
+    const emit = mock.method(ChildProcess.prototype, "emit", function (this: ChildProcess, event: string | symbol, ...args: unknown[]): boolean {
+      if (this === child && event === "close" && (mode === "close-lost" || mode === "close-deferred")) { deferred = args; return true; }
+      return nativeEmit.call(this, event, ...args);
+    });
+    const childKill = mock.method(ChildProcess.prototype, "kill", function (this: ChildProcess, signal?: NodeJS.Signals | number): boolean {
+      if (signal !== "SIGKILL") return nativeChildKill.call(this, signal);
+      child = this; pid = this.pid;
+      if (mode === "false-success") { injected = true; return true; }
+      if (mode === "close-lost" || mode === "close-deferred") {
+        if (mode === "close-deferred") { const destroy = this.stdin!.destroy; this.stdin!.destroy = function (error?: Error) { if (deferred !== undefined) { injected = true; nativeEmit.call(child!, "close", ...deferred); return this; } return destroy.call(this, error); }; }
+        injected = true; return nativeChildKill.call(this, signal);
+      }
+      if (mode === "unref") { const unref = this.unref.bind(this); this.unref = () => { unref(); injected = true; throw new Error("Unref failed"); }; }
+      if (mode === "stdin" || mode === "stdout" || mode === "stderr") this[mode]!.destroy = () => { injected = true; throw new Error("Detach failed"); };
+      throw Object.assign(new Error("Native stop failure"), { code: "EACCES" });
+    });
+    const processKill = mock.method(process, "kill", (target: number, signal?: NodeJS.Signals | number): true => {
+      if (signal === "SIGKILL") { pid = target; throw Object.assign(new Error("Native PID failure"), { code: "EACCES" }); }
+      return nativeKill(target, signal);
+    });
+    controllerCallbackIO.before = (site) => { if (site === "stderr.path") throw new Error("Require cleanup"); };
+    try {
+      await assert.rejects(executeProcessTrainer(client, coordinates, input, approval, { kind: "process-bandit", allowance }, undefined, command), (error: unknown) => isPmCliExpectedError(error) && error.context.code === (mode === "close-deferred" ? "process_callback_failed" : "process_stop_failed"));
+      const job = (await readProcessJob(client, processJobId(input, command)))!; assert.equal(job.state, "failed"); assert.equal(job.settled, true); assert.deepEqual(readdirSync(join(pmRoot, "locks")), []);
+      assert.ok(injected || mode === "identity");
+    } finally {
+      controllerCallbackIO.before = () => undefined; Object.assign(loopProcessIdentityIO, { read: identityRead }); childKill.mock.restore(); processKill.mock.restore(); emit.mock.restore();
+      if (child !== undefined) for (const stream of [child.stdin, child.stdout, child.stderr]) if (stream !== null) delete (stream as unknown as { destroy?: unknown }).destroy;
+      if (pid !== undefined) { try { nativeKill(pid, 0); const closed = once(child!, "close"); nativeKill(pid, "SIGKILL"); await closed; } catch (error) { assert.equal((error as NodeJS.ErrnoException).code, "ESRCH"); } }
+    }
+  });
 });
 
 test("container cleanup retries transient failures, bounds persistent failures and never switches to a successor identity", async (t) => {

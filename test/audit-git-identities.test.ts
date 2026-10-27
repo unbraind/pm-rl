@@ -325,13 +325,14 @@ test("stream transport reports real spawn, exit, signal, consumer, and timeout f
 });
 
 test("stream cleanup retries native throw/false failures and bounds permanent failure", async (t) => {
-  for (const mode of ["throw", "false", "persistent", "detach-failure"] as const) await t.test(mode, async () => {
-    dir = makeTempDir(); const native = ChildProcess.prototype.kill;
+  for (const mode of ["throw", "false", "persistent", "detach-failure", "unref-failure"] as const) await t.test(mode, async () => {
+    dir = makeTempDir(); const native = ChildProcess.prototype.kill; const unref = ChildProcess.prototype.unref;
     let child: ChildProcess | undefined; let attempts = 0;
     const killed = mock.method(ChildProcess.prototype, "kill", function (this: ChildProcess, signal?: NodeJS.Signals | number): boolean {
       child = this; attempts += 1;
       if (mode === "detach-failure") this.stdout!.destroy = () => { throw new Error("Cannot detach first stream"); };
-      if (mode === "persistent" || mode === "detach-failure" || attempts <= 3) {
+      if (mode === "unref-failure") this.unref = () => { unref.call(this); throw new Error("Unref failed"); };
+      if (mode === "persistent" || mode === "detach-failure" || mode === "unref-failure" || attempts <= 3) {
         if (mode === "false") return false;
         throw Object.assign(new Error("Transient native kill failure"), { code: "EACCES" });
       }

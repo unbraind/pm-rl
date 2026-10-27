@@ -126,20 +126,28 @@ export async function verifyCreatedRecord(client: PmClient, item: GetResult["ite
   if ((["id", "type", "body", "created_at", "affected_version"] as const).some((field) => original[field] !== item[field])) refuse("eval_plan_drift");
 }
 /** One lifecycle partial order: review, declaration, collection/candidate, ordered evidence, promotion. @internal */
-export async function validateEvaluationOrder(client: PmClient, artifacts: readonly { id: string; stage: number }[]): Promise<void> {
+export async function validateEvaluationOrder(client: PmClient, artifacts: readonly { id: string; stage: number }[], pageSize = 1000): Promise<void> {
   const entries = await Promise.all(artifacts.map(async ({ id, stage }) => ({ id: identifier(id), stage, item: await createdItem(client, id) })));
   const config = await identifierClient(client).config("project", "get", "id_prefix");
-  const events = await listMutationEvents({ pmRoot: dirname(config.settings_path), item: entries.map((entry) => entry.item.id), type: "create", full: true, limit: 1000 });
-  if (events.has_more) refuse("eval_plan_late");
-  for (const left of entries) {
-    const birth = events.events.findIndex((event) => event.item_id === left.item.id && event.version === 1);
-    if (birth < 0 || events.events[birth].entry?.op !== "create" || !Number.isFinite(Date.parse(String(left.item.created_at)))) refuse("eval_plan_late");
-    for (const right of entries) if (left.stage < right.stage) {
-      const next = events.events.findIndex((event) => event.item_id === right.item.id && event.version === 1);
-      // Check both SDK creation snapshots and authoritative history event order.
-      // Equal clock ticks cannot establish precedence and are refused conservatively.
-      if (!(Date.parse(String(left.item.created_at)) < Date.parse(String(right.item.created_at))) || next <= birth || !(Date.parse(events.events[birth].ts) < Date.parse(events.events[next].ts))) refuse("eval_plan_late");
+  const events: Awaited<ReturnType<typeof listMutationEvents>>["events"] = [];
+  let cursor: string | undefined; let page: Awaited<ReturnType<typeof listMutationEvents>>;
+  do {
+    page = await listMutationEvents({ pmRoot: dirname(config.settings_path), item: entries.map((entry) => entry.item.id), type: "create", since: cursor, limit: pageSize });
+    events.push(...page.events); cursor = page.next_cursor;
+  } while (page.has_more);
+  const positions = new Map(events.map((event, index) => [event.item_id, index]));
+  const times = new Map(events.filter((event) => event.version === 1).map((event) => [event.item_id, event.ts]));
+  let prior = [-Infinity, -Infinity, -Infinity];
+  for (const stage of [...new Set(entries.map((entry) => entry.stage))].sort((left, right) => left - right)) {
+    const next = [...prior];
+    for (const entry of entries.filter((value) => value.stage === stage)) {
+      const values = [Date.parse(String(entry.item.created_at)), Date.parse(String(times.get(entry.item.id))), Number(positions.get(entry.item.id))];
+      // Missing native history becomes NaN and refuses alongside nonfinite or unordered times.
+      // Equal ticks cannot establish precedence; same-stage collection/candidate records are unordered.
+      if (!values.every((value, index) => Number.isFinite(value) && value > prior[index])) refuse("eval_plan_late");
+      for (let index = 0; index < values.length; index += 1) next[index] = Math.max(next[index], values[index]);
     }
+    prior = next;
   }
 }
 /** Verify the full stored Plan and its provenance, rather than trusting its derived id. */

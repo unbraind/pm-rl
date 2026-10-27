@@ -205,7 +205,7 @@ test("native child identity failure and PID reuse do not authorize an unrelated 
   const path = process.env["PATH"]; process.env["PATH"] = "";
   try { await assert.rejects(launchTrainer(directory, "native", input, allowance, argv("hang")), /Cannot establish trainer process identity/); }
   finally { process.env["PATH"] = path; }
-  stopTrainer(process.pid, "foreign birth time");
+  await stopTrainer(process.pid, "foreign birth time");
   assert.equal(process.pid > 0, true);
 });
 
