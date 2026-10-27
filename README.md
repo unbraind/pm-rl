@@ -61,6 +61,32 @@ CI uses real in-process HTTP servers and never calls Ollama.
 
 ---
 
+## Install and release approval
+
+The first npm release is pending the maintainer's interactive bootstrap. After
+that first publish, the maintainer configures npm trusted publishing for
+`release.yml` and sets the repository variable `PM_RELEASE_APPROVED` to `true`.
+The daily workflow and manual dispatch both require this variable and `main`.
+Publishing uses OIDC with provenance; no stored npm token is needed.
+
+Once published, install the package and compatible pm host, then activate the
+extension in an initialized pm project:
+
+```sh
+npm install pm-rl @unbrained/pm-cli
+npx --no-install pm package install ./node_modules/pm-rl
+
+bun add pm-rl @unbrained/pm-cli
+bunx --bun --no-install pm package install ./node_modules/pm-rl
+
+pm package install npm:pm-rl
+pm rl --help
+```
+
+The package exports its SDK through `main` and `types` and registers commands
+with pm. It has no standalone `bin`: use `npx pm` or `bunx --bun pm` through
+the installed host. npm/Bun dependency installation alone does not activate it.
+
 ## Why this exists
 
 `project management = context management`. An RL programme is one of the most context-heavy
@@ -711,3 +737,10 @@ pm rl policy-card adopt --file card.json --json
 ```
 
 Save the JSON result's unwrapped `details` as `card.json`. Cards contain scope and policy digests, allowed explanation actions, numeric limits, regression diagnostics and exact replayable evidence references. They omit training examples, policy parameters and credentials. Adoption checks the complete ancestry to the root, including every retained card and its evidence. Policy identity binds content-addressed artifacts plus configuration; unfitted proposals use a separate proposal digest. Transient read errors remain retryable and leave the programme resumable. Missing provenance blocks adoption checks; a card grants no execution authority. Recursive candidates, proposals and promotion outcomes retain cards automatically, so later improvers can inspect earlier wins and losses. These commands work without Git. See the [SDK, format, refusals and public-copy evidence](docs/policy-cards.md).
+
+Every workflow job granted write permissions, including CodeQL, Dependabot and
+reusable workflow calls, requires the exact repository `unbraind/pm-rl`.
+The approval variable controls GitHub releases; it does not impose a local npm
+publishing hold. Maintainers run the prepublish checks and authenticate with npm
+for local publication. The first local publish uses `--provenance=false`; daily
+GitHub OIDC releases keep provenance enabled.
