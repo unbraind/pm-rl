@@ -18,7 +18,7 @@ export async function durableSnapshotProperty(cycles = 3) {
   let executions = 0; let replays = 0; let corruptions = 0; let snapshotChecks = 0;
   try {
     await w.client.update("rl-approval", { body: `\`\`\`json\n${JSON.stringify({ permitted_promotions: cycles + 1 })}\n\`\`\`` });
-    // Released v1 receipts already carry certified coordinates; they must replay without a format migration.
+    // Pre-fix v1 receipts already carry certified coordinates; they must replay without a format migration.
     const legacyInput = { candidate: w.plan.candidate, legacy: true };
     const captured = await captureDecisionInputs(w.client, () => readEvaluationDecision(w.client, w.plan.candidate));
     const versions = new Map<string, string>();
@@ -30,7 +30,7 @@ export async function durableSnapshotProperty(cycles = 3) {
     }
     const result = { configs: [{ samples: 1 }, { samples: 2 }] };
     const legacy = { format: "pm-rl/loop-step/1", key: "snapshots-step-legacy", input: hashJson(legacyInput), state: "complete", result, digest: hashJson(result), decision_evidence: legacyGraph };
-    await w.client.create({ id: `rl-${legacy.key}`, type: "Decision", title: "Released receipt", body: JSON.stringify(legacy) });
+    await w.client.create({ id: `rl-${legacy.key}`, type: "Decision", title: "Pre-fix receipt", body: JSON.stringify(legacy) });
     receipts.push({ key: "legacy", input: legacyInput, id: `rl-${legacy.key}`, cards: [await exportPolicyCard(w.client, `rl-${legacy.key}`)] });
     let plan = w.plan;
     for (let cycle = 0; cycle < cycles; cycle += 1) {

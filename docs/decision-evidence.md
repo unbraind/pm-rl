@@ -17,8 +17,9 @@ cohort observations and predecessor hash, so changing cohort data or dropping a
 predecessor changes or invalidates the graph. Human annotations and tracker
 status bookkeeping do not change statistical input identity.
 
-New decision-backed policy cards embed exactly the graph returned by the
-reader. Discovery also finds a registered fixed plan when an older Generation
+Generation policy cards embed exactly the graph returned by the
+reader; recursive and proposal-selection cards embed the frozen input manifest
+from their completed receipt. Both use the evaluator's captured dependency list. Discovery also finds a registered fixed plan when an older Generation
 does not carry the optional `evaluation_plan` field. The decision reader owns
 that compatibility rule; cards do not impose a second Plan-binding rule. Foreign
 unclaimed Plan slots are skipped with a reason. A retained graph requires its
@@ -86,7 +87,8 @@ replays/CRLF/relationships/custom active status, and 500 strict-schema cases.
 
 `test/durable-snapshots.test.ts` generates three evaluate/promote cycles and
 replays every earlier completed step and card after each promotion. It covers
-released version-one receipts, all proposal selections, every recorded snapshot
+existing version-one receipts, all proposal selections, every recorded snapshot
 and every snapshot pair, rehashed corruption, SDK read-back after compensation,
-and refusal without re-executing a completed operation. The same property runs
-against the exact packed artifact under Node and Bun in non-git trackers.
+and refusal without re-executing a completed operation. The packed acceptance script tests the same frozen/live split through SDK,
+JSON and TOON, including named snapshot refusals, under Node and Bun in non-git
+trackers.

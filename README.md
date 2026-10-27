@@ -845,9 +845,10 @@ Save the JSON result's unwrapped `details` as `card.json`. Cards contain scope a
 
 ### Complete decision evidence
 
-New decision-backed cards embed the exact SDK input graph returned by the
+Generation cards embed the exact SDK input graph returned by the
 promotion evaluator: reviewed Plan, review Decision, every look, cohort data,
-collection Runs and generation provenance. Promotion and completed-step receipts
+collection Runs and generation provenance. Completed-step cards embed the frozen
+manifest from their execution receipt. Promotion and completed-step receipts
 seal their inputs. Promotion evidence validates current records; completed steps
 and their cards replay the immutable SDK-history snapshots consumed at execution,
 remaining valid after later promotions. Damaged snapshots and removed/rehashed

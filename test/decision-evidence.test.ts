@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { createPmCliExpectedError, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
-import { captureDecisionInputs, extractGenerationSpec, hashJson, readCompleteLoopItem, generationProvenance, verifyDecisionEvidence, withRlController, recordRefusedPolicyCard, DECISION_INPUT_FIELDS, type JsonValue } from "../index.ts";
+import { captureDecisionInputs, extractGenerationSpec, hashJson, readCompleteLoopItem, generationProvenance, sealDecisionEvidence, verifyDecisionEvidence, withRlController, recordRefusedPolicyCard, DECISION_INPUT_FIELDS, type JsonValue } from "../index.ts";
 import { evaluationEvidence, parseEvaluationEvidence, readEvaluationDecision, validateEvaluationReport } from "../evaluation-plan.ts";
 import { exportPolicyCard, replayPolicyCard, type PolicyCard } from "../policy-card.ts";
 import { recordSequentialEvaluation } from "../sequential-evaluation.ts";
@@ -87,16 +87,22 @@ test("graph boundary and seeded 500 transport sequences retain SDK-read native s
     await w.client.create({ id: "rl-roundtrip", title: "Graph transport", body: JSON.stringify(spec) });
     const model = { graph, parent: "rl-seed", blocked_by: "rl-collection", status };
     let seed = 0x107e71;
-    const older: string[] = [];
+    const frozen = await sealDecisionEvidence(w.client, hashJson("transport"), [w.native.item]);
+    const older: { body: string; graph: typeof graph }[] = [];
+    const formats = new Set<string>();
     for (let sequence = 0; sequence < 500; sequence += 1) {
       seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
-      const serialized = JSON.stringify(spec, null, seed % 2 ? 2 : 0).replaceAll("\n", "\r\n"); older.push(serialized);
-      await w.client.update("rl-roundtrip", { body: older[seed % older.length], parent: model.parent, blockedBy: model.blocked_by, status: model.status });
+      const expected = sequence % 2 ? frozen : graph;
+      const serialized = JSON.stringify({ ...spec, evaluation_evidence: expected }, null, seed % 2 ? 2 : 0).replaceAll("\n", "\r\n"); older.push({ body: serialized, graph: expected });
+      const replay = older[seed % older.length]; formats.add(replay.graph.format);
+      await w.client.update("rl-roundtrip", { body: replay.body, parent: model.parent, blockedBy: model.blocked_by, status: model.status });
       const actual = (await readCompleteLoopItem(w.client, "rl-roundtrip", undefined, "id,body,parent,blocked_by,status")).item;
-      assert.deepEqual(extractGenerationSpec(`\`\`\`json\n${actual.body}\n\`\`\``, "SDK roundtrip").evaluation_evidence, model.graph);
+      assert.deepEqual(extractGenerationSpec(`\`\`\`json\n${actual.body}\n\`\`\``, "SDK roundtrip").evaluation_evidence, replay.graph);
       assert.equal(actual.parent, model.parent); assert.equal(actual.blocked_by, model.blocked_by); assert.equal(actual.status, model.status);
       assert.equal(hashJson(parseEvaluationEvidence(model.graph) as unknown as JsonValue), hashJson(graph as unknown as JsonValue));
+      if (sequence % 100 === 99) console.log(JSON.stringify({ sdk_transports_completed: sequence + 1, formats: formats.size }));
     }
+    assert.equal(formats.size, 2, "Both live and frozen graphs must survive SDK read-back and older replays");
     for (const value of [null, {}, { ...graph, inputs: new Array(1) }, { ...graph, inputs: [null] }, { ...graph, inputs: [{ id: "../outside", digest: "x" }] }, { ...graph, inputs: [...graph.inputs, graph.inputs[0]] }, { ...graph, digest: "0".repeat(64) }, { ...graph, inputs: [{ ...graph.inputs[0], at: "Infinity" }] }]) assert.throws(() => parseEvaluationEvidence(value), isPmCliExpectedError);
     assert.throws(() => validateEvaluationReport(w.plan, { ...w.report, evidence_digest: "bad" }), isPmCliExpectedError);
     await assert.rejects(captureDecisionInputs(w.client, async () => { throw createPmCliExpectedError("typed probe", { exitCode: 4, context: { code: "eval_plan_invalid" } }); }), (error: unknown) => isPmCliExpectedError(error) && error.context.item_id === "evaluation-input");
@@ -108,7 +114,7 @@ test("graph boundary and seeded 500 transport sequences retain SDK-read native s
     await assert.rejects(captureDecisionInputs(w.client, async () => { throw new Error("native failure"); }), /native failure/);
     const snapshot = await readCompleteLoopItem(w.client, w.plan.candidate);
     assert.equal(evaluationEvidence(graph.comparison, [snapshot.item]).inputs.length, 1);
-    console.log(JSON.stringify({ transport_sequences: 500, model: "immutable SDK-read graph plus explicit native relationships and custom status" }));
+    console.log(JSON.stringify({ transport_sequences: 500, formats: formats.size, model: "live/frozen SDK-read graphs plus explicit native relationships and custom status" }));
   } finally { rmSync(w.root, { recursive: true, force: true }); }
 });
 
