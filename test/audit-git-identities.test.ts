@@ -351,6 +351,19 @@ test("stream cleanup retries native throw/false failures and bounds permanent fa
   });
 });
 
+test("stream refusal preserves the first error under reentrant native output during stop", async () => {
+  dir = makeTempDir(); const native = ChildProcess.prototype.kill; let injected = false; let consumed = 0; let child: ChildProcess | undefined;
+  const kill = mock.method(ChildProcess.prototype, "kill", function (this: ChildProcess, signal?: NodeJS.Signals | number): boolean {
+    child = this;
+    if (signal === undefined) { if (!injected) { injected = true; this.stdout!.emit("data", Buffer.from("reentrant output")); } return false; }
+    return native.call(this, signal);
+  });
+  try {
+    await assert.rejects(streamProcess(process.execPath, ["-e", "process.stdout.write('ready');setInterval(()=>{},1000)"], { cwd: dir.root, timeoutMs: 1000, escalationMs: 1 }, () => { consumed += 1; throw new Error(consumed === 1 ? "original refusal" : "duplicate refusal"); }), /original refusal/);
+    assert.equal(consumed, 2); assert.ok(injected); assert.throws(() => process.kill(child!.pid!, 0), { code: "ESRCH" });
+  } finally { kill.mock.restore(); if (child !== undefined && child.exitCode === null && child.signalCode === null) { const closed = once(child, "close"); native.call(child, "SIGKILL"); await closed; } }
+});
+
 test("stream transport reports a real broken stdin pipe", async () => {
   dir = makeTempDir();
   await assert.rejects(

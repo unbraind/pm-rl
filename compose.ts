@@ -44,7 +44,11 @@ function composeArgs(directory: string, id: string): string[] {
 /** Stop only this job's Compose project, preserving every host artifact and recording stop evidence. */
 export async function stopComposeTrainer(directory: string, id: string, image: string, reason: string, limits?: Extract<ProcessAdapter, { kind: "compose-lm" }>): Promise<void> {
   const observed: { container?: string; resources: unknown } = { resources: null };
-  if (!await retryOwnedStop(() => stopComposeAttempt(directory, id, image, reason, observed, limits), isPmCliExpectedError)) expectedFail("Owned container cleanup failed after bounded retries; retain its project and immutable identity for recovery.", "process_stop_failed");
+  let diagnostic = "";
+  if (!await retryOwnedStop(async () => {
+    try { await stopComposeAttempt(directory, id, image, reason, observed, limits); }
+    catch (error) { diagnostic = String(error).slice(0, 4096); throw error; }
+  }, isPmCliExpectedError)) expectedFail(`Owned container cleanup failed after bounded retries; retain its project and immutable identity for recovery. ${diagnostic}`, "process_stop_failed");
 }
 
 /** Revalidate ownership on every retry and never switch to a successor container sharing the old name. */
