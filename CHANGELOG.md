@@ -81,6 +81,8 @@
 
 - Metric series live in item history, never in an item body ([pm-rl-mpd9](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/decisions/pm-rl-mpd9.toon))
 - 100/100/100 coverage and full docstring coverage for pm-rl ([pm-rl-fpon](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-fpon.toon))
+- Release readiness behind PM_RELEASE_APPROVED ([pm-rl-release-gate](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-release-gate.toon))
+- Make the 2026.10.23 pm toolchain bump pass: SDK create fixtures spread an unsupported hash field ([pm-rl-tc1023](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-tc1023.toon))
 - Adopt SDK native controller locks and transaction recovery ([pm-rl-sdk-adoption-1025](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-sdk-adoption-1025.toon))
 - Gate recursive proposals with paired held-out baseline evidence ([pm-rl-baseline](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-baseline.toon))
 - Certify pm-rl on PM CLI/SDK 2026.10.4 and consolidate pending dependency updates ([pm-rl-hncb](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-hncb.toon))
