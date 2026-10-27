@@ -1207,7 +1207,7 @@ test("an edited environment marks every downstream generation invalidated in the
   assert.match(String(after.details?.output), new RegExp(`${escapeId(genB.id!)} .* invalidated by ancestor ${escapeId(genA.id!)}`));
   // A generation whose environment does not resolve is reported as ABSENT, not as edited.
   const ghostSpec = { ...seedSpec("ckpt-g", ""), environment_version: "ghost-env-v1", parent: seed, seed: false, policy: "g", collection_runs: ["ghost-run"], reward_spec_version: "r" };
-  await client.create({ id: "gen-ghost", title: "Ghost", type: "Generation", status: "open", ...generationBody(ghostSpec) });
+  await client.create({ id: "gen-ghost", title: "Ghost", type: "Generation", status: "open", body: generationBody(ghostSpec).body });
   const ghostLineage = resultOf(await harness.runCommand({ command: "rl lineage", pmRoot, args: ["gen-ghost"] }));
   assert.match(String(ghostLineage.details?.output), /gen-ghost .* environment could not be resolved/);
   // A generation whose SPEC parent names genB while its pm dependency field is
@@ -1330,11 +1330,11 @@ test("a generation whose environment lacks a hash or a specification fence repor
   // An environment with a recorded hash but no JSON specification fence.
   const noFenceEnv = await client.create({ id: "env-nofence", title: "NoFence", type: "Environment", status: "open", affectedVersion: hashJson({ x: 1 }) });
   const noHashSpec = spec({ base_checkpoint: "ckpt-a", environment_version: noHashEnv.item.id });
-  await client.create({ id: "gen-nohash", title: "NoHash", type: "Generation", status: "open", ...generationBody(noHashSpec) });
+  await client.create({ id: "gen-nohash", title: "NoHash", type: "Generation", status: "open", body: generationBody(noHashSpec).body });
   const noHashLineage = resultOf(await harness.runCommand({ command: "rl lineage", pmRoot, args: ["gen-nohash"] }));
   assert.match(String(noHashLineage.details?.output), /gen-nohash .* environment has no recorded specification identity/);
   const noFenceSpec = spec({ base_checkpoint: "ckpt-b", environment_version: noFenceEnv.item.id });
-  await client.create({ id: "gen-nofence", title: "NoFence", type: "Generation", status: "open", ...generationBody(noFenceSpec) });
+  await client.create({ id: "gen-nofence", title: "NoFence", type: "Generation", status: "open", body: generationBody(noFenceSpec).body });
   const noFenceLineage = resultOf(await harness.runCommand({ command: "rl lineage", pmRoot, args: ["gen-nofence"] }));
   assert.match(String(noFenceLineage.details?.output), /gen-nofence .* environment specification is unreadable/);
   // A fence that is PRESENT but does not parse is unreadable too, not
@@ -1344,7 +1344,7 @@ test("a generation whose environment lacks a hash or a specification fence repor
   // the problem. The two reasons send them to different places.
   const badFenceEnv = await client.create({ id: "env-badfence", title: "BadFence", type: "Environment", status: "open", affectedVersion: hashJson({ x: 1 }), body: "# env\n\n```json\n{ not valid json\n```" });
   const badFenceSpec = spec({ base_checkpoint: "ckpt-c", environment_version: badFenceEnv.item.id });
-  await client.create({ id: "gen-badfence", title: "BadFence", type: "Generation", status: "open", ...generationBody(badFenceSpec) });
+  await client.create({ id: "gen-badfence", title: "BadFence", type: "Generation", status: "open", body: generationBody(badFenceSpec).body });
   const badFenceLineage = resultOf(await harness.runCommand({ command: "rl lineage", pmRoot, args: ["gen-badfence"] }));
   assert.match(String(badFenceLineage.details?.output), /gen-badfence .* environment specification is unreadable/);
   assert.doesNotMatch(String(badFenceLineage.details?.output), /gen-badfence .* environment could not be resolved/, "a present but unparseable body must not be reported as an absent environment");
@@ -1354,7 +1354,7 @@ test("a generation whose environment does not resolve reports absent rather than
   const { pmRoot, client, harness } = await workspace();
   const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed");
   const ghostSpec = { ...seedSpec("ckpt-g", ""), environment_version: "ghost-env-v1", parent: seed, seed: false, policy: "g", collection_runs: ["ghost-run"], reward_spec_version: "r" };
-  await client.create({ id: "gen-ghost", title: "Ghost", type: "Generation", status: "open", ...generationBody(ghostSpec) });
+  await client.create({ id: "gen-ghost", title: "Ghost", type: "Generation", status: "open", body: generationBody(ghostSpec).body });
   const lineage = resultOf(await harness.runCommand({ command: "rl lineage", pmRoot, args: ["gen-ghost"] }));
   assert.match(String(lineage.details?.output), /gen-ghost .* environment could not be resolved/);
   assert.doesNotMatch(String(lineage.details?.output), /gen-ghost .* environment was edited/, "an absent environment must not be reported as edited");
