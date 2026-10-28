@@ -670,6 +670,7 @@ test("legacy bandit training verifies real evidence and refuses candidate drift"
   });
   assert.equal(report.promoted, 1);
   const training = await client.get("legacy-bandit-g1-step-train", { depth: "standard", outputLimit: "unbounded", outputBudget: "unbounded" });
+  assert.ok("item" in training, "legacy receipt verification requires a complete SDK read");
   assert.equal(typeof training.item.body, "string", "legacy receipt verification requires the complete persisted body");
   const savedTraining = String(training.item.body);
   try {
