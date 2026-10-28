@@ -6,15 +6,17 @@ status: open
 priority: 0
 tags[3]: ci,lint,release
 created_at: "2026-10-28T18:34:20.621Z"
-updated_at: "2026-10-28T18:34:27.108Z"
+updated_at: "2026-10-28T19:14:21.757Z"
 author: claude-hub
 acceptance_criteria: eslint ignores .agents/** and still checks scripts/src/test; a regression test writes a violating file under .agents/pm/runtime and fails on revert; the next daily release passes lint and publishes
 severity: high
-comments[1]{created_at,author,text}:
+comments[2]{created_at,author,text}:
   "2026-10-28T18:34:27.108Z",claude-hub,"Focused test 2/2 pass; revert proof: without the .agents/** ignore the runtime-output test fails (pass 1, fail 1). eslint on the changed files, typecheck and the docstring gate (408 declarations) pass."
-files[2]{path,scope}:
+  "2026-10-28T19:14:20.875Z",claude-hub,CI on #117 showed test/quality-scripts.test.ts pins the exact ignore set; updated it to include .agents/** (ESLint configuration tests 4/4 pass locally).
+files[3]{path,scope}:
   scripts/eslint.config.ts,project
   test/eslint-ignores.test.ts,project
+  test/quality-scripts.test.ts,project
 tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test test/eslint-ignores.test.ts,project,claude-hub,"2026-10-28T18:34:24.830Z",local_mutation,fix/eslint-ignore-tracker-runtime
 body: ""
