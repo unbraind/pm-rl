@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { test } from "node:test";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { init, createPmCliExpectedError, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
-import { captureDecisionInputs, readCompleteLoopItem, withRlController, hashJson, generationProvenance, reconcileLoopPromotion, withProcessJobFence, verifyCompletedDecisionReceipt, sealDecisionEvidence, type JsonValue } from "../index.ts";
+import { captureDecisionInputs, readCompleteLoopItem, withRlController, hashJson, generationProvenance, reconcileLoopPromotion, withProcessJobFence, verifyCompletedDecisionReceipt, completedDecisionReceipt, sealDecisionEvidence, type JsonValue } from "../index.ts";
 import { exportPolicyCard, replayPolicyCard, parsePolicyCardDecisionEvidence, POLICY_CARD_MAX_BYTES, type PolicyCard } from "../policy-card.ts";
 import type { GenerationSpec } from "../lineage.ts";
 
@@ -171,12 +171,15 @@ test("malformed historical completions cannot seal a step while the first valid 
     const result = { samples: 1 };
     const graph = await sealDecisionEvidence(w.client, running.input, [(await readCompleteLoopItem(w.client, "rl-input")).item]);
     const complete = { ...running, state: "complete", result, digest: hashJson(result), decision_evidence: graph };
+    assert.equal(completedDecisionReceipt(complete), true);
+    for (const body of [{ ...complete, format: "foreign" }, { ...complete, state: "foreign" }, { ...complete, input: 17 }]) assert.equal(completedDecisionReceipt(body), false);
     const invalid = [
       ...[undefined, null, 17, []].map((result) => ({ ...complete, result })),
       { ...complete, digest: "foreign-checksum" }, { ...complete, input: "foreign-input" },
       { ...complete, decision_evidence: { format: "foreign" } },
     ];
     for (const body of invalid) {
+      assert.equal(completedDecisionReceipt(body), false);
       await w.client.update(id, { body: JSON.stringify(body) });
       assert.deepEqual(JSON.parse(String((await readCompleteLoopItem(w.client, id)).item.body)), JSON.parse(JSON.stringify(body)));
       await verifyCompletedDecisionReceipt(w.client, id, running, true);
