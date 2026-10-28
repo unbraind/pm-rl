@@ -1,0 +1,26 @@
+id: pm-rl-kq4f
+title: Repair the legacy training receipt check for the pm-toolchain update
+description: "Reproduce the focused durable-loop failure on Dependabot PR 114, preserve evidence and candidate-drift assertions, and adapt only the dependency contract that changed."
+type: Chore
+status: in_progress
+priority: 2
+tags[3]: ci,dependabot,"gh:unbraind/pm-rl#114"
+created_at: "2026-10-28T19:41:30.408Z"
+updated_at: "2026-10-28T20:46:39.180Z"
+author: codex-agent
+comments[8]{created_at,author,text}:
+  "2026-10-28T19:42:12.054Z",codex-agent,"The bumped SDK causes the legacy bandit receipt test to JSON.parse an absent item.body. Reproduce the single failing case, inspect the SDK read projection contract, and request exactly the persisted evidence needed without weakening drift detection. Main is already an ancestor of the Dependabot head."
+  "2026-10-28T19:45:41.145Z",codex-agent,"Cause class: dependency read-contract incompatibility in the test fixture. The default SDK token budget omits the large training receipt body. Request depth standard with outputLimit and outputBudget unbounded for this single evidence read; explicitly assert the body exists. The existing evidence verification, promotion count and candidate-drift refusal assertions are retained. The original focused test fails with JSON.parse(undefined); the updated pm-linked focused test passes 1/1."
+  "2026-10-28T19:48:33.233Z",codex-agent,"Behavioral revert proof in a disposable source copy: removing only the explicit body-read options makes the complete persisted body assertion fail. Restoring the options passes the focused regression 1/1, including legacy replay and candidate-drift refusal. The fixed test also passed 1/1 through the pinned pm runner in a real non-git tracker. No production logic or release threshold changed."
+  "2026-10-28T19:50:10.174Z",codex-agent,"Repair CI evidence: https://github.com/unbraind/pm-rl/actions/runs/40757694370. Focused regression passed 1/1 and both disposable revert/restoration outcomes were verified. Changelog regeneration and changelog:check passed. The CI matrix must provide npm and Bun release gates at unchanged thresholds on the final pushed head; no full-gate pass is claimed while queued."
+  "2026-10-28T20:05:15.097Z",codex-agent,"The first repair CI exposed a TypeScript SDK result-union error in the new explicit-budget call. Added an item-in-result assertion before accessing the receipt, preserving fail-closed behavior. npm run build followed by npm run build:test now passes; the focused runtime regression is being repeated. This is the same scoped read-contract repair, not a threshold change."
+  "2026-10-28T20:33:37.018Z",codex-agent,"Cause class: dependency read-contract incompatibility in the legacy training test. The complete-body request now includes an explicit SDK-result guard; build and build:test pass and the focused runtime test passes 1/1. Corrected repair CI evidence is https://github.com/unbraind/pm-rl/actions/runs/40760336229. The earlier repair run failed during test compilation and is retained as failed evidence. Final-head CI remains required after this receipt is committed; no queued or running check is reported as green."
+  "2026-10-28T20:41:01.334Z",codex-agent,"GitHub marked this PR BEHIND after current main advanced during CI. Synchronize main with a two-parent merge, preserve append-only tracker histories, and repeat the focused test plus build/build:test before final CI. This carries forward the same complete legacy-training read repair."
+  "2026-10-28T20:46:32.407Z",codex-agent,"Current main was merged with two parents and every changed history remains a byte-prefix extension of main. npm run build and npm run build:test pass; the pinned PM focused legacy-training check passes 1/1 after the merge. Earlier full CI remains slow. Final synchronized-head CI is handed off for exact-head npm/Bun verification; the complete-body read and SDK-result assertions remain the only focused test repair."
+files[1]{path,scope}:
+  test/durable-loop.test.ts,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  "node --test --test-concurrency=2 --test-name-pattern=\"legacy bandit training verifies\" test/durable-loop.test.ts",project,codex-agent,"2026-10-28T19:42:27.659Z",local_mutation,dependabot/npm_and_yarn/pm-toolchain-cc78843e61
+docs[1]{path,scope}:
+  "https://github.com/unbraind/pm-rl/actions/runs/40741784864",project
+body: ""
