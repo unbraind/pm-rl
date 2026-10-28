@@ -208,7 +208,7 @@ export async function readEvaluationPlan(client: PmClient, candidate: string): P
   candidate = canonicalizeIdentifier(candidate, prefix);
   const id = evaluationPlanId(candidate); const item = await optionalItem(client, id);
   if (item === null) {
-    if (await optionalItem(client, id, "1") !== null) refuse("eval_plan_missing");
+    if (await optionalItem(client, id, "1") !== null) refuse("eval_plan_missing", id);
     return null;
   }
   const record = object(storedJson(item.body), ["plan", "incumbent_version"]);
@@ -379,7 +379,7 @@ export async function readEvaluationDecision(client: PmClient, candidate: string
     await enforceShadowComparison(client, resolved, registered.plan);
     if (registered.plan.stopping.kind === "sequential") {
       const latest = await readSequentialEvaluation(client, resolved);
-      if (latest !== null && "status" in latest) refuse("eval_plan_evidence", latest.skipped[0]?.id);
+      if (latest !== null && "status" in latest) refuse("eval_plan_missing", latest.skipped[0]?.id);
       return { registered, report: latest };
     }
     const result = await optionalItem(client, `${registered.id}-result`);

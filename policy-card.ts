@@ -13,11 +13,15 @@ import { rethrowOperationalRead, rethrowProvenanceRead } from "./refuse.ts";
 export type PolicyCardRefusal = "card_missing_provenance" | "card_invalid" | "card_drift" | "card_limit" | "card_not_adoptable";
 /** A historical result locator; the digest covers domain content, never titles, authors or raw notes. */
 export interface PolicyCardEvidence { readonly id: string; readonly at: string; readonly digest: string }
+/** Compact hash link to the complete evaluator manifest resolved through the cited subject. */
+export interface PolicyCardDecisionReference { readonly format: "pm-rl/evaluation-evidence-ref/1"; readonly comparison: string; readonly digest: string }
+/** Full manifests remain the default; long complete citation sets use a hash-linked reference. */
+export type PolicyCardDecisionEvidence = EvaluationEvidence | PolicyCardDecisionReference;
 /** Portable explanation only: it confers no execution, mutation or promotion authority. */
 export interface PolicyCard {
   readonly format: "pm-rl/policy-card/1";
-  /** Exact graph returned by the decision reader; absent on released legacy cards. */
-  readonly decision_evidence?: EvaluationEvidence;
+  /** Exact graph or hash link returned by the decision reader; absent on released legacy cards. */
+  readonly decision_evidence?: PolicyCardDecisionEvidence;
   readonly subject: string;
   readonly selection: number | null;
   readonly policy_digest: string | null;
@@ -50,6 +54,13 @@ function object(value: unknown): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) refuse("card_invalid");
   return value as Record<string, unknown>;
 }
+/** Validate one portable manifest representation without silently pruning any dependency. @internal */
+export function parsePolicyCardDecisionEvidence(value: unknown): PolicyCardDecisionEvidence {
+  const row = object(value);
+  if (row.format !== "pm-rl/evaluation-evidence-ref/1") return parseEvaluationEvidence(value);
+  if (!fields(row, "comparison,digest,format") || !digestShape(row.comparison) || !digestShape(row.digest)) refuse("card_invalid");
+  return { format: "pm-rl/evaluation-evidence-ref/1", comparison: row.comparison as string, digest: row.digest as string };
+}
 /** Bound copied identities to tracker identifiers; evidence locators come only from certified history. */
 function identity(value: unknown): string {
   try { if (typeof value === "string" && operationIdentifier(value) === value) return value; }
@@ -72,7 +83,7 @@ function domain(item: CardItem, prefix: string): JsonValue {
 }
 /** Read certified content at its first matching immutable version, independent of later tracker activity. */
 async function snapshot(client: PmClient, id: string, at?: string): Promise<{ item: GetResult["item"]; citation: PolicyCardEvidence }> {
-  id = operationIdentifier(id);
+  try { id = operationIdentifier(id); } catch { refuse("card_invalid"); }
   try {
     const prefix = String((await identifierClient(client).config("project", "get", "id_prefix").catch(rethrowProvenanceRead)).nested_setting!.value);
     id = canonicalizeIdentifier(id, prefix);
@@ -84,7 +95,7 @@ async function snapshot(client: PmClient, id: string, at?: string): Promise<{ it
     const match = await firstDecisionSnapshot(client, id, (item) => hashJson(domain(item, prefix)) === digest, SNAPSHOT_FIELDS);
     return { item: match.item, citation: { id: identity(match.item.id), at: match.at, digest } };
   } catch (error) {
-    if (isPmCliExpectedError(error) && error.context.code === "card_drift") throw error;
+    if (isPmCliExpectedError(error) && ["card_drift", "loop_write_conflict"].includes(String(error.context.code))) throw error;
     rethrowOperationalRead(error);
     return refuse("card_missing_provenance", id);
   }
@@ -97,6 +108,12 @@ function limits(value: unknown, result: Record<string, number> = {}): Record<str
     if (["budget", "allowance", "resource_budget", "config", "adapter"].includes(key)) limits(child, result);
   }
   return Object.fromEntries(Object.entries(result).sort(([a], [b]) => a.localeCompare(b)));
+}
+/** Decode an owned step as one bounded JSON document and retain card-specific typed refusals. */
+function stepReceipt(item: CardItem): Record<string, unknown> {
+  const row = decodeTrackerRecord(null, item, { type: "Decision", format: "pm-rl/loop-step/1" });
+  if (row === null) refuse("card_invalid", item.id);
+  return row;
 }
 /** Parse only supported generation or completed durable-step sources. */
 function source(item: CardItem, prefix: string): { value: Record<string, unknown>; outcome: PolicyCard["outcome"]; dependencies: string[]; scope: PolicyCard["training_scope"]; regressions: PolicyCard["known_regressions"] } {
@@ -112,10 +129,9 @@ function source(item: CardItem, prefix: string): { value: Record<string, unknown
       scope: { digest: hashJson(spec.training_config), collection_runs: spec.collection_runs.length, environment: hashJson(spec.environment_version), reward: hashJson(spec.reward_spec_version) },
       regressions: regression ? ["reward_regression"] : judged.decision === "refuse" ? ["promotion_refused"] : spec.promoted || judged.decision === "promote" ? [] : ["evaluation_incomplete"] };
   }
-  if (item.type !== "Decision") return refuse(String(item.body).trim() === "" ? "card_invalid" : "card_missing_provenance");
-  if (String(item.body).trimStart().startsWith("{") && !String(item.body).includes('"pm-rl/loop-step/1"')) return refuse("card_missing_provenance");
-  const row = decodeTrackerRecord(null, item, { type: "Decision", format: "pm-rl/loop-step/1" });
-  if (row === null) return refuse("card_invalid", item.id);
+  if (item.type !== "Decision") return refuse(String(item.body).trim() === "" ? "card_invalid" : "card_missing_provenance", item.id);
+  if (String(item.body).trimStart().startsWith("{") && !String(item.body).includes('"pm-rl/loop-step/1"')) return refuse("card_missing_provenance", item.id);
+  const row = stepReceipt(item);
   if (row.state !== "complete" || typeof row.input !== "string" || !/^[a-f0-9]{64}$/.test(row.input) || row.result === null || typeof row.result !== "object" || row.digest !== hashJson(row.result as JsonValue)) refuse("card_missing_provenance");
   const result = object(row.result);
   const verdict = result.promoted === true || result.promoted !== null && typeof result.promoted === "string" ? "promoted" : result.promoted === false ? "refused" : "recorded";
@@ -163,8 +179,15 @@ function assemble(subject: string, item: CardItem, evidence: readonly PolicyCard
   const body = { ...(decisionGraph === undefined ? {} : { decision_evidence: decisionGraph }), format: "pm-rl/policy-card/1" as const, subject, selection, policy_digest: policyIdentity === null ? null : hashJson(policyIdentity), proposal_digest: hashJson(selected as JsonValue), evaluation: evaluation(parsed.value), outcome: parsed.outcome, training_scope: parsed.scope, allowed_actions: ["inspect", "evaluate"] as const,
     known_regressions: parsed.regressions, resource_limits: { ...limits(parsed.value), ...extraLimits }, evidence };
   const card = { ...body, digest: hashJson(body as unknown as JsonValue) };
-  if (Buffer.byteLength(canonicalJson(card as unknown as JsonValue)) > POLICY_CARD_MAX_BYTES) refuse("card_limit");
-  return card;
+  if (Buffer.byteLength(canonicalJson(card as unknown as JsonValue)) <= POLICY_CARD_MAX_BYTES) return card;
+  if (decisionGraph === undefined) refuse("card_limit");
+  // Citations remain complete. The shared evaluator (or frozen receipt) resolves
+  // the exact input list behind this root; only its redundant inline copy shrinks.
+  const reference: PolicyCardDecisionReference = { format: "pm-rl/evaluation-evidence-ref/1", comparison: decisionGraph.comparison, digest: decisionGraph.digest };
+  const compact = { ...body, decision_evidence: reference };
+  const bounded = { ...compact, digest: hashJson(compact as unknown as JsonValue) };
+  if (Buffer.byteLength(canonicalJson(bounded as unknown as JsonValue)) > POLICY_CARD_MAX_BYTES) refuse("card_limit");
+  return bounded;
 }
 /** Verify retained explanations and their live evidence at every canonical ancestor through the seed. */
 async function verifyCardAncestry(client: PmClient, leaf: string): Promise<void> {
@@ -252,7 +275,7 @@ export async function generationEvidence(client: PmClient, subject: string, sele
 /** Reuse actual evaluator reads; legacy explanatory records without a versioned plan remain inspectable. */
 async function cardDecisionInputs(client: PmClient, item: CardItem, plan: GetResult["item"] | CardItem | null, prospective = false): Promise<{ ids: string[]; graph?: EvaluationEvidence }> {
   if (item.type === "Decision") {
-    const raw = object(parseBoundedJson(String(item.body)));
+    const raw = stepReceipt(item);
     await verifyCompletedDecisionReceipt(client, item.id, raw, prospective);
     if (raw.decision_evidence === undefined) return { ids: [] };
     const evidence = parseEvaluationEvidence(raw.decision_evidence);
@@ -263,12 +286,14 @@ async function cardDecisionInputs(client: PmClient, item: CardItem, plan: GetRes
   const spec = extractGenerationSpec(String(item.body), "Card decision inputs");
   const retained = spec.evaluation_evidence;
   const versioned = plan === null ? null : decodeTrackerRecord(spec.evaluation_plan === undefined ? client : null, plan, { type: "Plan", maxBytes: 16_777_216, valid: (row) => row.plan !== null && typeof row.plan === "object" && !Array.isArray(row.plan) && (row.plan as Record<string, unknown>).format === "pm-rl/evaluation-plan/1" });
-  if (retained !== undefined || versioned !== null) {
+  if (retained !== undefined || versioned !== null || !spec.seed && plan === null) {
     try {
       const decision = await readEvaluationDecision(client, item.id, true);
+      if (decision.evidence === null) return { ids: [] };
       if (retained !== undefined && retained.digest !== decision.evidence?.digest) refuse("card_drift", item.id);
       return { ids: decision.evidence!.inputs.map((input) => input.id).filter((id) => id !== item.id), graph: decision.evidence! };
     } catch (error) {
+      if (isPmCliExpectedError(error) && error.context.code === "loop_write_conflict") throw error;
       rethrowOperationalRead(error);
       refuse("card_drift", isPmCliExpectedError(error) ? String(error.context.item_id ?? item.id) : item.id);
     }
@@ -287,7 +312,10 @@ function verifyDecisionBindings(primary: CardItem, entries: readonly CardItem[],
   const sources = new Map([primary, ...entries].map((item) => [item.id, item]));
   for (const input of graph.inputs) {
     const item = sources.get(input.id);
-    if (item === undefined || (graph.format === "pm-rl/evaluation-evidence/2" ? decisionSnapshotDigest(item) : evaluationInputDigest(item, graph.comparison)) !== input.digest) refuse("card_drift", input.id);
+    if (item === undefined) refuse("card_drift", input.id);
+    if ((graph.format === "pm-rl/evaluation-evidence/2" ? decisionSnapshotDigest(item) : evaluationInputDigest(item, graph.comparison)) !== input.digest) {
+      throw createPmCliExpectedError(`Decision input ${input.id} changed between validation and citation; retry before applying the decision.`, { exitCode: EXIT_CODE.CONFLICT, context: { code: "loop_write_conflict", item_id: input.id, required: "Retry against current SDK revisions; no new approval was consumed." } });
+    }
   }
 }
 /** Match complete fixed record fields before a foreign shape can reach evidence replay. */
@@ -297,7 +325,7 @@ function digestShape(value: unknown): boolean { return typeof value === "string"
 /** Validate the complete portable envelope; semantic evidence drift remains a separate provenance refusal. */
 function cardShape(row: Record<string, unknown>): boolean {
   if (!fields(row, `${row.decision_evidence === undefined ? "" : "decision_evidence,"}allowed_actions,digest,evaluation,evidence,format,known_regressions,outcome,policy_digest,proposal_digest,resource_limits,selection,subject,training_scope`.split(",").sort().join(",")) || encodedSize(row) > POLICY_CARD_MAX_BYTES) return false;
-  if (row.decision_evidence !== undefined) parseEvaluationEvidence(row.decision_evidence);
+  if (row.decision_evidence !== undefined) parsePolicyCardDecisionEvidence(row.decision_evidence);
   identity(row.subject);
   if (row.selection !== null && (!Number.isSafeInteger(row.selection) || Number(row.selection) < 0 || Number(row.selection) >= MAX_EVIDENCE)) return false;
   if (!digestShape(row.digest) || !digestShape(row.proposal_digest) || row.policy_digest !== null && !digestShape(row.policy_digest)) return false;
@@ -414,7 +442,7 @@ function encodedSize(value: Record<string, unknown>): number {
 export async function replayPolicyCard(client: PmClient, value: unknown): Promise<{ card: PolicyCard; results: readonly PolicyCardEvidence[] }> {
   const candidate = object(value);
   if (encodedSize(candidate) > POLICY_CARD_MAX_BYTES) refuse("card_limit");
-  const supplied = candidate.decision_evidence === undefined ? undefined : parseEvaluationEvidence(candidate.decision_evidence);
+  const supplied = candidate.decision_evidence === undefined ? undefined : parsePolicyCardDecisionEvidence(candidate.decision_evidence);
   const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
   const subject = canonicalizeIdentifier(identity(candidate.subject), prefix);
   const selection = candidate.selection;
@@ -430,18 +458,20 @@ export async function replayPolicyCard(client: PmClient, value: unknown): Promis
     results.push(entry.citation); items.push(entry.item);
   }
   if (results[0].id !== subject || new Set(results.map((row) => row.id)).size !== results.length) refuse("card_invalid");
-  const storedGraph = items[0].type === "Generation" ? extractGenerationSpec(String(items[0].body), "Replayed receipt").evaluation_evidence : object(parseBoundedJson(String(items[0].body))).decision_evidence;
+  const storedGraph = items[0].type === "Generation" ? extractGenerationSpec(String(items[0].body), "Replayed receipt").evaluation_evidence : stepReceipt(items[0]).decision_evidence;
   const planItem = items.slice(1).find((item) => item.id === `${subject}-evaluation-plan`);
   const declared = planItem === undefined ? null : evidenceBody(planItem).plan;
   const sequential = declared !== null && typeof declared === "object" && (declared as Record<string, unknown>).stopping !== null && typeof (declared as Record<string, unknown>).stopping === "object" && ((declared as Record<string, unknown>).stopping as Record<string, unknown>).kind === "sequential";
   if (supplied === undefined && (storedGraph !== undefined || sequential)) refuse("card_drift", subject);
   if (candidate.decision_evidence !== undefined && items[0].type === "Decision") {
     const current = await snapshot(client, subject);
-    await verifyCompletedDecisionReceipt(client, subject, object(parseBoundedJson(String(current.item.body))));
+    await verifyCompletedDecisionReceipt(client, subject, stepReceipt(current.item));
     if (current.citation.digest !== results[0].digest) refuse("card_drift", subject);
   }
   const decision = candidate.decision_evidence === undefined ? undefined : await cardDecisionInputs(client, items[0], items.slice(1).find((item) => item.id === `${subject}-evaluation-plan`) ?? null);
-  if (decision !== undefined && canonicalJson(decision.graph as unknown as JsonValue) !== canonicalJson(supplied as unknown as JsonValue)) refuse("card_drift", subject);
+  if (decision !== undefined && (supplied?.format === "pm-rl/evaluation-evidence-ref/1"
+    ? decision.graph?.digest !== supplied.digest || decision.graph.comparison !== supplied.comparison
+    : canonicalJson(decision.graph as unknown as JsonValue) !== canonicalJson(supplied as unknown as JsonValue))) refuse("card_drift", subject);
   for (const item of items.slice(1)) {
     if (items[0].type === "Decision" || item.type !== "Generation") continue;
     const upstream = extractGenerationSpec(String(item.body), "Replayed upstream evidence").evaluation_evidence;

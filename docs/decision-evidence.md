@@ -17,7 +17,7 @@ cohort observations and predecessor hash, so changing cohort data or dropping a
 predecessor changes or invalidates the graph. Human annotations and tracker
 status bookkeeping do not change statistical input identity.
 
-Generation policy cards embed exactly the graph returned by the
+Generation policy cards bind exactly the graph returned by the
 reader; recursive and proposal-selection cards embed the frozen input manifest
 from their completed receipt. Both use the evaluator's captured dependency list. Discovery also finds a registered fixed plan when an older Generation
 does not carry the optional `evaluation_plan` field. The decision reader owns
@@ -67,6 +67,27 @@ or silently truncate its dependencies. Cards remain bounded to 4096 bytes and 32
 direct citations, and refuse before a promotion consumes approval if they cannot
 represent the evidence. They continue to allow only inspection and evaluation.
 
+Cards normally inline the complete manifest. When repeating its IDs alongside
+the complete citation list would exceed 4096 bytes, `decision_evidence` instead
+uses `{ format: "pm-rl/evaluation-evidence-ref/1", comparison, digest }`.
+This root identifies the same full manifest in the cited completed receipt or
+shared generation decision reader. Replay resolves that manifest, verifies every
+input binding, and checks the entire citation set. No citation is dropped, no
+limit increases, and a card that still cannot fit refuses before publication.
+The typed `PolicyCardDecisionEvidence` union describes both representations.
+
+Tracing preserves the original typed exception and its context identity when
+adding `item_id`. Controllers can therefore distinguish their own terminal
+promotion-budget verdict from a retryable dependency or revision refusal.
+Historical SDK reads remain available after native deletion of the current
+record; a storage failure reading that current counterpart still retries.
+Recovery validates all required committed promotion fields before closing or
+publishing anything. A deleted sealed reservation cannot become a legacy plan
+by removing the candidate's pin.
+Historical completion discovery uses the same payload validator as step replay.
+Malformed peer replacements establish no execution seal; the first valid
+completed execution remains immutable even after later invalid records.
+
 ```ts
 import { PmClient } from '@unbrained/pm-cli/sdk/core';
 import { readEvaluationDecision, exportPolicyCard } from 'pm-rl';
@@ -92,3 +113,9 @@ and every snapshot pair, rehashed corruption, SDK read-back after compensation,
 and refusal without re-executing a completed operation. The packed acceptance script tests the same frozen/live split through SDK,
 JSON and TOON, including named snapshot refusals, under Node and Bun in non-git
 trackers.
+
+`test/evaluation-integration.test.ts` checks exception identity through nested
+controllers, tracing at depths one through three, deleted native history,
+malformed/NDJSON receipts and historical completions, compact full-citation
+replay, incomplete committed promotions, and 500 seeded valid/invalid
+manifest-reference transports.

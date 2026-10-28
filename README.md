@@ -858,6 +858,11 @@ adds a compact `evidence_digest`; `readEvaluationDecision` exposes the full grap
 Legacy cards and fixed report identities remain readable. See the
 [SDK example, graph contract and regression evidence](docs/decision-evidence.md).
 
+Cards keep their 4096-byte limit and complete citations. When an inline manifest
+would exceed that limit, a typed `pm-rl/evaluation-evidence-ref/1` hash link binds
+the full manifest resolved from the cited receipt or shared decision reader.
+Replay verifies the same inputs and refuses omitted citations or altered roots.
+
 ### Identifier and state-path boundaries
 
 Version-1 readers preserve the published label language and comparison hashes.

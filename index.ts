@@ -156,7 +156,7 @@ export {
   type StoredLmGeneration,
 } from "./lm.ts";
 
-export { exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordRecursivePolicyCards, recordPolicyCard, POLICY_CARD_MAX_BYTES, type PolicyCard, type PolicyCardEvidence, type PolicyCardRefusal } from "./policy-card.ts";
+export { exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordRecursivePolicyCards, recordPolicyCard, POLICY_CARD_MAX_BYTES, type PolicyCard, type PolicyCardDecisionEvidence, type PolicyCardDecisionReference, type PolicyCardEvidence, type PolicyCardRefusal } from "./policy-card.ts";
 export { parseShadowDeployment, shadowInputDigest, registerShadowDeployment, observeShadow, compareShadow, type ShadowPolicy, type ShadowDeployment, type ShadowInput, type ShadowObservation, type ShadowReport, type ShadowRefusal } from "./shadow.ts";
 export { recordSequentialEvaluation, readSequentialEvaluation, type SequentialStopping, type SequentialBoundary, type SequentialEvaluationResult, type SequentialEvaluationSkip } from "./sequential-evaluation.ts";
 export { parseEvaluationPlan, resolveEvaluationPlan, evaluationPlanId, evaluationComparison, registerEvaluationPlan, readEvaluationPlan, readEvaluationDecision, parseEvaluationEvidence, evaluatePlan, recordPlanEvaluation, enforceEvaluationPlan, type EvaluationPlan, type EvaluationMember, type EvaluationObservation, type EvaluationPlanReport, type RegisteredEvaluationPlan, type EvaluationPlanRefusal } from "./evaluation-plan.ts";
@@ -771,6 +771,13 @@ interface DecisionReads { readonly client: PmClient; readonly inputs: Map<string
 const decisionReads = new AsyncLocalStorage<DecisionReads>();
 /** Complete SDK domain projection shared by decision input hashing and citations. @internal */
 export { DECISION_INPUT_FIELDS } from "./state-boundary.ts";
+/** Add provenance location without replacing the exception used by controller verdict classification. */
+function annotateDecisionError(error: PmCliExpectedError, fallback: string): PmCliExpectedError {
+  const id = String(error.context.item_id ?? fallback);
+  if (id !== "evaluation-input" && !error.message.includes(id)) error.message = `${error.message} Record ${id}.`;
+  Object.assign(error.context, { item_id: id });
+  return error;
+}
 /** Return the inputs read by the decision itself, without maintaining a parallel dependency list. @internal */
 export async function captureDecisionInputs<T>(client: PmClient, execute: () => Promise<T>, childrenOnly = false): Promise<{ value: T; inputs: GetResult["item"][] }> {
   const state: DecisionReads = { client, inputs: new Map(), parent: decisionReads.getStore(), childrenOnly };
@@ -778,27 +785,32 @@ export async function captureDecisionInputs<T>(client: PmClient, execute: () => 
     try { return { value: await execute(), inputs: [...state.inputs.values()].sort((a, b) => a.id.localeCompare(b.id)) }; }
     catch (error) {
       if (!isPmCliExpectedError(error)) throw error;
-      const id = String(error.context.item_id ?? state.lastId ?? "evaluation-input");
-      const message = id === "evaluation-input" || error.message.includes(id) ? error.message : `${error.message} Record ${id}.`;
-      throw createPmCliExpectedError(message, { exitCode: error.exitCode, context: { ...error.context, item_id: id } });
+      throw annotateDecisionError(error, state.lastId ?? "evaluation-input");
     }
   });
 }
 /** Historical reads establish dependencies too; prefer live projections when the validator also reads them. */
 function observeDecisionInput(client: PmClient, item: GetResult["item"], at: string | undefined): void {
-  for (let state = decisionReads.getStore(); state !== undefined; state = state.parent) {
+  // Only a decision reader can certify inputs. A nested controller is still
+  // bookkeeping, not an evaluator, even when another controller encloses it.
+  const reader = decisionReads.getStore();
+  if (reader?.childrenOnly !== false) return;
+  for (let state: DecisionReads | undefined = reader; state !== undefined; state = state.parent) {
     if (state.client === client && (!state.childrenOnly || state !== decisionReads.getStore())) { state.lastId = item.id; if (at === undefined || !state.inputs.has(item.id)) state.inputs.set(item.id, structuredClone(item)); }
   }
 }
-const promotionEvidence = new AsyncLocalStorage<{ client: PmClient; reads: Map<string, PromotionEvidenceRead[]> }>();
+const promotionEvidence = new AsyncLocalStorage<{ client: PmClient; reads: Map<string, PromotionEvidenceRead[]>; detectChanges: boolean }>();
 /** Collect every live evidence read, including absent slots, until the guarded promotion write. @internal */
-export function withPromotionEvidence<T>(client: PmClient, execute: () => Promise<T>): Promise<T> {
-  return promotionEvidence.run({ client, reads: new Map() }, execute);
+export function withPromotionEvidence<T>(client: PmClient, execute: () => Promise<T>, detectChanges = false): Promise<T> {
+  return promotionEvidence.run({ client, reads: new Map(), detectChanges }, execute);
 }
 /** Retain SDK projections unchanged; historical coordinates and live revisions remain distinct. */
 function observePromotionEvidence(id: string, fields: string | undefined, item: GetResult["item"] | null, at: string | undefined): void {
   const reads = promotionEvidence.getStore()!.reads;
   const previous = reads.get(id) ?? [];
+  if (promotionEvidence.getStore()!.detectChanges && at === undefined && previous.some((read) => read.at === undefined && read.fields === fields && canonicalJson(read.item as JsonValue) !== canonicalJson(item as JsonValue))) {
+    fail("Promotion evidence changed during validation; retry from current evidence. No new approval was consumed.", "loop_write_conflict", EXIT_CODE.CONFLICT);
+  }
   if (!previous.some((read) => read.at === at && read.fields === fields && canonicalJson(read.item as JsonValue) === canonicalJson(item as JsonValue))) previous.push({ at, fields, item: structuredClone(item) });
   reads.set(id, previous);
 }
@@ -814,7 +826,7 @@ export async function readCompleteLoopItem(client: PmClient, id: string, at?: st
     if (observing && isPmCliExpectedError(error) && error.exitCode === EXIT_CODE.NOT_FOUND) observePromotionEvidence(id, fields, null, at);
     try { return rethrowProvenanceRead(error); }
     catch (classified) {
-      if (decisionReads.getStore()?.client === client && isPmCliExpectedError(classified)) throw createPmCliExpectedError(classified.message, { exitCode: classified.exitCode, context: { ...classified.context, item_id: id } });
+      if (decisionReads.getStore()?.client === client && isPmCliExpectedError(classified)) throw annotateDecisionError(classified, id);
       throw classified;
     }
   });
@@ -827,14 +839,20 @@ export async function readCompleteLoopItem(client: PmClient, id: string, at?: st
     await readCompleteLoopItem(client, result.item.id, undefined, DECISION_INPUT_FIELDS);
     return result as GetResult;
   }
-  if (at !== undefined && tracing?.client === client && !tracing.childrenOnly && !tracing.inputs.has(result.item.id)) await readCompleteLoopItem(client, result.item.id);
+  if (at !== undefined && tracing?.client === client && !tracing.childrenOnly && !tracing.inputs.has(result.item.id)) {
+    await readCompleteLoopItem(client, result.item.id).catch((error: unknown) => {
+      // A certified historical projection survives a later native deletion.
+      // Only absence of the current counterpart is optional; storage failures still retry.
+      if (!isItemNotFound(error)) throw error;
+    });
+  }
   observeDecisionInput(client, result.item, at);
   return result as GetResult;
 }
 
 /** Locate the first certified semantic version through the SDK, retaining compaction coordinates. @internal */
 export async function firstDecisionSnapshot(client: PmClient, id: string, matches: (item: GetResult["item"]) => boolean, fields?: string): Promise<{ item: GetResult["item"]; at: string }> {
-  const history = await identifierClient(client).run("history", { id, options: { compact: true, verify: true, outputLimit: "unbounded", outputBudget: "unbounded" } }) as HistoryResult;
+  const history = await identifierClient(client).run("history", { id, options: { compact: true, verify: true, outputLimit: "unbounded", outputBudget: "unbounded" } }).catch(rethrowProvenanceRead) as HistoryResult;
   if (!history.verification?.ok || history.limit !== null || history.compact_history?.length !== history.count) fail("Decision input history is incomplete.", "loop_history_incomplete", EXIT_CODE.CONFLICT);
   for (const row of history.compact_history) {
     const at = String(row.version ?? row.index);
@@ -843,13 +861,20 @@ export async function firstDecisionSnapshot(client: PmClient, id: string, matche
   }
   throw createPmCliExpectedError(`Restore certified input ${id} before replaying its receipt.`, { exitCode: EXIT_CODE.CONFLICT, context: { code: "eval_plan_drift", item_id: id } });
 }
+/** Recognize actual completed executions; malformed historical envelopes establish no completion seal. @internal */
+export function completedDecisionReceipt(row: Readonly<Record<string, unknown>>): boolean {
+  if (row.format !== "pm-rl/loop-step/1" || row.state !== "complete" || typeof row.input !== "string" || !/^[a-f0-9]{64}$/.test(row.input)
+    || row.result === null || typeof row.result !== "object" || Array.isArray(row.result) || row.digest !== hashJson(row.result as JsonValue)) return false;
+  try { if (row.decision_evidence !== undefined) parseEvaluationEvidence(row.decision_evidence); }
+  catch { return false; }
+  return true;
+}
 /** A completed receipt cannot shed its input graph or replace it with a freshly rehashed subset. @internal */
 export async function verifyCompletedDecisionReceipt(client: PmClient, id: string, body: Readonly<Record<string, unknown>>, prospective = false): Promise<void> {
   let original: Awaited<ReturnType<typeof firstDecisionSnapshot>>;
   try {
     original = await firstDecisionSnapshot(client, id, (item) => {
-      const row = decodeTrackerRecord(null, item, { type: "Decision", format: "pm-rl/loop-step/1" });
-      return row?.state === "complete";
+      return decodeTrackerRecord(null, item, { type: "Decision", format: "pm-rl/loop-step/1", valid: completedDecisionReceipt }) !== null;
     });
   } catch (error) {
     if (prospective && isPmCliExpectedError(error) && error.context.code === "eval_plan_drift") return;
@@ -2626,6 +2651,7 @@ async function recoverManualPromotion(client: PmClient, previous: GetResult, app
     const prefix = String(config.nested_setting!.value);
     const spec = canonicalizeGenerationSpec(extractGenerationSpec(String(generation.item.body), "Committed promotion"), prefix);
     if (!spec.promoted) fail("Committed promotion changed; retry from the current Generation.", "loop_write_conflict", EXIT_CODE.CONFLICT);
+    requirePromotionEvidence(spec, generation.item.id);
     if (canonicalizeIdentifier(approvalId, prefix) !== canonicalizeIdentifier(spec.approval!, prefix)
       || canonicalJson(canonicalizeScoreRecord(proxy, prefix) as unknown as JsonValue) !== canonicalJson(spec.proxy_score as unknown as JsonValue)
       || canonicalJson(canonicalizeScoreRecord(held, prefix) as unknown as JsonValue) !== canonicalJson(spec.held_out_score as unknown as JsonValue)
@@ -2643,6 +2669,13 @@ async function recoverManualPromotion(client: PmClient, previous: GetResult, app
       return { status: String(generation.item.status), gap: spec.gap!, promotedCount: consumed.length - 1, permittedPromotions: approval.permitted_promotions, ...(spec.evaluation_evidence === undefined ? {} : { evidenceDigest: spec.evaluation_evidence.digest }) };
     });
   });
+}
+
+/** Refuse incomplete committed outcomes before recovery evaluates, closes or republishes them. */
+function requirePromotionEvidence(spec: GenerationSpec, id: string): void {
+  if (spec.approval === null || spec.proxy_score === null || spec.held_out_score === null || spec.gap === null || spec.promotion_evidence === null) {
+    fail(`Promoted generation ${id} is missing its approval or scored evidence; restore its sealed promotion receipt before recovery.`, "promoted_missing_evidence", EXIT_CODE.CONFLICT);
+  }
 }
 
 /** The workspace coordinates a transactional promotion needs outside the client. */
@@ -2702,8 +2735,6 @@ export async function promoteGenerationCore(client: PmClient, coordinates: Works
   // taken, so an obviously invalid approval never queues behind a live promotion.
   // The value is deliberately discarded — every number the decision and the
   // receipt use is re-read inside the lock.
-  await readApprovalSpec(client, approvalId);
-  await exportPolicyCard(client, id);
   // Count the consumed budget and write the promotion inside one workspace
   // writer lock. Two concurrent promotions would otherwise both read the same
   // count, both observe headroom, and both promote — the race a recursive loop
@@ -2733,9 +2764,13 @@ export async function promoteGenerationCore(client: PmClient, coordinates: Works
     };
     return `# ${id}\n\n\`\`\`json\n${JSON.stringify(promotedSpec, null, 2)}\n\`\`\``;
   };
-  const prospective = await getTypedItem(client, id, "Generation");
-  canonicalApprovalId = (await readApprovalSpec(client, approvalId)).id;
-  await validatePromotedPolicyCard(client, id, renderPromotedBody(extractGenerationSpec(String(prospective.item.body), "Prospective promotion")));
+  await withPromotionEvidence(client, async () => {
+    await readApprovalSpec(client, approvalId);
+    await exportPolicyCard(client, id);
+    const prospective = await getTypedItem(client, id, "Generation");
+    canonicalApprovalId = (await readApprovalSpec(client, approvalId)).id;
+    await validatePromotedPolicyCard(client, id, renderPromotedBody(extractGenerationSpec(String(prospective.item.body), "Prospective promotion")));
+  }, true);
   let promotedCount = 0;
   // Neutral like its two neighbours, NOT seeded from `approvalSpec`. That is the
   // pre-lock read, and seeding it here makes this the one variable of the three
@@ -3658,11 +3693,10 @@ async function readLoopStep(client: PmClient, id: string, phase: string, input: 
   }
   if (record["state"] === "running") { await verifyCompletedDecisionReceipt(client, item.item.id, record, true); return null; }
   const result = record["result"];
-  if (result === undefined || result === null || typeof result !== "object" || Array.isArray(result)
-    || record["digest"] !== hashJson(result)) fail("Loop step receipt payload is damaged.", "loop_step_drift", EXIT_CODE.CONFLICT);
+  if (!completedDecisionReceipt(record)) throw createPmCliExpectedError(`Loop step receipt ${item.item.id} is damaged; restore its complete original payload before retrying.`, { exitCode: EXIT_CODE.CONFLICT, context: { code: "loop_step_drift", item_id: item.item.id } });
   await verifyCompletedDecisionReceipt(client, item.item.id, record);
   if (record["decision_evidence"] !== undefined) await verifyDecisionSnapshots(client, parseEvaluationEvidence(record["decision_evidence"]));
-  return result;
+  return result!;
 }
 
 /** Execute only an unfinished generation-step key and commit its result under the controller fence. */
@@ -4079,6 +4113,7 @@ export async function reconcileLoopPromotion(client: PmClient, lease: Pick<Contr
     const item = await getTypedItem(client, itemId, "Generation");
     const spec = extractGenerationSpec(String(item.item.body), "Promoted loop generation");
     if (!spec.promoted) fail("Promotion recovery no longer agrees with current generation evidence.", "loop_step_drift", EXIT_CODE.CONFLICT);
+    requirePromotionEvidence(spec, item.item.id);
     await enforceEvaluationPlan(client, item.item.id, spec.held_out_score!);
     const config = await identifierClient(client).config("project", "get", "id_prefix");
     const registry = resolveRuntimeStatusRegistry((await readSettings(dirname(config.settings_path))).schema);
@@ -4118,7 +4153,7 @@ async function promotionAuthor(client: PmClient, id: string): Promise<string> {
 
 /** Seal an actual rejection; peer terminal states and CAS refusals are authoritative. @internal */
 export async function recordRefusedPolicyCard(client: PmClient, id: string, reason: string | null, author = "pm-rl"): Promise<"promoted" | "refused"> {
-  return withPromotionEvidence(client, () => sealPolicyRejection(client, id, reason, author));
+  return await withPromotionEvidence(client, () => sealPolicyRejection(client, id, reason, author));
 }
 /** Hold all decision inputs through the rejection write, with the same SDK revision guard as promotion. */
 async function sealPolicyRejection(client: PmClient, id: string, reason: string | null, author: string): Promise<"promoted" | "refused"> {

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { rmSync } from "node:fs";
 import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { captureDecisionInputs, extractGenerationSpec, DECISION_INPUT_FIELDS, firstDecisionSnapshot, hashJson, generationProvenance, readCompleteLoopItem, withRlController, promoteGenerationCore, verifyDecisionEvidence, verifyDecisionSnapshots, type JsonValue } from "../../index.ts";
-import { evaluationInputDigest, evaluationEvidence, decisionSnapshotDigest, readEvaluationDecision, registerEvaluationPlan, evaluationComparison, type EvaluationPlan } from "../../evaluation-plan.ts";
+import { evaluationInputDigest, evaluationEvidence, decisionSnapshotDigest, readEvaluationDecision, parseEvaluationEvidence, registerEvaluationPlan, evaluationComparison, type EvaluationPlan } from "../../evaluation-plan.ts";
 import { exportPolicyCard, replayPolicyCard, type PolicyCard } from "../../policy-card.ts";
 import { recordSequentialEvaluation } from "../../sequential-evaluation.ts";
 import { decisionFixture } from "./decision-evidence.ts";
@@ -42,7 +42,7 @@ export async function durableSnapshotProperty(cycles = 3) {
       const cards = [];
       for (const selection of [null, 0, 1]) cards.push(await exportPolicyCard(w.client, id, selection));
       assert.equal(cards[0].decision_evidence?.format, "pm-rl/evaluation-evidence/2");
-      await assert.rejects(verifyDecisionEvidence(w.client, cards[0].decision_evidence!), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "eval_plan_evidence");
+      await assert.rejects(verifyDecisionEvidence(w.client, parseEvaluationEvidence(cards[0].decision_evidence)), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "eval_plan_evidence");
       receipts.push({ key, input, id, cards });
       const report = (await readEvaluationDecision(w.client, plan.candidate)).report!;
       const score = { ...w.score, seed_set: evaluationComparison(plan), value: report.candidate_mean };
@@ -97,7 +97,7 @@ export async function durableSnapshotProperty(cycles = 3) {
     }
     assert.equal(executions, cycles);
     // Full raw Generation bodies differ at promotion; the recorded earlier fingerprint does not.
-    const first = receipts[1].cards[0].decision_evidence!;
+    const first = parseEvaluationEvidence(receipts[1].cards[0].decision_evidence);
     const input = first.inputs.find((ref) => ref.id === w.plan.candidate)!;
     assert.notEqual(decisionSnapshotDigest((await readCompleteLoopItem(w.client, input.id)).item), input.digest);
     return { cycles, executions, replays, receipts: receipts.length, card_variants: receipts.reduce((n, row) => n + row.cards.length, 0), snapshot_checks: snapshotChecks, corrupt_card_checks: corruptions, legacy_receipt: true, non_git: true };

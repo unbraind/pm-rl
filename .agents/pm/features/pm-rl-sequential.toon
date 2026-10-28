@@ -6,9 +6,11 @@ status: in_progress
 priority: 2
 tags[1]: "gh:unbraind/pm-rl#107"
 created_at: "2026-10-25T23:52:20.254Z"
-updated_at: "2026-10-27T18:41:27.691Z"
+updated_at: "2026-10-28T18:15:50.182Z"
+assignee: codex-agent
+claim_principal: codex-agent
 author: codex-agent
-comments[109]{created_at,author,text}:
+comments[113]{created_at,author,text}:
   "2026-10-25T23:52:27.192Z",codex-agent,"Overlap check on current CLI 2026.10.25 and sibling package source/docs: pm-rl-evalplans explicitly seals fixed stopping; core SDK exposes tracker transactions and locks, not sequential statistics; pm-jev owns inference receipts, pm-context context selection, pm-rlm inference recursion. No existing alpha-spending evaluation protocol found. This extends pm-rl evaluation plans, retaining promotion approval and contamination gates. Design: predeclared finite looks over frozen complete correlation units, two-sided Hoeffding alpha spending, reviewed rule identity, immutable append-only checkpoint chain with SDK writer serialization and current provenance checks on every retry. No import/export/sync subsystem or status-name classification is introduced."
   "2026-10-26T00:01:50.075Z",codex-agent,"Implemented reviewed finite-look plans, cumulative immutable checkpoint chaining, advance/resume CLI and promotion bindings. Seeded 10,000-trial null/benefit simulations measured zero false efficacy and zero false futility decisions at the declared 0.05 bound; all 10,000 benefit trials stopped early. Targeted real SDK tests pass for restart, old snapshot retries, changed candidate provenance, futility and exhaustion. A 500-sequence SDK model test is running. Production typecheck, lint, duplication and docstrings pass so far; full npm/Bun release evidence will use CI as instructed."
   "2026-10-26T00:13:48.212Z",codex-agent,"Read-only public tracker validation passed using the installed packed CLI with Git absent from PATH. Public source commit 120e20e160897cabe47920713e1b87b6647b2e85: 107 items, 87 done-role items using the SDK status registry, candidate mean 0.8130841121495327 vs incumbent 0.1869158878504673. One repository remains one unit; exhausted/refuse, no promotion. JSON 853 bytes; TOON 730 bytes; one checkpoint, exact restart, source digest unchanged. Linked pm tests pass 3/3 (five focused regressions, typecheck, lint); configured tracking is disabled, so the receipt is recorded here. Behavioral revert controls: removing uncertainty fails null simulation; returning the requested old checkpoint fails restart/old-input regression; restored implementation passes 2/2. All 29 existing fixed-plan tests pass. No core dependency pins, thresholds or history records changed."
@@ -118,7 +120,11 @@ comments[109]{created_at,author,text}:
   "2026-10-27T18:19:11.680Z",codex-agent,"Packed Bun now passes the same actual-archive checks as Node: four card variants, seven graph inputs, 12 frozen-source JSON/TOON export/replays, four named snapshot-corruption refusals, eight live review/final-look refusals, four graph-removal refusals, canonical ID and downgrade checks. Maximum card remains 2734 bytes; one approval consumed and refused operations preserve the Generation. Both runtimes use non-git trackers with Git absent from PATH. Native legacy and first v2 receipt pair matrices pass (224 card-corruption checks); the remaining two v2 receipts and mixed-format 500-sequence native SDK model continue."
   "2026-10-27T18:34:01.380Z",codex-agent,"Native snapshot property passes 1/1: 3 evaluate/promote cycles, 3 executions, 21 historical replays, 4 completed receipts, 10 card variants, 112 individual/pair snapshot checks and 560 fresh/replayed card-corruption refusals, all named and using real non-git SDK trackers. Existing v1 and new v2 receipts survive later valid promotions without rerunning operations. Mixed-format model passes 1/1: 500 SDK read-back sequences across both graph formats, older CRLF inputs, native relationships and custom active status. Revert controls in prior comments fail as intended. Final artifact verification covers all 231 shipped files and proves all 176 runtime files identical to the comprehensively tested archive; an ignored shipped-file mutation in a disposable copy is detected and restored in finally."
   "2026-10-27T18:36:54.873Z",codex-agent,"Local validation is complete. Final typecheck, test compilation and lint pass; duplicate gate remains zero and docstrings cover 57 source files/456 declarations. Final archive SHA-256 a03d392ac29b06b6f5423351c65f7094ddce3a667a80d4322128ab7e74787e32 matches all 231 shipped source files; 176 runtime files are byte-identical to the full Node/Bun tested archive. Final-archive immutable-source/corruption smoke passes 1/1 under Node and 1/1 under Bun. The first Bun smoke hit its default 5-second test timeout; unchanged assertions pass with explicit 120-second timeout. Both behavioral controls fail as intended, disposable source is restored, no native history is rewritten, and all native fixtures use the real SDK without git. Full-gate results remain pending at the recorded cutoff; fresh final-head checks will be linked in the PR after all tracker writes. Current checks: https://github.com/unbraind/pm-rl/pull/107/checks."
-files[51]{path,scope}:
+  "2026-10-28T17:13:03.883Z",codex-agent,"Resuming after orchestrator merge head 685912a and failed CI 40713075745. Reconcile decision-graph corrupt-input handling with promotion budget accounting, terminal refusal replay and sealed-reservation history. Preserve both contracts, reproduce the five focused failures on real non-git SDK trackers, and add function-only revert evidence for new regressions. No thresholds, budget limits, sealed pins or existing assertions will be weakened."
+  "2026-10-28T17:54:46.022Z",codex-agent,"Main reconciliation: inspected original fork 120e20e..origin/main and merge 685912a. Main has no intervening runtime diff in index.ts, promotion.ts, evaluation-plan.ts or policy-card.ts; the latest merge updates Babel. Keep main contracts: workspace-locked promotion budgets, terminal refusal replay, sealed reservation history. PR tracing replaced a typed exception with a new object, defeating the controller identity check that distinguishes its own terminal promotion refusal from a retryable dependency refusal. Annotation now preserves exception and context identity. A supplemental live read incorrectly obscured a valid SDK historical read after deletion; only native NOT_FOUND is optional, backend failures retry. Card receipt parsing now uses the shared one-document tracker decoder, naming malformed NDJSON instead of leaking SyntaxError. Nested controller bookkeeping is excluded from evaluator manifests. Read-only preflight and citation races stay retryable; recovery validates committed scored evidence before writes. Cards keep all citations and the unchanged 4096-byte bound, using a typed hash reference only when the redundant inline manifest would overflow; replay resolves the same full graph."
+  "2026-10-28T18:11:52.014Z",codex-agent,"Behavioral controls on a disposable source copy: restoring only captureDecisionInputs from 685912a fails exact exception/context identity; restoring observeDecisionInput adds forbidden controller bookkeeping; restoring readCompleteLoopItem loses a valid deleted historical source; restoring replayPolicyCard leaks the review NDJSON SyntaxError; restoring assemble refuses a complete seven-source long-ID manifest with card_limit; removing requirePromotionEvidence misses the committed-field refusal; bypassing parsePolicyCardDecisionEvidence misses strict-schema refusals. All seven controls fail exactly one selected regression, and the restored copy passes 7/7. No working source was reverted. The first remaining peer-race/hostile-receipt selection then exposed two further integration gaps: the rejection scope dropped its async caller frame used by the existing interleaving hook, and completion-history discovery recognized state=complete without validating its payload. Preserve the rejection async frame and share completedDecisionReceipt between history discovery and step replay; malformed historic records establish no seal, while the first valid execution still cannot downgrade. New SDK-backed historical-poison regression passes; existing peer interleavings are being rerun unchanged."
+  "2026-10-28T18:15:42.314Z",codex-agent,"Historical completion revert proof: restore only verifyCompletedDecisionReceipt from 685912a in a disposable source copy. The new SDK-backed malformed-history regression fails because an invalid complete envelope is taken as a seal. Restoring the fixed function passes 1/1. Together with the seven earlier controls this gives eight expected behavioral failures, followed by restored passing tests. The local broad race selection was stopped after its first successful evaluate interleaving to focus on the two failing interleavings; CI retains the complete unmodified matrix. The concurrent external-trainer refusal test hit process_limit_exceeded on the saturated host rather than its previous budget exception. Its wall-time allowance, assertions and production watchdog remain unchanged; the full npm/Bun CI gate must validate that case."
+files[52]{path,scope}:
   checkpoint-artifacts.ts,project
   compose.ts,project
   dataset.ts,project
@@ -151,6 +157,7 @@ files[51]{path,scope}:
   test/durable-snapshots.test.ts,project
   test/evaluation-compatibility.acceptance.ts,project
   test/evaluation-compatibility.test.ts,project
+  test/evaluation-integration.test.ts,project
   test/evaluation-plan.test.ts,project
   test/fixtures/compatibility-inputs.ts,project
   test/fixtures/decision-evidence.ts,project
@@ -170,7 +177,7 @@ files[51]{path,scope}:
   test/state-boundary.test.ts,project
   tracker-record.ts,project
   transfer.ts,project
-tests[34]:
+tests[37]:
   - command: "node --test --test-name-pattern=\"strict sequential|only complete|null, benefit|boundary input|output validation\" test/sequential-evaluation.test.ts"
     scope: project
     provenance:
@@ -417,6 +424,30 @@ tests[34]:
     provenance:
       author: codex-agent
       created_at: "2026-10-27T18:15:23.470Z"
+      source_kind: local_mutation
+      source_ref: feat/predeclared-sequential-evaluation
+  - command: node --test --test-concurrency=1 test/evaluation-integration.test.ts
+    scope: project
+    timeout_seconds: 900
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-28T17:58:27.892Z"
+      source_kind: local_mutation
+      source_ref: feat/predeclared-sequential-evaluation
+  - command: "node --test --test-concurrency=1 --test-name-pattern=\"compact manifest schema\" test/evaluation-integration.test.ts"
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-28T17:58:40.929Z"
+      source_kind: local_mutation
+      source_ref: feat/predeclared-sequential-evaluation
+  - command: "node --test --test-concurrency=1 --test-name-pattern=\"malformed historical completions\" test/evaluation-integration.test.ts"
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-28T18:15:49.483Z"
       source_kind: local_mutation
       source_ref: feat/predeclared-sequential-evaluation
 docs[8]{path,scope}:
