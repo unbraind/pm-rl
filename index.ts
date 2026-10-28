@@ -5695,6 +5695,6 @@ function activate(api: ExtensionApi): void {
 
 export default defineExtension({
   name: "pm-rl",
-  version: "2026.7.31",
+  version: "2026.10.28",
   activate,
 });

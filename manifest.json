@@ -1,6 +1,6 @@
 {
   "name": "pm-rl",
-  "version": "2026.7.31",
+  "version": "2026.10.28",
   "description": "Reinforcement-learning programme management on the pm SDK. Content-addressed environments and benchmarks keep runs and evaluations attributable; fail-closed leaderboards refuse mixed environments and contaminated suites. Commands: `pm rl env register/list/show`, `pm rl benchmark register`, `pm rl eval record`, `pm rl leaderboard`, `pm rl run start/log/show/finish`, `pm rl generation register/promote/show`, `pm rl lineage`, `pm rl invalidate`, and `pm rl compare`. Bounded recipe search: `pm rl dataset build` and `pm rl meta run`. Predeclared paired comparisons: `pm rl eval plan register/show/evaluate/advance/resume` freeze populations, correlation units and fixed or reviewed sequential stopping rules before experiments and gate planned promotions. Online shadow observation: `pm rl shadow register/observe/compare` pin consent, account both arms and gate online promotion on a validated comparison receipt. Portable policy explanations: `pm rl policy-card export/replay/adopt` produce minimized cards with verified evidence for recursive candidates and outcomes.",
   "author": "@unbraind",
   "entry": "./dist/index.js",
