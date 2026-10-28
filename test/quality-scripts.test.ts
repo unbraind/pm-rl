@@ -33,10 +33,10 @@ test("ESLint configuration applies every mandatory TypeScript syntax prohibition
   ]));
 });
 
-test("ESLint configuration ignores coverage, dist, and node_modules", () => {
+test("ESLint configuration ignores tracker data, coverage, dist, and node_modules", () => {
   const ignoreEntry = eslintConfig.find((entry) => entry.ignores !== undefined);
   assert.ok(ignoreEntry?.ignores);
-  assert.deepEqual(new Set(ignoreEntry.ignores), new Set(["coverage/**", "dist/**", "node_modules/**"]));
+  assert.deepEqual(new Set(ignoreEntry.ignores), new Set([".agents/**", "coverage/**", "dist/**", "node_modules/**"]));
 });
 
 test("ESLint configuration enforces eqeqeq and prefer-const", () => {

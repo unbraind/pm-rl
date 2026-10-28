@@ -23,7 +23,9 @@ const forbiddenSyntax = [
 
 export default defineConfig([
   {
-    ignores: ["coverage/**", "dist/**", "node_modules/**"],
+    // Tracker data and runtime caches are not source: the live suites write installed extension builds under
+    // .agents/pm/runtime/, and linting them failed the 2026-10-28 release after the tests had passed.
+    ignores: [".agents/**", "coverage/**", "dist/**", "node_modules/**"],
   },
   {
     files: ["**/*.ts"],
