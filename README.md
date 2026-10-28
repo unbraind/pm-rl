@@ -546,7 +546,7 @@ source commits. Release changelogs and GitHub provenance also require Git.
 ## Requirements
 
 - Node.js ≥ 22.18, tested on 22 and 26
-- `@unbrained/pm-cli` ≥ 2026.8.28 (peer dependency)
+- `@unbrained/pm-cli` ≥ 2026.10.25 (peer dependency; fenced SDK leases)
 - Works under `npm`/`npx` and `bun`/`bunx`
 - No runtime dependencies beyond the Node standard library
 
@@ -678,6 +678,59 @@ order uses the original candidate and collection-run timestamps. Deleting a plan
 and removing the candidate's pin cannot discard a reservation retained in history.
 This relies on the SDK's append-only history: privileged rewriting of the original
 history itself is outside this enforcement boundary.
+
+### Protected task cohorts
+
+Add `protected_cohorts` to the plan **before registration** to require minimum
+evidence and empirical nonregression for selected task slices. For example:
+
+```json
+"protected_cohorts": [
+  { "id": "critical-tasks", "members": ["item-0", "item-1"],
+    "min_units": 2, "max_regression": 0.05 }
+]
+```
+
+Use the [complete example](examples/evaluation-plan-protected.json) with
+`pm rl eval plan register --file plan.json`, then collect the declared evidence
+and run `pm rl eval plan evaluate rl-candidate --file observations.json --json`.
+The typed SDK exports `ProtectedCohort`, `CohortReport`, `CohortRefusal` and the
+existing `registerEvaluationPlan`, `evaluatePlan`, `recordPlanEvaluation` and
+`enforceEvaluationPlan` functions from `pm-rl`.
+
+Membership, minimum independent-unit counts and inclusive regression limits are
+part of the sealed comparison hash. Changing them requires a fresh plan and
+candidate. Within each protected slice, outcomes are averaged within the original
+correlation units and those units receive equal weight. Repeated observations in
+one unit cannot satisfy `min_units`. Cohorts may overlap; every selected cohort
+must pass. Up to 32 cohorts of at most 10,000 declared members are supported;
+cohort identifiers are at most 128 characters. Minimums are integers from 1 to
+10,000; limits are finite numbers from zero to the reward-bound width.
+
+`max_regression` uses the original reward units and the plan's optimization
+direction. Equality passes: the signed empirical improvement must be at least
+`-max_regression`. Decisions use exact rational means of the canonical decimal
+JSON scores and counts. Display values remain floating point. This is an empirical
+guard with an explicitly declared evidence floor; it adds no per-cohort confidence
+claim or assumption that the declared units are truly independent.
+
+TOON and JSON reports add bounded `cohorts` summaries and `aggregate_verdict`.
+The final `verdict` refuses on `eval_cohort_samples` or `eval_cohort_regression`
+even when the aggregate verdict promotes. Each cohort summary gives observation
+and unit counts, its minimum, signed improvement, limit and refusal code. A
+refusal includes a remedy to declare a fresh candidate and plan. Raw rows and
+membership remain in SDK-readable records, so output grows with the bounded
+number of protected cohorts rather than task count.
+
+The existing generation promotion transaction rechecks these sealed results
+alongside its independent provenance, leakage, shadow-consent and budget checks.
+Passing a cohort never waives another check. Plans without `protected_cohorts`
+retain their previous serialization, comparison identity and statistical gate.
+Registration and evidence writers share a fenced SDK lease, re-read current
+records on retries and use native immutable creates; unrelated annotations and
+relationships are preserved. These commands work in plain-directory trackers
+without Git. See the [public tracker replay](docs/worst-cohort-evidence.json) for
+measured descriptive validation.
 
 `rl generation register` pins an existing plan in generation provenance. Both
 manual and controller promotions re-read the plan and sealed outcomes inside the

@@ -79,7 +79,8 @@
     "dist/tracker-record.*",
     "docs/policy-cards.md",
     "docs/policy-card-write-audit.md",
-    "docs/policy-card-evidence.json"
+    "docs/policy-card-evidence.json",
+    "docs/worst-cohort-evidence.json"
   ],
   "engines": {
     "node": ">=22.18.0"
@@ -159,7 +160,8 @@
       "test/objective.test.ts",
       "test/evaluation-plan.test.ts",
       "test/shadow.test.ts",
-      "test/policy-card.test.ts"
+      "test/policy-card.test.ts",
+      "test/worst-cohort.test.ts"
     ],
     "thresholds": {
       "statements": 100,
@@ -211,7 +213,7 @@
     "yaml": "2.9.1"
   },
   "peerDependencies": {
-    "@unbrained/pm-cli": ">=2026.8.28"
+    "@unbrained/pm-cli": ">=2026.10.25"
   },
   "pm": {
     "aliases": [
@@ -265,7 +267,8 @@
       "docs/shadow-policy.md",
       "docs/shadow-evidence.json",
       "docs/policy-cards.md",
-      "docs/policy-card-write-audit.md"
+      "docs/policy-card-write-audit.md",
+      "docs/worst-cohort-evidence.json"
     ],
     "examples": [
       "README.md",
@@ -282,7 +285,8 @@
       "examples/evaluation-plan.json",
       "examples/evaluation-observations.json",
       "examples/shadow-policy.json",
-      "examples/policy-card.json"
+      "examples/policy-card.json",
+      "examples/evaluation-plan-protected.json"
     ]
   },
   "publishConfig": {

@@ -155,7 +155,7 @@ export {
 
 export { exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordRecursivePolicyCards, recordPolicyCard, POLICY_CARD_MAX_BYTES, type PolicyCard, type PolicyCardEvidence, type PolicyCardRefusal } from "./policy-card.ts";
 export { parseShadowDeployment, shadowInputDigest, registerShadowDeployment, observeShadow, compareShadow, type ShadowPolicy, type ShadowDeployment, type ShadowInput, type ShadowObservation, type ShadowReport, type ShadowRefusal } from "./shadow.ts";
-export { parseEvaluationPlan, evaluationPlanId, evaluationComparison, registerEvaluationPlan, readEvaluationPlan, evaluatePlan, recordPlanEvaluation, enforceEvaluationPlan, type EvaluationPlan, type EvaluationMember, type EvaluationObservation, type EvaluationPlanReport, type RegisteredEvaluationPlan, type EvaluationPlanRefusal } from "./evaluation-plan.ts";
+export { parseEvaluationPlan, evaluationPlanId, evaluationComparison, registerEvaluationPlan, readEvaluationPlan, evaluatePlan, recordPlanEvaluation, enforceEvaluationPlan, type EvaluationPlan, type EvaluationMember, type EvaluationObservation, type EvaluationPlanReport, type RegisteredEvaluationPlan, type EvaluationPlanRefusal, type ProtectedCohort, type CohortReport, type CohortRefusal } from "./evaluation-plan.ts";
 
 export { decidePromotion, hoeffdingEpsilon, parsePromotionCriterion, parsePromotionEvidence, type PromotionCriterion, type PromotionDecision, type PromotionEvidence, type PromotionGateInput } from "./promotion.ts";
 export { recipeArtifact, parseRecipe, seededRecipes, INITIAL_RECIPE, RECIPE_BOUNDS, type Recipe, type RecipeKnobs } from "./recipe.ts";
@@ -5257,16 +5257,16 @@ export const RL_COMMANDS = [
     { long: "--file", value_name: "path", value_type: "string", required: true, description: "Evaluation plan JSON." },
   ], run: async (context) => {
     const registered = await registerEvaluationPlan(clientFor(context), readJsonFile(stringOption(context, "file")!, "Evaluation plan"));
-    return { action: "rl-eval-plan-register", id: registered.id, details: { comparison: registered.comparison, observations: registered.plan.stopping.observations, independent_units: registered.plan.stopping.independent_units } };
+    return { action: "rl-eval-plan-register", id: registered.id, details: { comparison: registered.comparison, observations: registered.plan.stopping.observations, independent_units: registered.plan.stopping.independent_units, protected_cohorts: registered.plan.protected_cohorts?.length ?? 0 } };
   } }),
   defineCommand({ name: "rl eval plan show", description: "Show compact predeclared comparison identity and fixed stopping sizes.", arguments: [{ name: "candidate", required: true, description: "Reserved candidate generation id." }], run: async (context) => {
     const client = clientFor(context);
     const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
     const registered = await readEvaluationPlan(client, canonicalizeIdentifier(requiredArgument(context, "a candidate id"), prefix));
     if (registered === null) fail("No predeclared plan. Register one before creating a fresh candidate.", "eval_plan_missing", EXIT_CODE.CONFLICT);
-    return { action: "rl-eval-plan-show", id: registered.id, details: { comparison: registered.comparison, candidate: registered.plan.candidate, incumbent: registered.plan.incumbent, stopping: registered.plan.stopping } };
+    return { action: "rl-eval-plan-show", id: registered.id, details: { comparison: registered.comparison, candidate: registered.plan.candidate, incumbent: registered.plan.incumbent, stopping: registered.plan.stopping, protected_cohorts: registered.plan.protected_cohorts?.length ?? 0 } };
   } }),
-  defineCommand({ name: "rl eval plan evaluate", description: "Seal one paired evaluation and report its cluster-aware promotion verdict.", arguments: [{ name: "candidate", required: true, description: "Reserved candidate generation id." }], flags: [
+  defineCommand({ name: "rl eval plan evaluate", description: "Seal one paired evaluation and enforce aggregate improvement plus protected cohort guardrails.", arguments: [{ name: "candidate", required: true, description: "Reserved candidate generation id." }], flags: [
     { long: "--file", value_name: "path", value_type: "string", required: true, description: "Paired observation array JSON." },
   ], run: async (context) => {
     const client = clientFor(context); const id = requiredArgument(context, "a candidate id");
