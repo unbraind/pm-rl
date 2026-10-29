@@ -6,29 +6,48 @@ status: in_progress
 priority: 1
 tags[3]: cohorts,guardrails,promotion
 created_at: "2026-10-28T23:24:25.192Z"
-updated_at: "2026-10-29T00:33:06.760Z"
+updated_at: "2026-10-29T02:23:01.592Z"
 author: codex-agent
 acceptance_criteria: Higher aggregate mean cannot override a failed protected cohort; definitions and limits are sealed before collection; insufficient independent samples refuse; leakage checks remain independent
 parent: pm-rl-apvf
-comments[6]{created_at,author,text}:
+comments[10]{created_at,author,text}:
   "2026-10-28T23:24:44.871Z",codex-agent,"Overlap rechecked against current CLI and sibling pm-jev, pm-evidence, pm-swarm, pm-rlm and pm-ops sources: no protected-cohort admission gate found. Existing evaluation plans, paired baselines, balanced-intake objectives, contamination and shadow checks own distinct properties. Extend the existing sealed plan and promotion hook; no label reinterpretation or replacement gate. Use pinned SDK complete reads, verified creation history, native leases and explicit relationship unsets; no import/export/sync adapter or recovery journal is introduced."
   "2026-10-28T23:36:40.070Z",codex-agent,"Implemented optional protected cohorts on the existing sealed fixed-stop evaluation contract. Aggregate improvement stays visible and required; cohort evidence counts independent units and uses inclusive exact rational regression comparisons in original reward units. Registration/evidence writers share SDK lease fencing, and writes explicitly unset ambient parent/sprint/release/blocker scope and clear dependencies. Focused CLI, leakage-independence and every-SDK-step competing-writer tests pass; 500 seeded state sequences are running."
   "2026-10-28T23:47:39.688Z",codex-agent,"Behavioral revert proof in an isolated disposable source copy: disabling only the protected-cohort decision makes the higher-aggregate regression fail with an assertion; restoring it passes. The 500 seeded state sequences passed, as did 500 exact-boundary trials in both directions and SDK-step competing declaration/evidence writers. Public read-only replay: 111 tasks, 21 active by SDK registry roles, candidate mean 0.8108108108108106 versus 0.18918918918918923, protected improvement -1, refused. Source digest unchanged; JSON 1236 bytes, TOON 1016 bytes. Initial packed acceptance passes npm global, Bun global, npx, forced-Bun bunx and project-local hosts on CLI 2026.10.28. Raised the declared minimum host to the pinned SDK 2026.10.25 for fenced leases; the development dependency pin is unchanged."
   "2026-10-28T23:55:11.940Z",codex-agent,"The pinned pm-linked targeted run passed 37 tests, zero failures/skips/cancellations, in 305206 ms. Typecheck, test compilation, targeted lint, zero-duplicate and docstring checks pass. Local strict health reports pm-github host-version skew between 2026.10.25 and 2026.10.28 plus a pre-existing provenance advisory; history integrity passes. No foreign extension state, provenance history or dependency pin was repaired. Fresh CI health and unchanged npm/Bun release gates remain required."
   "2026-10-28T23:56:33.085Z",codex-agent,"Final packed artifact passes all five installed hosts (npm global, Bun global, npx, forced-Bun bunx, project-local), each with the same measured replay and unchanged read-only source digest. Archive SHA-256: 2269ce392e36a7fad52759c3ab06ee5ec4acf3d8fb9bc04aa72f8d226e2a7320. Changelog generation/check pass. Claim released for orchestrator verification; item remains in progress and is not closed. Full release-gate evidence is delegated to fresh CI at the final PR head."
   "2026-10-29T00:33:06.759Z",codex-agent,"CI handoff under the queue rules' 30-minute wait cap: https://github.com/unbraind/pm-rl/actions/runs/40790812979 for implementation c523529c82103019d67f24f02dc2477504b35624 is still in progress. All three fresh tracker-health checks passed. Release jobs test (22), test (26) and Bun release (26) remain in progress: 0 of 3 completed, with no final test/coverage counts available. Local targeted evidence is 37 passed with zero skips/failures; packed acceptance is 5 of 5 hosts. PR https://github.com/unbraind/pm-rl/pull/118 is ready for review and unmerged. This receipt changes tracker evidence only; final-head CI remains pending. Do not treat pending checks as approval. Claim is released and the item remains open for orchestrator verification."
-files[8]{path,scope}:
+  "2026-10-29T01:28:39.983Z",codex-agent,"Re-review resumed. General rule: every producer must prove its complete encoded envelope fits the same byte/depth contract as its consumer before persistence; independent per-field cardinality bounds are insufficient. The 32-cohort reservation can expand beyond the 16 MiB stored decoder ceiling. Branch is not behind origin/main, and the worktree was clean. Review sources contain one blocking finding and no additional actionable non-blocking findings. Auditing all package JSON producers/readers, including the 1 MiB discovery envelopes, external artifacts, SDK/CLI commands and packed hosts; preserve already readable legacy records."
+  "2026-10-29T02:02:21.131Z",codex-agent,"Class audit implemented in shared JSON producer/reader byte/depth validation. Evaluation reservation and evidence envelopes, shadow deployment/receipts, JSON fences, 1 MiB loop/process/meta receipts, trainer inputs/artifacts, dataset batches, corpus/lock framing and LM artifact serialization now preflight actual encodings. Existing smaller policy-card, checkpoint and metric contracts remain unchanged. New refusal codes are json_record_limit and json_record_invalid. Focused adversarial tests pass; affected-path test run passed 109 tests, zero failures/skips. Previous CI passed 1034 tests per runtime but failed coverage on the native registration peer-writer recovery path; added real SDK same/different/missing-winner cases. Full npm/Bun release gates will run through CI with the configured single test worker, preserving the original shared-host constraint."
+  "2026-10-29T02:04:12.848Z",codex-agent,"Revert proof in a disposable non-git source copy: bypassing only assertJsonEncoding while retaining the reader causes the reservation, evidence-envelope and shadow-expansion regressions to fail with assertions (exit 1); restoring it passes (exit 0). Reverting only writeTrainerArtifact to its previously released raw writer makes the whole-package persistent-sink AST audit fail (exit 1); restoring it passes (exit 0). Production worktree was never mutated by either revert. The default CLI error view omits context.code; shared refusal messages now include the stable code so both default/TOON and JSON modes remain actionable."
+  "2026-10-29T02:22:50.145Z",codex-agent,"Final fix validation: 109 affected-path tests passed; the pm-linked adversarial file passed 7/7 with 500 seeded encoding variants, exact byte/depth boundaries, raw-input-fit wrapper overflow, read-back-through-SDK cases, shadow expansion and native competing-writer recovery. Final archive passes npm global, Bun global, project-local, npx and forced-Bun bunx: 5/5 hosts, 10/10 default/JSON overflow refusals, unchanged target state and read-only source digest. Archive SHA-256 50a18759db14e57051428b02ffb4aa986dfb05342b06e2243312659909990d6c. Public replay remains 111 items, 21 active, means 0.8108108108108106 versus 0.18918918918918923, protected improvement -1; output JSON 1236 and TOON 1016 bytes. Typecheck, test compilation, lint, zero duplicates and docstrings pass. All supplied findings addressed; no additional actionable non-blocking finding was supplied/found. Full unchanged npm/Bun release gates remain required on the pushed head."
+files[21]{path,scope}:
+  dataset.ts,project
   evaluation-plan.ts,project
+  improver-data.ts,project
   index.ts,project
+  lm.ts,project
   manifest.json,project
+  meta.ts,project
   package-lock.json,project
   package.json,project
+  policy-card.ts,project
+  prefix-trainer.ts,project
+  process-bandit.ts,project
+  process-lm-trainer.ts,project
+  process.ts,project
+  shadow.ts,project
+  test/fixtures/json-boundary.ts,project
   test/index.test.ts,project
+  test/json-boundaries.test.ts,project
   test/worst-cohort.acceptance.ts,project
   test/worst-cohort.test.ts,project
-tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  tracker-record.ts,project
+tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-concurrency=2 test/evaluation-plan.test.ts test/worst-cohort.test.ts,project,codex-agent,"2026-10-28T23:36:44.988Z",local_mutation,feat/worst-cohort-promotion-guardrails
-docs[3]{path,scope}:
+  node --test --test-concurrency=2 test/json-boundaries.test.ts,project,codex-agent,"2026-10-29T02:02:30.666Z",local_mutation,feat/worst-cohort-promotion-guardrails
+docs[4]{path,scope}:
+  docs/json-record-bounds.md,project
   docs/worst-cohort-evidence.json,project
   examples/evaluation-plan-protected.json,project
   README.md,project

@@ -1,4 +1,4 @@
-import { decodeTrackerRecord, parseBoundedJson } from "./tracker-record.ts";
+import { decodeTrackerRecord, parseBoundedJson, encodeBoundedJson } from "./tracker-record.ts";
 /** Minimized explanations of learned-policy suitability, backed by SDK-certified history. */
 import type { HistoryResult } from "@unbrained/pm-cli/sdk/query";
 import type { GetResult, PmClient } from "@unbrained/pm-cli/sdk/core";
@@ -215,7 +215,7 @@ export async function validatePromotedPolicyCard(client: PmClient, subject: stri
 export async function validateRefusedPolicyCard(client: PmClient, subject: string, verdict: JsonValue): Promise<string> {
   const primary = await snapshot(client, subject);
   const spec = extractGenerationSpec(String(primary.item.body), "Rejected generation");
-  const body = `\`\`\`json\n${JSON.stringify({ ...spec, policy_evaluation: verdict })}\n\`\`\``;
+  const body = `\`\`\`json\n${encodeBoundedJson({ ...spec, policy_evaluation: verdict })}\n\`\`\``;
   await exportSnapshotCard(client, { ...primary, citation: { ...primary.citation, at: PROSPECTIVE_AT }, item: { ...primary.item, body } }, null);
   return body;
 }

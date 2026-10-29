@@ -80,7 +80,8 @@
     "docs/policy-cards.md",
     "docs/policy-card-write-audit.md",
     "docs/policy-card-evidence.json",
-    "docs/worst-cohort-evidence.json"
+    "docs/worst-cohort-evidence.json",
+    "docs/json-record-bounds.md"
   ],
   "engines": {
     "node": ">=22.18.0"
@@ -161,7 +162,8 @@
       "test/evaluation-plan.test.ts",
       "test/shadow.test.ts",
       "test/policy-card.test.ts",
-      "test/worst-cohort.test.ts"
+      "test/worst-cohort.test.ts",
+      "test/json-boundaries.test.ts"
     ],
     "thresholds": {
       "statements": 100,
@@ -268,7 +270,8 @@
       "docs/shadow-evidence.json",
       "docs/policy-cards.md",
       "docs/policy-card-write-audit.md",
-      "docs/worst-cohort-evidence.json"
+      "docs/worst-cohort-evidence.json",
+      "docs/json-record-bounds.md"
     ],
     "examples": [
       "README.md",

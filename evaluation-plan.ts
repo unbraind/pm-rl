@@ -1,4 +1,4 @@
-import { parseBoundedJson } from "./tracker-record.ts";
+import { encodeBoundedJson, parseBoundedJson, type JsonEncodingRefusal } from "./tracker-record.ts";
 /** Predeclared paired policy comparisons with fixed cohorts and equal-weight correlation units. */
 import type { GetResult, PmClient } from "@unbrained/pm-cli/sdk/core";
 import { acquireLockLease, createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError, readSettings } from "@unbrained/pm-cli/sdk/runtime";
@@ -10,7 +10,7 @@ import { rethrowOperationalRead } from "./refuse.ts";
 import { canonicalizeIdentifier, type GenerationSpec, type ScoreRecord } from "./lineage.ts";
 
 /** Stable refusals available to SDK consumers and CLI agents. */
-export type EvaluationPlanRefusal = "eval_plan_invalid" | "eval_plan_drift" | "eval_plan_late" | "eval_plan_missing" | "eval_plan_evidence" | "eval_plan_stopping" | "eval_plan_refused" | CohortRefusal;
+export type EvaluationPlanRefusal = "eval_plan_invalid" | "eval_plan_drift" | "eval_plan_late" | "eval_plan_missing" | "eval_plan_evidence" | "eval_plan_stopping" | "eval_plan_refused" | CohortRefusal | JsonEncodingRefusal;
 /** A protected slice uses only predeclared member identities, never outcome-derived labels. */
 export interface ProtectedCohort {
   readonly id: string;
@@ -131,11 +131,17 @@ export function parseEvaluationPlan(value: unknown): EvaluationPlan {
   if (typeof c.confidence !== "number" || !Number.isFinite(c.confidence) || c.confidence <= 0 || c.confidence >= 1 || typeof c.minSamples !== "number" || !Number.isSafeInteger(c.minSamples) || c.minSamples < 1 || typeof c.effectThreshold !== "number" || !Number.isFinite(c.effectThreshold) || c.effectThreshold < 0) refuse("eval_plan_invalid");
   const b = p.reward_bounds;
   if (!dense(b, 2, 2) || b.some((v) => typeof v !== "number" || !Number.isFinite(v)) || (b[0] as number) >= (b[1] as number) || !Number.isFinite((b[1] as number) - (b[0] as number))) refuse("eval_plan_invalid");
-  return { ...(shadowKeys.length === 0 ? {} : { shadow: label(p.shadow) }), ...(cohortKeys.length === 0 ? {} : { protected_cohorts: protectedCohorts(p.protected_cohorts, members, b as [number, number]) }), format: "pm-rl/evaluation-plan/1", candidate, incumbent, incumbent_version: label(p.incumbent_version), population: label(p.population), selection: label(p.selection), correlation_unit: label(p.correlation_unit), members,
+  const plan: EvaluationPlan = { ...(shadowKeys.length === 0 ? {} : { shadow: label(p.shadow) }), ...(cohortKeys.length === 0 ? {} : { protected_cohorts: protectedCohorts(p.protected_cohorts, members, b as [number, number]) }), format: "pm-rl/evaluation-plan/1", candidate, incumbent, incumbent_version: label(p.incumbent_version), population: label(p.population), selection: label(p.selection), correlation_unit: label(p.correlation_unit), members,
     objective: label(p.objective), objective_version: label(p.objective_version), evaluation_context: label(p.evaluation_context), direction: p.direction as EvaluationPlan["direction"],
     reward_bounds: [b[0] as number, b[1] as number], criterion: { confidence: c.confidence, minSamples: c.minSamples, effectThreshold: c.effectThreshold },
     stopping: { kind: "fixed", observations: members.length, independent_units: units.size } };
+  evaluationPlanBody(plan);
+  return plan;
 }
+/** Preflight the actual persisted wrapper, including duplicated incumbent identity and cohort expansion. */
+function evaluationPlanBody(plan: EvaluationPlan): string { return encodeBoundedJson({ plan, incumbent_version: plan.incumbent_version }); }
+/** Preview and persistence use the same complete evidence-envelope encoding contract. */
+function evaluationResultBody(comparison: string, observations: readonly EvaluationObservation[]): string { return encodeBoundedJson({ comparison, observations }); }
 /** A stable candidate reservation prevents changing the plan for the same generation. */
 export function evaluationPlanId(candidate: string): string { return `${label(candidate)}-evaluation-plan`; }
 /** Every plan choice contributes to comparison identity; member order does not. */
@@ -193,7 +199,7 @@ async function registerParsedPlan(client: PmClient, plan: EvaluationPlan): Promi
   if (hashJson(generationProvenance(extractGenerationSpec(String(incumbent.body), "Incumbent generation"))) !== version) refuse("eval_plan_drift");
   const id = evaluationPlanId(plan.candidate);
   try {
-    await client.create({ id, title: "Predeclared paired policy evaluation", type: "Plan", body: JSON.stringify({ plan, incumbent_version: version }),
+    await client.create({ id, title: "Predeclared paired policy evaluation", type: "Plan", body: evaluationPlanBody(plan),
       unset: ["parent", "sprint", "release", "blocked-by"], clearDeps: true, affectedVersion: hashJson({ comparison, incumbent_version: version }), message: "Predeclare fixed cohort evaluation plan" });
   } catch (error) {
     const winner = await readEvaluationPlan(client, plan.candidate);
@@ -287,6 +293,8 @@ export function evaluatePlan(value: unknown, input: unknown): EvaluationPlanRepo
   const declared = new Map(plan.members.map((member) => [member.id, member.unit])); const seen = new Set<string>();
   const groups = new Map<string, { candidate: number; incumbent: number; n: number }>();
   const rows = normalizedObservations(input);
+  const comparison = evaluationComparison(plan);
+  evaluationResultBody(comparison, rows);
   for (const row of rows) {
     const id = row.id; const unit = declared.get(id);
     if (unit === undefined || seen.has(id) || [row.candidate, row.incumbent].some((score) => score < plan.reward_bounds[0] || score > plan.reward_bounds[1])) refuse("eval_plan_evidence");
@@ -306,7 +314,7 @@ export function evaluatePlan(value: unknown, input: unknown): EvaluationPlanRepo
   // Reconstruct from the nearer endpoint so rounding the range cannot overflow a finite upper bound.
   const candidateReward = candidateMean <= 0.5 ? lo + candidateMean * range : hi - (1 - candidateMean) * range;
   const incumbentReward = incumbentMean <= 0.5 ? lo + incumbentMean * range : hi - (1 - incumbentMean) * range;
-  return validateEvaluationReport({ plan: evaluationPlanId(plan.candidate), comparison: evaluationComparison(plan), observations: input.length, independent_units: groups.size, candidate_mean: candidateReward, incumbent_mean: incumbentReward, verdict, ...(cohorts === undefined ? {} : { aggregate_verdict: aggregate, cohorts }), remedy: verdict.decision === "promote" ? null : "Register a new plan and fresh candidate before collecting a different cohort or making another evaluation look." }, plan.reward_bounds);
+  return validateEvaluationReport({ plan: evaluationPlanId(plan.candidate), comparison, observations: input.length, independent_units: groups.size, candidate_mean: candidateReward, incumbent_mean: incumbentReward, verdict, ...(cohorts === undefined ? {} : { aggregate_verdict: aggregate, cohorts }), remedy: verdict.decision === "promote" ? null : "Register a new plan and fresh candidate before collecting a different cohort or making another evaluation look." }, plan.reward_bounds);
 }
 /** Require predeclaration before all collection runs and unchanged incumbent provenance. */
 async function verifyTiming(client: PmClient, registered: RegisteredEvaluationPlan, spec: GenerationSpec, createdAt: unknown): Promise<void> {
@@ -340,7 +348,7 @@ async function recordLeasedEvaluation(client: PmClient, candidate: string, input
   await verifiedCandidate(client, candidate, registered);
   const report = evaluatePlan(registered.plan, input);
   const rows = normalizedObservations(input as unknown[]);
-  const body = JSON.stringify({ comparison: registered.comparison, observations: rows });
+  const body = evaluationResultBody(registered.comparison, rows);
   const id = `${registered.id}-result`;
   const existing = await optionalItem(client, id);
   if (existing !== null) {

@@ -10,6 +10,7 @@ import { init, isPmCliExpectedError, readSettings, resolveRuntimeStatusRegistry 
 import { generationProvenance, hashJson, type JsonValue } from "../index.ts";
 import { readEvaluationPlan, enforceEvaluationPlan, type EvaluationPlan, type EvaluationPlanReport } from "../evaluation-plan.ts";
 import type { GenerationSpec } from "../lineage.ts";
+import { wrapperOverflowPlan } from "./fixtures/json-boundary.ts";
 
 /** Verify the exact read-only snapshot bytes before and after all SDK/CLI reads. */
 function digest(root: string): string {
@@ -61,6 +62,17 @@ assert.equal(report.cohorts![0].code, "eval_cohort_regression"); assert.equal(re
 assert.ok(report.candidate_mean > report.incumbent_mean); assert.ok(Buffer.byteLength(json) < 2500); assert.ok(Buffer.byteLength(toon) < 2500);
 await assert.rejects(enforceEvaluationPlan(client, plan.candidate, { objective: plan.objective, objective_version: plan.objective_version, evaluation_context: plan.evaluation_context, direction: plan.direction, seed_set: registered.comparison, scale: 1, value: report.candidate_mean }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "eval_cohort_regression");
 assert.equal(digest(source), before);
-const evidence = { source: "https://github.com/unbraind/pm-rl", commit, snapshot, source_digest: before, source_unchanged: true, source_read_only: true, git_required: false, items: items.length, active_items: active.length, inactive_items: items.length - active.length, json_bytes: Buffer.byteLength(json), toon_bytes: Buffer.byteLength(toon), report, limitation: "Descriptive constant-policy status-role replay, no inference, training or causal improvement claim. One repository counts as one independent unit; the aggregate also refuses insufficient samples." };
+const boundary = wrapperOverflowPlan(); const boundaryFile = join(root, "wrapper-overflow.json"); const boundaryText = JSON.stringify(boundary); writeFileSync(boundaryFile, boundaryText);
+const inventoryBefore = hashJson((await client.listAllComplete({ includeBody: true })).items as unknown as JsonValue);
+for (const format of [[], ["--json"]]) {
+  try { command(["rl", "eval", "plan", "register", "--file", boundaryFile, ...format]); assert.fail("Oversized reservation was accepted"); }
+  catch (error) {
+    const failure = error as { status?: number; stdout?: string; stderr?: string };
+    const text = `${failure.stdout ?? ""}${failure.stderr ?? ""}`;
+    assert.equal(failure.status, 2); assert.match(text, /json_record_limit/); assert.ok(Buffer.byteLength(text) < 4096);
+  }
+}
+assert.equal(hashJson((await client.listAllComplete({ includeBody: true })).items as unknown as JsonValue), inventoryBefore);
+const evidence = { source: "https://github.com/unbraind/pm-rl", commit, snapshot, source_digest: before, source_unchanged: true, source_read_only: true, git_required: false, items: items.length, active_items: active.length, inactive_items: items.length - active.length, json_bytes: Buffer.byteLength(json), toon_bytes: Buffer.byteLength(toon), boundary_input_bytes: Buffer.byteLength(boundaryText), boundary_refusals: 2, boundary_state_unchanged: true, report, limitation: "Descriptive constant-policy status-role replay, no inference, training or causal improvement claim. One repository counts as one independent unit; the aggregate also refuses insufficient samples." };
 writeFileSync(output, JSON.stringify(evidence, null, 2) + "\n");
 console.log(JSON.stringify({ items: evidence.items, active_items: evidence.active_items, candidate_mean: report.candidate_mean, incumbent_mean: report.incumbent_mean, cohort_improvement: report.cohorts![0].improvement, json_bytes: evidence.json_bytes, toon_bytes: evidence.toon_bytes, source_unchanged: true }));

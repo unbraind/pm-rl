@@ -1,4 +1,4 @@
-import { decodeTrackerRecord, hasTrackerIdentity, parseBoundedJson } from "./tracker-record.ts";
+import { decodeTrackerRecord, hasTrackerIdentity, parseBoundedJson, encodeBoundedJson, MAX_TRACKER_RECORD_BYTES } from "./tracker-record.ts";
 /** Durable argv-only trainer execution, staged receipts and approved resource reservations. */
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -292,9 +292,9 @@ export async function reserveProcessJob(client: PmClient, coordinates: ProcessCo
       }
       const job: ProcessJob<TrainerPolicy> = { format: "pm-rl/process-job/1", id, input: processDigest(input), binding: input.identity, approval: approved.id, budget_digest: approved.digest,
         state: "planned", allowance, charge: allowance, settled: false, completion: null, outcome: "reserved" };
-      await client.create({ id, type: "Task", tags: "rl-process-job", title: `Process trainer ${id.slice(-12)}`, body: JSON.stringify(job) });
+      await client.create({ id, type: "Task", tags: "rl-process-job", title: `Process trainer ${id.slice(-12)}`, body: encodeBoundedJson(job, MAX_TRACKER_RECORD_BYTES) });
     },
-    async compensate() { const job = (await readProcessJob(client, id))!; await client.update(id, { body: JSON.stringify({ ...job, state: "failed", settled: true, charge: zeroResources(), outcome: "reservation_compensated" }) }); },
+    async compensate() { const job = (await readProcessJob(client, id))!; await client.update(id, { body: encodeBoundedJson({ ...job, state: "failed", settled: true, charge: zeroResources(), outcome: "reservation_compensated" }, MAX_TRACKER_RECORD_BYTES) }); },
   };
   await commitProcessTransaction({ ...coordinates, transactionId: `${id}-reserve`, steps: [step] });
   const job = (await readProcessJob(client, id))!;
@@ -314,14 +314,16 @@ const JOB_TRANSITIONS: Readonly<Record<ProcessJobState, readonly ProcessJobState
 export async function transitionProcessJob<P extends TrainerPolicy>(client: PmClient, coordinates: ProcessCoordinates, job: ProcessJob<P>, state: ProcessJobState, outcome: string, completion = job.completion, charge = job.charge): Promise<ProcessJob<P>> {
   if (job.state !== state && !JOB_TRANSITIONS[job.state].includes(state)) expectedFail("Illegal process job transition.", "process_job_drift");
   const target = job.state === state ? job : { ...job, state, outcome, completion, charge, settled: state !== "running" && state !== "planned" };
+  const body = encodeBoundedJson(storedProcessJob(target), MAX_TRACKER_RECORD_BYTES);
+  const compensationBody = encodeBoundedJson(storedProcessJob(job), MAX_TRACKER_RECORD_BYTES);
   if (completion?.artifact !== undefined) {
     const policy = readCheckpointArtifact(coordinates.pmRoot, completion.artifact);
     await encodeCheckpointArtifacts(coordinates.pmRoot, `job:${job.id}:${state}`, policy);
   }
   await commitProcessTransaction({ ...coordinates, transactionId: `${job.id}-${state}`, steps: [{ id: "outcome",
     async inspect() { const current = (await readProcessJob(client, job.id))!; return { state: processDigest(current) === processDigest(storedProcessJob(target)) ? "applied" : "pending" }; },
-    async apply() { await client.update(job.id, { body: JSON.stringify(storedProcessJob(target)) }); },
-    async compensate() { await client.update(job.id, { body: JSON.stringify(storedProcessJob(job)) }); },
+    async apply() { await client.update(job.id, { body }); },
+    async compensate() { await client.update(job.id, { body: compensationBody }); },
   }] });
   return (await readProcessJob<P>(client, job.id, coordinates.pmRoot))!;
 }
@@ -389,6 +391,7 @@ export function stopTrainer(pid: number, start: string): void {
 }
 /** Launch a real child with bounded NDJSON, wall/storage polling and owner-checked cancellation. */
 export async function launchTrainer(directory: string, id: string, input: TrainerInput, allowance: Resources, argv: readonly string[], signal?: AbortSignal): Promise<void> {
+  const request = encodeBoundedJson({ job: id, input, ...(input.prefix === undefined ? {} : { artifactRoot: resolve(directory, "../../../..") }) });
   const startedAt = Date.now();
   const started = performance.now();
   const child = spawn(argv[0], argv.slice(1), { cwd: directory, shell: false, stdio: ["pipe", "pipe", "pipe"] });
@@ -445,8 +448,8 @@ export async function launchTrainer(directory: string, id: string, input: Traine
   signal?.addEventListener("abort", poll);
   child.stdin.on("error", () => undefined);
   try {
-    writeFileSync(join(directory, "runner.json"), JSON.stringify({ pid: child.pid, start: identity, started_at: startedAt }), { flag: "wx" });
-    child.stdin.end(JSON.stringify({ job: id, input, ...(input.prefix === undefined ? {} : { artifactRoot: resolve(directory, "../../../..") }) }));
+    writeFileSync(join(directory, "runner.json"), encodeBoundedJson({ pid: child.pid, start: identity, started_at: startedAt }), { flag: "wx" });
+    child.stdin.end(request);
     poll();
     await closed;
   } catch (error) {
@@ -485,7 +488,9 @@ export async function executeProcessTrainer<P extends TrainerPolicy>(client: PmC
   if (input.training_config.steps !== adapter.allowance.training_steps) expectedFail("Optimizer steps differ from the declared reservation.", "process_invalid_adapter");
   if (input.prefix !== undefined && (input.lm !== undefined || adapter.kind !== "process-bandit")) expectedFail("Prefix fits require the packaged process adapter.", "process_invalid_adapter");
   if ((input.lm !== undefined) !== (adapter.kind === "compose-lm") || (input.lm !== undefined && adapter.kind === "compose-lm" && input.lm.memory_bytes !== adapter.memory_bytes)) expectedFail("Trainer payload differs from the declared adapter limits.", "process_invalid_adapter");
+  encodeBoundedJson(input);
   const id = processJobId(input, argv, adapter);
+  encodeBoundedJson({ job: id, input, ...(input.prefix === undefined ? {} : { artifactRoot: resolve(processStaging(coordinates.pmRoot, id), "../../../..") }) });
   return withProcessJobFence(coordinates, id, async () => await executeReservedProcessJob(client, coordinates, input, approval, adapter, id, signal, argv) as ProcessJob<P>);
 }
 

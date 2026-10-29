@@ -704,7 +704,14 @@ candidate. Within each protected slice, outcomes are averaged within the origina
 correlation units and those units receive equal weight. Repeated observations in
 one unit cannot satisfy `min_units`. Cohorts may overlap; every selected cohort
 must pass. Up to 32 cohorts of at most 10,000 declared members are supported;
-cohort identifiers are at most 128 characters. Minimums are integers from 1 to
+cohort identifiers are at most 128 characters. These cardinalities also share a
+**16 MiB UTF-8 budget for the complete stored reservation**, including its wrapper
+and JSON escaping; their Cartesian product is not guaranteed to fit. Both pure
+SDK validation and registration refuse `json_record_limit` before persistence.
+Reduce membership or encoded label bytes and declare a fresh plan/candidate.
+The sealed observation envelope has the same byte budget, checked by preview and
+recording alike. See [the producer/reader bounds audit](docs/json-record-bounds.md).
+Minimums are integers from 1 to
 10,000; limits are finite numbers from zero to the reward-bound width.
 
 `max_regression` uses the original reward units and the plan's optimization
