@@ -1,5 +1,5 @@
 import { statePath } from "./state-boundary.ts";
-import { parseBoundedJson } from "./tracker-record.ts";
+import { parseBoundedJson, encodeBoundedJson } from "./tracker-record.ts";
 /** Frozen chronological tasks derived only from verified public committed tracker snapshots. */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -131,12 +131,15 @@ export function buildImproverDataset(directories: readonly string[], output: str
     assert.ok(splits[role].length > 0, "improver_empty_role");
     splits[role].sort((a, b) => a.id.localeCompare(b.id));
     Object.assign(identities, { [role]: { digest: hashJson(splits[role] as unknown as JsonValue), tasks: splits[role].length } });
-    writeFileSync(statePath(output, `${role}.json`), JSON.stringify(splits[role]), { flag: "wx" });
+
   }
   const record = { format: "pm-rl/improver-dataset/1" as const, seed, sources, splits: identities, omitted };
   const manifest = { ...record, digest: hashJson(record as unknown as JsonValue) };
+  const files = IMPROVER_ROLES.map((role) => ({ name: `${role}.json`, text: encodeBoundedJson(splits[role]) }));
+  const manifestText = encodeBoundedJson(manifest, undefined, 2);
   mkdirSync(statePath(output), { recursive: true });
-  writeFileSync(statePath(output, "improver-dataset.json"), JSON.stringify(manifest, null, 2), { flag: "wx" });
+  for (const file of files) writeFileSync(statePath(output, file.name), file.text, { flag: "wx" });
+  writeFileSync(statePath(output, "improver-dataset.json"), manifestText, { flag: "wx" });
   return manifest;
 }
 

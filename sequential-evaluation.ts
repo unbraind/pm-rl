@@ -7,7 +7,7 @@ import { readSettings } from "@unbrained/pm-cli/sdk/runtime";
 import { hashJson, withProcessJobFence, extractGenerationSpec, readCompleteLoopItem, captureDecisionInputs, type JsonValue } from "./index.ts";
 import { evaluatePlan, evaluationComparison, normalizedObservations, optionalItem, readEvaluationPlan, refuse, verifiedCandidate, verifyCreatedRecord, validateEvaluationOrder, evaluationPlanId, type EvaluationMember, type EvaluationPlan, type EvaluationPlanReport, type RegisteredEvaluationPlan, evaluationEvidence } from "./evaluation-plan.ts";
 import type { PromotionDecision } from "./promotion.ts";
-import { parseBoundedJson, decodeTrackerRecord, skippedTrackerRecords, type SkippedTrackerRecord } from "./tracker-record.ts";
+import { parseBoundedJson, decodeTrackerRecord, skippedTrackerRecords, encodeBoundedJson, MAX_TRACKER_RECORD_BYTES, type SkippedTrackerRecord } from "./tracker-record.ts";
 
 /** A frozen order and equally allocated two-sided error budget; no data-dependent looks. */
 export interface SequentialStopping {
@@ -91,7 +91,7 @@ export async function withEvaluationLease<T>(client: PmClient, candidate: string
   const root = dirname(config.settings_path);
   const settings = await readSettings(root);
   const prefix = identifier(config.nested_setting!.value);
-  const ids = [`rl-eval-${hashJson(canonicalizeIdentifier(candidate, prefix)).slice(0, 32)}`, ...[...new Set(dependencies.map((id) => canonicalizeIdentifier(id, prefix)))].sort()];
+  const ids = [`rl-eval-${hashJson(canonicalizeIdentifier(candidate, prefix))}`, ...[...new Set(dependencies.map((id) => canonicalizeIdentifier(id, prefix)))].sort()];
   /** Reuse the package's SDK fence so killed owners recover with verified process identity. */
   async function locked(index: number): Promise<T> {
     if (index === ids.length) return execute();
@@ -180,10 +180,10 @@ async function appendSequentialLook(client: PmClient, candidate: string, rows: r
   if (index !== chain.reports.length || (index > 0 && chain.reports[index - 1].sequential!.state !== "continue")) refuse("eval_plan_stopping");
   if (index > 0) verifyPrefix(chain.rows[index - 1], rows);
   const raw = { format: FORMAT, comparison: current.comparison, previous: chain.hashes[index - 1] ?? null, observations: rows };
-  const id = `${current.id}-look-${index + 1}`; const body = JSON.stringify(raw); const version = hashJson(raw as unknown as JsonValue);
+  const id = `${current.id}-look-${index + 1}`; const body = encodeBoundedJson(raw, MAX_TRACKER_RECORD_BYTES); const version = hashJson(raw as unknown as JsonValue);
   // The SDK create owns the target slot's native lease. Every other slot,
   // including absent future slots, remains leased through this publication.
-  try { await identifierClient(client).create({ id, type: "Decision", title: "Sealed sequential evaluation checkpoint", body, affectedVersion: version, tags: TAG, message: "Seal the next predeclared sequential look" }); }
+  try { await identifierClient(client).create({ id, type: "Decision", title: "Sealed sequential evaluation checkpoint", body, unset: ["parent", "sprint", "release", "blocked-by"], clearDeps: true, affectedVersion: version, tags: TAG, message: "Seal the next predeclared sequential look" }); }
   catch (error) { if (await optionalItem(client, id) === null) throw error; }
   const saved = await checkpointChain(client, current, rule);
   if (saved.skipped.length > 0) return { status: "skipped", plan: current.id, skipped: saved.skipped, remedy: "Leave foreign evidence intact and register a fresh candidate." };

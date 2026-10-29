@@ -1,5 +1,5 @@
 import { identifierClient } from "./state-boundary.ts";
-import { parseBoundedJson } from "./tracker-record.ts";
+import { parseBoundedJson, assertJsonEncoding, type JsonEncodingRefusal } from "./tracker-record.ts";
 /** Bounded online observation of declarative policies, without candidate execution authority. */
 import type { GetResult, PmClient } from "@unbrained/pm-cli/sdk/core";
 import { createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
@@ -45,7 +45,7 @@ export interface ShadowReport {
   readonly remedy: string | null;
 }
 /** Machine-readable refusal with a recovery action and no private input content. */
-export type ShadowRefusal = "shadow_invalid" | "shadow_consent" | "shadow_budget" | "shadow_drift" | "shadow_missing" | "shadow_incomplete" | "shadow_failed";
+export type ShadowRefusal = "shadow_invalid" | "shadow_consent" | "shadow_budget" | "shadow_drift" | "shadow_missing" | "shadow_incomplete" | "shadow_failed" | JsonEncodingRefusal;
 /** Emit consistent typed refusals for CLI and SDK callers. */
 function refuse(code: ShadowRefusal, receipt = "shadow-deployment", field = "manifest"): never {
   throw createPmCliExpectedError(`Shadow observation refused (${code}); receipt ${receipt}, field ${field}. Supply explicit Decision consent for the exact deployment digest, both-arm budgets and inputs; use a fresh candidate and plan after drift or failure. Complete and compare all observations before promotion.`, { exitCode: EXIT_CODE.CONFLICT, context: { code, item_id: receipt, field } });
@@ -78,8 +78,10 @@ export function parseShadowDeployment(value: unknown): ShadowDeployment {
   if ([budget.active_calls, budget.candidate_calls].some((n) => typeof n !== "number" || !Number.isSafeInteger(n) || n < 0 || n > 10_000)) refuse("shadow_budget");
   const inputs = table(p.inputs);
   if (Object.values(inputs).some((digest) => !/^[a-f0-9]{64}$/.test(digest))) refuse("shadow_invalid");
-  return { format: "pm-rl/shadow/1", consent: label(p.consent), generation: label(p.generation), incumbent: label(p.incumbent), active: table(p.active), candidate: table(p.candidate), inputs,
+  const deployment: ShadowDeployment = { format: "pm-rl/shadow/1", consent: label(p.consent), generation: label(p.generation), incumbent: label(p.incumbent), active: table(p.active), candidate: table(p.candidate), inputs,
     budget: { active_calls: budget.active_calls as number, candidate_calls: budget.candidate_calls as number } };
+  assertJsonEncoding(canonicalJson(deployment as unknown as JsonValue));
+  return deployment;
 }
 /** Stable input identity allows consent without retaining source tracker content. */
 export function shadowInputDigest(input: string): string { return hashJson(label(input)); }
@@ -103,7 +105,7 @@ async function sealed(client: PmClient, id: string): Promise<GetResult["item"] |
 function json(body: unknown, receipt: string): unknown { try { return parseBoundedJson(String(body)); } catch { return refuse("shadow_drift", receipt, "body"); } }
 /** Content-addressed writes are retry-safe under the SDK's mutation lock. */
 async function seal(client: PmClient, id: string, value: JsonValue): Promise<void> {
-  const body = canonicalJson(value); const digest = hashJson(value);
+  const body = assertJsonEncoding(canonicalJson(value)); const digest = hashJson(value);
   const old = await sealed(client, id);
   if (old !== null) { if (old.body !== body || old.affected_version !== digest) refuse("shadow_drift", id, "body"); return; }
   try { await identifierClient(client).create({ id, type: "Decision", title: "Bounded shadow observation receipt", body, affectedVersion: digest }); }

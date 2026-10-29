@@ -6,11 +6,9 @@ status: in_progress
 priority: 2
 tags[1]: "gh:unbraind/pm-rl#107"
 created_at: "2026-10-25T23:52:20.254Z"
-updated_at: "2026-10-29T06:32:57.586Z"
-assignee: codex-agent
-claim_principal: codex-agent
+updated_at: "2026-10-29T07:25:56.522Z"
 author: codex-agent
-comments[129]{created_at,author,text}:
+comments[133]{created_at,author,text}:
   "2026-10-25T23:52:27.192Z",codex-agent,"Overlap check on current CLI 2026.10.25 and sibling package source/docs: pm-rl-evalplans explicitly seals fixed stopping; core SDK exposes tracker transactions and locks, not sequential statistics; pm-jev owns inference receipts, pm-context context selection, pm-rlm inference recursion. No existing alpha-spending evaluation protocol found. This extends pm-rl evaluation plans, retaining promotion approval and contamination gates. Design: predeclared finite looks over frozen complete correlation units, two-sided Hoeffding alpha spending, reviewed rule identity, immutable append-only checkpoint chain with SDK writer serialization and current provenance checks on every retry. No import/export/sync subsystem or status-name classification is introduced."
   "2026-10-26T00:01:50.075Z",codex-agent,"Implemented reviewed finite-look plans, cumulative immutable checkpoint chaining, advance/resume CLI and promotion bindings. Seeded 10,000-trial null/benefit simulations measured zero false efficacy and zero false futility decisions at the declared 0.05 bound; all 10,000 benefit trials stopped early. Targeted real SDK tests pass for restart, old snapshot retries, changed candidate provenance, futility and exhaustion. A 500-sequence SDK model test is running. Production typecheck, lint, duplication and docstrings pass so far; full npm/Bun release evidence will use CI as instructed."
   "2026-10-26T00:13:48.212Z",codex-agent,"Read-only public tracker validation passed using the installed packed CLI with Git absent from PATH. Public source commit 120e20e160897cabe47920713e1b87b6647b2e85: 107 items, 87 done-role items using the SDK status registry, candidate mean 0.8130841121495327 vs incumbent 0.1869158878504673. One repository remains one unit; exhausted/refuse, no promotion. JSON 853 bytes; TOON 730 bytes; one checkpoint, exact restart, source digest unchanged. Linked pm tests pass 3/3 (five focused regressions, typecheck, lint); configured tracking is disabled, so the receipt is recorded here. Behavioral revert controls: removing uncertainty fails null simulation; returning the requested old checkpoint fails restart/old-input regression; restored implementation passes 2/2. All 29 existing fixed-plan tests pass. No core dependency pins, thresholds or history records changed."
@@ -140,7 +138,11 @@ comments[129]{created_at,author,text}:
   "2026-10-29T06:18:53.471Z",codex-agent,"The generated property itself fails on the function-only advance revert: a sealed SDK rejection is followed by a persisted second look, then SDK decision read-back raises eval_plan_drift naming that look. This is the reported bug, not a parse/setup failure. The local focused selector is now limited to that advance/SDK-rejection case at entry, candidate discovery and exit; independent shared-lease and recovery controls already cover the other new functions. The exhaustive selector remains unchanged in scope (all five paths, six competing transitions and every observed package SDK boundary) and is assigned to CI. Earlier exploratory broad local runs and the unfinished broad focused selector are not counted as passing tests."
   "2026-10-29T06:29:05.211Z",codex-agent,"Final local evidence: the restored generated focused property passes 1/1 (three real SDK/CAS rejection interleavings selected from 124 observed advance boundaries, plus its baseline). Its function-only revert failed with eval_plan_drift naming the incorrectly persisted second look. The independent advance, shared rejection-lease and recovery controls each fail one test on revert and pass 1/1 restored. Current integration guards pass 11/11; capacity/evidence precedence checks pass 12/12; six added native coverage-boundary regressions pass; the linked strict schema passes 1/1 over 500 seeded transports. Final archive consumers with Git absent pass Node 3/3 and Bun 3/3. Archive SHA-256 985d04d66c089093db7f18e02918e61aa6c72bb7fc9f4c3d40e3e5e475cef68f; 231 shipped files including 176 runtime files verified. Typecheck, test compilation, lint, build, zero duplicates, docstrings (57 sources / 462 declarations) and identity audit pass. Full five-path/six-transition interleavings and unchanged npm/Bun release gates remain CI evidence, not a local full-suite claim. The final PR body and report will link the exact run and report completion or pending checks at the 45-minute cutoff. Releasing the claim for verification; keep this item unclosed."
   "2026-10-29T06:32:57.586Z",codex-agent,"Final fetch found a new main commit after the earlier orientation: protected-cohort promotion guards and shared bounded JSON encoding are now upstream. Reclaiming the item for required branch integration. The local snapshot controls remain valid evidence for their tested implementation, but the previous archive/head receipts are provisional until this merge is reviewed, targeted integration checks pass, and a fresh archive is captured. Preserve protected cohort refusals, sequential stopping, legacy fixed-plan compatibility, immutable receipts and current-capacity refusal precedence together."
-files[52]{path,scope}:
+  "2026-10-29T07:04:44.509Z",codex-agent,"Main integration: protected-cohort admission and shared bounded-JSON producers from main are retained. Fixed evaluation, sequential evaluation and sealed rejection now use the same full canonical candidate lease key; fixed result guards also re-read candidate, Plan and evidence while source leases are held. Native fenceable SDK leases are routed through the shared confined path boundary. Added fixed/rejection contention, terminal-slot preservation, symlink-tripwire and unsupported mixed-protocol regressions. Focused checks are in progress; the prior archive is superseded by this merge."
+  "2026-10-29T07:09:16.990Z",codex-agent,"Structural rule: no decision-bearing discovery snapshot crosses the source-lease boundary. Sequential append re-reads candidate spec, reviewed Plan, immutable chain and rejection state only after candidate/Plan and all discovered source leases are held. Rejection takes the same canonical candidate protocol lease before its first SDK read. Five mutation paths x six peer transitions are generated across both sides of every package SDK get/config/create/history await; source code and the complete matrix remain enabled in CI. Local focused endpoints exercise entry, candidate discovery and exit. Function-only disposable controls for recordSequentialDecision, recordRefusedPolicyCard and verifyRetainedGenerationEvidence each fail one regression, with restored tests 1/1 each. The focused model itself also fails with only recordSequentialDecision reverted: look-2 persists after a sealed SDK refusal and immediate SDK decision read returns eval_plan_drift naming that checkpoint. Restored focused model passes 1/1 with 124 discovered SDK boundaries and three selected interleavings. Exhaustive matrix is delegated to CI; stopped exploratory local broad runs are not passes."
+  "2026-10-29T07:20:36.580Z",codex-agent,"Main-merge function-only revert proofs (disposable copies; normal source and native history untouched): restoring only main's recordPlanEvaluation removes source leases and fails the new ordinary-SDK contention assertion (missing expected lock_conflict), restored 1/1. Removing confinement only from acquireStateLease fails the symlink/cleanup-gate assertion with the SDK's wrong refusal, restored 1/1 and tripwire unchanged. Removing only the mixed-protocol guard inside parseEvaluationPlan silently accepts sequential protected cohorts and fails the typed-refusal assertion, restored 1/1. Incomplete-fixture and overly narrow initial controls were discarded, corrected, and are not counted as proofs. Main's unchanged sparse-input test caught a merge mismatch; shared dense-array admission now preserves its eval_plan_stopping contract."
+  "2026-10-29T07:25:51.024Z",codex-agent,"Post-main results: focused remaining run 7/7 (shared snapshot model: 124 discovered SDK boundaries, entry/discovery/exit interleavings; loop refusal replay; unchanged main late-budget regression; native fenceable lease confinement; protected/sequential protocol refusal; dense sparse-input refusal; real CLI cohort regression/sample admission). Earlier focused controls retain 3/3 sealed-rejection cases, native result reconciliation, bounded writer scan and producer/reader limits. Six locked budget/evidence combinations, both pre-lock capacity changes, authorization/statistical revision fencing and main's original lowered-budget regression all pass. The three merge controls each fail on function-only revert and restore 1/1. Linked compact manifest schema passes 1/1 through pm test with 500 seeded cases. Typecheck, test compilation, lint, build, docstrings (57 sources/469 declarations), zero duplicates, identity audit, isolated strict tracker health and changelog pass. Global extension skew disappears with isolated identity; existing native provenance advisory is retained without history rewriting. A single captured archive (234 files, 176 runtime files; SHA-256 379a5f95ff4625effbe4b97dd599e10c45b5524a1404da468125ddd90eed13c8) passes Node 4/4 and Bun 4/4 without Git. Main a9a1199 is included. Full exhaustive interleaving matrix and unchanged 100-percent release gates are delegated to exact-head CI; latest run/results will be linked in the PR body and https://github.com/unbraind/pm-rl/pull/107/checks after push, with a 45-minute maximum wait. No full-gate pass is claimed before completion. API migration remains pm-rl-lifecycle; linked native test context remains pm-rl-warf. Releasing this claim without closing the item."
+files[54]{path,scope}:
   checkpoint-artifacts.ts,project
   compose.ts,project
   dataset.ts,project
@@ -182,6 +184,7 @@ files[52]{path,scope}:
   test/fixtures/released-compatibility-writer.ts,project
   test/fixtures/released-compatibility.json,project
   test/improver.test.ts,project
+  test/json-boundaries.test.ts,project
   test/leaderboard.test.ts,project
   test/lineage.test.ts,project
   test/lm-compose.test.ts,project
@@ -191,9 +194,10 @@ files[52]{path,scope}:
   test/sequential-evaluation.acceptance.ts,project
   test/sequential-evaluation.test.ts,project
   test/state-boundary.test.ts,project
+  test/worst-cohort.test.ts,project
   tracker-record.ts,project
   transfer.ts,project
-tests[45]:
+tests[47]:
   - command: "node --test --test-name-pattern=\"strict sequential|only complete|null, benefit|boundary input|output validation\" test/sequential-evaluation.test.ts"
     scope: project
     provenance:
@@ -530,10 +534,25 @@ tests[45]:
       created_at: "2026-10-29T06:10:38.400Z"
       source_kind: local_mutation
       source_ref: feat/predeclared-sequential-evaluation
-docs[8]{path,scope}:
+  - command: node --test --test-concurrency=1 --test-name-pattern='fixed evaluation shares|native fenceable leases|protected cohorts cannot' test/evaluation-plan.test.ts test/state-boundary.test.ts test/worst-cohort.test.ts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-29T07:07:10.289Z"
+      source_kind: local_mutation
+      source_ref: feat/predeclared-sequential-evaluation
+  - command: node --test --test-concurrency=1 --test-name-pattern='sequential mutation snapshot focused endpoints|real CLI and promotion refuse protected|an approval whose budget is lowered|loop replay reports|strict schema rejects sparse|native fenceable leases|protected cohorts cannot' test/sequential-evaluation.test.ts test/worst-cohort.test.ts test/lineage.test.ts test/evaluation-integration.test.ts test/state-boundary.test.ts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-29T07:25:41.575Z"
+      source_kind: local_mutation
+      source_ref: feat/predeclared-sequential-evaluation
+docs[9]{path,scope}:
   docs/decision-evidence-validation.json,project
   docs/decision-evidence.md,project
   docs/evaluation-compatibility-evidence.json,project
+  docs/json-record-bounds.md,project
   docs/policy-card-write-audit.md,project
   docs/sequential-evaluation-evidence.json,project
   examples/sequential-evaluation-plan.json,project

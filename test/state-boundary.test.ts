@@ -7,7 +7,7 @@ import { join, relative } from "node:path";
 import { after, test } from "node:test";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { init, isPmCliExpectedError, normalizeRawItemId } from "@unbrained/pm-cli/sdk/runtime";
-import { acquireStateLock, assertStatePathRoot, checkedStateFile, commitStateTransaction, identifier, identifierClient, statePath } from "../state-boundary.ts";
+import { acquireStateLease, acquireStateLock, assertStatePathRoot, checkedStateFile, commitStateTransaction, identifier, identifierClient, statePath } from "../state-boundary.ts";
 import { recordSequentialEvaluation, withEvaluationLease } from "../sequential-evaluation.ts";
 import { parseEvaluationPlan, registerEvaluationPlan } from "../evaluation-plan.ts";
 import { parseBenchmarkSpec, parseEvalResultSpec, commitProcessTransaction, withProcessJobFence, loopLeaseLockId, readCompleteLoopItem } from "../index.ts";
@@ -179,4 +179,20 @@ test("native release retains a peer successor and rechecks confinement before cl
   const outside = join(root, "tripwire"); mkdirSync(outside); writeFileSync(join(outside, "valid.lock"), "sentinel");
   const before = treeHash(outside); rmSync(join(state, "locks"), { recursive: true }); symlinkSync(outside, join(state, "locks"), "dir");
   await assert.rejects(again(), refusal); assert.equal(treeHash(outside), before);
+});
+
+test("native fenceable leases confine acquisition, both fence boundaries and final release", async () => {
+  const root = mkdtempSync(join(tmpdir(), "rl-fence-confinement-")); roots.push(root);
+  const state = join(root, "state"); const outside = join(root, "tripwire"); mkdirSync(state); mkdirSync(outside);
+  writeFileSync(join(outside, "valid.lock"), "expired foreign sentinel"); const before = treeHash(outside);
+  mkdirSync(join(state, "locks")); symlinkSync(outside, join(state, "locks", "valid.lock.stale-cleanup"), "dir");
+  await assert.rejects(acquireStateLease(state, "valid", 30, "fence-test"), refusal);
+  rmSync(join(state, "locks", "valid.lock.stale-cleanup"));
+  const lease = await acquireStateLease(state, "valid", 30, "fence-test");
+  assert.equal(await lease.fence(async () => 17), 17);
+  await lease.release();
+  const escaped = await acquireStateLease(state, "valid", 30, "fence-test");
+  rmSync(join(state, "locks"), { recursive: true }); symlinkSync(outside, join(state, "locks"), "dir");
+  await assert.rejects(escaped.fence(async () => assert.fail("unsafe fence")), refusal);
+  await assert.rejects(escaped.release(), refusal); assert.equal(treeHash(outside), before);
 });

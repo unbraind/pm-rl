@@ -1,5 +1,5 @@
 import { identifierClient, DECISION_INPUT_FIELDS, operationIdentifier } from "./state-boundary.ts";
-import { decodeTrackerRecord, parseBoundedJson } from "./tracker-record.ts";
+import { decodeTrackerRecord, parseBoundedJson, encodeBoundedJson } from "./tracker-record.ts";
 /** Minimized explanations of learned-policy suitability, backed by SDK-certified history. */
 import type { GetResult, PmClient } from "@unbrained/pm-cli/sdk/core";
 import { createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
@@ -236,7 +236,7 @@ export async function validateRefusedPolicyCard(client: PmClient, subject: strin
   const primary = await snapshot(client, subject);
   const spec = extractGenerationSpec(String(primary.item.body), "Rejected generation");
   const decision = await readEvaluationDecision(client, subject, true);
-  const body = `\`\`\`json\n${JSON.stringify({ ...spec, ...(decision.evidence === null ? {} : { evaluation_evidence: decision.evidence }), policy_evaluation: verdict })}\n\`\`\``;
+  const body = `\`\`\`json\n${encodeBoundedJson({ ...spec, ...(decision.evidence === null ? {} : { evaluation_evidence: decision.evidence }), policy_evaluation: verdict })}\n\`\`\``;
   await exportSnapshotCard(client, { ...primary, citation: { ...primary.citation, at: PROSPECTIVE_AT }, item: { ...primary.item, body } }, null);
   return body;
 }
@@ -375,7 +375,7 @@ export async function verifyRetainedGenerationEvidence(client: PmClient, subject
   // current graph. Earlier candidate cards describe earlier, valid looks;
   // replaying them against a later completed look would reject legal progress.
   // They remain historical explanations, never authorization for this outcome.
-  const sealed = fresh.decisionGraph !== undefined && ["promoted", "refused"].includes(outcome);
+  const sealed = fresh.decisionGraph !== undefined && extractGenerationSpec(String(fresh.primary.body), "Retained terminal receipt").evaluation_evidence !== undefined && ["promoted", "refused"].includes(outcome);
   for (const card of retained) if (!(sealed && card.outcome === "candidate")) await replayPolicyCard(client, card);
   const terminal = retained.some((card) => card.outcome === "promoted" || card.outcome === "refused");
   if (terminal && ["candidate", "seed"].includes(outcome)) throw createPmCliExpectedError("A retained terminal promotion cannot be replayed as an unfinished step.", { exitCode: EXIT_CODE.CONFLICT, context: { code: "loop_step_drift" } });

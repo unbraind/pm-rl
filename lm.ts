@@ -1,5 +1,5 @@
 import { statePath, checkedStateFile, identifier } from "./state-boundary.ts";
-import { parseBoundedJson } from "./tracker-record.ts";
+import { parseBoundedJson, assertJsonEncoding } from "./tracker-record.ts";
 /**
  * @module pm-rl/lm
  *
@@ -659,12 +659,12 @@ export function lmCheckpoint(adapter: LmAdapter, config: Pick<LmLoopConfig, "bas
  * @returns The canonical JSON text and its length in UTF-8 bytes.
  */
 export function serializeLmCheckpoint(checkpoint: LmCheckpoint, config: Pick<LmLoopConfig, "baseDigest" | "shape">): { readonly text: string; readonly bytes: number } {
-  const text = canonicalJson({
+  const text = assertJsonEncoding(canonicalJson({
     format: LM_CHECKPOINT_FORMAT,
     base: config.baseDigest,
     shape: { vocab: config.shape.vocab, d_model: config.shape.dModel, ffn: config.shape.ffn, layers: config.shape.layers, rank: config.shape.rank, string_length: config.shape.stringLength, max_positions: config.shape.maxPositions },
     tensors: jsonLmAdapter(checkpoint.adapter),
-  });
+  }));
   return { text, bytes: Buffer.byteLength(text, "utf8") };
 }
 

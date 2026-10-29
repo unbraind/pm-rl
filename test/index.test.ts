@@ -192,9 +192,9 @@ test("the shipped extension activates all commands, item types, fields, and leas
   assert.equal(extension.version, manifest.version);
   assert.equal(pkg.version, manifest.version);
   assert.equal(manifest.entry, "./dist/index.js");
-  assert.equal(manifest.pm_min_version, "2026.8.28");
-  assert.equal(pkg.peerDependencies["@unbrained/pm-cli"], ">=2026.8.28");
-  assert.deepEqual(checkExtensionManifestCompatibility(rawManifest, { pmVersion: "2026.8.28" }).findings, []);
+  assert.equal(manifest.pm_min_version, "2026.10.25");
+  assert.equal(pkg.peerDependencies["@unbrained/pm-cli"], ">=2026.10.25");
+  assert.deepEqual(checkExtensionManifestCompatibility(rawManifest, { pmVersion: "2026.10.25" }).findings, []);
   await harness.deactivate();
 });
 

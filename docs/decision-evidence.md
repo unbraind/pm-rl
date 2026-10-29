@@ -108,6 +108,17 @@ write precondition. A subsequent revision change returns `loop_write_conflict`
 without consuming approval. A Decision separately read as statistical evidence
 retains that independent projection, even if it also authorizes promotions.
 
+Evaluation mutations share a canonical candidate lease across fixed evaluation,
+sequential registration/advance/retry and rejection. Discovery contributes only
+source identifiers. Once source leases are held, guards re-read the Plan,
+candidate, review and checkpoint chain before deciding or writing. A sealed
+refusal prevents later evidence publication; an identical already-sealed retry
+can still return its current result. Fixed protected-cohort guards retain their
+original admission contract. Combining them with a sequential stopping protocol
+requires a separately specified design and currently refuses before registration.
+The SDK's fenceable fixed-plan lease uses the same confined state-path boundary
+as sequential locks, including acquisition, execution and final release.
+
 ```ts
 import { PmClient } from '@unbrained/pm-cli/sdk/core';
 import { readEvaluationDecision, exportPolicyCard } from 'pm-rl';

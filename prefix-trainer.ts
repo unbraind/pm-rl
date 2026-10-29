@@ -30,7 +30,7 @@ export async function runPrefixTrainer(stdin: Readable, stdout: Writable, direct
     policy: { digest: policy.digest }, source_policy: input.source.digest, training_config: input.training_config, lineage: input.lineage,
     usage: { training_steps: 1, wall_ms: Math.ceil(performance.now() - start), storage_bytes: Buffer.byteLength(JSON.stringify(policy)), compute_units: Math.ceil((consumed.user + consumed.system) / 1000), tokens: 0 },
   };
-  writeTrainerArtifact(statePath(directory, "completion.json"), completion);
+  writeTrainerArtifact(statePath(directory, "completion.json"), completion, 4096);
   stdout.write(`${JSON.stringify({ type: "complete", job, receipt: completion })}\n`);
 }
 /** Dispatch the same IO implementation for direct and external-process acceptance. */

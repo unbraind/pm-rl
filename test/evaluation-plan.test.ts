@@ -8,8 +8,8 @@ import { after, test } from "node:test";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { init, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import extension, { extractGenerationSpec, generationProvenance, hashJson, readCompleteLoopItem, type JsonValue, type RlCommandResult } from "../index.ts";
-import { evaluationComparison, evaluationPlanId, evaluatePlan, parseEvaluationPlan, registerEvaluationPlan, readEvaluationPlan, recordPlanEvaluation, enforceEvaluationPlan, type EvaluationPlan, type EvaluationObservation } from "../evaluation-plan.ts";
+import extension, { extractGenerationSpec, generationProvenance, hashJson, readCompleteLoopItem, recordRefusedPolicyCard, type JsonValue, type RlCommandResult } from "../index.ts";
+import { evaluationComparison, evaluationPlanId, evaluatePlan, parseEvaluationPlan, registerEvaluationPlan, readEvaluationPlan, readEvaluationDecision, recordPlanEvaluation, enforceEvaluationPlan, type EvaluationPlan, type EvaluationObservation } from "../evaluation-plan.ts";
 import type { GenerationSpec, ScoreRecord } from "../lineage.ts";
 
 const roots: string[] = [];
@@ -446,6 +446,67 @@ test("fixed cohort labels retain distinct case and unchanged sealed SDK comparis
   const evaluated = await recordPlanEvaluation(w.client, declaration.candidate, observations(declaration));
   assert.equal(evaluated.observations, 2); assert.equal(evaluated.independent_units, 2);
   assert.equal((await readEvaluationPlan(w.client, declaration.candidate))!.comparison, registered.comparison);
+});
+
+test("native result peer writes reconcile success and refuse every incompatible winner after a local SDK failure", async () => {
+  const w = await workspace();
+  const peer = new PmClient({ cwd: w.root, pmRoot: w.pmRoot, author: "native-result-peer", noExtensions: true });
+  const create = w.client.create.bind(w.client);
+  for (const outcome of ["same", "absent", "foreign-type", "different-body", "different-version"] as const) {
+    w.client.create = create;
+    const p = plan({ candidate: `rl-native-${outcome}` });
+    const registered = await registerEvaluationPlan(w.client, p);
+    await generation(w.client, p.candidate, spec("rl-seed", [`${p.candidate}-collection`]));
+    const input = observations(p);
+    let attempts = 0; let nativeFailure: unknown;
+    w.client.create = (async (options) => {
+      assert.ok(options);
+      attempts += 1;
+      if (outcome !== "absent") await peer.create({ ...options,
+        type: outcome === "foreign-type" ? "Task" : options.type,
+        body: outcome === "different-body" ? JSON.stringify({ comparison: registered.comparison, observations: input.map((row) => ({ ...row, candidate: 0.9 })) }) : options.body,
+        affectedVersion: outcome === "different-version" ? "foreign" : options.affectedVersion });
+      // A real invalid-ID SDK refusal forces reconciliation even if identical creates become idempotent.
+      try { return await create({ ...options, id: " " }); }
+      catch (error) { nativeFailure = error; throw error; }
+    }) as PmClient["create"];
+    if (outcome === "same") {
+      assert.deepEqual(await recordPlanEvaluation(w.client, p.candidate, input), evaluatePlan(p, input));
+      const result = (await readCompleteLoopItem(peer, `${registered.id}-result`)).item;
+      assert.deepEqual(result, (await readCompleteLoopItem(peer, result.id, "1")).item);
+    } else await assert.rejects(recordPlanEvaluation(w.client, p.candidate, input), (error: unknown) => error === nativeFailure && isPmCliExpectedError(error));
+    assert.equal(attempts, 1); assert.ok(isPmCliExpectedError(nativeFailure));
+  }
+});
+
+test("fixed evaluation shares rejection's canonical lease and never advances sealed terminal evidence", async () => {
+  const w = await workspace(); const p = plan(); await registerEvaluationPlan(w.client, p);
+  await w.client.schemaAddType("Environment", { folder: "environments", defaultStatus: "open" });
+  await w.client.create({ id: "rl-training-env", type: "Environment", title: "Training" });
+  await generation(w.client, p.candidate, spec("rl-seed"));
+  const peer = new PmClient({ cwd: w.root, pmRoot: w.pmRoot, author: "fixed-rejection-peer", noExtensions: true });
+  const get = w.client.get.bind(w.client); let injected = false; let candidateReads = 0;
+  const previousWait = process.env.PM_LOCK_WAIT_MS; process.env.PM_LOCK_WAIT_MS = "0";
+  w.client.get = (async (...args) => {
+    const result = await get(...args);
+    if (!injected && args[0] === p.candidate && args[1]?.at === undefined && ++candidateReads === 2) {
+      injected = true;
+      await assert.rejects(recordRefusedPolicyCard(peer, "CaNdIdAtE", "Competing stop"), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "lock_conflict");
+      await assert.rejects(peer.update(p.candidate, { title: "Competing SDK write" }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "lock_conflict");
+    }
+    return result;
+  }) as PmClient["get"];
+  try { assert.deepEqual(await recordPlanEvaluation(w.client, p.candidate, observations(p)), evaluatePlan(p, observations(p))); }
+  finally { Object.assign(w.client, { get }); if (previousWait === undefined) delete process.env.PM_LOCK_WAIT_MS; else process.env.PM_LOCK_WAIT_MS = previousWait; }
+  assert.ok(injected);
+  // A separate candidate is rejected before its first result. Its empty result slot
+  // must stay empty, and the sealed rejection must remain immediately readable.
+  const stopped = plan({ candidate: "rl-stopped" }); await registerEvaluationPlan(w.client, stopped);
+  await generation(w.client, stopped.candidate, spec("rl-seed", ["rl-stopped-collection"]));
+  assert.equal(await recordRefusedPolicyCard(peer, stopped.candidate, "Stop before evaluation"), "refused");
+  await assert.rejects(recordPlanEvaluation(w.client, stopped.candidate, observations(stopped)), refusal("eval_plan_stopping"));
+  assert.equal((await peer.listAllComplete({ includeBody: false })).items.some((item) => item.id === `${stopped.candidate}-evaluation-plan-result`), false);
+  assert.equal((await readEvaluationDecision(peer, stopped.candidate)).report, null);
 });
 
 test("generation comparison pins survive parsing and reject malformed or changed plan identities", async () => {

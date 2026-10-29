@@ -3,7 +3,7 @@ import { lstatSync } from "node:fs";
 import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { commitWorkspaceTransaction, type CommitWorkspaceTransactionOptions, looksLikeGenericKeyValueEntry, parseCsvKv } from "@unbrained/pm-cli/sdk";
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
-import { acquireLock as sdkAcquireLock, createPmCliExpectedError, EXIT_CODE, getHistoryPath, normalizeRawItemId, normalizeItemId } from "@unbrained/pm-cli/sdk/runtime";
+import { acquireLock as sdkAcquireLock, acquireLockLease as sdkAcquireLockLease, createPmCliExpectedError, EXIT_CODE, getHistoryPath, normalizeRawItemId, normalizeItemId } from "@unbrained/pm-cli/sdk/runtime";
 
 /** Domain projection shared by SDK decision reads and explanation citations. @internal */
 export const DECISION_INPUT_FIELDS = "id,type,body,affected_version,component,environment,notes,created_at,tags";
@@ -129,6 +129,23 @@ export async function acquireStateLock(...args: Parameters<typeof sdkAcquireLock
   const release = await sdkAcquireLock(root, id, ...args.slice(2) as [number, string, boolean?, boolean?, number?]);
   /** Native release reads its token under the SDK cleanup lease and cannot remove a successor. */
   return async () => { checkedStateFile(lock); statePath(root, "locks", `${id}.lock.stale-cleanup`, "owner.json"); await release(); };
+}
+
+/** Confine the SDK's fenceable lease and revalidate its paths at each ownership boundary. */
+export async function acquireStateLease(...args: Parameters<typeof sdkAcquireLockLease>): ReturnType<typeof sdkAcquireLockLease> {
+  const [root, rawId, ...policy] = args; const id = canonicalIdentifier(rawId);
+  const lock = statePath(root, "locks", `${id}.lock`);
+  statePath(root, "locks", `${id}.lock.stale-cleanup`, "owner.json");
+  const lease = await sdkAcquireLockLease(root, id, ...policy);
+  return {
+    /** Enter the native ownership fence before executing a guarded SDK write. */
+    async fence<T>(execute: () => Promise<T>): Promise<T> {
+      checkedStateFile(lock);
+      return lease.fence(async () => { checkedStateFile(lock); return execute(); });
+    },
+    /** Release only the SDK generation owned by this lease inside its confined root. */
+    async release(): Promise<void> { checkedStateFile(lock); statePath(root, "locks", `${id}.lock.stale-cleanup`, "owner.json"); await lease.release(); },
+  };
 }
 
 /** Constrain the native journal and writer lease without adding process-tool requirements to SDK-only operations. */

@@ -1,5 +1,5 @@
 import { canonicalProgrammeId, canonicalProgrammeRequest, identifierClient } from "./state-boundary.ts";
-import { decodeTrackerRecord, hasTrackerIdentity } from "./tracker-record.ts";
+import { decodeTrackerRecord, hasTrackerIdentity, encodeBoundedJson, MAX_TRACKER_RECORD_BYTES } from "./tracker-record.ts";
 /** Durable recipe search over sealed tracker compartments, using the existing trainer and promotion gate. */
 import assert from "node:assert/strict";
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
@@ -217,7 +217,7 @@ async function reserveMeta(client: PmClient, coordinates: ProcessCoordinates, re
       const consumed = items.items.some((item) => item.type === "Generation") ? await promotedGenerationIdsUnderApproval(client, approval.id) : [];
       const totalPromotions = consumed.length + await retainedMetaPromotionHeadroom(client, approval.id, consumed) + promotionHeadroom;
       assert.ok(Number.isSafeInteger(totalPromotions) && totalPromotions <= approval.promotions, "meta_promotion_budget_exhausted");
-      await identifierClient(client).create({ id: key, type: "Decision", tags: "rl-meta-reservation", title: "Reserved bounded recipe search", body: JSON.stringify({ format: "pm-rl/meta-reservation/1", id: key, binding, approval: approval.id, charge, promotion_headroom: promotionHeadroom }) });
+      await identifierClient(client).create({ id: key, type: "Decision", tags: "rl-meta-reservation", title: "Reserved bounded recipe search", body: encodeBoundedJson({ format: "pm-rl/meta-reservation/1", id: key, binding, approval: approval.id, charge, promotion_headroom: promotionHeadroom }, MAX_TRACKER_RECORD_BYTES) });
     },
     // Conservative reservations survive transaction recovery and are never refunded by search itself.
     async compensate() {},
@@ -294,9 +294,9 @@ export async function durableRecipeProposals(client: PmClient, id: string, reque
     assert.equal(record.state, "intent", "meta_proposal_state");
     return { recipes: seededRecipes(incumbent, request.config.seed, generation, request.config.candidates), proposer: "seeded:unresolved-model-attempt" };
   }
-  await identifierClient(client).create({ id: key, type: "Decision", title: "Bounded local recipe inference intent", body: JSON.stringify({ id: key, binding, state: "intent" }) });
+  await identifierClient(client).create({ id: key, type: "Decision", title: "Bounded local recipe inference intent", body: encodeBoundedJson({ id: key, binding, state: "intent" }, MAX_TRACKER_RECORD_BYTES) });
   const result = await proposeRecipes(request, incumbent, generation, signal);
-  await identifierClient(client).update(key, { body: JSON.stringify({ id: key, binding, state: "complete", result, digest: hashJson(result as unknown as JsonValue) }) });
+  await identifierClient(client).update(key, { body: encodeBoundedJson({ id: key, binding, state: "complete", result, digest: hashJson(result as unknown as JsonValue) }, MAX_TRACKER_RECORD_BYTES) });
   return result;
 }
 

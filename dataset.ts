@@ -1,5 +1,5 @@
 import { statePath } from "./state-boundary.ts";
-import { parseBoundedJson } from "./tracker-record.ts";
+import { parseBoundedJson, encodeBoundedJson } from "./tracker-record.ts";
 /** Public, commit-pinned tracker histories projected to a small redistributable lifecycle task. */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -146,9 +146,11 @@ export function buildTrackerDataset(directories: readonly string[], output: stri
   }
   const record = { format: "pm-rl/tracker-dataset/1" as const, task: options.task ?? "terminal-disposition", seed, sources, omitted_sources, splits, ...(calibration === undefined ? {} : { calibration }) };
   const manifest = { ...record, digest: hashJson(record as unknown as JsonValue) };
+  const files = TRACKER_SPLITS.map((split) => ({ name: `${split}.json`, text: encodeBoundedJson(data[split]) }));
+  const manifestText = encodeBoundedJson(manifest, undefined, 2);
   mkdirSync(statePath(output), { recursive: true });
-  for (const split of TRACKER_SPLITS) writeFileSync(statePath(output, `${split}.json`), JSON.stringify(data[split]), { flag: "wx" });
-  writeFileSync(statePath(output, "dataset.json"), JSON.stringify(manifest, null, 2), { flag: "wx" });
+  for (const file of files) writeFileSync(statePath(output, file.name), file.text, { flag: "wx" });
+  writeFileSync(statePath(output, "dataset.json"), manifestText, { flag: "wx" });
   return manifest;
 }
 

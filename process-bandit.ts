@@ -1,5 +1,5 @@
 import { statePath, checkedStateFile, identifier } from "./state-boundary.ts";
-import { parseBoundedJson } from "./tracker-record.ts";
+import { parseBoundedJson, encodeBoundedJson } from "./tracker-record.ts";
 /** Real external TypeScript trainer: stdin request, stdout NDJSON, durable staged checkpoint and receipt. */
 import type { Readable, Writable } from "node:stream";
 import { dirname } from "node:path";
@@ -10,9 +10,10 @@ import { createHash } from "node:crypto";
 import { isMainInvocation } from "./scripts/script-launcher.ts";
 
 /** Publish exclusive, fsynced files before emitting completion; never overwrite a prior checkpoint. */
-export function writeTrainerArtifact(name: string, value: unknown): void {
+export function writeTrainerArtifact(name: string, value: unknown, maximumBytes?: number): void {
+  const text = encodeBoundedJson(value, maximumBytes);
   const handle = openSync(checkedStateFile(name), "wx");
-  try { writeFileSync(handle, JSON.stringify(value)); fsyncSync(handle); } finally { closeSync(handle); }
+  try { writeFileSync(handle, text); fsyncSync(handle); } finally { closeSync(handle); }
   const directory = openSync(dirname(name), "r");
   try { fsyncSync(directory); } finally { closeSync(directory); }
 }
@@ -26,12 +27,12 @@ export async function runReferenceTrainer(stdin: Readable = process.stdin, stdou
   const cpu = process.cpuUsage();
   stdout.write(`${JSON.stringify({ type: "progress", job, usage: { training_steps: 0, wall_ms: 0, storage_bytes: 0, compute_units: 0, tokens: 0 } })}\n`);
   const policy = fitBanditBatch(input.training, input.source, input.observations, input.training_config.learning_rate, input.training_config.steps);
-  writeTrainerArtifact(statePath(directory, "checkpoint.json"), policy);
+  writeTrainerArtifact(statePath(directory, "checkpoint.json"), policy, 4096);
   const cpuUse = process.cpuUsage(cpu);
   const completion: ProcessCompletion = { format: "pm-rl/process-completion/1", job, checkpoint: "checkpoint.json", digest: `sha256:${createHash("sha256").update(JSON.stringify(policy)).digest("hex")}`, policy,
     training_config: input.training_config, source_policy: input.source.digest, lineage: input.lineage,
     usage: { training_steps: input.training_config.steps, wall_ms: Math.ceil(performance.now() - start), storage_bytes: Buffer.byteLength(JSON.stringify(policy)), compute_units: Math.ceil((cpuUse.user + cpuUse.system) / 1000), tokens: 0 } };
-  writeTrainerArtifact(statePath(directory, "completion.json"), completion);
+  writeTrainerArtifact(statePath(directory, "completion.json"), completion, 65_536);
   stdout.write(`${JSON.stringify({ type: "complete", job, receipt: completion })}\n`);
 }
 

@@ -33,7 +33,7 @@ export async function runLmTrainer(stdin: Readable = process.stdin, stdout: Writ
     usage: { training_steps: config.fitSteps, wall_ms: Math.ceil(performance.now() - start), storage_bytes: checkpoint.bytes,
       compute_units: Math.ceil((consumed.user + consumed.system) / 1000), tokens: lmFitTokens(payload) },
   };
-  writeTrainerArtifact(statePath(directory, "completion.json"), completion);
+  writeTrainerArtifact(statePath(directory, "completion.json"), completion, 65_536);
   stdout.write(`${JSON.stringify({ type: "complete", job, receipt: completion })}\n`);
 }
 

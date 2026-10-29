@@ -84,7 +84,9 @@
     "docs/policy-card-evidence.json",
     "dist/sequential-evaluation.*",
     "docs/sequential-evaluation-evidence.json",
-    "dist/state-boundary.*"
+    "dist/state-boundary.*",
+    "docs/worst-cohort-evidence.json",
+    "docs/json-record-bounds.md"
   ],
   "engines": {
     "node": ">=22.18.0"
@@ -171,7 +173,9 @@
       "test/policy-card.test.ts",
       "test/sequential-evaluation.test.ts",
       "test/state-boundary.test.ts",
-      "test/controller-boundaries.test.ts"
+      "test/controller-boundaries.test.ts",
+      "test/worst-cohort.test.ts",
+      "test/json-boundaries.test.ts"
     ],
     "thresholds": {
       "statements": 100,
@@ -223,7 +227,7 @@
     "yaml": "2.9.1"
   },
   "peerDependencies": {
-    "@unbrained/pm-cli": ">=2026.8.28"
+    "@unbrained/pm-cli": ">=2026.10.25"
   },
   "pm": {
     "aliases": [
@@ -278,7 +282,9 @@
       "docs/shadow-evidence.json",
       "docs/policy-cards.md",
       "docs/decision-evidence.md",
-      "docs/policy-card-write-audit.md"
+      "docs/policy-card-write-audit.md",
+      "docs/worst-cohort-evidence.json",
+      "docs/json-record-bounds.md"
     ],
     "examples": [
       "README.md",
@@ -296,7 +302,8 @@
       "examples/evaluation-observations.json",
       "examples/shadow-policy.json",
       "examples/policy-card.json",
-      "examples/sequential-evaluation-plan.json"
+      "examples/sequential-evaluation-plan.json",
+      "examples/evaluation-plan-protected.json"
     ]
   },
   "publishConfig": {
