@@ -220,7 +220,7 @@ import { certifyCompleteListResult, createPmCliExpectedError, EXIT_CODE, isPmCli
 import { parseJsonRecord, rethrowOperationalRead, rethrowProvenanceRead } from "./refuse.ts";
 import { exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordRecursivePolicyCards, recordPolicyCard, validatePromotedPolicyCard, validatePolicyCardWrite, validateRefusedPolicyCard, discoverPolicyCards, verifyRetainedGenerationEvidence } from "./policy-card.ts";
 import { registerShadowDeployment, observeShadow, compareShadow } from "./shadow.ts";
-import { recordSequentialEvaluation, readSequentialEvaluation } from "./sequential-evaluation.ts";
+import { recordSequentialEvaluation, readSequentialEvaluation, withEvaluationLease } from "./sequential-evaluation.ts";
 /** Typed persisted input graphs returned by the evaluation SDK. */
 export type { EvaluationEvidence } from "./lineage.ts";
 import { registerEvaluationPlan, readEvaluationPlan, recordPlanEvaluation, enforceEvaluationPlan, enforceEvaluationDecision, readEvaluationDecision, evaluationEvidence, parseEvaluationEvidence, evaluationInputDigest, decisionSnapshotDigest } from "./evaluation-plan.ts";
@@ -3152,11 +3152,11 @@ export async function commitProcessTransaction(options: CommitWorkspaceTransacti
 }
 
 /** Serialize standalone SDK adapter execution on the same owner-verified mutex used by controller phases. */
-export async function withProcessJobFence<T>(coordinates: WorkspaceCoordinates, id: string, execute: () => Promise<T>): Promise<T> {
+export async function withProcessJobFence<T>(coordinates: WorkspaceCoordinates, id: string, execute: () => Promise<T>, waitMs?: number): Promise<T> {
   id = canonicalIdentifier(id); statePath(coordinates.pmRoot);
   const start = loopProcessStartTime(process.pid);
   if (start === null) fail("Cannot establish trainer owner identity.", "process_identity_unavailable");
-  const release = await controllerMutex(coordinates.pmRoot, id, coordinates.author, start, undefined);
+  const release = await controllerMutex(coordinates.pmRoot, id, coordinates.author, start, undefined, waitMs);
   try { return await execute(); } finally { await release(); }
 }
 
@@ -4158,7 +4158,10 @@ async function promotionAuthor(client: PmClient, id: string): Promise<string> {
 
 /** Seal an actual rejection; peer terminal states and CAS refusals are authoritative. @internal */
 export async function recordRefusedPolicyCard(client: PmClient, id: string, reason: string | null, author = "pm-rl"): Promise<"promoted" | "refused"> {
-  return await withPromotionEvidence(client, () => sealPolicyRejection(client, id, reason, author));
+  // Rejection and checkpoint publication are transitions of the same candidate.
+  // Acquire their shared protocol lease before reading any decision state;
+  // ordinary SDK writers still face the native revision/CAS guards below.
+  return await withEvaluationLease(client, id, [], () => withPromotionEvidence(client, () => sealPolicyRejection(client, id, reason, author)));
 }
 /** Hold all decision inputs through the rejection write, with the same SDK revision guard as promotion. */
 async function sealPolicyRejection(client: PmClient, id: string, reason: string | null, author: string): Promise<"promoted" | "refused"> {

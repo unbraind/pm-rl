@@ -3,6 +3,7 @@ import { identifier, identifierClient, operationIdentifier } from "./state-bound
 /** Reviewed finite-look sequential tests and immutable, resumable evidence checkpoints. */
 import { dirname } from "node:path";
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
+import { readSettings } from "@unbrained/pm-cli/sdk/runtime";
 import { hashJson, withProcessJobFence, extractGenerationSpec, readCompleteLoopItem, captureDecisionInputs, type JsonValue } from "./index.ts";
 import { evaluatePlan, evaluationComparison, normalizedObservations, optionalItem, readEvaluationPlan, refuse, verifiedCandidate, verifyCreatedRecord, validateEvaluationOrder, evaluationPlanId, type EvaluationMember, type EvaluationPlan, type EvaluationPlanReport, type RegisteredEvaluationPlan, evaluationEvidence } from "./evaluation-plan.ts";
 import type { PromotionDecision } from "./promotion.ts";
@@ -88,12 +89,13 @@ export async function withEvaluationLease<T>(client: PmClient, candidate: string
   operationIdentifier(candidate, "item", "write"); dependencies.forEach((id) => operationIdentifier(id, "item", "write"));
   const config = await identifierClient(client).config("project", "get", "id_prefix");
   const root = dirname(config.settings_path);
+  const settings = await readSettings(root);
   const prefix = identifier(config.nested_setting!.value);
   const ids = [`rl-eval-${hashJson(canonicalizeIdentifier(candidate, prefix)).slice(0, 32)}`, ...[...new Set(dependencies.map((id) => canonicalizeIdentifier(id, prefix)))].sort()];
   /** Reuse the package's SDK fence so killed owners recover with verified process identity. */
   async function locked(index: number): Promise<T> {
     if (index === ids.length) return execute();
-    return withProcessJobFence({ pmRoot: root, author: "pm-rl-sequential" }, ids[index], () => locked(index + 1));
+    return withProcessJobFence({ pmRoot: root, author: "pm-rl-sequential" }, ids[index], () => locked(index + 1), settings.locks.wait_ms);
   }
   return locked(0);
 }
@@ -148,35 +150,43 @@ async function recordSequentialDecision(client: PmClient, rawCandidate: string, 
   identifier(rawCandidate);
   if (!Array.isArray(input) || input.length > 10_000) refuse("eval_plan_stopping");
   const rows = normalizedObservations(input, "write");
-  return withEvaluationLease(client, rawCandidate, [], async () => {
+  return withEvaluationLease(client, rawCandidate, [rawCandidate, evaluationPlanId(rawCandidate)], async () => {
+    // Discovery exports identifiers only. The candidate and Plan are already
+    // leased, so their source identities cannot change while those leases expand.
     const registered = await readEvaluationPlan(client, rawCandidate); if (registered === null) refuse("eval_plan_missing");
     const candidate = registered.plan.candidate;
     const rule = registered.plan.stopping; if (rule.kind !== "sequential") refuse("eval_plan_stopping");
-    if (rows.length > rule.observations) refuse("eval_plan_stopping");
-    const requested = evaluatePlan(registered.plan, rows);
-    const predecessors = Array.from({ length: requested.sequential!.look - 1 }, (_, index) => `${registered.id}-look-${index + 1}`);
+    const target = `${registered.id}-look-${evaluatePlan(registered.plan, rows).sequential!.look}`;
+    const existingTarget = await optionalItem(client, target);
+    const slots = rule.looks.map((_, index) => `${registered.id}-look-${index + 1}`).filter((id) => id !== target || existingTarget !== null);
     const source = await readCompleteLoopItem(client, candidate);
-    const spec = extractGenerationSpec(String(source.item.body), "Sequential candidate");
-    return withEvaluationLease(client, `${candidate}-sources`, [registered.id, candidate, rule.review, registered.plan.incumbent, ...spec.collection_runs, ...predecessors], async () => {
-      // Sealed reads either return the original reservation or refuse missing/edited history.
-      const current = (await readEvaluationPlan(client, candidate))!;
-      await verifiedCandidate(client, candidate, current); await reviewSequentialPlan(client, current.plan);
-      const chain = await checkpointChain(client, current, rule);
-      if (chain.skipped.length > 0) return { status: "skipped", plan: current.id, skipped: chain.skipped, remedy: "A foreign record occupies a reserved checkpoint. Leave it intact and register a new plan with a fresh candidate." };
-      const report = requested;
-      const index = report.sequential!.look - 1;
-      if (index < chain.reports.length) { verifyPrefix(rows, chain.rows[index]); return chain.reports.at(-1)!; }
-      if ((spec.policy_evaluation as Record<string, JsonValue> | undefined)?.["decision"] === "refuse") refuse("eval_plan_stopping", candidate);
-      if (index !== chain.reports.length || (index > 0 && chain.reports[index - 1].sequential!.state !== "continue")) refuse("eval_plan_stopping");
-      if (index > 0) verifyPrefix(chain.rows[index - 1], rows);
-      const raw = { format: FORMAT, comparison: current.comparison, previous: chain.hashes[index - 1] ?? null, observations: rows };
-      const id = `${current.id}-look-${index + 1}`; const body = JSON.stringify(raw); const version = hashJson(raw as unknown as JsonValue);
-      try { await identifierClient(client).create({ id, type: "Decision", title: "Sealed sequential evaluation checkpoint", body, affectedVersion: version, tags: TAG, message: "Seal the next predeclared sequential look" }); }
-      catch (error) { if (await optionalItem(client, id) === null) throw error; }
-      const saved = await checkpointChain(client, current, rule);
-      if (saved.skipped.length > 0) return { status: "skipped", plan: current.id, skipped: saved.skipped, remedy: "Leave foreign evidence intact and register a fresh candidate." };
-      verifyPrefix(rows, saved.rows[index]);
-      return saved.reports.at(-1)!;
-    });
+    const dependencies = [rule.review, registered.plan.incumbent, ...extractGenerationSpec(String(source.item.body), "Sequential sources").collection_runs, ...slots];
+    return withEvaluationLease(client, `${candidate}-sources`, dependencies, () => appendSequentialLook(client, candidate, rows));
   });
+}
+/** Decide exclusively from source reads made after every source lease has been acquired. */
+async function appendSequentialLook(client: PmClient, candidate: string, rows: readonly unknown[]): Promise<SequentialEvaluationResult> {
+  // No discovered spec, stopping rule, chain or verdict crosses this boundary.
+  const current = (await readEvaluationPlan(client, candidate))!;
+  const rule = current.plan.stopping as SequentialStopping;
+  const spec = extractGenerationSpec(String((await readCompleteLoopItem(client, candidate)).item.body), "Locked sequential candidate");
+  await verifiedCandidate(client, candidate, current); await reviewSequentialPlan(client, current.plan);
+  const chain = await checkpointChain(client, current, rule);
+  if (chain.skipped.length > 0) return { status: "skipped", plan: current.id, skipped: chain.skipped, remedy: "A foreign record occupies a reserved checkpoint. Leave it intact and register a new plan with a fresh candidate." };
+  const report = evaluatePlan(current.plan, rows);
+  const index = report.sequential!.look - 1;
+  if (index < chain.reports.length) { verifyPrefix(rows, chain.rows[index]); return chain.reports.at(-1)!; }
+  if ((spec.policy_evaluation as Record<string, JsonValue> | undefined)?.["decision"] === "refuse") refuse("eval_plan_stopping", candidate);
+  if (index !== chain.reports.length || (index > 0 && chain.reports[index - 1].sequential!.state !== "continue")) refuse("eval_plan_stopping");
+  if (index > 0) verifyPrefix(chain.rows[index - 1], rows);
+  const raw = { format: FORMAT, comparison: current.comparison, previous: chain.hashes[index - 1] ?? null, observations: rows };
+  const id = `${current.id}-look-${index + 1}`; const body = JSON.stringify(raw); const version = hashJson(raw as unknown as JsonValue);
+  // The SDK create owns the target slot's native lease. Every other slot,
+  // including absent future slots, remains leased through this publication.
+  try { await identifierClient(client).create({ id, type: "Decision", title: "Sealed sequential evaluation checkpoint", body, affectedVersion: version, tags: TAG, message: "Seal the next predeclared sequential look" }); }
+  catch (error) { if (await optionalItem(client, id) === null) throw error; }
+  const saved = await checkpointChain(client, current, rule);
+  if (saved.skipped.length > 0) return { status: "skipped", plan: current.id, skipped: saved.skipped, remedy: "Leave foreign evidence intact and register a fresh candidate." };
+  verifyPrefix(rows, saved.rows[index]);
+  return saved.reports.at(-1)!;
 }

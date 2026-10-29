@@ -8,10 +8,11 @@ import { after, test } from "node:test";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { init, isPmCliExpectedError, locateItem, readLocatedItem, readSettings, resolveItemTypeRegistry } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import extension, { extractGenerationSpec, generationProvenance, hashJson, readCompleteLoopItem, mutateLoopItem, withPromotionEvidence, promoteGenerationCore, reconcileLoopPromotion, withProcessJobFence, type RlCommandResult, type JsonValue } from "../index.ts";
+import extension, { extractGenerationSpec, generationProvenance, hashJson, readCompleteLoopItem, mutateLoopItem, withPromotionEvidence, recordRefusedPolicyCard, promoteGenerationCore, reconcileLoopPromotion, withProcessJobFence, type RlCommandResult, type JsonValue } from "../index.ts";
 import { parseBoundedJson } from "../tracker-record.ts";
-import { evaluatePlan, evaluationComparison, parseEvaluationPlan, registerEvaluationPlan, readEvaluationPlan, enforceEvaluationPlan, recordPlanEvaluation, validateEvaluationOrder, evaluationLifecycleArtifacts, validateEvaluationTimeline, type EvaluationPlan, type EvaluationObservation, type EvaluationPlanReport, validateEvaluationReport } from "../evaluation-plan.ts";
+import { evaluatePlan, evaluationComparison, parseEvaluationPlan, registerEvaluationPlan, readEvaluationPlan, readEvaluationDecision, enforceEvaluationPlan, recordPlanEvaluation, validateEvaluationOrder, evaluationLifecycleArtifacts, validateEvaluationTimeline, type EvaluationPlan, type EvaluationObservation, type EvaluationPlanReport, validateEvaluationReport, refuse } from "../evaluation-plan.ts";
 import { evaluateSequentialBoundary, parseSequentialStopping, recordSequentialEvaluation, readSequentialEvaluation, reviewSequentialPlan, withEvaluationLease, type SequentialEvaluationResult } from "../sequential-evaluation.ts";
+import { decisionFixture } from "./fixtures/decision-evidence.ts";
 import type { GenerationSpec, ScoreRecord } from "../lineage.ts";
 
 const roots: string[] = [];
@@ -829,4 +830,206 @@ test("SDK intake snapshots observations before asynchronous provenance and check
   await assert.rejects(recordSequentialEvaluation(w.client, p.candidate, null), refusal("eval_plan_stopping"));
   await assert.rejects(recordSequentialEvaluation(w.client, p.candidate, Array(65).fill({ id: "x", candidate: 0, incumbent: 0 })), refusal("eval_plan_stopping"));
   await assert.rejects(recordSequentialEvaluation(w.client, p.candidate, Array(10001).fill({ id: "x", candidate: 0, incumbent: 0 })), refusal("eval_plan_stopping"));
+});
+
+
+/** A real sealed refusal raced exactly where advance formerly retained its stale spec. */
+test("a sealed rejection between candidate discovery and source acquisition never publishes another look", async () => {
+  const w = await decisionFixture(false, false, false); roots.push(w.root);
+  const peer = new PmClient({ pmRoot: w.pmRoot, cwd: w.root, author: "rejection-peer", noExtensions: true });
+  const get = w.client.get.bind(w.client); let injected = false; let peerRefused = false;
+  w.client.get = (async (...args) => {
+    const result = await get(...args);
+    if (!injected && args[0] === w.plan.candidate && args[1]?.at === undefined) {
+      injected = true;
+      try { assert.equal(await recordRefusedPolicyCard(peer, w.plan.candidate, "Stop before the next look"), "refused"); peerRefused = true; }
+      catch (error) { assert.ok(isPmCliExpectedError(error) && error.context.code === "lock_conflict"); }
+    }
+    return result;
+  }) as PmClient["get"];
+  try {
+    try { const result = report(await recordSequentialEvaluation(w.client, w.plan.candidate, w.rows)); assert.equal(peerRefused, false); assert.equal(result.sequential?.state, "sufficient"); }
+    catch (error) { assert.ok(peerRefused && isPmCliExpectedError(error) && error.context.code === "eval_plan_stopping", String(error)); }
+  } finally { Object.assign(w.client, { get }); }
+  assert.ok(injected);
+  const decision = await readEvaluationDecision(peer, w.plan.candidate);
+  assert.equal(decision.report?.observations, peerRefused ? 16 : 64);
+  assert.equal((await peer.listAllComplete({ includeBody: false })).items.some((item) => item.id.endsWith("-look-2")), !peerRefused);
+});
+
+/** Every SDK await edge is exercised on both sides, using independent native writers and SDK readback. */
+async function sequentialSnapshotMatrix(focused: boolean): Promise<void> {
+  const stages = new Map<string, string>();
+  const base = await decisionFixture(false, false, false, (stage, source) => {
+    const root = mkdtempSync(join(tmpdir(), "rl-snapshot-stage-")); roots.push(root);
+    cpSync(source, root, { recursive: true }); stages.set(stage, root);
+  }); roots.push(base.root);
+  await base.client.config("project", "set", "locks_wait_ms", "0");
+  for (const root of stages.values()) {
+    const client = new PmClient({ pmRoot: join(root, ".agents/pm"), cwd: root, author: "stage-fixture", noExtensions: true });
+    await client.create({ id: "rl-approval", type: "Decision", title: "Consent", body: '```json\n{"permitted_promotions":2}\n```' });
+    await client.config("project", "set", "locks_wait_ms", "0");
+  }
+  const sdkRejections = new Map<string, string>();
+  for (const [name, source] of [["first", stages.get("candidate")!], ["other", base.root]] as const) {
+    const fork = mkdtempSync(join(tmpdir(), "rl-sdk-rejection-model-")); roots.push(fork); cpSync(source, fork, { recursive: true });
+    const sealing = new PmClient({ pmRoot: join(fork, ".agents/pm"), cwd: fork, author: "sdk-rejection-model", noExtensions: true });
+    await recordRefusedPolicyCard(sealing, base.plan.candidate, "Competing SDK rejection");
+    sdkRejections.set(name, String((await readCompleteLoopItem(sealing, base.plan.candidate)).item.body));
+  }
+  const previousWait = process.env.PM_LOCK_WAIT_MS; process.env.PM_LOCK_WAIT_MS = "0";
+  const counts: Record<string, number> = {};
+  try {
+    const paths = focused ? ["advance"] as const : ["advance", "first", "retry", "register", "reject"] as const;
+    for (const path of paths) {
+      let boundaries = 0; let candidateBoundary = -1;
+      const transitions = focused ? ["sdk-reject"] as const : ["sdk-reject", "reject", "seal", "stop", "record-look", "budget"] as const;
+      for (const transition of transitions) {
+        for (let injectAt = -1; injectAt < boundaries; injectAt += 1) {
+          if (focused && injectAt !== -1 && injectAt !== 0 && injectAt !== boundaries - 1 && injectAt !== candidateBoundary) continue;
+          // A fresh native copy prevents a successful competitor from poisoning
+          // subsequent cases; all competing transitions themselves use the SDK.
+          const root = mkdtempSync(join(tmpdir(), "rl-snapshot-race-"));
+          cpSync(path === "register" ? stages.get("review")! : path === "first" ? stages.get("candidate")! : base.root, root, { recursive: true });
+          const pmRoot = join(root, ".agents/pm");
+          const client = new PmClient({ pmRoot, cwd: root, author: "snapshot-writer", noExtensions: true });
+          const peer = new PmClient({ pmRoot, cwd: root, author: "snapshot-peer", noExtensions: true });
+          const get = client.get.bind(client); const config = client.config.bind(client); const create = client.create.bind(client); const run = client.run.bind(client);
+          let boundary = 0; let injected = false; let peerApplied = false; let peerCode = ""; let resultCode = "";
+          /** Inject the full peer transition, preserving all normal validators, leases and receipts. */
+          async function step(candidateRead = false): Promise<void> {
+            const slot = boundary++;
+            if (injectAt === -1 && candidateRead && candidateBoundary < 0) candidateBoundary = slot;
+            if (slot !== injectAt) return;
+            injected = true;
+            try {
+              if (transition === "sdk-reject") {
+                const before = await readCompleteLoopItem(peer, base.plan.candidate);
+                await mutateLoopItem(peer, before, "Competing SDK sealed rejection", (document) => {
+                  const current = extractGenerationSpec(document.body, "Native rejection target");
+                  if (current.promoted || (current.policy_evaluation as Record<string, JsonValue> | undefined)?.decision === "refuse") refuse("eval_plan_stopping", base.plan.candidate);
+                  document.body = sdkRejections.get(path === "first" ? "first" : "other")!; return ["body"];
+                });
+              }
+              else if (transition === "reject") await recordRefusedPolicyCard(peer, base.plan.candidate, "Competing rejection");
+              else if (transition === "stop") await recordSequentialEvaluation(peer, base.plan.candidate, (path === "first" ? base.rows.slice(0, 16) : base.rows).map((row) => ({ ...row, candidate: 0, incumbent: path === "first" ? 1 : 0 })));
+              else if (transition === "record-look") await recordSequentialEvaluation(peer, base.plan.candidate, path === "first" ? base.rows.slice(0, 16) : base.rows);
+              else if (transition === "budget") await peer.update("rl-approval", { body: '```json\n{"permitted_promotions":0}\n```' });
+              else await registerEvaluationPlan(peer, base.plan); // Sealing/resealing uses the registration path.
+              peerApplied = true;
+            } catch (error) {
+              assert.ok(isPmCliExpectedError(error), `${path}/${transition}/${injectAt}: ${String(error)}`); peerCode = error.exitCode === 3 ? "sdk_not_found" : String(error.context.code);
+              assert.ok(["lock_conflict", "loop_write_conflict", "eval_plan_stopping", "eval_plan_drift", "eval_plan_missing", "sdk_not_found", "item_exists", "item_already_exists"].includes(peerCode), peerCode);
+            }
+          }
+          Object.assign(client, {
+            get: (async (...args) => { await step(); try { return await get(...args); } finally { await step(args[0] === base.plan.candidate && args[1]?.at === undefined); } }) as PmClient["get"],
+            config: (async (...args) => { await step(); try { return await config(...args); } finally { await step(); } }) as PmClient["config"],
+            create: (async (...args) => { await step(); try { return await create(...args); } finally { await step(); } }) as PmClient["create"],
+            // get/config/create already bracket their delegated SDK calls.
+            // Direct package history awaits add distinct snapshot boundaries.
+            run: (async (...args) => { if (args[0] !== "history") return run(...args); await step(); try { return await run(...args); } finally { await step(); } }) as PmClient["run"],
+          });
+          try {
+            try {
+              if (path === "register") await registerEvaluationPlan(client, base.plan);
+              else if (path === "reject") await recordRefusedPolicyCard(client, base.plan.candidate, "Primary rejection");
+              else await recordSequentialEvaluation(client, base.plan.candidate, path === "retry" || path === "first" ? base.rows.slice(0, 16) : base.rows);
+            } catch (error) {
+              assert.ok(isPmCliExpectedError(error), String(error)); resultCode = String(error.context.code);
+              assert.ok(["lock_conflict", "loop_write_conflict", "eval_plan_stopping", "eval_plan_drift"].includes(resultCode), resultCode);
+            }
+            Object.assign(client, { get, config, create, run });
+            if (injectAt === -1) { boundaries = boundary; console.log(JSON.stringify({ sequential_snapshot_path: path, transition, planned_boundaries: boundaries })); }
+            else {
+              assert.ok(injected, `${path}/${transition}/${injectAt}/${boundary}`);
+              assert.ok(peerApplied || peerCode !== "");
+              counts[path] = (counts[path] ?? 0) + 1;
+            }
+            // A caller refusal is allowed. A successful or refused write must
+            // always leave a decision that can be read immediately and replayed.
+            if (path === "register") {
+              assert.equal((await readEvaluationPlan(peer, base.plan.candidate))?.comparison, evaluationComparison(base.plan));
+              assert.equal((await peer.listAllComplete({ includeBody: false })).items.some((item) => item.id === base.plan.candidate), false);
+              await peer.update(`${base.plan.candidate}-evaluation-plan`, { title: "Released plan lease" });
+              continue;
+            }
+            const decision = await readEvaluationDecision(peer, base.plan.candidate);
+            const candidate = extractGenerationSpec(String((await readCompleteLoopItem(peer, base.plan.candidate)).item.body), "Matrix outcome");
+            if (decision.report === null) {
+              assert.equal(path, "first");
+              assert.equal((candidate.policy_evaluation as Record<string, JsonValue>).decision, "refuse");
+            }
+            if (candidate.policy_evaluation !== undefined) {
+              assert.equal((candidate.policy_evaluation as Record<string, JsonValue>).decision, "refuse");
+              if (transition === "reject" && peerApplied && path === "advance") {
+                assert.equal(resultCode, "eval_plan_stopping");
+                assert.equal(decision.report?.observations, 16);
+              }
+            }
+            assert.deepEqual((await readEvaluationDecision(peer, base.plan.candidate)).evidence, decision.evidence);
+            // Native writes prove that every acquired lease was released.
+            await peer.update(base.plan.candidate, { title: "Released candidate lease" });
+            if (decision.report !== null) await peer.update(`${base.plan.candidate}-evaluation-plan-look-1`, { title: "Released checkpoint lease" });
+          } finally { Object.assign(client, { get, config, create, run }); rmSync(root, { recursive: true, force: true }); }
+        }
+        console.log(JSON.stringify({ sequential_snapshot_path: path, transition, completed_boundaries: boundaries }));
+      }
+      console.log(JSON.stringify({ sequential_snapshot_path: path, sdk_boundaries: boundaries, interleavings: counts[path] }));
+    }
+  } finally { if (previousWait === undefined) delete process.env.PM_LOCK_WAIT_MS; else process.env.PM_LOCK_WAIT_MS = previousWait; }
+}
+
+test("sequential mutation snapshot matrix interleaves every transition at every SDK boundary", () => sequentialSnapshotMatrix(false));
+test("sequential mutation snapshot focused endpoints and candidate discovery remain coherent", () => sequentialSnapshotMatrix(true));
+
+
+/** Ordinary SDK writers do not use protocol leases, so source leases must protect discovery too. */
+test("a sealed SDK rejection between discovery and source acquisition cannot publish another look", async () => {
+  const w = await decisionFixture(false, false, false); roots.push(w.root);
+  const fork = mkdtempSync(join(tmpdir(), "rl-sealed-rejection-")); roots.push(fork); cpSync(w.root, fork, { recursive: true });
+  const sealing = new PmClient({ pmRoot: join(fork, ".agents/pm"), cwd: fork, author: "sealing-evaluator", noExtensions: true });
+  await recordRefusedPolicyCard(sealing, w.plan.candidate, "SDK sealed rejection");
+  const sealed = (await readCompleteLoopItem(sealing, w.plan.candidate)).item;
+  const peer = new PmClient({ pmRoot: w.pmRoot, cwd: w.root, author: "ordinary-sdk-writer", noExtensions: true });
+  const get = w.client.get.bind(w.client); let injected = false; let peerApplied = false;
+  const previousWait = process.env.PM_LOCK_WAIT_MS; process.env.PM_LOCK_WAIT_MS = "0";
+  w.client.get = (async (...args) => {
+    const result = await get(...args);
+    if (!injected && args[0] === w.plan.candidate && args[1]?.at === undefined) {
+      injected = true;
+      try { await peer.update(w.plan.candidate, { body: String(sealed.body) }); peerApplied = true; }
+      catch (error) { assert.ok(isPmCliExpectedError(error) && error.context.code === "lock_conflict"); }
+    }
+    return result;
+  }) as PmClient["get"];
+  try {
+    const result = report(await recordSequentialEvaluation(w.client, w.plan.candidate, w.rows));
+    assert.equal(peerApplied, false); assert.equal(result.sequential?.state, "sufficient");
+  } finally { Object.assign(w.client, { get }); if (previousWait === undefined) delete process.env.PM_LOCK_WAIT_MS; else process.env.PM_LOCK_WAIT_MS = previousWait; }
+  assert.ok(injected);
+  assert.equal((await readEvaluationDecision(peer, w.plan.candidate)).report?.observations, 64);
+});
+
+/** Rejection must acquire the shared mutation lease before its first guard reads any candidate data. */
+test("sealed rejection holds the candidate protocol lease before its first SDK snapshot read", async () => {
+  const w = await decisionFixture(false, false, false); roots.push(w.root);
+  const peer = new PmClient({ pmRoot: w.pmRoot, cwd: w.root, author: "contending-collector", noExtensions: true });
+  const get = w.client.get.bind(w.client); let injected = false;
+  const previousWait = process.env.PM_LOCK_WAIT_MS; process.env.PM_LOCK_WAIT_MS = "0";
+  w.client.get = (async (...args) => {
+    const result = await get(...args);
+    if (!injected && args[0] === w.plan.candidate && args[1]?.at === undefined) {
+      injected = true;
+      await assert.rejects(recordSequentialEvaluation(peer, w.plan.candidate, w.rows), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "lock_conflict");
+    }
+    return result;
+  }) as PmClient["get"];
+  try { assert.equal(await recordRefusedPolicyCard(w.client, w.plan.candidate, "Stop collection"), "refused"); }
+  finally { Object.assign(w.client, { get }); if (previousWait === undefined) delete process.env.PM_LOCK_WAIT_MS; else process.env.PM_LOCK_WAIT_MS = previousWait; }
+  assert.ok(injected);
+  const decision = await readEvaluationDecision(peer, w.plan.candidate);
+  assert.equal(decision.report?.observations, 16);
+  const current = extractGenerationSpec(String((await readCompleteLoopItem(peer, w.plan.candidate)).item.body), "Sealed stopped candidate");
+  assert.equal((current.policy_evaluation as Record<string, JsonValue>).decision, "refuse");
 });

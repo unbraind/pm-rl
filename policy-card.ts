@@ -370,8 +370,13 @@ export async function verifyRetainedGenerationEvidence(client: PmClient, subject
   subject = canonicalizeIdentifier(subject, fresh.prefix);
   const retained = (await discoverPolicyCards(client)).filter((card) => card.subject === subject);
   if (retained.length === 0) return;
-  for (const card of retained) await replayPolicyCard(client, card);
   const outcome = source(fresh.primary, fresh.prefix).outcome;
+  // The evaluator has certified the first terminal receipt and its complete
+  // current graph. Earlier candidate cards describe earlier, valid looks;
+  // replaying them against a later completed look would reject legal progress.
+  // They remain historical explanations, never authorization for this outcome.
+  const sealed = fresh.decisionGraph !== undefined && ["promoted", "refused"].includes(outcome);
+  for (const card of retained) if (!(sealed && card.outcome === "candidate")) await replayPolicyCard(client, card);
   const terminal = retained.some((card) => card.outcome === "promoted" || card.outcome === "refused");
   if (terminal && ["candidate", "seed"].includes(outcome)) throw createPmCliExpectedError("A retained terminal promotion cannot be replayed as an unfinished step.", { exitCode: EXIT_CODE.CONFLICT, context: { code: "loop_step_drift" } });
   const exact = retained.find((card) => canonicalJson(card.evidence as unknown as JsonValue) === canonicalJson(fresh.evidence as unknown as JsonValue));

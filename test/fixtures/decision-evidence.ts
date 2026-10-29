@@ -12,7 +12,7 @@ import { encodeEvent } from "../../series.ts";
 import type { GenerationSpec, ScoreRecord } from "../../lineage.ts";
 
 /** Seal two looks, optionally promote, and create all recursive card selections through the actual controller. */
-export async function decisionFixture(promote = true, recursive = true, complete = true) {
+export async function decisionFixture(promote = true, recursive = true, complete = true, checkpoint?: (stage: "review" | "candidate", root: string) => void) {
   const root = mkdtempSync(join(tmpdir(), "rl-decision-graph-"));
   const initialized = await init("rl", { defaults: true, author: "decision-test", agentGuidance: "skip" }, { cwd: root, pmRoot: join(root, ".agents/pm") });
   const client = new PmClient({ cwd: root, pmRoot: initialized.path, author: "decision-test", noExtensions: true });
@@ -24,11 +24,13 @@ export async function decisionFixture(promote = true, recursive = true, complete
   const members = Array.from({ length: 64 }, (_, index) => ({ id: `m${index}`, unit: `u${index}` }));
   const plan: EvaluationPlan = { format: "pm-rl/evaluation-plan/1", candidate: "rl-candidate", incumbent: "rl-seed", incumbent_version: hashJson(generationProvenance(seed)), population: "Frozen", selection: "all", correlation_unit: "session", members, objective: "reward", objective_version: "v1", evaluation_context: "held-out", direction: "maximize", reward_bounds: [0, 1], criterion: { confidence: 0.95, minSamples: 8, effectThreshold: 0 }, stopping: { kind: "sequential", method: "hoeffding-alpha-spending/1", observations: 64, independent_units: 64, unit_order: members.map((member) => member.unit), looks: [16, 64], review: "rl-review" } };
   await client.create({ id: "rl-review", type: "Decision", title: "Review", body: JSON.stringify({ format: "pm-rl/sequential-review/1", comparison: evaluationComparison(plan) }) });
+  checkpoint?.("review", root);
   await registerEvaluationPlan(client, plan);
   await client.create({ id: "rl-collection", type: "Run", title: "Collection", environment: "rl-training" });
   await client.notes("rl-collection", { add: encodeEvent({ step: 0, metric: "return", value: 0.25 }) });
   const candidate: GenerationSpec = { ...seed, evaluation_plan: evaluationComparison(plan), base_checkpoint: `sha256:${hashJson("candidate")}`, policy: `sha256:${hashJson("policy")}`, parent: "rl-seed", seed: false, collection_runs: ["rl-collection"], environment_version: "rl-training", reward_spec_version: "v1" };
   await client.create({ id: plan.candidate, type: "Generation", title: "Candidate", body: `\`\`\`json\n${JSON.stringify(candidate)}\n\`\`\``, affectedVersion: hashJson(generationProvenance(candidate)) });
+  checkpoint?.("candidate", root);
   const rows = plan.members.map((member, index) => ({ id: member.id, candidate: index < 16 ? 0 : 1, incumbent: 0 }));
   const first = await recordSequentialEvaluation(client, plan.candidate, rows.slice(0, 16));
   const report = complete ? await recordSequentialEvaluation(client, plan.candidate, rows) : first;

@@ -690,7 +690,13 @@ deletions and looks after a terminal stop refuse. Immutable checkpoint identitie
 bind the comparison, slot and previous checkpoint revision. Every retry reads
 current target evidence; there is no replay of a frozen mutation journal.
 SDK token-owned leases serialize package writers; native item locks protect
-current provenance against ordinary SDK mutations. Manual and recursive promotion,
+current provenance against ordinary SDK mutations. Advance holds the candidate
+and Plan leases while discovering source identities, then reads its candidate,
+rejection state, reviewed rule, complete checkpoint chain and verdict again under
+the expanded source leases. Discovery values never decide a write. Retries also
+lease their existing target checkpoint; the SDK owns a new target's atomic create.
+A concurrent sealed rejection either wins before acquisition and prevents the
+next look, or contends on the same candidate lease. Manual and recursive promotion,
 including recovery of the close boundary, retain leases over every live evidence
 revision through the terminal write. Changed evidence refuses with
 `loop_write_conflict` before any new approval consumption. Foreign checkpoint records

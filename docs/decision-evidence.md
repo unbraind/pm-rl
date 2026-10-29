@@ -60,6 +60,14 @@ are revalidated by the same decision reader, with one operation-local traversal
 scope to avoid recursive duplicate reads. Retries still read current revisions
 before applying writes.
 
+After the evaluator verifies a sealed terminal graph, loop recovery uses that
+outcome rather than replaying superseded candidate cards against later looks.
+Earlier candidate cards remain historical explanations; exporting or replaying
+one directly still checks its live evidence and may refuse after valid progress.
+Current terminal cards, their complete graph and shared provenance remain
+mandatory, and legacy recovery without a certified graph keeps its existing
+checks. A changed current result still refuses recovery before any new charge.
+
 Errors name the offending canonical record in `context.item_id`, retain a typed
 code, and include a remedy. Backend failures remain retryable. Restore the
 original evidence or start a fresh predeclared evaluation; never edit an old look

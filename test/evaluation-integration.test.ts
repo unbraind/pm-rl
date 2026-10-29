@@ -1,14 +1,17 @@
 /** Decision tracing must preserve controller verdicts, bounded cards and native SDK history. */
 import assert from "node:assert/strict";
-import { cpSync, mkdtempSync, rmSync } from "node:fs";
+import { cpSync, mkdtempSync, rmSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
+import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { init, createPmCliExpectedError, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
-import { captureDecisionInputs, readCompleteLoopItem, withRlController, hashJson, generationProvenance, reconcileLoopPromotion, withProcessJobFence, verifyCompletedDecisionReceipt, completedDecisionReceipt, sealDecisionEvidence, promoteGenerationCore, promotedGenerationIdsUnderApproval, readApprovalSpec, withPromotionEvidence, mutateLoopItem, type JsonValue } from "../index.ts";
+import extension, { runRlLoop, resumeRlLoop, verifyTerminalEvaluationReceipt, verifyDecisionEvidence, extractGenerationSpec, captureDecisionInputs, readCompleteLoopItem, withRlController, hashJson, generationProvenance, reconcileLoopPromotion, withProcessJobFence, verifyCompletedDecisionReceipt, completedDecisionReceipt, sealDecisionEvidence, promoteGenerationCore, promotedGenerationIdsUnderApproval, readApprovalSpec, withPromotionEvidence, mutateLoopItem, type JsonValue } from "../index.ts";
 import { exportPolicyCard, replayPolicyCard, parsePolicyCardDecisionEvidence, POLICY_CARD_MAX_BYTES, type PolicyCard } from "../policy-card.ts";
-import type { GenerationSpec } from "../lineage.ts";
+import { canonicalizeIdentifier, type GenerationSpec } from "../lineage.ts";
+import { evaluationEvidence, evaluationInputDigest, readEvaluationDecision, evaluationComparison, registerEvaluationPlan, recordPlanEvaluation, type EvaluationPlan } from "../evaluation-plan.ts";
+import { readSequentialEvaluation, recordSequentialEvaluation } from "../sequential-evaluation.ts";
 import { decisionFixture } from "./fixtures/decision-evidence.ts";
 
 /** Isolate every regression in a real tracker outside git. */
@@ -289,5 +292,157 @@ test("authorization refresh retains native revision fences and statistical proje
       await readApprovalSpec(w.client, "rl-approval");
       return readCompleteLoopItem(w.client, "rl-approval");
     }, true), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_write_conflict" && /evidence changed/.test(error.message));
+  } finally { rmSync(w.root, { recursive: true, force: true }); }
+});
+
+
+test("SDK projections retain empty Run fields and canonical identity rejects empty native references", async () => {
+  const w = await workspace();
+  try {
+    await w.client.schemaAddType("Run", { folder: "runs", defaultStatus: "open" });
+    await w.client.create({ id: "rl-empty-run", type: "Run", title: "No optional metrics or environment" });
+    const full = (await readCompleteLoopItem(w.client, "rl-empty-run")).item;
+    const projected = (await readCompleteLoopItem(w.client, "rl-empty-run", undefined, "id,type,body,affected_version,created_at")).item;
+    assert.equal(evaluationInputDigest(full), evaluationInputDigest(projected));
+    for (const invalid of [null, undefined, 0, "", " \r\n"]) assert.throws(() => Reflect.apply(canonicalizeIdentifier, undefined, [invalid, "rl"]), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "rl_identifier_invalid");
+  } finally { rmSync(w.root, { recursive: true, force: true }); }
+});
+
+test("terminal receipt verification propagates backend failures and detects newly grafted evaluation graphs", async () => {
+  const w = await decisionFixture(true, false);
+  try {
+    const terminal = (await readCompleteLoopItem(w.client, w.plan.candidate)).item;
+    const get = w.client.get.bind(w.client); const failure = createPmCliExpectedError("History backend unavailable", { exitCode: 4, context: { code: "provenance_read_retryable" } });
+    w.client.get = (async (...args) => { const result = await get(...args); if (args[1]?.at !== undefined) throw failure; return result; }) as PmClient["get"];
+    try { await assert.rejects(verifyTerminalEvaluationReceipt(w.client, terminal), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "provenance_read_retryable" && error.exitCode === 4); }
+    finally { Object.assign(w.client, { get }); }
+    const value = { ...extractGenerationSpec(String(terminal.body), "Legacy receipt"), evaluation_evidence: undefined };
+    await w.client.create({ id: "rl-legacy-terminal", type: "Generation", title: "Legacy terminal without a graph", body: `\`\`\`json\n${JSON.stringify({ ...value, promoted: true })}\n\`\`\`` });
+    const graph = (await readEvaluationDecision(w.client, w.plan.candidate)).evidence!;
+    await w.client.update("rl-legacy-terminal", { body: `\`\`\`json\n${JSON.stringify({ ...value, promoted: true, evaluation_evidence: graph })}\n\`\`\`` });
+    await assert.rejects(verifyTerminalEvaluationReceipt(w.client, (await readCompleteLoopItem(w.client, "rl-legacy-terminal")).item), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "eval_plan_drift" && error.context.item_id === "rl-legacy-terminal");
+  } finally { rmSync(w.root, { recursive: true, force: true }); }
+});
+
+test("recursive evaluated incumbents verify their complete upstream graphs and generation CLI output", async () => {
+  const w = await decisionFixture(true, false);
+  try {
+    for (const name of ["child", "grandchild"]) {
+      const parent = name === "child" ? w.plan.candidate : "rl-child";
+      const source = (await readCompleteLoopItem(w.client, parent)).item;
+      const inherited = extractGenerationSpec(String(source.body), "Upstream policy");
+      const candidate = `rl-${name}`; const review = `rl-${name}-review`; const run = `rl-${name}-run`;
+      assert.equal(w.plan.stopping.kind, "sequential"); if (w.plan.stopping.kind !== "sequential") throw new Error("fixture");
+      const plan = { ...w.plan, candidate, incumbent: parent, incumbent_version: String(source.affected_version), stopping: { ...w.plan.stopping, review } };
+      await w.client.create({ id: review, type: "Decision", title: "Reviewed child protocol", body: JSON.stringify({ format: "pm-rl/sequential-review/1", comparison: evaluationComparison(plan) }) });
+      await registerEvaluationPlan(w.client, plan);
+      await w.client.create({ id: run, type: "Run", title: "Fresh child collection", environment: "rl-training" });
+      const spec: GenerationSpec = { ...inherited, base_checkpoint: `sha256:${hashJson(candidate)}`, policy: `sha256:${hashJson(name)}`, parent, collection_runs: [run], promoted: false, approval: null, proxy_score: null, held_out_score: null, gap: null, promotion_evidence: null, evaluation_plan: evaluationComparison(plan), evaluation_evidence: undefined, policy_evaluation: undefined };
+      await w.client.create({ id: candidate, type: "Generation", title: "Child policy", body: `\`\`\`json\n${JSON.stringify(spec)}\n\`\`\``, affectedVersion: hashJson(generationProvenance(spec)) });
+      await recordSequentialEvaluation(w.client, candidate, w.rows.slice(0, 16));
+      await recordSequentialEvaluation(w.client, candidate, w.rows);
+      const decided = await readEvaluationDecision(w.client, candidate);
+      assert.ok(decided.evidence?.inputs.some((input) => input.id === parent));
+      await verifyDecisionEvidence(w.client, decided.evidence!);
+      if (name === "child") {
+        const score = { ...w.score, seed_set: evaluationComparison(plan), value: decided.report!.candidate_mean };
+        await promoteGenerationCore(w.client, { pmRoot: w.pmRoot, author: "integration-test" }, candidate, "rl-approval", { ...score, evaluation_context: "proxy" }, score, "Promote an evaluated incumbent");
+        const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
+        for (const json of [false, true]) {
+          const shown = await harness.runCommand({ command: "rl generation show", pmRoot: w.pmRoot, args: [candidate], options: { json } });
+          assert.ok(JSON.stringify(shown).includes(decided.evidence!.digest));
+        }
+      }
+    }
+  } finally { rmSync(w.root, { recursive: true, force: true }); }
+});
+
+test("compact decision roots refuse oversized complete citations without truncation", async () => {
+  const w = await workspace();
+  try {
+    const inputs = [];
+    for (let index = 0; index < 16; index += 1) {
+      const id = `rl-wide-${index}-${"a".repeat(180)}`;
+      await w.client.create({ id, type: "Decision", title: "Large native citation", body: "immutable" });
+      inputs.push((await readCompleteLoopItem(w.client, id)).item);
+    }
+    const graph = await sealDecisionEvidence(w.client, hashJson("wide"), inputs);
+    const result = { samples: 1 };
+    const receipt = { format: "pm-rl/loop-step/1", key: "wide", input: graph.comparison, state: "complete", result, digest: hashJson(result), decision_evidence: graph };
+    await w.client.create({ id: "rl-wide", type: "Decision", title: "Wide receipt", body: JSON.stringify(receipt) });
+    await assert.rejects(exportPolicyCard(w.client, "rl-wide"), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "card_limit");
+    assert.equal((await w.client.listAllComplete({ includeBody: false })).items.filter((item) => String(item.id).startsWith("rl-wide-")).length, 16);
+    const many = [];
+    for (let index = 0; index < 32; index += 1) {
+      const id = `rl-many-input-${index}`; await w.client.create({ id, type: "Decision", title: "Native dependency", body: "immutable" });
+      many.push((await readCompleteLoopItem(w.client, id)).item);
+    }
+    const manyGraph = await sealDecisionEvidence(w.client, hashJson("many"), many);
+    await w.client.create({ id: "rl-many", type: "Decision", title: "Too many actual decision dependencies", body: JSON.stringify({ ...receipt, key: "many", input: manyGraph.comparison, decision_evidence: manyGraph }) });
+    await assert.rejects(exportPolicyCard(w.client, "rl-many"), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "card_limit");
+    assert.equal((JSON.parse(String((await readCompleteLoopItem(w.client, "rl-many")).item.body)) as { decision_evidence: { inputs: unknown[] } }).decision_evidence.inputs.length, 32);
+  } finally { rmSync(w.root, { recursive: true, force: true }); }
+});
+
+
+test("loop replay reports the sealed predeclared evaluation root of a recorded refusal", async () => {
+  const w = await decisionFixture(false, false, false);
+  try {
+    const config = { ...JSON.parse(readFileSync(new URL("../examples/loop-bandit.json", import.meta.url), "utf8")) as Record<string, JsonValue>, max_generations: 1 };
+    const request = { id: "replayed", config, approval: "rl-approval" };
+    const coordinates = { pmRoot: w.pmRoot, author: "integration-test" };
+    await assert.rejects(runRlLoop(w.client, coordinates, { ...request, signal: AbortSignal.abort() }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_cancelled");
+    const seed = (await readCompleteLoopItem(w.client, "rl-replayed-seed")).item;
+    const plan: EvaluationPlan = { ...w.plan, candidate: "rl-replayed-g1", incumbent: "rl-replayed-seed", incumbent_version: String(seed.affected_version), stopping: { kind: "fixed", observations: 64, independent_units: 64 } };
+    await registerEvaluationPlan(w.client, plan);
+    const earlier: PolicyCard[] = [];
+    await resumeRlLoop(w.client, coordinates, { id: request.id, approval: request.approval, async onPhase(phase) {
+      if (phase === "evaluate") {
+        earlier.push(await exportPolicyCard(w.client, plan.candidate));
+        await recordPlanEvaluation(w.client, plan.candidate, w.rows);
+      }
+    } });
+    const current = extractGenerationSpec(String((await readCompleteLoopItem(w.client, plan.candidate)).item.body), "Sealed loop refusal");
+    assert.ok(current.evaluation_evidence);
+    assert.equal((current.policy_evaluation as Record<string, JsonValue>).decision, "refuse");
+    await assert.rejects(replayPolicyCard(w.client, earlier[0]), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "card_drift");
+    const resumed = await resumeRlLoop(w.client, coordinates, { id: request.id, approval: request.approval });
+    assert.equal(resumed.promoted, 0);
+    assert.equal(resumed.generations[0].decision_evidence, current.evaluation_evidence.digest);
+    const resultId = `${plan.candidate}-evaluation-plan-result`;
+    const result = (await readCompleteLoopItem(w.client, resultId)).item;
+    await w.client.update(resultId, { affectedVersion: "corrupt" });
+    try { await assert.rejects(resumeRlLoop(w.client, coordinates, { id: request.id, approval: request.approval }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_generation_drift"); }
+    finally { await w.client.update(resultId, { affectedVersion: String(result.affected_version) }); }
+    assert.equal((await resumeRlLoop(w.client, coordinates, { id: request.id, approval: request.approval })).generations[0].decision_evidence, current.evaluation_evidence.digest);
+  } finally { rmSync(w.root, { recursive: true, force: true }); }
+});
+
+
+test("upstream verification refuses a valid concurrently advanced live graph instead of accepting its stale snapshot", async () => {
+  const w = await decisionFixture(false, false, false);
+  try {
+    const peer = new PmClient({ pmRoot: w.pmRoot, cwd: w.root, author: "advancing-evaluator", noExtensions: true });
+    const first = (await readEvaluationDecision(w.client, w.plan.candidate)).evidence!;
+    const spec = extractGenerationSpec(String(w.native.item.body), "Live preterminal evidence");
+    await w.client.update(w.plan.candidate, { body: `\`\`\`json\n${JSON.stringify({ ...spec, evaluation_evidence: first })}\n\`\`\`` });
+    await verifyDecisionEvidence(w.client, first);
+    const get = w.client.get.bind(w.client); let injected = false; let latest = first;
+    w.client.get = (async (...args) => {
+      const result = await get(...args);
+      if (!injected && args[0] === w.plan.candidate && args[1]?.at === undefined) {
+        injected = true;
+        await recordSequentialEvaluation(peer, w.plan.candidate, w.rows);
+        const captured = await captureDecisionInputs(peer, () => readSequentialEvaluation(peer, w.plan.candidate));
+        latest = evaluationEvidence(evaluationComparison(w.plan), captured.inputs);
+        await peer.update(w.plan.candidate, { body: `\`\`\`json\n${JSON.stringify({ ...spec, evaluation_evidence: latest })}\n\`\`\`` });
+        await verifyDecisionEvidence(peer, latest); // An independent SDK client gets its own recursion scope.
+      }
+      return result;
+    }) as PmClient["get"];
+    try { await assert.rejects(verifyDecisionEvidence(w.client, first), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "eval_plan_drift" && error.context.item_id === w.plan.candidate && /does not match its evaluator/.test(error.message)); }
+    finally { Object.assign(w.client, { get }); }
+    assert.ok(injected); assert.notEqual(latest.digest, first.digest);
+    assert.equal((await readEvaluationDecision(peer, w.plan.candidate)).evidence?.digest, latest.digest);
   } finally { rmSync(w.root, { recursive: true, force: true }); }
 });
