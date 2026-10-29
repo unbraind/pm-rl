@@ -2,7 +2,7 @@ import { acquireStateLock, statePath, checkedStateFile, operationIdentifier } fr
 import { parseBoundedJson } from "./tracker-record.ts";
 /** Immutable checkpoint blobs and an append-only promotion/audit ledger, independent of Git. */
 import { createHash, randomUUID } from "node:crypto";
-import { closeSync, constants, fstatSync, fsyncSync, linkSync, mkdirSync, openSync, readSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, constants, fstatSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 import { expectedFail } from "./refuse.ts";
@@ -179,11 +179,12 @@ export async function collectCheckpointArtifacts(root: string): Promise<{ retain
   return withArtifactLock(root, () => {
     const reachable = new Set(readCheckpointLedger(root).flatMap((entry) => entry.artifacts.map((ref) => ref.digest)));
     const directory = statePath(root, "artifacts", "pm-rl", "sha256"); mkdirSync(statePath(directory), { recursive: true });
-    let removed = 0;
-    for (const name of readdirSync(directory)) {
-      if (!/^[a-f0-9]{64}\.json$/.test(name) || reachable.has(`sha256:${name.slice(0, -5)}`)) continue;
-      unlinkSync(statePath(directory, name)); removed += 1;
-    }
-    return { retained: reachable.size, removed };
+    const targets = readdirSync(directory).filter(name => /^[a-f0-9]{64}\.json$/.test(name) && !reachable.has(`sha256:${name.slice(0, -5)}`)).map(name => {
+      const path = statePath(directory, name);
+      if (!lstatSync(path).isFile()) expectedFail("Artifact cleanup requires ordinary files; restore the invalid target before retrying.", "checkpoint_artifact_corrupt");
+      return path;
+    });
+    for (const path of targets) unlinkSync(checkedStateFile(path));
+    return { retained: reachable.size, removed: targets.length };
   });
 }

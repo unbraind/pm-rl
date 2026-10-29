@@ -288,7 +288,7 @@ async function cardDecisionInputs(client: PmClient, item: CardItem, plan: GetRes
   const versioned = plan === null ? null : decodeTrackerRecord(spec.evaluation_plan === undefined ? client : null, plan, { type: "Plan", maxBytes: 16_777_216, valid: (row) => row.plan !== null && typeof row.plan === "object" && !Array.isArray(row.plan) && (row.plan as Record<string, unknown>).format === "pm-rl/evaluation-plan/1" });
   if (retained !== undefined || versioned !== null || !spec.seed && plan === null) {
     try {
-      const decision = await readEvaluationDecision(client, item.id, true);
+      const decision = await readEvaluationDecision(client, item.id, true, prospective ? item : undefined);
       if (decision.evidence === null) return { ids: [] };
       if (retained !== undefined && retained.digest !== decision.evidence?.digest) refuse("card_drift", item.id);
       return { ids: decision.evidence!.inputs.map((input) => input.id).filter((id) => id !== item.id), graph: decision.evidence! };
@@ -430,7 +430,7 @@ function evidenceBody(item: CardItem): Record<string, unknown> {
 /** Validate every bounded projection before creating a source or changing its history. @internal */
 export async function validatePolicyCardWrite(client: PmClient, options: Parameters<PmClient["create"]>[0] & { id: string }, recursive = false): Promise<void> {
   const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
-  const item: CardItem = { id: identity(canonicalizeIdentifier(options.id, prefix)), type: options.type!, body: options.body ?? "", affected_version: options.affectedVersion ?? "", component: options.component ?? "", environment: options.environment ?? "" };
+  const item: CardItem = { id: identity(canonicalizeIdentifier(options.id, prefix)), type: options.type!, body: options.body ?? "", affected_version: options.affectedVersion ?? "", component: options.component ?? "", environment: options.environment ?? "", created_at: new Date().toISOString() };
   const primary = { item, citation: { id: item.id, at: PROSPECTIVE_AT, digest: hashJson(domain(item, prefix)) } };
   await exportSnapshotCard(client, primary, null);
   if (recursive) {

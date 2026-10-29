@@ -231,15 +231,15 @@ export function validateEvaluationTimeline(entries: readonly { stage: number; va
   }
 }
 /** One validator expands sequential dependencies itself, so callers cannot omit source Runs. @internal */
-export async function validateEvaluationOrder(client: PmClient, input: readonly { id: string; stage: number }[] | { registered: RegisteredEvaluationPlan; looks: number }, pageSize = 1000): Promise<void> {
+export async function validateEvaluationOrder(client: PmClient, input: readonly { id: string; stage: number }[] | { registered: RegisteredEvaluationPlan; looks: number }, pageSize = 1000, prospective?: GetResult["item"]): Promise<void> {
   let artifacts: readonly { id: string; stage: number }[];
   if ("registered" in input) {
-    const candidate = await readCompleteLoopItem(client, input.registered.plan.candidate);
+    const candidate = prospective === undefined ? await readCompleteLoopItem(client, input.registered.plan.candidate) : { item: prospective };
     const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
     const spec = canonicalizeGenerationSpec(extractGenerationSpec(String(candidate.item.body), "Sequential collection provenance"), prefix);
     artifacts = evaluationLifecycleArtifacts(input.registered, spec.collection_runs, input.looks);
   } else artifacts = input;
-  const entries = await Promise.all(artifacts.map(async ({ id, stage }) => ({ id: operationIdentifier(id), stage, item: await createdItem(client, id) })));
+  const entries = await Promise.all(artifacts.map(async ({ id, stage }) => ({ id: operationIdentifier(id), stage, item: prospective?.id === id ? prospective : await createdItem(client, id) })));
   const config = await identifierClient(client).config("project", "get", "id_prefix");
   const events: Awaited<ReturnType<typeof listMutationEvents>>["events"] = [];
   let cursor: string | undefined; let page: Awaited<ReturnType<typeof listMutationEvents>>;
@@ -249,6 +249,9 @@ export async function validateEvaluationOrder(client: PmClient, input: readonly 
   } while (page.has_more);
   const positions = new Map(events.map((event, index) => [event.item_id, index]));
   const times = new Map(events.filter((event) => event.version === 1).map((event) => [event.item_id, event.ts]));
+  // A new candidate would append after every existing event. Project that last
+  // coordinate without creating an item, history stream or reserved identity.
+  if (prospective !== undefined) { positions.set(prospective.id, events.length); times.set(prospective.id, String(prospective.created_at)); }
   validateEvaluationTimeline(entries.map((entry) => ({ stage: entry.stage, values: [Date.parse(String(entry.item.created_at)), Date.parse(String(times.get(entry.item.id))), Number(positions.get(entry.item.id))] })));
 }
 /** Verify the full stored Plan and its provenance, rather than trusting its derived id. */
@@ -433,13 +436,13 @@ export function validateEvaluationReport(...args: [plan: EvaluationPlan, report:
   return report;
 }
 /** Require predeclaration before all collection runs and unchanged incumbent provenance. */
-async function verifyTiming(client: PmClient, registered: RegisteredEvaluationPlan, spec: GenerationSpec): Promise<void> {
+async function verifyTiming(client: PmClient, registered: RegisteredEvaluationPlan, spec: GenerationSpec, prospective?: GetResult["item"]): Promise<void> {
   const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
   spec = canonicalizeGenerationSpec(spec, prefix);
   if (spec.parent !== registered.plan.incumbent) refuse("eval_plan_drift");
   const incumbent = await optionalItem(client, spec.parent);
   if (incumbent === null || incumbent.type !== "Generation" || incumbent.affected_version !== registered.incumbent_version || hashJson(generationProvenance(extractGenerationSpec(String(incumbent.body), "Incumbent generation"))) !== registered.incumbent_version) refuse("eval_plan_drift");
-  await validateEvaluationOrder(client, registered.plan.stopping.kind === "sequential" ? { registered, looks: 0 } : [{ id: registered.id, stage: 1 }, ...spec.collection_runs.map((id) => ({ id, stage: 2 })), { id: registered.plan.candidate, stage: 2 }]);
+  await validateEvaluationOrder(client, registered.plan.stopping.kind === "sequential" ? { registered, looks: 0 } : [{ id: registered.id, stage: 1 }, ...spec.collection_runs.map((id) => ({ id, stage: 2 })), { id: registered.plan.candidate, stage: 2 }], 1000, prospective);
 }
 /** Read the live candidate so SDK callers cannot forge provenance or predeclaration times. */
 export async function verifiedCandidate(client: PmClient, candidate: string, registered: RegisteredEvaluationPlan): Promise<void> {
@@ -496,7 +499,8 @@ async function recordLeasedEvaluation(client: PmClient, candidate: string, input
   return report;
 }
 /** Read the same validated decision for enforcement and summaries, returning its actual SDK inputs. */
-export async function readEvaluationDecision(client: PmClient, candidate: string, pending = false): Promise<{ registered: RegisteredEvaluationPlan | null; report: EvaluationPlanReport | null; evidence: EvaluationEvidence | null }> {
+export async function readEvaluationDecision(client: PmClient, candidate: string, pending = false, prospective?: GetResult["item"]): Promise<{ registered: RegisteredEvaluationPlan | null; report: EvaluationPlanReport | null; evidence: EvaluationEvidence | null }> {
+  let projected: GetResult["item"] | undefined;
   const captured = await captureDecisionInputs(client, async () => {
     const registered = await readEvaluationPlan(client, candidate);
     if (registered === null) {
@@ -511,6 +515,12 @@ export async function readEvaluationDecision(client: PmClient, candidate: string
     const resolved = registered.plan.candidate;
     if (pending && await optionalItem(client, resolved) === null) {
       if (registered.plan.stopping.kind === "sequential") await reviewSequentialPlan(client, registered.plan);
+      if (prospective !== undefined) {
+        const spec = extractGenerationSpec(String(prospective.body), "Prospective candidate generation");
+        if (prospective.id !== resolved || prospective.type !== "Generation" || spec.evaluation_plan !== registered.comparison || prospective.affected_version !== hashJson(generationProvenance(spec))) refuse("eval_plan_drift", resolved);
+        projected = prospective;
+        await verifyTiming(client, registered, spec, projected);
+      }
       return { registered, report: null };
     }
     await verifiedCandidate(client, resolved, registered);
@@ -534,10 +544,11 @@ export async function readEvaluationDecision(client: PmClient, candidate: string
     const upstream = extractGenerationSpec(String(item.body), "Upstream evidence").evaluation_evidence;
     if (upstream !== undefined) await verifyDecisionEvidence(client, upstream);
   }
-  const evidence = captured.value.registered === null ? null : evaluationEvidence(captured.value.registered.comparison, captured.inputs);
+  const inputs = projected === undefined ? captured.inputs : [...captured.inputs, projected];
+  const evidence = captured.value.registered === null ? null : evaluationEvidence(captured.value.registered.comparison, inputs);
   const canonicalCandidate = captured.value.registered?.plan.candidate ?? candidate;
-  const candidateItem = captured.inputs.find((item) => item.id === canonicalCandidate && item.type === "Generation");
-  if (candidateItem !== undefined && captured.value.registered !== null) await verifyTerminalEvaluationReceipt(client, candidateItem);
+  const candidateItem = inputs.find((item) => item.id === canonicalCandidate && item.type === "Generation");
+  if (projected === undefined && candidateItem !== undefined && captured.value.registered !== null) await verifyTerminalEvaluationReceipt(client, candidateItem);
   const retained = candidateItem === undefined ? undefined : extractGenerationSpec(String(candidateItem.body), "Promotion evidence").evaluation_evidence;
   if (retained !== undefined && evidence?.digest !== retained.digest) {
     const expected = new Map(retained.inputs.map((input) => [input.id, input.digest]));

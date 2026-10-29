@@ -103,11 +103,17 @@ async function sealed(client: PmClient, id: string): Promise<GetResult["item"] |
 }
 /** Decode only package JSON and suppress raw parser diagnostics. */
 function json(body: unknown, receipt: string): unknown { try { return parseBoundedJson(String(body)); } catch { return refuse("shadow_drift", receipt, "body"); } }
+/** Validate every dependent publication before an earlier write can allocate a Plan or result. */
+async function validateSeal(client: PmClient, id: string, value: JsonValue): Promise<boolean> {
+  const body = assertJsonEncoding(canonicalJson(value)); const digest = hashJson(value);
+  const old = await sealed(client, id);
+  if (old !== null && (old.body !== body || old.affected_version !== digest)) refuse("shadow_drift", id, "body");
+  return old !== null;
+}
 /** Content-addressed writes are retry-safe under the SDK's mutation lock. */
 async function seal(client: PmClient, id: string, value: JsonValue): Promise<void> {
   const body = assertJsonEncoding(canonicalJson(value)); const digest = hashJson(value);
-  const old = await sealed(client, id);
-  if (old !== null) { if (old.body !== body || old.affected_version !== digest) refuse("shadow_drift", id, "body"); return; }
+  if (await validateSeal(client, id, value)) return;
   try { await identifierClient(client).create({ id, type: "Decision", title: "Bounded shadow observation receipt", body, affectedVersion: digest }); }
   catch (error) { const winner = await sealed(client, id); if (winner === null) throw error; if (winner.body !== body || winner.affected_version !== digest) refuse("shadow_drift", id, "body"); }
 }
@@ -140,6 +146,7 @@ export async function registerShadowDeployment(client: PmClient, value: unknown,
   const deployment = parseShadowDeployment(value); const plan = parseEvaluationPlan(input);
   const id = `${plan.candidate}-evaluation-plan-shadow`;
   await validateDeployment(client, deployment, plan, id, await observationIds(client, id));
+  await validateSeal(client, id, deployment as unknown as JsonValue);
   const digest = hashJson(deployment as unknown as JsonValue);
   const registered = await registerEvaluationPlan(client, { ...plan, shadow: digest });
   await seal(client, id, deployment as unknown as JsonValue);
@@ -251,6 +258,7 @@ async function shadowComparison(client: PmClient, candidate: string): Promise<{ 
 /** Seal one online comparison using the existing immutable paired-outcome recorder. */
 export async function compareShadow(client: PmClient, candidate: string): Promise<ShadowReport> {
   const { report, pairs } = await shadowComparison(client, candidate);
+  await validateSeal(client, report.receipt, report as unknown as JsonValue);
   if (report.outcome !== null) await recordPlanEvaluation(client, candidate, pairs);
   await seal(client, report.receipt, report as unknown as JsonValue);
   return report;

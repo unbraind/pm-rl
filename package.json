@@ -177,7 +177,8 @@
       "test/worst-cohort.test.ts",
       "test/json-boundaries.test.ts",
       "test/controller-compatibility.test.ts",
-      "test/process-compatibility.test.ts"
+      "test/process-compatibility.test.ts",
+      "test/mutation-preflight.test.ts"
     ],
     "thresholds": {
       "statements": 100,

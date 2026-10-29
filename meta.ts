@@ -4,11 +4,12 @@ import { decodeTrackerRecord, hasTrackerIdentity, encodeBoundedJson, MAX_TRACKER
 import assert from "node:assert/strict";
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { certifyCompleteListResult, normalizeItemId, EXIT_CODE, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
-import { hashJson, commitProcessTransaction, promotedGenerationIdsUnderApproval, readApprovalSpec, readCompleteLoopItem, withRlController, type JsonValue, type RlDurableStep } from "./index.ts";
+import { hashJson, commitProcessTransaction, withValidatedMutation, promotedGenerationIdsUnderApproval, readApprovalSpec, readCompleteLoopItem, withRlController, type JsonValue, type RlDurableStep } from "./index.ts";
 import { parseApprovalSpec } from "./lineage.ts";
 import type { BinaryCalibration, PrefixCheckpoint } from "./prefix.ts";
 import { openTrackerEnvironment } from "./tracker-environment.ts";
 import { parseProcessAdapter, type ProcessAdapter, type ProcessCoordinates } from "./process.ts";
+import { expectedFail } from "./refuse.ts";
 import { decidePromotion, hoeffdingEpsilon, parsePromotionCriterion, type PromotionCriterion, type PromotionEvidence, type PromotionDecision } from "./promotion.ts";
 import { parseRecipe, seededRecipes, RECIPE_BOUNDS, type Recipe } from "./recipe.ts";
 import { requestSystemOneDecision, calibratedProbabilities } from "./systemone.ts";
@@ -170,7 +171,7 @@ export async function retainedMetaPromotionHeadroom(client: PmClient, approval: 
 }
 
 /** Atomically hold worst-case allowances once, or verify retained capacity before an unfinished phase executes. */
-async function reserveMeta(client: PmClient, coordinates: ProcessCoordinates, request: MetaRequest, binding: string, retained = false): Promise<void> {
+async function reserveMeta(client: PmClient, coordinates: ProcessCoordinates, request: MetaRequest, binding: string, retained = false, preflight = false): Promise<void> {
   const { config } = request;
   const charge = { training_samples: (1 + config.meta_generations * config.candidates) * RECIPE_BOUNDS.steps[1] * RECIPE_BOUNDS.batch[1],
     proposal_calls: request.proposer === "decision-model" ? 2 * config.meta_generations : 0, recipe_promotions: config.meta_generations };
@@ -199,8 +200,9 @@ async function reserveMeta(client: PmClient, coordinates: ProcessCoordinates, re
     assert.equal((await inspect()).state, "applied", "meta_reservation_missing");
     return;
   }
-  await commitProcessTransaction({ ...coordinates, transactionId: `${key}-reserve`, steps: [{ id: "reserve", inspect,
-    async apply() {
+  /** Validate current capacity and retained identity before the coordinator writes its journal. */
+  async function validateCapacity(): Promise<void> {
+    if ((await inspect()).state === "applied") return;
       const approval = await metaApproval(client, request.approval);
       const items = certifyCompleteListResult(await identifierClient(client).listAllComplete({ includeBody: false }));
       const charges: Record<string, number>[] = [];
@@ -212,16 +214,22 @@ async function reserveMeta(client: PmClient, coordinates: ProcessCoordinates, re
       }
       for (const key of ["training_samples", "proposal_calls", "recipe_promotions"] as const) {
         const total = charges.reduce((sum, entry) => sum + entry[key], charge[key]);
-        assert.ok(Number.isSafeInteger(total) && total <= approval.limits[key], `meta_budget_exhausted: ${key}`);
+        if (!Number.isSafeInteger(total) || total > approval.limits[key]) expectedFail(`meta_budget_exhausted: ${key}. Obtain capacity before starting this bounded search.`, "meta_budget_exhausted");
       }
       const consumed = items.items.some((item) => item.type === "Generation") ? await promotedGenerationIdsUnderApproval(client, approval.id) : [];
       const totalPromotions = consumed.length + await retainedMetaPromotionHeadroom(client, approval.id, consumed) + promotionHeadroom;
-      assert.ok(Number.isSafeInteger(totalPromotions) && totalPromotions <= approval.promotions, "meta_promotion_budget_exhausted");
+      if (!Number.isSafeInteger(totalPromotions) || totalPromotions > approval.promotions) expectedFail("meta_promotion_budget_exhausted. Obtain promotion capacity before starting this bounded search.", "meta_promotion_budget_exhausted");
+  }
+  if (preflight) { await validateCapacity(); return; }
+  await withValidatedMutation(client, key, validateCapacity, () => commitProcessTransaction({ ...coordinates, transactionId: `${key}-reserve`, steps: [{ id: "reserve", inspect,
+    async apply() {
+      await validateCapacity();
+      const approval = await metaApproval(client, request.approval);
       await identifierClient(client).create({ id: key, type: "Decision", tags: "rl-meta-reservation", title: "Reserved bounded recipe search", body: encodeBoundedJson({ format: "pm-rl/meta-reservation/1", id: key, binding, approval: approval.id, charge, promotion_headroom: promotionHeadroom }, MAX_TRACKER_RECORD_BYTES) });
     },
     // Conservative reservations survive transaction recovery and are never refunded by search itself.
     async compensate() {},
-  }] });
+  }] }));
 }
 
 /** Numerical task helpers are shared with the sealed evaluator, without granting search a data reader. */
@@ -313,6 +321,7 @@ export async function runRlMeta(client: PmClient, coordinates: ProcessCoordinate
   const input = { format: config.initial_recipe.knobs.prefix === undefined ? "pm-rl/meta-programme/1" : "pm-rl/meta-programme/3", id: request.id, config: config as unknown as JsonValue, dataset: environment.digest, approval_id: approval.id, approval: approval.digest,
     proposer: request.proposer, endpoint: request.decisionEndpoint ?? "http://127.0.0.1:11434" };
   const binding = hashJson(input);
+  await reserveMeta(client, coordinates, request, binding, false, true);
   const recoveryCommand = `pm rl meta run ${request.id} --file <programme.json> --dataset <dataset-directory> --approval ${request.approval} --proposer ${request.proposer} --force-takeover`;
   return withRlController(client, coordinates, { id: request.id, approval: request.approval, forceTakeover: request.forceTakeover, recoveryCommand }, signal, async (durable) => {
     /** Verify approval identity at every boundary, and notify observers only after the receipt is durable. */

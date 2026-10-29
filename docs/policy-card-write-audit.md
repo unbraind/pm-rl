@@ -8,10 +8,10 @@ batches stay at 32 selections. No coverage threshold changes.
 
 | Durable write | Boundary and refusal proof |
 | --- | --- |
-| Generation creation and its creation history | `registerGenerationCore` constructs the complete candidate, including sealed evaluation outcomes, and calls `validatePolicyCardWrite` before schema initialization or `createOrReadIdentical`. `registration refuses every card limit` rejects both citation count and canonical byte overflow twice, comparing every durable tracker file before and after. A bounded candidate then succeeds. |
+| Generation creation and its creation history | `registerGenerationCore` constructs the complete candidate, including sealed evaluation outcomes, and calls `validatePolicyCardWrite` before schema initialization or creation. A proposed Generation is supplied to the actual evaluation reader, which applies the same lifecycle validator without persisting a temporary candidate. Source leases fence the exact SDK inputs through Generation and card publication. `registration refuses every card limit` rejects both citation count and canonical byte overflow twice, comparing every durable tracker file before and after. A bounded candidate then succeeds. |
 | Schema settings, schema document and workspace history | Registration initializes types only after prospective validation. Promotion reads an existing Generation and does not initialize unrelated types. The same registration and promotion snapshots include schema and `_workspace` history. |
-| Promotion body update, close, item history and approval budget | `promoteGenerationCore` validates the complete promoted body, approval citation and allowance before opening its transaction journal, then revalidates under the authoritative writer lock. The SDK item transaction checks the captured candidate revision and atomically publishes the promoted body and terminal fields; it also holds the SDK approval item lock and checks the exact approval revision used to authorize budget consumption. `prospective promoted card overflow` checks two refusals against all durable tracker bytes, then consumes the unchanged one-unit budget successfully. No separate counter is written: promoted Generation provenance determines budget consumption. |
-| Promotion transaction journals and compensation receipts | The pre-journal validation precedes `commitWorkspaceTransaction`. Body and closure are now one atomic SDK item mutation; no captured body is restored by compensation. The promotion refusal snapshot includes runtime transaction journals. The in-lock validation remains necessary for concurrent changes. |
+| Promotion body update, close, item history and approval budget | `promoteGenerationCore` validates the complete promoted body and approval citation, then checks current capacity before evidence under the authoritative SDK workspace lease. The SDK item transaction checks the captured candidate revision and atomically publishes the promoted body and terminal fields; it also holds the SDK approval item lock and checks the exact approval revision used to authorize budget consumption. `prospective promoted card overflow` checks two refusals against all durable tracker bytes, then consumes the unchanged one-unit budget successfully. No separate counter is written: promoted Generation provenance determines budget consumption. |
+| Promotion workspace lease and native receipt | Promotion has one atomic SDK item mutation. It uses the same SDK workspace lease as other budget writers and creates no speculative transaction journal. Current capacity, sealed evidence and the prospective card all validate before body/history publication. The retained six-case matrix preserves lowered-budget precedence and changed-evidence refusals. |
 | Immutable policy-card Decisions, dependency edges and their histories | `recordPolicyCard` exports and validates before creating anything. `recordRecursivePolicyCards` computes every projection and checks every known card collision before the first batch write. `recursive card batch refuses collision` checks body, type and identity collisions on a later selection and direct oversized publication without partial shared-card publication. |
 | Sealed rejection outcomes, rejection comments and their histories | `recordRefusedPolicyCard` validates the prospective Generation body after capturing the current revision, before an idempotent guarded SDK body mutation and card publication. The SDK checks that revision again under its native item lock. Callers append bookkeeping comments afterwards. `prospective rejection notes` invokes the real rejection writer and requires a byte-identical durable tracker after refusal. |
 | Outer recursive phase Decisions and completion histories | Outer phases validate the full completed receipt before creating/updating its Decision. Existing/running receipts capture their revision before executing work and complete through the guarded SDK item transaction; absent receipts use native exclusive creation. Newly executed promotion phases also defer their intent receipt until the promotion succeeds, so a deterministic card refusal cannot create a running promotion receipt. `recursive receipt card limits` compares all durable files around an oversized proposal phase, then retries the same key with a valid bounded result. |
@@ -54,13 +54,18 @@ changed lineage bindings use `card_drift`.
 
 Snapshots enumerate the disposable tracker's complete file inventory and compare
 actual file bytes. They include settings, schemas, item documents, every history
-stream, artifacts, budgets and all durable runtime transaction receipts. Two
+stream, artifacts, budgets and all durable runtime transaction receipts. The older card suites warm the SDK read indexes. Two
 explicit exclusions are necessary with the pinned SDK: `locks/` contains renewable
 coordination leases, and `runtime/context-usage.jsonl` is a derived observation ledger
 that the SDK unconditionally appends on ordinary current `get` calls. Neither is a
 domain or approval receipt. No telemetry setting or SDK dependency was changed.
 Consequently these tests certify byte-identical **durable tracker state**, not
-literal equality of those two observational/coordination locations.
+literal equality of those two observational/coordination locations. The broader
+command property additionally excludes SDK-derived `metadata-cache*` and
+`history-event-index.sqlite*` read indexes; those may be materialized by ordinary
+reads under different active schema projections. All item documents, native
+histories, schema files, counters, reservations, package artifacts and transaction
+journals are still compared as exact bytes. Expected state is never normalized.
 
 The validation boundary does not roll back previously completed phases, arbitrary
 side effects inside a caller's operation, concurrent peer writes, or storage errors
@@ -558,3 +563,29 @@ peer regression then fails 1/1 with `already_promoted`. Canonical, initial-retry
 and stale-read reverts all use the unchanged regression hash above, and every
 production edit is restored. This extends the recovery-class proof to both ways
 the committed state can be observed.
+
+
+## Complete prospective mutation validation
+
+`test/mutation-preflight.test.ts` generates 500 invalid requests across the 26
+registered command contracts with mutation inputs, plus direct SDK refusal
+classes and a separate GC case. It checks both host output modes, native alias
+variants and malformed manifests. A corrected request reuses each refused fixed
+and sequential candidate ID, proving no history reservation was allocated.
+
+| Additional publication | Validation before its first write |
+| --- | --- |
+| Fixed and sequential candidate | The proposed body, seal, comparison, incumbent and collection Run chronology pass the same decision reader as a stored candidate. |
+| Resource reservation and transition | Complete finite resource vectors, replay identity, allowance/charge consistency and budget identity validate before the SDK coordinator journals; SDK-read sources remain leased. Competing source discovery retries from fresh SDK state, with a bounded limit and no retry after publication starts. |
+| Meta reservation | Current resource and promotion capacity use the same validator in preflight and the SDK writer phase. Existing reservations verify their original binding. |
+| Shadow declaration and comparison | Each dependent seal is checked before the earlier Plan or fixed result can be allocated. |
+| Sweep arms and parent | Every arm body and the entire parent encoding are built before the first child create. An oversized combined parent cannot leave child history behind. |
+| Controller environment and initial checkpoint | The seed uses the registration path's prospective mode before environment or checkpoint publication. Existing seed identities retain the same birth/provenance checks. |
+| Checkpoint GC | Every selected path is confined and checked as an ordinary file before the first unlink; a later symlink or directory cannot cause partial validation-driven cleanup. |
+
+Ten isolated behavioral controls revert `readEvaluationDecision`,
+`promoteGenerationCore`, `reserveProcessJob`, `transitionProcessJob`, `reserveMeta`,
+`registerShadowDeployment`, `compareShadow`, `planSweep`, `prepareLoopController`
+and `collectCheckpointArtifacts` individually. Each exposes changed authoritative
+tracker bytes on refusal; restoring the fixed source passes all nine regression
+tests. Nondiscriminating schema-setup and outer-meta probes are not counted.

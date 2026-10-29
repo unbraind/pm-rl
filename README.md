@@ -677,6 +677,15 @@ leases without renaming stored records. A valid terminal evaluation seal governs
 recovery; earlier candidate cards remain history and cannot invalidate later
 sealed Run evidence. Final evidence corruption still refuses with the record named.
 
+Candidate registration validates its proposed Generation with the same decision
+reader and lifecycle validator before allocating its item or history stream.
+Invalid chronology leaves the candidate ID available for a corrected request.
+Dependent shadow receipts, controller seeds, sweep encodings and resource
+reservations are also checked before their first publication. Promotion checks
+current capacity and evidence under the SDK workspace lease before its single
+atomic item write. Deterministic refusals preserve authoritative tracker bytes;
+SDK read indexes, usage observations and renewable locks remain derived state.
+
 ```bash
 pm rl eval plan register --file examples/sequential-evaluation-plan.json --json
 # Create the collection run and candidate after the plan is sealed.

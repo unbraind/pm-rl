@@ -12,7 +12,7 @@ import type { WorkspaceTransactionStep, WorkspaceTransactionTransitionContext } 
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { EXIT_CODE, createPmCliExpectedError, isPmCliExpectedError, certifyCompleteListResult, normalizeItemId } from "@unbrained/pm-cli/sdk/runtime";
 import { banditCheckpoint, MAX_BANDIT_FIT_STEPS, type BanditCheckpoint, type BanditExample, type BanditObservation } from "./bandit.ts";
-import { canonicalJson, commitProcessTransaction, loopProcessStartTime, withProcessJobFence, readCompleteLoopItem, type JsonValue } from "./index.ts";
+import { canonicalJson, commitProcessTransaction, loopProcessStartTime, withProcessJobFence, withValidatedMutation, readCompleteLoopItem, type JsonValue } from "./index.ts";
 import { expectedFail } from "./refuse.ts";
 import { validateLmProcessCheckpoint, type LmProcessPayload } from "./process-lm.ts";
 import { validatePrefixCompletion, type PrefixPayload } from "./prefix.ts";
@@ -286,27 +286,36 @@ export async function listProcessJobs(client: PmClient): Promise<ProcessJob<Trai
 /** Reserve once under the workspace writer lock, counting every held or settled job on this approval. */
 export async function reserveProcessJob(client: PmClient, coordinates: ProcessCoordinates, rawId: string, input: TrainerInput, approval: string, allowance: Resources): Promise<ProcessJob<TrainerPolicy>> {
   const id = await canonicalProgrammeId(client, rawId);
+  parseResources(allowance); encodeBoundedJson(input);
+  /** Validate both new capacity and existing immutable replay inputs before creating a transaction. */
+  async function validateReservation(): Promise<void> {
+    const approved = await approvedResources(client, approval);
+    const existing = await readProcessJob(client, id);
+    if (existing !== null) {
+      if (existing.input !== processDigest(input) || existing.approval !== approved.id || processDigest(existing.allowance) !== processDigest(allowance)) expectedFail("Reservation replay inputs changed.", "process_job_drift");
+      await verifyProcessJobBudget(client, existing);
+      return;
+    }
+    const charges = (await listProcessJobs(client)).filter((job) => job.approval === approved.id).map((job) => job.charge);
+    for (const key of RESOURCE_KEYS) {
+      const total = charges.reduce((sum, charge) => sum + charge[key], allowance[key]);
+      if (!Number.isSafeInteger(total) || total > approved.budget[key]) expectedFail(`Approved ${key} budget exhausted.`, "process_budget_exhausted");
+    }
+  }
   const step: WorkspaceTransactionStep = {
     id: "reserve",
     async inspect() { return { state: await readProcessJob(client, id) === null ? "pending" : "applied" }; },
     async apply() {
+      await validateReservation();
       const approved = await approvedResources(client, approval);
-      const charges = (await listProcessJobs(client)).filter((job) => job.approval === approved.id).map((job) => job.charge);
-      for (const key of RESOURCE_KEYS) {
-        const total = charges.reduce((sum, charge) => sum + charge[key], allowance[key]);
-        if (!Number.isSafeInteger(total) || total > approved.budget[key]) expectedFail(`Approved ${key} budget exhausted.`, "process_budget_exhausted");
-      }
       const job: ProcessJob<TrainerPolicy> = { format: "pm-rl/process-job/1", id, input: processDigest(input), binding: input.identity, approval: approved.id, budget_digest: approved.digest,
         state: "planned", allowance, charge: allowance, settled: false, completion: null, outcome: "reserved" };
       await identifierClient(client).create({ id, type: "Task", tags: "rl-process-job", title: `Process trainer ${id.slice(-12)}`, body: encodeBoundedJson(job, MAX_TRACKER_RECORD_BYTES) });
     },
     async compensate() { const job = (await readProcessJob(client, id))!; await identifierClient(client).update(id, { body: encodeBoundedJson({ ...job, state: "failed", settled: true, charge: zeroResources(), outcome: "reservation_compensated" }, MAX_TRACKER_RECORD_BYTES) }); },
   };
-  await commitProcessTransaction({ ...coordinates, transactionId: `${id}-reserve`, steps: [step] });
+  await withValidatedMutation(client, id, validateReservation, () => commitProcessTransaction({ ...coordinates, transactionId: `${id}-reserve`, steps: [step] }));
   const job = (await readProcessJob(client, id))!;
-  const approved = await approvedResources(client, approval);
-  if (job.input !== processDigest(input) || job.approval !== approved.id || processDigest(job.allowance) !== processDigest(allowance)) expectedFail("Reservation replay inputs changed.", "process_job_drift");
-  await verifyProcessJobBudget(client, job);
   return job;
 }
 /** Construct the explicitly released allowance after a compensated reservation. */
@@ -320,8 +329,16 @@ const JOB_TRANSITIONS: Readonly<Record<ProcessJobState, readonly ProcessJobState
 export async function transitionProcessJob<P extends TrainerPolicy>(client: PmClient, coordinates: ProcessCoordinates, job: ProcessJob<P>, state: ProcessJobState, outcome: string, completion = job.completion, charge = job.charge): Promise<ProcessJob<P>> {
   if (job.state !== state && !JOB_TRANSITIONS[job.state].includes(state)) expectedFail("Illegal process job transition.", "process_job_drift");
   const target = job.state === state ? job : { ...job, state, outcome, completion, charge, settled: state !== "running" && state !== "planned" };
+  parseResources(target.allowance); parseResources(target.charge);
+  if (target.completion !== null) parseResources(target.completion.usage);
+  if ((!target.settled && processDigest(target.charge) !== processDigest(target.allowance)) || (target.completion !== null && processDigest(target.charge) !== processDigest(target.completion.usage))) expectedFail("Reservation accounting drifted.", "process_job_drift");
   const body = encodeBoundedJson(storedProcessJob(target), MAX_TRACKER_RECORD_BYTES);
   const compensationBody = encodeBoundedJson(storedProcessJob(job), MAX_TRACKER_RECORD_BYTES);
+  await withValidatedMutation(client, job.id, async () => {
+    const current = (await readProcessJob(client, job.id))!;
+    if (processDigest(current) !== processDigest(storedProcessJob(job)) && processDigest(current) !== processDigest(storedProcessJob(target))) expectedFail("Process job changed before transition.", "process_job_drift");
+    if (completion?.artifact !== undefined) readCheckpointArtifact(coordinates.pmRoot, completion.artifact);
+  }, async () => {
   if (completion?.artifact !== undefined) {
     const policy = readCheckpointArtifact(coordinates.pmRoot, completion.artifact);
     await encodeCheckpointArtifacts(coordinates.pmRoot, `job:${job.id}:${state}`, policy);
@@ -331,6 +348,7 @@ export async function transitionProcessJob<P extends TrainerPolicy>(client: PmCl
     async apply() { await identifierClient(client).update(job.id, { body }); },
     async compensate() { await identifierClient(client).update(job.id, { body: compensationBody }); },
   }] });
+  });
   return (await readProcessJob<P>(client, job.id, coordinates.pmRoot))!;
 }
 /** Measure retained flat staging files, skipping vanished entries and rejecting links or directories. */
