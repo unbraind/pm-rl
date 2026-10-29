@@ -4,11 +4,11 @@ description: "Part 1 of the #107 split: published writer, native text and dual-r
 type: Chore
 status: in_progress
 priority: 2
-tags[3]: compatibility,"gh:unbraind/pm-rl#107",testing
+tags[4]: compatibility,"gh:unbraind/pm-rl#107","gh:unbraind/pm-rl#122",testing
 created_at: "2026-10-29T19:03:12.792Z"
-updated_at: "2026-10-29T20:00:41.880Z"
+updated_at: "2026-10-29T20:27:55.230Z"
 author: codex-agent
-comments[7]{created_at,author,text}:
+comments[8]{created_at,author,text}:
   "2026-10-29T19:03:46.528Z",codex-agent,"Preserve native JSON fixtures and authoring drivers verbatim; leave new validation, decision graphs and cross-clock recovery assertions on #107. Run focused tests before serialized npm and Bun release gates at unchanged thresholds."
   "2026-10-29T19:05:50.944Z",codex-agent,"Focused extraction found main cannot promote the long legacy candidate: its transaction filename raises ENAMETOOLONG. That promotion and new decision-graph assertions stay on #107. The standalone tests retain every native snapshot (including long IDs), published hashes, fixed evaluation, ordinary promotion, CLI retries and both runtime receipt DTOs."
   "2026-10-29T19:09:57.270Z",codex-agent,"The linked published-schema oracle passes 1/1 (500 cases, 13 paths). A disposable fixture-hash negative control fails the same assertion; no package runtime function changes in this extraction. Typecheck, lint, 54-source/414-declaration docstrings and zero duplicates pass. Native source and packed checks precede full serialized npm/Bun gates."
@@ -16,6 +16,7 @@ comments[7]{created_at,author,text}:
   "2026-10-29T19:37:20.037Z",codex-agent,Strict tracker health passes with required merge-driver checks. One inherited provenance-value advisory remains; history is append-only and no repair was attempted. SHA-256 comparisons confirm all five native-data and authoring-tool files are byte-identical to #107.
   "2026-10-29T20:00:27.540Z",codex-agent,"Standalone evidence: source oracle 3/3; linked published-schema property 1/1 (500 cases across 13 paths); typecheck, test compilation, lint, zero duplicates and docstrings 54 sources/414 declarations pass. Exact packed archive dc918484f02cd52ad9095a7c4bbc7e4f81454a3fe5c7b313e2d3a0321c38845b has 219 files/164 runtime files, all equal to source. A copied shipped-JS mutation is detected and restored. Commands node test/evaluation-compatibility.acceptance.ts published-compatibility-oracle.local.tgz compatibility-node.local and bun test/evaluation-compatibility.acceptance.ts published-compatibility-oracle.local.tgz compatibility-bun.local both pass against real non-git trackers with Git absent from PATH. Archives/evidence remain ignored."
   "2026-10-29T20:00:34.490Z",codex-agent,"Full local npm gate is not a pass: its existing Compose fixture image build exceeded 120 seconds, then the run was interrupted after discovering the local Docker path. Full unchanged npm and Bun release gates will be verified on isolated GitHub Actions runners; no local Docker gate will be restarted. The copied-fixture hash negative control fails its assertion. No runtime behavior or dependency pin changed in Part 1."
+  "2026-10-29T20:27:55.229Z",codex-agent,"CI handoff for code commit 55808247edf10fd1ebb46bbb988135bb5bbbf485: PR https://github.com/unbraind/pm-rl/pull/122 is open, draft until CI is green. Exact-code release run https://github.com/unbraind/pm-rl/actions/runs/40945518144 has 0/3 jobs completed (Node 22 npm, Node 26 npm, Node 26 Bun all queued); CodeQL https://github.com/unbraind/pm-rl/actions/runs/40945518106 is queued. No complete release count or coverage pass is claimed. Retain the 2026-10-29 20:32:56 UTC watch cutoff across later receipt pushes; it is not restarted. Local source 3/3, linked property 1/1 and packed Node/Bun acceptance pass. Claim remains released; orchestrator verifies and closes."
 files[7]{path,scope}:
   test/evaluation-compatibility.acceptance.ts,project
   test/evaluation-compatibility.test.ts,project
