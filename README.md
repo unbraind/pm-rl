@@ -680,6 +680,9 @@ sealed Run evidence. Final evidence corruption still refuses with the record nam
 Candidate registration validates its proposed Generation with the same decision
 reader and lifecycle validator before allocating its item or history stream.
 Invalid chronology leaves the candidate ID available for a corrected request.
+New candidates also refuse previously sealed result, look or shadow evidence,
+including deleted seals; the shared decision-slot schedule is fenced through
+creation. Existing fixed-plan reads keep their persisted ordering contract.
 Dependent shadow receipts, controller seeds, sweep encodings and resource
 reservations are also checked before their first publication. Promotion checks
 current capacity and evidence under the SDK workspace lease before its single

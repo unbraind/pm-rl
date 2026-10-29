@@ -5341,6 +5341,7 @@ async function planSweep(context: CommandHandlerContext): Promise<RlCommandResul
         message: `Plan RL sweep arm ${index + 1}`,
     };
   });
+  identifier(requestedId); armCreates.forEach(options => identifier(options.id));
   const arms: Array<{ id: string; config: JsonValue }> = [];
   try {
     for (const [index, config] of configs.entries()) {

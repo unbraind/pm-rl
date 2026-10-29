@@ -5,7 +5,7 @@ import { dirname } from "node:path";
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { readSettings } from "@unbrained/pm-cli/sdk/runtime";
 import { hashJson, withProcessJobFence, extractGenerationSpec, readCompleteLoopItem, captureDecisionInputs, type JsonValue } from "./index.ts";
-import { evaluatePlan, evaluationComparison, normalizedObservations, optionalItem, readEvaluationPlan, refuse, verifiedCandidate, verifyCreatedRecord, validateEvaluationOrder, evaluationPlanId, type EvaluationMember, type EvaluationPlan, type EvaluationPlanReport, type RegisteredEvaluationPlan, evaluationEvidence } from "./evaluation-plan.ts";
+import { evaluatePlan, evaluationComparison, normalizedObservations, optionalItem, readEvaluationPlan, refuse, verifiedCandidate, verifyCreatedRecord, validateEvaluationOrder, evaluationPlanId, evaluationOutcomeIds, type EvaluationMember, type EvaluationPlan, type EvaluationPlanReport, type RegisteredEvaluationPlan, evaluationEvidence } from "./evaluation-plan.ts";
 import type { PromotionDecision } from "./promotion.ts";
 import { parseBoundedJson, decodeTrackerRecord, skippedTrackerRecords, encodeBoundedJson, MAX_TRACKER_RECORD_BYTES, type SkippedTrackerRecord } from "./tracker-record.ts";
 
@@ -103,7 +103,7 @@ export async function withEvaluationLease<T>(client: PmClient, candidate: string
 async function checkpointChain(client: PmClient, registered: RegisteredEvaluationPlan, rule: SequentialStopping): Promise<{ reports: EvaluationPlanReport[]; rows: readonly unknown[][]; hashes: string[]; skipped: readonly SkippedTrackerRecord[] }> {
   const reports: EvaluationPlanReport[] = []; const rows: unknown[][] = []; const hashes: string[] = [];
   for (let index = 0; index < rule.looks.length; index += 1) {
-    const id = `${registered.id}-look-${index + 1}`; const item = await optionalItem(client, id);
+    const id = evaluationOutcomeIds(registered.plan, registered.id)[index]; const item = await optionalItem(client, id);
     if (item === null) { if (await optionalItem(client, id, "1") !== null) refuse("eval_plan_missing"); continue; }
     const raw = decodeTrackerRecord(client, item, { type: "Decision", tag: TAG, format: FORMAT });
     if (raw === null) return { reports, rows, hashes, skipped: skippedTrackerRecords(client).filter((record) => record.id === id) };
@@ -156,9 +156,9 @@ async function recordSequentialDecision(client: PmClient, rawCandidate: string, 
     const registered = await readEvaluationPlan(client, rawCandidate); if (registered === null) refuse("eval_plan_missing");
     const candidate = registered.plan.candidate;
     const rule = registered.plan.stopping; if (rule.kind !== "sequential") refuse("eval_plan_stopping");
-    const target = `${registered.id}-look-${evaluatePlan(registered.plan, rows).sequential!.look}`;
+    const target = evaluationOutcomeIds(registered.plan, registered.id)[evaluatePlan(registered.plan, rows).sequential!.look - 1];
     const existingTarget = await optionalItem(client, target);
-    const slots = rule.looks.map((_, index) => `${registered.id}-look-${index + 1}`).filter((id) => id !== target || existingTarget !== null);
+    const slots = evaluationOutcomeIds(registered.plan, registered.id).filter((id) => id !== target || existingTarget !== null);
     const source = await readCompleteLoopItem(client, candidate);
     const dependencies = [rule.review, registered.plan.incumbent, ...extractGenerationSpec(String(source.item.body), "Sequential sources").collection_runs, ...slots];
     return withEvaluationLease(client, `${candidate}-sources`, dependencies, () => appendSequentialLook(client, candidate, rows));
@@ -180,7 +180,7 @@ async function appendSequentialLook(client: PmClient, candidate: string, rows: r
   if (index !== chain.reports.length || (index > 0 && chain.reports[index - 1].sequential!.state !== "continue")) refuse("eval_plan_stopping");
   if (index > 0) verifyPrefix(chain.rows[index - 1], rows);
   const raw = { format: FORMAT, comparison: current.comparison, previous: chain.hashes[index - 1] ?? null, observations: rows };
-  const id = `${current.id}-look-${index + 1}`; const body = encodeBoundedJson(raw, MAX_TRACKER_RECORD_BYTES); const version = hashJson(raw as unknown as JsonValue);
+  const id = evaluationOutcomeIds(current.plan, current.id)[index]; const body = encodeBoundedJson(raw, MAX_TRACKER_RECORD_BYTES); const version = hashJson(raw as unknown as JsonValue);
   // The SDK create owns the target slot's native lease. Every other slot,
   // including absent future slots, remains leased through this publication.
   try { await identifierClient(client).create({ id, type: "Decision", title: "Sealed sequential evaluation checkpoint", body, unset: ["parent", "sprint", "release", "blocked-by"], clearDeps: true, affectedVersion: version, tags: TAG, message: "Seal the next predeclared sequential look" }); }

@@ -88,6 +88,15 @@ test("prospective fixed and sequential chronology refuses before consuming the c
       const run = `${candidate}-fresh-run`; await client.create({ id: run, type: "Run", title: "Post-plan collection", environment });
       const accepted = (await harness.runCommand({ command: "rl generation register", pmRoot, args: [candidate], options: { ...options, collectionRuns: run } })).result as RlCommandResult;
       assert.equal(accepted.created, true); assert.equal(accepted.id, candidate);
+      const reserved = `${candidate}-presealed`;
+      const declaration: EvaluationPlan = { ...plan, candidate: reserved, stopping: plan.stopping.kind === "sequential" ? { ...plan.stopping, review: `${reserved}-review` } : plan.stopping };
+      if (declaration.stopping.kind === "sequential") await client.create({ id: declaration.stopping.review, type: "Decision", title: "Review", body: JSON.stringify({ format: "pm-rl/sequential-review/1", comparison: evaluationComparison(declaration) }) });
+      const registered = await registerEvaluationPlan(client, declaration);
+      const fresh = `${reserved}-run`; await client.create({ id: fresh, type: "Run", title: "Fresh collection", environment });
+      const rows = declaration.members.map(member => ({ id: member.id, candidate: 1, incumbent: 0 }));
+      const value: JsonValue = sequential ? { format: "pm-rl/sequential-checkpoint/1", comparison: registered.comparison, previous: null, observations: rows.slice(0, 8) } : { comparison: registered.comparison, observations: rows };
+      await client.create({ id: `${registered.id}-${sequential ? "look-1" : "result"}`, type: "Decision", title: "Evidence before candidate", body: JSON.stringify(value), affectedVersion: hashJson(value), ...(sequential ? { tags: "pm-rl:sequential-checkpoint" } : {}) });
+      await refusesUnchanged(pmRoot, () => harness.runCommand({ command: "rl generation register", pmRoot, args: [reserved], options: { ...options, collectionRuns: fresh } }), "card_drift");
     }
     console.log(JSON.stringify({ chronology_modes: 2, refusal_outputs: 2, identities_reused: 2, non_git: true }));
   } finally { rmSync(root, { recursive: true, force: true }); }
@@ -198,6 +207,11 @@ test("shadow dependent receipt conflicts refuse before allocating a Plan or fixe
         await refusesUnchanged(pmRoot, () => compareShadow(client, candidate), "shadow_drift");
       }
     }
+    const candidate = `rl-${"x".repeat(178)}`;
+    const deployment: ShadowDeployment = { format: "pm-rl/shadow/1", generation: candidate, incumbent: "rl-seed", consent: "rl-long-consent", active, candidate: policy, inputs: { member: shadowInputDigest("event") }, budget: { active_calls: 1, candidate_calls: 1 } };
+    await client.create({ id: deployment.consent, title: "Long identity consent", type: "Decision", body: JSON.stringify({ format: "pm-rl/shadow-consent/1", deployment: hashJson(deployment as unknown as JsonValue) }) });
+    const plan: EvaluationPlan = { format: "pm-rl/evaluation-plan/1", candidate, incumbent: "rl-seed", incumbent_version: hashJson(generationProvenance(seed)), population: "Consented", selection: "all", correlation_unit: "event", members: [{ id: "member", unit: "event" }], objective: "reward", objective_version: "1", evaluation_context: "held-out", direction: "maximize", reward_bounds: [0, 1], criterion: { confidence: 0.5, minSamples: 1, effectThreshold: 0 }, stopping: { kind: "fixed", observations: 1, independent_units: 1 } };
+    await refusesUnchanged(pmRoot, () => registerShadowDeployment(client, deployment, plan), "rl_identifier_invalid");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -213,6 +227,8 @@ test("compound sweep and controller validation precedes child, environment and a
     const space = join(root, "space.json");
     writeFileSync(space, JSON.stringify({ search_space: { payload: ["x".repeat(9_000_000)] }, selection_rule: "none" }));
     await refusesUnchanged(pmRoot, () => harness.runCommand({ command: "rl sweep plan", pmRoot, args: ["rl-oversized-sweep"], options: { file: space, environment, algorithm: "test" } }), "json_record_limit");
+    writeFileSync(space, JSON.stringify({ search_space: { rate: Array.from({ length: 10 }, (_, index) => index) }, selection_rule: "none" }));
+    await refusesUnchanged(pmRoot, () => harness.runCommand({ command: "rl sweep plan", pmRoot, args: [`rl-${"s".repeat(191)}`], options: { file: space, environment, algorithm: "test" } }), "rl_identifier_invalid");
     await client.create({ id: "rl-approval", title: "Approval", type: "Decision", body: '```json\n{"permitted_promotions":1}\n```' });
     await harness.runCommand({ command: "rl generation register", pmRoot, args: ["rl-compound-seed"], options: { baseCheckpoint: "foreign" } });
     const config = JSON.parse(readFileSync(new URL("../examples/loop-bandit.json", import.meta.url), "utf8")) as JsonValue;

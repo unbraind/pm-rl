@@ -575,11 +575,11 @@ and sequential candidate ID, proving no history reservation was allocated.
 
 | Additional publication | Validation before its first write |
 | --- | --- |
-| Fixed and sequential candidate | The proposed body, seal, comparison, incumbent and collection Run chronology pass the same decision reader as a stored candidate. |
+| Fixed and sequential candidate | The proposed body, seal, comparison, incumbent and collection Run chronology pass the same decision reader as a stored candidate. Future result, look and shadow slots (including deleted seals) must be absent and remain source-fenced through creation. Existing fixed reads keep their persisted contract. |
 | Resource reservation and transition | Complete finite resource vectors, replay identity, allowance/charge consistency and budget identity validate before the SDK coordinator journals; SDK-read sources remain leased. Competing source discovery retries from fresh SDK state, with a bounded limit and no retry after publication starts. |
 | Meta reservation | Current resource and promotion capacity use the same validator in preflight and the SDK writer phase. Existing reservations verify their original binding. |
-| Shadow declaration and comparison | Each dependent seal is checked before the earlier Plan or fixed result can be allocated. |
-| Sweep arms and parent | Every arm body and the entire parent encoding are built before the first child create. An oversized combined parent cannot leave child history behind. |
+| Shadow declaration and comparison | Each dependent seal and each new derived write ID is checked before the earlier Plan or fixed result can be allocated. |
+| Sweep arms and parent | Every derived arm ID, arm body and the entire parent encoding are checked before the first child create. An oversized combined parent or a later oversized arm ID cannot leave child history behind. |
 | Controller environment and initial checkpoint | The seed uses the registration path's prospective mode before environment or checkpoint publication. Existing seed identities retain the same birth/provenance checks. |
 | Checkpoint GC | Every selected path is confined and checked as an ordinary file before the first unlink; a later symlink or directory cannot cause partial validation-driven cleanup. |
 
@@ -589,3 +589,10 @@ Ten isolated behavioral controls revert `readEvaluationDecision`,
 and `collectCheckpointArtifacts` individually. Each exposes changed authoritative
 tracker bytes on refusal; restoring the fixed source passes all nine regression
 tests. Nondiscriminating schema-setup and outer-meta probes are not counted.
+
+Three further single-function controls against the initial preflight fix expose
+the future-evidence and derived-ID cases: `readEvaluationDecision`,
+`registerShadowDeployment` and `planSweep` each fail the same authoritative-byte
+invariant when reverted. Restoring all three passes 9/9, including the 500 seeded
+requests. Future decision addresses come from the readers' and writers' shared
+schedule rather than a separate preflight list.

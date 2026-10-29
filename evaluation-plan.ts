@@ -8,7 +8,7 @@ import { dirname } from "node:path";
 import { createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError, readSettings } from "@unbrained/pm-cli/sdk/runtime";
 import { extractGenerationSpec, generationProvenance, hashJson, readCompleteLoopItem, captureDecisionInputs, verifyTerminalEvaluationReceipt, verifyDecisionEvidence, type JsonValue } from "./index.ts";
 import { decidePromotion, type PromotionCriterion, type PromotionDecision } from "./promotion.ts";
-import { enforceShadowComparison } from "./shadow.ts";
+import { enforceShadowComparison, shadowEvidenceIds } from "./shadow.ts";
 import { rethrowOperationalRead } from "./refuse.ts";
 import { canonicalizeEvaluationContext, canonicalizeGenerationSpec, canonicalizeIdentifier, type GenerationSpec, type ScoreRecord, type EvaluationEvidence } from "./lineage.ts";
 import { readSeries } from "./series.ts";
@@ -191,6 +191,12 @@ function evaluationPlanBody(plan: EvaluationPlan): string { return encodeBounded
 function evaluationResultBody(comparison: string, observations: readonly EvaluationObservation[]): string { return encodeBoundedJson({ comparison, observations }); }
 /** A stable candidate reservation prevents changing the plan for the same generation. */
 export function evaluationPlanId(candidate: string, mode: ValidationMode = "read"): string { return `${label(candidate, "item", mode)}-evaluation-plan`; }
+/** Share the complete future decision-slot schedule with actual readers and writers. @internal */
+export function evaluationOutcomeIds(plan: EvaluationPlan, id = evaluationPlanId(plan.candidate)): string[] {
+  return [...(plan.stopping.kind === "sequential" ? evaluationLookIds(id, plan.stopping.looks.length) : [`${id}-result`]), ...(plan.shadow === undefined ? [] : shadowEvidenceIds(plan, `${id}-shadow`))];
+}
+/** Keep lifecycle expansion and the declared checkpoint schedule on the same coordinates. */
+function evaluationLookIds(id: string, count: number): string[] { return Array.from({ length: count }, (_, index) => `${id}-look-${index + 1}`); }
 /** Every plan choice contributes to comparison identity; member order does not. */
 export function evaluationComparison(value: unknown): string { return hashJson(parseEvaluationPlan(value) as unknown as JsonValue); }
 /** Return only a certified absence; malformed, denied and incomplete reads propagate. */
@@ -215,7 +221,7 @@ export async function verifyCreatedRecord(client: PmClient, item: GetResult["ite
 /** Complete current sequential lifecycle; every cumulative look seals every candidate collection Run. @internal */
 export function evaluationLifecycleArtifacts(registered: RegisteredEvaluationPlan, runs: readonly string[], looks: number): { id: string; stage: number }[] {
   if (registered.plan.stopping.kind !== "sequential") refuse("eval_plan_stopping");
-  return [{ id: registered.plan.stopping.review, stage: 0 }, { id: registered.id, stage: 1 }, ...runs.map((id) => ({ id, stage: 2 })), { id: registered.plan.candidate, stage: 3 }, ...Array.from({ length: looks }, (_, index) => ({ id: `${registered.id}-look-${index + 1}`, stage: index + 4 }))];
+  return [{ id: registered.plan.stopping.review, stage: 0 }, { id: registered.id, stage: 1 }, ...runs.map((id) => ({ id, stage: 2 })), { id: registered.plan.candidate, stage: 3 }, ...evaluationLookIds(registered.id, looks).map((id, index) => ({ id, stage: index + 4 }))];
 }
 /** Compare durable snapshot timestamps, mutation timestamps and SDK history positions together. @internal */
 export function validateEvaluationTimeline(entries: readonly { stage: number; values: readonly number[] }[]): void {
@@ -520,6 +526,12 @@ export async function readEvaluationDecision(client: PmClient, candidate: string
         if (prospective.id !== resolved || prospective.type !== "Generation" || spec.evaluation_plan !== registered.comparison || prospective.affected_version !== hashJson(generationProvenance(spec))) refuse("eval_plan_drift", resolved);
         projected = prospective;
         await verifyTiming(client, registered, spec, projected);
+        // No result, look or shadow observation can legitimately predate a new
+        // candidate. Read both current and birth state; deleted seals still own
+        // their history stream. These absent slots are fenced through creation.
+        for (const id of evaluationOutcomeIds(registered.plan, registered.id)) {
+          if (await optionalItem(client, id) !== null || await optionalItem(client, id, "1") !== null) refuse("eval_plan_late", id);
+        }
       }
       return { registered, report: null };
     }
@@ -531,7 +543,7 @@ export async function readEvaluationDecision(client: PmClient, candidate: string
       if (latest !== null && "status" in latest) refuse("eval_plan_missing", latest.skipped[0]?.id);
       return { registered, report: latest };
     }
-    const result = await optionalItem(client, `${registered.id}-result`);
+    const result = await optionalItem(client, evaluationOutcomeIds(registered.plan, registered.id)[0]);
     if (result === null) return { registered, report: null };
     const raw = object(storedJson(result.body), ["comparison", "observations"]);
     if (result.type !== "Decision" || raw.comparison !== registered.comparison || result.affected_version !== hashJson(raw as JsonValue)) refuse("eval_plan_drift", result.id);
