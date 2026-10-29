@@ -2,7 +2,7 @@ import { assertJsonEncoding, parseBoundedJson, type JsonEncodingRefusal } from "
 /** Bounded online observation of declarative policies, without candidate execution authority. */
 import type { GetResult, PmClient } from "@unbrained/pm-cli/sdk/core";
 import { createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
-import { canonicalJson, hashJson, extractGenerationSpec, readCompleteLoopItem, type JsonValue } from "./index.ts";
+import { createVerifiedItem, canonicalJson, hashJson, extractGenerationSpec, readCompleteLoopItem, type JsonValue } from "./index.ts";
 import { optionalItem as optional, parseEvaluationPlan, readEvaluationPlan, registerEvaluationPlan, recordPlanEvaluation, evaluatePlan, type EvaluationObservation, type EvaluationPlan, type EvaluationPlanReport } from "./evaluation-plan.ts";
 
 /** A total active decision table; an absent candidate entry is an isolated candidate failure. */
@@ -107,7 +107,7 @@ async function seal(client: PmClient, id: string, value: JsonValue): Promise<voi
   const body = assertJsonEncoding(canonicalJson(value)); const digest = hashJson(value);
   const old = await sealed(client, id);
   if (old !== null) { if (old.body !== body || old.affected_version !== digest) refuse("shadow_drift", id, "body"); return; }
-  try { await client.create({ id, type: "Decision", title: "Bounded shadow observation receipt", body, affectedVersion: digest }); }
+  try { await createVerifiedItem(client, { id, type: "Decision", title: "Bounded shadow observation receipt", body, affectedVersion: digest }); }
   catch (error) { const winner = await sealed(client, id); if (winner === null) throw error; if (winner.body !== body || winner.affected_version !== digest) refuse("shadow_drift", id, "body"); }
 }
 /** Consent is a pre-existing Decision whose entire immutable body approves one deployment digest. */

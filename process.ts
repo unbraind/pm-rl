@@ -11,7 +11,7 @@ import type { WorkspaceTransactionStep, WorkspaceTransactionTransitionContext } 
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { EXIT_CODE, isPmCliExpectedError, certifyCompleteListResult, normalizeItemId } from "@unbrained/pm-cli/sdk/runtime";
 import { banditCheckpoint, MAX_BANDIT_FIT_STEPS, type BanditCheckpoint, type BanditExample, type BanditObservation } from "./bandit.ts";
-import { canonicalJson, commitProcessTransaction, loopProcessStartTime, withProcessJobFence, readCompleteLoopItem, type JsonValue } from "./index.ts";
+import { createVerifiedItem, canonicalJson, commitProcessTransaction, loopProcessStartTime, withProcessJobFence, readCompleteLoopItem, type JsonValue } from "./index.ts";
 import { expectedFail } from "./refuse.ts";
 import { validateLmProcessCheckpoint, type LmProcessPayload } from "./process-lm.ts";
 import { validatePrefixCompletion, type PrefixPayload } from "./prefix.ts";
@@ -292,7 +292,7 @@ export async function reserveProcessJob(client: PmClient, coordinates: ProcessCo
       }
       const job: ProcessJob<TrainerPolicy> = { format: "pm-rl/process-job/1", id, input: processDigest(input), binding: input.identity, approval: approved.id, budget_digest: approved.digest,
         state: "planned", allowance, charge: allowance, settled: false, completion: null, outcome: "reserved" };
-      await client.create({ id, type: "Task", tags: "rl-process-job", title: `Process trainer ${id.slice(-12)}`, body: encodeBoundedJson(job, MAX_TRACKER_RECORD_BYTES) });
+      await createVerifiedItem(client, { id, type: "Task", tags: "rl-process-job", title: `Process trainer ${id.slice(-12)}`, body: encodeBoundedJson(job, MAX_TRACKER_RECORD_BYTES) });
     },
     async compensate() { const job = (await readProcessJob(client, id))!; await client.update(id, { body: encodeBoundedJson({ ...job, state: "failed", settled: true, charge: zeroResources(), outcome: "reservation_compensated" }, MAX_TRACKER_RECORD_BYTES) }); },
   };

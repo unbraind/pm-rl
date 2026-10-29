@@ -3,7 +3,7 @@ import { encodeBoundedJson, parseBoundedJson, type JsonEncodingRefusal } from ".
 import type { GetResult, PmClient } from "@unbrained/pm-cli/sdk/core";
 import { acquireLockLease, createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError, readSettings } from "@unbrained/pm-cli/sdk/runtime";
 import { dirname } from "node:path";
-import { extractGenerationSpec, generationProvenance, hashJson, readCompleteLoopItem, type JsonValue } from "./index.ts";
+import { createVerifiedItem, extractGenerationSpec, generationProvenance, hashJson, readCompleteLoopItem, type JsonValue } from "./index.ts";
 import { decidePromotion, type PromotionCriterion, type PromotionDecision } from "./promotion.ts";
 import { enforceShadowComparison } from "./shadow.ts";
 import { rethrowOperationalRead } from "./refuse.ts";
@@ -199,7 +199,7 @@ async function registerParsedPlan(client: PmClient, plan: EvaluationPlan): Promi
   if (hashJson(generationProvenance(extractGenerationSpec(String(incumbent.body), "Incumbent generation"))) !== version) refuse("eval_plan_drift");
   const id = evaluationPlanId(plan.candidate);
   try {
-    await client.create({ id, title: "Predeclared paired policy evaluation", type: "Plan", body: evaluationPlanBody(plan),
+    await createVerifiedItem(client, { id, title: "Predeclared paired policy evaluation", type: "Plan", body: evaluationPlanBody(plan),
       unset: ["parent", "sprint", "release", "blocked-by"], clearDeps: true, affectedVersion: hashJson({ comparison, incumbent_version: version }), message: "Predeclare fixed cohort evaluation plan" });
   } catch (error) {
     const winner = await readEvaluationPlan(client, plan.candidate);
@@ -355,7 +355,7 @@ async function recordLeasedEvaluation(client: PmClient, candidate: string, input
     await verifyCreatedRecord(client, existing);
     if (existing.type !== "Decision" || existing.body !== body || existing.affected_version !== hashJson(storedJson(body) as JsonValue)) refuse("eval_plan_drift");
   } else {
-    try { await client.create({ id, type: "Decision", title: "Fixed-stop paired evaluation result", body, unset: ["parent", "sprint", "release", "blocked-by"], clearDeps: true, affectedVersion: hashJson(storedJson(body) as JsonValue), message: "Seal predeclared evaluation evidence" }); }
+    try { await createVerifiedItem(client, { id, type: "Decision", title: "Fixed-stop paired evaluation result", body, unset: ["parent", "sprint", "release", "blocked-by"], clearDeps: true, affectedVersion: hashJson(storedJson(body) as JsonValue), message: "Seal predeclared evaluation evidence" }); }
     catch (error) {
       const winner = await optionalItem(client, id);
       if (winner === null || winner.type !== "Decision" || winner.body !== body || winner.affected_version !== hashJson(storedJson(body) as JsonValue)) throw error;

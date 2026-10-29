@@ -1,9 +1,9 @@
 /** Budgeted, deterministic retraining sensitivity; evidence never grants promotion authority. */
 import type { PmClient, GetResult } from "@unbrained/pm-cli/sdk/core";
 import type { HistoryResult } from "@unbrained/pm-cli/sdk/query";
-import { createPmCliExpectedError, EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
+import { createPmCliExpectedError, normalizeItemId, EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
 import { banditCheckpoint, banditItemRewards, executeBanditStep, validatedBanditDatasets, type BanditCheckpoint, type BanditExample } from "./bandit.ts";
-import { canonicalJson, createOrReadIdentical, hashJson, readCompleteLoopItem, type JsonValue } from "./index.ts";
+import { canonicalJson, orderedHistoryEntries, createOrReadIdentical, hashJson, readCompleteLoopItem, type JsonValue } from "./index.ts";
 import { encodeBoundedJson, MAX_TRACKER_RECORD_BYTES, parseBoundedJson } from "./tracker-record.ts";
 import { parseLoopConfig } from "./loop.ts";
 
@@ -188,11 +188,16 @@ export function summarizeTrainingInfluence(report: TrainingInfluenceReport) {
     omitted: array(report.omitted, 16, 0).map((entry) => { const row = object(entry, ["slice", "reason"]); requireShape(typeof row.reason === "string" && ["fit_budget", "sample_budget", "update_budget"].includes(row.reason)); return { slice: name(row.slice), reason: row.reason as string }; }),
     spent: { fits: number(report.spent.fits, 0, 17), samples: number(report.spent.samples, 0, 100_000), updates: number(report.spent.updates, 0, 4352) } };
 }
+/** One ownership contract governs producer read-back and historical consumers. */
+function ownedRecord(item: GetResult["item"]): void {
+  if (item.type !== "Decision" || !item.tags?.includes("rl-training-influence")) refuse("influence_foreign");
+}
 /** Compare both encodings through the same JSON value representation; cosmetic transport changes are safe. */
 function matchingRecord(item: GetResult["item"], body: string, digest: string): true {
+  ownedRecord(item);
   let matches = false;
   try { matches = canonicalJson(parseBoundedJson(String(item.body)) as JsonValue) === canonicalJson(parseBoundedJson(body) as JsonValue); } catch { refuse("influence_foreign"); }
-  if (!matches || item.affected_version !== digest || !item.tags?.includes("rl-training-influence")) refuse("influence_foreign");
+  if (!matches || item.affected_version !== digest) refuse("influence_foreign");
   return true;
 }
 /** Persist one immutable result. Native SDK create arbitrates peers; no workspace-lock isolation claim. */
@@ -209,17 +214,19 @@ export async function recordTrainingInfluence(client: PmClient, value: unknown):
 /** Read one native revision and certify its history before replay; foreign data is never overwritten. */
 export async function readTrainingInfluence(client: PmClient, id: string, at?: string): Promise<{ id: string; at: string; report: TrainingInfluenceReport }> {
   const history = await client.run("history", { id, options: { compact: true, verify: true, outputLimit: "unbounded", outputBudget: "unbounded" } }) as HistoryResult;
-  if (!history.verification?.ok || history.limit !== null || history.compact_history?.length !== history.count) refuse("influence_drift");
-  const latest = history.compact_history.at(-1)!;
+  const latest = orderedHistoryEntries(history, "influence_drift").at(-1)!;
   const coordinate = at ?? String(latest.version ?? latest.index);
   const result = await readCompleteLoopItem(client, id, coordinate);
   const item = result.item;
-  if (item.type !== "Decision" || !item.tags?.includes("rl-training-influence")) refuse("influence_foreign");
+  ownedRecord(item);
   let decoded: unknown;
   try { decoded = parseBoundedJson(String(item.body)); } catch { return refuse("influence_foreign"); }
   const row = object(decoded, ["format", "id", "request", "report"]);
   const report = replayTrainingInfluence(row.request, row.report);
-  if (row.format !== "pm-rl/training-influence-record/1" || row.id !== `training-influence-${report.digest}` || !String(item.id).endsWith(`-${row.id}`) || item.affected_version !== report.digest) refuse("influence_foreign");
+  const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
+  if (row.format !== "pm-rl/training-influence-record/1" || row.id !== `training-influence-${report.digest}` || item.id !== normalizeItemId(`training-influence-${report.digest}`, prefix) || item.affected_version !== report.digest) refuse("influence_foreign");
+  // Historical replay does not establish the current native envelope. Latest reads must certify both.
+  if (at === undefined) matchingRecord((await readCompleteLoopItem(client, id)).item, String(item.body), report.digest);
   return { id: item.id, at: coordinate, report };
 }
 /** Reuse the same compact projection in proposal production and validation. */

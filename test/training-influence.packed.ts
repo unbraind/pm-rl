@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { init } from "@unbrained/pm-cli/sdk/runtime";
@@ -10,14 +10,16 @@ import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import type { JsonValue } from "../index.ts";
 import type { TrainingInfluenceRequest } from "../training-influence.ts";
 
-const [archiveInput, output] = process.argv.slice(2); const archive = resolve(archiveInput);
+const [archiveInput, output] = process.argv.slice(2);
 const scratch = mkdtempSync(join(tmpdir(), "rl-influence-packed-"));
+// Literal shell syntax must remain part of the filename in all five installed-consumer routes.
+const archive = join(scratch, "artifact $(touch injected); literal.tgz"); copyFileSync(resolve(archiveInput), archive);
 const clean: NodeJS.ProcessEnv = { ...process.env, NPM_CONFIG_USERCONFIG: "/dev/null", npm_config_userconfig: "/dev/null", PM_AUTHOR: "influence-packed" };
 for (const key of Object.keys(clean)) if (/TOKEN|SECRET|PASSWORD|CREDENTIAL|API_KEY|AUTH/i.test(key) && key !== "PM_AUTHOR") delete clean[key];
 delete clean.PM_PATH; delete clean.NODE_V8_COVERAGE; delete clean.NPM_MEDIA_SERVER;
 /** Execute a trusted install or host command without exposing inherited credentials or full process output. */
 function execute(command: string, args: string[], cwd: string, extra: NodeJS.ProcessEnv = {}): string {
-  return execFileSync(command, args, { cwd, env: { ...clean, ...extra }, encoding: "utf8", timeout: 180_000, maxBuffer: 8_388_608 });
+  return execFileSync(command, args, { shell: false, cwd, env: { ...clean, ...extra }, encoding: "utf8", timeout: 180_000, maxBuffer: 8_388_608 });
 }
 const bun = execute("sh", ["-c", "command -v bun"], scratch).trim();
 const npx = execute("sh", ["-c", "command -v npx"], scratch).trim();
@@ -41,7 +43,8 @@ for (const mode of ["npm-global", "bun-global", "npx", "bunx", "project-local"])
     launcher = join(root, "node_modules", ".bin", "pm");
   } else if (mode === "npx") { launcher = npx; prefixArgs = ["--yes", "--package=@unbrained/pm-cli@2026.10.28", "pm"]; }
   else { launcher = bun; prefixArgs = ["x", "--package", "@unbrained/pm-cli@2026.10.28", "pm"]; }
-  const tracker = await init("rl", { defaults: true, author: "influence-packed", agentGuidance: "skip" }, { cwd: root });
+  const project = mode === "npm-global" ? "training" : mode === "bun-global" ? "training-influence" : "rl";
+  const tracker = await init(project, { defaults: true, author: "influence-packed", agentGuidance: "skip" }, { cwd: root });
   extra = { ...extra, PM_PATH: tracker.path, GIT_CEILING_DIRECTORIES: dirname(root) };
   /** All routes exercise the exact extension tarball, with the host supplied by the selected installation mode. */
   const command = (args: string[]): string => execute(launcher, [...prefixArgs, ...args], root, extra);
@@ -64,9 +67,25 @@ for (const mode of ["npm-global", "bun-global", "npx", "bunx", "project-local"])
   const partial = JSON.parse(command(["rl", "influence", "run", "--file", file, "--json"])) as { details: { complete: boolean; ranking: unknown; omitted: unknown[] } };
   assert.equal(partial.details.complete, false); assert.equal(partial.details.ranking, null); assert.equal(partial.details.omitted.length, 2);
   const client = new PmClient({ cwd: root, pmRoot: tracker.path, noExtensions: true });
+  const projectPrefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
   const stored = (await client.get(run.details.id, { full: true })).item;
   assert.ok(String(stored.body).includes('"checkpoint"')); assert.equal(stored.parent, undefined);
-  results.push({ mode, host: "2026.10.28", comparisons: run.details.comparisons.length, json_bytes: Buffer.byteLength(json), toon_bytes: Buffer.byteLength(toon), retry_created: false, partial_omitted: partial.details.omitted.length, no_git: true, proposal_feedback: true });
+  await client.update(run.details.id, { type: "Task" });
+  for (const format of [[], ["--json"]]) for (const args of [["run", "--file", file], ["show", run.details.id], ["propose", run.details.id, "--file", next, "--output", join(root, "foreign-proposal.json")]]) {
+    // Restore the original input before retrying the foreign report identity.
+    writeFileSync(file, JSON.stringify(input));
+    assert.throws(() => command(["rl", "influence", ...args, ...format]), (error: unknown) => {
+      assert.ok(error instanceof Error && "stdout" in error && "stderr" in error);
+      const diagnostic = String(error.stdout) + String(error.stderr);
+      assert.match(diagnostic, /fresh report/);
+      if (format.length) assert.match(diagnostic, /influence_foreign/);
+      return true;
+    });
+  }
+  assert.equal((await client.get(run.details.id, { full: true })).item.type, "Task");
+  assert.equal(existsSync(join(root, "foreign-proposal.json")), false);
+  assert.equal(existsSync(join(root, "injected")), false);
+  results.push({ project_prefix: projectPrefix, foreign_refusals: 6, shell_metacharacter_path: true, mode, host: "2026.10.28", comparisons: run.details.comparisons.length, json_bytes: Buffer.byteLength(json), toon_bytes: Buffer.byteLength(toon), retry_created: false, partial_omitted: partial.details.omitted.length, no_git: true, proposal_feedback: true });
   process.stdout.write(`${mode}: passed\n`);
 }
 const bytes = readFileSync(archive);

@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import type { HistoryResult } from "@unbrained/pm-cli/sdk/query";
 import { decodeTrackerRecord, skippedTrackerRecords, parseBoundedJson, encodeBoundedJson, MAX_JSON_BYTES, MAX_TRACKER_RECORD_BYTES } from "./tracker-record.ts";
 /**
@@ -763,6 +764,50 @@ export async function readCompleteLoopItem(client: PmClient, id: string, at?: st
   return result as GetResult;
 }
 
+/**
+ * Validate a complete certified history and order its SDK durable coordinates explicitly.
+ * CLI/SDK versions differ in presentation order; physical array positions are never revision identities.
+ * @param history - Unbounded verified SDK compact-history result.
+ * @param code - Domain refusal code for incomplete or invalid coordinates.
+ * @returns A fresh array ordered from earliest to latest durable revision.
+ * @internal
+ */
+export function orderedHistoryEntries(history: HistoryResult, code: string): NonNullable<HistoryResult["compact_history"]> {
+  if (!history.verification?.ok || history.limit !== null || !Array.isArray(history.compact_history) || history.compact_history.length !== history.count || history.count < 1) {
+    fail("History is incomplete or uncertified. Restore certified history or use a fresh report and retry.", code, EXIT_CODE.CONFLICT);
+  }
+  const coordinates = new Set<number>();
+  for (const row of history.compact_history) {
+    const coordinate = row?.version ?? row?.index;
+    if (!Number.isSafeInteger(coordinate) || coordinate < 1 || coordinates.has(coordinate)) fail("History has invalid or repeated revision coordinates. Restore certified history or use a fresh report and retry.", code, EXIT_CODE.CONFLICT);
+    coordinates.add(coordinate);
+  }
+  return [...history.compact_history].sort((left, right) => (left.version ?? left.index) - (right.version ?? right.index));
+}
+
+/**
+ * Create through the SDK and certify the observed native envelope against its birth revision.
+ *
+ * All package producers share this postcondition, including CLI-only recorders.
+ * SDK read-back supplies normalization; mutable titles/status annotations are not identity.
+ * Ordinary writers can still change the item after the final read; this is detection, not isolation.
+ * @param client - Target workspace SDK client.
+ * @param options - Native create envelope.
+ * @param code - Domain refusal code for a changed or foreign record.
+ * @returns Native creation receipt after validating the freshly observed item.
+ * @internal
+ */
+export async function createVerifiedItem(client: PmClient, options: Parameters<PmClient["create"]>[0], code = "record_write_drift"): Promise<Awaited<ReturnType<PmClient["create"]>>> {
+  const created = await client.create(options);
+  const fields = ["id", "type", "created_at", "body", "tags", "affected_version", "fixed_version", "component", "environment", "parent", "goal", "objective", "sprint", "release", "assignee", "reviewer", "blocked_by", "dependencies"] as const;
+  const birth = await readCompleteLoopItem(client, created.item.id, "1", fields.join(","));
+  const current = await readCompleteLoopItem(client, created.item.id, undefined, fields.join(","));
+  if (fields.some((field) => !isDeepStrictEqual(birth.item[field], current.item[field]))) {
+    fail("Native record changed after creation. Read the current target and retry with a fresh report or identity; peer data was retained.", code, EXIT_CODE.CONFLICT);
+  }
+  return created;
+}
+
 /** Apply a read-derived change through the SDK item transaction, refusing a stale revision under its item lock. @internal */
 export async function mutateLoopItem(client: PmClient, before: GetResult, message: string, change: (document: ItemDocument, closeStatus: string, terminal: boolean) => string[], preconditions: readonly GetResult[] = [], author = "pm-rl", op: "update" | "close" = "update"): Promise<GetResult> {
   const config = await client.config("project", "get", "id_prefix");
@@ -899,9 +944,9 @@ async function readCompleteNotes(client: PmClient, id: string): Promise<LogNote[
 export async function createOrReadIdentical(client: PmClient, options: Parameters<PmClient["create"]>[0] & { id: string; type: "Decision" | "Environment" | "Run" | "Generation" }, collisionCode: string, matches: (item: GetResult["item"]) => boolean): Promise<{ item: GetResult["item"]; created: boolean }> {
   /** Read and validate the winner at either the initial read or collision boundary. */
   async function readMatching(): Promise<GetResult["item"]> {
-    const existing = await getTypedItem(client, options.id, options.type);
-    if (!matches(existing.item)) {
-      fail(`${options.type} id ${options.id} already exists with a different specification hash or provenance content.`, collisionCode, EXIT_CODE.CONFLICT);
+    const existing = await readCompleteLoopItem(client, options.id);
+    if (existing.item.type !== options.type || !matches(existing.item)) {
+      fail(`${options.type} id ${options.id} already exists with a different type, specification hash or provenance content. Read the current target and use a fresh report or identity.`, collisionCode, EXIT_CODE.CONFLICT);
     }
     return existing.item;
   }
@@ -911,7 +956,7 @@ export async function createOrReadIdentical(client: PmClient, options: Parameter
     if (!isItemNotFound(error)) throw error;
   }
   try {
-    return { item: (await client.create(options)).item, created: true };
+    return { item: (await createVerifiedItem(client, options, collisionCode)).item, created: true };
   } catch (error) {
     if (!isPmCliExpectedError(error) || error.exitCode !== EXIT_CODE.CONFLICT || !/^Item "[^"]+" already exists$/.test(error.message)) throw error;
     const item = await readMatching();
@@ -1304,7 +1349,7 @@ async function registerBenchmark(context: CommandHandlerContext): Promise<RlComm
   } catch (error) {
     if (!isItemNotFound(error)) throw error;
   }
-  const result = await client.create({
+  const result = await createVerifiedItem(client, {
     id: requestedId,
     title: `${spec.name} ${spec.version}`,
     type: "Benchmark",
@@ -1359,7 +1404,7 @@ async function recordEvalResult(context: CommandHandlerContext): Promise<RlComma
   if (existingEval !== undefined) {
     return { action: "rl-eval-record", id: String(existingEval.item.id), created: false, details: spec as unknown as Readonly<Record<string, unknown>> };
   }
-  const result = await client.create({
+  const result = await createVerifiedItem(client, {
     id: requestedId,
     title: `${benchmark.spec.name} ${benchmark.spec.version}: ${checkpoint}`,
     type: "EvalResult",
@@ -1627,7 +1672,7 @@ async function recordEpisode(context: CommandHandlerContext): Promise<RlCommandR
   if (existingEpisode !== undefined) {
     return { action: "rl-episode-record", id: String(existingEpisode.item.id), created: false, details: episodeDetails(spec, verified.id) };
   }
-  const result = await client.create({
+  const result = await createVerifiedItem(client, {
     id: requestedId,
     title: `Gates ${verified.spec.name} ${verified.spec.version}: ${(candidateTree ?? patchHash!)!.slice(0, 16)}`,
     type: "GateEpisode",
@@ -1743,7 +1788,7 @@ async function recordOutcome(context: CommandHandlerContext): Promise<RlCommandR
   if (existingOutcome !== undefined) {
     return { action: "rl-outcome-record", id: String(existingOutcome.item.id), created: false, details: spec as unknown as Readonly<Record<string, unknown>> };
   }
-  const result = await client.create({
+  const result = await createVerifiedItem(client, {
     id: requestedId,
     title: `Merge outcome: ${pullRequest}`,
     type: "MergeOutcome",
@@ -3068,7 +3113,7 @@ async function acquireControllerLease(client: PmClient, coordinates: WorkspaceCo
         const owner = hashJson(realpathSync(resolve(coordinates.pmRoot)));
         const previous = await authority.get(launchId).catch((error: unknown) => isItemNotFound(error) ? null : Promise.reject(error));
         if (previous === null) {
-          await authority.create({ id: launchId, type: "Decision", title: `Loop ${id} launch authority`, body: owner });
+          await createVerifiedItem(authority, { id: launchId, type: "Decision", title: `Loop ${id} launch authority`, body: owner });
         } else if (String(previous.item.body) !== owner) {
           const comments = await readLoopComments(client, seedId).catch((error: unknown) => isItemNotFound(error) ? [] : Promise.reject(error));
           if (!comments.some((comment) => comment.text.startsWith(`Loop ${id} terminal report:`))) {
@@ -3421,14 +3466,14 @@ async function durableLoopStep(client: PmClient, lease: ControllerLease, id: str
     const running = { format: "pm-rl/loop-step/1", key, input: hashJson(input), state: "running" };
     // Outer phase cards must fit before the first receipt/history write.
     const intent = { id: key, type: "Decision" as const, title: `Loop step ${phase} for ${id}`, tags: "rl-loop-step", body: encodeBoundedJson(running, MAX_TRACKER_RECORD_BYTES) };
-    const item = existing ?? (cards || phase === "promote" ? null : await client.create(intent));
+    const item = existing ?? (cards || phase === "promote" ? null : await createVerifiedItem(client, intent));
     const before = item === null ? null : existing ?? await readCompleteLoopItem(client, String(item.item.id));
     const winner = await readLoopStep(client, id, phase, input, before);
     if (winner !== null) return { value: winner, executed: false };
     const value = await execute();
     const body = encodeBoundedJson({ ...running, state: "complete", result: value, digest: hashJson(value) }, MAX_TRACKER_RECORD_BYTES);
     if (cards) await validatePolicyCardWrite(client, { ...intent, body }, true);
-    if (item === null) await client.create({ ...intent, body });
+    if (item === null) await createVerifiedItem(client, { ...intent, body });
     else {
       await mutateLoopItem(client, before!, "Complete durable loop receipt", (document) => { document.body = body; return ["body"]; }, [], lease.author);
     }
@@ -3842,8 +3887,7 @@ function terminalPromotionRefusal(error: PmCliExpectedError): boolean {
 /** Read the author of the first certified promoted version, independent of later annotations. */
 async function promotionAuthor(client: PmClient, id: string): Promise<string> {
   const history = await client.run("history", { id, options: { compact: true, verify: true, outputLimit: "unbounded", outputBudget: "unbounded" } }) as HistoryResult;
-  if (!history.verification?.ok || history.limit !== null || history.compact_history?.length !== history.count) fail("Promotion history is incomplete.", "loop_history_incomplete", EXIT_CODE.CONFLICT);
-  for (const row of history.compact_history) {
+  for (const row of orderedHistoryEntries(history, "loop_history_incomplete")) {
     const item = await readCompleteLoopItem(client, id, String(row.version ?? row.index));
     if (extractGenerationSpec(String(item.item.body), "Promotion attribution").promoted) return row.author;
   }
@@ -4952,7 +4996,7 @@ async function planSweep(context: CommandHandlerContext): Promise<RlCommandResul
   try {
     for (const [index, config] of configs.entries()) {
       const armId = armIds[index]!;
-      const result = await client.create({
+      const result = await createVerifiedItem(client, {
         id: armId,
         title: armId,
         type: "Run",
@@ -4992,7 +5036,7 @@ async function planSweep(context: CommandHandlerContext): Promise<RlCommandResul
   // then let the original cause surface.
   let sweepResult;
   try {
-    sweepResult = await client.create({
+    sweepResult = await createVerifiedItem(client, {
       id: requestedId,
       title: requestedId,
       type: "Sweep",
@@ -5112,7 +5156,7 @@ async function recordTransfer(context: CommandHandlerContext): Promise<RlCommand
     run_id: resolvedRunId,
     gaps,
   };
-  const result = await client.create({
+  const result = await createVerifiedItem(client, {
     id: requestedId,
     title: `Sim-to-real gap at ${checkpoint.slice(0, 16)}`,
     type: "Transfer",

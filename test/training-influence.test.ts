@@ -1,17 +1,19 @@
 /** Fixed-seed sensitivity, strict boundaries and real SDK model/interleaving tests without Git. */
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, test } from "node:test";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import type { HistoryResult } from "@unbrained/pm-cli/sdk/query";
 import { parseTags } from "@unbrained/pm-cli/sdk";
-import { init, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
+import { init, normalizeItemId, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import extension, { runRlLoop, readCompleteLoopItem, extractGenerationSpec, type JsonValue, type RlCommandResult } from "../index.ts";
+import extension, { createVerifiedItem, orderedHistoryEntries, hashJson, generationProvenance, runRlLoop, readCompleteLoopItem, extractGenerationSpec, type JsonValue, type RlCommandResult } from "../index.ts";
 import { parseLoopConfig, generationTrainingConfig, seedTrainingConfig, runLoopGeneration } from "../loop.ts";
 import { parseTrainingInfluence, measureTrainingInfluence, replayTrainingInfluence, recordTrainingInfluence, readTrainingInfluence, attachTrainingInfluence, summarizeTrainingInfluence, verifyTrainingInfluenceProposal, type TrainingInfluenceRequest } from "../training-influence.ts";
+import { recordPolicyCard, recordRecursivePolicyCards, discoverPolicyCards } from "../policy-card.ts";
+import type { GenerationSpec } from "../lineage.ts";
 import { banditCheckpoint } from "../bandit.ts";
 
 const roots: string[] = [];
@@ -27,10 +29,10 @@ function request(seed = 42): TrainingInfluenceRequest {
 /** All refusals carry a stable recovery code and a concrete remedy. */
 function refused(code: string) { return (error: unknown): boolean => isPmCliExpectedError(error) && error.context.code === code && /fresh report/.test(error.message); }
 /** Real plain-directory tracker; ceiling prevents Git discovery above it. */
-async function workspace() {
+async function workspace(prefix = "rl") {
   const root = mkdtempSync(join(tmpdir(), "rl-influence-")); roots.push(root);
   process.env.GIT_CEILING_DIRECTORIES = dirname(root);
-  const tracker = await init("rl", { defaults: true, author: "influence-test", agentGuidance: "skip" }, { cwd: root });
+  const tracker = await init(prefix, { defaults: true, author: "influence-test", agentGuidance: "skip" }, { cwd: root });
   const client = new PmClient({ cwd: root, pmRoot: tracker.path, author: "influence-test", noExtensions: true });
   return { root, pmRoot: tracker.path, client };
 }
@@ -190,7 +192,7 @@ test("peer creation and edits are reconciled at every native SDK read/write boun
   function advanceBoundary(): number { boundary.count += 1; return boundary.count; }
   /** Reset only after the preceding SDK invocation and injected writer have settled. */
   function resetBoundary(): void { boundary.count = 0; }
-  for (const method of ["get", "create", "run"] as const) {
+  for (const method of ["get", "create", "run", "config"] as const) {
     const original = w.client[method].bind(w.client);
     Reflect.set(w.client, method, async (...args: Parameters<typeof original>) => {
       let value: unknown;
@@ -224,12 +226,137 @@ test("peer creation and edits are reconciled at every native SDK read/write boun
   }
 });
 
+test("every producer certifies native type and provenance after creation through SDK birth read-back", async () => {
+  const w = await workspace(); const peer = new PmClient({ cwd: w.root, pmRoot: w.pmRoot, author: "native-peer", noExtensions: true });
+  const original = w.client.create.bind(w.client);
+  const changes = [{ type: "Task" }, { body: "Peer body" }, { affectedVersion: "peer" }, { tags: "foreign" }, { parent: "rl-parent" }, { dep: ["id=rl-parent,kind=related"] }];
+  await peer.create({ id: "parent", type: "Task", title: "Peer parent", unset: ["parent"] });
+  for (const [index, change] of changes.entries()) {
+    Reflect.set(w.client, "create", async (...args: Parameters<typeof original>) => {
+      const created = await original(...args); await peer.update(created.item.id, change); return created;
+    });
+    await assert.rejects(createVerifiedItem(w.client, { id: `native-${index}`, type: "Decision", title: "Immutable producer", body: "Original", affectedVersion: "original", tags: "owned", unset: ["parent"] }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "record_write_drift");
+    const current = (await peer.get(`native-${index}`, { full: true })).item;
+    assert.equal(current.type, change.type ?? "Decision");
+    assert.equal(current.body, change.body ?? "Original");
+  }
+  Reflect.set(w.client, "create", original);
+  // Guard every production entry point, including CLI-only/native plan writers, against bypassing the tested contract.
+  for (const file of readdirSync(new URL("..", import.meta.url)).filter((name) => name.endsWith(".ts"))) {
+    const source = readFileSync(new URL(`../${file}`, import.meta.url), "utf8");
+    let callers = source;
+    if (file === "index.ts") for (const name of ["createVerifiedItem", "orderedHistoryEntries"]) {
+      const start = callers.indexOf(`export ${name === "createVerifiedItem" ? "async " : ""}function ${name}(`);
+      assert.ok(start >= 0);
+      const end = callers.indexOf("\n}\n", start); assert.ok(end > start);
+      callers = callers.slice(0, start) + callers.slice(end + 3);
+    }
+    assert.doesNotMatch(callers, /await \w+\.create\(/, `${file}: native producers must use SDK read-back`);
+    assert.doesNotMatch(callers, /\.compact_history\b/, `${file}: history consumers must use certified durable ordering`);
+  }
+});
+
+test("history order is irrelevant across 500 seeded native revision permutations", async () => {
+  const { client } = await workspace(); const saved = await recordTrainingInfluence(client, request(4001));
+  for (let revision = 0; revision < 6; revision += 1) await client.update(saved.id, { title: `Annotation ${revision}` });
+  const history = await client.run("history", { id: saved.id, options: { compact: true, verify: true, outputLimit: "unbounded", outputBudget: "unbounded" } }) as HistoryResult;
+  const entries = history.compact_history!; const rng = random(0x7e51);
+  const expected = Array.from({ length: 7 }, (_, index) => index + 1);
+  for (let seed = 0; seed < 500; seed += 1) {
+    const rows = [...entries];
+    for (let index = rows.length - 1; index > 0; index -= 1) { const other = rng() % (index + 1); [rows[index], rows[other]] = [rows[other], rows[index]]; }
+    assert.deepEqual(orderedHistoryEntries({ ...history, compact_history: rows }, "influence_drift").map((row) => row.version ?? row.index), expected);
+  }
+  for (const rows of [[], [entries[0], entries[0]], [undefined], [{ ...entries[0], version: Infinity }], [{ ...entries[0], version: 0 }]]) {
+    await assert.rejects(async () => orderedHistoryEntries({ ...history, count: rows.length, compact_history: rows } as HistoryResult, "influence_drift"), refused("influence_drift"));
+  }
+  const run = client.run.bind(client);
+  Reflect.set(client, "run", async (...args: Parameters<typeof run>) => {
+    const result = await run(...args);
+    return args[0] === "history" ? { ...result as HistoryResult, compact_history: [...(result as HistoryResult).compact_history!].reverse() } : result;
+  });
+  const replayed = await readTrainingInfluence(client, saved.id);
+  assert.equal(replayed.at, "7"); assert.deepEqual(replayed.report, saved.report);
+  assert.equal((await readTrainingInfluence(client, saved.id, "1")).at, "1");
+  const get = client.get.bind(client); let changed = false;
+  Reflect.set(client, "get", async (...args: Parameters<typeof get>) => {
+    const result = await get(...args);
+    if (args[1]?.at === "7" && !changed) { changed = true; await client.update(saved.id, { type: "Task" }); }
+    return result;
+  });
+  await assert.rejects(readTrainingInfluence(client, saved.id), refused("influence_foreign"));
+  assert.equal((await get(saved.id, { full: true })).item.type, "Task");
+});
+
+test("retained policy-card ownership agrees across producers, preflights and consumers", async () => {
+  const { client } = await workspace(); await client.schemaAddType("Generation", { folder: "generations", defaultStatus: "open" });
+  const spec: GenerationSpec = { base_checkpoint: "checkpoint", policy: "", collection_runs: [], training_config: { samples: 10 }, environment_version: "", reward_spec_version: "", parent: null, seed: true, promoted: false, approval: null, proxy_score: null, held_out_score: null, gap: null, promotion_evidence: null };
+  await client.create({ id: "card-seed", type: "Generation", title: "Owned source", body: `\`\`\`json\n${JSON.stringify(spec)}\n\`\`\``, affectedVersion: hashJson(generationProvenance(spec)), unset: ["parent"] });
+  const card = await recordPolicyCard(client, "card-seed"); const id = `policy-card-${card.digest}`;
+  const native = (await client.get(id, { full: true })).item;
+  for (const change of [{ type: "Task" }, { tags: "foreign" }, { affectedVersion: "foreign" }, { body: "Foreign body" }]) {
+    await client.update(id, change);
+    assert.equal((await discoverPolicyCards(client)).length, 0);
+    const typed = (error: unknown): boolean => isPmCliExpectedError(error) && error.context.code === "card_drift";
+    await assert.rejects(recordPolicyCard(client, "card-seed"), typed);
+    await assert.rejects(recordRecursivePolicyCards(client, "card-seed"), typed);
+    await client.update(id, { type: "Decision", tags: "rl-policy-card", affectedVersion: card.digest, body: String(native.body) });
+  }
+  assert.equal((await discoverPolicyCards(client)).length, 1);
+  assert.equal((await recordPolicyCard(client, "card-seed")).digest, card.digest);
+});
+
+test("influence ownership stays consistent after a peer changes every persistence boundary", async () => {
+  const w = await workspace(); const peer = new PmClient({ cwd: w.root, pmRoot: w.pmRoot, author: "influence-peer", noExtensions: true });
+  const originalCreate = w.client.create.bind(w.client); const originalGet = w.client.get.bind(w.client);
+  let calls = 0; let injectAt = -1; let inject: (() => Promise<void>) | undefined;
+  // Check before every SDK read and immediately after native creation, including the originally missed race.
+  Reflect.set(w.client, "create", async (...args: Parameters<typeof originalCreate>) => {
+    const result = await originalCreate(...args); if (++calls === injectAt) await inject!(); return result;
+  });
+  Reflect.set(w.client, "get", async (...args: Parameters<typeof originalGet>) => {
+    if (++calls === injectAt) await inject!(); return originalGet(...args);
+  });
+  await recordTrainingInfluence(w.client, request(3999)); const boundaries = calls;
+  for (let boundary = 1; boundary <= boundaries; boundary += 1) for (const field of ["type", "body", "tags", "affectedVersion"] as const) {
+    const input = request(3000 + boundary * 10 + ["type", "body", "tags", "affectedVersion"].indexOf(field));
+    const id = `rl-training-influence-${measureTrainingInfluence(input).digest}`;
+    const change = field === "type" ? { type: "Task" } : field === "body" ? { body: "Foreign body" } : field === "tags" ? { tags: "foreign" } : { affectedVersion: "foreign" };
+    inject = async () => { await recordTrainingInfluence(peer, input); await peer.update(id, change); };
+    calls = 0; injectAt = boundary;
+    await assert.rejects(recordTrainingInfluence(w.client, input), refused("influence_foreign"), `${boundary}/${field}`);
+    assert.ok(calls >= boundary); injectAt = -1;
+    const foreign = (await peer.get(id, { full: true })).item;
+    assert.equal(foreign.type, field === "type" ? "Task" : "Decision");
+    assert.equal(foreign.body === "Foreign body", field === "body");
+    await assert.rejects(readTrainingInfluence(peer, id));
+    await assert.rejects(attachTrainingInfluence(peer, programme(input), id));
+  }
+});
+
+test("native project prefixes round-trip through SDK identity even when they overlap the report name", async () => {
+  for (const [index, project] of ["rl", "training", "training-influence", "slice"].entries()) {
+    const { client } = await workspace(project); const input = request(6100 + index);
+    const saved = await recordTrainingInfluence(client, input);
+    const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
+    assert.equal(saved.id, normalizeItemId(`training-influence-${saved.report.digest}`, prefix));
+    assert.deepEqual((await readTrainingInfluence(client, saved.id)).report, saved.report);
+    assert.equal((await recordTrainingInfluence(client, input)).created, false);
+    await verifyTrainingInfluenceProposal(client, await attachTrainingInfluence(client, programme(input), saved.id));
+    const native = (await client.get(saved.id, { full: true })).item;
+    const foreign = await client.create({ id: `unexpected-training-influence-${saved.report.digest}`, type: "Decision", title: "Foreign native identity", body: String(native.body), tags: "rl-training-influence", affectedVersion: saved.report.digest, unset: ["parent"] });
+    await assert.rejects(readTrainingInfluence(client, foreign.item.id), refused("influence_foreign"));
+  }
+});
+
 test("foreign or corrupted named records refuse alone and cannot alter unrelated evidence", async () => {
   const { client, pmRoot } = await workspace(); const p = request(8675309);
   const saved = await recordTrainingInfluence(client, p); const native = (await client.get(saved.id, { full: true })).item;
   const row = JSON.parse(String(native.body)) as Record<string, unknown>;
   await client.create({ id: "foreign-task", type: "Task", title: "Foreign task", unset: ["parent"] });
   await assert.rejects(readTrainingInfluence(client, "foreign-task"), refused("influence_foreign"));
+  await client.create({ id: "foreign-decision", type: "Decision", title: "Unowned decision", body: String(native.body), affectedVersion: saved.report.digest, unset: ["parent"] });
+  await assert.rejects(readTrainingInfluence(client, "foreign-decision"), refused("influence_foreign"));
   for (const patch of [{ format: "foreign" }, { id: "foreign" }, { report: { digest: "wrong" } }]) {
     await client.update(saved.id, { body: JSON.stringify({ ...row, ...patch }) });
     await assert.rejects(readTrainingInfluence(client, saved.id), (error: unknown) => isPmCliExpectedError(error));
