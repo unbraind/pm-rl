@@ -422,6 +422,37 @@ test("unreadable stores, invalid incumbents and divergent concurrent writes fail
   await assert.rejects(readEvaluationPlan(w.client, "rl-candidate"), refusal("eval_plan_drift"));
 });
 
+test("native result peer writes reconcile success and refuse every incompatible winner after a local SDK failure", async () => {
+  const w = await workspace();
+  const peer = new PmClient({ cwd: w.root, pmRoot: w.pmRoot, author: "native-result-peer", noExtensions: true });
+  const create = w.client.create.bind(w.client);
+  for (const outcome of ["same", "absent", "foreign-type", "different-body", "different-version"] as const) {
+    w.client.create = create;
+    const p = plan({ candidate: `rl-native-${outcome}` });
+    const registered = await registerEvaluationPlan(w.client, p);
+    await generation(w.client, p.candidate, spec("rl-seed", [`${p.candidate}-collection`]));
+    const input = observations(p);
+    let attempts = 0; let nativeFailure: unknown;
+    w.client.create = (async (options) => {
+      assert.ok(options);
+      attempts += 1;
+      if (outcome !== "absent") await peer.create({ ...options,
+        type: outcome === "foreign-type" ? "Task" : options.type,
+        body: outcome === "different-body" ? JSON.stringify({ comparison: registered.comparison, observations: input.map((row) => ({ ...row, candidate: 0.9 })) }) : options.body,
+        affectedVersion: outcome === "different-version" ? "foreign" : options.affectedVersion });
+      // A real invalid-ID SDK refusal forces reconciliation even if identical creates become idempotent.
+      try { return await create({ ...options, id: " " }); }
+      catch (error) { nativeFailure = error; throw error; }
+    }) as PmClient["create"];
+    if (outcome === "same") {
+      assert.deepEqual(await recordPlanEvaluation(w.client, p.candidate, input), evaluatePlan(p, input));
+      const result = (await readCompleteLoopItem(peer, `${registered.id}-result`)).item;
+      assert.deepEqual(result, (await readCompleteLoopItem(peer, result.id, "1")).item);
+    } else await assert.rejects(recordPlanEvaluation(w.client, p.candidate, input), (error: unknown) => error === nativeFailure && isPmCliExpectedError(error));
+    assert.equal(attempts, 1); assert.ok(isPmCliExpectedError(nativeFailure));
+  }
+});
+
 test("generation comparison pins survive parsing and reject malformed or changed plan identities", async () => {
   for (const value of [null, "", "wrong", 7]) assert.throws(() => extractGenerationSpec(`\`\`\`json\n${JSON.stringify({ ...spec(), evaluation_plan: value })}\n\`\`\``, "Generation"), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "invalid_evaluation_plan");
   const w = await workspace(); await registerEvaluationPlan(w.client, plan());

@@ -183,16 +183,17 @@ test("readable legacy plans retain exact serialization and native competing writ
   const plan = parseEvaluationPlan({ ...old, incumbent_version: hashJson(generationProvenance(seed)) });
   const peer = new PmClient({ cwd: w.root, pmRoot: w.pmRoot, noExtensions: true, author: "native-json-peer" });
   const create = w.client.create.bind(w.client);
-  for (const outcome of ["same", "different", "absent"] as const) {
+  for (const outcome of ["same", "same-after-native-failure", "different", "absent"] as const) {
     const intended = parseEvaluationPlan({ ...plan, candidate: `rl-${outcome}` });
     const winner = outcome === "different" ? parseEvaluationPlan({ ...intended, selection: "Native peer selection" }) : intended;
     // Successful observations always come from the SDK; competing writes and invalid-ID failures are native too.
     w.client.create = (async (options) => {
       if (outcome === "absent") return peer.create({ ...options, id: " " });
       await peer.create({ ...options, body: reservation(winner), affectedVersion: hashJson({ comparison: evaluationComparison(winner), incumbent_version: winner.incumbent_version }) });
+      if (outcome === "same-after-native-failure") return create({ ...options, id: " " });
       return create(options);
     }) as PmClient["create"];
-    if (outcome === "same") {
+    if (outcome === "same" || outcome === "same-after-native-failure") {
       const registered = await registerEvaluationPlan(w.client, intended);
       assert.deepEqual((await readEvaluationPlan(w.client, intended.candidate))?.plan, intended);
       assert.equal((await readCompleteLoopItem(w.client, registered.id)).item.body, reservation(intended));

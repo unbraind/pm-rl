@@ -6,11 +6,11 @@ status: in_progress
 priority: 1
 tags[3]: cohorts,guardrails,promotion
 created_at: "2026-10-28T23:24:25.192Z"
-updated_at: "2026-10-29T03:12:46.910Z"
+updated_at: "2026-10-29T04:02:27.428Z"
 author: codex-agent
 acceptance_criteria: Higher aggregate mean cannot override a failed protected cohort; definitions and limits are sealed before collection; insufficient independent samples refuse; leakage checks remain independent
 parent: pm-rl-apvf
-comments[13]{created_at,author,text}:
+comments[16]{created_at,author,text}:
   "2026-10-28T23:24:44.871Z",codex-agent,"Overlap rechecked against current CLI and sibling pm-jev, pm-evidence, pm-swarm, pm-rlm and pm-ops sources: no protected-cohort admission gate found. Existing evaluation plans, paired baselines, balanced-intake objectives, contamination and shadow checks own distinct properties. Extend the existing sealed plan and promotion hook; no label reinterpretation or replacement gate. Use pinned SDK complete reads, verified creation history, native leases and explicit relationship unsets; no import/export/sync adapter or recovery journal is introduced."
   "2026-10-28T23:36:40.070Z",codex-agent,"Implemented optional protected cohorts on the existing sealed fixed-stop evaluation contract. Aggregate improvement stays visible and required; cohort evidence counts independent units and uses inclusive exact rational regression comparisons in original reward units. Registration/evidence writers share SDK lease fencing, and writes explicitly unset ambient parent/sprint/release/blocker scope and clear dependencies. Focused CLI, leakage-independence and every-SDK-step competing-writer tests pass; 500 seeded state sequences are running."
   "2026-10-28T23:47:39.688Z",codex-agent,"Behavioral revert proof in an isolated disposable source copy: disabling only the protected-cohort decision makes the higher-aggregate regression fail with an assertion; restoring it passes. The 500 seeded state sequences passed, as did 500 exact-boundary trials in both directions and SDK-step competing declaration/evidence writers. Public read-only replay: 111 tasks, 21 active by SDK registry roles, candidate mean 0.8108108108108106 versus 0.18918918918918923, protected improvement -1, refused. Source digest unchanged; JSON 1236 bytes, TOON 1016 bytes. Initial packed acceptance passes npm global, Bun global, npx, forced-Bun bunx and project-local hosts on CLI 2026.10.28. Raised the declared minimum host to the pinned SDK 2026.10.25 for fenced leases; the development dependency pin is unchanged."
@@ -24,7 +24,10 @@ comments[13]{created_at,author,text}:
   "2026-10-29T02:56:08.583Z",codex-agent,"Exact-head CI reached 100% line/branch/function coverage, but 13 real Compose tests failed because the minimal bandit image does not install the SDK runtime now imported by the shared JSON validator. General rule: every isolated producer must carry its complete runtime dependency closure. Audited all three trainer Docker recipes; the two LM recipes already install the locked graph. Fixing the remaining fixture and adding an isolated copy-context module-resolution regression that does not depend on Docker availability."
   "2026-10-29T03:05:26.591Z",codex-agent,"Dependency-closure fix: the bandit fixture now installs the same locked, lifecycle-disabled graph as both LM images. A new non-git copy-context test covers all three recipes. Reverting only the bandit Dockerfile produces ERR_MODULE_NOT_FOUND (exit 1); restoring it passes (exit 0). The complete pm-linked boundary file passes 8/8. One all-linked run retained a default 120-second timeout on the existing cohort suite; retrying with --timeout 900. Typecheck, test compilation, lint, zero duplicates and docstrings pass. All 219 shipped files remain byte-identical to the five-host validated archive; this follow-up changes only fixture, regression test and tracker evidence."
   "2026-10-29T03:12:42.080Z",codex-agent,"Final focused retry completed successfully through pinned pm with --timeout 900: cohort/evaluation files 37 passed, boundary file 8 passed, zero failures/skips/cancellations (45 total). The earlier default-timeout result is retained; no assertion or prior test was weakened. Source and shipped bytes are unchanged from the validated artifact. Final static checks pass. The previous CI run has 1041 tests per runtime, 1028 passed and 13 missing-dependency Compose failures, with 100% measured coverage in all three jobs; the fixture fix now proceeds to fresh npm/Bun CI. Claim released for orchestrator verification; item stays in progress."
-files[22]{path,scope}:
+  "2026-10-29T03:43:19.184Z",codex-agent,"Fresh run 40810892250 confirms all 1042 tests pass, including all real Compose paths, but the Bun job fails the unchanged 100% statement threshold: four evaluation-plan V8 blocks are unentered (99.94% overall), although line/branch/function coverage is 100%. Investigating exact ranges with focused raw V8 coverage; no threshold, test, or source scope will be reduced."
+  "2026-10-29T04:02:18.564Z",codex-agent,"All three jobs in run 40810892250 passed 1042/1042 tests, including Compose, but failed exactly four unentered statement blocks in evaluation-plan (99.94%; line/branch/function dimensions 100%). Added explicit native SDK failure plus peer-winner cases for registration and result creation. Result cases cover matching, absent, foreign type, different body and different revision; every case asserts the write was attempted and incompatible winners preserve the exact native error, so an earlier timing refusal cannot pass vacuously. Fresh collections are unique to each candidate. The existing 70-test evaluation/cohort/boundary/shadow group passes, including the 500 state sequences and SDK-step interleavings. The repository computeStatementCoverage function now measures evaluation-plan at 323/323 blocks (100%). Pinned pm runs pass the new native-result test (1/1) and current boundary file (8/8). Typecheck, test compilation and lint pass; production and shipped bytes are unchanged."
+  "2026-10-29T04:02:23.625Z",codex-agent,"Additional behavioral revert proof in a disposable non-git source copy: disabling registration reconciliation makes the real native peer test fail (exit 1); restoring it passes (exit 0). Independently disabling result reconciliation makes the new native-result test fail (exit 1); restoring it passes (exit 0). These are runtime SDK failures, not syntax/import errors. No production worktree source was reverted, and no test, threshold, source scope or coverage measurement was weakened."
+files[23]{path,scope}:
   dataset.ts,project
   evaluation-plan.ts,project
   improver-data.ts,project
@@ -40,6 +43,7 @@ files[22]{path,scope}:
   process-lm-trainer.ts,project
   process.ts,project
   shadow.ts,project
+  test/evaluation-plan.test.ts,project
   test/fixtures/compose.Dockerfile,project
   test/fixtures/json-boundary.ts,project
   test/index.test.ts,project
@@ -47,9 +51,10 @@ files[22]{path,scope}:
   test/worst-cohort.acceptance.ts,project
   test/worst-cohort.test.ts,project
   tracker-record.ts,project
-tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[3]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-concurrency=2 test/evaluation-plan.test.ts test/worst-cohort.test.ts,project,codex-agent,"2026-10-28T23:36:44.988Z",local_mutation,feat/worst-cohort-promotion-guardrails
   node --test --test-concurrency=2 test/json-boundaries.test.ts,project,codex-agent,"2026-10-29T02:02:30.666Z",local_mutation,feat/worst-cohort-promotion-guardrails
+  node --test --test-concurrency=2 --test-name-pattern='native result peer' test/evaluation-plan.test.ts,project,codex-agent,"2026-10-29T03:57:38.034Z",local_mutation,feat/worst-cohort-promotion-guardrails
 docs[4]{path,scope}:
   docs/json-record-bounds.md,project
   docs/worst-cohort-evidence.json,project
