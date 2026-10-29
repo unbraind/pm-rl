@@ -1,4 +1,4 @@
-import { canonicalProgrammeId, canonicalProgrammeRequest, identifierClient } from "./state-boundary.ts";
+import { preservedProgrammeId, programmeRequest, identifierClient } from "./state-boundary.ts";
 import { decodeTrackerRecord, hasTrackerIdentity, encodeBoundedJson, MAX_TRACKER_RECORD_BYTES } from "./tracker-record.ts";
 /** Durable recipe search over sealed tracker compartments, using the existing trainer and promotion gate. */
 import assert from "node:assert/strict";
@@ -274,7 +274,7 @@ export async function proposeRecipes(request: Pick<MetaRequest, "config" | "prop
 
 /** Persist a single inference intent; an unresolved attempt resumes with seeded recipes instead of spending twice. @internal */
 export async function durableRecipeProposals(client: PmClient, id: string, request: Pick<MetaRequest, "config" | "proposer" | "decisionEndpoint">, incumbent: Recipe, generation: number, signal: AbortSignal): Promise<{ recipes: Recipe[]; proposer: string }> {
-  id = await canonicalProgrammeId(client, id);
+  id = await preservedProgrammeId(client, id);
   if (request.proposer === "seeded") return proposeRecipes(request, incumbent, generation, signal);
   const key = `${id}-m${generation}-proposal-attempt`;
   const binding = hashJson({ config: request.config as unknown as JsonValue, incumbent: incumbent.digest, generation, endpoint: request.decisionEndpoint ?? "http://127.0.0.1:11434" });
@@ -302,7 +302,7 @@ export async function durableRecipeProposals(client: PmClient, id: string, reque
 
 /** Search and promote recipes with one shared approval; completion receipts adopt inner jobs after interruption. */
 export async function runRlMeta(client: PmClient, coordinates: ProcessCoordinates, rawRequest: MetaRequest): Promise<MetaReport> {
-  const request = await canonicalProgrammeRequest(client, rawRequest);
+  const request = await programmeRequest(client, rawRequest);
   assert.ok(/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(request.id) && request.id.length <= 20, "meta_programme_id");
   const config = parseMetaConfig(request.config);
   assert.ok(request.proposer === "seeded" || request.proposer === "decision-model", "meta_proposer");

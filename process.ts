@@ -1,4 +1,4 @@
-import { canonicalIdentifier, canonicalProgrammeId, canonicalNamespaceIdentifier, statePath, identifierClient, checkedStateFile, identifier } from "./state-boundary.ts";
+import { canonicalIdentifier, canonicalProgrammeId, statePath, storedStateComponent, identifierClient, checkedStateFile, identifier, operationIdentifier } from "./state-boundary.ts";
 import { decodeTrackerRecord, hasTrackerIdentity, parseBoundedJson, encodeBoundedJson, MAX_TRACKER_RECORD_BYTES } from "./tracker-record.ts";
 /** Durable argv-only trainer execution, staged receipts and approved resource reservations. */
 import { spawn } from "node:child_process";
@@ -77,7 +77,7 @@ export interface ProcessInput<P extends { readonly digest: string } = BanditChec
 /** Required durable completion evidence; successful process exit alone is never sufficient. */
 export interface ProcessCompletion<P extends { readonly digest: string } = BanditCheckpoint> {
   /** Versioned stream and disk schema. */
-  readonly format: "pm-rl/process-completion/1";
+  readonly format: "pm-rl/process-completion/1" | "pm-rl/process-completion/2";
   /** Content-bound job identity. */
   readonly job: string;
   /** Only this job's flat staging checkpoint is eligible. */
@@ -180,7 +180,9 @@ export function processJobId(input: TrainerInput, argv: readonly string[] = refe
   return `process-${processDigest({ input, launcher: processDigest(launcher) }).slice(7)}`;
 }
 /** Resolve this job's retained evidence directory under the tracker. */
-export function processStaging(root: string, id: string): string {
+export function processStaging(root: string, id: string, stored = false): string {
+  const retained = statePath(root, "runtime", "pm-rl", "jobs", storedStateComponent(id));
+  if (stored || existsSync(retained)) return retained;
   return statePath(root, "runtime", "pm-rl", "jobs", canonicalIdentifier(id));
 }
 /** Stable job coordinates and protocol markers distinguish process records before body parsing. */
@@ -200,7 +202,7 @@ export function readProcessJob<P extends TrainerPolicy>(client: PmClient, id: st
 export function readProcessJob(client: PmClient, id: string): Promise<ProcessJob<TrainerPolicy> | null>;
 /** Read metadata without a root, or hydrate a typed checkpoint using explicit tracker coordinates. */
 export async function readProcessJob(client: PmClient, id: string, root?: string): Promise<ProcessJob<TrainerPolicy> | null> {
-  id = canonicalIdentifier(id);
+  id = operationIdentifier(id);
   const item = await readCompleteLoopItem(client, id).catch((error: unknown) => {
     if (isPmCliExpectedError(error) && error.exitCode === EXIT_CODE.NOT_FOUND) return null;
     throw error;
@@ -209,14 +211,14 @@ export async function readProcessJob(client: PmClient, id: string, root?: string
   const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
   const namespace = processNamespace(prefix);
   const legacy = hasTrackerIdentity(item.item, PROCESS_RECORD.format, (key) => normalizeItemId(key, prefix));
-  let decoded = decodeTrackerRecord(client, item.item, { ...PROCESS_RECORD, namespace, legacy, valid: (row) => typeof row.id === "string" && normalizeItemId(canonicalIdentifier(row.id), prefix) === item.item.id });
+  let decoded = decodeTrackerRecord(client, item.item, { ...PROCESS_RECORD, namespace, legacy, valid: (row) => typeof row.id === "string" && normalizeItemId(operationIdentifier(row.id), prefix) === item.item.id });
   if (decoded === null) {
     if (!namespace(item.item.id) || !await knownProcessRecord(client, item.item.id, prefix)) return null;
     // A legacy tag edit cannot hide owned capacity; foreign originals remain skipped.
-    decoded = decodeTrackerRecord(client, item.item, { ...PROCESS_RECORD, namespace, legacy: true, valid: (row) => typeof row.id === "string" && normalizeItemId(canonicalIdentifier(row.id), prefix) === item.item.id });
+    decoded = decodeTrackerRecord(client, item.item, { ...PROCESS_RECORD, namespace, legacy: true, valid: (row) => typeof row.id === "string" && normalizeItemId(operationIdentifier(row.id), prefix) === item.item.id });
     if (decoded === null) expectedFail("Owned job envelope drifted.", "process_job_drift");
   }
-  const job = { ...decoded, id: canonicalNamespaceIdentifier(String(decoded.id), prefix) } as unknown as ProcessJob<TrainerPolicy>;
+  const job = decoded as unknown as ProcessJob<TrainerPolicy>;
   if (!["planned", "running", "materialized", "evaluated", "promoted", "failed", "cancelled", "invalidated"].includes(job.state)) expectedFail("Job identity or state drifted.", "process_job_drift");
   parseResources(job.allowance); parseResources(job.charge);
   if (job.completion !== null) {
@@ -250,10 +252,10 @@ export async function verifyProcessJobBudget(client: PmClient, job: ProcessJob<T
 /**
  * Identify a stored process job by its parsed format, independent of JSON spacing or key order.
  *
- * Returns the job's own id (item ids carry the tracker prefix, job ids do not), or null for any other body.
+ * Stored records preserve their literal id by default; stored=false validates a new declaration and unrelated bodies return null.
  */
-export function processJobBodyId(body: string): string | null {
-  const row = decodeTrackerRecord(null, { type: "Task", body }, { type: "Task", format: "pm-rl/process-job/1", valid: (value) => { value.id = identifier(value.id); return true; } });
+export function processJobBodyId(body: string, stored = true): string | null {
+  const row = decodeTrackerRecord(null, { type: "Task", body }, { type: "Task", format: "pm-rl/process-job/1", valid: (value) => { if (stored) operationIdentifier(value.id); else value.id = canonicalIdentifier(identifier(value.id)); return true; } });
   return row === null ? null : String(row.id);
 
 }
@@ -343,16 +345,28 @@ export function stagingBytes(directory: string, callback?: string): number {
   }
   return bytes;
 }
+/** Preserve SDK-recorded accounting across the fractional and integer-millisecond filesystem clocks used by supported historical writers. */
+function recordedWallTime(file: string, started: number, declared: number, measured: number, recorded: number | undefined): number {
+  if (recorded === undefined || recorded === measured) return measured;
+  const ns = lstatSync(file, { bigint: true }).mtimeNs;
+  const ms = Number(ns / 1_000_000_000n) * 1000 + Number(ns % 1_000_000_000n) / 1_000_000;
+  const fine = Math.max(declared, Math.ceil(ms - started));
+  const coarse = Math.max(declared, Math.floor(ms) - started);
+  if (recorded !== fine && recorded !== coarse) expectedFail("Recorded wall accounting differs from both supported filesystem clocks. Restore the recorded completion and original staging files before retrying.", "process_job_drift");
+  return recorded;
+}
 /** Validate the staged completion against immutable input, readable bytes and every resource dimension. */
-export function validateProcessCompletion<P extends TrainerPolicy>(directory: string, id: string, input: ProcessInput<P>, allowance: Resources, artifactRoot = directory): ProcessCompletion<P> {
-  id = canonicalIdentifier(id);
+export function validateProcessCompletion<P extends TrainerPolicy>(directory: string, id: string, input: ProcessInput<P>, allowance: Resources, artifactRoot = directory, recordedWallMs?: number): ProcessCompletion<P> {
+  id = operationIdentifier(id);
+  if (recordedWallMs !== undefined) parseResources({ ...zeroResources(), wall_ms: recordedWallMs });
   if (!existsSync(statePath(directory, "completion.json"))) expectedFail("Trainer supplied no completion receipt.", "process_receipt_required");
   const bytes = stagingBytes(directory);
   if (bytes > allowance.storage_bytes || lstatSync(statePath(directory, "completion.json")).size > 65_536) expectedFail("Trainer exceeded staging storage allowance.", "process_limit_exceeded");
   if (input.prefix !== undefined && lstatSync(statePath(directory, "completion.json")).size > 4096) expectedFail("Prefix staging receipt exceeds 4096 bytes.", "process_receipt_invalid");
   const saved = parseBoundedJson(readFileSync(statePath(directory, "completion.json"), "utf8")) as ProcessCompletion<P>;
-  const value = { ...saved, job: canonicalIdentifier(saved.job) };
-  if (value.format !== "pm-rl/process-completion/1" || value.job !== id || value.checkpoint !== "checkpoint.json"
+  operationIdentifier(saved.job);
+  const value = saved.format === "pm-rl/process-completion/2" ? { ...saved, job: operationIdentifier(saved.job) } : saved;
+  if (!["pm-rl/process-completion/1", "pm-rl/process-completion/2"].includes(value.format) || operationIdentifier(value.job) !== id || value.checkpoint !== "checkpoint.json"
     || processDigest(value.training_config) !== processDigest(input.training_config) || value.source_policy !== input.source.digest
     || processDigest(value.lineage) !== processDigest(input.lineage)) expectedFail("Completion lineage or configuration drifted.", "process_receipt_invalid");
   if (lstatSync(statePath(directory, value.checkpoint)).size > (input.lm?.config.limits.maxCheckpointBytes ?? 4096)) expectedFail("Checkpoint exceeds its schema bound.", "process_checkpoint_invalid");
@@ -377,8 +391,8 @@ export function validateProcessCompletion<P extends TrainerPolicy>(directory: st
   if (lstatSync(statePath(directory, "runner.json")).size > 4096) expectedFail("Trainer identity metadata exceeds its schema bound.", "process_receipt_invalid");
   const runner = parseBoundedJson(readFileSync(statePath(directory, "runner.json"), "utf8")) as { started_at: number };
   if (!Number.isSafeInteger(runner.started_at) || runner.started_at <= 0 || runner.started_at > lstatSync(statePath(directory, "completion.json")).mtimeMs + 1) expectedFail("Trainer wall identity is invalid.", "process_receipt_invalid");
-  const wall = Math.max(usage.wall_ms, Math.ceil(lstatSync(statePath(directory, "completion.json")).mtimeMs - runner.started_at));
-  if (wall > allowance.wall_ms) expectedFail("Trainer exceeded observed wall allowance.", "process_limit_exceeded");
+  const wall = recordedWallTime(statePath(directory, "completion.json"), runner.started_at, usage.wall_ms, Math.max(usage.wall_ms, Math.ceil(lstatSync(statePath(directory, "completion.json")).mtimeMs - runner.started_at)), recordedWallMs);
+  if (!Number.isSafeInteger(wall) || wall > allowance.wall_ms) expectedFail("Trainer exceeded observed wall allowance.", "process_limit_exceeded");
   const totalBytes = bytes + (value.artifact?.bytes ?? 0);
   if (totalBytes > allowance.storage_bytes) expectedFail("Checkpoint artifact exceeded the approved storage allowance.", "process_limit_exceeded");
   return { ...value, ...(value.artifact === undefined ? {} : { policy: readCheckpointArtifact(artifactRoot, value.artifact) as P }), usage: { ...usage, wall_ms: wall, storage_bytes: totalBytes } };
@@ -388,7 +402,7 @@ export function verifiedProcessPolicy<P extends TrainerPolicy>(job: ProcessJob<T
   if (job.input !== processDigest(input)) expectedFail("Job input identity drifted.", "process_job_drift");
   if (!inspectTerminal && ["failed", "cancelled", "invalidated"].includes(job.state)) expectedFail(`Process job is ${job.state}: ${job.outcome}.`, "process_job_terminal");
   if (job.completion === null) return null;
-  const staged = validateProcessCompletion(processStaging(root, job.id), job.id, input, job.allowance, root);
+  const staged = validateProcessCompletion(processStaging(root, job.id, true), job.id, input, job.allowance, root, job.completion.usage.wall_ms);
   if (processDigest(storedProcessJob({ ...job, completion: staged })) !== processDigest(storedProcessJob(job))) expectedFail("Committed completion differs from staging.", "process_job_drift");
   return staged.policy;
 }
@@ -417,7 +431,7 @@ export function controllerCallback<A extends unknown[]>(name: string, failure: (
 }
 /** Launch a real child with one stop/reap path for every setup, event, timer and stream failure. */
 export async function launchTrainer(directory: string, id: string, input: TrainerInput, allowance: Resources, argv: readonly string[], signal?: AbortSignal, artifactRoot = directory): Promise<void> {
-  id = canonicalIdentifier(id);
+  operationIdentifier(id);
   const request = encodeBoundedJson({ job: id, input, ...(input.prefix === undefined ? {} : { artifactRoot: statePath(artifactRoot) }) });
   const startedAt = Date.now();
   const started = performance.now();
@@ -500,7 +514,7 @@ export async function launchTrainer(directory: string, id: string, input: Traine
         const line = pending.slice(0, newline); pending = pending.slice(newline + 1);
         callbackOperation("stdout.write", () => writeFileSync(callbackOperation("stdout.path", () => statePath(directory, "events.ndjson")), `${line}\n`, { flag: "a" }));
         const event = parseBoundedJson(line) as { type: string; job: string; usage: Resources; receipt: ProcessCompletion };
-        if (complete || event.job !== id || !["progress", "complete"].includes(event.type)) expectedFail("Invalid trainer event sequence.", "process_channel_invalid");
+        if (complete || operationIdentifier(event.job) !== operationIdentifier(id) || !["progress", "complete"].includes(event.type)) expectedFail("Invalid trainer event sequence.", "process_channel_invalid");
         if (event.type === "complete") { complete = true; const finalUsage = parseResources(event.receipt.usage); for (const key of RESOURCE_KEYS) if (finalUsage[key] < measured[key]) expectedFail("Completion regressed measured use.", "process_limit_exceeded"); if (callbackOperation("stdout.staging", () => stagingBytes(directory, "stdout")) > allowance.storage_bytes || callbackOperation("stdout.stat", () => lstatSync(callbackOperation("stdout.completion-path", () => statePath(directory, "completion.json")))).size > 65_536) expectedFail("Completion channel exceeded its schema bound.", "process_channel_invalid"); const disk = parseBoundedJson(callbackOperation("stdout.read", () => readFileSync(callbackOperation("stdout.read-path", () => statePath(directory, "completion.json")), "utf8"))) as unknown; if (processDigest(event.receipt) !== processDigest(disk)) expectedFail("Stream completion differs from durable receipt.", "process_receipt_invalid"); }
         else {
           const usage = parseResources(event.usage);
@@ -583,12 +597,12 @@ async function executeReservedProcessJob(client: PmClient, coordinates: ProcessC
   /** Attach bounded cleanup evidence to the same durable settlement, without exposing the staging path. */
   const cleanupFailed = (error: unknown): void => { diagnostics.cleanup = { code: "cleanup_failed", error: String(error).replaceAll(directory, "<staging>").slice(0, 4096) }; };
   try {
-    directory = processStaging(coordinates.pmRoot, id);
+    directory = processStaging(coordinates.pmRoot, job.id, true);
     mkdirSync(directory, { recursive: true });
     if (job.state === "planned") {
       job = await transitionProcessJob(client, coordinates, job, "running", "launched");
       if (adapter.kind !== "process-bandit") await launchComposeTrainer(directory, id, input, job.allowance, adapter.image, cleanupFailed, signal, adapter.kind === "compose-lm" ? adapter : undefined);
-      else await launchTrainer(directory, id, input, job.allowance, argv, signal, coordinates.pmRoot);
+      else await launchTrainer(directory, job.id, input, job.allowance, argv, signal, coordinates.pmRoot);
     } else {
       if (adapter.kind !== "process-bandit") {
         try { await stopComposeTrainer(directory, id, adapter.image, "recovery", adapter.kind === "compose-lm" ? adapter : undefined); }

@@ -919,7 +919,7 @@ async function sequentialSnapshotMatrix(focused: boolean): Promise<void> {
               peerApplied = true;
             } catch (error) {
               assert.ok(isPmCliExpectedError(error), `${path}/${transition}/${injectAt}: ${String(error)}`); peerCode = error.exitCode === 3 ? "sdk_not_found" : String(error.context.code);
-              assert.ok(["lock_conflict", "loop_write_conflict", "eval_plan_stopping", "eval_plan_drift", "eval_plan_missing", "sdk_not_found", "item_exists", "item_already_exists"].includes(peerCode), peerCode);
+              assert.ok(["lock_conflict", "loop_write_conflict", "eval_plan_stopping", "eval_plan_drift", "eval_plan_missing", "sdk_not_found", "item_exists", "item_already_exists"].includes(peerCode), `${path}/${transition}/${injectAt}: ${peerCode}`);
             }
           }
           Object.assign(client, {
@@ -937,7 +937,7 @@ async function sequentialSnapshotMatrix(focused: boolean): Promise<void> {
               else await recordSequentialEvaluation(client, base.plan.candidate, path === "retry" || path === "first" ? base.rows.slice(0, 16) : base.rows);
             } catch (error) {
               assert.ok(isPmCliExpectedError(error), String(error)); resultCode = String(error.context.code);
-              assert.ok(["lock_conflict", "loop_write_conflict", "eval_plan_stopping", "eval_plan_drift"].includes(resultCode), resultCode);
+              assert.ok(["lock_conflict", "loop_write_conflict", "eval_plan_stopping", "eval_plan_drift"].includes(resultCode), `${path}/${transition}/${injectAt}: ${resultCode}`);
             }
             Object.assign(client, { get, config, create, run });
             if (injectAt === -1) { boundaries = boundary; console.log(JSON.stringify({ sequential_snapshot_path: path, transition, planned_boundaries: boundaries })); }

@@ -54,3 +54,25 @@ It installs the archive into the native fixture tracker, removes Git from PATH,
 and exercises JSON/TOON reads, evaluation, old declaration/benchmark/EvalResult
 retries, promotion and policy-card export. Revert receipts and exact commands
 are recorded in `pm-rl-sequential`.
+
+
+`main-controller-compatibility.ts` is a second native oracle. The controller test
+checks out origin/main into an owned temporary worktree, runs this exact driver
+with main's public APIs, then resumes two copies with main and the PR. It covers
+15 controllers/loops under `rl`, `fleet` and `rl-prefixed`, including genuine
+running training receipts, older fixed-plan cards and uppercase process state.
+The oracle compares complete SDK-read identities, retained card decisions and
+resumed receipt payloads, without a handwritten canonicalization model. Native
+tracker copies remain outside Git. The current reader alone contributes coverage;
+baseline creation is never attributed to the implementation under test.
+
+
+`main-process-clocks.json` contains SDK-read process records and retained bytes
+captured from the same main checkout with Node 24.19.0 and Bun 1.3.5. Its shared
+nanosecond timestamp produced 31 ms and 30 ms wall charges through main's actual
+validator and forward transition API. Recreate it with `processes-capture` and
+`processes-reclock` modes of the common main driver. The regression imports each
+record through the real SDK, compares the read-back DTO to the captured SDK
+result, and checks both native clock observations and forged charges. Expected
+state is never normalized by a handwritten model. Whole tracker copies use a
+metadata-preserving native copier so validation sees the original timestamps.

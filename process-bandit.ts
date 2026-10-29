@@ -1,4 +1,4 @@
-import { statePath, checkedStateFile, identifier } from "./state-boundary.ts";
+import { statePath, checkedStateFile, operationIdentifier } from "./state-boundary.ts";
 import { parseBoundedJson, encodeBoundedJson } from "./tracker-record.ts";
 /** Real external TypeScript trainer: stdin request, stdout NDJSON, durable staged checkpoint and receipt. */
 import type { Readable, Writable } from "node:stream";
@@ -22,18 +22,18 @@ export async function runReferenceTrainer(stdin: Readable = process.stdin, stdou
   let text = "";
   for await (const chunk of stdin) text += String(chunk);
   const { job: rawJob, input } = parseBoundedJson(text) as { job: string; input: ProcessInput };
-  const job = identifier(rawJob);
+  const job = operationIdentifier(rawJob);
+  const format = job === rawJob ? "pm-rl/process-completion/1" as const : "pm-rl/process-completion/2" as const;
   const start = performance.now();
   const cpu = process.cpuUsage();
-  stdout.write(`${JSON.stringify({ type: "progress", job, usage: { training_steps: 0, wall_ms: 0, storage_bytes: 0, compute_units: 0, tokens: 0 } })}\n`);
+  stdout.write(`${JSON.stringify({ ...(format === "pm-rl/process-completion/2" ? { format: "pm-rl/trainer-event/2" } : {}), type: "progress", job, usage: { training_steps: 0, wall_ms: 0, storage_bytes: 0, compute_units: 0, tokens: 0 } })}\n`);
   const policy = fitBanditBatch(input.training, input.source, input.observations, input.training_config.learning_rate, input.training_config.steps);
   writeTrainerArtifact(statePath(directory, "checkpoint.json"), policy, 4096);
   const cpuUse = process.cpuUsage(cpu);
-  const completion: ProcessCompletion = { format: "pm-rl/process-completion/1", job, checkpoint: "checkpoint.json", digest: `sha256:${createHash("sha256").update(JSON.stringify(policy)).digest("hex")}`, policy,
+  const completion: ProcessCompletion = { format, job, checkpoint: "checkpoint.json", digest: `sha256:${createHash("sha256").update(JSON.stringify(policy)).digest("hex")}`, policy,
     training_config: input.training_config, source_policy: input.source.digest, lineage: input.lineage,
     usage: { training_steps: input.training_config.steps, wall_ms: Math.ceil(performance.now() - start), storage_bytes: Buffer.byteLength(JSON.stringify(policy)), compute_units: Math.ceil((cpuUse.user + cpuUse.system) / 1000), tokens: 0 } };
-  writeTrainerArtifact(statePath(directory, "completion.json"), completion, 65_536);
-  stdout.write(`${JSON.stringify({ type: "complete", job, receipt: completion })}\n`);
+  writeTrainerCompletion(directory, completion, stdout);
 }
 
 /** Dispatch the packaged entry point while allowing the same real IO contract to be exercised under coverage. */
@@ -42,3 +42,11 @@ export async function referenceTrainerMain(argv = process.argv, moduleUrl = impo
 }
 
 await referenceTrainerMain();
+
+
+/** Publish the exclusive durable receipt before its matching versioned completion event. @internal */
+export function writeTrainerCompletion(directory: string, receipt: ProcessCompletion<{ readonly digest: string }>, stdout: Writable, maximum = 65_536): void {
+  writeTrainerArtifact(statePath(directory, "completion.json"), receipt, maximum);
+  const marker = receipt.format === "pm-rl/process-completion/2" ? { format: "pm-rl/trainer-event/2" } : {};
+  stdout.write(`${JSON.stringify({ ...marker, type: "complete", job: receipt.job, receipt })}\n`);
+}

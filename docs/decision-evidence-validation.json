@@ -249,5 +249,46 @@
     "tested_runtime_archive_sha256": "6a38e25787fa885ea15927f1fcfe70da1e91185617d062f7ef8e4c89407fce8f",
     "final_head_ci": "Fresh exact-head run URL and counts are recorded in the PR after final tracker writes and push; the 30-minute wait is not restarted."
   },
-  "historical_receipts_note": "Earlier counters describe source_commit before the immutable-step correction. Current execution evidence is immutable_execution_round_6; Generation cards validate live evidence and execution cards preserve recorded snapshots."
+  "historical_receipts_note": "Earlier counters describe source_commit before the immutable-step correction. Current execution evidence is immutable_execution_round_6; Generation cards validate live evidence and execution cards preserve recorded snapshots.",
+  "main_controller_compatibility": {
+    "baseline_commit": "a9a1199b1838dcb8613c43d6f1f57d6af33a3084",
+    "main_written_scenarios": 15,
+    "prefixes": [
+      "rl",
+      "fleet",
+      "rl-prefixed"
+    ],
+    "controller_states": [
+      "completed",
+      "interrupted"
+    ],
+    "loop_states": [
+      "completed",
+      "interrupted",
+      "running"
+    ],
+    "main_card_decisions": 15,
+    "accepted_cards": 9,
+    "card_not_adoptable": 3,
+    "card_missing_provenance": 3,
+    "legacy_process_completions": 1,
+    "native_sdk_readback_matches_main": true,
+    "stored_name_property_sequences": 500,
+    "recovery_restart_boundaries": 6,
+    "final_dependency_corruptions_refused": 2,
+    "consumed_promotions": 1,
+    "function_only_compatibility_controls": 7,
+    "restorations_pass": true,
+    "focused_ci_regressions_passed": 12,
+    "trainer_and_preflight_regressions_passed": 4,
+    "native_history_rewritten": false,
+    "native_process_clock_writers": [
+      "Node 24.19.0",
+      "Bun 1.3.5"
+    ],
+    "native_clock_charges_ms": [
+      31,
+      30
+    ]
+  }
 }

@@ -670,7 +670,12 @@ review → Plan → all collection Runs → candidate → ordered looks → prom
 native creation-event order on reads, retries and promotion. Pre-sealing a
 correctly hashed checkpoint never makes it eligible for a later declaration.
 Raw historical provenance hashes remain unchanged; subsequent reference comparisons
-resolve SDK aliases to canonical item IDs for both fixed and sequential plans.
+resolve SDK aliases to canonical item IDs for both fixed and sequential plans. Version-one controller names,
+phase keys, approval inputs and completed receipt digests retain their original
+spelling from certified SDK birth history. SDK-canonical identities coordinate
+leases without renaming stored records. A valid terminal evaluation seal governs
+recovery; earlier candidate cards remain history and cannot invalidate later
+sealed Run evidence. Final evidence corruption still refuses with the record named.
 
 ```bash
 pm rl eval plan register --file examples/sequential-evaluation-plan.json --json

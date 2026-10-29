@@ -150,3 +150,41 @@ controllers, tracing at depths one through three, deleted native history,
 malformed/NDJSON receipts and historical completions, compact full-citation
 replay, incomplete committed promotions, and 500 seeded valid/invalid
 manifest-reference transports.
+
+
+Version-one controller and process records retain their original payload names,
+step keys and digest inputs. `programmeRequest` resolves stored namespaces from
+certified SDK birth snapshots; `programmeStepName` uses SDK equality to identify
+the namespace while preserving its spelling. Shared leases still use canonical
+SDK coordinates. The confined `statePath` accepts an explicit validated stored
+component for an existing process directory, including case retained by main.
+Native journal transaction IDs retain their spelling because they are transaction
+labels, not item aliases. No existing controller or card is migrated on read.
+
+Recovery first validates the terminal seal and its final evidence graph. It
+replays retained terminal cards, but superseded candidate citations cannot veto
+that sealed decision. Without a valid terminal seal, ordinary candidate evidence
+checks remain authoritative. Old fixed-plan cards without decision graphs use
+their original projection for adoption; new decision-bearing cards still require
+the complete graph. Historical completion receipts retain their original job
+field. A newly emitted trainer completion that normalizes a supplied job alias
+uses `pm-rl/process-completion/2` and version-two stream markers; ordinary canonical
+jobs retain version one. Both formats validate through the same completion reader.
+
+`test/controller-compatibility.test.ts` checks a corpus created by origin/main in
+a disposable checkout: three prefixes, completed and interrupted controllers,
+completed/interrupted/running loops, immutable receipts, fixed-plan cards and
+legacy process state. Main and this implementation resume identical native copies;
+SDK-read outcomes and all original identities must match. A separate workflow
+restarts after every durable boundary from an early card through metric append,
+evaluation, promotion and final-card recovery, then corrupts final dependencies.
+The 500-name property preserves stored keys while SDK-equal aliases still contend
+on canonical coordination keys.
+
+Stored programme aliases are resolved to SDK coordinates before discovery suffixes
+are joined; the resulting SDK birth record supplies the unchanged logical name.
+The main-corpus copier preserves native artifact timestamps exactly. Historical
+process accounting also reads both supported filesystem clock representations,
+retaining a recorded charge only when it exactly matches the fractional or
+integer-millisecond measurement. Node and Bun baseline APIs produce the two
+reference states; SDK reads compare them without handwritten normalization.

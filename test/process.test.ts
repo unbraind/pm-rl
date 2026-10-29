@@ -108,6 +108,15 @@ test("completion validation refuses foreign lineage, unsafe resources and unread
     writeFileSync(receiptFile, JSON.stringify({ ...completion, ...patch })); assert.throws(() => validateProcessCompletion(directory, job.id, input, allowance));
   }
   writeFileSync(receiptFile, original);
+  for (const wall of [-1, NaN, Infinity, Number.MAX_SAFE_INTEGER, job.completion!.usage.wall_ms + 2]) assert.throws(() => validateProcessCompletion(directory, job.id, input, allowance, directory, wall), isPmCliExpectedError);
+  const nativeStat = fs.lstatSync;
+  const malformedClock = mock.method(fs, "lstatSync", ((path: PathLike, options?: unknown) => {
+    const stat = Reflect.apply(nativeStat, fs, [path, options]) as object;
+    return path === receiptFile ? new Proxy(stat, { get(target, key) { return key === "mtimeMs" ? NaN : Reflect.get(target, key, target); } }) : stat;
+  }) as typeof fs.lstatSync);
+  syncBuiltinESMExports();
+  try { assert.throws(() => validateProcessCompletion(directory, job.id, input, allowance), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "process_limit_exceeded"); }
+  finally { malformedClock.mock.restore(); syncBuiltinESMExports(); }
   assert.throws(() => validateProcessCompletion(directory, job.id, input, { ...allowance, storage_bytes: 200 }));
   assert.throws(() => verifiedProcessPolicy({ ...job, completion: { ...job.completion!, digest: "foreign" } }, pmRoot, input));
   mkdirSync(join(directory, "unexpected")); assert.throws(() => stagingBytes(directory));
@@ -145,8 +154,11 @@ test("budget and job identity drift refuse execution through real tracker reads"
   const job = await reserveProcessJob(client, coordinates, id, input, approval, allowance);
   const original = JSON.stringify(job);
   assert.equal(processJobBodyId(original), job.id);
-  assert.equal(processJobBodyId(JSON.stringify({ ...job, id: `#${job.id.toUpperCase()}` })), (JSON.parse(String((await client.get(job.id, { full: true })).item.body)) as { id: string }).id);
-  for (const id of ["..", "../foreign", " padded ", "", "a".repeat(201)]) assert.equal(processJobBodyId(JSON.stringify({ ...job, id })), null);
+  // The explicit declaration boundary keeps the strict must-refuse assertions;
+  // the default v1 reader preserves every previously valid stored spelling.
+  for (const id of [`#${job.id.toUpperCase()}`, " padded ", "a".repeat(201)]) assert.equal(processJobBodyId(JSON.stringify({ ...job, id })), id);
+  assert.equal(processJobBodyId(JSON.stringify({ ...job, id: `#${job.id.toUpperCase()}` }), false), (JSON.parse(String((await client.get(job.id, { full: true })).item.body)) as { id: string }).id);
+  for (const id of ["..", "../foreign", " padded ", "", "a".repeat(201)]) assert.equal(processJobBodyId(JSON.stringify({ ...job, id }), false), null);
   for (const body of ["# Markdown", 'pm-rl/process-job/1 prose', '{"format":"other-package/process-job/1"}', '{"format":"pm-rl/process-job/1","id":17}']) assert.equal(processJobBodyId(body), null);
   for (const patch of [{ format: "foreign" }, { id: "foreign" }, { state: "foreign" }, { settled: "foreign" }, { charge: { ...allowance, training_steps: 0 } }, { completion: undefined }, { completion: [] }, { completion: "foreign" }, { completion: { usage: null } }]) {
     await client.update(id, { body: JSON.stringify({ ...job, ...patch }) }); await assert.rejects(readProcessJob(client, id));

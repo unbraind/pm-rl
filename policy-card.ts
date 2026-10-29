@@ -241,9 +241,9 @@ export async function validateRefusedPolicyCard(client: PmClient, subject: strin
   return body;
 }
 /** Share the bounded projection between certified exports and pre-commit outcome validation. */
-async function exportSnapshotCard(client: PmClient, primary: { item: CardItem; citation: PolicyCardEvidence }, selection: number | null): Promise<PolicyCard> {
+async function exportSnapshotCard(client: PmClient, primary: { item: CardItem; citation: PolicyCardEvidence }, selection: number | null, legacy = false): Promise<PolicyCard> {
   const { evidence, resource, prefix, decisionGraph } = await generationEvidence(client, primary.citation.id, primary);
-  return assemble(primary.citation.id, primary.item, evidence, resource, selection, prefix, decisionGraph);
+  return assemble(primary.citation.id, primary.item, evidence, resource, selection, prefix, legacy ? undefined : decisionGraph);
 }
 /** Define the complete generation evidence set once for card identity and loop resume: citations, Runs and decoded metric notes. @internal */
 export async function generationEvidence(client: PmClient, subject: string, selected?: { item: CardItem; citation: PolicyCardEvidence }): Promise<{ primary: CardItem; evidence: PolicyCardEvidence[]; entries: CardItem[]; resource: Record<string, number>; prefix: string; decisionGraph?: EvaluationEvidence }> {
@@ -377,6 +377,10 @@ export async function verifyRetainedGenerationEvidence(client: PmClient, subject
   // They remain historical explanations, never authorization for this outcome.
   const sealed = fresh.decisionGraph !== undefined && extractGenerationSpec(String(fresh.primary.body), "Retained terminal receipt").evaluation_evidence !== undefined && ["promoted", "refused"].includes(outcome);
   for (const card of retained) if (!(sealed && card.outcome === "candidate")) await replayPolicyCard(client, card);
+  // The current terminal graph has already been certified by generationEvidence.
+  // Candidate citations describe earlier live Run prefixes, not final evidence.
+  // Every retained terminal card above still has to replay against that seal.
+  if (sealed) return;
   const terminal = retained.some((card) => card.outcome === "promoted" || card.outcome === "refused");
   if (terminal && ["candidate", "seed"].includes(outcome)) throw createPmCliExpectedError("A retained terminal promotion cannot be replayed as an unfinished step.", { exitCode: EXIT_CODE.CONFLICT, context: { code: "loop_step_drift" } });
   const exact = retained.find((card) => canonicalJson(card.evidence as unknown as JsonValue) === canonicalJson(fresh.evidence as unknown as JsonValue));
@@ -492,7 +496,9 @@ export async function replayPolicyCard(client: PmClient, value: unknown): Promis
 /** Check suitability against current provenance; normal backend consent and promotion gates still apply. */
 export async function adoptPolicyCard(client: PmClient, value: unknown): Promise<PolicyCard> {
   const { card } = await replayPolicyCard(client, value);
-  const fresh = await exportPolicyCard(client, card.subject, card.selection);
+  const fresh = card.decision_evidence === undefined
+    ? await exportSnapshotCard(client, await snapshot(client, card.subject), card.selection, true)
+    : await exportPolicyCard(client, card.subject, card.selection);
   if (fresh.digest !== card.digest) refuse("card_drift");
   const item = (await readCompleteLoopItem(client, card.subject)).item;
   if (item.type === "Generation") {

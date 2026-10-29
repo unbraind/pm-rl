@@ -359,3 +359,18 @@ bun run release:check
 npm run changelog:full
 npm run changelog:check
 ```
+
+
+Recovery preserves the SDK-recorded wall charge. Historical Node writers observed
+fractional filesystem milliseconds; older Bun writers observed integer
+milliseconds. A recorded charge must exactly match one of those two measurements
+of the same nanosecond timestamp and declared usage. Other charges refuse; this
+is not a general tolerance. Initial measurement keeps the writer's existing
+behavior, and receipt contents, checkpoint bytes, every other resource and the
+approved allowance remain checked. Copy retained staging files with timestamps
+preserved. The main-produced corpus checks both runtime directions through the
+SDK, without normalizing the reference state.
+
+`processJobBodyId(body)` retains a stored version-one ID exactly. The explicit
+`processJobBodyId(body, false)` declaration check validates and canonicalizes a
+new ID. Strict new-write refusals remain tested separately from legacy reads.
