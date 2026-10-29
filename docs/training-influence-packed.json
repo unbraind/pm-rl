@@ -1,0 +1,65 @@
+{
+  "format": "pm-rl/training-influence-packed/1",
+  "artifact": {
+    "sha256": "e68d259465fadd8ada8aab58374d7c177d59c83db03a7f3bf2ff36cf5a22d695",
+    "bytes": 816499,
+    "inspected_contents": true
+  },
+  "modes": [
+    {
+      "mode": "npm-global",
+      "host": "2026.10.28",
+      "comparisons": 2,
+      "json_bytes": 1133,
+      "toon_bytes": 837,
+      "retry_created": false,
+      "partial_omitted": 2,
+      "no_git": true,
+      "proposal_feedback": true
+    },
+    {
+      "mode": "bun-global",
+      "host": "2026.10.28",
+      "comparisons": 2,
+      "json_bytes": 1133,
+      "toon_bytes": 837,
+      "retry_created": false,
+      "partial_omitted": 2,
+      "no_git": true,
+      "proposal_feedback": true
+    },
+    {
+      "mode": "npx",
+      "host": "2026.10.28",
+      "comparisons": 2,
+      "json_bytes": 1133,
+      "toon_bytes": 837,
+      "retry_created": false,
+      "partial_omitted": 2,
+      "no_git": true,
+      "proposal_feedback": true
+    },
+    {
+      "mode": "bunx",
+      "host": "2026.10.28",
+      "comparisons": 2,
+      "json_bytes": 1133,
+      "toon_bytes": 837,
+      "retry_created": false,
+      "partial_omitted": 2,
+      "no_git": true,
+      "proposal_feedback": true
+    },
+    {
+      "mode": "project-local",
+      "host": "2026.10.28",
+      "comparisons": 2,
+      "json_bytes": 1133,
+      "toon_bytes": 837,
+      "retry_created": false,
+      "partial_omitted": 2,
+      "no_git": true,
+      "proposal_feedback": true
+    }
+  ]
+}

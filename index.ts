@@ -156,6 +156,7 @@ export {
 } from "./lm.ts";
 
 export { exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordRecursivePolicyCards, recordPolicyCard, POLICY_CARD_MAX_BYTES, type PolicyCard, type PolicyCardEvidence, type PolicyCardRefusal } from "./policy-card.ts";
+export { parseTrainingInfluence, measureTrainingInfluence, replayTrainingInfluence, summarizeTrainingInfluence, recordTrainingInfluence, readTrainingInfluence, attachTrainingInfluence, verifyTrainingInfluenceProposal, type TrainingInfluenceRequest, type TrainingInfluenceReport, type TrainingInfluenceEvidence, type TrainingInfluenceRefusal, type TrainingSlice, type InfluenceEvaluation, type InfluenceFit, type InfluenceComparison } from "./training-influence.ts";
 export { parseShadowDeployment, shadowInputDigest, registerShadowDeployment, observeShadow, compareShadow, type ShadowPolicy, type ShadowDeployment, type ShadowInput, type ShadowObservation, type ShadowReport, type ShadowRefusal } from "./shadow.ts";
 export { parseEvaluationPlan, evaluationPlanId, evaluationComparison, registerEvaluationPlan, readEvaluationPlan, evaluatePlan, recordPlanEvaluation, enforceEvaluationPlan, type EvaluationPlan, type EvaluationMember, type EvaluationObservation, type EvaluationPlanReport, type RegisteredEvaluationPlan, type EvaluationPlanRefusal, type ProtectedCohort, type CohortReport, type CohortRefusal } from "./evaluation-plan.ts";
 
@@ -216,6 +217,7 @@ import { acquireLock, certifyCompleteListResult, createPmCliExpectedError, EXIT_
 
 import { parseJsonRecord, rethrowOperationalRead, rethrowProvenanceRead } from "./refuse.ts";
 import { exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordRecursivePolicyCards, recordPolicyCard, validatePromotedPolicyCard, validatePolicyCardWrite, validateRefusedPolicyCard, discoverPolicyCards, verifyRetainedGenerationEvidence } from "./policy-card.ts";
+import { recordTrainingInfluence, readTrainingInfluence, summarizeTrainingInfluence, attachTrainingInfluence, verifyTrainingInfluenceProposal } from "./training-influence.ts";
 import { registerShadowDeployment, observeShadow, compareShadow } from "./shadow.ts";
 import { registerEvaluationPlan, readEvaluationPlan, recordPlanEvaluation, enforceEvaluationPlan } from "./evaluation-plan.ts";
 import { buildIntakeLoopCorpus, buildTrackerLoopCorpus } from "./corpus.ts";
@@ -3148,6 +3150,7 @@ export async function runRlLoop(client: PmClient, coordinates: WorkspaceCoordina
   }
   // Fail fast on the approval before any collection is charged: a loop that
   // cannot promote must refuse before it spends budget, not after.
+  await verifyTrainingInfluenceProposal(client, request.config);
   await readApprovalSpec(client, request.approval);
   const controller = await prepareLoopController(client, coordinates, programme, request);
   let report: RlLoopReport;
@@ -5190,6 +5193,20 @@ async function showTransferGap(context: CommandHandlerContext): Promise<RlComman
 
 /** Commands authored separately so activation and tests share one exact contract. */
 export const RL_COMMANDS = [
+  defineCommand({ name: "rl influence run", description: "Measure budgeted training-slice associations and retain exact replayable checkpoints.", flags: [{ long: "--file", value_name: "path", value_type: "string", required: true, description: "Strict training influence experiment JSON with explicit budgets." }], run: async (context) => {
+    const result = await recordTrainingInfluence(clientFor(context), readJsonFile(stringOption(context, "file")!, "Training influence"));
+    return { action: "rl-influence-run", details: { id: result.id, created: result.created, ...summarizeTrainingInfluence(result.report) } };
+  } }),
+  defineCommand({ name: "rl influence show", description: "Replay certified training influence and return a compact association packet.", arguments: [{ name: "report", required: true, description: "Native influence Decision id." }], run: async (context) => {
+    const result = await readTrainingInfluence(clientFor(context), requiredArgument(context, "an influence report"));
+    return { action: "rl-influence-show", details: { id: result.id, at: result.at, ...summarizeTrainingInfluence(result.report) } };
+  } }),
+  defineCommand({ name: "rl influence propose", description: "Carry certified measured evidence into the next recursive proposal without changing its gates.", arguments: [{ name: "report", required: true, description: "Native influence Decision id." }], flags: [{ long: "--file", value_name: "path", value_type: "string", required: true, description: "Next bandit loop proposal JSON using the same datasets." }, { long: "--output", value_name: "path", value_type: "string", required: true, description: "New proposal JSON file; existing files refuse overwrite." }], run: async (context) => {
+    const programme = await attachTrainingInfluence(clientFor(context), readJsonFile(stringOption(context, "file")!, "Next proposal"), requiredArgument(context, "an influence report"));
+    try { await writeFile(stringOption(context, "output")!, encodeBoundedJson(programme), { flag: "wx" }); }
+    catch (error: unknown) { if ((error as NodeJS.ErrnoException).code === "EEXIST") fail("Proposal output already exists; choose a fresh output file.", "influence_output_exists", EXIT_CODE.CONFLICT); fail("Proposal output could not be written; choose an accessible directory and a fresh output file.", "influence_output_unavailable", EXIT_CODE.CONFLICT); }
+    return { action: "rl-influence-propose", details: { programme: hashJson(programme), evidence: (programme as Record<string, JsonValue>).influence_evidence } };
+  } }),
   defineCommand({ name: "rl policy-card export", description: "Export a minimized policy explanation with replayable evidence digests.", arguments: [{ name: "subject", required: true, description: "Generation or completed recursive-step id." }], flags: [{ long: "--selection", value_name: "index", value_type: "string", description: "Zero-based proposed candidate index for a proposal phase." }], run: async (context) => {
     const selection = stringOption(context, "selection", false);
     return { action: "rl-policy-card-export", details: { ...await exportPolicyCard(clientFor(context), requiredArgument(context, "a policy subject"), selection === undefined ? null : Number(selection)) } };

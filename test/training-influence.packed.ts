@@ -1,0 +1,73 @@
+/** Exercise the same captured tarball through supported global, ephemeral and local host installations. */
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { mkdtempSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { init } from "@unbrained/pm-cli/sdk/runtime";
+import { PmClient } from "@unbrained/pm-cli/sdk/core";
+import type { JsonValue } from "../index.ts";
+import type { TrainingInfluenceRequest } from "../training-influence.ts";
+
+const [archiveInput, output] = process.argv.slice(2); const archive = resolve(archiveInput);
+const scratch = mkdtempSync(join(tmpdir(), "rl-influence-packed-"));
+const clean: NodeJS.ProcessEnv = { ...process.env, NPM_CONFIG_USERCONFIG: "/dev/null", npm_config_userconfig: "/dev/null", PM_AUTHOR: "influence-packed" };
+for (const key of Object.keys(clean)) if (/TOKEN|SECRET|PASSWORD|CREDENTIAL|API_KEY|AUTH/i.test(key) && key !== "PM_AUTHOR") delete clean[key];
+delete clean.PM_PATH; delete clean.NODE_V8_COVERAGE; delete clean.NPM_MEDIA_SERVER;
+/** Execute a trusted install or host command without exposing inherited credentials or full process output. */
+function execute(command: string, args: string[], cwd: string, extra: NodeJS.ProcessEnv = {}): string {
+  return execFileSync(command, args, { cwd, env: { ...clean, ...extra }, encoding: "utf8", timeout: 180_000, maxBuffer: 8_388_608 });
+}
+const bun = execute("sh", ["-c", "command -v bun"], scratch).trim();
+const npx = execute("sh", ["-c", "command -v npx"], scratch).trim();
+const npm = execute("sh", ["-c", "command -v npm"], scratch).trim();
+const entries = execute("tar", ["-tzf", archive], scratch).split("\n");
+for (const expected of ["package/dist/training-influence.js", "package/dist/training-influence.d.ts", "package/docs/training-influence.md", "package/examples/training-influence.json"]) assert.ok(entries.includes(expected), expected);
+const input = JSON.parse(readFileSync(new URL("../examples/training-influence.json", import.meta.url), "utf8")) as TrainingInfluenceRequest;
+const results: Record<string, JsonValue>[] = [];
+for (const mode of ["npm-global", "bun-global", "npx", "bunx", "project-local"]) {
+  const root = join(scratch, mode); mkdirSync(root); const prefix = join(root, "installation");
+  let launcher: string; let prefixArgs: string[] = []; let extra: NodeJS.ProcessEnv = {};
+  if (mode === "npm-global") {
+    execute(npm, ["install", "--global", "--prefix", prefix, "--ignore-scripts", "--no-audit", "--no-fund", "@unbrained/pm-cli@2026.10.28"], root);
+    launcher = join(prefix, "bin", "pm");
+  } else if (mode === "bun-global") {
+    extra = { BUN_INSTALL: prefix };
+    execute(bun, ["install", "--global", "--no-progress", "@unbrained/pm-cli@2026.10.28"], root, extra);
+    launcher = join(prefix, "bin", "pm");
+  } else if (mode === "project-local") {
+    execute(npm, ["install", "--prefix", root, "--ignore-scripts", "--no-audit", "--no-fund", "@unbrained/pm-cli@2026.10.28"], root);
+    launcher = join(root, "node_modules", ".bin", "pm");
+  } else if (mode === "npx") { launcher = npx; prefixArgs = ["--yes", "--package=@unbrained/pm-cli@2026.10.28", "pm"]; }
+  else { launcher = bun; prefixArgs = ["x", "--package", "@unbrained/pm-cli@2026.10.28", "pm"]; }
+  const tracker = await init("rl", { defaults: true, author: "influence-packed", agentGuidance: "skip" }, { cwd: root });
+  extra = { ...extra, PM_PATH: tracker.path, GIT_CEILING_DIRECTORIES: dirname(root) };
+  /** All routes exercise the exact extension tarball, with the host supplied by the selected installation mode. */
+  const command = (args: string[]): string => execute(launcher, [...prefixArgs, ...args], root, extra);
+  assert.match(command(["--version"]), /2026\.10\.28/);
+  command(["package", "install", archive, "--project", "--json"]);
+  const bin = join(root, "no-git-bin"); mkdirSync(bin);
+  for (const [name, target] of [["node", process.execPath], ["getconf", "/usr/bin/getconf"], ["sh", "/bin/sh"], ["bun", bun]]) symlinkSync(target, join(bin, name));
+  extra.PATH = bin;
+  const file = join(root, "input.json"); writeFileSync(file, JSON.stringify(input));
+  const run = JSON.parse(command(["rl", "influence", "run", "--file", file, "--json"])) as { details: { id: string; digest: string; created: boolean; comparisons: unknown[] } };
+  assert.equal(run.details.created, true); assert.equal(run.details.comparisons.length, 2);
+  const retry = JSON.parse(command(["rl", "influence", "run", "--file", file, "--json"])) as { details: { created: boolean } }; assert.equal(retry.details.created, false);
+  const json = command(["rl", "influence", "show", run.details.id, "--json"]); const toon = command(["rl", "influence", "show", run.details.id]);
+  assert.equal((JSON.parse(json) as { details: { digest: string } }).details.digest, run.details.digest); assert.match(toon, /association/);
+  const next = join(root, "proposal.json"); const evidenced = join(root, "evidenced.json");
+  writeFileSync(next, JSON.stringify({ environment: { name: "Packed sensitivity", version: "1" }, training: input.training, evaluation: input.held_out, seed: 42, initial_weight: 0, samples_per_generation: 32, fit_steps: 2, max_generations: 1, budget: 32, learning_rate: 0.5, minimum_improvement: 0.01, maximum_gap: 1, evaluation_samples: 100, confidence: 0.95, min_samples: 2 }));
+  command(["rl", "influence", "propose", run.details.id, "--file", next, "--output", evidenced, "--json"]);
+  assert.ok((JSON.parse(readFileSync(evidenced, "utf8")) as Record<string, unknown>).influence_evidence);
+  writeFileSync(file, JSON.stringify({ ...input, budget: { fits: 1, samples: 32, updates: 2 } }));
+  const partial = JSON.parse(command(["rl", "influence", "run", "--file", file, "--json"])) as { details: { complete: boolean; ranking: unknown; omitted: unknown[] } };
+  assert.equal(partial.details.complete, false); assert.equal(partial.details.ranking, null); assert.equal(partial.details.omitted.length, 2);
+  const client = new PmClient({ cwd: root, pmRoot: tracker.path, noExtensions: true });
+  const stored = (await client.get(run.details.id, { full: true })).item;
+  assert.ok(String(stored.body).includes('"checkpoint"')); assert.equal(stored.parent, undefined);
+  results.push({ mode, host: "2026.10.28", comparisons: run.details.comparisons.length, json_bytes: Buffer.byteLength(json), toon_bytes: Buffer.byteLength(toon), retry_created: false, partial_omitted: partial.details.omitted.length, no_git: true, proposal_feedback: true });
+  process.stdout.write(`${mode}: passed\n`);
+}
+const bytes = readFileSync(archive);
+writeFileSync(output, JSON.stringify({ format: "pm-rl/training-influence-packed/1", artifact: { sha256: createHash("sha256").update(bytes).digest("hex"), bytes: bytes.length, inspected_contents: true }, modes: results }, null, 2) + "\n");

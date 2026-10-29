@@ -81,7 +81,10 @@
     "docs/policy-card-write-audit.md",
     "docs/policy-card-evidence.json",
     "docs/worst-cohort-evidence.json",
-    "docs/json-record-bounds.md"
+    "docs/json-record-bounds.md",
+    "dist/training-influence.*",
+    "docs/training-influence.md",
+    "docs/training-influence-evidence.json"
   ],
   "engines": {
     "node": ">=22.18.0"
@@ -163,7 +166,8 @@
       "test/shadow.test.ts",
       "test/policy-card.test.ts",
       "test/worst-cohort.test.ts",
-      "test/json-boundaries.test.ts"
+      "test/json-boundaries.test.ts",
+      "test/training-influence.test.ts"
     ],
     "thresholds": {
       "statements": 100,
@@ -271,7 +275,9 @@
       "docs/policy-cards.md",
       "docs/policy-card-write-audit.md",
       "docs/worst-cohort-evidence.json",
-      "docs/json-record-bounds.md"
+      "docs/json-record-bounds.md",
+      "docs/training-influence.md",
+      "docs/training-influence-evidence.json"
     ],
     "examples": [
       "README.md",
@@ -289,7 +295,8 @@
       "examples/evaluation-observations.json",
       "examples/shadow-policy.json",
       "examples/policy-card.json",
-      "examples/evaluation-plan-protected.json"
+      "examples/evaluation-plan-protected.json",
+      "examples/training-influence.json"
     ]
   },
   "publishConfig": {

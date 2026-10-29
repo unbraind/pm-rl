@@ -778,6 +778,7 @@ observation/comparison, generation promotion and lineage work in plain directori
 dataset/improver builders and Git-tree episode replay need Git provenance. Plan
 registration, evaluation and promotion are tested with Git absent from `PATH` and
 an explicit discovery ceiling.
+Training-slice measurement, report replay and proposal feedback also work without Git.
 
 ## Shadow policy deployment
 
@@ -804,3 +805,7 @@ The approval variable controls GitHub releases; it does not impose a local npm
 publishing hold. Maintainers run the prepublish checks and authenticate with npm
 for local publication. The first local publish uses `--provenance=false`; daily
 GitHub OIDC releases keep provenance enabled.
+
+## Measured training-slice influence
+
+Run `pm rl influence run --file examples/training-influence.json` for explicitly budgeted omission/reweighting fits with exact seeded checkpoints. `pm rl influence show <report> --json` returns a compact packet of per-evaluation associations, explicit omissions and no ranking. `pm rl influence propose <report> --file next-programme.json --output evidenced-programme.json` carries certified measured evidence into the next recursive proposal; normal evaluation and promotion gates still apply. See the [SDK, bounds, remedies and concurrency contract](docs/training-influence.md).

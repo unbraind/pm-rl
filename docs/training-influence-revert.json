@@ -1,0 +1,15 @@
+{
+  "format": "pm-rl/training-influence-revert/1",
+  "function": "measureTrainingInfluence",
+  "behavior_removed": "Declared slice membership no longer changes training composition",
+  "mutant": {
+    "passed": 0,
+    "failed": 1
+  },
+  "restored": {
+    "passed": 1,
+    "failed": 0
+  },
+  "reviewed_worktree_unchanged": true,
+  "command": "node --test --test-name-pattern='fixed learner and seed' test/training-influence.test.ts"
+}
