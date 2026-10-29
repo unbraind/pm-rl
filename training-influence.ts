@@ -210,7 +210,8 @@ export async function recordTrainingInfluence(client: PmClient, value: unknown):
 export async function readTrainingInfluence(client: PmClient, id: string, at?: string): Promise<{ id: string; at: string; report: TrainingInfluenceReport }> {
   const history = await client.run("history", { id, options: { compact: true, verify: true, outputLimit: "unbounded", outputBudget: "unbounded" } }) as HistoryResult;
   if (!history.verification?.ok || history.limit !== null || history.compact_history?.length !== history.count) refuse("influence_drift");
-  const coordinate = at ?? String(history.compact_history.at(-1)!.index);
+  const latest = history.compact_history.at(-1)!;
+  const coordinate = at ?? String(latest.version ?? latest.index);
   const result = await readCompleteLoopItem(client, id, coordinate);
   const item = result.item;
   if (item.type !== "Decision" || !item.tags?.includes("rl-training-influence")) refuse("influence_foreign");

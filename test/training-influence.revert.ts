@@ -19,5 +19,12 @@ try {
   writeFileSync(source, original);
   const restored = spawnSync(process.execPath, ["--test", "--test-name-pattern=fixed learner and seed", "test/training-influence.test.ts"], { cwd: root, encoding: "utf8", timeout: 120000, env: { ...process.env, NODE_V8_COVERAGE: undefined } });
   assert.equal(restored.status, 0, restored.stdout + restored.stderr); assert.match(restored.stdout, /pass 1/);
-  writeFileSync("docs/training-influence-revert.json", JSON.stringify({ format: "pm-rl/training-influence-revert/1", function: "measureTrainingInfluence", behavior_removed: "Declared slice membership no longer changes training composition", mutant: { passed: 0, failed: 1 }, restored: { passed: 1, failed: 0 }, reviewed_worktree_unchanged: true, command: "node --test --test-name-pattern='fixed learner and seed' test/training-influence.test.ts" }, null, 2) + "\n");
+  writeFileSync(source, original.replace("latest.version ?? latest.index", "latest.index"));
+  const versionArgs = ["--test", "--test-name-pattern=compacted disposable", "test/training-influence.test.ts"];
+  const versionMutant = spawnSync(process.execPath, versionArgs, { cwd: root, encoding: "utf8", timeout: 120000, env: { ...process.env, NODE_V8_COVERAGE: undefined } });
+  assert.equal(versionMutant.status, 1, versionMutant.stdout + versionMutant.stderr); assert.match(versionMutant.stdout, /AssertionError/);
+  writeFileSync(source, original);
+  const versionRestored = spawnSync(process.execPath, versionArgs, { cwd: root, encoding: "utf8", timeout: 120000, env: { ...process.env, NODE_V8_COVERAGE: undefined } });
+  assert.equal(versionRestored.status, 0, versionRestored.stdout + versionRestored.stderr);
+  writeFileSync("docs/training-influence-revert.json", JSON.stringify({ format: "pm-rl/training-influence-revert/1", function: "measureTrainingInfluence", behavior_removed: "Declared slice membership no longer changes training composition", mutant: { passed: 0, failed: 1 }, restored: { passed: 1, failed: 0 }, durable_versions: { function: "readTrainingInfluence", mutant: { passed: 0, failed: 1 }, restored: { passed: 1, failed: 0 } }, reviewed_worktree_unchanged: true, command: "node --test --test-name-pattern='fixed learner and seed' test/training-influence.test.ts" }, null, 2) + "\n");
 } finally { rmSync(root, { recursive: true, force: true }); }

@@ -1,8 +1,8 @@
 {
   "format": "pm-rl/training-influence-packed/1",
   "artifact": {
-    "sha256": "e68d259465fadd8ada8aab58374d7c177d59c83db03a7f3bf2ff36cf5a22d695",
-    "bytes": 816499,
+    "sha256": "77167abc786e877a710036fe2a98827991333fd850a0f7e553016c702826bc8d",
+    "bytes": 816521,
     "inspected_contents": true
   },
   "modes": [

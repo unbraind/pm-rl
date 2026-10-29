@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, test } from "node:test";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
+import type { HistoryResult } from "@unbrained/pm-cli/sdk/query";
 import { parseTags } from "@unbrained/pm-cli/sdk";
 import { init, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
@@ -249,4 +250,20 @@ test("foreign or corrupted named records refuse alone and cannot alter unrelated
   rmSync(join(pmRoot, "history", `${other.id}.jsonl`)); // only a disposable corruption fixture, never tracked history
   await assert.rejects(readTrainingInfluence(client, other.id));
   assert.deepEqual((await readTrainingInfluence(client, saved.id)).report, saved.report);
+});
+
+test("compacted disposable histories use durable SDK versions rather than physical row positions", async () => {
+  const { client } = await workspace(); const p = request(801); const saved = await recordTrainingInfluence(client, p);
+  for (let index = 0; index < 5; index += 1) await client.update(saved.id, { title: `Annotation ${index}` });
+  // Compaction is exercised only on this new disposable fixture; tracked histories are never rewritten.
+  const compacted = await client.historyCompact(saved.id, { before: "5" });
+  assert.equal(compacted.changed, true);
+  const read = await readTrainingInfluence(client, saved.id);
+  const history = await client.run("history", { id: saved.id, options: { compact: true, verify: true, outputLimit: "unbounded", outputBudget: "unbounded" } }) as HistoryResult;
+  assert.equal(read.at, String(history.version_addressing!.last_version));
+  assert.deepEqual(read.report, saved.report);
+  const proposal = await attachTrainingInfluence(client, programme(p), saved.id);
+  await verifyTrainingInfluenceProposal(client, proposal);
+  const historical = await readTrainingInfluence(client, saved.id, read.at);
+  assert.deepEqual(historical.report, saved.report);
 });

@@ -10,6 +10,17 @@
     "passed": 1,
     "failed": 0
   },
+  "durable_versions": {
+    "function": "readTrainingInfluence",
+    "mutant": {
+      "passed": 0,
+      "failed": 1
+    },
+    "restored": {
+      "passed": 1,
+      "failed": 0
+    }
+  },
   "reviewed_worktree_unchanged": true,
   "command": "node --test --test-name-pattern='fixed learner and seed' test/training-influence.test.ts"
 }
