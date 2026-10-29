@@ -616,7 +616,13 @@ test("resume repairs card publication interrupted after a committed promotion", 
             this.repair = async () => { rmSync(obstruction, { recursive: true }); };
           } else {
             await super.create({ id: cardId, type: "Decision", title: "Publication obstruction", body: "{}" });
-            this.repair = async () => { await super.update(cardId, { body: canonicalJson(card as unknown as JsonValue), affectedVersion: card.digest }); };
+            this.repair = async () => {
+              await super.update(cardId, { body: canonicalJson(card as unknown as JsonValue), affectedVersion: card.digest });
+              // Restoring content alone is insufficient: retain the new ownership
+              // refusal until the operator explicitly restores the native tag.
+              await assert.rejects(recordPolicyCard(this, card.subject, card.selection), refused("card_drift"));
+              await super.update(cardId, { addTags: ["rl-policy-card"] });
+            };
           }
         }
         return super.create(options);

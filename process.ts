@@ -7,7 +7,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, writeFileS
 import { join, resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
-import type { WorkspaceTransactionStep, WorkspaceTransactionTransitionContext } from "@unbrained/pm-cli/sdk";
+import type { CommitWorkspaceTransactionOptions, WorkspaceTransactionStep, WorkspaceTransactionTransitionContext } from "@unbrained/pm-cli/sdk";
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { EXIT_CODE, isPmCliExpectedError, certifyCompleteListResult, normalizeItemId } from "@unbrained/pm-cli/sdk/runtime";
 import { banditCheckpoint, MAX_BANDIT_FIT_STEPS, type BanditCheckpoint, type BanditExample, type BanditObservation } from "./bandit.ts";
@@ -278,9 +278,31 @@ export async function listProcessJobs(client: PmClient): Promise<ProcessJob<Trai
   return jobs;
 }
 
+/**
+ * Journal process writes while retaining committed state on interrupted publication.
+ *
+ * The SDK workspace mutex does not fence ordinary item writers. Reversing a
+ * published reservation or transition could refund a running peer or erase its
+ * completion, so compensation records retention without rewriting the target.
+ * Recovery inspects current SDK state and never replays a frozen reverse write.
+ * @param options - SDK transaction identity, steps and transition observer.
+ * @throws {superseded} If an interrupted transaction retained a committed effect.
+ */
+async function commitRetainingProcessState(options: Omit<CommitWorkspaceTransactionOptions, "steps"> & { steps: readonly Omit<WorkspaceTransactionStep, "compensate">[] }): Promise<void> {
+  let retained = false;
+  try {
+    await commitProcessTransaction({ ...options, steps: options.steps.map((step) => ({ ...step,
+      async compensate() { retained = true; },
+    })) });
+  } catch (error) {
+    if (retained || !isPmCliExpectedError(error)) expectedFail(`Process publication was interrupted (${String(error)}). Compensation is superseded; any committed job state and held budget were retained. Read the current job through the SDK and resume its current state before retrying.`, "superseded", EXIT_CODE.CONFLICT);
+    throw error;
+  }
+}
+
 /** Reserve once under the workspace writer lock, counting every held or settled job on this approval. */
 export async function reserveProcessJob(client: PmClient, coordinates: ProcessCoordinates, id: string, input: TrainerInput, approval: string, allowance: Resources): Promise<ProcessJob<TrainerPolicy>> {
-  const step: WorkspaceTransactionStep = {
+  const step: Omit<WorkspaceTransactionStep, "compensate"> = {
     id: "reserve",
     async inspect() { return { state: await readProcessJob(client, id) === null ? "pending" : "applied" }; },
     async apply() {
@@ -294,9 +316,8 @@ export async function reserveProcessJob(client: PmClient, coordinates: ProcessCo
         state: "planned", allowance, charge: allowance, settled: false, completion: null, outcome: "reserved" };
       await createVerifiedItem(client, { id, type: "Task", tags: "rl-process-job", title: `Process trainer ${id.slice(-12)}`, body: encodeBoundedJson(job, MAX_TRACKER_RECORD_BYTES) });
     },
-    async compensate() { const job = (await readProcessJob(client, id))!; await client.update(id, { body: encodeBoundedJson({ ...job, state: "failed", settled: true, charge: zeroResources(), outcome: "reservation_compensated" }, MAX_TRACKER_RECORD_BYTES) }); },
   };
-  await commitProcessTransaction({ ...coordinates, transactionId: `${id}-reserve`, steps: [step] });
+  await commitRetainingProcessState({ ...coordinates, transactionId: `${id}-reserve`, steps: [step] });
   const job = (await readProcessJob(client, id))!;
   const approved = await approvedResources(client, approval);
   if (job.input !== processDigest(input) || job.approval !== approved.id || processDigest(job.allowance) !== processDigest(allowance)) expectedFail("Reservation replay inputs changed.", "process_job_drift");
@@ -310,20 +331,18 @@ const JOB_TRANSITIONS: Readonly<Record<ProcessJobState, readonly ProcessJobState
   planned: ["running", "failed", "cancelled"], running: ["materialized", "failed", "cancelled"], materialized: ["evaluated", "failed", "cancelled", "invalidated"],
   evaluated: ["promoted", "failed", "cancelled", "invalidated"], promoted: ["invalidated"], failed: [], cancelled: [], invalidated: [],
 };
-/** Commit one job transition and its receipt/accounting together, with append-only compensation. */
+/** Commit one job transition and retain its receipt/accounting if publication is interrupted. */
 export async function transitionProcessJob<P extends TrainerPolicy>(client: PmClient, coordinates: ProcessCoordinates, job: ProcessJob<P>, state: ProcessJobState, outcome: string, completion = job.completion, charge = job.charge): Promise<ProcessJob<P>> {
   if (job.state !== state && !JOB_TRANSITIONS[job.state].includes(state)) expectedFail("Illegal process job transition.", "process_job_drift");
   const target = job.state === state ? job : { ...job, state, outcome, completion, charge, settled: state !== "running" && state !== "planned" };
   const body = encodeBoundedJson(storedProcessJob(target), MAX_TRACKER_RECORD_BYTES);
-  const compensationBody = encodeBoundedJson(storedProcessJob(job), MAX_TRACKER_RECORD_BYTES);
   if (completion?.artifact !== undefined) {
     const policy = readCheckpointArtifact(coordinates.pmRoot, completion.artifact);
     await encodeCheckpointArtifacts(coordinates.pmRoot, `job:${job.id}:${state}`, policy);
   }
-  await commitProcessTransaction({ ...coordinates, transactionId: `${job.id}-${state}`, steps: [{ id: "outcome",
+  await commitRetainingProcessState({ ...coordinates, transactionId: `${job.id}-${state}`, steps: [{ id: "outcome",
     async inspect() { const current = (await readProcessJob(client, job.id))!; return { state: processDigest(current) === processDigest(storedProcessJob(target)) ? "applied" : "pending" }; },
     async apply() { await client.update(job.id, { body }); },
-    async compensate() { await client.update(job.id, { body: compensationBody }); },
   }] });
   return (await readProcessJob<P>(client, job.id, coordinates.pmRoot))!;
 }

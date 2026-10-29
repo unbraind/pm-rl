@@ -66,6 +66,17 @@ for (const mode of ["npm-global", "bun-global", "npx", "bunx", "project-local"])
   writeFileSync(file, JSON.stringify({ ...input, budget: { fits: 1, samples: 32, updates: 2 } }));
   const partial = JSON.parse(command(["rl", "influence", "run", "--file", file, "--json"])) as { details: { complete: boolean; ranking: unknown; omitted: unknown[] } };
   assert.equal(partial.details.complete, false); assert.equal(partial.details.ranking, null); assert.equal(partial.details.omitted.length, 2);
+  const environmentFile = join(root, "sweep-environment.json");
+  writeFileSync(environmentFile, JSON.stringify({ name: "Packed sweep", version: "1", task_suite: ["goal"], reward_specification: { goal: 1 } }));
+  const environment = JSON.parse(command(["rl", "env", "register", "--file", environmentFile, "--json"])) as { id: string };
+  const spaceFile = join(root, "sweep-space.json");
+  writeFileSync(spaceFile, JSON.stringify({ search_space: { rate: [0.1, 0.2] }, selection_rule: "none" }));
+  const sweep = JSON.parse(command(["rl", "sweep", "plan", "packed-sweep", "--file", spaceFile, "--environment", environment.id, "--algorithm", "bandit", "--json"])) as { id: string; details: { arms: string[] } };
+  assert.equal(sweep.details.arms.length, 2);
+  const sweepJson = command(["rl", "sweep", "status", sweep.id, "--json"]);
+  const sweepToon = command(["rl", "sweep", "status", sweep.id]);
+  assert.equal((JSON.parse(sweepJson) as { id: string }).id, sweep.id);
+  for (const arm of sweep.details.arms) assert.ok(sweepJson.includes(arm) && sweepToon.includes(arm));
   const client = new PmClient({ cwd: root, pmRoot: tracker.path, noExtensions: true });
   const projectPrefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
   const stored = (await client.get(run.details.id, { full: true })).item;
@@ -85,7 +96,7 @@ for (const mode of ["npm-global", "bun-global", "npx", "bunx", "project-local"])
   assert.equal((await client.get(run.details.id, { full: true })).item.type, "Task");
   assert.equal(existsSync(join(root, "foreign-proposal.json")), false);
   assert.equal(existsSync(join(root, "injected")), false);
-  results.push({ project_prefix: projectPrefix, foreign_refusals: 6, shell_metacharacter_path: true, mode, host: "2026.10.28", comparisons: run.details.comparisons.length, json_bytes: Buffer.byteLength(json), toon_bytes: Buffer.byteLength(toon), retry_created: false, partial_omitted: partial.details.omitted.length, no_git: true, proposal_feedback: true });
+  results.push({ project_prefix: projectPrefix, foreign_refusals: 6, shell_metacharacter_path: true, mode, host: "2026.10.28", sweep_arms: 2, sweep_json_toon: true, comparisons: run.details.comparisons.length, json_bytes: Buffer.byteLength(json), toon_bytes: Buffer.byteLength(toon), retry_created: false, partial_omitted: partial.details.omitted.length, no_git: true, proposal_feedback: true });
   process.stdout.write(`${mode}: passed\n`);
 }
 const bytes = readFileSync(archive);

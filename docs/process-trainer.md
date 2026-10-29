@@ -313,6 +313,20 @@ CPU milliseconds. Observed fit wall use was 78 / 78 ms; retained staging was
 bound into each job. Rejected, missing-receipt, corrupt and oversized candidates
 never become generation two's collector.
 
+## Interrupted publication
+
+A create or update can commit before an acknowledgement, history read, or later
+journal step fails. The transaction mutex serializes other transactions; ordinary
+SDK and CLI writers can still advance a job. Automatic reverse writes therefore
+retain the current job and its held charge, record the journal's compensation
+boundary without changing the item, and return a typed `superseded` refusal with
+the original failure and an SDK reconciliation remedy. A reservation stays
+planned and charged; a published transition keeps its actual state. Retrying
+inspects current SDK state. A foreign replacement remains untouched. Operators
+must reconcile retained jobs before spending their budget again; failed
+publication never authorizes a refund. This policy also preserves native history
+and avoids an unprotected read/delete or read/restore window.
+
 ## Verification
 
 Real temp trackers and real child processes cover one-launch contention, one

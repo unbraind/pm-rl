@@ -59,3 +59,10 @@ node test/training-influence.packed.ts artifacts/pm-rl-2026.10.28.tgz docs/train
 ```
 
 Supply a read-only archive of the named public commit and a captured package tarball; neither input is modified. The [behavioral revert](https://github.com/unbraind/pm-rl/blob/main/docs/training-influence-revert.json) disables slice effects only in a disposable copy and proves the movement regression fails. [Packed acceptance](https://github.com/unbraind/pm-rl/blob/main/docs/training-influence-packed.json) covers npm global, Bun global, npx, bunx and project-local host acquisition, retry, compact output, proposal feedback and partial-budget reporting with Git absent. The seeded native-state model exercises 500 operation sequences with old-input replays, JSON whitespace/CRLF transports, native annotations, relationships, custom active statuses and ambient focus. Interleaving tests inject a real competing SDK writer at every native read/write boundary of report creation and feedback.
+
+Interrupted publication elsewhere in the package follows the same ownership rule.
+Sweep plans retain all committed Runs and any committed Sweep, even if native
+creation succeeded and verification failed. Process jobs retain current state and
+held budget. Both report `superseded` with a reconciliation remedy; the package
+never treats a failed acknowledgement as proof that no record was published.
+There is no automatic deletion or reverse write to race ordinary SDK/CLI peers.

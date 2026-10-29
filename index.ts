@@ -946,7 +946,7 @@ export async function createOrReadIdentical(client: PmClient, options: Parameter
   async function readMatching(): Promise<GetResult["item"]> {
     const existing = await readCompleteLoopItem(client, options.id);
     if (existing.item.type !== options.type || !matches(existing.item)) {
-      fail(`${options.type} id ${options.id} already exists with a different type, specification hash or provenance content. Read the current target and use a fresh report or identity.`, collisionCode, EXIT_CODE.CONFLICT);
+      fail(`${options.type} id ${options.id} already exists with a different specification hash, native type or provenance content. Read the current target and use a fresh report or identity.`, collisionCode, EXIT_CODE.CONFLICT);
     }
     return existing.item;
   }
@@ -4896,35 +4896,26 @@ async function refuseTakenPlanIdentity(
 }
 
 /**
- * Remove the arm runs an interrupted sweep plan already wrote.
+ * Refuse destructive compensation of a partially published sweep.
  *
- * A partial sweep leaves orphaned child runs that later reads would treat as
- * real arms, so every arm written before the failure is deleted. Deleting does
- * not free those identities: the host keeps the history stream, and a retry must
- * plan a new sweep id rather than remint the same arms. A removal that itself
- * fails is refused with both causes named — the removal failure first, then the
- * original create failure — because silent orphans are precisely what the
- * cleanup exists to prevent.
+ * A failed SDK acknowledgement or verification can follow a successful write.
+ * Neither a list of ids nor workspace transaction serialization proves exclusive
+ * ownership of the current revisions or absence of committed dependents. Retain
+ * all records, including their native histories, and require reconciliation from
+ * current SDK state. This also makes ordinary peer writes safe at every boundary.
  *
- * @param client - Client bound to the target workspace.
- * @param arms - The resolved ids of the arms written so far.
- * @param cause - The original failure that interrupted the plan, named in the
- *   refusal when a removal itself fails.
- * @returns When every arm was removed; the caller then rethrows its own cause.
- * @throws {sweep_cleanup_failed} When any removal fails, naming both causes.
+ * @param _client - Original workspace client; retained for SDK call compatibility.
+ * @param arms - Acknowledged arm identities, which are diagnostic rather than deletion authority.
+ * @param cause - Original create or verification failure.
+ * @param sweep - Requested parent identity, including when its acknowledgement was lost.
+ * @throws {superseded} Always: automatic compensation cannot prove safe ownership.
  */
-export async function removePlannedArms(client: PmClient, arms: ReadonlyArray<{ id: string }>, cause: unknown): Promise<void> {
-  for (const arm of arms) {
-    try {
-      await client.delete(arm.id, { force: true });
-    } catch (removeError) {
-      fail(
-        `${String(removeError)} — and removing the partially planned arm ${arm.id} also failed while recovering from ${String(cause)}, so the sweep has orphaned arms that must be deleted before it can be re-planned.`,
-        "sweep_cleanup_failed",
-        EXIT_CODE.CONFLICT,
-      );
-    }
-  }
+export async function removePlannedArms(_client: PmClient, arms: ReadonlyArray<{ id: string }>, cause: unknown, sweep?: string): Promise<never> {
+  fail(
+    `Sweep publication was interrupted (${String(cause)}). Retained committed records${sweep === undefined ? "" : ` for ${sweep}`}; acknowledged arms: ${arms.map((arm) => arm.id).join(", ") || "none"}. Compensation is superseded: read the Sweep and Runs through the SDK, reconcile any successful publication, and use a fresh sweep id for a new plan. Budget and peer data were retained.`,
+    "superseded",
+    EXIT_CODE.CONFLICT,
+  );
 }
 
 /**
@@ -5015,11 +5006,8 @@ async function planSweep(context: CommandHandlerContext): Promise<RlCommandResul
       arms.push({ id: String(result.item.id), config });
     }
   } catch (error) {
-    // A mid-plan failure must not leave orphaned arm runs that later reads would
-    // treat as real children. Remove everything this invocation wrote, then let
-    // the original cause surface.
-    await removePlannedArms(client, arms, error);
-    throw error;
+    // Even a failed acknowledgement can follow a committed arm write.
+    return await removePlannedArms(client, arms, error, requestedId);
   }
   const spec: SweepSpec = {
     search_space: spaceRawSpace as Record<string, JsonValue[]>,
@@ -5030,10 +5018,8 @@ async function planSweep(context: CommandHandlerContext): Promise<RlCommandResul
     arms,
   };
   const sweepHash = hashJson(spec as unknown as JsonValue);
-  // The sweep create sits under the same cleanup contract as the arms: if it
-  // fails AFTER the arms exist, a retry under the same id would hit the arm
-  // pre-check and could never complete. Remove the arms this invocation wrote,
-  // then let the original cause surface.
+  // Publication and verification are separate outcomes. A committed Sweep can
+  // already reference these Runs when its acknowledgement or read-back fails.
   let sweepResult;
   try {
     sweepResult = await createVerifiedItem(client, {
@@ -5051,8 +5037,7 @@ async function planSweep(context: CommandHandlerContext): Promise<RlCommandResul
       message: "Plan RL sweep",
     });
   } catch (error) {
-    await removePlannedArms(client, arms, error);
-    throw error;
+    return await removePlannedArms(client, arms, error, requestedId);
   }
   return {
     action: "rl-sweep-plan",

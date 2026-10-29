@@ -166,6 +166,12 @@ query the host can already answer, not a feature to build.
 | `pm rl loop status <id>` | Reconstruct phases, consumed samples, checkpoints and terminal reason without writes. |
 | `pm rl loop resume <id>` | Load the seed's persisted programme; requires the governing `--approval` Decision. `--force-takeover` audits explicit recovery of an ambiguous or stale controller lease. |
 
+Interrupted Sweep publication retains every committed Run and Sweep. A failed
+acknowledgement or verification returns `superseded` with a reconciliation remedy;
+inspect current SDK state and choose a fresh id for a new plan. Process jobs use
+the same retention policy: interrupted publication keeps held budget charged and
+preserves the actual transition instead of reversing a peer's progress.
+
 All commands listed above are implemented. [Recursive training execution](RECURSIVE_TRAINING.md)
 documents the local process and Docker Compose adapters and remaining scheduler work.
 

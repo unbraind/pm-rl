@@ -2,7 +2,7 @@
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
@@ -428,7 +428,7 @@ test("status renders unmeasured arms and a no-winner rule in table form without 
   assert.match(output, /winner: none \(the selection rule declares no winner\)/);
 });
 
-test("planning refuses an existing sweep id even when its arms are gone, and cleans up on mid-plan failure", async () => {
+test("planning refuses occupied identities and retains interrupted publication with a reconciliation remedy", async () => {
   const { root, pmRoot, harness, client } = await workspace();
   const environment = await registerEnv(root, pmRoot, harness);
   // A sweep whose arm runs do not exist (hand-authored owner) must not be
@@ -451,8 +451,8 @@ test("planning refuses an existing sweep id even when its arms are gone, and cle
   await assert.rejects(planOrphan(), typedRefusal("sweep_reserved"));
   await assert.rejects(client.get("rl-sweep-orphan-owner-arm-1", {}), typedNotFound);
 
-  // An injected mid-write failure removes every arm the invocation already
-  // wrote, leaving nothing behind for a retry to trip over.
+  // A failed create is ambiguous: preserve all successful writes and refuse
+  // with the original cause and a reconciliation remedy.
   let createCalls = 0;
   const failing = new Proxy(client, {
     get(target, property, receiver) {
@@ -468,9 +468,7 @@ test("planning refuses an existing sweep id even when its arms are gone, and cle
       return typeof value === "function" ? (value as (...arguments_: unknown[]) => unknown).bind(target) : value;
     },
   }) as PmClient;
-  // The harness captures a non-pm error into errorMessage rather than rejecting;
-  // only pm expected errors propagate as rejections.
-  const failed = await harness.runCommand({
+  await assert.rejects(harness.runCommand({
     command: "rl sweep plan",
     pmRoot,
     args: ["sweep-flaky"],
@@ -480,19 +478,19 @@ test("planning refuses an existing sweep id even when its arms are gone, and cle
       algorithm: "PPO",
     },
     sdk: sdkWith(failing),
+  }), (error: unknown) => {
+    assert.ok(typedRefusal("superseded")(error));
+    assert.match(String(error), /injected host failure.*fresh sweep id/);
+    return true;
   });
-  assert.equal(failed.handled, false);
-  assert.match(String(failed.errorMessage), /injected host failure/);
-  // Every arm the invocation managed to write was removed before the error
-  // surfaced: nothing is left for a retry to trip over.
-  for (const armId of ["rl-sweep-flaky-arm-1", "rl-sweep-flaky-arm-2", "rl-sweep-flaky-arm-3", "rl-sweep-flaky-arm-4"]) {
-    await assert.rejects(client.get(armId, {}), typedNotFound, `${armId} must not survive a failed plan`);
+  assert.equal((await client.get("rl-sweep-flaky-arm-1")).item.type, "Run");
+  for (const armId of ["rl-sweep-flaky-arm-2", "rl-sweep-flaky-arm-3", "rl-sweep-flaky-arm-4"]) {
+    await assert.rejects(client.get(armId, {}), typedNotFound, `${armId} was never created`);
   }
   await assert.rejects(client.get("rl-sweep-flaky", {}), typedNotFound);
 
-  // A failure on the FINAL create — the Sweep item after every arm succeeded —
-  // removes the arms too: a retry under the same id would otherwise hit the arm
-  // pre-check and could never complete.
+  // A failure on the final create also retains every acknowledged Run. The
+  // host may have committed the Sweep before reporting an error.
   let lateCreateCalls = 0;
   const failingLate = new Proxy(client, {
     get(target, property, receiver) {
@@ -509,7 +507,7 @@ test("planning refuses an existing sweep id even when its arms are gone, and cle
       return typeof value === "function" ? (value as (...arguments_: unknown[]) => unknown).bind(target) : value;
     },
   }) as PmClient;
-  const failedLate = await harness.runCommand({
+  await assert.rejects(harness.runCommand({
     command: "rl sweep plan",
     pmRoot,
     args: ["sweep-late-fail"],
@@ -519,18 +517,18 @@ test("planning refuses an existing sweep id even when its arms are gone, and cle
       algorithm: "PPO",
     },
     sdk: sdkWith(failingLate),
+  }), (error: unknown) => {
+    assert.ok(typedRefusal("superseded")(error));
+    assert.match(String(error), /injected host failure on sweep create.*fresh sweep id/);
+    return true;
   });
-  assert.equal(failedLate.handled, false);
-  assert.match(String(failedLate.errorMessage), /injected host failure on sweep create/);
   for (const armId of ["rl-sweep-late-fail-arm-1", "rl-sweep-late-fail-arm-2", "rl-sweep-late-fail-arm-3", "rl-sweep-late-fail-arm-4"]) {
-    await assert.rejects(client.get(armId, {}), typedNotFound, `${armId} must not survive a failed sweep create`);
+    assert.equal((await client.get(armId)).item.type, "Run", `${armId} survives an ambiguous create failure`);
   }
   await assert.rejects(client.get("rl-sweep-late-fail", {}), typedNotFound);
 
-  // Cleanup removes live arms so later reads do not treat them as real children.
-  // It cannot free those identities: reminting the same arm ids would splice a
-  // second item into one immutable history stream. A retry under the same sweep
-  // id must refuse with a typed reservation error before writing anything new.
+  // Retention reserves the original identities. Retry must refuse before any
+  // write, while a new id remains available for an independent plan.
   await assert.rejects(
     harness.runCommand({
       command: "rl sweep plan",
@@ -542,19 +540,19 @@ test("planning refuses an existing sweep id even when its arms are gone, and cle
         algorithm: "PPO",
       },
     }),
-    typedRefusal("sweep_arm_reserved"),
+    typedRefusal("sweep_arm_exists"),
   );
   for (const armId of ["rl-sweep-late-fail-arm-1", "rl-sweep-late-fail-arm-2", "rl-sweep-late-fail-arm-3", "rl-sweep-late-fail-arm-4"]) {
-    await assert.rejects(client.get(armId, {}), typedNotFound, `${armId} must stay absent after a reserved-identity refusal`);
+    assert.equal((await client.get(armId)).item.type, "Run", `${armId} stays live after retry refusal`);
   }
 
-  // A cleanup that itself cannot remove the arm is refused with BOTH causes
-  // named — the removal failure first, the original create failure second.
-  // Only the delete trap matters here: removePlannedArms never calls create.
+  // An id alone grants no deletion authority, including to SDK callers. The
+  // compatibility helper must refuse before calling any destructive method.
+  let deletionAttempted = false;
   const failingWorse = new Proxy(client, {
     get(target, property, receiver) {
       if (property === "delete") {
-        return async () => { throw new Error("injected removal failure"); };
+        return async () => { deletionAttempted = true; throw new Error("injected removal failure"); };
       }
       const value = Reflect.get(target, property, receiver);
       return typeof value === "function" ? (value as (...arguments_: unknown[]) => unknown).bind(target) : value;
@@ -563,13 +561,116 @@ test("planning refuses an existing sweep id even when its arms are gone, and cle
   await assert.rejects(
     removePlannedArms(failingWorse, [{ id: "rl-sweep-worse-arm-1" }], new Error("injected host failure on second create")),
     (error: unknown): boolean => {
-      if (!isPmCliExpectedError(error) || String((error as { context?: { code?: string } }).context?.code) !== "sweep_cleanup_failed") return false;
+      if (!isPmCliExpectedError(error) || String((error as { context?: { code?: string } }).context?.code) !== "superseded") return false;
       const message = String(error.message ?? error);
-      assert.match(message, /injected removal failure/, "the removal cause is named first");
+      assert.match(message, /read the Sweep and Runs.*fresh sweep id/, "the refusal gives a concrete reconciliation remedy");
       assert.match(message, /injected host failure/, "and the original create cause is not lost");
       return true;
     },
   );
+  assert.equal(deletionAttempted, false);
+});
+
+test("sweep keeps published dependents after native history loss or a peer envelope edit", async () => {
+  const { root, pmRoot, harness, client } = await workspace();
+  const environment = await registerEnv(root, pmRoot, harness);
+  const file = writeSpace(root, { search_space: { lr: [0.1, 0.2] }, selection_rule: "none" });
+  for (const failure of ["history", "peer"] as const) {
+    let retainedHistory: string | undefined;
+    let parent: string | undefined;
+    const interrupted = new Proxy(client, {
+      get(target, property, receiver) {
+        if (property === "create") return async (options: Parameters<PmClient["create"]>[0]) => {
+          const created = await target.create(options);
+          if (options?.type === "Sweep") {
+            parent = created.item.id;
+            if (failure === "history") {
+              retainedHistory = join(pmRoot, "history", `${parent}.jsonl`);
+              renameSync(retainedHistory, `${retainedHistory}.unavailable`);
+            } else await target.update(parent, { component: "peer-component", addTags: ["peer-evidence"] });
+          }
+          return created;
+        };
+        const value: unknown = Reflect.get(target, property, receiver);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    }) as PmClient;
+    try {
+      await assert.rejects(harness.runCommand({ command: "rl sweep plan", pmRoot, args: [`sweep-native-${failure}`], options: { file, environment, algorithm: "PPO" }, sdk: sdkWith(interrupted) }), typedRefusal("superseded"));
+    } finally {
+      if (retainedHistory !== undefined) renameSync(`${retainedHistory}.unavailable`, retainedHistory);
+    }
+    assert.ok(parent);
+    const current = await client.get(parent);
+    assert.equal(current.item.type, "Sweep");
+    if (failure === "peer") assert.equal(current.item.component, "peer-component");
+    for (let arm = 1; arm <= 2; arm += 1) assert.equal((await client.get(`${parent}-arm-${arm}`)).item.type, "Run");
+    assert.equal(resultOf(await harness.runCommand({ command: "rl sweep status", pmRoot, args: [parent] })).id, parent);
+  }
+});
+
+test("sweep publication retains every SDK revision at every post-write step boundary", async (context) => {
+  const { root, pmRoot, harness, client } = await workspace();
+  const environment = await registerEnv(root, pmRoot, harness);
+  const file = writeSpace(root, { search_space: { lr: [0.1, 0.2] }, selection_rule: "none" });
+  const boundaries: string[] = [];
+  // Discover actual SDK steps with the same real producer, including read-back.
+  const run = async (id: string, fault: number | null, after: boolean): Promise<void> => {
+    const written: string[] = []; let step = 0; let injected = false;
+    const expected = new Map<string, Awaited<ReturnType<PmClient["get"]>>>();
+    const histories = new Map<string, unknown>();
+    const interrupt = async (): Promise<never> => {
+      injected = true;
+      for (const target of written) {
+        await client.update(target, { title: "Peer retains ownership", addTags: ["peer-evidence"] });
+        expected.set(target, await client.get(target, { outputBudget: "unbounded", outputLimit: "unbounded" }));
+        histories.set(target, await client.run("history", { id: target, options: { verify: true, outputBudget: "unbounded", outputLimit: "unbounded" } }));
+      }
+      throw new Error("injected post-write SDK failure");
+    };
+    const intercepted = new Proxy(client, {
+      get(target, property, receiver) {
+        const value: unknown = Reflect.get(target, property, receiver);
+        if (typeof value !== "function") return value;
+        return async (...args: unknown[]) => {
+          const boundary = property === "create" || written.length > 0 && ["get", "run"].includes(String(property));
+          const position = boundary ? step++ : -1;
+          if (boundary && fault === null) boundaries.push(String(property));
+          if (boundary && position === fault && !after) await interrupt();
+          const result: unknown = await Reflect.apply(value, target, args);
+          if (property === "create") written.push((result as { item: { id: string } }).item.id);
+          if (boundary && position === fault && after) await interrupt();
+          return result;
+        };
+      },
+    }) as PmClient;
+    try {
+      const result = await harness.runCommand({ command: "rl sweep plan", pmRoot, args: [id], options: { file, environment, algorithm: "PPO" }, sdk: sdkWith(intercepted) });
+      assert.equal(fault, null, JSON.stringify(result));
+      assert.equal(result.handled, true);
+    } catch (error) {
+      assert.notEqual(fault, null);
+      assert.ok(typedRefusal("superseded")(error), String(error));
+      assert.match(String(error), /injected post-write SDK failure.*read the Sweep and Runs/);
+    }
+    if (fault !== null) assert.equal(injected, true, `${fault}: ${boundaries[fault]}`);
+    for (const target of written) {
+      const actual = await client.get(target, { outputBudget: "unbounded", outputLimit: "unbounded" });
+      if (fault !== null) {
+        assert.deepEqual(actual, expected.get(target), `${target}: peer's complete native state survives`);
+        assert.deepEqual(await client.run("history", { id: target, options: { verify: true, outputBudget: "unbounded", outputLimit: "unbounded" } }), histories.get(target), `${target}: no rollback history was appended`);
+      }
+      assert.ok("item" in actual);
+      if (actual.item.type === "Sweep") {
+        const status = resultOf(await harness.runCommand({ command: "rl sweep status", pmRoot, args: [target] }));
+        assert.equal(status.id, target, "published parent resolves every arm through the real status reader");
+      }
+    }
+  };
+  await run("sweep-boundary-control", null, false);
+  assert.ok(boundaries.length >= 8, JSON.stringify(boundaries));
+  for (const after of [false, true]) for (let step = 0; step < boundaries.length; step += 1) await run(`sweep-boundary-${after ? "after" : "before"}-${step}`, step, after);
+  context.diagnostic(`${boundaries.length * 2} real SDK faults before and after every publication step`);
 });
 
 test("status refuses a missing sweep and a hand-authored body without a specification fence", async () => {
