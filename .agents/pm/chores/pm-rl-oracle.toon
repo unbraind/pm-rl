@@ -1,0 +1,31 @@
+id: pm-rl-oracle
+title: Extract the published compatibility oracle from the sequential evaluation PR
+description: "Part 1 of the #107 split: published writer, native text and dual-runtime clock fixtures, main baseline authoring driver and independent source/packed tests. No sequential protocol, decision provenance or new identity primitives."
+type: Chore
+status: in_progress
+priority: 2
+tags[3]: compatibility,"gh:unbraind/pm-rl#107",testing
+created_at: "2026-10-29T19:03:12.792Z"
+updated_at: "2026-10-29T20:00:41.880Z"
+author: codex-agent
+comments[7]{created_at,author,text}:
+  "2026-10-29T19:03:46.528Z",codex-agent,"Preserve native JSON fixtures and authoring drivers verbatim; leave new validation, decision graphs and cross-clock recovery assertions on #107. Run focused tests before serialized npm and Bun release gates at unchanged thresholds."
+  "2026-10-29T19:05:50.944Z",codex-agent,"Focused extraction found main cannot promote the long legacy candidate: its transaction filename raises ENAMETOOLONG. That promotion and new decision-graph assertions stay on #107. The standalone tests retain every native snapshot (including long IDs), published hashes, fixed evaluation, ordinary promotion, CLI retries and both runtime receipt DTOs."
+  "2026-10-29T19:09:57.270Z",codex-agent,"The linked published-schema oracle passes 1/1 (500 cases, 13 paths). A disposable fixture-hash negative control fails the same assertion; no package runtime function changes in this extraction. Typecheck, lint, 54-source/414-declaration docstrings and zero duplicates pass. Native source and packed checks precede full serialized npm/Bun gates."
+  "2026-10-29T19:24:02.512Z",codex-agent,"Native source acceptance passes 3/3, including the 500-case hash model and both main process DTOs; linked oracle passes 1/1. The preliminary Node 24 full run was stopped after two existing one-second subprocess deadlines failed under load. Both affected checks pass 2/2 under Node 26.13 with coverage enabled; unchanged full npm and Bun gates now run serially on that CI runtime. No test timeout or coverage threshold changed."
+  "2026-10-29T19:37:20.037Z",codex-agent,Strict tracker health passes with required merge-driver checks. One inherited provenance-value advisory remains; history is append-only and no repair was attempted. SHA-256 comparisons confirm all five native-data and authoring-tool files are byte-identical to #107.
+  "2026-10-29T20:00:27.540Z",codex-agent,"Standalone evidence: source oracle 3/3; linked published-schema property 1/1 (500 cases across 13 paths); typecheck, test compilation, lint, zero duplicates and docstrings 54 sources/414 declarations pass. Exact packed archive dc918484f02cd52ad9095a7c4bbc7e4f81454a3fe5c7b313e2d3a0321c38845b has 219 files/164 runtime files, all equal to source. A copied shipped-JS mutation is detected and restored. Commands node test/evaluation-compatibility.acceptance.ts published-compatibility-oracle.local.tgz compatibility-node.local and bun test/evaluation-compatibility.acceptance.ts published-compatibility-oracle.local.tgz compatibility-bun.local both pass against real non-git trackers with Git absent from PATH. Archives/evidence remain ignored."
+  "2026-10-29T20:00:34.490Z",codex-agent,"Full local npm gate is not a pass: its existing Compose fixture image build exceeded 120 seconds, then the run was interrupted after discovering the local Docker path. Full unchanged npm and Bun release gates will be verified on isolated GitHub Actions runners; no local Docker gate will be restarted. The copied-fixture hash negative control fails its assertion. No runtime behavior or dependency pin changed in Part 1."
+files[7]{path,scope}:
+  test/evaluation-compatibility.acceptance.ts,project
+  test/evaluation-compatibility.test.ts,project
+  test/fixtures/compatibility-inputs.ts,project
+  test/fixtures/main-controller-compatibility.ts,project
+  test/fixtures/main-process-clocks.json,project
+  test/fixtures/released-compatibility-writer.ts,project
+  test/fixtures/released-compatibility.json,project
+tests[1]{command,scope,timeout_seconds,pm_context_mode,workspace_context_mode,provenance{author,created_at,source_kind,source_ref}}:
+  "node --test --test-concurrency=1 --test-name-pattern=\"published schema oracle\" test/evaluation-compatibility.test.ts",project,600,none,snapshot,codex-agent,"2026-10-29T19:05:04.565Z",local_mutation,feat/published-compatibility-oracle
+docs[1]{path,scope}:
+  test/fixtures/README-compatibility.md,project
+body: ""

@@ -1,0 +1,1500 @@
+{
+  "format": "pm-rl/main-process-clock-fixture/1",
+  "main_commit": "a9a1199b1838dcb8613c43d6f1f57d6af33a3084",
+  "producer_sdk": "2026.10.25",
+  "input": {
+    "identity": {
+      "programme": "sha256:97ab93273e67dd13a2aa4f8129fd343edf5471dcb92735ab6ac2ff8bf6910037",
+      "programme_id": "sha256:97ab93273e67dd13a2aa4f8129fd343edf5471dcb92735ab6ac2ff8bf6910037",
+      "generation": 1,
+      "input_checkpoint": "sha256:17493680209cdf2fc86126ff2ad0b7bb6063ae24ce00f28f931224bb5ab2fd11",
+      "training": "sha256:e3f7615739e8befe7c25d7f5db380fa21e0fdb6fdd2226fae0cbffc17d779e7f",
+      "evaluation": "sha256:5d44a4d122549dd057f3913d629b0f2ca9a5266eab35b309b1d1d3d418bc8033",
+      "environment": "sha256:8b9a032c92dd356fd5763ed175b99a06014a308bd41f76e38445bee976b9624b",
+      "reward": "sha256:de52021be59fd4ff5f9d179d0d04fa29f0ae6726e11b375a38cfc45e533033f4",
+      "configuration": {
+        "learningRate": 0.5,
+        "evaluationSamples": 40000
+      }
+    },
+    "source": {
+      "weight": 0,
+      "digest": "sha256:17493680209cdf2fc86126ff2ad0b7bb6063ae24ce00f28f931224bb5ab2fd11"
+    },
+    "training": [
+      {
+        "id": "train-positive",
+        "feature": 1,
+        "rewards": [
+          0,
+          1
+        ]
+      },
+      {
+        "id": "train-negative",
+        "feature": -1,
+        "rewards": [
+          1,
+          0
+        ]
+      }
+    ],
+    "observations": [
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 0,
+        "reward": 1
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 0,
+        "reward": 0
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      },
+      {
+        "example": "train-positive",
+        "action": 1,
+        "reward": 1
+      },
+      {
+        "example": "train-negative",
+        "action": 1,
+        "reward": 0
+      }
+    ],
+    "training_config": {
+      "learning_rate": 0.5,
+      "steps": 1
+    },
+    "lineage": {
+      "training": "sha256:e3f7615739e8befe7c25d7f5db380fa21e0fdb6fdd2226fae0cbffc17d779e7f",
+      "held_out": "sha256:5d44a4d122549dd057f3913d629b0f2ca9a5266eab35b309b1d1d3d418bc8033",
+      "collection": "sha256:6d71194a33d9cec20b3925cfbcb9461107ac825bd97cd26a1463024980661cdd"
+    }
+  },
+  "records": [
+    {
+      "runtime": "Node 24.19.0",
+      "job": {
+        "format": "pm-rl/process-job/1",
+        "id": "PROCESS-3E47D2186970800BC4E871D1308FBEB23F8AFB5CD758B9D81B59BEAED8C44AE8",
+        "input": "sha256:1034c6c562f691719f5f9d60e984541511e1eff99f4165e19d1c531b321916be",
+        "binding": {
+          "programme": "sha256:97ab93273e67dd13a2aa4f8129fd343edf5471dcb92735ab6ac2ff8bf6910037",
+          "programme_id": "sha256:97ab93273e67dd13a2aa4f8129fd343edf5471dcb92735ab6ac2ff8bf6910037",
+          "generation": 1,
+          "input_checkpoint": "sha256:17493680209cdf2fc86126ff2ad0b7bb6063ae24ce00f28f931224bb5ab2fd11",
+          "training": "sha256:e3f7615739e8befe7c25d7f5db380fa21e0fdb6fdd2226fae0cbffc17d779e7f",
+          "evaluation": "sha256:5d44a4d122549dd057f3913d629b0f2ca9a5266eab35b309b1d1d3d418bc8033",
+          "environment": "sha256:8b9a032c92dd356fd5763ed175b99a06014a308bd41f76e38445bee976b9624b",
+          "reward": "sha256:de52021be59fd4ff5f9d179d0d04fa29f0ae6726e11b375a38cfc45e533033f4",
+          "configuration": {
+            "learningRate": 0.5,
+            "evaluationSamples": 40000
+          }
+        },
+        "approval": "rl-process-approval",
+        "budget_digest": "sha256:c03f0edb20ffb73af3f9ec5727e94972d84fc7575743abc437c9ffb166ef721c",
+        "state": "materialized",
+        "allowance": {
+          "training_steps": 1,
+          "wall_ms": 5000,
+          "storage_bytes": 65536,
+          "compute_units": 1000,
+          "tokens": 0
+        },
+        "charge": {
+          "training_steps": 1,
+          "wall_ms": 31,
+          "storage_bytes": 1006,
+          "compute_units": 1,
+          "tokens": 0
+        },
+        "settled": true,
+        "completion": {
+          "format": "pm-rl/process-completion/1",
+          "job": "PROCESS-3E47D2186970800BC4E871D1308FBEB23F8AFB5CD758B9D81B59BEAED8C44AE8",
+          "checkpoint": "checkpoint.json",
+          "digest": "sha256:b3d67d4b3edf374c470edd926dc60f203ae690fecf333e161c6e67a84fa87e81",
+          "policy": {
+            "weight": 0.1162109375,
+            "digest": "sha256:b616a657d2fbbe517dbdb321bdd56a8b9ab4c3e8c42fc2279fbc91a3f77ee7dd"
+          },
+          "training_config": {
+            "learning_rate": 0.5,
+            "steps": 1
+          },
+          "source_policy": "sha256:17493680209cdf2fc86126ff2ad0b7bb6063ae24ce00f28f931224bb5ab2fd11",
+          "lineage": {
+            "training": "sha256:e3f7615739e8befe7c25d7f5db380fa21e0fdb6fdd2226fae0cbffc17d779e7f",
+            "held_out": "sha256:5d44a4d122549dd057f3913d629b0f2ca9a5266eab35b309b1d1d3d418bc8033",
+            "collection": "sha256:6d71194a33d9cec20b3925cfbcb9461107ac825bd97cd26a1463024980661cdd"
+          },
+          "usage": {
+            "training_steps": 1,
+            "wall_ms": 31,
+            "storage_bytes": 1006,
+            "compute_units": 1,
+            "tokens": 0
+          }
+        },
+        "outcome": "Baseline completion"
+      },
+      "body": "{\"format\":\"pm-rl/process-job/1\",\"id\":\"PROCESS-3E47D2186970800BC4E871D1308FBEB23F8AFB5CD758B9D81B59BEAED8C44AE8\",\"input\":\"sha256:1034c6c562f691719f5f9d60e984541511e1eff99f4165e19d1c531b321916be\",\"binding\":{\"programme\":\"sha256:97ab93273e67dd13a2aa4f8129fd343edf5471dcb92735ab6ac2ff8bf6910037\",\"programme_id\":\"sha256:97ab93273e67dd13a2aa4f8129fd343edf5471dcb92735ab6ac2ff8bf6910037\",\"generation\":1,\"input_checkpoint\":\"sha256:17493680209cdf2fc86126ff2ad0b7bb6063ae24ce00f28f931224bb5ab2fd11\",\"training\":\"sha256:e3f7615739e8befe7c25d7f5db380fa21e0fdb6fdd2226fae0cbffc17d779e7f\",\"evaluation\":\"sha256:5d44a4d122549dd057f3913d629b0f2ca9a5266eab35b309b1d1d3d418bc8033\",\"environment\":\"sha256:8b9a032c92dd356fd5763ed175b99a06014a308bd41f76e38445bee976b9624b\",\"reward\":\"sha256:de52021be59fd4ff5f9d179d0d04fa29f0ae6726e11b375a38cfc45e533033f4\",\"configuration\":{\"learningRate\":0.5,\"evaluationSamples\":40000}},\"approval\":\"rl-process-approval\",\"budget_digest\":\"sha256:c03f0edb20ffb73af3f9ec5727e94972d84fc7575743abc437c9ffb166ef721c\",\"state\":\"materialized\",\"allowance\":{\"training_steps\":1,\"wall_ms\":5000,\"storage_bytes\":65536,\"compute_units\":1000,\"tokens\":0},\"charge\":{\"training_steps\":1,\"wall_ms\":31,\"storage_bytes\":1006,\"compute_units\":1,\"tokens\":0},\"settled\":true,\"completion\":{\"format\":\"pm-rl/process-completion/1\",\"job\":\"PROCESS-3E47D2186970800BC4E871D1308FBEB23F8AFB5CD758B9D81B59BEAED8C44AE8\",\"checkpoint\":\"checkpoint.json\",\"digest\":\"sha256:b3d67d4b3edf374c470edd926dc60f203ae690fecf333e161c6e67a84fa87e81\",\"policy\":{\"weight\":0.1162109375,\"digest\":\"sha256:b616a657d2fbbe517dbdb321bdd56a8b9ab4c3e8c42fc2279fbc91a3f77ee7dd\"},\"training_config\":{\"learning_rate\":0.5,\"steps\":1},\"source_policy\":\"sha256:17493680209cdf2fc86126ff2ad0b7bb6063ae24ce00f28f931224bb5ab2fd11\",\"lineage\":{\"training\":\"sha256:e3f7615739e8befe7c25d7f5db380fa21e0fdb6fdd2226fae0cbffc17d779e7f\",\"held_out\":\"sha256:5d44a4d122549dd057f3913d629b0f2ca9a5266eab35b309b1d1d3d418bc8033\",\"collection\":\"sha256:6d71194a33d9cec20b3925cfbcb9461107ac825bd97cd26a1463024980661cdd\"},\"usage\":{\"training_steps\":1,\"wall_ms\":31,\"storage_bytes\":1006,\"compute_units\":1,\"tokens\":0}},\"outcome\":\"Baseline completion\"}",
+      "approval": "```json\n{\"permitted_promotions\":2,\"resource_budget\":{\"training_steps\":4,\"wall_ms\":20000,\"storage_bytes\":262144,\"compute_units\":4000,\"tokens\":0}}\n```",
+      "files": {
+        "checkpoint.json": "{\"weight\":0.1162109375,\"digest\":\"sha256:b616a657d2fbbe517dbdb321bdd56a8b9ab4c3e8c42fc2279fbc91a3f77ee7dd\"}",
+        "completion.json": "{\"format\":\"pm-rl/process-completion/1\",\"job\":\"PROCESS-3E47D2186970800BC4E871D1308FBEB23F8AFB5CD758B9D81B59BEAED8C44AE8\",\"checkpoint\":\"checkpoint.json\",\"digest\":\"sha256:b3d67d4b3edf374c470edd926dc60f203ae690fecf333e161c6e67a84fa87e81\",\"policy\":{\"weight\":0.1162109375,\"digest\":\"sha256:b616a657d2fbbe517dbdb321bdd56a8b9ab4c3e8c42fc2279fbc91a3f77ee7dd\"},\"training_config\":{\"learning_rate\":0.5,\"steps\":1},\"source_policy\":\"sha256:17493680209cdf2fc86126ff2ad0b7bb6063ae24ce00f28f931224bb5ab2fd11\",\"lineage\":{\"training\":\"sha256:e3f7615739e8befe7c25d7f5db380fa21e0fdb6fdd2226fae0cbffc17d779e7f\",\"held_out\":\"sha256:5d44a4d122549dd057f3913d629b0f2ca9a5266eab35b309b1d1d3d418bc8033\",\"collection\":\"sha256:6d71194a33d9cec20b3925cfbcb9461107ac825bd97cd26a1463024980661cdd\"},\"usage\":{\"training_steps\":1,\"wall_ms\":5,\"storage_bytes\":106,\"compute_units\":1,\"tokens\":0}}",
+        "legacy-state.txt": "Retained baseline state",
+        "runner.json": "{\"started_at\":1793273793863}"
+      },
+      "mtime_ns": "1793273793893714399",
+      "clock_ms": 1793273793893.7144,
+      "policy": {
+        "weight": 0.1162109375,
+        "digest": "sha256:b616a657d2fbbe517dbdb321bdd56a8b9ab4c3e8c42fc2279fbc91a3f77ee7dd"
+      }
+    },
+    {
+      "runtime": "Bun 1.3.5",
+      "job": {
+        "format": "pm-rl/process-job/1",
+        "id": "PROCESS-3E47D2186970800BC4E871D1308FBEB23F8AFB5CD758B9D81B59BEAED8C44AE8",
+        "input": "sha256:1034c6c562f691719f5f9d60e984541511e1eff99f4165e19d1c531b321916be",
+        "binding": {
+          "programme": "sha256:97ab93273e67dd13a2aa4f8129fd343edf5471dcb92735ab6ac2ff8bf6910037",
+          "programme_id": "sha256:97ab93273e67dd13a2aa4f8129fd343edf5471dcb92735ab6ac2ff8bf6910037",
+          "generation": 1,
+          "input_checkpoint": "sha256:17493680209cdf2fc86126ff2ad0b7bb6063ae24ce00f28f931224bb5ab2fd11",
+          "training": "sha256:e3f7615739e8befe7c25d7f5db380fa21e0fdb6fdd2226fae0cbffc17d779e7f",
+          "evaluation": "sha256:5d44a4d122549dd057f3913d629b0f2ca9a5266eab35b309b1d1d3d418bc8033",
+          "environment": "sha256:8b9a032c92dd356fd5763ed175b99a06014a308bd41f76e38445bee976b9624b",
+          "reward": "sha256:de52021be59fd4ff5f9d179d0d04fa29f0ae6726e11b375a38cfc45e533033f4",
+          "configuration": {
+            "learningRate": 0.5,
+            "evaluationSamples": 40000
+          }
+        },
+        "approval": "rl-process-approval",
+        "budget_digest": "sha256:c03f0edb20ffb73af3f9ec5727e94972d84fc7575743abc437c9ffb166ef721c",
+        "state": "evaluated",
+        "allowance": {
+          "training_steps": 1,
+          "wall_ms": 5000,
+          "storage_bytes": 65536,
+          "compute_units": 1000,
+          "tokens": 0
+        },
+        "charge": {
+          "training_steps": 1,
+          "wall_ms": 30,
+          "storage_bytes": 1006,
+          "compute_units": 1,
+          "tokens": 0
+        },
+        "settled": true,
+        "completion": {
+          "format": "pm-rl/process-completion/1",
+          "job": "PROCESS-3E47D2186970800BC4E871D1308FBEB23F8AFB5CD758B9D81B59BEAED8C44AE8",
+          "checkpoint": "checkpoint.json",
+          "digest": "sha256:b3d67d4b3edf374c470edd926dc60f203ae690fecf333e161c6e67a84fa87e81",
+          "policy": {
+            "weight": 0.1162109375,
+            "digest": "sha256:b616a657d2fbbe517dbdb321bdd56a8b9ab4c3e8c42fc2279fbc91a3f77ee7dd"
+          },
+          "training_config": {
+            "learning_rate": 0.5,
+            "steps": 1
+          },
+          "source_policy": "sha256:17493680209cdf2fc86126ff2ad0b7bb6063ae24ce00f28f931224bb5ab2fd11",
+          "lineage": {
+            "training": "sha256:e3f7615739e8befe7c25d7f5db380fa21e0fdb6fdd2226fae0cbffc17d779e7f",
+            "held_out": "sha256:5d44a4d122549dd057f3913d629b0f2ca9a5266eab35b309b1d1d3d418bc8033",
+            "collection": "sha256:6d71194a33d9cec20b3925cfbcb9461107ac825bd97cd26a1463024980661cdd"
+          },
+          "usage": {
+            "training_steps": 1,
+            "wall_ms": 30,
+            "storage_bytes": 1006,
+            "compute_units": 1,
+            "tokens": 0
+          }
+        },
+        "outcome": "Baseline runtime accounting"
+      },
+      "body": "{\"format\":\"pm-rl/process-job/1\",\"id\":\"PROCESS-3E47D2186970800BC4E871D1308FBEB23F8AFB5CD758B9D81B59BEAED8C44AE8\",\"input\":\"sha256:1034c6c562f691719f5f9d60e984541511e1eff99f4165e19d1c531b321916be\",\"binding\":{\"programme\":\"sha256:97ab93273e67dd13a2aa4f8129fd343edf5471dcb92735ab6ac2ff8bf6910037\",\"programme_id\":\"sha256:97ab93273e67dd13a2aa4f8129fd343edf5471dcb92735ab6ac2ff8bf6910037\",\"generation\":1,\"input_checkpoint\":\"sha256:17493680209cdf2fc86126ff2ad0b7bb6063ae24ce00f28f931224bb5ab2fd11\",\"training\":\"sha256:e3f7615739e8befe7c25d7f5db380fa21e0fdb6fdd2226fae0cbffc17d779e7f\",\"evaluation\":\"sha256:5d44a4d122549dd057f3913d629b0f2ca9a5266eab35b309b1d1d3d418bc8033\",\"environment\":\"sha256:8b9a032c92dd356fd5763ed175b99a06014a308bd41f76e38445bee976b9624b\",\"reward\":\"sha256:de52021be59fd4ff5f9d179d0d04fa29f0ae6726e11b375a38cfc45e533033f4\",\"configuration\":{\"learningRate\":0.5,\"evaluationSamples\":40000}},\"approval\":\"rl-process-approval\",\"budget_digest\":\"sha256:c03f0edb20ffb73af3f9ec5727e94972d84fc7575743abc437c9ffb166ef721c\",\"state\":\"evaluated\",\"allowance\":{\"training_steps\":1,\"wall_ms\":5000,\"storage_bytes\":65536,\"compute_units\":1000,\"tokens\":0},\"charge\":{\"training_steps\":1,\"wall_ms\":30,\"storage_bytes\":1006,\"compute_units\":1,\"tokens\":0},\"settled\":true,\"completion\":{\"format\":\"pm-rl/process-completion/1\",\"job\":\"PROCESS-3E47D2186970800BC4E871D1308FBEB23F8AFB5CD758B9D81B59BEAED8C44AE8\",\"checkpoint\":\"checkpoint.json\",\"digest\":\"sha256:b3d67d4b3edf374c470edd926dc60f203ae690fecf333e161c6e67a84fa87e81\",\"policy\":{\"weight\":0.1162109375,\"digest\":\"sha256:b616a657d2fbbe517dbdb321bdd56a8b9ab4c3e8c42fc2279fbc91a3f77ee7dd\"},\"training_config\":{\"learning_rate\":0.5,\"steps\":1},\"source_policy\":\"sha256:17493680209cdf2fc86126ff2ad0b7bb6063ae24ce00f28f931224bb5ab2fd11\",\"lineage\":{\"training\":\"sha256:e3f7615739e8befe7c25d7f5db380fa21e0fdb6fdd2226fae0cbffc17d779e7f\",\"held_out\":\"sha256:5d44a4d122549dd057f3913d629b0f2ca9a5266eab35b309b1d1d3d418bc8033\",\"collection\":\"sha256:6d71194a33d9cec20b3925cfbcb9461107ac825bd97cd26a1463024980661cdd\"},\"usage\":{\"training_steps\":1,\"wall_ms\":30,\"storage_bytes\":1006,\"compute_units\":1,\"tokens\":0}},\"outcome\":\"Baseline runtime accounting\"}",
+      "approval": "```json\n{\"permitted_promotions\":2,\"resource_budget\":{\"training_steps\":4,\"wall_ms\":20000,\"storage_bytes\":262144,\"compute_units\":4000,\"tokens\":0}}\n```",
+      "files": {
+        "checkpoint.json": "{\"weight\":0.1162109375,\"digest\":\"sha256:b616a657d2fbbe517dbdb321bdd56a8b9ab4c3e8c42fc2279fbc91a3f77ee7dd\"}",
+        "completion.json": "{\"format\":\"pm-rl/process-completion/1\",\"job\":\"PROCESS-3E47D2186970800BC4E871D1308FBEB23F8AFB5CD758B9D81B59BEAED8C44AE8\",\"checkpoint\":\"checkpoint.json\",\"digest\":\"sha256:b3d67d4b3edf374c470edd926dc60f203ae690fecf333e161c6e67a84fa87e81\",\"policy\":{\"weight\":0.1162109375,\"digest\":\"sha256:b616a657d2fbbe517dbdb321bdd56a8b9ab4c3e8c42fc2279fbc91a3f77ee7dd\"},\"training_config\":{\"learning_rate\":0.5,\"steps\":1},\"source_policy\":\"sha256:17493680209cdf2fc86126ff2ad0b7bb6063ae24ce00f28f931224bb5ab2fd11\",\"lineage\":{\"training\":\"sha256:e3f7615739e8befe7c25d7f5db380fa21e0fdb6fdd2226fae0cbffc17d779e7f\",\"held_out\":\"sha256:5d44a4d122549dd057f3913d629b0f2ca9a5266eab35b309b1d1d3d418bc8033\",\"collection\":\"sha256:6d71194a33d9cec20b3925cfbcb9461107ac825bd97cd26a1463024980661cdd\"},\"usage\":{\"training_steps\":1,\"wall_ms\":5,\"storage_bytes\":106,\"compute_units\":1,\"tokens\":0}}",
+        "legacy-state.txt": "Retained baseline state",
+        "runner.json": "{\"started_at\":1793273793863}"
+      },
+      "mtime_ns": "1793273793893714399",
+      "clock_ms": 1793273793893,
+      "policy": {
+        "weight": 0.1162109375,
+        "digest": "sha256:b616a657d2fbbe517dbdb321bdd56a8b9ab4c3e8c42fc2279fbc91a3f77ee7dd"
+      }
+    }
+  ]
+}
