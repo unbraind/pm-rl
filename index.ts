@@ -765,7 +765,7 @@ export function idSegment(value: string): string {
 }
 
 /** One SDK projection whose exact current revision contributed to a promotion decision. */
-interface PromotionEvidenceRead { readonly at?: string; readonly fields?: string; readonly item: GetResult["item"] | null }
+interface PromotionEvidenceRead { readonly at?: string; readonly fields?: string; readonly item: GetResult["item"] | null; readonly authorization?: true }
 /** SDK-certified records actually read by a decision; nested readers contribute to their enclosing decision too. */
 interface DecisionReads { readonly client: PmClient; readonly inputs: Map<string, GetResult["item"]>; readonly parent?: DecisionReads; readonly childrenOnly: boolean; lastId?: string }
 const decisionReads = new AsyncLocalStorage<DecisionReads>();
@@ -805,13 +805,15 @@ export function withPromotionEvidence<T>(client: PmClient, execute: () => Promis
   return promotionEvidence.run({ client, reads: new Map(), detectChanges }, execute);
 }
 /** Retain SDK projections unchanged; historical coordinates and live revisions remain distinct. */
-function observePromotionEvidence(id: string, fields: string | undefined, item: GetResult["item"] | null, at: string | undefined): void {
+function observePromotionEvidence(id: string, fields: string | undefined, item: GetResult["item"] | null, at: string | undefined, authorization = false): void {
   const reads = promotionEvidence.getStore()!.reads;
-  const previous = reads.get(id) ?? [];
-  if (promotionEvidence.getStore()!.detectChanges && at === undefined && previous.some((read) => read.at === undefined && read.fields === fields && canonicalJson(read.item as JsonValue) !== canonicalJson(item as JsonValue))) {
+  // Refresh authorization to its latest SDK revision; retain every statistical
+  // projection, including when a Decision also serves as a review record.
+  const previous = (reads.get(id) ?? []).filter((read) => !authorization || read.authorization !== true);
+  if (!authorization && promotionEvidence.getStore()!.detectChanges && at === undefined && previous.some((read) => read.authorization !== true && read.at === undefined && read.fields === fields && canonicalJson(read.item as JsonValue) !== canonicalJson(item as JsonValue))) {
     fail("Promotion evidence changed during validation; retry from current evidence. No new approval was consumed.", "loop_write_conflict", EXIT_CODE.CONFLICT);
   }
-  if (!previous.some((read) => read.at === at && read.fields === fields && canonicalJson(read.item as JsonValue) === canonicalJson(item as JsonValue))) previous.push({ at, fields, item: structuredClone(item) });
+  if (!previous.some((read) => read.authorization === (authorization ? true : undefined) && read.at === at && read.fields === fields && canonicalJson(read.item as JsonValue) === canonicalJson(item as JsonValue))) previous.push({ at, fields, item: structuredClone(item), ...(authorization ? { authorization: true } : {}) });
   reads.set(id, previous);
 }
 /** Read complete current or verified historical domain evidence without an output ceiling. */
@@ -985,7 +987,7 @@ async function withLockedPromotionEvidence<T>(client: PmClient, pmRoot: string, 
         let current: GetResult["item"] | null;
         try { current = (await readCompleteLoopItem(client, id, projection.at, projection.fields)).item; }
         catch (error) { if (isPmCliExpectedError(error) && error.exitCode === EXIT_CODE.NOT_FOUND) current = null; else throw error; }
-        if (canonicalJson(current as JsonValue) !== canonicalJson(projection.item as JsonValue)) fail("Promotion evidence changed after validation; retry from current evidence. No new approval was consumed.", "loop_write_conflict", EXIT_CODE.CONFLICT);
+        if (canonicalJson(current as JsonValue) !== canonicalJson(projection.item as JsonValue)) fail(projection.authorization === true ? "Promotion authorization changed after its budget decision; retry from current capacity. No new approval was consumed." : "Promotion evidence changed after validation; retry from current evidence. No new approval was consumed.", "loop_write_conflict", EXIT_CODE.CONFLICT);
       }
       for (const dependency of dependencies.values()) {
         const current = await readCompleteLoopItem(client, dependency.item.id);
@@ -2571,7 +2573,10 @@ export async function registerGenerationCore(client: PmClient, request: Generati
  * @returns The parsed approval specification and its canonical SDK identity.
  */
 export async function readApprovalSpec(client: PmClient, approvalId: string): Promise<ApprovalSpec & { id: string; snapshot: GetResult }> {
-  const approval = await readCompleteLoopItem(client, approvalId);
+  // Capacity is authorization, not statistical evidence. The locked budget
+  // decision uses this SDK snapshot explicitly as a write precondition.
+  const approval = await promotionEvidence.exit(() => readCompleteLoopItem(client, approvalId));
+  if (promotionEvidence.getStore()?.client === client) observePromotionEvidence(approval.item.id, undefined, approval.item, undefined, true);
   if (String(approval.item.type) !== "Decision") {
     fail(`pm rl expected a Decision ${approvalId} as the approval item, not ${String(approval.item.type)}.`, "wrong_approval_type", EXIT_CODE.CONFLICT);
   }
@@ -2813,6 +2818,18 @@ export async function promoteGenerationCore(client: PmClient, coordinates: Works
           fail(`Generation ${id} is already promoted.`, "already_promoted", EXIT_CODE.CONFLICT);
         }
         if (currentSpec.seed) fail("A seed generation cannot be promoted.", "seed_not_promoted", EXIT_CODE.CONFLICT);
+        // Authorization has precedence over statistical evidence. This read,
+        // consumed count and retained capacity all belong to this writer lock;
+        // the approval snapshot remains fenced through the eventual SDK write.
+        const lockedApprovalSpec = await readApprovalSpec(client, approvalId);
+        canonicalApprovalId = lockedApprovalSpec.id;
+        const promotedIds = await promotedGenerationIdsUnderApproval(client, canonicalApprovalId);
+        promotedCount = promotedIds.length;
+        const retainedHeadroom = await retainedMetaPromotionHeadroom(client, canonicalApprovalId, promotedIds, String(current.item.id));
+        permittedPromotions = lockedApprovalSpec.permitted_promotions;
+        if (promotedCount + retainedHeadroom >= permittedPromotions) {
+          fail(`Advancing past the approved promotion budget is refused. ${promotedCount} promotion(s) consumed; ${retainedHeadroom} promotion(s) held for meta search; approval ${approvalId} permits ${permittedPromotions}. Extend approval item ${approvalId} to authorize more promotions.`, "budget_exceeded", EXIT_CODE.CONFLICT);
+        }
         const evaluated = await enforceEvaluationDecision(client, String(current.item.id), heldOutScore);
         evidenceDigest = evaluated?.digest;
         // THE authoritative contamination decision, taken inside the lock over
@@ -2834,18 +2851,6 @@ export async function promoteGenerationCore(client: PmClient, coordinates: Works
         const lockedContamination = findContaminationPath(lockedAncestry, evaluationEnvironment);
         if (lockedContamination !== null) {
           fail(`Promotion refused: the evaluation set is reachable from the candidate's training data over provenance edges. Path: ${renderContaminationPath(lockedContamination)}`, "contamination_refused", EXIT_CODE.CONFLICT);
-        }
-        // Re-read inside the lock for the same reason the count is: the budget
-        // is a comparison between two values, and re-reading only one of them
-        // leaves the comparison stale in the other direction.
-        const lockedApprovalSpec = await readApprovalSpec(client, approvalId);
-        canonicalApprovalId = lockedApprovalSpec.id;
-        const promotedIds = await promotedGenerationIdsUnderApproval(client, canonicalApprovalId);
-        promotedCount = promotedIds.length;
-        const retainedHeadroom = await retainedMetaPromotionHeadroom(client, canonicalApprovalId, promotedIds, String(current.item.id));
-        permittedPromotions = lockedApprovalSpec.permitted_promotions;
-        if (promotedCount + retainedHeadroom >= permittedPromotions) {
-          fail(`Advancing past the approved promotion budget is refused. ${promotedCount} promotion(s) consumed; ${retainedHeadroom} promotion(s) held for meta search; approval ${approvalId} permits ${permittedPromotions}. Extend approval item ${approvalId} to authorize more promotions.`, "budget_exceeded", EXIT_CODE.CONFLICT);
         }
         if ((currentSpec.policy_evaluation as Record<string, JsonValue> | undefined)?.["decision"] === "refuse") fail("Generation was refused by its evaluator.", "already_refused", EXIT_CODE.CONFLICT);
         const promotedBody = renderPromotedBody(currentSpec, evaluated);

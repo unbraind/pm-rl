@@ -88,6 +88,18 @@ Historical completion discovery uses the same payload validator as step replay.
 Malformed peer replacements establish no execution seal; the first valid
 completed execution remains immutable even after later invalid records.
 
+Promotion authorization has explicit precedence. Inside the workspace writer
+lock, check the current approval, consumed promotions and retained capacity
+before evaluation evidence. A lowered exhausted budget returns `budget_exceeded`
+even when a checkpoint also changed; sufficient raised capacity permits only
+otherwise valid evidence. An invalid checkpoint still returns `eval_plan_drift`.
+Approval reads refresh authorization snapshots rather than entering the
+statistical change detector. Their latest SDK revisions remain leased and
+checked through publication, and the budget decision's snapshot is an explicit
+write precondition. A subsequent revision change returns `loop_write_conflict`
+without consuming approval. A Decision separately read as statistical evidence
+retains that independent projection, even if it also authorizes promotions.
+
 ```ts
 import { PmClient } from '@unbrained/pm-cli/sdk/core';
 import { readEvaluationDecision, exportPolicyCard } from 'pm-rl';

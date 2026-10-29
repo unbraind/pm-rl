@@ -1,14 +1,15 @@
 /** Decision tracing must preserve controller verdicts, bounded cards and native SDK history. */
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { cpSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { init, createPmCliExpectedError, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
-import { captureDecisionInputs, readCompleteLoopItem, withRlController, hashJson, generationProvenance, reconcileLoopPromotion, withProcessJobFence, verifyCompletedDecisionReceipt, completedDecisionReceipt, sealDecisionEvidence, type JsonValue } from "../index.ts";
+import { captureDecisionInputs, readCompleteLoopItem, withRlController, hashJson, generationProvenance, reconcileLoopPromotion, withProcessJobFence, verifyCompletedDecisionReceipt, completedDecisionReceipt, sealDecisionEvidence, promoteGenerationCore, promotedGenerationIdsUnderApproval, readApprovalSpec, withPromotionEvidence, mutateLoopItem, type JsonValue } from "../index.ts";
 import { exportPolicyCard, replayPolicyCard, parsePolicyCardDecisionEvidence, POLICY_CARD_MAX_BYTES, type PolicyCard } from "../policy-card.ts";
 import type { GenerationSpec } from "../lineage.ts";
+import { decisionFixture } from "./fixtures/decision-evidence.ts";
 
 /** Isolate every regression in a real tracker outside git. */
 async function workspace() {
@@ -188,5 +189,105 @@ test("malformed historical completions cannot seal a step while the first valid 
     await verifyCompletedDecisionReceipt(w.client, id, complete);
     await w.client.update(id, { body: JSON.stringify(running) });
     await assert.rejects(verifyCompletedDecisionReceipt(w.client, id, running, true), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_step_drift" && error.context.item_id === id);
+  } finally { rmSync(w.root, { recursive: true, force: true }); }
+});
+
+test("locked promotion precedence matrix honours current capacity before changed evaluation evidence", async (t) => {
+  const base = await decisionFixture(false, false);
+  try {
+    await base.client.update("rl-approval", { body: '```json\n{"permitted_promotions":1}\n```' });
+    for (const budget of ["unchanged", "lowered", "raised"] as const) for (const evidenceChanged of [false, true]) await t.test(`${budget}; evidence ${evidenceChanged ? "changed" : "unchanged"}`, async () => {
+      const root = mkdtempSync(join(tmpdir(), "rl-locked-precedence-"));
+      try {
+        cpSync(base.root, root, { recursive: true });
+        const pmRoot = join(root, ".agents/pm");
+        const client = new PmClient({ cwd: root, pmRoot, author: "integration-test", noExtensions: true });
+        const peer = new PmClient({ cwd: root, pmRoot, author: "peer", noExtensions: true });
+        const candidate = base.plan.candidate; const checkpoint = `${candidate}-evaluation-plan-look-2`;
+        const before = (await readCompleteLoopItem(client, candidate)).item;
+        const capacity = budget === "lowered" ? 0 : budget === "raised" ? 2 : 1;
+        let injected = 0;
+        const result = promoteGenerationCore(client, { pmRoot, author: "integration-test" }, candidate, "rl-approval", { ...base.score, evaluation_context: "proxy" }, base.score, "Locked precedence", async (event) => {
+          if (event.transition !== "prepared") return;
+          injected += 1;
+          // The SDK invokes prepared while its workspace writer lease is held.
+          if (budget !== "unchanged") await peer.update("rl-approval", { body: `\`\`\`json\n${JSON.stringify({ permitted_promotions: capacity })}\n\`\`\`` });
+          if (evidenceChanged) await peer.update(checkpoint, { affectedVersion: hashJson("Changed sealed evidence") });
+          assert.equal((await readApprovalSpec(peer, "rl-approval")).permitted_promotions, capacity);
+        });
+        const refusal = budget === "lowered" ? "budget_exceeded" : evidenceChanged ? "eval_plan_drift" : null;
+        if (refusal === null) {
+          const outcome = await result;
+          assert.equal(outcome.permittedPromotions, capacity); assert.equal(outcome.promotedCount, 0);
+          assert.deepEqual(await promotedGenerationIdsUnderApproval(peer, "rl-approval"), [candidate]);
+        } else {
+          await assert.rejects(result, (error: unknown) => {
+            assert.ok(isPmCliExpectedError(error)); assert.equal(error.exitCode, 4); assert.equal(error.context.code, refusal);
+            if (refusal === "budget_exceeded") assert.match(error.message, /Advancing past the approved promotion budget is refused.*permits 0/);
+            else assert.equal(error.context.item_id, checkpoint);
+            return true;
+          });
+          assert.deepEqual((await readCompleteLoopItem(peer, candidate)).item, before);
+          assert.deepEqual(await promotedGenerationIdsUnderApproval(peer, "rl-approval"), []);
+        }
+        assert.equal(injected, 1);
+        // Both outcomes release every native dependency lease.
+        await peer.update(checkpoint, { title: "Lease released" });
+        await peer.update("rl-approval", { title: "Authorization lease released" });
+      } finally { rmSync(root, { recursive: true, force: true }); }
+    });
+  } finally { rmSync(base.root, { recursive: true, force: true }); }
+});
+
+test("approval capacity refresh before the writer lock never becomes statistical evidence drift", async (t) => {
+  const base = await decisionFixture(false, false);
+  try {
+    for (const [initial, capacity] of [[1, 0], [0, 1]]) await t.test(`${initial} to ${capacity}`, async () => {
+      const root = mkdtempSync(join(tmpdir(), "rl-approval-refresh-"));
+      try {
+        cpSync(base.root, root, { recursive: true }); const pmRoot = join(root, ".agents/pm");
+        const client = new PmClient({ cwd: root, pmRoot, author: "integration-test", noExtensions: true });
+        const peer = new PmClient({ cwd: root, pmRoot, author: "peer", noExtensions: true });
+        await peer.update("rl-approval", { body: `\`\`\`json\n${JSON.stringify({ permitted_promotions: initial })}\n\`\`\`` });
+        const get = client.get.bind(client); let injected = false;
+        client.get = (async (...args) => {
+          const result = await get(...args);
+          if (!injected && args[0] === "rl-approval") { injected = true; await peer.update("rl-approval", { body: `\`\`\`json\n${JSON.stringify({ permitted_promotions: capacity })}\n\`\`\`` }); }
+          return result;
+        }) as PmClient["get"];
+        const operation = promoteGenerationCore(client, { pmRoot, author: "integration-test" }, base.plan.candidate, "rl-approval", { ...base.score, evaluation_context: "proxy" }, base.score, "Current approval");
+        if (capacity === 0) await assert.rejects(operation, (error: unknown) => isPmCliExpectedError(error) && error.context.code === "budget_exceeded");
+        else { const result = await operation; assert.equal(result.permittedPromotions, 1); }
+        assert.ok(injected); assert.equal((await promotedGenerationIdsUnderApproval(peer, "rl-approval")).length, capacity);
+      } finally { rmSync(root, { recursive: true, force: true }); }
+    });
+  } finally { rmSync(base.root, { recursive: true, force: true }); }
+});
+
+test("authorization refresh retains native revision fences and statistical projections", async () => {
+  const w = await workspace();
+  try {
+    const peer = new PmClient({ cwd: w.root, pmRoot: w.pmRoot, author: "peer", noExtensions: true });
+    await peer.create({ id: "rl-approval", type: "Decision", title: "Authorization", body: '```json\n{"permitted_promotions":1}\n```' });
+    const before = await readCompleteLoopItem(w.client, "rl-input");
+    await withPromotionEvidence(w.client, async () => {
+      await readApprovalSpec(w.client, "rl-approval");
+      await peer.update("rl-approval", { body: '```json\n{"permitted_promotions":2}\n```' });
+      assert.equal((await readApprovalSpec(w.client, "rl-approval")).permitted_promotions, 2);
+      await mutateLoopItem(w.client, before, "Current authorization", (document) => { document.body = "Current capacity"; return ["body"]; });
+    }, true);
+    const current = await readCompleteLoopItem(w.client, "rl-input");
+    await assert.rejects(withPromotionEvidence(w.client, async () => {
+      await readApprovalSpec(w.client, "rl-approval");
+      await peer.update("rl-approval", { body: '```json\n{"permitted_promotions":0}\n```' });
+      return mutateLoopItem(w.client, current, "Stale authorization", (document) => { document.body = "Must not write"; return ["body"]; });
+    }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_write_conflict" && /authorization changed/.test(error.message));
+    assert.deepEqual((await readCompleteLoopItem(peer, "rl-input")).item, current.item);
+    await assert.rejects(withPromotionEvidence(w.client, async () => {
+      await readCompleteLoopItem(w.client, "rl-approval");
+      await peer.update("rl-approval", { body: '```json\n{"permitted_promotions":1}\n```' });
+      await readApprovalSpec(w.client, "rl-approval");
+      return readCompleteLoopItem(w.client, "rl-approval");
+    }, true), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_write_conflict" && /evidence changed/.test(error.message));
   } finally { rmSync(w.root, { recursive: true, force: true }); }
 });
