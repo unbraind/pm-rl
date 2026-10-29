@@ -1,7 +1,9 @@
 /** Producer/consumer byte and depth agreement across real tracker and artifact boundaries. */
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, readdirSync, rmSync, existsSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, existsSync, writeFileSync, globSync, mkdirSync, copyFileSync, symlinkSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { tmpdir } from "node:os";
 import { after, test } from "node:test";
 import { parseSync } from "@babel/core";
@@ -19,6 +21,35 @@ const roots: string[] = [];
 after(() => { for (const root of roots) rmSync(root, { recursive: true, force: true }); });
 /** Match a content-free actionable size refusal rather than a later missing/drifted record. */
 function limit(error: unknown): boolean { return isPmCliExpectedError(error) && error.context.code === "json_record_limit" && /json_record_limit/.test(error.message) && /Reduce or split/.test(error.message); }
+
+test("every isolated trainer image includes its producer runtime dependency closure", () => {
+  const repository = fileURLToPath(new URL("../", import.meta.url));
+  for (const recipe of ["test/fixtures/compose.Dockerfile", "test/fixtures/lm-compose.Dockerfile", "lm-trainer.Dockerfile"]) {
+    const root = mkdtempSync(join(tmpdir(), "rl-trainer-closure-")); roots.push(root);
+    const text = readFileSync(join(repository, recipe), "utf8");
+    for (const match of text.matchAll(/^COPY (.+) (\S+)$/gm)) {
+      const directory = join(root, match[2]); mkdirSync(directory, { recursive: true });
+      for (const pattern of match[1].split(" ")) {
+        const files = globSync(pattern, { cwd: repository }); assert.ok(files.length > 0, pattern);
+        for (const file of files) copyFileSync(join(repository, file), join(directory, basename(file)));
+      }
+    }
+    if (/^RUN npm ci --ignore-scripts(?: |$)/m.test(text)) {
+      assert.equal(readFileSync(join(root, "package-lock.json"), "utf8"), readFileSync(join(repository, "package-lock.json"), "utf8"));
+      symlinkSync(join(repository, "node_modules"), join(root, "node_modules"), "dir");
+    }
+    const entry = JSON.parse(text.match(/^ENTRYPOINT (.+)$/m)![1]) as string[];
+    const sources = entry.join(" ").match(/\/trainer\/[\w/.-]+\.ts/g)!;
+    assert.ok(sources.length > 0);
+    const dependencies = sources.flatMap((file) => {
+      const source = join(root, file.replace(/^\/trainer\//, ""));
+      return [...readFileSync(source, "utf8").matchAll(/from "(\.[^"]+)"/g)].map((match) => pathToFileURL(join(dirname(source), match[1])).href);
+    });
+    assert.ok(dependencies.length > 0);
+    const child = spawnSync(process.execPath, ["--input-type=module", "-e", `for (const target of ${JSON.stringify(dependencies)}) await import(target)`], { cwd: root, encoding: "utf8", timeout: 120_000, env: { ...process.env, NODE_V8_COVERAGE: undefined, GIT_CEILING_DIRECTORIES: root } });
+    assert.equal(child.status, 0, `${recipe}: ${child.stderr}`);
+  }
+});
 /** Real plain-directory SDK tracker, with no enclosing Git discovery. */
 async function workspace() {
   const root = mkdtempSync(join(tmpdir(), "rl-json-boundary-")); roots.push(root);
