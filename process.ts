@@ -8,7 +8,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, writeFileS
 import { resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
-import type { WorkspaceTransactionStep, WorkspaceTransactionTransitionContext } from "@unbrained/pm-cli/sdk";
+import { mutateItem, readHistoryEntries, readSettings, runWithActiveExtensions, type ItemDocument, type WorkspaceTransactionStep, type WorkspaceTransactionTransitionContext } from "@unbrained/pm-cli/sdk";
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { EXIT_CODE, createPmCliExpectedError, isPmCliExpectedError, certifyCompleteListResult, normalizeItemId } from "@unbrained/pm-cli/sdk/runtime";
 import { banditCheckpoint, MAX_BANDIT_FIT_STEPS, type BanditCheckpoint, type BanditExample, type BanditObservation } from "./bandit.ts";
@@ -143,12 +143,12 @@ export interface ProcessCoordinates {
 export function processDigest(value: unknown): string {
   return `sha256:${createHash("sha256").update(canonicalJson(value as JsonValue)).digest("hex")}`;
 }
-/** Validate a complete integer vector at the protocol and approval boundaries. */
-export function parseResources(value: unknown): Resources {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) expectedFail("A complete resource vector is required.", "process_invalid_resources");
+/** Validate a complete integer vector; stored-state readers select a typed conflict instead of a usage refusal. */
+export function parseResources(value: unknown, exitCode: number = EXIT_CODE.USAGE): Resources {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) expectedFail("A complete resource vector is required.", "process_invalid_resources", exitCode);
   const record = value as Record<string, unknown>;
   for (const key of RESOURCE_KEYS) {
-    if (!Number.isSafeInteger(record[key]) || Number(record[key]) < 0) expectedFail(`Invalid resource dimension ${key}.`, "process_invalid_resources");
+    if (!Number.isSafeInteger(record[key]) || Number(record[key]) < 0) expectedFail(`Invalid resource dimension ${key}.`, "process_invalid_resources", exitCode);
   }
   return Object.fromEntries(RESOURCE_KEYS.map((key) => [key, record[key]])) as Resources;
 }
@@ -216,17 +216,17 @@ export async function readProcessJob(client: PmClient, id: string, root?: string
     if (!namespace(item.item.id) || !await knownProcessRecord(client, item.item.id, prefix)) return null;
     // A legacy tag edit cannot hide owned capacity; foreign originals remain skipped.
     decoded = decodeTrackerRecord(client, item.item, { ...PROCESS_RECORD, namespace, legacy: true, valid: (row) => typeof row.id === "string" && normalizeItemId(operationIdentifier(row.id), prefix) === item.item.id });
-    if (decoded === null) expectedFail("Owned job envelope drifted.", "process_job_drift");
+    if (decoded === null) expectedFail("Owned job envelope drifted.", "process_job_drift", EXIT_CODE.CONFLICT);
   }
   const job = decoded as unknown as ProcessJob<TrainerPolicy>;
-  if (!["planned", "running", "materialized", "evaluated", "promoted", "failed", "cancelled", "invalidated"].includes(job.state)) expectedFail("Job identity or state drifted.", "process_job_drift");
-  parseResources(job.allowance); parseResources(job.charge);
+  if (!["planned", "running", "materialized", "evaluated", "promoted", "failed", "cancelled", "invalidated"].includes(job.state)) expectedFail("Job identity or state drifted.", "process_job_drift", EXIT_CODE.CONFLICT);
+  parseResources(job.allowance, EXIT_CODE.CONFLICT); parseResources(job.charge, EXIT_CODE.CONFLICT);
   if (job.completion !== null) {
-    if (typeof job.completion !== "object" || Array.isArray(job.completion)) expectedFail("Job completion envelope drifted.", "process_job_drift");
-    parseResources(job.completion.usage);
+    if (typeof job.completion !== "object" || Array.isArray(job.completion)) expectedFail("Job completion envelope drifted.", "process_job_drift", EXIT_CODE.CONFLICT);
+    parseResources(job.completion.usage, EXIT_CODE.CONFLICT);
   }
   if (typeof job.settled !== "boolean" || (!job.settled && processDigest(job.charge) !== processDigest(job.allowance))
-    || (job.completion !== null && processDigest(job.charge) !== processDigest(job.completion.usage))) expectedFail("Reservation accounting drifted.", "process_job_drift");
+    || (job.completion !== null && processDigest(job.charge) !== processDigest(job.completion.usage))) expectedFail("Reservation accounting drifted.", "process_job_drift", EXIT_CODE.CONFLICT);
   if (root !== undefined && job.completion?.artifact !== undefined) return { ...job, completion: { ...job.completion, policy: readCheckpointArtifact(root, job.completion.artifact) as TrainerPolicy } };
   return job;
 }
@@ -283,19 +283,37 @@ export async function listProcessJobs(client: PmClient): Promise<ProcessJob<Trai
   return jobs;
 }
 
-/** Reserve once under the workspace writer lock, counting every held or settled job on this approval. */
+/** Reserve once against transaction peers and validate retained inputs independently of ordinary writers. */
 export async function reserveProcessJob(client: PmClient, coordinates: ProcessCoordinates, rawId: string, input: TrainerInput, approval: string, allowance: Resources): Promise<ProcessJob<TrainerPolicy>> {
   const id = await canonicalProgrammeId(client, rawId);
-  parseResources(allowance); encodeBoundedJson(input);
-  /** Validate both new capacity and existing immutable replay inputs before creating a transaction. */
-  async function validateReservation(): Promise<void> {
-    const approved = await approvedResources(client, approval);
+  allowance = parseResources(allowance); encodeBoundedJson(input);
+  const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
+  let approved: Awaited<ReturnType<typeof approvedResources>>;
+  let reserved: ProcessJob<TrainerPolicy> | null = null;
+  let created: ItemDocument | undefined;
+  /** Compare the request with every retained immutable field before adopting a reservation. */
+  async function inspectReservation(): Promise<ProcessJob<TrainerPolicy> | null> {
     const existing = await readProcessJob(client, id);
     if (existing !== null) {
-      if (existing.input !== processDigest(input) || existing.approval !== approved.id || processDigest(existing.allowance) !== processDigest(allowance)) expectedFail("Reservation replay inputs changed.", "process_job_drift");
-      await verifyProcessJobBudget(client, existing);
-      return;
+      if (normalizeItemId(existing.id, prefix) !== normalizeItemId(id, prefix) || existing.input !== processDigest(input)
+        || processDigest(existing.binding) !== processDigest(input.identity)
+        || normalizeItemId(existing.approval, prefix) !== approved.id
+        || RESOURCE_KEYS.some(key => parseResources(existing.allowance)[key] !== allowance[key])) expectedFail("Reservation replay inputs changed.", "process_job_drift", EXIT_CODE.CONFLICT);
+      if (existing.budget_digest !== approved.digest) expectedFail("Approved budget identity changed.", "process_budget_drift", EXIT_CODE.CONFLICT);
+      reserved = existing;
+      return existing;
     }
+    const occupied = await readCompleteLoopItem(client, id).catch((error: unknown) => {
+      if (isPmCliExpectedError(error) && error.exitCode === EXIT_CODE.NOT_FOUND) return null;
+      throw error;
+    });
+    if (occupied !== null) expectedFail("Reservation target belongs to another record.", "process_job_drift", EXIT_CODE.CONFLICT);
+    return null;
+  }
+  /** Validate capacity before journaling, then repeat the same decision at the write boundary. */
+  async function validateReservation(): Promise<void> {
+    approved = await approvedResources(client, approval);
+    if (await inspectReservation() !== null) return;
     const charges = (await listProcessJobs(client)).filter((job) => job.approval === approved.id).map((job) => job.charge);
     for (const key of RESOURCE_KEYS) {
       const total = charges.reduce((sum, charge) => sum + charge[key], allowance[key]);
@@ -304,19 +322,43 @@ export async function reserveProcessJob(client: PmClient, coordinates: ProcessCo
   }
   const step: WorkspaceTransactionStep = {
     id: "reserve",
-    async inspect() { return { state: await readProcessJob(client, id) === null ? "pending" : "applied" }; },
+    async inspect() { return { state: await inspectReservation() === null ? "pending" : "applied" }; },
     async apply() {
       await validateReservation();
-      const approved = await approvedResources(client, approval);
+      if (await inspectReservation() !== null) return;
       const job: ProcessJob<TrainerPolicy> = { format: "pm-rl/process-job/1", id, input: processDigest(input), binding: input.identity, approval: approved.id, budget_digest: approved.digest,
         state: "planned", allowance, charge: allowance, settled: false, completion: null, outcome: "reserved" };
-      await identifierClient(client).create({ id, type: "Task", tags: "rl-process-job", title: `Process trainer ${id.slice(-12)}`, body: encodeBoundedJson(job, MAX_TRACKER_RECORD_BYTES) });
+      const body = encodeBoundedJson(job, MAX_TRACKER_RECORD_BYTES);
+      const result = await identifierClient(client).create({ id, type: "Task", tags: "rl-process-job", title: `Process trainer ${id.slice(-12)}`, body });
+      created = { metadata: result.item, body };
     },
-    async compensate() { const job = (await readProcessJob(client, id))!; await identifierClient(client).update(id, { body: encodeBoundedJson({ ...job, state: "failed", settled: true, charge: zeroResources(), outcome: "reservation_compensated" }, MAX_TRACKER_RECORD_BYTES) }); },
+    async compensate() {
+      // Only this successful create, with its complete birth document and no
+      // later history, authorizes compensation. A peer's record is never ours.
+      if (created === undefined) return;
+      const job = JSON.parse(created.body) as ProcessJob<TrainerPolicy>;
+      await writeProcessRecord(coordinates, created.metadata.id, 1, created, encodeBoundedJson({ ...job, state: "failed", settled: true, charge: zeroResources(), outcome: "reservation_compensated" }, MAX_TRACKER_RECORD_BYTES));
+    },
   };
   await withValidatedMutation(client, id, validateReservation, () => commitProcessTransaction({ ...coordinates, transactionId: `${id}-reserve`, steps: [step] }));
-  const job = (await readProcessJob(client, id))!;
-  return job;
+  return reserved!;
+}
+/** Read the append-only native revision; content equality alone cannot detect an ABA edit. */
+async function processRevision(coordinates: ProcessCoordinates, id: string): Promise<number> {
+  return (await readHistoryEntries(statePath(coordinates.pmRoot, "history", `${id}.jsonl`), id)).length;
+}
+/** Compare a monotonic revision under the ordinary SDK item lease before changing a process body. */
+async function writeProcessRecord(coordinates: ProcessCoordinates, id: string, revision: number, owned: ItemDocument | undefined, body: string): Promise<ItemDocument> {
+  const settings = await readSettings(coordinates.pmRoot);
+  const result = await runWithActiveExtensions({ path: coordinates.pmRoot }, () => mutateItem({ pmRoot: coordinates.pmRoot, settings, id, op: "update", author: coordinates.author,
+    async mutate(document) {
+      const currentRevision = await processRevision(coordinates, id);
+      if (owned !== undefined && processDigest(document) !== processDigest(owned) || currentRevision !== revision) expectedFail("Process job was superseded; preserve the peer record and retry from current state.", "process_job_drift", EXIT_CODE.CONFLICT);
+      document.body = body;
+      return { changedFields: ["body"] };
+    },
+  }));
+  return { metadata: result.item, body: result.body };
 }
 /** Construct the explicitly released allowance after a compensated reservation. */
 function zeroResources(): Resources { return { training_steps: 0, wall_ms: 0, storage_bytes: 0, compute_units: 0, tokens: 0 }; }
@@ -334,22 +376,41 @@ export async function transitionProcessJob<P extends TrainerPolicy>(client: PmCl
   if ((!target.settled && processDigest(target.charge) !== processDigest(target.allowance)) || (target.completion !== null && processDigest(target.charge) !== processDigest(target.completion.usage))) expectedFail("Reservation accounting drifted.", "process_job_drift");
   const body = encodeBoundedJson(storedProcessJob(target), MAX_TRACKER_RECORD_BYTES);
   const compensationBody = encodeBoundedJson(storedProcessJob(job), MAX_TRACKER_RECORD_BYTES);
-  await withValidatedMutation(client, job.id, async () => {
-    const current = (await readProcessJob(client, job.id))!;
-    if (processDigest(current) !== processDigest(storedProcessJob(job)) && processDigest(current) !== processDigest(storedProcessJob(target))) expectedFail("Process job changed before transition.", "process_job_drift");
+  const id = (await readCompleteLoopItem(client, job.id)).item.id;
+  let revision = 0;
+  let written: ItemDocument | undefined;
+  let transitioned: ProcessJob<P> | null = null;
+  /** Pending means the exact original state, never an unrelated peer reservation. */
+  async function inspectTransition(): Promise<{ state: "pending" | "applied" }> {
+    const current = await readProcessJob<P>(client, id, coordinates.pmRoot);
+    if (current === null || await processRevision(coordinates, id) !== revision) expectedFail("Process job changed before transition.", "process_job_drift", EXIT_CODE.CONFLICT);
+    if (processDigest(storedProcessJob(current)) === processDigest(storedProcessJob(target))) { transitioned = current; return { state: "applied" }; }
+    if (processDigest(storedProcessJob(current)) !== processDigest(storedProcessJob(job))) expectedFail("Process job changed before transition.", "process_job_drift", EXIT_CODE.CONFLICT);
+    return { state: "pending" };
+  }
+  await withValidatedMutation(client, id, async () => {
+    revision = await processRevision(coordinates, id);
+    await inspectTransition();
     if (completion?.artifact !== undefined) readCheckpointArtifact(coordinates.pmRoot, completion.artifact);
   }, async () => {
   if (completion?.artifact !== undefined) {
     const policy = readCheckpointArtifact(coordinates.pmRoot, completion.artifact);
     await encodeCheckpointArtifacts(coordinates.pmRoot, `job:${job.id}:${state}`, policy);
   }
-  await commitProcessTransaction({ ...coordinates, transactionId: `${job.id}-${state}`, steps: [{ id: "outcome",
-    async inspect() { const current = (await readProcessJob(client, job.id))!; return { state: processDigest(current) === processDigest(storedProcessJob(target)) ? "applied" : "pending" }; },
-    async apply() { await identifierClient(client).update(job.id, { body }); },
-    async compensate() { await identifierClient(client).update(job.id, { body: compensationBody }); },
+  await commitProcessTransaction({ ...coordinates, transactionId: `${job.id}-${state}`, steps: [{ id: "outcome", inspect: inspectTransition,
+    async apply() {
+      await inspectTransition();
+      written = await writeProcessRecord(coordinates, id, revision, undefined, body);
+      revision += 1;
+    },
+    async compensate() {
+      if (written === undefined) return;
+      await writeProcessRecord(coordinates, id, revision, written, compensationBody);
+      revision += 1;
+    },
   }] });
   });
-  return (await readProcessJob<P>(client, job.id, coordinates.pmRoot))!;
+  return transitioned!;
 }
 /** Measure retained flat staging files, skipping vanished entries and rejecting links or directories. */
 export function stagingBytes(directory: string, callback?: string): number {

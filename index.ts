@@ -3193,6 +3193,10 @@ export async function commitProcessTransaction(options: CommitWorkspaceTransacti
     if (context.transition === "prepared") await publishControllerIdentity(statePath(options.pmRoot, "locks", "sdk-workspace-transaction.lock"), start);
     await options.onTransition?.(context);
   } });
+  // The workspace lease excludes other transactions, not ordinary SDK writers.
+  // A committed journal can also skip inspect entirely; certify the live domain
+  // outcome after all observer hooks and on every committed replay.
+  for (const step of options.steps) if ((await step.inspect()).state !== "applied") fail("Transaction outcome changed; retry from current tracker state.", "loop_write_conflict", EXIT_CODE.CONFLICT);
 }
 
 /** Serialize standalone SDK adapter execution on the same owner-verified mutex used by controller phases. */

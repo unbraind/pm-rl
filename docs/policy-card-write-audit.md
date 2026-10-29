@@ -596,3 +596,40 @@ the future-evidence and derived-ID cases: `readEvaluationDecision`,
 invariant when reverted. Restoring all three passes 9/9, including the 500 seeded
 requests. Future decision addresses come from the readers' and writers' shared
 schedule rather than a separate preflight list.
+
+## Transaction outcome conflicts
+
+The complete `commitProcessTransaction` call-site inventory is process
+reservation, process transition and meta reservation. The SDK workspace lease
+serializes transactions; ordinary SDK/CLI writers can still commit. This audit
+therefore makes no lock-based isolation claim (upstream pm-cli#1620).
+
+- Process reservation compares the retained ID and approval through the SDK
+  normalizer, the input and binding through canonical JSON digests, each of the
+  five normalized resource fields, and the original approved budget digest.
+  A recognized conflicting reservation can never mean `applied` merely because
+  the target exists. An unrelated target also refuses with a typed conflict.
+- Process transition accepts only its exact original or requested durable job.
+  Its native item mutation checks append-only history length under the same SDK
+  item lease used by ordinary writers. A changed-and-restored body is still a
+  conflict. Compensation requires this call's successful write, complete
+  expected document and unchanged native revision. Reservation compensation
+  additionally requires the successful create's complete birth document and
+  its single native history event. Peer state and audit history survive.
+- Meta reservation compares its envelope, SDK-normalized identity and approval,
+  binding, charge and promotion headroom before reporting `applied`.
+- The common coordinator inspects every live domain outcome after its final
+  observer and after committed-journal replay. A committed journal with a
+  missing or changed domain effect cannot report success.
+
+`test/transaction-races.test.ts` uses independent ordinary SDK clients in real
+non-git trackers, with Git absent from PATH. Its hook matrix covers all five
+forward and four compensation hooks, resource-field conflicts, peer metadata,
+ABA edits, late creation inside apply, committed-domain removal and matching
+SDK aliases. The expected bytes come from the peer's actual native document
+and history, without a second normalization or reservation model.
+
+The independent-process reservation test repeats all five forward hooks with a
+separate Node process performing ordinary SDK creates and updates. Its clean
+environment carries no transaction context or inherited credentials. This also
+exercises cross-process cache invalidation before the applied outcome is read.

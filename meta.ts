@@ -170,8 +170,8 @@ export async function retainedMetaPromotionHeadroom(client: PmClient, approval: 
   return retained;
 }
 
-/** Atomically hold worst-case allowances once, or verify retained capacity before an unfinished phase executes. */
-async function reserveMeta(client: PmClient, coordinates: ProcessCoordinates, request: MetaRequest, binding: string, retained = false, preflight = false): Promise<void> {
+/** Hold worst-case allowances once, or verify retained capacity before an unfinished phase executes. @internal */
+export async function reserveMeta(client: PmClient, coordinates: ProcessCoordinates, request: MetaRequest, binding: string, retained = false, preflight = false): Promise<void> {
   const { config } = request;
   const charge = { training_samples: (1 + config.meta_generations * config.candidates) * RECIPE_BOUNDS.steps[1] * RECIPE_BOUNDS.batch[1],
     proposal_calls: request.proposer === "decision-model" ? 2 * config.meta_generations : 0, recipe_promotions: config.meta_generations };
@@ -181,23 +181,24 @@ async function reserveMeta(client: PmClient, coordinates: ProcessCoordinates, re
   const inspect = async (): Promise<{ state: "pending" | "applied" }> => {
     const previous = await readMetaReceipt(client, key);
     if (previous === null) return { state: "pending" };
-    assert.equal(previous.item.type, "Decision", "meta_reservation_drift");
+    const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
     const decoded = decodeTrackerRecord(client, previous.item, { type: "Decision", format: "pm-rl/meta-reservation/1" });
-    assert.ok(decoded !== null, "meta_reservation_drift");
+    if (previous.item.type !== "Decision" || decoded === null) expectedFail("meta_reservation_drift: reservation envelope changed.", "meta_reservation_drift", EXIT_CODE.CONFLICT);
     const record = decoded as { format: string; id: string; binding: string; approval: string; charge: JsonValue; promotion_headroom: number };
-    assert.equal(record.binding, binding, "meta_reservation_drift");
-    assert.equal(record.format, "pm-rl/meta-reservation/1", "meta_reservation_drift");
-    assert.equal(record.id, key, "meta_reservation_drift");
+    if (record.binding !== binding || record.format !== "pm-rl/meta-reservation/1"
+      || typeof record.id !== "string" || normalizeItemId(record.id, prefix) !== normalizeItemId(key, prefix)
+      || record.charge === undefined || hashJson(record.charge) !== hashJson(charge) || record.promotion_headroom !== promotionHeadroom) expectedFail("meta_reservation_drift: reservation request changed.", "meta_reservation_drift", EXIT_CODE.CONFLICT);
     let recordedApproval: string;
     try { recordedApproval = (await readApprovalSpec(client, record.approval)).id; }
-    catch (error) { throw new Error("meta_reservation_drift", { cause: error }); }
-    assert.equal(recordedApproval, (await metaApproval(client, request.approval)).id, "meta_reservation_drift");
-    assert.equal(hashJson(record.charge), hashJson(charge), "meta_reservation_drift");
-    assert.equal(record.promotion_headroom, promotionHeadroom, "meta_reservation_drift");
+    catch (error) {
+      if (isPmCliExpectedError(error)) expectedFail("meta_reservation_drift: reservation approval changed.", "meta_reservation_drift", EXIT_CODE.CONFLICT);
+      throw error;
+    }
+    if (recordedApproval !== (await metaApproval(client, request.approval)).id) expectedFail("meta_reservation_drift: reservation approval changed.", "meta_reservation_drift", EXIT_CODE.CONFLICT);
     return { state: "applied" };
   };
   if (retained) {
-    assert.equal((await inspect()).state, "applied", "meta_reservation_missing");
+    if ((await inspect()).state !== "applied") expectedFail("meta_reservation_missing: restore the retained reservation before continuing.", "meta_reservation_missing", EXIT_CODE.CONFLICT);
     return;
   }
   /** Validate current capacity and retained identity before the coordinator writes its journal. */

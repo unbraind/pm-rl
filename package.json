@@ -178,7 +178,8 @@
       "test/json-boundaries.test.ts",
       "test/controller-compatibility.test.ts",
       "test/process-compatibility.test.ts",
-      "test/mutation-preflight.test.ts"
+      "test/mutation-preflight.test.ts",
+      "test/transaction-races.test.ts"
     ],
     "thresholds": {
       "statements": 100,
