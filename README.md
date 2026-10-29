@@ -170,7 +170,10 @@ Interrupted Sweep publication retains every committed Run and Sweep. A failed
 acknowledgement or verification returns `superseded` with a reconciliation remedy;
 inspect current SDK state and choose a fresh id for a new plan. Process jobs use
 the same retention policy: interrupted publication keeps held budget charged and
-preserves the actual transition instead of reversing a peer's progress.
+preserves the actual transition instead of reversing a peer's progress. Every process lifecycle write
+checks its captured durable history revision under the SDK item lock, and journal
+keys bind that revision and the full target digest. Publication failures propagate
+through the executor without being reclassified as trainer failures or refunds.
 
 All commands listed above are implemented. [Recursive training execution](RECURSIVE_TRAINING.md)
 documents the local process and Docker Compose adapters and remaining scheduler work.

@@ -808,8 +808,16 @@ export async function createVerifiedItem(client: PmClient, options: Parameters<P
   return created;
 }
 
+/** Read the latest certified durable SDK coordinate, independent of history presentation order. @internal */
+export async function readLoopRevision(client: PmClient, id: string): Promise<number> {
+  const history = await client.run("history", { id, options: { compact: true, verify: true, outputBudget: "unbounded", outputLimit: "unbounded" } }) as HistoryResult;
+  const entries = orderedHistoryEntries(history, "loop_write_conflict");
+  const latest = entries[entries.length - 1]!;
+  return latest.version ?? latest.index;
+}
+
 /** Apply a read-derived change through the SDK item transaction, refusing a stale revision under its item lock. @internal */
-export async function mutateLoopItem(client: PmClient, before: GetResult, message: string, change: (document: ItemDocument, closeStatus: string, terminal: boolean) => string[], preconditions: readonly GetResult[] = [], author = "pm-rl", op: "update" | "close" = "update"): Promise<GetResult> {
+export async function mutateLoopItem(client: PmClient, before: GetResult, message: string, change: (document: ItemDocument, closeStatus: string, terminal: boolean) => string[] | Promise<string[]>, preconditions: readonly GetResult[] = [], author = "pm-rl", op: "update" | "close" = "update", expectedRevision?: number): Promise<GetResult> {
   const config = await client.config("project", "get", "id_prefix");
   const pmRoot = dirname(config.settings_path);
   const settings = await readSettings(pmRoot);
@@ -824,10 +832,11 @@ export async function mutateLoopItem(client: PmClient, before: GetResult, messag
       if (current.item.updated_at !== dependency.item.updated_at || current.item.body !== dependency.item.body) fail("Promotion evidence or budget changed after it was read; retry from current evidence.", "loop_write_conflict", EXIT_CODE.CONFLICT);
     }
     const result = await runWithActiveExtensions({ path: pmRoot }, () => mutateItem({ pmRoot, settings, id: before.item.id, op, author, message, skipNoop: true,
-      mutate: (document) => {
+      mutate: async (document) => {
+        if (expectedRevision !== undefined && await readLoopRevision(client, before.item.id) !== expectedRevision) fail("Tracker history advanced after planning. Read the current target and retry; peer state and held budget were retained.", "superseded", EXIT_CODE.CONFLICT);
         if (document.metadata.updated_at !== expected.updated || document.body !== expected.body) fail("Tracker item changed after it was read; retry from current evidence.", "loop_write_conflict", EXIT_CODE.CONFLICT);
         const registry = resolveRuntimeStatusRegistry(settings.schema);
-        return { changedFields: change(document, registry.close_status, isTerminalStatus(document.metadata.status, registry)) };
+        return { changedFields: await change(document, registry.close_status, isTerminalStatus(document.metadata.status, registry)) };
       },
     }));
     after = { item: { ...result.item, body: result.body } };
@@ -3202,7 +3211,7 @@ export async function runRlLoop(client: PmClient, coordinates: WorkspaceCoordina
   try {
     report = await executeLoopProgramme(client, coordinates, programme, request, controller);
   } catch (error) {
-    if (isPmCliExpectedError(error) && /^(?:already_promoted|already_refused|lost_claim|stale_revision|loop_write_conflict|loop_lease_lost|compare_and_set_refused|generation_terminal)$/.test(String(error.context.code))) {
+    if (isPmCliExpectedError(error) && /^(?:already_promoted|already_refused|lost_claim|stale_revision|loop_write_conflict|loop_lease_lost|compare_and_set_refused|generation_terminal|superseded)$/.test(String(error.context.code))) {
       // A fenced controller cannot write a terminal report, but it can report the peer's certified state.
       try { Object.assign(error.context, { authoritative_report: await rlLoopStatus(client, request.id, coordinates.pmRoot) }); }
       catch (readError) { Object.assign(error.context, { authoritative_read_error: isPmCliExpectedError(readError) ? String(readError.context.code) : "unavailable" }); }

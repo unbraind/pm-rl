@@ -150,6 +150,7 @@
       "test/verify-release-publish-attestation.test.ts",
       "test/lm-cli.test.ts",
       "test/process.test.ts",
+      "test/process-publication.test.ts",
       "test/process-loop.test.ts",
       "test/process-cli.test.ts",
       "test/compose.test.ts",

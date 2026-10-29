@@ -1,8 +1,8 @@
 /** Exercise the same captured tarball through supported global, ephemeral and local host installations. */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { copyFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { init } from "@unbrained/pm-cli/sdk/runtime";
@@ -49,7 +49,7 @@ for (const mode of ["npm-global", "bun-global", "npx", "bunx", "project-local"])
   /** All routes exercise the exact extension tarball, with the host supplied by the selected installation mode. */
   const command = (args: string[]): string => execute(launcher, [...prefixArgs, ...args], root, extra);
   assert.match(command(["--version"]), /2026\.10\.28/);
-  command(["package", "install", archive, "--project", "--json"]);
+  const installation = JSON.parse(command(["package", "install", archive, "--project", "--json"])) as { details: { install_plan?: { copy: { destination_directory: string } } } };
   const bin = join(root, "no-git-bin"); mkdirSync(bin);
   for (const [name, target] of [["node", process.execPath], ["getconf", "/usr/bin/getconf"], ["sh", "/bin/sh"], ["bun", bun]]) symlinkSync(target, join(bin, name));
   extra.PATH = bin;
@@ -77,8 +77,36 @@ for (const mode of ["npm-global", "bun-global", "npx", "bunx", "project-local"])
   const sweepToon = command(["rl", "sweep", "status", sweep.id]);
   assert.equal((JSON.parse(sweepJson) as { id: string }).id, sweep.id);
   for (const arm of sweep.details.arms) assert.ok(sweepJson.includes(arm) && sweepToon.includes(arm));
+  const processConfig = join(root, "process-config.json");
+  const processProgramme = JSON.parse(readFileSync(new URL("../examples/loop-bandit.json", import.meta.url), "utf8")) as Record<string, JsonValue>;
+  writeFileSync(processConfig, JSON.stringify({ ...processProgramme, max_generations: 1, samples_per_generation: 32, budget: 32 }));
+  // The host's install receipt locates the package; SDK imports resolve normally
+  // from that installed package, without consulting argv or executable symlinks.
+  let installedRoot = installation.details.install_plan?.copy.destination_directory;
+  if (installedRoot === undefined) {
+    const managed = JSON.parse(command(["package", "manage", "--json"])) as { roots: { selected: string }; details: { extensions: { name: string; directory: string }[] } };
+    const own = managed.details.extensions.find((entry) => entry.name === "pm-rl"); assert.ok(own);
+    installedRoot = resolve(managed.roots.selected, own.directory);
+  }
+  const probe = join(installedRoot, `publication-probe-${randomUUID()}.ts`);
+  const probeSource = readFileSync(new URL("./fixtures/process-publication-probe.ts", import.meta.url), "utf8").replaceAll('"../../', '"./dist/').replaceAll('.ts";', '.js";');
+  writeFileSync(probe, probeSource, { flag: "wx" });
+  try {
+    const runtime = mode === "bun-global" || mode === "bunx" ? bun : process.execPath;
+    const checked = JSON.parse(execute(runtime, [probe, root, tracker.path, processConfig], root, extra)) as { publication_refusals: number; peer_state_retained: boolean };
+    assert.equal(checked.publication_refusals, 2); assert.equal(checked.peer_state_retained, true);
+  } finally { unlinkSync(probe); }
   const client = new PmClient({ cwd: root, pmRoot: tracker.path, noExtensions: true });
   const projectPrefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
+  const processAllowance = { training_steps: 1, wall_ms: 5000, storage_bytes: 65536, compute_units: 1000, tokens: 4 };
+  const processApproval = await client.create({ id: "packed-process-approval", type: "Decision", title: "One recursive packed fit", body: "```json\n" + JSON.stringify({ permitted_promotions: 1, resource_budget: processAllowance }) + "\n```" });
+  writeFileSync(processConfig, JSON.stringify({ ...processProgramme, max_generations: 1, samples_per_generation: 32, budget: 32, adapter: { kind: "process-bandit", allowance: processAllowance } }));
+  command(["rl", "loop", "run", "packed-process", "--file", processConfig, "--approval", processApproval.item.id, "--json"]);
+  const processStatus = command(["rl", "loop", "status", "packed-process", "--json"]);
+  const processToon = command(["rl", "loop", "status", "packed-process"]);
+  assert.ok(processStatus.includes("process-")); assert.ok(processToon.includes("process-"));
+  command(["rl", "loop", "resume", "packed-process", "--approval", processApproval.item.id, "--json"]);
+
   const stored = (await client.get(run.details.id, { full: true })).item;
   assert.ok(String(stored.body).includes('"checkpoint"')); assert.equal(stored.parent, undefined);
   await client.update(run.details.id, { type: "Task" });
@@ -96,7 +124,7 @@ for (const mode of ["npm-global", "bun-global", "npx", "bunx", "project-local"])
   assert.equal((await client.get(run.details.id, { full: true })).item.type, "Task");
   assert.equal(existsSync(join(root, "foreign-proposal.json")), false);
   assert.equal(existsSync(join(root, "injected")), false);
-  results.push({ project_prefix: projectPrefix, foreign_refusals: 6, shell_metacharacter_path: true, mode, host: "2026.10.28", sweep_arms: 2, sweep_json_toon: true, comparisons: run.details.comparisons.length, json_bytes: Buffer.byteLength(json), toon_bytes: Buffer.byteLength(toon), retry_created: false, partial_omitted: partial.details.omitted.length, no_git: true, proposal_feedback: true });
+  results.push({ project_prefix: projectPrefix, foreign_refusals: 6, shell_metacharacter_path: true, mode, host: "2026.10.28", sweep_arms: 2, sweep_json_toon: true, publication_refusals: 2, process_loop_json_toon: true, process_loop_resume: true, comparisons: run.details.comparisons.length, json_bytes: Buffer.byteLength(json), toon_bytes: Buffer.byteLength(toon), retry_created: false, partial_omitted: partial.details.omitted.length, no_git: true, proposal_feedback: true });
   process.stdout.write(`${mode}: passed\n`);
 }
 const bytes = readFileSync(archive);

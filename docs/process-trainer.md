@@ -327,6 +327,23 @@ must reconcile retained jobs before spending their budget again; failed
 publication never authorizes a refund. This policy also preserves native history
 and avoids an unprotected read/delete or read/restore window.
 
+The executor separates `running` and `materialized` publication from trainer error
+handling. A failed publication acknowledgement cannot settle from its earlier
+local state. Real trainer failures, cancellation and unlaunched staging failures
+use the same source-revision guard as evaluated, promoted and invalidated jobs.
+The SDK verifies a durable history coordinate under its native item lock before
+changing the body or materializing dependent checkpoint receipts. Journal keys
+include the source revision and the full target digest; retries inspect current
+SDK state, preserve a peer winner, and do not replay an older prepared body.
+Fixed-clock ABA updates therefore refuse even when body and timestamps match.
+
+The item lock fences the native write; the workspace mutex only serializes
+participating transactions. Cross-item reads and external trainer startup remain
+outside that item lock. A peer can edit after a final read; subsequent receipt
+publication or failure settlement revalidates the captured revision and retains
+peer state and held budget on conflict.
+
+
 ## Verification
 
 Real temp trackers and real child processes cover one-launch contention, one

@@ -8,10 +8,10 @@ import { join, resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
 import type { CommitWorkspaceTransactionOptions, WorkspaceTransactionStep, WorkspaceTransactionTransitionContext } from "@unbrained/pm-cli/sdk";
-import type { PmClient } from "@unbrained/pm-cli/sdk/core";
+import type { GetResult, PmClient } from "@unbrained/pm-cli/sdk/core";
 import { EXIT_CODE, isPmCliExpectedError, certifyCompleteListResult, normalizeItemId } from "@unbrained/pm-cli/sdk/runtime";
 import { banditCheckpoint, MAX_BANDIT_FIT_STEPS, type BanditCheckpoint, type BanditExample, type BanditObservation } from "./bandit.ts";
-import { createVerifiedItem, canonicalJson, commitProcessTransaction, loopProcessStartTime, withProcessJobFence, readCompleteLoopItem, type JsonValue } from "./index.ts";
+import { createVerifiedItem, canonicalJson, commitProcessTransaction, loopProcessStartTime, withProcessJobFence, readCompleteLoopItem, readLoopRevision, mutateLoopItem, type JsonValue } from "./index.ts";
 import { expectedFail } from "./refuse.ts";
 import { validateLmProcessCheckpoint, type LmProcessPayload } from "./process-lm.ts";
 import { validatePrefixCompletion, type PrefixPayload } from "./prefix.ts";
@@ -203,6 +203,10 @@ export async function readProcessJob(client: PmClient, id: string, root?: string
     throw error;
   });
   if (item === null) return null;
+  return decodeProcessJob(client, id, item, root);
+}
+/** Decode every live or historical job through the same native envelope and producer contract. */
+async function decodeProcessJob(client: PmClient, id: string, item: GetResult, root?: string): Promise<ProcessJob<TrainerPolicy> | null> {
   const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
   const namespace = processNamespace(prefix);
   const legacy = hasTrackerIdentity(item.item, PROCESS_RECORD.format, (key) => normalizeItemId(key, prefix));
@@ -214,6 +218,12 @@ export async function readProcessJob(client: PmClient, id: string, root?: string
     if (decoded === null) expectedFail("Owned job envelope drifted.", "process_job_drift");
   }
   const job = decoded as unknown as ProcessJob<TrainerPolicy>;
+  validateProcessAccounting(job);
+  if (root !== undefined && job.completion?.artifact !== undefined) return { ...job, completion: { ...job.completion, policy: readCheckpointArtifact(root, job.completion.artifact) as TrainerPolicy } };
+  return job;
+}
+/** Apply the same state and resource schema before producing and after decoding a job. */
+function validateProcessAccounting(job: ProcessJob<TrainerPolicy>): void {
   if (!["planned", "running", "materialized", "evaluated", "promoted", "failed", "cancelled", "invalidated"].includes(job.state)) expectedFail("Job identity or state drifted.", "process_job_drift");
   parseResources(job.allowance); parseResources(job.charge);
   if (job.completion !== null) {
@@ -222,8 +232,6 @@ export async function readProcessJob(client: PmClient, id: string, root?: string
   }
   if (typeof job.settled !== "boolean" || (!job.settled && processDigest(job.charge) !== processDigest(job.allowance))
     || (job.completion !== null && processDigest(job.charge) !== processDigest(job.completion.usage))) expectedFail("Reservation accounting drifted.", "process_job_drift");
-  if (root !== undefined && job.completion?.artifact !== undefined) return { ...job, completion: { ...job.completion, policy: readCheckpointArtifact(root, job.completion.artifact) as TrainerPolicy } };
-  return job;
 }
 /** Strip hydrated prefix parameters before writing tracker bodies or comparing durable receipts. */
 function storedProcessJob<P extends TrainerPolicy>(job: ProcessJob<P>): ProcessJob<TrainerPolicy> {
@@ -324,27 +332,72 @@ export async function reserveProcessJob(client: PmClient, coordinates: ProcessCo
   await verifyProcessJobBudget(client, job);
   return job;
 }
-/** Construct the explicitly released allowance after a compensated reservation. */
+/** Construct zero usage or the released allowance of a proven unlaunched job. */
 function zeroResources(): Resources { return { training_steps: 0, wall_ms: 0, storage_bytes: 0, compute_units: 0, tokens: 0 }; }
 /** Allowed forward transitions; terminal artifacts are retained and promoted jobs may be invalidated. */
 const JOB_TRANSITIONS: Readonly<Record<ProcessJobState, readonly ProcessJobState[]>> = {
   planned: ["running", "failed", "cancelled"], running: ["materialized", "failed", "cancelled"], materialized: ["evaluated", "failed", "cancelled", "invalidated"],
   evaluated: ["promoted", "failed", "cancelled", "invalidated"], promoted: ["invalidated"], failed: [], cancelled: [], invalidated: [],
 };
-/** Commit one job transition and retain its receipt/accounting if publication is interrupted. */
-export async function transitionProcessJob<P extends TrainerPolicy>(client: PmClient, coordinates: ProcessCoordinates, job: ProcessJob<P>, state: ProcessJobState, outcome: string, completion = job.completion, charge = job.charge): Promise<ProcessJob<P>> {
+/** Native snapshot used by both ordinary transitions and failure settlement. */
+interface ProcessSnapshot {
+  /** Job validated using the shared producer/reader contract. */
+  job: ProcessJob<TrainerPolicy>;
+  /** SDK-normalized immutable source document. */
+  native: GetResult;
+  /** Durable history coordinate fencing metadata edits and ABA restoration. */
+  revision: number;
+}
+/** Capture one exact historical revision; the write boundary revalidates it under the SDK item lock. */
+async function readProcessSnapshot(client: PmClient, id: string, root: string): Promise<ProcessSnapshot> {
+  const revision = await readLoopRevision(client, id);
+  const native = await readCompleteLoopItem(client, id, String(revision));
+  const job = await decodeProcessJob(client, id, native, root);
+  if (job === null) expectedFail("Process target is foreign. Read the current job and reconcile retained state before retrying.", "superseded", EXIT_CODE.CONFLICT);
+  return { job, native, revision };
+}
+/** Construct a transition using the same stored producer representation as replay and comparison. */
+function processTransitionTarget<P extends TrainerPolicy>(job: ProcessJob<P>, state: ProcessJobState, outcome: string, completion: ProcessJob<P>["completion"], charge: Resources, diagnostics: Pick<ProcessJob<P>, "cleanup"> = {}): ProcessJob<TrainerPolicy> {
   if (job.state !== state && !JOB_TRANSITIONS[job.state].includes(state)) expectedFail("Illegal process job transition.", "process_job_drift");
-  const target = job.state === state ? job : { ...job, state, outcome, completion, charge, settled: state !== "running" && state !== "planned" };
-  const body = encodeBoundedJson(storedProcessJob(target), MAX_TRACKER_RECORD_BYTES);
-  if (completion?.artifact !== undefined) {
-    const policy = readCheckpointArtifact(coordinates.pmRoot, completion.artifact);
-    await encodeCheckpointArtifacts(coordinates.pmRoot, `job:${job.id}:${state}`, policy);
-  }
-  await commitRetainingProcessState({ ...coordinates, transactionId: `${job.id}-${state}`, steps: [{ id: "outcome",
-    async inspect() { const current = (await readProcessJob(client, job.id))!; return { state: processDigest(current) === processDigest(storedProcessJob(target)) ? "applied" : "pending" }; },
-    async apply() { await client.update(job.id, { body }); },
+  const target = job.state === state ? job : { ...job, ...diagnostics, state, outcome, completion, charge, settled: state !== "running" && state !== "planned" };
+  validateProcessAccounting(target);
+  return storedProcessJob(target);
+}
+/** Commit only a matching source revision; publication errors never authorize a reverse settlement. */
+async function commitProcessTransition(client: PmClient, coordinates: ProcessCoordinates, source: ProcessSnapshot, target: ProcessJob<TrainerPolicy>): Promise<ProcessJob<TrainerPolicy>> {
+  const body = encodeBoundedJson(target, MAX_TRACKER_RECORD_BYTES);
+  const targetDigest = processDigest(target);
+  await commitRetainingProcessState({ ...coordinates, transactionId: `${target.id}-${target.state}-v${source.revision}-${targetDigest.slice(-64)}`, steps: [{ id: "outcome",
+    async inspect() {
+      const current = await readProcessSnapshot(client, target.id, coordinates.pmRoot);
+      const digest = processDigest(storedProcessJob(current.job));
+      if (digest === targetDigest) return { state: "applied" };
+      if (current.revision !== source.revision) expectedFail("Process target advanced. Reconcile current SDK state before retrying; peer progress and held budget were retained.", "superseded", EXIT_CODE.CONFLICT);
+      return { state: "pending" };
+    },
+    async apply() {
+      await mutateLoopItem(client, source.native, "Advance process job at its expected revision", async (document) => {
+        if (target.completion?.artifact !== undefined) {
+          const policy = readCheckpointArtifact(coordinates.pmRoot, target.completion.artifact);
+          await encodeCheckpointArtifacts(coordinates.pmRoot, `job:${target.id}:${target.state}`, policy);
+        }
+        document.body = body;
+        return ["body"];
+      }, [], coordinates.author, "update", source.revision);
+    },
   }] });
-  return (await readProcessJob<P>(client, job.id, coordinates.pmRoot))!;
+  const current = await readProcessSnapshot(client, target.id, coordinates.pmRoot);
+  if (processDigest(storedProcessJob(current.job)) !== targetDigest) expectedFail("Process publication was superseded. Read the current job through the SDK before retrying; peer progress was retained.", "superseded", EXIT_CODE.CONFLICT);
+  return current.job;
+}
+/** Commit a source-checked transition; retries read actual state and never replay a frozen body. */
+export async function transitionProcessJob<P extends TrainerPolicy>(client: PmClient, coordinates: ProcessCoordinates, job: ProcessJob<P>, state: ProcessJobState, outcome: string, completion = job.completion, charge = job.charge): Promise<ProcessJob<P>> {
+  const target = processTransitionTarget(job, state, outcome, completion, charge);
+  const source = await readProcessSnapshot(client, job.id, coordinates.pmRoot);
+  const currentDigest = processDigest(storedProcessJob(source.job));
+  if (currentDigest === processDigest(target)) return source.job as ProcessJob<P>;
+  if (currentDigest !== processDigest(storedProcessJob(job))) expectedFail("Process source is stale. Read the current job through the SDK before retrying; peer progress and held budget were retained.", "superseded", EXIT_CODE.CONFLICT);
+  return await commitProcessTransition(client, coordinates, source, target) as ProcessJob<P>;
 }
 /** Measure retained flat staging files, skipping vanished entries and rejecting links or directories. */
 export function stagingBytes(directory: string): number {
@@ -515,35 +568,47 @@ export async function executeProcessTrainer<P extends TrainerPolicy>(client: PmC
 
 /** Execute inside the verified owner fence; this function never re-launches a previously running job. */
 async function executeReservedProcessJob(client: PmClient, coordinates: ProcessCoordinates, input: TrainerInput, approval: string, adapter: ProcessAdapter, id: string, signal: AbortSignal | undefined, argv: readonly string[]): Promise<ProcessJob<TrainerPolicy>> {
-  let job = await reserveProcessJob(client, coordinates, id, input, approval, adapter.allowance);
-  const policy = verifiedProcessPolicy(job, coordinates.pmRoot, input);
-  if (policy !== null) return transitionProcessJob(client, coordinates, job, job.state, job.outcome);
+  const reserved = await reserveProcessJob(client, coordinates, id, input, approval, adapter.allowance);
+  let source = await readProcessSnapshot(client, id, coordinates.pmRoot);
+  if (processDigest(storedProcessJob(source.job)) !== processDigest(storedProcessJob(reserved))) expectedFail("Process reservation advanced before execution. Reconcile current SDK state before retrying; held budget was retained.", "superseded", EXIT_CODE.CONFLICT);
+  const policy = verifiedProcessPolicy(source.job, coordinates.pmRoot, input);
+  if (policy !== null) return source.job;
   const directory = processStaging(coordinates.pmRoot, id);
   const diagnostics: { cleanup?: ProcessJob["cleanup"] } = {};
-  /** Attach bounded cleanup evidence to the same durable settlement, without exposing the staging path. */
+  /** Attach bounded cleanup evidence without exposing the staging path. */
   const cleanupFailed = (error: unknown): void => { diagnostics.cleanup = { code: "cleanup_failed", error: String(error).replaceAll(directory, "<staging>").slice(0, 4096) }; };
-  try {
-    mkdirSync(directory, { recursive: true });
-    if (job.state === "planned") {
-      job = await transitionProcessJob(client, coordinates, job, "running", "launched");
-      if (adapter.kind !== "process-bandit") await launchComposeTrainer(directory, id, input, job.allowance, adapter.image, cleanupFailed, signal, adapter.kind === "compose-lm" ? adapter : undefined);
-      else await launchTrainer(directory, id, input, job.allowance, argv, signal);
-    } else {
-      if (adapter.kind !== "process-bandit") {
-        try { await stopComposeTrainer(directory, id, adapter.image, "recovery", adapter.kind === "compose-lm" ? adapter : undefined); }
-        catch (error) { cleanupFailed(error); }
-      }
-      else if (existsSync(join(directory, "runner.json"))) {
-        const runner = parseBoundedJson(readFileSync(join(directory, "runner.json"), "utf8")) as { pid: number; start: string };
-        stopTrainer(runner.pid, runner.start);
-      }
-    }
-    const completion = validateProcessCompletion(directory, id, input, job.allowance, coordinates.pmRoot);
-    return await transitionProcessJob(client, coordinates, { ...job, ...diagnostics }, "materialized", "receipt_validated", completion, completion.usage);
-  } catch (error) {
-    const state = signal?.aborted === true ? "cancelled" : "failed";
-    const charge = job.state === "planned" ? zeroResources() : failedProcessCharge(directory, job.allowance);
-    await transitionProcessJob(client, coordinates, { ...job, ...diagnostics }, state, isPmCliExpectedError(error) ? String(error.context.code) : "trainer_failure", null, charge);
+  try { mkdirSync(directory, { recursive: true }); }
+  catch (error) {
+    await commitProcessTransition(client, coordinates, source, processTransitionTarget(source.job, "failed", "trainer_failure", null, zeroResources()));
     throw error;
   }
+  const launch = source.job.state === "planned";
+  if (launch) {
+    // Publication is outside trainer-failure handling: a thrown acknowledgement
+    // may follow a committed running state or a peer's subsequent progress.
+    const running = await commitProcessTransition(client, coordinates, source, processTransitionTarget(source.job, "running", "launched", source.job.completion, source.job.charge));
+    source = await readProcessSnapshot(client, id, coordinates.pmRoot);
+    if (processDigest(storedProcessJob(source.job)) !== processDigest(storedProcessJob(running))) expectedFail("Process advanced before launch. Reconcile current SDK state before retrying; held budget was retained.", "superseded", EXIT_CODE.CONFLICT);
+  }
+  let completion: ProcessCompletion<TrainerPolicy>;
+  try {
+    if (launch) {
+      if (adapter.kind !== "process-bandit") await launchComposeTrainer(directory, id, input, source.job.allowance, adapter.image, cleanupFailed, signal, adapter.kind === "compose-lm" ? adapter : undefined);
+      else await launchTrainer(directory, id, input, source.job.allowance, argv, signal);
+    } else if (adapter.kind !== "process-bandit") {
+      try { await stopComposeTrainer(directory, id, adapter.image, "recovery", adapter.kind === "compose-lm" ? adapter : undefined); }
+      catch (error) { cleanupFailed(error); }
+    } else if (existsSync(join(directory, "runner.json"))) {
+      const runner = parseBoundedJson(readFileSync(join(directory, "runner.json"), "utf8")) as { pid: number; start: string };
+      stopTrainer(runner.pid, runner.start);
+    }
+    completion = validateProcessCompletion(directory, id, input, source.job.allowance, coordinates.pmRoot);
+  } catch (error) {
+    const state = signal?.aborted === true ? "cancelled" : "failed";
+    const charge = failedProcessCharge(directory, source.job.allowance);
+    await commitProcessTransition(client, coordinates, source, processTransitionTarget(source.job, state, isPmCliExpectedError(error) ? String(error.context.code) : "trainer_failure", null, charge, diagnostics));
+    throw error;
+  }
+  // Materialization is another publication, not a trainer error to compensate.
+  return commitProcessTransition(client, coordinates, source, processTransitionTarget(source.job, "materialized", "receipt_validated", completion, completion.usage, diagnostics));
 }

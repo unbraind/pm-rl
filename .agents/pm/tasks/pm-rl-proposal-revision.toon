@@ -1,0 +1,16 @@
+id: pm-rl-proposal-revision
+title: Audit revision fencing for recipe proposal publication
+description: "Static whole-package audit found a separate forward-only inference receipt path: durableRecipeProposals in meta.ts creates an intent, awaits proposal work, then completes it with a direct SDK update without a captured expected revision. It has no executor failure settlement or resource refund path. Reproduce ordinary peer replacement with a loopback model fixture and a real non-git SDK tracker before changing behavior; no live model call was made in this audit. Keep this separate from the process publication/failure class corrected in PR 119."
+type: Task
+status: open
+priority: 2
+tags[3]: concurrency,follow-up,static-audit
+created_at: "2026-10-29T17:12:16.873Z"
+updated_at: "2026-10-29T17:12:17.824Z"
+author: codex-agent
+estimated_minutes: 60
+acceptance_criteria: A real SDK interleaving proves the current behavior; any fix preserves peer data and avoids duplicate inference; retry validates native revisions and stored binding; new output and legacy receipts remain readable
+files[2]{path,scope}:
+  meta.ts,project
+  test/meta.test.ts,project
+body: ""

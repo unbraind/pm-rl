@@ -92,7 +92,7 @@ test("wall expiry and AbortSignal settle a running real child while retaining pa
     let signalRunning: (() => void) | undefined;
     const running = new Promise<void>((resolve) => { signalRunning = resolve; });
     const run = executeProcessTrainer(client, { ...coordinates, onTransition(context) {
-      if (context.transactionId.endsWith("-running") && context.transition === "committed") signalRunning?.();
+      if (context.transactionId.includes("-running-v") && context.transition === "committed") signalRunning?.();
     } }, input, approval, { ...adapter, allowance: { ...allowance, wall_ms: cancel ? 5000 : 2000 } }, controller.signal, command);
     if (cancel) {
       // Observe the durable running transition before starting the unchanged
