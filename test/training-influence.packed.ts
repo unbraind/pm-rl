@@ -93,8 +93,9 @@ for (const mode of ["npm-global", "bun-global", "npx", "bunx", "project-local"])
   writeFileSync(probe, probeSource, { flag: "wx" });
   try {
     const runtime = mode === "bun-global" || mode === "bunx" ? bun : process.execPath;
-    const checked = JSON.parse(execute(runtime, [probe, root, tracker.path, processConfig], root, extra)) as { publication_refusals: number; peer_state_retained: boolean };
+    const checked = JSON.parse(execute(runtime, [probe, root, tracker.path, processConfig], root, extra)) as { publication_refusals: number; peer_state_retained: boolean; staging_recoveries: number; resumed_budget_retained: boolean; materialization_refusals: number };
     assert.equal(checked.publication_refusals, 2); assert.equal(checked.peer_state_retained, true);
+    assert.equal(checked.staging_recoveries, 2); assert.equal(checked.resumed_budget_retained, true); assert.equal(checked.materialization_refusals, 1);
   } finally { unlinkSync(probe); }
   const client = new PmClient({ cwd: root, pmRoot: tracker.path, noExtensions: true });
   const projectPrefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
@@ -124,7 +125,7 @@ for (const mode of ["npm-global", "bun-global", "npx", "bunx", "project-local"])
   assert.equal((await client.get(run.details.id, { full: true })).item.type, "Task");
   assert.equal(existsSync(join(root, "foreign-proposal.json")), false);
   assert.equal(existsSync(join(root, "injected")), false);
-  results.push({ project_prefix: projectPrefix, foreign_refusals: 6, shell_metacharacter_path: true, mode, host: "2026.10.28", sweep_arms: 2, sweep_json_toon: true, publication_refusals: 2, process_loop_json_toon: true, process_loop_resume: true, comparisons: run.details.comparisons.length, json_bytes: Buffer.byteLength(json), toon_bytes: Buffer.byteLength(toon), retry_created: false, partial_omitted: partial.details.omitted.length, no_git: true, proposal_feedback: true });
+  results.push({ project_prefix: projectPrefix, foreign_refusals: 6, shell_metacharacter_path: true, mode, host: "2026.10.28", sweep_arms: 2, sweep_json_toon: true, publication_refusals: 2, staging_recoveries: 2, resumed_budget_retained: true, materialization_refusals: 1, process_loop_json_toon: true, process_loop_resume: true, comparisons: run.details.comparisons.length, json_bytes: Buffer.byteLength(json), toon_bytes: Buffer.byteLength(toon), retry_created: false, partial_omitted: partial.details.omitted.length, no_git: true, proposal_feedback: true });
   process.stdout.write(`${mode}: passed\n`);
 }
 const bytes = readFileSync(archive);

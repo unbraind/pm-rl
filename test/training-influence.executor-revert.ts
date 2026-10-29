@@ -22,6 +22,7 @@ try {
   symlinkSync(join(repository, "node_modules"), join(root, "node_modules"));
   const processSource = readFileSync("process.ts", "utf8"); const indexSource = readFileSync("index.ts", "utf8");
   const oldProcess = execFileSync("git", ["show", "a1575a2:process.ts"], { encoding: "utf8" });
+  const previousProcess = execFileSync("git", ["show", "f8678f5:process.ts"], { encoding: "utf8" });
   const fence = '        if (expectedRevision !== undefined && await readLoopRevision(client, before.item.id) !== expectedRevision) fail("Tracker history advanced after planning. Read the current target and retry; peer state and held budget were retained.", "superseded", EXIT_CODE.CONFLICT);\n';
   const checks = [
     { file: "process.ts", name: "executeReservedProcessJob", source: processSource, mutant: processSource.replace(functionText(processSource, "executeReservedProcessJob"), functionText(oldProcess, "executeReservedProcessJob")), pattern: "full executor publication faults" },
@@ -30,9 +31,14 @@ try {
     { file: "process.ts", name: "commitProcessTransition journal identity", source: processSource, mutant: processSource.replace('`${target.id}-${target.state}-v${source.revision}-${targetDigest.slice(-64)}`', '`${target.id}-${target.state}`'), pattern: "process journals bind" },
     { file: "process.ts", name: "processTransitionTarget accounting schema", source: processSource, mutant: processSource.replace("  validateProcessAccounting(target);\n", ""), pattern: "transition producers share" },
     { file: "index.ts", name: "runRlLoop authoritative refusal", source: indexSource, mutant: indexSource.replace("compare_and_set_refused|generation_terminal|superseded)", "compare_and_set_refused|generation_terminal)"), pattern: "recursive controller propagates" },
+    { file: "process.ts", name: "executeReservedProcessJob staging settlement", source: processSource, mutant: processSource.replace(functionText(processSource, "executeReservedProcessJob"), functionText(previousProcess, "executeReservedProcessJob")), pattern: "staging creation failures" },
+    { file: "process.ts", name: "processTransitionTarget consumption floor", source: processSource, mutant: processSource.replace(/^  if .*"process_charge_regression".*\n/m, ""), pattern: "every failure settlement edge" },
+    { file: "process.ts", name: "failedProcessCharge inaccessible reports", source: processSource, mutant: processSource.replace('    } catch { /* Inaccessible or vanished reports cannot prove unused resources. */ }', '    } catch (error) { throw error; }'), pattern: "recovery settlement retains reservations" },
+    { file: "process.ts", name: "failedProcessCharge native birth proof", source: processSource, mutant: processSource.replace('state === "planned" && revision === 1', 'state === "planned"'), pattern: "staging failures cannot refund" },
   ];
+  const stagingOnly = process.argv.includes("--staging-only");
   const results = [];
-  for (const check of checks) {
+  for (const check of stagingOnly ? checks.slice(-4) : checks) {
     assert.notEqual(check.mutant, check.source, check.name);
     const run = () => spawnSync(process.execPath, ["--test", "--test-concurrency=1", `--test-name-pattern=${check.pattern}`, "test/process-publication.test.ts"], { cwd: root, encoding: "utf8", timeout: 240_000, env: { ...process.env, NODE_V8_COVERAGE: undefined } });
     writeFileSync(join(root, check.file), check.mutant);
@@ -42,5 +48,5 @@ try {
     results.push({ function: check.name, reverted: { pass: 0, fail: 1 }, restored: { pass: 1, fail: 0 } });
     process.stdout.write(`${check.name}: revert fails; restoration passes\n`);
   }
-  writeFileSync("docs/training-influence-executor-revert.json", JSON.stringify({ format: "pm-rl/executor-revert/1", baseline: "a1575a2", tests: results, reviewed_source_unchanged: true }, null, 2) + "\n");
+  writeFileSync(stagingOnly ? "docs/training-influence-staging-revert.json" : "docs/training-influence-executor-revert.json", JSON.stringify({ format: "pm-rl/executor-revert/1", baseline: stagingOnly ? "f8678f5" : "a1575a2", tests: results, reviewed_source_unchanged: true }, null, 2) + "\n");
 } finally { rmSync(root, { recursive: true, force: true }); }

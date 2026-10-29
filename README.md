@@ -174,6 +174,9 @@ preserves the actual transition instead of reversing a peer's progress. Every pr
 checks its captured durable history revision under the SDK item lock, and journal
 keys bind that revision and the full target digest. Publication failures propagate
 through the executor without being reclassified as trainer failures or refunds.
+A staging access failure on resume retains the running job's resource charges.
+Only a job still proven unlaunched may release its reservation; subsequent jobs
+remain subject to the consumed budget.
 
 All commands listed above are implemented. [Recursive training execution](RECURSIVE_TRAINING.md)
 documents the local process and Docker Compose adapters and remaining scheduler work.

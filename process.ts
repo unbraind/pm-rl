@@ -357,10 +357,11 @@ async function readProcessSnapshot(client: PmClient, id: string, root: string): 
   return { job, native, revision };
 }
 /** Construct a transition using the same stored producer representation as replay and comparison. */
-function processTransitionTarget<P extends TrainerPolicy>(job: ProcessJob<P>, state: ProcessJobState, outcome: string, completion: ProcessJob<P>["completion"], charge: Resources, diagnostics: Pick<ProcessJob<P>, "cleanup"> = {}): ProcessJob<TrainerPolicy> {
+function processTransitionTarget<P extends TrainerPolicy>(job: ProcessJob<P>, state: ProcessJobState, outcome: string, completion: ProcessJob<P>["completion"], charge: Resources, diagnostics: Pick<ProcessJob<P>, "cleanup"> = {}, revision?: number, verifiedMaterialization = false): ProcessJob<TrainerPolicy> {
   if (job.state !== state && !JOB_TRANSITIONS[job.state].includes(state)) expectedFail("Illegal process job transition.", "process_job_drift");
   const target = job.state === state ? job : { ...job, ...diagnostics, state, outcome, completion, charge, settled: state !== "running" && state !== "planned" };
   validateProcessAccounting(target);
+  if ((job.state !== "planned" || revision !== 1) && (!verifiedMaterialization || target.state !== "materialized" || target.completion === null) && RESOURCE_KEYS.some((key) => target.charge[key] < job.charge[key])) expectedFail("This transition cannot refund work that may have run. Retain the current charge; only the executor with a validated completion may release unused allowance.", "process_charge_regression");
   return storedProcessJob(target);
 }
 /** Commit only a matching source revision; publication errors never authorize a reverse settlement. */
@@ -392,8 +393,8 @@ async function commitProcessTransition(client: PmClient, coordinates: ProcessCoo
 }
 /** Commit a source-checked transition; retries read actual state and never replay a frozen body. */
 export async function transitionProcessJob<P extends TrainerPolicy>(client: PmClient, coordinates: ProcessCoordinates, job: ProcessJob<P>, state: ProcessJobState, outcome: string, completion = job.completion, charge = job.charge): Promise<ProcessJob<P>> {
-  const target = processTransitionTarget(job, state, outcome, completion, charge);
   const source = await readProcessSnapshot(client, job.id, coordinates.pmRoot);
+  const target = processTransitionTarget(job, state, outcome, completion, charge, {}, source.revision);
   const currentDigest = processDigest(storedProcessJob(source.job));
   if (currentDigest === processDigest(target)) return source.job as ProcessJob<P>;
   if (currentDigest !== processDigest(storedProcessJob(job))) expectedFail("Process source is stale. Read the current job through the SDK before retrying; peer progress and held budget were retained.", "superseded", EXIT_CODE.CONFLICT);
@@ -536,21 +537,25 @@ export async function launchTrainer(directory: string, id: string, input: Traine
 export function appendDiagnostics(file: string, chunk: Buffer, refuse: (error: unknown) => void): void {
   try { writeFileSync(file, chunk, { flag: "a" }); } catch (error) { refuse(error); }
 }
-/** Settle failure against reserved use and every trustworthy report, retaining observed excess consumption. */
-function failedProcessCharge(directory: string, allowance: Resources): Resources {
-  let charge = { ...allowance };
+/** Release only proven unlaunched work; otherwise retain prior charges and every readable excess report. */
+function failedProcessCharge(directory: string, prior: Resources, state?: ProcessJobState, revision?: number): Resources {
+  if (state === "planned" && revision === 1) return zeroResources();
+  let charge = { ...prior };
   const files = ["completion.json", "events.ndjson"];
   for (const name of files) {
-    if (!existsSync(join(directory, name)) || !lstatSync(join(directory, name)).isFile() || lstatSync(join(directory, name)).size > 65_536) continue;
-    for (const line of readFileSync(join(directory, name), "utf8").split("\n").filter((line) => line.length > 0)) {
-      try {
-        const value = parseBoundedJson(line) as { usage?: Resources; receipt?: { usage: Resources } };
-        const usage = parseResources(value.usage ?? value.receipt!.usage);
-        charge = Object.fromEntries(RESOURCE_KEYS.map((key) => [key, Math.max(charge[key], usage[key])])) as Resources;
-      } catch { /* Unreadable reports retain the conservative reserved charge. */ }
-    }
+    try {
+      const file = join(directory, name);
+      if (!existsSync(file) || !lstatSync(file).isFile() || lstatSync(file).size > 65_536) continue;
+      for (const line of readFileSync(file, "utf8").split("\n").filter((line) => line.length > 0)) {
+        try {
+          const value = parseBoundedJson(line) as { usage?: Resources; receipt?: { usage: Resources } };
+          const usage = parseResources(value.usage ?? value.receipt!.usage);
+          charge = Object.fromEntries(RESOURCE_KEYS.map((key) => [key, Math.max(charge[key], usage[key])])) as Resources;
+        } catch { /* Invalid reports retain the conservative prior charge. */ }
+      }
+    } catch { /* Inaccessible or vanished reports cannot prove unused resources. */ }
   }
-  try { charge.storage_bytes = Math.max(charge.storage_bytes, stagingBytes(directory)); }
+  try { charge = { ...charge, storage_bytes: Math.max(charge.storage_bytes, stagingBytes(directory)) }; }
   catch { /* Unsupported staging remains in place and retains its reserved charge. */ }
   return charge;
 }
@@ -579,7 +584,7 @@ async function executeReservedProcessJob(client: PmClient, coordinates: ProcessC
   const cleanupFailed = (error: unknown): void => { diagnostics.cleanup = { code: "cleanup_failed", error: String(error).replaceAll(directory, "<staging>").slice(0, 4096) }; };
   try { mkdirSync(directory, { recursive: true }); }
   catch (error) {
-    await commitProcessTransition(client, coordinates, source, processTransitionTarget(source.job, "failed", "trainer_failure", null, zeroResources()));
+    await commitProcessTransition(client, coordinates, source, processTransitionTarget(source.job, "failed", "trainer_failure", null, failedProcessCharge(directory, source.job.charge, source.job.state, source.revision), {}, source.revision));
     throw error;
   }
   const launch = source.job.state === "planned";
@@ -605,10 +610,10 @@ async function executeReservedProcessJob(client: PmClient, coordinates: ProcessC
     completion = validateProcessCompletion(directory, id, input, source.job.allowance, coordinates.pmRoot);
   } catch (error) {
     const state = signal?.aborted === true ? "cancelled" : "failed";
-    const charge = failedProcessCharge(directory, source.job.allowance);
-    await commitProcessTransition(client, coordinates, source, processTransitionTarget(source.job, state, isPmCliExpectedError(error) ? String(error.context.code) : "trainer_failure", null, charge, diagnostics));
+    const charge = failedProcessCharge(directory, source.job.charge, source.job.state, source.revision);
+    await commitProcessTransition(client, coordinates, source, processTransitionTarget(source.job, state, isPmCliExpectedError(error) ? String(error.context.code) : "trainer_failure", null, charge, diagnostics, source.revision));
     throw error;
   }
   // Materialization is another publication, not a trainer error to compensate.
-  return commitProcessTransition(client, coordinates, source, processTransitionTarget(source.job, "materialized", "receipt_validated", completion, completion.usage, diagnostics));
+  return commitProcessTransition(client, coordinates, source, processTransitionTarget(source.job, "materialized", "receipt_validated", completion, completion.usage, diagnostics, source.revision, true));
 }

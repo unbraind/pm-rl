@@ -1,0 +1,51 @@
+{
+  "format": "pm-rl/executor-revert/1",
+  "baseline": "f8678f5",
+  "tests": [
+    {
+      "function": "executeReservedProcessJob staging settlement",
+      "reverted": {
+        "pass": 0,
+        "fail": 1
+      },
+      "restored": {
+        "pass": 1,
+        "fail": 0
+      }
+    },
+    {
+      "function": "processTransitionTarget consumption floor",
+      "reverted": {
+        "pass": 0,
+        "fail": 1
+      },
+      "restored": {
+        "pass": 1,
+        "fail": 0
+      }
+    },
+    {
+      "function": "failedProcessCharge inaccessible reports",
+      "reverted": {
+        "pass": 0,
+        "fail": 1
+      },
+      "restored": {
+        "pass": 1,
+        "fail": 0
+      }
+    },
+    {
+      "function": "failedProcessCharge native birth proof",
+      "reverted": {
+        "pass": 0,
+        "fail": 1
+      },
+      "restored": {
+        "pass": 1,
+        "fail": 0
+      }
+    }
+  ],
+  "reviewed_source_unchanged": true
+}

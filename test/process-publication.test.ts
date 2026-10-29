@@ -1,13 +1,14 @@
 /** Full-executor publication faults and native revision fences preserve peer progress and accounting. */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import fs, { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { readLoopRevision, runRlLoop } from "../index.ts";
-import { executeProcessTrainer, processDigest, processJobId, processStaging, stopTrainer, readProcessJob, referenceTrainerArgv, reserveProcessJob, RESOURCE_KEYS, transitionProcessJob, type ProcessJobState, type ProcessCoordinates } from "../process.ts";
+import { executeProcessTrainer, processDigest, processJobId, processStaging, stopTrainer, readProcessJob, referenceTrainerArgv, reserveProcessJob, RESOURCE_KEYS, transitionProcessJob, type ProcessCompletion, type ProcessJobState, type ProcessCoordinates } from "../process.ts";
 import { allowance, configuration, processWorkspace, trainingInput } from "./fixtures/process-workspace.ts";
 
 const boundaries = ["prepared", "step_applied", "step_recorded", "committing", "committed", "compensating", "step_compensating", "step_compensated", "compensated"] as const;
@@ -142,6 +143,40 @@ test("process journals bind the target revision instead of replaying an older pr
   assert.ok((await client.get(id)).item.tags?.includes("peer-annotation"));
 });
 
+test("executor and publication final reads refuse advancement at every remaining snapshot gap", async () => {
+  for (const gap of ["reservation", "running-snapshot", "running-publication", "materialized-publication"] as const) {
+    const { client, coordinates, approval } = await processWorkspace(); const input = trainingInput(); const command = referenceTrainerArgv();
+    const adapter = { kind: "process-bandit", allowance } as const; const id = processJobId(input, command, adapter);
+    let armed = false; let injected = false; let expected: Awaited<ReturnType<typeof evidence>> | undefined;
+    /** Commit actual peer progress after the requested observation, without throwing from the observer. */
+    const advance = async (): Promise<void> => {
+      injected = true;
+      const current = (await readProcessJob(client, id))!;
+      await client.update(id, { body: JSON.stringify({ ...current, outcome: `peer-${gap}` }), addTags: ["peer-evidence"] });
+      expected = await evidence(client, id);
+    };
+    const intercepted = new Proxy(client, {
+      get(target, property, receiver) {
+        const value: unknown = Reflect.get(target, property, receiver);
+        if (property === "get") return async (...args: Parameters<PmClient["get"]>) => {
+          const result = await target.get(...args);
+          if (armed && !injected && args[0] === id && (gap === "reservation" ? args[1]?.at === undefined : args[1]?.at !== undefined)) await advance();
+          return result;
+        };
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    }) as PmClient;
+    const observed: ProcessCoordinates = { ...coordinates, async onTransition(step) {
+      if (step.transition !== "committed") return;
+      if (gap === "reservation" && step.transactionId.endsWith("-reserve")) armed = true;
+      if (gap === "running-snapshot" && step.transactionId.includes("-running-v")) armed = true;
+      if ((gap === "running-publication" || gap === "materialized-publication") && step.transactionId.includes(`-${gap.split("-")[0]}-v`)) await advance();
+    } };
+    await assert.rejects(executeProcessTrainer(intercepted, observed, input, approval, adapter, undefined, command), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "superseded");
+    assert.ok(injected, gap); assert.ok(expected); assert.deepEqual(await evidence(client, id), expected, gap);
+  }
+});
+
 test("recursive controller propagates publication refusal and reports peer process state", async () => {
   const { client, coordinates, approval } = await processWorkspace();
   let expected: Awaited<ReturnType<typeof evidence>> | undefined; let jobId: string | undefined;
@@ -192,6 +227,112 @@ test("unlaunched staging failure cannot refund a peer transition after the captu
   await assert.rejects(executeProcessTrainer(intercepted, { ...coordinates, onTransition(step) { if (step.transactionId.endsWith("-reserve") && step.transition === "committed") reserved = true; } }, input, approval, adapter, undefined, command), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "superseded");
   assert.ok(expected); assert.deepEqual(await evidence(client, id), expected);
   assert.deepEqual((await readProcessJob(client, id))!.charge, allowance);
+});
+
+test("staging creation failures refund only planned jobs and preserve every exhausted budget dimension", async (context) => {
+  let cases = 0;
+  const resources = { ...allowance, tokens: 4 };
+  for (const state of ["planned", "running"] as const) for (const obstruction of ["directory", "ancestor"] as const) for (const key of RESOURCE_KEYS) {
+    const budget = Object.fromEntries(RESOURCE_KEYS.map((dimension) => [dimension, resources[dimension] * (dimension === key ? 1 : 2)])) as typeof resources;
+    const { client, coordinates, approval, pmRoot } = await processWorkspace(budget);
+    const input = trainingInput(); const command = referenceTrainerArgv(); const adapter = { kind: "process-bandit", allowance: resources } as const;
+    const id = processJobId(input, command, adapter);
+    const reserved = await reserveProcessJob(client, coordinates, id, input, approval, resources);
+    if (state === "running") await transitionProcessJob(client, coordinates, reserved, "running", "previous-execution");
+    const directory = processStaging(pmRoot, id); const blocked = obstruction === "directory" ? directory : dirname(directory);
+    mkdirSync(dirname(blocked), { recursive: true }); writeFileSync(blocked, "retained staging obstruction");
+    await assert.rejects(executeProcessTrainer(client, coordinates, input, approval, adapter, undefined, command), (error: unknown) => error instanceof Error && "code" in error && ["EEXIST", "ENOTDIR"].includes(String(error.code)));
+    const failed = (await readProcessJob(client, id))!;
+    assert.equal(failed.state, "failed"); assert.equal(failed.settled, true);
+    for (const dimension of RESOURCE_KEYS) assert.equal(failed.charge[dimension], state === "running" ? resources[dimension] : 0, `${state}:${obstruction}:${key}:${dimension}`);
+    assert.equal(readFileSync(blocked, "utf8"), "retained staging obstruction");
+    const current = await evidence(client, id);
+    await assert.rejects(executeProcessTrainer(client, coordinates, input, approval, adapter, undefined, command), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "process_job_terminal");
+    assert.deepEqual(await evidence(client, id), current, "replay never refunds again");
+    const next = { ...input, identity: { next: true, original: input.identity } }; const nextId = processJobId(next, command, adapter);
+    if (state === "running") {
+      await assert.rejects(reserveProcessJob(client, coordinates, nextId, next, approval, resources), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "process_budget_exhausted" && String(error).includes(key));
+      assert.equal(await readProcessJob(client, nextId), null);
+    } else assert.equal((await reserveProcessJob(client, coordinates, nextId, next, approval, resources)).state, "planned");
+    cases += 1;
+  }
+  context.diagnostic(`${cases} planned/running recovery cases, both real filesystem obstructions and all five budget dimensions`);
+});
+
+test("every failure settlement edge refuses resource refunds even with claimed completion evidence", async (context) => {
+  const edges: readonly [ProcessJobState, readonly ProcessJobState[]][] = [
+    ["running", ["materialized", "failed", "cancelled"]], ["materialized", ["failed", "cancelled", "invalidated"]],
+    ["evaluated", ["failed", "cancelled", "invalidated"]], ["promoted", ["invalidated"]],
+  ];
+  let cases = 0;
+  const resources = { ...allowance, tokens: 4 };
+  for (const [from, targets] of edges) for (const to of targets) {
+    const { client, coordinates, approval } = await processWorkspace(resources); const input = trainingInput(); const id = processJobId(input);
+    let source = await reserveProcessJob(client, coordinates, id, input, approval, resources);
+    for (const state of ["running", "materialized", "evaluated", "promoted"] as const) {
+      source = await transitionProcessJob(client, coordinates, source, state, "fixture-progress");
+      if (state === from) break;
+    }
+    const current = await evidence(client, id);
+    for (const key of RESOURCE_KEYS) {
+      const charge = { ...resources, [key]: resources[key] - 1 };
+      const claimed: ProcessCompletion = { format: "pm-rl/process-completion/1", job: id, checkpoint: "checkpoint.json", digest: input.source.digest, policy: input.source, training_config: input.training_config, source_policy: input.source.digest, lineage: input.lineage, usage: charge };
+      for (const completion of [null, claimed]) {
+        await assert.rejects(transitionProcessJob(client, coordinates, source, to, "unproven-refund", completion, charge), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "process_charge_regression");
+        assert.deepEqual(await evidence(client, id), current); cases += 1;
+      }
+    }
+    const retained = await transitionProcessJob(client, coordinates, source, to, "retained-consumption", null, resources);
+    assert.deepEqual((await readProcessJob(client, id))!.charge, resources); assert.equal(retained.state, to);
+  }
+  context.diagnostic(`${cases} refund refusals across every failure/cancellation/invalidation edge and resource dimension`);
+});
+
+test("staging failures cannot refund a rewritten or annotated planned reservation", async () => {
+  for (const priorExecution of [false, true]) {
+    const resources = { ...allowance, tokens: 4 };
+    const { client, coordinates, approval, pmRoot } = await processWorkspace(resources); const input = trainingInput();
+    const command = referenceTrainerArgv(); const adapter = { kind: "process-bandit", allowance: resources } as const; const id = processJobId(input, command, adapter);
+    const reserved = await reserveProcessJob(client, coordinates, id, input, approval, resources);
+    if (priorExecution) await transitionProcessJob(client, coordinates, reserved, "running", "previous-execution");
+    await client.update(id, { body: JSON.stringify(reserved), addTags: ["peer-annotation"] });
+    assert.ok(await readLoopRevision(client, id) > 1);
+    const current = await evidence(client, id);
+    await assert.rejects(transitionProcessJob(client, coordinates, (await readProcessJob(client, id))!, "failed", "unproven-refund", null, { training_steps: 0, wall_ms: 0, storage_bytes: 0, compute_units: 0, tokens: 0 }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "process_charge_regression");
+    assert.deepEqual(await evidence(client, id), current);
+    const directory = processStaging(pmRoot, id); mkdirSync(dirname(directory), { recursive: true }); writeFileSync(directory, "retained staging obstruction");
+    await assert.rejects(executeProcessTrainer(client, coordinates, input, approval, adapter, undefined, command));
+    const settled = (await readProcessJob(client, id))!; assert.equal(settled.state, "failed"); assert.deepEqual(settled.charge, resources);
+    const next = { ...input, identity: { next: true } };
+    await assert.rejects(reserveProcessJob(client, coordinates, processJobId(next, command, adapter), next, approval, resources), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "process_budget_exhausted");
+  }
+});
+
+test("recovery settlement retains reservations when either usage report becomes unreadable and charges observable excess", async (context) => {
+  const resources = { ...allowance, tokens: 4 };
+  for (const report of ["completion.json", "events.ndjson", "excess"] as const) {
+    const { client, coordinates, approval, pmRoot } = await processWorkspace(resources); const input = trainingInput();
+    const adapter = { kind: "process-bandit", allowance: resources } as const; const command = referenceTrainerArgv(); const id = processJobId(input, command, adapter);
+    const reserved = await reserveProcessJob(client, coordinates, id, input, approval, resources);
+    await transitionProcessJob(client, coordinates, reserved, "running", "previous-execution");
+    const directory = processStaging(pmRoot, id); mkdirSync(directory, { recursive: true });
+    const file = join(directory, report === "excess" ? "events.ndjson" : report);
+    const usage = Object.fromEntries(RESOURCE_KEYS.map((key) => [key, resources[key] + 1]));
+    writeFileSync(file, JSON.stringify({ usage }) + "\n");
+    const read = fs.readFileSync; let refusedReads = 0;
+    const fault = context.mock.method(fs, "readFileSync", ((...args: Parameters<typeof fs.readFileSync>) => {
+      if (report !== "excess" && String(args[0]) === file) { refusedReads += 1; throw Object.assign(new Error("staging report access denied"), { code: "EACCES" }); }
+      return read(...args);
+    }) as typeof fs.readFileSync);
+    syncBuiltinESMExports();
+    try {
+      await assert.rejects(executeProcessTrainer(client, coordinates, input, approval, adapter, undefined, command));
+      const settled = (await readProcessJob(client, id))!; assert.equal(settled.state, "failed"); assert.equal(settled.settled, true);
+      if (report !== "excess") { assert.ok(refusedReads > 0); assert.deepEqual(settled.charge, resources); }
+      else for (const key of RESOURCE_KEYS) assert.ok(settled.charge[key] >= resources[key] + 1, key);
+    } finally { fault.mock.restore(); syncBuiltinESMExports(); }
+    assert.equal(readFileSync(file, "utf8"), JSON.stringify({ usage }) + "\n");
+  }
 });
 
 test("real child failure and cancellation cannot settle a peer's newer running revision", async () => {

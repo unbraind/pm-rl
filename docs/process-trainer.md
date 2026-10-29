@@ -64,7 +64,11 @@ concurrent SDK calls. Successful materialization atomically commits its receipt,
 state and measured charge; the unused allowance is released. Failed/cancelled
 jobs settle conservatively against the whole reserved vector, increased to any
 larger observable storage or valid reported use. Unknown use is never assumed
-zero. Compensated reservations record their released vector and outcome. Settled
+zero. Only an untouched native birth revision still in `planned` at the SDK
+revision fence can release its reservation after staging creation fails.
+Edited planned records retain the charge conservatively: a current planned
+label alone cannot prove that earlier work never ran. A resumed `running` job retains
+its whole charge even when staging is absent, obstructed or inaccessible. Settled
 training and retained storage remain charged, including after evaluation refusal.
 
 All dimensions and the original approval specification digest are rechecked.
@@ -336,6 +340,12 @@ changing the body or materializing dependent checkpoint receipts. Journal keys
 include the source revision and the full target digest; retries inspect current
 SDK state, preserve a peer winner, and do not replay an older prepared body.
 Fixed-clock ABA updates therefore refuse even when body and timestamps match.
+Failure, cancellation, invalidation and later lifecycle transitions refuse
+reductions below the current charge (`process_charge_regression`), even with a
+claimed completion. Retain the charge; only the executor's validated materialization may release unused
+allowance. Generic SDK lifecycle transitions cannot authorize a refund merely
+by supplying a claimed completion object. Unreadable usage
+reports retain the reservation, while readable excess consumption increases it.
 
 The item lock fences the native write; the workspace mutex only serializes
 participating transactions. Cross-item reads and external trainer startup remain
