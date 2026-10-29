@@ -1,5 +1,5 @@
 import type { HistoryResult } from "@unbrained/pm-cli/sdk/query";
-import { decodeTrackerRecord, skippedTrackerRecords, parseBoundedJson } from "./tracker-record.ts";
+import { decodeTrackerRecord, skippedTrackerRecords, parseBoundedJson, encodeBoundedJson, MAX_JSON_BYTES, MAX_TRACKER_RECORD_BYTES } from "./tracker-record.ts";
 /**
  * @module pm-rl
  *
@@ -8,6 +8,8 @@ import { decodeTrackerRecord, skippedTrackerRecords, parseBoundedJson } from "./
  * notes. Notes are append-only history mutations and merge as a set across
  * concurrent branches, unlike a scalar item body.
  */
+
+export type { JsonEncodingRefusal } from "./tracker-record.ts";
 
 export { runBanditProgramme, type BanditCheckpoint, type BanditExample, type BanditGeneration, type BanditProgramme, type BanditResult } from "./bandit.ts";
 export { checkpointArtifactPath, collectCheckpointArtifacts, readCheckpointArtifact, readCheckpointLedger, type CheckpointArtifact } from "./checkpoint-artifacts.ts";
@@ -155,7 +157,7 @@ export {
 
 export { exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordRecursivePolicyCards, recordPolicyCard, POLICY_CARD_MAX_BYTES, type PolicyCard, type PolicyCardEvidence, type PolicyCardRefusal } from "./policy-card.ts";
 export { parseShadowDeployment, shadowInputDigest, registerShadowDeployment, observeShadow, compareShadow, type ShadowPolicy, type ShadowDeployment, type ShadowInput, type ShadowObservation, type ShadowReport, type ShadowRefusal } from "./shadow.ts";
-export { parseEvaluationPlan, evaluationPlanId, evaluationComparison, registerEvaluationPlan, readEvaluationPlan, evaluatePlan, recordPlanEvaluation, enforceEvaluationPlan, type EvaluationPlan, type EvaluationMember, type EvaluationObservation, type EvaluationPlanReport, type RegisteredEvaluationPlan, type EvaluationPlanRefusal } from "./evaluation-plan.ts";
+export { parseEvaluationPlan, evaluationPlanId, evaluationComparison, registerEvaluationPlan, readEvaluationPlan, evaluatePlan, recordPlanEvaluation, enforceEvaluationPlan, type EvaluationPlan, type EvaluationMember, type EvaluationObservation, type EvaluationPlanReport, type RegisteredEvaluationPlan, type EvaluationPlanRefusal, type ProtectedCohort, type CohortReport, type CohortRefusal } from "./evaluation-plan.ts";
 
 export { decidePromotion, hoeffdingEpsilon, parsePromotionCriterion, parsePromotionEvidence, type PromotionCriterion, type PromotionDecision, type PromotionEvidence, type PromotionGateInput } from "./promotion.ts";
 export { recipeArtifact, parseRecipe, seededRecipes, INITIAL_RECIPE, RECIPE_BOUNDS, type Recipe, type RecipeKnobs } from "./recipe.ts";
@@ -972,7 +974,7 @@ async function registerEnvironmentSpecValue(client: PmClient, spec: EnvironmentS
     status: "open",
     acceptanceCriteria: "The complete specification is stored, its SHA-256 identity matches the item id, and changed behavior is registered as a new version.",
     estimatedMinutes: "1",
-    body: `# ${spec.name} ${spec.version}\n\n\`\`\`json\n${JSON.stringify(spec, null, 2)}\n\`\`\``,
+    body: `# ${spec.name} ${spec.version}\n\n\`\`\`json\n${encodeBoundedJson(spec, undefined, 2)}\n\`\`\``,
     affectedVersion: specHash,
     fixedVersion: spec.version,
     message: "Register immutable RL environment specification",
@@ -1039,7 +1041,7 @@ async function startRunCore(client: PmClient, request: RunStartRequest): Promise
     status: "in_progress",
     acceptanceCriteria: "The run retains its exact environment and configuration identities, metric input is complete, and finish records the terminal outcome.",
     estimatedMinutes: "1",
-    body: `# ${request.id}\n\nAlgorithm: ${request.algorithm}\n\nEnvironment snapshot:\n\n\`\`\`json\n${JSON.stringify(storedSpec, null, 2)}\n\`\`\`\n\nRun configuration:\n\n\`\`\`json\n${JSON.stringify(request.config, null, 2)}\n\`\`\`${request.receipt === null ? "" : `\n\n${RECEIPT_HEADING}\n\n\`\`\`json\n${JSON.stringify(request.receipt, null, 2)}\n\`\`\``}`,
+    body: `# ${request.id}\n\nAlgorithm: ${request.algorithm}\n\nEnvironment snapshot:\n\n\`\`\`json\n${encodeBoundedJson(storedSpec, undefined, 2)}\n\`\`\`\n\nRun configuration:\n\n\`\`\`json\n${encodeBoundedJson(request.config, undefined, 2)}\n\`\`\`${request.receipt === null ? "" : `\n\n${RECEIPT_HEADING}\n\n\`\`\`json\n${encodeBoundedJson(request.receipt, undefined, 2)}\n\`\`\``}`,
     // Both edges name the RESOLVED id. `environmentId` is the raw --environment
     // input, which may be an alias; recording it on one edge and the resolved id
     // on the other would make a single create call describe two different
@@ -1307,7 +1309,7 @@ async function registerBenchmark(context: CommandHandlerContext): Promise<RlComm
     status: "open",
     acceptanceCriteria: "The complete suite, scoring rule, pass criteria, direction, and contamination edges match its content identity.",
     estimatedMinutes: "1",
-    body: `# ${spec.name} ${spec.version}\n\n\`\`\`json\n${JSON.stringify(spec, null, 2)}\n\`\`\``,
+    body: `# ${spec.name} ${spec.version}\n\n\`\`\`json\n${encodeBoundedJson(spec, undefined, 2)}\n\`\`\``,
     dep: spec.contaminated_environments.map((id) => `id=${id},kind=related,source_kind=${BENCHMARK_CONTAMINATION_SOURCE}`),
     affectedVersion: specHash,
     fixedVersion: spec.version,
@@ -1364,7 +1366,7 @@ async function recordEvalResult(context: CommandHandlerContext): Promise<RlComma
     completedAt: new Date().toISOString(),
     acceptanceCriteria: "The verdict traces through typed graph edges to one source run, benchmark, environment, reward specification, and checkpoint.",
     estimatedMinutes: "1",
-    body: `# Evaluation ${checkpoint}\n\n\`\`\`json\n${JSON.stringify(spec, null, 2)}\n\`\`\``,
+    body: `# Evaluation ${checkpoint}\n\n\`\`\`json\n${encodeBoundedJson(spec, undefined, 2)}\n\`\`\``,
     dep: [
       `id=${resolvedRunId},kind=discovered_from,source_kind=${EVAL_RUN_SOURCE}`,
       `id=${benchmark.id},kind=verifies,source_kind=${EVAL_BENCHMARK_SOURCE}`,
@@ -1564,7 +1566,7 @@ async function registerGateEnvironment(context: CommandHandlerContext): Promise<
     status: "open",
     acceptanceCriteria: "The pinned repository commit, mandatory gate set and verdict extraction match the environment's content identity.",
     estimatedMinutes: "1",
-    body: `# ${spec.name} ${spec.version} gates\n\n\`\`\`json\n${JSON.stringify(spec, null, 2)}\n\`\`\``,
+    body: `# ${spec.name} ${spec.version} gates\n\n\`\`\`json\n${encodeBoundedJson(spec, undefined, 2)}\n\`\`\``,
     affectedVersion: specHash,
     fixedVersion: spec.version,
     message: "Register immutable gate-simulator environment",
@@ -1632,7 +1634,7 @@ async function recordEpisode(context: CommandHandlerContext): Promise<RlCommandR
     completedAt: new Date().toISOString(),
     acceptanceCriteria: "The episode traces to its exact candidate artifact, gate environment, gate results, extracted verdict, and pull request.",
     estimatedMinutes: "1",
-    body: `# Episode ${requestedId}\n\n\`\`\`json\n${JSON.stringify(spec, null, 2)}\n\`\`\``,
+    body: `# Episode ${requestedId}\n\n\`\`\`json\n${encodeBoundedJson(spec, undefined, 2)}\n\`\`\``,
     dep: [`id=${verified.id},kind=related,source_kind=${EPISODE_ENVIRONMENT_SOURCE}`],
     environment: verified.id,
     affectedVersion: specHash,
@@ -1748,7 +1750,7 @@ async function recordOutcome(context: CommandHandlerContext): Promise<RlCommandR
     completedAt: new Date().toISOString(),
     acceptanceCriteria: "The outcome names one pull request and whether it merged, content-addressed by both.",
     estimatedMinutes: "1",
-    body: `# Outcome ${requestedId}\n\n\`\`\`json\n${JSON.stringify(spec, null, 2)}\n\`\`\``,
+    body: `# Outcome ${requestedId}\n\n\`\`\`json\n${encodeBoundedJson(spec, undefined, 2)}\n\`\`\``,
     affectedVersion: specHash,
     fixedVersion: pullRequest,
     component: merged ? "merged" : "not_merged",
@@ -2292,7 +2294,7 @@ async function registerGenerationCore(client: PmClient, request: GenerationRegis
     status: "open" as const,
     acceptanceCriteria: "The generation retains its exact provenance identities and is promoted only after contamination and budget checks pass.",
     estimatedMinutes: "1",
-    body: `# ${requestedId}\n\n\`\`\`json\n${JSON.stringify(spec, null, 2)}\n\`\`\``,
+    body: `# ${requestedId}\n\n\`\`\`json\n${encodeBoundedJson(spec, undefined, 2)}\n\`\`\``,
     affectedVersion: specHash,
     fixedVersion: baseCheckpoint,
     component: policy.length > 0 ? policy : baseCheckpoint,
@@ -2510,7 +2512,7 @@ export async function promoteGenerationCore(client: PmClient, coordinates: Works
       gap,
       promotion_evidence: evidence,
     };
-    return `# ${id}\n\n\`\`\`json\n${JSON.stringify(promotedSpec, null, 2)}\n\`\`\``;
+    return `# ${id}\n\n\`\`\`json\n${encodeBoundedJson(promotedSpec, undefined, 2)}\n\`\`\``;
   };
   const prospective = await getTypedItem(client, id, "Generation");
   canonicalApprovalId = (await readApprovalSpec(client, approvalId)).id;
@@ -2820,7 +2822,7 @@ async function publishControllerIdentity(lockPath: string, processStartTime: str
   const acquired = parseBoundedJson(await readFile(lockPath, "utf8")) as Record<string, unknown>;
   const temporary = `${lockPath}.${randomUUID()}.tmp`;
   try {
-    await writeFile(temporary, `${JSON.stringify({ ...acquired, ...(renew ? { created_at: new Date().toISOString() } : {}), hostname: hostname(), process_start_time: processStartTime })}\n`, { encoding: "utf8", flag: "wx" });
+    await writeFile(temporary, `${encodeBoundedJson({ ...acquired, ...(renew ? { created_at: new Date().toISOString() } : {}), hostname: hostname(), process_start_time: processStartTime }, MAX_JSON_BYTES - 1)}\n`, { encoding: "utf8", flag: "wx" });
     await rename(temporary, lockPath);
   } finally {
     await unlink(temporary).catch(() => undefined);
@@ -2854,7 +2856,7 @@ async function expireDeadControllerMutex(root: string, id: string, io: LoopProce
   try {
     const current = parseBoundedJson(await handle.readFile("utf8")) as Record<string, unknown>;
     if (current["token"] !== record["token"]) return;
-    const expired = `${JSON.stringify({ ...current, created_at: "1970-01-01T00:00:00.000Z" })}\n`;
+    const expired = `${encodeBoundedJson({ ...current, created_at: "1970-01-01T00:00:00.000Z" }, MAX_JSON_BYTES - 1)}\n`;
     await handle.write(expired, 0, "utf8");
     await handle.truncate(Buffer.byteLength(expired));
   } finally {
@@ -3415,13 +3417,13 @@ async function durableLoopStep(client: PmClient, lease: ControllerLease, id: str
     const existing = await readCompleteLoopItem(client, key).catch((error: unknown) => isItemNotFound(error) ? null : Promise.reject(error));
     const running = { format: "pm-rl/loop-step/1", key, input: hashJson(input), state: "running" };
     // Outer phase cards must fit before the first receipt/history write.
-    const intent = { id: key, type: "Decision" as const, title: `Loop step ${phase} for ${id}`, tags: "rl-loop-step", body: JSON.stringify(running) };
+    const intent = { id: key, type: "Decision" as const, title: `Loop step ${phase} for ${id}`, tags: "rl-loop-step", body: encodeBoundedJson(running, MAX_TRACKER_RECORD_BYTES) };
     const item = existing ?? (cards || phase === "promote" ? null : await client.create(intent));
     const before = item === null ? null : existing ?? await readCompleteLoopItem(client, String(item.item.id));
     const winner = await readLoopStep(client, id, phase, input, before);
     if (winner !== null) return { value: winner, executed: false };
     const value = await execute();
-    const body = JSON.stringify({ ...running, state: "complete", result: value, digest: hashJson(value) });
+    const body = encodeBoundedJson({ ...running, state: "complete", result: value, digest: hashJson(value) }, MAX_TRACKER_RECORD_BYTES);
     if (cards) await validatePolicyCardWrite(client, { ...intent, body }, true);
     if (item === null) await client.create({ ...intent, body });
     else {
@@ -3443,7 +3445,7 @@ export async function withRlController<T>(client: PmClient, coordinates: Workspa
       signal.throwIfAborted();
       const stored = await durableLoopStep(client, lease, id, key, input, async () => await encodeCheckpointArtifacts(coordinates.pmRoot, `step:${id}:${key}`, await operation(), async (value) => {
         const receipt = { format: "pm-rl/loop-step/1", key: `${id}-step-${key}`, input: hashJson(input), state: "complete", result: value, digest: hashJson(value as JsonValue) };
-        await validatePolicyCardWrite(client, { id: receipt.key, type: "Decision", body: JSON.stringify(receipt) }, true);
+        await validatePolicyCardWrite(client, { id: receipt.key, type: "Decision", body: encodeBoundedJson(receipt, MAX_TRACKER_RECORD_BYTES) }, true);
       }) as JsonValue, true);
       await recordRecursivePolicyCards(client, `${id}-step-${key}`);
       return decodeCheckpointArtifacts(coordinates.pmRoot, stored.value) as JsonValue;
@@ -4472,7 +4474,7 @@ async function buildCorpusCommand(context: CommandHandlerContext): Promise<RlCom
   destination(output);
   destination(target);
   try {
-    await writeFile(target, `${JSON.stringify(corpus.programme, null, 2)}\n`, { flag: "wx" });
+    await writeFile(target, `${encodeBoundedJson(corpus.programme, MAX_JSON_BYTES - 1, 2)}\n`, { flag: "wx" });
   } catch (error: unknown) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === "EEXIST") fail("Corpus output already exists; choose a new path.", "corpus_output_exists", EXIT_CODE.CONFLICT);
@@ -4954,7 +4956,7 @@ async function planSweep(context: CommandHandlerContext): Promise<RlCommandResul
         status: "in_progress",
         acceptanceCriteria: `Sweep arm ${index + 1} retains its exact environment and hyperparameter identities; its metrics are history appends independent of every other arm.`,
         estimatedMinutes: "1",
-        body: `# ${armId}\n\nAlgorithm: ${algorithm}\n\nEnvironment snapshot:\n\n\`\`\`json\n${JSON.stringify(verifiedEnvironment.spec, null, 2)}\n\`\`\`\n\nRun configuration:\n\n\`\`\`json\n${JSON.stringify(config, null, 2)}\n\`\`\``,
+        body: `# ${armId}\n\nAlgorithm: ${algorithm}\n\nEnvironment snapshot:\n\n\`\`\`json\n${encodeBoundedJson(verifiedEnvironment.spec, undefined, 2)}\n\`\`\`\n\nRun configuration:\n\n\`\`\`json\n${encodeBoundedJson(config, undefined, 2)}\n\`\`\``,
         dep: [verifiedEnvironment.id],
         environment: verifiedEnvironment.id,
         affectedVersion: specHash,
@@ -4994,7 +4996,7 @@ async function planSweep(context: CommandHandlerContext): Promise<RlCommandResul
       status: "open",
       acceptanceCriteria: "The sweep retains its declared space, selection rule, and planned arms; its children are independent runs.",
       estimatedMinutes: "1",
-      body: `# ${requestedId}\n\n\`\`\`json\n${JSON.stringify(spec, null, 2)}\n\`\`\``,
+      body: `# ${requestedId}\n\n\`\`\`json\n${encodeBoundedJson(spec, undefined, 2)}\n\`\`\``,
       dep: [verifiedEnvironment.id],
       affectedVersion: sweepHash,
       fixedVersion: algorithm,
@@ -5114,7 +5116,7 @@ async function recordTransfer(context: CommandHandlerContext): Promise<RlCommand
     status: "open",
     acceptanceCriteria: "The transfer traces to both exact environment versions, its source run, and its checkpoint, with every measured metric finite and named.",
     estimatedMinutes: "1",
-    body: `# ${requestedId}\n\n\`\`\`json\n${JSON.stringify(spec, null, 2)}\n\`\`\``,
+    body: `# ${requestedId}\n\n\`\`\`json\n${encodeBoundedJson(spec, undefined, 2)}\n\`\`\``,
     dep: [
       `id=${source.id},kind=related,source_kind=${TRANSFER_SOURCE_ENVIRONMENT}`,
       `id=${target.id},kind=related,source_kind=${TRANSFER_TARGET_ENVIRONMENT}`,
@@ -5257,16 +5259,16 @@ export const RL_COMMANDS = [
     { long: "--file", value_name: "path", value_type: "string", required: true, description: "Evaluation plan JSON." },
   ], run: async (context) => {
     const registered = await registerEvaluationPlan(clientFor(context), readJsonFile(stringOption(context, "file")!, "Evaluation plan"));
-    return { action: "rl-eval-plan-register", id: registered.id, details: { comparison: registered.comparison, observations: registered.plan.stopping.observations, independent_units: registered.plan.stopping.independent_units } };
+    return { action: "rl-eval-plan-register", id: registered.id, details: { comparison: registered.comparison, observations: registered.plan.stopping.observations, independent_units: registered.plan.stopping.independent_units, protected_cohorts: registered.plan.protected_cohorts?.length ?? 0 } };
   } }),
   defineCommand({ name: "rl eval plan show", description: "Show compact predeclared comparison identity and fixed stopping sizes.", arguments: [{ name: "candidate", required: true, description: "Reserved candidate generation id." }], run: async (context) => {
     const client = clientFor(context);
     const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
     const registered = await readEvaluationPlan(client, canonicalizeIdentifier(requiredArgument(context, "a candidate id"), prefix));
     if (registered === null) fail("No predeclared plan. Register one before creating a fresh candidate.", "eval_plan_missing", EXIT_CODE.CONFLICT);
-    return { action: "rl-eval-plan-show", id: registered.id, details: { comparison: registered.comparison, candidate: registered.plan.candidate, incumbent: registered.plan.incumbent, stopping: registered.plan.stopping } };
+    return { action: "rl-eval-plan-show", id: registered.id, details: { comparison: registered.comparison, candidate: registered.plan.candidate, incumbent: registered.plan.incumbent, stopping: registered.plan.stopping, protected_cohorts: registered.plan.protected_cohorts?.length ?? 0 } };
   } }),
-  defineCommand({ name: "rl eval plan evaluate", description: "Seal one paired evaluation and report its cluster-aware promotion verdict.", arguments: [{ name: "candidate", required: true, description: "Reserved candidate generation id." }], flags: [
+  defineCommand({ name: "rl eval plan evaluate", description: "Seal one paired evaluation and enforce aggregate improvement plus protected cohort guardrails.", arguments: [{ name: "candidate", required: true, description: "Reserved candidate generation id." }], flags: [
     { long: "--file", value_name: "path", value_type: "string", required: true, description: "Paired observation array JSON." },
   ], run: async (context) => {
     const client = clientFor(context); const id = requiredArgument(context, "a candidate id");

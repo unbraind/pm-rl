@@ -1,0 +1,63 @@
+{
+  "source": "https://github.com/unbraind/pm-rl",
+  "commit": "76af6b5091a338ca2c8155c1fb81b0faa444e94d",
+  "snapshot": "3967a0e01b0126402a371a8bb1b3b9dbf548cc0ee1b071e0faabedc617f92449",
+  "source_digest": "8f1352f25443e94fda2b9d1f00b89da1c2a41c3c5303dbfe4f210e6a721eacd8",
+  "source_unchanged": true,
+  "source_read_only": true,
+  "git_required": false,
+  "items": 111,
+  "active_items": 21,
+  "inactive_items": 90,
+  "json_bytes": 1236,
+  "toon_bytes": 1016,
+  "boundary_input_bytes": 16777122,
+  "boundary_refusals": 2,
+  "boundary_state_unchanged": true,
+  "report": {
+    "plan": "rl-candidate-evaluation-plan",
+    "comparison": "1b8c46cf68f6a3bb3dd051284c23e4c8a9407b1f3cd6e9fa6e6583426a02925a",
+    "observations": 111,
+    "independent_units": 1,
+    "candidate_mean": 0.8108108108108106,
+    "incumbent_mean": 0.18918918918918923,
+    "verdict": {
+      "decision": "refuse",
+      "code": "eval_cohort_regression",
+      "reason": "A protected cohort failed its predeclared evidence minimum or nonregression limit."
+    },
+    "aggregate_verdict": {
+      "decision": "refuse",
+      "code": "insufficient_samples",
+      "reason": "Promotion refused: the candidate evidence carries 1 sample(s), below the required minimum of 10. A noisy sample below the minimum count is not statistically bounded improvement."
+    },
+    "cohorts": [
+      {
+        "id": "active-tasks",
+        "observations": 21,
+        "independent_units": 1,
+        "min_units": 1,
+        "improvement": -1,
+        "max_regression": 0,
+        "code": "eval_cohort_regression"
+      }
+    ],
+    "remedy": "Register a new plan and fresh candidate before collecting a different cohort or making another evaluation look."
+  },
+  "limitation": "Descriptive constant-policy status-role replay, no inference, training or causal improvement claim. One repository counts as one independent unit; the aggregate also refuses insufficient samples.",
+  "packed_hosts": [
+    "npm global",
+    "bun global",
+    "npx --no-install",
+    "bunx --bun --no-install",
+    "project-local"
+  ],
+  "host_cli": "2026.10.28",
+  "node_runtime": "24.19.0",
+  "bun_runtime": "1.3.5",
+  "state_sequences": 500,
+  "exact_boundary_trials": 500,
+  "encoding_variants": 500,
+  "maximal_reservation_bytes": 22371651,
+  "over_budget_wrapper_bytes": 16777218
+}

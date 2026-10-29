@@ -1,0 +1,440 @@
+{
+  "format": "pm-rl/evaluation-plan/1",
+  "candidate": "rl-candidate",
+  "incumbent": "rl-seed",
+  "population": "Held-out synthetic projects",
+  "selection": "All 100 members from the frozen benchmark snapshot",
+  "correlation_unit": "project",
+  "members": [
+    {
+      "id": "item-0",
+      "unit": "project-0"
+    },
+    {
+      "id": "item-1",
+      "unit": "project-1"
+    },
+    {
+      "id": "item-2",
+      "unit": "project-2"
+    },
+    {
+      "id": "item-3",
+      "unit": "project-3"
+    },
+    {
+      "id": "item-4",
+      "unit": "project-4"
+    },
+    {
+      "id": "item-5",
+      "unit": "project-5"
+    },
+    {
+      "id": "item-6",
+      "unit": "project-6"
+    },
+    {
+      "id": "item-7",
+      "unit": "project-7"
+    },
+    {
+      "id": "item-8",
+      "unit": "project-8"
+    },
+    {
+      "id": "item-9",
+      "unit": "project-9"
+    },
+    {
+      "id": "item-10",
+      "unit": "project-10"
+    },
+    {
+      "id": "item-11",
+      "unit": "project-11"
+    },
+    {
+      "id": "item-12",
+      "unit": "project-12"
+    },
+    {
+      "id": "item-13",
+      "unit": "project-13"
+    },
+    {
+      "id": "item-14",
+      "unit": "project-14"
+    },
+    {
+      "id": "item-15",
+      "unit": "project-15"
+    },
+    {
+      "id": "item-16",
+      "unit": "project-16"
+    },
+    {
+      "id": "item-17",
+      "unit": "project-17"
+    },
+    {
+      "id": "item-18",
+      "unit": "project-18"
+    },
+    {
+      "id": "item-19",
+      "unit": "project-19"
+    },
+    {
+      "id": "item-20",
+      "unit": "project-20"
+    },
+    {
+      "id": "item-21",
+      "unit": "project-21"
+    },
+    {
+      "id": "item-22",
+      "unit": "project-22"
+    },
+    {
+      "id": "item-23",
+      "unit": "project-23"
+    },
+    {
+      "id": "item-24",
+      "unit": "project-24"
+    },
+    {
+      "id": "item-25",
+      "unit": "project-25"
+    },
+    {
+      "id": "item-26",
+      "unit": "project-26"
+    },
+    {
+      "id": "item-27",
+      "unit": "project-27"
+    },
+    {
+      "id": "item-28",
+      "unit": "project-28"
+    },
+    {
+      "id": "item-29",
+      "unit": "project-29"
+    },
+    {
+      "id": "item-30",
+      "unit": "project-30"
+    },
+    {
+      "id": "item-31",
+      "unit": "project-31"
+    },
+    {
+      "id": "item-32",
+      "unit": "project-32"
+    },
+    {
+      "id": "item-33",
+      "unit": "project-33"
+    },
+    {
+      "id": "item-34",
+      "unit": "project-34"
+    },
+    {
+      "id": "item-35",
+      "unit": "project-35"
+    },
+    {
+      "id": "item-36",
+      "unit": "project-36"
+    },
+    {
+      "id": "item-37",
+      "unit": "project-37"
+    },
+    {
+      "id": "item-38",
+      "unit": "project-38"
+    },
+    {
+      "id": "item-39",
+      "unit": "project-39"
+    },
+    {
+      "id": "item-40",
+      "unit": "project-40"
+    },
+    {
+      "id": "item-41",
+      "unit": "project-41"
+    },
+    {
+      "id": "item-42",
+      "unit": "project-42"
+    },
+    {
+      "id": "item-43",
+      "unit": "project-43"
+    },
+    {
+      "id": "item-44",
+      "unit": "project-44"
+    },
+    {
+      "id": "item-45",
+      "unit": "project-45"
+    },
+    {
+      "id": "item-46",
+      "unit": "project-46"
+    },
+    {
+      "id": "item-47",
+      "unit": "project-47"
+    },
+    {
+      "id": "item-48",
+      "unit": "project-48"
+    },
+    {
+      "id": "item-49",
+      "unit": "project-49"
+    },
+    {
+      "id": "item-50",
+      "unit": "project-50"
+    },
+    {
+      "id": "item-51",
+      "unit": "project-51"
+    },
+    {
+      "id": "item-52",
+      "unit": "project-52"
+    },
+    {
+      "id": "item-53",
+      "unit": "project-53"
+    },
+    {
+      "id": "item-54",
+      "unit": "project-54"
+    },
+    {
+      "id": "item-55",
+      "unit": "project-55"
+    },
+    {
+      "id": "item-56",
+      "unit": "project-56"
+    },
+    {
+      "id": "item-57",
+      "unit": "project-57"
+    },
+    {
+      "id": "item-58",
+      "unit": "project-58"
+    },
+    {
+      "id": "item-59",
+      "unit": "project-59"
+    },
+    {
+      "id": "item-60",
+      "unit": "project-60"
+    },
+    {
+      "id": "item-61",
+      "unit": "project-61"
+    },
+    {
+      "id": "item-62",
+      "unit": "project-62"
+    },
+    {
+      "id": "item-63",
+      "unit": "project-63"
+    },
+    {
+      "id": "item-64",
+      "unit": "project-64"
+    },
+    {
+      "id": "item-65",
+      "unit": "project-65"
+    },
+    {
+      "id": "item-66",
+      "unit": "project-66"
+    },
+    {
+      "id": "item-67",
+      "unit": "project-67"
+    },
+    {
+      "id": "item-68",
+      "unit": "project-68"
+    },
+    {
+      "id": "item-69",
+      "unit": "project-69"
+    },
+    {
+      "id": "item-70",
+      "unit": "project-70"
+    },
+    {
+      "id": "item-71",
+      "unit": "project-71"
+    },
+    {
+      "id": "item-72",
+      "unit": "project-72"
+    },
+    {
+      "id": "item-73",
+      "unit": "project-73"
+    },
+    {
+      "id": "item-74",
+      "unit": "project-74"
+    },
+    {
+      "id": "item-75",
+      "unit": "project-75"
+    },
+    {
+      "id": "item-76",
+      "unit": "project-76"
+    },
+    {
+      "id": "item-77",
+      "unit": "project-77"
+    },
+    {
+      "id": "item-78",
+      "unit": "project-78"
+    },
+    {
+      "id": "item-79",
+      "unit": "project-79"
+    },
+    {
+      "id": "item-80",
+      "unit": "project-80"
+    },
+    {
+      "id": "item-81",
+      "unit": "project-81"
+    },
+    {
+      "id": "item-82",
+      "unit": "project-82"
+    },
+    {
+      "id": "item-83",
+      "unit": "project-83"
+    },
+    {
+      "id": "item-84",
+      "unit": "project-84"
+    },
+    {
+      "id": "item-85",
+      "unit": "project-85"
+    },
+    {
+      "id": "item-86",
+      "unit": "project-86"
+    },
+    {
+      "id": "item-87",
+      "unit": "project-87"
+    },
+    {
+      "id": "item-88",
+      "unit": "project-88"
+    },
+    {
+      "id": "item-89",
+      "unit": "project-89"
+    },
+    {
+      "id": "item-90",
+      "unit": "project-90"
+    },
+    {
+      "id": "item-91",
+      "unit": "project-91"
+    },
+    {
+      "id": "item-92",
+      "unit": "project-92"
+    },
+    {
+      "id": "item-93",
+      "unit": "project-93"
+    },
+    {
+      "id": "item-94",
+      "unit": "project-94"
+    },
+    {
+      "id": "item-95",
+      "unit": "project-95"
+    },
+    {
+      "id": "item-96",
+      "unit": "project-96"
+    },
+    {
+      "id": "item-97",
+      "unit": "project-97"
+    },
+    {
+      "id": "item-98",
+      "unit": "project-98"
+    },
+    {
+      "id": "item-99",
+      "unit": "project-99"
+    }
+  ],
+  "objective": "episode_return",
+  "objective_version": "v1",
+  "evaluation_context": "held-out",
+  "direction": "maximize",
+  "reward_bounds": [
+    0,
+    1
+  ],
+  "criterion": {
+    "confidence": 0.95,
+    "minSamples": 10,
+    "effectThreshold": 0
+  },
+  "stopping": {
+    "kind": "fixed",
+    "observations": 100,
+    "independent_units": 100
+  },
+  "incumbent_version": "e2f41401cc56a7802ecd60d771e0f9eccae349d495160d64dbd6af93f2deab69",
+  "protected_cohorts": [
+    {
+      "id": "critical-tasks",
+      "members": [
+        "item-0",
+        "item-1"
+      ],
+      "min_units": 2,
+      "max_regression": 0.05
+    }
+  ]
+}
