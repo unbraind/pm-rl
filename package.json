@@ -205,7 +205,7 @@
     "@babel/eslint-parser": "8.0.7",
     "@babel/plugin-syntax-typescript": "8.0.3",
     "@types/node": "26.6.5",
-    "@unbrained/pm-cli": "2026.10.25",
+    "@unbrained/pm-cli": "2026.10.26",
     "eslint": "10.13.0",
     "jiti": "2.7.0",
     "jscpd": "5.4.2",
