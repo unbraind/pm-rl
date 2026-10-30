@@ -4,9 +4,10 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { devNull, tmpdir } from "node:os";
-import { PmClient } from "@unbrained/pm-cli/sdk/core";
-import { parseGenerationSpec } from "../lineage.ts";
-import { readCompleteLoopItem } from "../index.ts";
+import { pathToFileURL } from "node:url";
+import { decode } from "@toon-format/toon";
+import type { GetResult } from "@unbrained/pm-cli/sdk/core";
+import type { GenerationSpec } from "../lineage.ts";
 import type { PolicyCard } from "../policy-card.ts";
 import type { EvaluationPlan, EvaluationPlanReport } from "../evaluation-plan.ts";
 
@@ -17,16 +18,32 @@ for (const [name, contents] of Object.entries(fixture.files)) { const path = joi
 const cli = resolve("node_modules/@unbrained/pm-cli/dist/cli.js");
 const env: NodeJS.ProcessEnv = { PATH: process.env.PATH, HOME: root, GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_NOSYSTEM: "1", PM_PATH: pmRoot, PM_AUTHOR: "compatibility-test", NPM_CONFIG_USERCONFIG: devNull, GIT_CEILING_DIRECTORIES: dirname(root), NODE_V8_COVERAGE: undefined };
 execFileSync(process.execPath, [cli, "package", "install", archive, "--project", "--json"], { cwd: root, env, stdio: "pipe" });
+// Direct checks run the installed archive's modules, so archive export or build drift fails here; source checks live in
+// evaluation-compatibility.test.ts. The archive exists only at run time and its module graph uses top-level await, so a
+// generated probe imports it statically in a child of the same runtime (no dynamic import, no require(esm)).
+const installed = join(pmRoot, "extensions", "pm-rl", "dist"), probe = join(root, "archive-probe.mjs");
+writeFileSync(probe, [
+  `import { PmClient } from ${JSON.stringify(import.meta.resolve("@unbrained/pm-cli/sdk/core"))};`,
+  `import { readCompleteLoopItem } from ${JSON.stringify(pathToFileURL(join(installed, "index.js")).href)};`,
+  `import { parseGenerationSpec } from ${JSON.stringify(pathToFileURL(join(installed, "lineage.js")).href)};`,
+  "const [mode, id] = process.argv.slice(2);",
+  `const read = await readCompleteLoopItem(new PmClient({ cwd: ${JSON.stringify(root)}, pmRoot: ${JSON.stringify(pmRoot)}, author: "compatibility-test", noExtensions: true }), id);`,
+  "process.stdout.write(JSON.stringify(mode === \"spec\" ? parseGenerationSpec(String(read.item.body).match(/```json\\n([\\s\\S]+?)\\n```/)[1], \"Packed compatibility\") : read));",
+].join("\n"));
+/** Read one item, or parse its generation spec, with the archive's own modules. */
+function archiveRead(id: string): GetResult { return JSON.parse(execFileSync(process.execPath, [probe, "read", id], { cwd: root, env, encoding: "utf8" })) as GetResult; }
+/** Parse an item's generation spec with the archive's lineage module. */
+function archiveSpec(id: string): GenerationSpec { return JSON.parse(execFileSync(process.execPath, [probe, "spec", id], { cwd: root, env, encoding: "utf8" })) as GenerationSpec; }
 const bin = join(root, "bin"); mkdirSync(bin); symlinkSync(process.execPath, join(bin, "node"));
 const identityTool = process.platform === "linux" ? "getconf" : "ps";
 symlinkSync(execFileSync("/bin/sh", ["-c", `command -v ${identityTool}`], { encoding: "utf8" }).trim(), join(bin, identityTool)); env.PATH = bin;
 /** Use actual CLI formatting and the archive-installed extension with Git absent from PATH. */
 function command(args: string[]): string { return execFileSync(process.execPath, [cli, "rl", ...args], { cwd: root, env, encoding: "utf8" }); }
-const client = new PmClient({ cwd: root, pmRoot, author: "compatibility-test", noExtensions: true });
-const before = await readCompleteLoopItem(client, `${fixture.plan.candidate}-evaluation-plan`);
+const before = archiveRead(`${fixture.plan.candidate}-evaluation-plan`);
 const shown = JSON.parse(command(["eval", "plan", "show", fixture.plan.candidate, "--json"])) as { details: { comparison: string } };
 assert.equal(shown.details.comparison, fixture.report.comparison);
-assert.match(command(["eval", "plan", "show", fixture.plan.candidate]), new RegExp(fixture.report.comparison));
+// The default TOON rendering must decode to the same document as --json, not merely mention the comparison hash.
+assert.deepEqual(decode(command(["eval", "plan", "show", fixture.plan.candidate])), shown);
 const rows = join(root, "rows.json"); writeFileSync(rows, JSON.stringify(fixture.rows));
 const evaluated = JSON.parse(command(["eval", "plan", "evaluate", fixture.plan.candidate, "--file", rows, "--json"])) as { details: EvaluationPlanReport };
 assert.deepEqual(evaluated.details, fixture.report);
@@ -40,9 +57,8 @@ const held = { objective: fixture.plan.objective, objective_version: fixture.pla
 const scores = join(root, "scores.json"); writeFileSync(scores, JSON.stringify({ held_out_score: held, proxy_score: { ...held, evaluation_context: "proxy:legacy" } }));
 const promotion = JSON.parse(command(["generation", "promote", fixture.plan.candidate, "--approval", "rl-approval", "--scores", scores, "--evidence", "Released fixture compatibility", "--json"])) as { details: { budget_consumed: number } };
 assert.equal(promotion.details.budget_consumed, 1);
-const promoted = String((await readCompleteLoopItem(client, fixture.plan.candidate)).item.body).match(/```json\n([\s\S]+?)\n```/)![1];
-assert.equal(parseGenerationSpec(promoted, "Packed compatibility").promoted, true);
-assert.deepEqual(await readCompleteLoopItem(client, before.item.id), before);
+assert.equal(archiveSpec(fixture.plan.candidate).promoted, true);
+assert.deepEqual(archiveRead(before.item.id), before);
 command(["policy-card", "export", fixture.plan.candidate, "--json"]);
 
 const evidence = { producer: "pm-rl@2026.7.31", native_text_files: Object.keys(fixture.files).length, legacy_plans: 18, sdk_oracle_cases: 500, oracle_paths: 13, json_and_toon: true, fixed_report_unchanged: true, declaration_unchanged: true, legacy_retries: 3, promoted: true, approval_consumed: 1, policy_card_exported: true, non_git: true, git_absent_from_path: true };
