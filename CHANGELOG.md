@@ -4,6 +4,7 @@
 
 ### Added
 
+- Refuse promotion when a protected task cohort regresses ([pm-rl-worstcohort](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-worstcohort.toon))
 - Explain learned policy suitability with portable replayable cards ([pm-rl-policycards](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-policycards.toon))
 - Observe candidate policies safely before deployment ([pm-rl-shadow](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-shadow.toon))
 - Enforce predeclared causal evaluation plans at promotion ([pm-rl-evalplans](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-evalplans.toon))
@@ -39,6 +40,7 @@
 
 ### Changed
 
+- Repair the legacy training receipt check for the pm-toolchain update ([pm-rl-kq4f](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-kq4f.toon))
 - Adopt pm-github 2026.10.16: default-branch-safe gated sync and daily gated closeout PRs ([pm-rl-yb4q](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-yb4q.toon))
 - Enable pm-github issue sync in the pm-rl tracker ([pm-rl-1bpz](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-1bpz.toon))
 
@@ -79,6 +81,7 @@
 
 ### Other
 
+- Extract the published compatibility oracle from the sequential evaluation PR ([pm-rl-oracle](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-oracle.toon))
 - Release readiness behind PM_RELEASE_APPROVED ([pm-rl-release-gate](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-release-gate.toon))
 - Make the 2026.10.23 pm toolchain bump pass: SDK create fixtures spread an unsupported hash field ([pm-rl-tc1023](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-tc1023.toon))
 - Adopt SDK native controller locks and transaction recovery ([pm-rl-sdk-adoption-1025](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-sdk-adoption-1025.toon))
