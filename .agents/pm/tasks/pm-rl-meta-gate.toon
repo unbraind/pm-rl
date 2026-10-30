@@ -1,16 +1,19 @@
 id: pm-rl-meta-gate
-title: Reconcile inherited meta release-test expectations with typed conflicts and programme validation
+title: Reconcile inherited release-test expectations with native refusal contracts
 description: Three test/meta.test.ts failures reproduce on untouched cd91de9 with coverage enabled. The two-generation replay and pre-approved Decision cases expect an old disagrees message but now receive typed meta_reservation_drift. The programme case-folding case expects UPPER to reach a callback but receives meta_programme_id. Reconcile the intended compatibility and refusal contracts without weakening native peer conflict protection or valid historical reads. These failures are outside the seven PR 107 review fixes.
 type: Task
 status: open
 priority: 2
 tags[1]: "gh:unbraind/pm-rl#107"
 created_at: "2026-10-30T17:28:28.277Z"
-updated_at: "2026-10-30T17:31:00.619Z"
+updated_at: "2026-10-30T17:40:47.676Z"
 author: codex-agent
 parent: pm-rl-sequential
-files[1]{path,scope}:
+comments[1]{created_at,author,text}:
+  "2026-10-30T17:40:47.675Z",codex-agent,"Additional original-head control: node --test --test-concurrency=1 --experimental-test-coverage --test-coverage-include=policy-card.ts --test-name-pattern=\"authoritative status read failures preserve\" test/policy-card.test.ts on untouched cd91de9 reports 3 tests, 1 pass, 2 failed nodes (the typed subtest and its parent). Native read failures pass, but the typed path returns backend_unavailable where the test expects provenance_read_retryable at line 1339. The current integration attempt has the same failing test. Preserve original backend errors and reconcile the intended public refusal contract; this case is outside the seven requested fixes."
+files[2]{path,scope}:
   test/meta.test.ts,project
+  test/policy-card.test.ts,project
 tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   "node --test --test-concurrency=1 --experimental-test-coverage --test-coverage-include=meta.ts --test-name-pattern=\"two real meta generations retain|programme identity cannot hide|one pre-approved Decision cannot\" test/meta.test.ts",project,codex-agent,"2026-10-30T17:31:00.586Z",local_mutation,feat/predeclared-sequential-evaluation
 body: ""

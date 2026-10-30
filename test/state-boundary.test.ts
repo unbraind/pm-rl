@@ -241,6 +241,30 @@ test("checkpoint root no-follow open refuses a root replaced after validation", 
 });
 
 
+test("checkpoint root no-follow open refuses a root removed after validation", async () => {
+  const root = mkdtempSync(join(tmpdir(), "rl-root-removed-")); roots.push(root);
+  const state = join(root, "state"); const saved = join(root, "saved-state");
+  await init("rl", { defaults: true, author: "boundary-test", agentGuidance: "skip" }, { cwd: root, pmRoot: state });
+  const open = fs.openSync; const mkdir = fs.mkdirSync; let removed = false;
+  /** Remove the actual root immediately before a descriptor open or the legacy path-based create. */
+  function removeRoot(): void { removed = true; fs.renameSync(state, saved); }
+  const creates = mock.method(fs, "mkdirSync", (...args: Parameters<typeof mkdir>) => {
+    if (!removed && String(args[0]).startsWith(join(state, "artifacts"))) removeRoot();
+    return mkdir(...args);
+  });
+  const hook = mock.method(fs, "openSync", (...args: Parameters<typeof open>) => {
+    if (!removed && args[0] === state && typeof args[1] === "number" && (args[1] & fs.constants.O_NOFOLLOW) !== 0) removeRoot();
+    return open(...args);
+  }); syncBuiltinESMExports();
+  try { await assert.rejects(encodeCheckpointArtifacts(state, "root-removed", initialImprover()), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "checkpoint_storage_unsupported"); }
+  finally {
+    hook.mock.restore(); creates.mock.restore(); syncBuiltinESMExports();
+    if (removed) { rmSync(state, { recursive: true, force: true }); fs.renameSync(saved, state); }
+  }
+  assert.ok(removed); assert.equal(existsSync(join(state, "artifacts")), false);
+});
+
+
 test("checkpoint GC unlink stays in its pinned directory when a parent is swapped to a link", async () => {
   const root = mkdtempSync(join(tmpdir(), "rl-gc-open-")); roots.push(root);
   const state = join(root, "state");

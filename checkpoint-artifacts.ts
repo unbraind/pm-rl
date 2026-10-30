@@ -100,12 +100,15 @@ function artifactDirectory<T>(root: string, parts: readonly string[], execute: (
   requireArtifactDescriptors();
   statePath(root, ...parts);
   const handles: number[] = [];
+  let result: T;
   try {
     handles.push(openSync(statePath(root), constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW));
     const base = `/proc/self/fd/${handles[0]}`;
     // Prove procfs resolves the held inode before permitting any publication or cleanup.
     const held = fstatSync(handles[handles.length - 1]);
-    const probe = openSync(base, constants.O_RDONLY | constants.O_DIRECTORY);
+    let probe: number;
+    try { probe = openSync(base, constants.O_RDONLY | constants.O_DIRECTORY); }
+    catch { expectedFail("Checkpoint descriptor access is unavailable.", "checkpoint_storage_unsupported"); }
     try { const actual = fstatSync(probe); if (actual.dev !== held.dev || actual.ino !== held.ino) expectedFail("Checkpoint descriptor identity could not be verified.", "checkpoint_storage_unsupported"); }
     finally { closeSync(probe); }
     for (const part of parts) {
@@ -126,14 +129,14 @@ function artifactDirectory<T>(root: string, parts: readonly string[], execute: (
       }
     }
     verify();
-    const result = execute(directory, handles, verify);
+    result = execute(directory, handles, verify);
     verify();
-    return result;
   } catch (error) {
     if (["ELOOP", "ENOTDIR"].includes(String((error as NodeJS.ErrnoException).code))) expectedFail("Checkpoint directory changed or contains a link.", "rl_state_path_invalid");
     if ((error as NodeJS.ErrnoException).code === "ENOENT") expectedFail("Descriptor-relative checkpoint storage is unavailable.", "checkpoint_storage_unsupported");
     throw error;
   } finally { for (const handle of handles.reverse()) closeSync(handle); }
+  return result;
 }
 /** Fsync a private inode and publish without following any replaceable path component. */
 function publishFile(root: string, kind: "sha256" | "ledger", digest: string, content: Buffer): void {

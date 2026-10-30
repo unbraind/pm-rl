@@ -290,7 +290,7 @@ and gate configuration remain identical to the validated source. Local optional
 tracker-health extension/fence drift remains recorded in follow-up pm-rl-9uz4.
 
 Checkpoint publication and collection require Linux with procfs descriptor access.
-Every state directory is opened with `O_DIRECTORY | O_NOFOLLOW`; create, link,
+Artifact directories are opened with `O_DIRECTORY | O_NOFOLLOW`; create, link,
 and unlink use the pinned directory through its procfs descriptor. Temporary
 files use exclusive no-follow opens, writes use the opened inode, and directory
 fsync uses held descriptors. Replacing a path component cannot redirect these

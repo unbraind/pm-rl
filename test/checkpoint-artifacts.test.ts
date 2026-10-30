@@ -608,13 +608,13 @@ test("unsupported checkpoint runtimes refuse writes while retaining existing che
   assert.equal(existsSync(join(w.pmRoot, "artifacts")), false);
 });
 
-test("descriptor traversal refuses missing procfs, inode mismatch and no-follow errors", async () => {
-  for (const mode of ["missing", "mismatch", "link", "mkdir"] as const) {
+test("descriptor traversal refuses unavailable procfs, inode mismatch and no-follow errors", async () => {
+  for (const mode of ["missing", "denied", "mismatch", "link", "mkdir"] as const) {
     const w = await checkpointWorkspace();
     const open = fs.openSync; const stat = fs.fstatSync; const mkdir = fs.mkdirSync;
     let stats = 0;
     const opens = mock.method(fs, "openSync", (...args: Parameters<typeof open>) => {
-      if (String(args[0]).startsWith("/proc/self/fd/") && mode === "missing") throw Object.assign(new Error("missing procfs"), { code: "ENOENT" });
+      if (String(args[0]).startsWith("/proc/self/fd/") && ["missing", "denied"].includes(mode)) throw Object.assign(new Error("unavailable procfs"), { code: mode === "denied" ? "EACCES" : "ENOENT" });
       if (String(args[0]).endsWith("/pm-rl") && mode === "link") throw Object.assign(new Error("link substitution"), { code: "ELOOP" });
       return open(...args);
     });
