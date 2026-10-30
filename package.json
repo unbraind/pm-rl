@@ -1,6 +1,6 @@
 {
   "name": "pm-rl",
-  "version": "2026.10.28",
+  "version": "2026.10.30",
   "description": "Reinforcement-learning programme management on the pm SDK: content-addressed environments, attributable runs, and bounded compressed metric segments that preserve accepted branch occurrences.",
   "type": "module",
   "main": "dist/index.js",
