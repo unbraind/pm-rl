@@ -2,11 +2,13 @@ id: pm-rl-worstcohort
 title: Refuse promotion when a protected task cohort regresses
 description: "Extend the existing predeclared evaluation plan with selected cohort evidence minimums and exact nonregression limits, typed SDK and compact CLI reports. Retain existing promotion, provenance, contamination and shadow gates. Validate with seeded state models, interleavings, packed hosts and a read-only public tracker replay."
 type: Feature
-status: in_progress
+status: closed
 priority: 1
 tags[3]: cohorts,guardrails,promotion
 created_at: "2026-10-28T23:24:25.192Z"
-updated_at: "2026-10-29T04:34:18.418Z"
+updated_at: "2026-10-30T09:28:55.999Z"
+closed_at: "2026-10-30T09:28:55.238Z"
+completed_at: "2026-10-29T05:16:41.000Z"
 author: codex-agent
 acceptance_criteria: Higher aggregate mean cannot override a failed protected cohort; definitions and limits are sealed before collection; insufficient independent samples refuse; leakage checks remain independent
 parent: pm-rl-apvf
@@ -61,4 +63,5 @@ docs[4]{path,scope}:
   docs/worst-cohort-evidence.json,project
   examples/evaluation-plan-protected.json,project
   README.md,project
+close_reason: "Delivered by PR #118 (a9a1199): Refuse promotion when protected task cohorts regress"
 body: ""
