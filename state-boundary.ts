@@ -122,6 +122,7 @@ export function statePath(root: string, ...components: (string | StoredStateComp
     for (;;) {
       const stat = lstatSync(cursor, { throwIfNoEntry: false });
       if (stat?.isSymbolicLink()) refused("rl_state_path_invalid");
+      if (cursor === base) break;
       const parent = dirname(cursor); if (parent === cursor) break; cursor = parent;
     }
   } catch { refused("rl_state_path_invalid"); }

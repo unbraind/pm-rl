@@ -226,7 +226,10 @@ export async function reserveMeta(client: PmClient, coordinates: ProcessCoordina
     async apply() {
       await validateCapacity();
       const approval = await metaApproval(client, request.approval);
-      await identifierClient(client).create({ id: key, type: "Decision", tags: "rl-meta-reservation", title: "Reserved bounded recipe search", body: encodeBoundedJson({ format: "pm-rl/meta-reservation/1", id: key, binding, approval: approval.id, charge, promotion_headroom: promotionHeadroom }, MAX_TRACKER_RECORD_BYTES) });
+      if ((await inspect()).state === "applied") return;
+      try {
+        await identifierClient(client).create({ id: key, type: "Decision", tags: "rl-meta-reservation", title: "Reserved bounded recipe search", body: encodeBoundedJson({ format: "pm-rl/meta-reservation/1", id: key, binding, approval: approval.id, charge, promotion_headroom: promotionHeadroom }, MAX_TRACKER_RECORD_BYTES) });
+      } catch (error) { if ((await inspect()).state !== "applied") throw error; }
     },
     // Conservative reservations survive transaction recovery and are never refunded by search itself.
     async compensate() {},

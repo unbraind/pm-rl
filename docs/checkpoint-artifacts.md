@@ -288,3 +288,15 @@ is counted as passing, and no timeout was observed. The final evidence update
 changes only documentation and tracker records; executable source, tests, pins
 and gate configuration remain identical to the validated source. Local optional
 tracker-health extension/fence drift remains recorded in follow-up pm-rl-9uz4.
+
+Checkpoint publication and collection require Linux with procfs descriptor access.
+Every state directory is opened with `O_DIRECTORY | O_NOFOLLOW`; create, link,
+and unlink use the pinned directory through its procfs descriptor. Temporary
+files use exclusive no-follow opens, writes use the opened inode, and directory
+fsync uses held descriptors. Replacing a path component cannot redirect these
+operations through a link. A detected link substitution returns
+`rl_state_path_invalid`; unavailable descriptor access returns
+`checkpoint_storage_unsupported`. Symlinked ancestors above the explicit state
+root remain supported. Checkpoint reads retain the existing bounded no-follow
+file-descriptor verification. The SDK storage lease coordinates package writers;
+it does not exclude ordinary SDK writers or establish filesystem isolation.

@@ -3,7 +3,6 @@ import { parseBoundedJson } from "./tracker-record.ts";
 /** Immutable checkpoint blobs and an append-only promotion/audit ledger, independent of Git. */
 import { createHash, randomUUID } from "node:crypto";
 import { closeSync, constants, fstatSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
 
 import { expectedFail } from "./refuse.ts";
 import { prefixCheckpoint, type PrefixCheckpoint } from "./prefix.ts";
@@ -92,24 +91,73 @@ export function inspectCheckpointArtifact(root: string, digest: string): { artif
   if (artifact === undefined) expectedFail("Checkpoint digest has no promotion ledger root.", "checkpoint_artifact_missing");
   return { artifact, value: readCheckpointArtifact(root, artifact) };
 }
-/** Fsync a private temporary inode, link it exclusively into its digest name, then fsync the directory. */
-function publishFile(directory: string, digest: string, content: Buffer): void {
-  mkdirSync(statePath(directory), { recursive: true });
-  const target = statePath(directory, `${digest.slice(7)}.json`);
-  const temporary = statePath(directory, `.pending-${randomUUID()}`);
-  const handle = openSync(temporary, "wx", 0o600);
-  try { writeFileSync(handle, content); fsyncSync(handle); } finally { closeSync(handle); }
-  try {
-    try { linkSync(checkedStateFile(temporary), checkedStateFile(target)); }
-    catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; readVerifiedFile(target, digest, content.length); }
-    for (const path of [directory, dirname(directory), dirname(dirname(directory)), dirname(dirname(dirname(directory)))]) {
-      const directoryHandle = openSync(path, "r");
-      try { fsyncSync(directoryHandle); } finally { closeSync(directoryHandle); }
-    }
-  } finally { unlinkSync(checkedStateFile(temporary)); }
+/** Refuse runtimes without directory-relative no-follow access before acquiring a storage lease. */
+function requireArtifactDescriptors(): void {
+  if (process.platform !== "linux") expectedFail("Checkpoint storage requires Linux descriptor-relative no-follow access.", "checkpoint_storage_unsupported");
 }
+/** Pin each directory with O_NOFOLLOW; procfs supplies directory-relative operations on Linux. */
+function artifactDirectory<T>(root: string, parts: readonly string[], execute: (directory: string, handles: readonly number[], verify: () => void) => T): T {
+  requireArtifactDescriptors();
+  statePath(root, ...parts);
+  const handles: number[] = [];
+  try {
+    handles.push(openSync(statePath(root), constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW));
+    const base = `/proc/self/fd/${handles[0]}`;
+    // Prove procfs resolves the held inode before permitting any publication or cleanup.
+    const held = fstatSync(handles[handles.length - 1]);
+    const probe = openSync(base, constants.O_RDONLY | constants.O_DIRECTORY);
+    try { const actual = fstatSync(probe); if (actual.dev !== held.dev || actual.ino !== held.ino) expectedFail("Checkpoint descriptor identity could not be verified.", "checkpoint_storage_unsupported"); }
+    finally { closeSync(probe); }
+    for (const part of parts) {
+      const parent = `/proc/self/fd/${handles[handles.length - 1]}`;
+      // mkdir never follows its final component; the subsequent open refuses an existing link.
+      try { mkdirSync(`${parent}/${part}`, { mode: 0o700 }); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }
+      handles.push(openSync(`${parent}/${part}`, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW));
+    }
+    const directory = `/proc/self/fd/${handles[handles.length - 1]}`;
+    /** Recheck every held component's identity at use, including replacement by an ordinary directory. */
+    function verify(): void {
+      statePath(root, ...parts);
+      for (let index = 0; index < handles.length; index++) {
+        const current = lstatSync(index === 0 ? root : `/proc/self/fd/${handles[index - 1]}/${parts[index - 1]}`);
+        const held = fstatSync(handles[index]);
+        if (current.isSymbolicLink() || current.dev !== held.dev || current.ino !== held.ino) expectedFail("Checkpoint directory identity changed.", "rl_state_path_invalid");
+      }
+    }
+    verify();
+    const result = execute(directory, handles, verify);
+    verify();
+    return result;
+  } catch (error) {
+    if (["ELOOP", "ENOTDIR"].includes(String((error as NodeJS.ErrnoException).code))) expectedFail("Checkpoint directory changed or contains a link.", "rl_state_path_invalid");
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") expectedFail("Descriptor-relative checkpoint storage is unavailable.", "checkpoint_storage_unsupported");
+    throw error;
+  } finally { for (const handle of handles.reverse()) closeSync(handle); }
+}
+/** Fsync a private inode and publish without following any replaceable path component. */
+function publishFile(root: string, kind: "sha256" | "ledger", digest: string, content: Buffer): void {
+  artifactDirectory(root, ["artifacts", "pm-rl", kind], (directory, handles, verify) => {
+    const target = `${directory}/${digest.slice(7)}.json`;
+    const temporary = `${directory}/.pending-${randomUUID()}`;
+    verify();
+    const handle = openSync(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+    try {
+      verify(); writeFileSync(handle, content); fsyncSync(handle);
+      verify();
+      try { linkSync(temporary, target); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }
+      readVerifiedFile(checkpointArtifactPathForKind(root, kind, digest), digest, content.length);
+      verify();
+      for (const directoryHandle of [...handles].reverse()) fsyncSync(directoryHandle);
+    } finally { closeSync(handle); unlinkSync(temporary); }
+  });
+}
+/** Resolve a retained digest in either immutable store without changing its public spelling. */
+function checkpointArtifactPathForKind(root: string, kind: string, digest: string): string { return statePath(root, "artifacts", "pm-rl", kind, `${digest.slice(7)}.json`); }
 /** Serialize short publication/GC critical sections using the SDK's token-owned tracker lock. */
 async function withArtifactLock<T>(root: string, operation: () => T): Promise<T> {
+  requireArtifactDescriptors();
   const release = await acquireStateLock(root, "rl-checkpoint-artifacts", 3600, "pm-rl", false, true, 30_000);
   try { return operation(); } finally { await release(); }
 }
@@ -143,8 +191,8 @@ export async function encodeCheckpointArtifacts(root: string, key: string, value
   const content = Buffer.from(JSON.stringify(entry));
   if (content.length > MAX_CHECKPOINT_BYTES) expectedFail("Checkpoint ledger batch exceeds its storage bound.", "checkpoint_artifact_invalid");
   await withArtifactLock(root, () => {
-    for (const { ref, content } of blobs.values()) publishFile(statePath(root, "artifacts", "pm-rl", "sha256"), ref.digest, content);
-    publishFile(statePath(root, "artifacts", "pm-rl", "ledger"), digestBytes(content), content);
+    for (const { ref, content } of blobs.values()) publishFile(root, "sha256", ref.digest, content);
+    publishFile(root, "ledger", digestBytes(content), content);
   });
   return encoded;
 }
@@ -159,8 +207,10 @@ export function decodeCheckpointArtifacts(root: string, value: unknown): unknown
 /** Verify ledger structure and references; certify blob contents only for a full integrity read. */
 function ledgerEntries(root: string, certify: boolean): CheckpointLedgerEntry[] {
   const directory = statePath(root, "artifacts", "pm-rl", "ledger");
-  mkdirSync(statePath(directory), { recursive: true });
-  return readdirSync(directory).filter((name) => name.endsWith(".json")).sort().map((name) => {
+  let names: string[];
+  try { names = readdirSync(directory); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return []; throw error; }
+  return names.filter((name) => name.endsWith(".json")).sort().map((name) => {
     const content = readVerifiedFile(statePath(directory, name), `sha256:${name.slice(0, -5)}`);
     const entry = parseArtifactJson(content) as CheckpointLedgerEntry;
     if (entry === null || entry.format !== "pm-rl/checkpoint-ledger/1" || typeof entry.key !== "string" || !Array.isArray(entry.artifacts)) expectedFail("Checkpoint promotion ledger is corrupt.", "checkpoint_artifact_corrupt");
@@ -178,13 +228,16 @@ export function readCheckpointLedger(root: string): CheckpointLedgerEntry[] { re
 export async function collectCheckpointArtifacts(root: string): Promise<{ retained: number; removed: number }> {
   return withArtifactLock(root, () => {
     const reachable = new Set(readCheckpointLedger(root).flatMap((entry) => entry.artifacts.map((ref) => ref.digest)));
-    const directory = statePath(root, "artifacts", "pm-rl", "sha256"); mkdirSync(statePath(directory), { recursive: true });
+    return artifactDirectory(root, ["artifacts", "pm-rl", "sha256"], (directory, _handles, verify) => {
     const targets = readdirSync(directory).filter(name => /^[a-f0-9]{64}\.json$/.test(name) && !reachable.has(`sha256:${name.slice(0, -5)}`)).map(name => {
-      const path = statePath(directory, name);
-      if (!lstatSync(path).isFile()) expectedFail("Artifact cleanup requires ordinary files; restore the invalid target before retrying.", "checkpoint_artifact_corrupt");
+      const path = `${directory}/${name}`;
+      const stat = lstatSync(path);
+      if (stat.isSymbolicLink()) expectedFail("Checkpoint cleanup refuses linked files.", "rl_state_path_invalid");
+      if (!stat.isFile()) expectedFail("Artifact cleanup requires ordinary files; restore the invalid target before retrying.", "checkpoint_artifact_corrupt");
       return path;
     });
-    for (const path of targets) unlinkSync(checkedStateFile(path));
+    for (const path of targets) { verify(); unlinkSync(path); }
     return { retained: reachable.size, removed: targets.length };
+    });
   });
 }

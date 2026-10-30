@@ -393,3 +393,14 @@ test("manifest identity checksum and post-registration cohort edits retain field
   await edited.client.update(registered.id, { body: canonicalJson({ ...edited.d, inputs: { ...edited.d.inputs, extra: shadowInputDigest("event") } } as unknown as JsonValue) });
   await assert.rejects(compareShadow(edited.client, "rl-candidate"), fieldRefusal("shadow_drift", registered.id, "body"));
 });
+
+
+test("dependent shadow identifiers refuse before any plan or receipt is allocated", async () => {
+  const candidate = `rl-${"x".repeat(112)}`;
+  const d = { ...deployment(), generation: candidate }; const w = await workspace(d);
+  const p = { ...w.p, candidate };
+  const before = (await w.client.listAllComplete({ includeBody: true })).items;
+  await assert.rejects(registerShadowDeployment(w.client, d, p), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "rl_identifier_invalid");
+  assert.deepEqual((await w.client.listAllComplete({ includeBody: true })).items, before);
+  assert.equal(await readEvaluationPlan(w.client, candidate), null);
+});

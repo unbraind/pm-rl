@@ -125,7 +125,7 @@ export function decisionSnapshotDigest(item: Pick<GetResult["item"], "id" | "typ
 }
 /** Seal precisely the records read by this execution, including history-only collection sources. */
 export function evaluationEvidence(comparison: string, inputs: readonly GetResult["item"][], versions?: ReadonlyMap<string, string>): EvaluationEvidence {
-  const body = { format: "pm-rl/evaluation-evidence/1" as const, comparison, inputs: inputs.map((item) => ({ id: item.id, digest: evaluationInputDigest(item, comparison), ...(versions === undefined ? {} : { at: versions.get(item.id)! }) })).sort((a, b) => a.id.localeCompare(b.id)) };
+  const body = { format: "pm-rl/evaluation-evidence/1" as const, comparison, inputs: inputs.map((item) => ({ id: item.id, digest: evaluationInputDigest(item, comparison), ...(versions === undefined ? {} : { at: versions.get(item.id)! }) })).sort((a, b) => Buffer.compare(Buffer.from(a.id), Buffer.from(b.id))) };
   return parseEvaluationEvidence({ ...body, digest: hashJson(body as unknown as JsonValue) });
 }
 /** Reject unknown keys so no apparent design choice disappears from comparison identity. */

@@ -784,7 +784,7 @@ function annotateDecisionError(error: PmCliExpectedError, fallback: string): PmC
 export async function captureDecisionInputs<T>(client: PmClient, execute: () => Promise<T>, childrenOnly = false): Promise<{ value: T; inputs: GetResult["item"][] }> {
   const state: DecisionReads = { client, inputs: new Map(), parent: decisionReads.getStore(), childrenOnly };
   return decisionReads.run(state, async () => {
-    try { return { value: await execute(), inputs: [...state.inputs.values()].sort((a, b) => a.id.localeCompare(b.id)) }; }
+    try { return { value: await execute(), inputs: [...state.inputs.values()].sort((a, b) => Buffer.compare(Buffer.from(a.id), Buffer.from(b.id))) }; }
     catch (error) {
       if (!isPmCliExpectedError(error)) throw error;
       throw annotateDecisionError(error, state.lastId ?? "evaluation-input");

@@ -9,7 +9,7 @@ import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { init, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import extension, { extractGenerationSpec, generationProvenance, hashJson, readCompleteLoopItem, recordRefusedPolicyCard, type JsonValue, type RlCommandResult } from "../index.ts";
-import { evaluationComparison, evaluationPlanId, evaluatePlan, parseEvaluationPlan, registerEvaluationPlan, readEvaluationPlan, readEvaluationDecision, recordPlanEvaluation, enforceEvaluationPlan, type EvaluationPlan, type EvaluationObservation } from "../evaluation-plan.ts";
+import { evaluationEvidence, evaluationComparison, evaluationPlanId, evaluatePlan, parseEvaluationPlan, registerEvaluationPlan, readEvaluationPlan, readEvaluationDecision, recordPlanEvaluation, enforceEvaluationPlan, type EvaluationPlan, type EvaluationObservation } from "../evaluation-plan.ts";
 import type { GenerationSpec, ScoreRecord } from "../lineage.ts";
 
 const roots: string[] = [];
@@ -539,4 +539,16 @@ test("generation JSON fence scan bounds 100k repeated unclosed openers", () => {
     console.log("100k linear scan passed");
   `;
   assert.match(execFileSync(process.execPath, ["--input-type=module", "-e", script], { encoding: "utf8", timeout: 20_000 }), /100k linear scan passed/);
+});
+
+
+test("hashed evidence uses UTF-8 byte order for mixed-form and Unicode native IDs", async () => {
+  const w = await workspace();
+  const ids = ["rl-z", "rl-é", "rl-a_1", "rl-a-1"];
+  const native = (await w.client.create({ id: "rl-source", type: "Decision", title: "Evidence ordering" })).item;
+  const items = ids.map(id => ({ ...native, id }));
+  const expected = ["rl-a-1", "rl-a_1", "rl-z", "rl-é"];
+  const evidence = evaluationEvidence("a".repeat(64), items);
+  assert.deepEqual(evidence.inputs.map(item => item.id), expected);
+  assert.equal(evaluationEvidence("a".repeat(64), [...items].reverse()).digest, evidence.digest);
 });

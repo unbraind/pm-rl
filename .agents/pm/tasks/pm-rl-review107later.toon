@@ -1,0 +1,12 @@
+id: pm-rl-review107later
+title: Triage the three later review threads outside the seven-finding round
+description: "Follow up PRRT_kwDOTqJmqs6x8fDn (duplicate public acceptance evidence), PRRT_kwDOTqJmqs6x8fDs (fixed-result lifecycle sources), and PRRT_kwDOTqJmqs6x8fDu (unreadable process birth identity). These arrived after the seven requested threads; preserve released compatibility and require independent regression/revert evidence before changes."
+type: Task
+status: open
+priority: 2
+tags[2]: "gh:unbraind/pm-rl#107",review
+created_at: "2026-10-30T13:55:27.424Z"
+updated_at: "2026-10-30T13:55:27.424Z"
+author: codex-agent
+parent: pm-rl-sequential
+body: ""

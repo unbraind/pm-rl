@@ -1,0 +1,18 @@
+id: pm-rl-empty-author
+title: Reconcile the empty-author transaction contract with native SDK behavior
+description: "The release gate test for an invalid transaction author expects runRlLoop to reject an empty coordinates author. On untouched PR head cd91de9 it instead completes, causing Missing expected rejection. Reconcile the intended public validation contract with the pinned SDK; preserve infrastructure errors and avoid recording them as promotion refusals. This blocker is outside the seven requested PR 107 review fixes."
+type: Task
+status: open
+priority: 2
+tags[1]: "gh:unbraind/pm-rl#107"
+created_at: "2026-10-30T17:10:11.700Z"
+updated_at: "2026-10-30T17:10:46.796Z"
+author: codex-agent
+parent: pm-rl-sequential
+comments[1]{created_at,author,text}:
+  "2026-10-30T17:10:46.795Z",codex-agent,"Original-head control: cd91de9, sanitized child identity, a real standalone SDK tracker, one test worker. Result: 1 test, 0 pass, 1 failure, Missing expected rejection at test/loop.test.ts:833. The current review integration attempt has the same failed assertion. Determine whether explicit package author validation is intended or whether the test reflects an outdated SDK assumption; do not silently turn infrastructure failures into evaluation refusals."
+files[1]{path,scope}:
+  test/loop.test.ts,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  "node --test --test-concurrency=1 --test-name-pattern=\"an invalid transaction identity propagates\" test/loop.test.ts",project,codex-agent,"2026-10-30T17:10:44.401Z",local_mutation,feat/predeclared-sequential-evaluation
+body: ""

@@ -153,7 +153,7 @@ export async function registerShadowDeployment(client: PmClient, value: unknown,
   const id = `${plan.candidate}-evaluation-plan-shadow`;
   await validateDeployment(client, deployment, plan, id, await observationIds(client, id));
   const existing = await validateSeal(client, id, deployment as unknown as JsonValue);
-  if (!existing) identifier(id);
+  if (!existing) [id, ...shadowEvidenceIds(plan, id)].forEach((dependent) => identifier(dependent));
   const digest = hashJson(deployment as unknown as JsonValue);
   const registered = await registerEvaluationPlan(client, { ...plan, shadow: digest });
   await seal(client, id, deployment as unknown as JsonValue);

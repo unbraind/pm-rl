@@ -1,9 +1,9 @@
 /** Baseline-written identities and terminal evidence recover through real SDK trackers. */
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { cpSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { relative, join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
@@ -32,22 +32,26 @@ function drive(code: string, mode: string, corpus: string, env: NodeJS.ProcessEn
   execFileSync(runtime, ["test/fixtures/main-controller-compatibility.ts", mode, corpus], { cwd: code, env, stdio: "pipe", timeout: 900_000, maxBuffer: 4_194_304 });
 }
 
-test("origin main corpus: completed and interrupted controllers, loops, receipts and cards retain their identities", { timeout: 1_800_000 }, () => {
+test("origin main corpus: completed and interrupted controllers, loops, receipts and cards retain their identities", { timeout: 1_800_000 }, (t) => {
   const repo = fileURLToPath(new URL("../", import.meta.url));
   const root = mkdtempSync(join(tmpdir(), "rl-main-controller-corpus-")); const writer = join(root, "writer");
   const corpus = join(root, "corpus"); const env = fixtureEnvironment(join(root, "home"));
   let registered = false;
   try {
+    if (lstatSync(join(repo, ".git"), { throwIfNoEntry: false }) === undefined) { t.skip("origin/main is absent from this source archive; use a Git checkout to run the baseline corpus"); return; }
+    const base = spawnSync("git", ["rev-parse", "--verify", "--quiet", "refs/remotes/origin/main"], { cwd: repo, env, encoding: "utf8" });
+    if (base.status === 1 && base.error === undefined && base.stderr === "") { t.skip("origin/main is missing; fetch the base branch to run the baseline corpus"); return; }
+    assert.equal(base.status, 0, base.error?.message ?? base.stderr);
     execFileSync("git", ["worktree", "add", "--detach", writer, "origin/main"], { cwd: repo, env, stdio: "pipe" }); registered = true;
     symlinkSync(join(repo, "node_modules"), join(writer, "node_modules"), "dir");
     cpSync(join(repo, "test/fixtures/main-controller-compatibility.ts"), join(writer, "test/fixtures/main-controller-compatibility.ts"));
     // Creation is intentionally performed by origin/main, never the implementation under test.
     drive(writer, "write", corpus, env);
+    const authored = JSON.parse(readFileSync(join(corpus, "corpus.json"), "utf8")) as { cases: { root: string }[] };
+    assert.equal(authored.cases.length, 15, "the baseline must author every controller and loop case");
+    for (const row of authored.cases) assert.equal(isAbsolute(row.root), false, "the oracle authors portable relative roots");
     for (const [name, implementation] of [["baseline", writer], ["current", repo]]) {
       const copy = join(root, name); copyNativeTracker(corpus, copy, env);
-      const manifest = JSON.parse(readFileSync(join(copy, "corpus.json"), "utf8")) as { cases: { root: string }[] };
-      for (const row of manifest.cases) row.root = join(copy, relative(corpus, row.root));
-      writeFileSync(join(copy, "corpus.json"), JSON.stringify(manifest));
       const coverage = name === "current" && process.env.NODE_V8_COVERAGE !== undefined ? { NODE_V8_COVERAGE: process.env.NODE_V8_COVERAGE } : {};
       drive(implementation!, "exercise", copy, { ...env, ...coverage });
     }
@@ -60,9 +64,6 @@ test("origin main corpus: completed and interrupted controllers, loops, receipts
       const expected = (JSON.parse(readFileSync(join(root, "baseline/results.json"), "utf8")) as Record<string, unknown>[]).filter(row => row.job !== undefined);
       assert.deepEqual(JSON.parse(readFileSync(join(nodeBorn, "process-results.json"), "utf8")), expected);
       const born = join(root, "bun-born"); copyNativeTracker(corpus, born, env);
-      const manifest = JSON.parse(readFileSync(join(born, "corpus.json"), "utf8")) as { cases: { root: string }[] };
-      for (const row of manifest.cases) row.root = join(born, relative(corpus, row.root));
-      writeFileSync(join(born, "corpus.json"), JSON.stringify(manifest));
       drive(writer, "processes-reclock", born, env, bun);
       const baseline = JSON.parse(readFileSync(join(born, "process-results.json"), "utf8"));
       drive(repo, "processes-read", born, env); assert.deepEqual(JSON.parse(readFileSync(join(born, "process-results.json"), "utf8")), baseline);

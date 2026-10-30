@@ -1,10 +1,11 @@
 /** Seeded identifier and path properties against a real standalone SDK tracker. */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, readdirSync, lstatSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import fs, { existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, readdirSync, lstatSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { syncBuiltinESMExports } from "node:module";
 import { join, relative } from "node:path";
-import { after, test } from "node:test";
+import { after, mock, test } from "node:test";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { init, isPmCliExpectedError, normalizeRawItemId } from "@unbrained/pm-cli/sdk/runtime";
 import { acquireStateLease, acquireStateLock, assertStatePathRoot, checkedStateFile, commitStateTransaction, identifier, identifierClient, statePath } from "../state-boundary.ts";
@@ -16,7 +17,8 @@ import { parseSweepSpec } from "../sweep.ts";
 import { parseTransferSpec } from "../transfer.ts";
 import { lmCheckpointPath } from "../lm.ts";
 import { processStaging } from "../process.ts";
-import { checkpointArtifactPath } from "../checkpoint-artifacts.ts";
+import { initialImprover } from "../improver.ts";
+import { checkpointArtifactPath, collectCheckpointArtifacts, encodeCheckpointArtifacts } from "../checkpoint-artifacts.ts";
 
 const roots: string[] = [];
 after(() => { for (const root of roots) rmSync(root, { recursive: true, force: true }); });
@@ -195,4 +197,71 @@ test("native fenceable leases confine acquisition, both fence boundaries and fin
   rmSync(join(state, "locks"), { recursive: true }); symlinkSync(outside, join(state, "locks"), "dir");
   await assert.rejects(escaped.fence(async () => assert.fail("unsafe fence")), refusal);
   await assert.rejects(escaped.release(), refusal); assert.equal(treeHash(outside), before);
+});
+
+
+test("state root beneath a symlinked ancestor allows native locks and refuses links within state", async () => {
+  const root = mkdtempSync(join(tmpdir(), "rl-ancestor-")); roots.push(root);
+  const real = join(root, "real"); mkdirSync(real); mkdirSync(join(real, "state"));
+  const alias = join(root, "alias"); symlinkSync(real, alias, "dir");
+  const state = join(alias, "state");
+  assert.equal(statePath(state, "child"), join(state, "child"));
+  const release = await acquireStateLock(state, "valid", 30, "boundary-test"); await release();
+  symlinkSync(real, join(state, "linked"), "dir");
+  assert.throws(() => statePath(state, "linked", "child"), refusal);
+  assert.throws(() => statePath(join(state, "linked"), "child"), refusal);
+});
+
+
+test("checkpoint root no-follow open refuses a root replaced after validation", async () => {
+  const root = mkdtempSync(join(tmpdir(), "rl-root-open-")); roots.push(root);
+  const state = join(root, "state");
+  await init("rl", { defaults: true, author: "boundary-test", agentGuidance: "skip" }, { cwd: root, pmRoot: state });
+  const outside = join(root, "outside"); mkdirSync(outside); writeFileSync(join(outside, "sentinel"), "retain");
+  const before = treeHash(outside); const saved = join(root, "saved-state");
+  const open = fs.openSync; const mkdir = fs.mkdirSync; let swapped = false;
+  /** Trigger the same root substitution at a descriptor open or a legacy path-based create. */
+  function swapRoot(): void { swapped = true; fs.renameSync(state, saved); symlinkSync(outside, state, "dir"); }
+  const creates = mock.method(fs, "mkdirSync", (...args: Parameters<typeof mkdir>) => {
+    if (!swapped && String(args[0]).startsWith(join(state, "artifacts"))) swapRoot();
+    return mkdir(...args);
+  });
+  const hook = mock.method(fs, "openSync", (...args: Parameters<typeof open>) => {
+    if (!swapped && args[0] === state && typeof args[1] === "number" && (args[1] & fs.constants.O_NOFOLLOW) !== 0) {
+      swapRoot();
+    }
+    return open(...args);
+  }); syncBuiltinESMExports();
+  try { await assert.rejects(encodeCheckpointArtifacts(state, "root-swap", initialImprover()), refusal); }
+  finally {
+    hook.mock.restore(); creates.mock.restore(); syncBuiltinESMExports();
+    if (swapped) { fs.unlinkSync(state); fs.renameSync(saved, state); }
+  }
+  assert.ok(swapped); assert.equal(treeHash(outside), before);
+});
+
+
+test("checkpoint GC unlink stays in its pinned directory when a parent is swapped to a link", async () => {
+  const root = mkdtempSync(join(tmpdir(), "rl-gc-open-")); roots.push(root);
+  const state = join(root, "state");
+  await init("rl", { defaults: true, author: "boundary-test", agentGuidance: "skip" }, { cwd: root, pmRoot: state });
+  const artifacts = join(state, "artifacts"); const directory = join(artifacts, "pm-rl", "sha256"); mkdirSync(directory, { recursive: true });
+  const outside = join(root, "outside"); const external = join(outside, "pm-rl", "sha256"); mkdirSync(external, { recursive: true });
+  const name = `${"a".repeat(64)}.json`;
+  writeFileSync(join(directory, name), "unreachable local blob"); writeFileSync(join(external, name), "outside sentinel");
+  const before = treeHash(outside); const saved = join(root, "saved-artifacts"); const unlink = fs.unlinkSync;
+  let swapped = false; let failure: unknown;
+  const hook = mock.method(fs, "unlinkSync", (...args: Parameters<typeof unlink>) => {
+    if (!swapped && String(args[0]).endsWith(name)) {
+      swapped = true; fs.renameSync(artifacts, saved); symlinkSync(outside, artifacts, "dir");
+    }
+    return unlink(...args);
+  }); syncBuiltinESMExports();
+  try { await collectCheckpointArtifacts(state); } catch (error) { failure = error; }
+  finally {
+    hook.mock.restore(); syncBuiltinESMExports();
+    if (swapped) { fs.unlinkSync(artifacts); fs.renameSync(saved, artifacts); }
+  }
+  assert.ok(swapped); assert.equal(treeHash(outside), before); assert.ok(refusal(failure), String(failure));
+  assert.equal((await collectCheckpointArtifacts(state)).removed, 0, "retry converges without rolling back the completed local deletion");
 });

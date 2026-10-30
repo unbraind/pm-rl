@@ -1,6 +1,6 @@
 /** Real ordinary SDK writers interleave every transaction boundary without workspace-lock assumptions. */
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { after, before, test } from "node:test";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { EXIT_CODE, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
-import { commitProcessTransaction, readCompleteLoopItem } from "../index.ts";
+import { commitProcessTransaction, readCompleteLoopItem, type JsonValue } from "../index.ts";
 import { reserveMeta, type MetaRequest } from "../meta.ts";
 import { RESOURCE_KEYS, processDigest, processJobId, readProcessJob, reserveProcessJob, transitionProcessJob, type ProcessJob } from "../process.ts";
 import { allowance, processWorkspace, trainingInput } from "./fixtures/process-workspace.ts";
@@ -250,4 +250,66 @@ test("independent process peer conflicts at every forward reservation hook", { t
     await peer.delete(id);
   }
   console.log(JSON.stringify({ independent_process_hook_cases: cases }));
+});
+
+
+test("meta apply adopts matching late peers and preserves conflicting peers without rollback", async (t) => {
+  const w = await processWorkspace(); const peer = peerFor(w);
+  await peer.update(w.approval, { body: '```json\n' + JSON.stringify({ ...metaSpec, permitted_promotions: 10_000 }) + '\n```' });
+  const request: MetaRequest = { id: "late-template", config: { ...metaConfig, meta_generations: 1, candidates: 1 }, dataset: "unused", approval: w.approval, proposer: "seeded" };
+  const client = w.client; const get = client.get.bind(client); const create = client.create.bind(client);
+  /** Restore the actual SDK methods after each fault boundary, including a failed subtest. */
+  function restoreClient(): void { client.get = get; client.create = create; }
+  let reads = 0; let lastRead = 0;
+  client.get = (async (...args) => { if (args[0] === "late-template-reservation") reads++; return get(...args); }) as PmClient["get"];
+  client.create = async options => { if (options?.id === "late-template-reservation") lastRead = reads; return create(options); };
+  try { await reserveMeta(w.client, w.coordinates, request, "late-binding"); }
+  finally { restoreClient(); }
+  assert.ok(lastRead > 0);
+  const template = JSON.parse(String((await peer.get("late-template-reservation")).item.body)) as Record<string, JsonValue>;
+  for (const boundary of ["validation", "create"] as const) for (const matching of [true, false]) {
+    await t.test(`${boundary}:${matching}`, async () => {
+    const id = `late-${boundary}-${matching}`; const key = `${id}-reservation`;
+    const body = JSON.stringify({ ...template, id: key, binding: matching ? "late-binding" : "peer-binding" });
+    let injected = false; let count = 0; let expected: readonly string[] = [];
+    /** Commit with an independent ordinary writer at the actual SDK IO boundary. */
+    async function inject(): Promise<void> {
+      if (injected) return; injected = true;
+      await peer.create({ id: key, type: "Decision", title: "Peer owns this reservation", tags: "rl-meta-reservation", body });
+      const native = (await peer.get(key)).item.id;
+      expected = [readFileSync(join(w.pmRoot, "decisions", `${native}.toon`), "utf8"), readFileSync(join(w.pmRoot, "history", `${native}.jsonl`), "utf8")];
+    }
+    client.get = (async (...args) => {
+      try { return await get(...args); }
+      finally { if (boundary === "validation" && args[0] === key && ++count === lastRead - 1) await inject(); }
+    }) as PmClient["get"];
+    client.create = async options => { if (boundary === "create" && options?.id === key) await inject(); return create(options); };
+    try {
+      const operation = reserveMeta(w.client, w.coordinates, { ...request, id }, "late-binding");
+      if (matching) await operation; else await assert.rejects(operation, conflict);
+    } finally { restoreClient(); }
+    assert.ok(injected, `${boundary}:${matching}`);
+    const native = (await peer.get(key)).item.id;
+    assert.deepEqual([readFileSync(join(w.pmRoot, "decisions", `${native}.toon`), "utf8"), readFileSync(join(w.pmRoot, "history", `${native}.jsonl`), "utf8")], expected);
+    if (matching) await reserveMeta(w.client, w.coordinates, { ...request, id }, "late-binding");
+    else await assert.rejects(reserveMeta(w.client, w.coordinates, { ...request, id }, "late-binding"), conflict);
+    });
+  }
+});
+
+
+test("meta reservation preserves native create failures and converges on a writable retry", { skip: process.platform === "win32" || process.getuid?.() === 0 ? "Requires unprivileged POSIX directory permissions" : false }, async () => {
+  const w = await processWorkspace(); const peer = peerFor(w);
+  await peer.update(w.approval, { body: '```json\n' + JSON.stringify({ ...metaSpec, permitted_promotions: 10_000 }) + '\n```' });
+  const request: MetaRequest = { id: "native-failure", config: { ...metaConfig, meta_generations: 1, candidates: 1 }, dataset: "unused", approval: w.approval, proposer: "seeded" };
+  const directory = join(w.pmRoot, "decisions"); const mode = statSync(directory).mode & 0o7777;
+  let prepared = false;
+  try {
+    chmodSync(directory, mode & ~0o222);
+    await assert.rejects(reserveMeta(w.client, { ...w.coordinates, onTransition(context) { if (context.transition === "prepared") prepared = true; } }, request, "native-failure-binding"), /EACCES|permission/i);
+  } finally { chmodSync(directory, mode); }
+  assert.ok(prepared, "native creation must fail after validation and journal preparation");
+  assert.equal((await peer.listAllComplete({ includeBody: true })).items.some(item => item.id === "rl-native-failure-reservation"), false);
+  await reserveMeta(w.client, w.coordinates, request, "native-failure-binding");
+  assert.ok((await peer.get("native-failure-reservation")).item.body);
 });

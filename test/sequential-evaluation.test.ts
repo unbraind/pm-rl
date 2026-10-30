@@ -633,6 +633,7 @@ test("CLI advance and resume use the SDK protocol in a tracker with git absent f
 
 test("all protocol IO boundaries on one non-git tracker interleave a real competing writer", async () => {
   const previousWait = process.env.PM_LOCK_WAIT_MS; process.env.PM_LOCK_WAIT_MS = "0";
+  try {
   const w = await workspace(); const p = await prepared(w.client);
   const peer = new PmClient({ pmRoot: w.pmRoot, cwd: w.root, author: "peer-agent", noExtensions: true });
   const rows = observations(p); let boundary = 0; let injectAt = -1; let injected = false; const trace: string[] = [];
@@ -661,7 +662,7 @@ test("all protocol IO boundaries on one non-git tracker interleave a real compet
   injectAt = -1;
   assert.equal((await peer.listAllComplete({ includeBody: false })).items.filter((item) => String(item.id).includes("-look-")).length, 1);
   console.log(JSON.stringify({ interleavedSdkBoundaries: boundaries, creationBoundary: createPosition, checkpointRecords: 1 }));
-  if (previousWait === undefined) delete process.env.PM_LOCK_WAIT_MS; else process.env.PM_LOCK_WAIT_MS = previousWait;
+  } finally { if (previousWait === undefined) delete process.env.PM_LOCK_WAIT_MS; else process.env.PM_LOCK_WAIT_MS = previousWait; }
 });
 
 test("SDK provenance locks reject ordinary writers until the outer evaluation lease releases last", async () => {
