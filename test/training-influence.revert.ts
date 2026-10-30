@@ -4,8 +4,10 @@ import { spawnSync } from "node:child_process";
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { refuseChangedReceipt, worktreeState } from "./fixtures/revert-receipt.ts";
 
 const root = mkdtempSync(join(tmpdir(), "rl-influence-revert-")); const repository = resolve(".");
+const receipt = "docs/training-influence-revert.json"; refuseChangedReceipt(repository, receipt); const reviewed = worktreeState(repository, receipt);
 try {
   for (const file of readdirSync(repository)) if (file.endsWith(".ts") || file === "package.json") copyFileSync(join(repository, file), join(root, file));
   mkdirSync(join(root, "test")); copyFileSync(join(repository, "test/training-influence.test.ts"), join(root, "test/training-influence.test.ts"));
@@ -53,5 +55,5 @@ try {
     assert.equal(fixed.status, 0, `${check.function}: ${fixed.error?.message ?? ""} ${fixed.signal ?? ""}\n${fixed.stdout}\n${fixed.stderr}`); assert.match(fixed.stdout, /pass 1/);
     envelope.push({ function: check.function, mutant: { passed: 0, failed: 1 }, restored: { passed: 1, failed: 0 } });
   }
-  writeFileSync("docs/training-influence-revert.json", JSON.stringify({ format: "pm-rl/training-influence-revert/1", function: "measureTrainingInfluence", behavior_removed: "Declared slice membership no longer changes training composition", mutant: { passed: 0, failed: 1 }, restored: { passed: 1, failed: 0 }, durable_versions: { function: "readTrainingInfluence", mutant: { passed: 0, failed: 1 }, restored: { passed: 1, failed: 0 } }, native_envelopes: envelope, reviewed_worktree_unchanged: true, command: "node --test --test-name-pattern='fixed learner and seed' test/training-influence.test.ts" }, null, 2) + "\n");
+  writeFileSync(receipt, JSON.stringify({ format: "pm-rl/training-influence-revert/1", function: "measureTrainingInfluence", behavior_removed: "Declared slice membership no longer changes training composition", mutant: { passed: 0, failed: 1 }, restored: { passed: 1, failed: 0 }, durable_versions: { function: "readTrainingInfluence", mutant: { passed: 0, failed: 1 }, restored: { passed: 1, failed: 0 } }, native_envelopes: envelope, reviewed_worktree_unchanged: worktreeState(repository, receipt) === reviewed, command: "node --test --test-name-pattern='fixed learner and seed' test/training-influence.test.ts" }, null, 2) + "\n");
 } finally { rmSync(root, { recursive: true, force: true }); }

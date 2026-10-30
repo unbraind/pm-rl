@@ -4,6 +4,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { refuseChangedReceipt, worktreeState } from "./fixtures/revert-receipt.ts";
 
 /** Extract one full top-level implementation, retaining its export and async modifiers. */
 function implementation(source: string, name: string): string {
@@ -12,6 +13,7 @@ function implementation(source: string, name: string): string {
   return source.slice(line, end + 3);
 }
 const repository = resolve("."); const root = mkdtempSync(join(tmpdir(), "rl-maintenance-revert-"));
+const receipt = "docs/training-influence-maintenance-revert.json"; refuseChangedReceipt(repository, receipt); const reviewed = worktreeState(repository, receipt);
 try {
   for (const file of readdirSync(repository)) if (file.endsWith(".ts") || file === "package.json") copyFileSync(join(repository, file), join(root, file));
   mkdirSync(join(root, "test")); copyFileSync("test/training-influence-maintenance.test.ts", join(root, "test/training-influence-maintenance.test.ts"));
@@ -38,5 +40,5 @@ try {
     results.push({ function: check.name, reverted: { pass: 0, fail: 1 }, restored: { pass: 1, fail: 0 } });
     process.stdout.write(`${check.name}: revert fails; restoration passes\n`);
   }
-  writeFileSync("docs/training-influence-maintenance-revert.json", JSON.stringify({ format: "pm-rl/influence-maintenance-revert/1", baseline: "cd7370d", tests: results, reviewed_source_unchanged: true }, null, 2) + "\n");
+  writeFileSync(receipt, JSON.stringify({ format: "pm-rl/influence-maintenance-revert/1", baseline: "cd7370d", tests: results, reviewed_source_unchanged: worktreeState(repository, receipt) === reviewed }, null, 2) + "\n");
 } finally { rmSync(root, { recursive: true, force: true }); }
