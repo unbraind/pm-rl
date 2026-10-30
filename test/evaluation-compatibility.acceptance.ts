@@ -4,10 +4,12 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { devNull, tmpdir } from "node:os";
-import { PmClient } from "@unbrained/pm-cli/sdk/core";
+import { pathToFileURL } from "node:url";
+import { decode } from "@toon-format/toon";
+import type { GetResult } from "@unbrained/pm-cli/sdk/core";
+import type { GenerationSpec } from "../lineage.ts";
 import { statePath } from "../state-boundary.ts";
-import { parseGenerationSpec } from "../lineage.ts";
-import { readCompleteLoopItem, readEvaluationDecision } from "../index.ts";
+import type { readEvaluationDecision as ReadEvaluationDecision } from "../index.ts";
 import type { PolicyCard } from "../policy-card.ts";
 import type { EvaluationPlan, EvaluationPlanReport } from "../evaluation-plan.ts";
 
@@ -18,16 +20,36 @@ for (const [name, contents] of Object.entries(fixture.files)) { const path = sta
 const cli = resolve("node_modules/@unbrained/pm-cli/dist/cli.js");
 const env: NodeJS.ProcessEnv = { ...process.env, PM_PATH: pmRoot, PM_AUTHOR: "compatibility-test", NPM_CONFIG_USERCONFIG: devNull, GIT_CEILING_DIRECTORIES: dirname(root), NODE_V8_COVERAGE: undefined };
 execFileSync(process.execPath, [cli, "package", "install", archive, "--project", "--json"], { cwd: root, env, stdio: "pipe" });
+// Direct checks run the installed archive's modules, so archive export or build drift fails here; source checks live in
+// evaluation-compatibility.test.ts. The archive exists only at run time and its module graph uses top-level await, so a
+// generated probe imports it statically in a child of the same runtime (no dynamic import, no require(esm)).
+const installed = join(pmRoot, "extensions", "pm-rl", "dist"), probe = join(root, "archive-probe.mjs");
+writeFileSync(probe, [
+  `import { PmClient } from ${JSON.stringify(import.meta.resolve("@unbrained/pm-cli/sdk/core"))};`,
+  `import { readCompleteLoopItem, readEvaluationDecision } from ${JSON.stringify(pathToFileURL(join(installed, "index.js")).href)};`,
+  `import { parseGenerationSpec } from ${JSON.stringify(pathToFileURL(join(installed, "lineage.js")).href)};`,
+  "const [mode, id] = process.argv.slice(2);",
+  `const client = new PmClient({ cwd: ${JSON.stringify(root)}, pmRoot: ${JSON.stringify(pmRoot)}, author: "compatibility-test", noExtensions: true });`,
+  "if (mode === \"decision\") { process.stdout.write(JSON.stringify(await readEvaluationDecision(client, id))); process.exit(0); }",
+  "const read = await readCompleteLoopItem(client, id);",
+  "process.stdout.write(JSON.stringify(mode === \"spec\" ? parseGenerationSpec(String(read.item.body).match(/```json\\n([\\s\\S]+?)\\n```/)[1], \"Packed compatibility\") : read));",
+].join("\n"));
+/** Read one item, or parse its generation spec, with the archive's own modules. */
+function archiveRead(id: string): GetResult { return JSON.parse(execFileSync(process.execPath, [probe, "read", id], { cwd: root, env, encoding: "utf8" })) as GetResult; }
+/** Read a candidate's evaluation decision with the archive's own module. */
+function archiveDecision(id: string): Awaited<ReturnType<typeof ReadEvaluationDecision>> { return JSON.parse(execFileSync(process.execPath, [probe, "decision", id], { cwd: root, env, encoding: "utf8" })) as Awaited<ReturnType<typeof ReadEvaluationDecision>>; }
+/** Parse an item's generation spec with the archive's lineage module. */
+function archiveSpec(id: string): GenerationSpec { return JSON.parse(execFileSync(process.execPath, [probe, "spec", id], { cwd: root, env, encoding: "utf8" })) as GenerationSpec; }
 const bin = join(root, "bin"); mkdirSync(bin); symlinkSync(process.execPath, join(bin, "node"));
 const identityTool = process.platform === "linux" ? "getconf" : "ps";
 symlinkSync(execFileSync("/bin/sh", ["-c", `command -v ${identityTool}`], { encoding: "utf8" }).trim(), join(bin, identityTool)); env.PATH = bin;
 /** Use actual CLI formatting and the archive-installed extension with Git absent from PATH. */
 function command(args: string[]): string { return execFileSync(process.execPath, [cli, "rl", ...args], { cwd: root, env, encoding: "utf8" }); }
-const client = new PmClient({ cwd: root, pmRoot, author: "compatibility-test", noExtensions: true });
-const before = await readCompleteLoopItem(client, `${fixture.plan.candidate}-evaluation-plan`);
+const before = archiveRead(`${fixture.plan.candidate}-evaluation-plan`);
 const shown = JSON.parse(command(["eval", "plan", "show", fixture.plan.candidate, "--json"])) as { details: { comparison: string } };
 assert.equal(shown.details.comparison, fixture.report.comparison);
-assert.match(command(["eval", "plan", "show", fixture.plan.candidate]), new RegExp(fixture.report.comparison));
+// The default TOON rendering must decode to the same document as --json, not merely mention the comparison hash.
+assert.deepEqual(decode(command(["eval", "plan", "show", fixture.plan.candidate])), shown);
 const rows = join(root, "rows.json"); writeFileSync(rows, JSON.stringify(fixture.rows));
 const evaluated = JSON.parse(command(["eval", "plan", "evaluate", fixture.plan.candidate, "--file", rows, "--json"])) as { details: EvaluationPlanReport };
 assert.deepEqual(evaluated.details, fixture.report);
@@ -36,15 +58,14 @@ const benchmark = join(root, "benchmark.json"); writeFileSync(benchmark, JSON.st
 assert.equal((JSON.parse(command(["benchmark", "register", "--file", benchmark, "--json"])) as { created: boolean }).created, false);
 assert.equal((JSON.parse(command(["eval", "record", "--run", "rl-run", "--benchmark", fixture.coordinates.benchmark, "--checkpoint", "legacy checkpoint:2", "--score", "1", "--passed", "true", "--json"])) as { created: boolean }).created, false);
 const beforeCard = (JSON.parse(command(["policy-card", "export", fixture.plan.candidate, "--json"])) as { details: PolicyCard }).details;
-assert.deepEqual(beforeCard.decision_evidence, (await readEvaluationDecision(client, fixture.plan.candidate)).evidence);
+assert.deepEqual(beforeCard.decision_evidence, archiveDecision(fixture.plan.candidate).evidence);
 assert.ok(beforeCard.evidence.some((entry) => entry.id === `${fixture.plan.candidate}-evaluation-plan`));
 const held = { objective: fixture.plan.objective, objective_version: fixture.plan.objective_version, evaluation_context: fixture.plan.evaluation_context, direction: fixture.plan.direction, seed_set: fixture.report.comparison, scale: 1, value: fixture.report.candidate_mean };
 const scores = join(root, "scores.json"); writeFileSync(scores, JSON.stringify({ held_out_score: held, proxy_score: { ...held, evaluation_context: "proxy:legacy" } }));
 const promotion = JSON.parse(command(["generation", "promote", fixture.plan.candidate, "--approval", "rl-approval", "--scores", scores, "--evidence", "Released fixture compatibility", "--json"])) as { details: { budget_consumed: number } };
 assert.equal(promotion.details.budget_consumed, 1);
-const promoted = String((await readCompleteLoopItem(client, fixture.plan.candidate)).item.body).match(/```json\n([\s\S]+?)\n```/)![1];
-assert.equal(parseGenerationSpec(promoted, "Packed compatibility").promoted, true);
-assert.deepEqual(await readCompleteLoopItem(client, before.item.id), before);
+assert.equal(archiveSpec(fixture.plan.candidate).promoted, true);
+assert.deepEqual(archiveRead(before.item.id), before);
 command(["policy-card", "export", fixture.plan.candidate, "--json"]);
 const longHeld = { ...held, seed_set: fixture.coordinates.long_comparison };
 writeFileSync(scores, JSON.stringify({ held_out_score: longHeld, proxy_score: { ...longHeld, evaluation_context: "proxy:legacy" } }));

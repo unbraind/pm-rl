@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { existsSync, lstatSync, readdirSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { Readable, Writable } from "node:stream";
-import { join, relative } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { init, normalizeItemId, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { withRlController, runRlLoop, resumeRlLoop, rlLoopStatus, readCompleteLoopItem, extractGenerationSpec, generationProvenance, hashJson, promoteGenerationCore, type JsonValue } from "../../index.ts";
@@ -19,6 +19,11 @@ const storedProcessId: (body: string, stored?: boolean) => string | null = proce
 
 interface CorpusCase { readonly root: string; readonly prefix: string; readonly id: string; readonly kind: "controller" | "loop"; readonly interrupted: boolean; readonly running: boolean }
 interface Corpus { readonly cases: readonly CorpusCase[] }
+/** Load the authored corpus and resolve each tracker root against the corpus directory (absolute legacy roots stay as they are). */
+function loadCorpus(directory: string): Corpus {
+  const corpus = JSON.parse(readFileSync(join(directory, "corpus.json"), "utf8")) as Corpus;
+  return { cases: corpus.cases.map(row => ({ ...row, root: resolve(directory, row.root) })) };
+}
 /** Bound each tracker independently; fixtures and all SDK writes remain outside Git. */
 function clientFor(row: CorpusCase): PmClient { return new PmClient({ cwd: row.root, pmRoot: join(row.root, ".agents/pm"), author: "main-compatibility", noExtensions: true }); }
 /** Read durable SDK identity fields without hand-written value normalization. */
@@ -61,13 +66,14 @@ async function writeCorpus(directory: string, onlyRunning = false): Promise<void
     }
     writeFileSync(join(root, "birth-identities.json"), JSON.stringify(await identities(client)));
   }
-  writeFileSync(join(directory, "corpus.json"), JSON.stringify({ cases }));
+  // Store tracker roots relative to the corpus, so a copied corpus reads its own trackers.
+  writeFileSync(join(directory, "corpus.json"), JSON.stringify({ cases: cases.map(row => ({ ...row, root: relative(directory, row.root) })) }));
   await augmentCorpus(directory);
   await augmentProcesses(directory);
 }
 /** Include old fixed-plan promotion cards so adoption also follows the baseline projection. */
 async function augmentCorpus(directory: string): Promise<void> {
-  const corpus = JSON.parse(readFileSync(join(directory, "corpus.json"), "utf8")) as Corpus;
+  const corpus = loadCorpus(directory);
   for (const row of corpus.cases.filter(row => row.kind === "loop" && !row.interrupted)) {
     const client = clientFor(row); const pmRoot = join(row.root, ".agents/pm");
     const status = await rlLoopStatus(client, row.id, pmRoot);
@@ -94,7 +100,7 @@ async function augmentCorpus(directory: string): Promise<void> {
 }
 /** Persist legacy process names and their exact state directories using baseline package APIs. */
 async function augmentProcesses(directory: string): Promise<void> {
-  const corpus = JSON.parse(readFileSync(join(directory, "corpus.json"), "utf8")) as Corpus;
+  const corpus = loadCorpus(directory);
   const row = corpus.cases.find(row => row.prefix === "rl" && row.kind === "controller" && !row.interrupted);
   if (row === undefined) return;
   const client = clientFor(row); const pmRoot = join(row.root, ".agents/pm");
@@ -139,7 +145,7 @@ async function processRecords(client: PmClient, row: CorpusCase): Promise<unknow
 }
 /** Exercise the historical runtime's own accounting writer, without normalizing SDK state in the oracle. */
 async function processCorpus(directory: string, reclock = false): Promise<void> {
-  const corpus = JSON.parse(readFileSync(join(directory, "corpus.json"), "utf8")) as Corpus;
+  const corpus = loadCorpus(directory);
   const results: unknown[] = [];
   for (const row of corpus.cases) {
     const client = clientFor(row); const pmRoot = join(row.root, ".agents/pm");
@@ -157,7 +163,7 @@ async function processCorpus(directory: string, reclock = false): Promise<void> 
 }
 /** Capture actual baseline SDK projections and retained bytes for a small, runtime-independent regression fixture. */
 async function captureProcesses(directory: string): Promise<void> {
-  const corpus = JSON.parse(readFileSync(join(directory, "corpus.json"), "utf8")) as Corpus;
+  const corpus = loadCorpus(directory);
   const row = corpus.cases.find(row => existsSync(join(row.root, "process-compatibility.json")))!;
   const client = clientFor(row); const pmRoot = join(row.root, ".agents/pm");
   const id = (JSON.parse(readFileSync(join(row.root, "process-compatibility.json"), "utf8")) as string[])[0]!;
@@ -171,7 +177,7 @@ async function captureProcesses(directory: string): Promise<void> {
 }
 /** Resume every baseline tracker and check stored receipts/cards through the real SDK. */
 async function exerciseCorpus(directory: string): Promise<void> {
-  const corpus = JSON.parse(readFileSync(join(directory, "corpus.json"), "utf8")) as Corpus;
+  const corpus = loadCorpus(directory);
   const results: unknown[] = [];
   for (const row of corpus.cases) {
     const client = clientFor(row); const coordinates = { pmRoot: join(row.root, ".agents/pm"), author: "main-compatibility" };
@@ -228,7 +234,7 @@ async function cardDecisions(client: PmClient, prefix: string): Promise<unknown[
 }
 /** Focus only the baseline's completed rl tracker when proving the legacy card admission contract. */
 async function exerciseCards(directory: string): Promise<void> {
-  const corpus = JSON.parse(readFileSync(join(directory, "corpus.json"), "utf8")) as Corpus;
+  const corpus = loadCorpus(directory);
   const row = corpus.cases.find(row => row.prefix === "rl" && row.kind === "loop" && !row.interrupted)!;
   writeFileSync(join(directory, "cards.json"), JSON.stringify(await cardDecisions(clientFor(row), row.prefix)));
 }
