@@ -38,7 +38,7 @@ try {
   ];
   const stagingOnly = process.argv.includes("--staging-only");
   const results = [];
-  for (const check of stagingOnly ? checks.slice(-4) : checks) {
+  for (const check of stagingOnly ? checks.slice(-4) : checks.slice(0, -4)) {
     assert.notEqual(check.mutant, check.source, check.name);
     const run = () => spawnSync(process.execPath, ["--test", "--test-concurrency=1", `--test-name-pattern=${check.pattern}`, "test/process-publication.test.ts"], { cwd: root, encoding: "utf8", timeout: 240_000, env: { ...process.env, NODE_V8_COVERAGE: undefined } });
     writeFileSync(join(root, check.file), check.mutant);

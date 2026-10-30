@@ -5009,6 +5009,10 @@ async function planSweep(context: CommandHandlerContext): Promise<RlCommandResul
       `Arm run ${armId} is reserved by an existing history stream; sweep ${requestedId} cannot be re-planned under this id. Plan a new sweep id instead.`,
     );
   }
+  // Encode every arm before the first write: a client-side bound refusal keeps its own code and is never
+  // reported as an uncertain publication.
+  const environmentSnapshot = encodeBoundedJson(verifiedEnvironment.spec, undefined, 2);
+  const armBodies = configs.map((config, index) => `# ${armIds[index]}\n\nAlgorithm: ${algorithm}\n\nEnvironment snapshot:\n\n\`\`\`json\n${environmentSnapshot}\n\`\`\`\n\nRun configuration:\n\n\`\`\`json\n${encodeBoundedJson(config, undefined, 2)}\n\`\`\``);
   const arms: Array<{ id: string; config: JsonValue }> = [];
   try {
     for (const [index, config] of configs.entries()) {
@@ -5020,7 +5024,7 @@ async function planSweep(context: CommandHandlerContext): Promise<RlCommandResul
         status: "in_progress",
         acceptanceCriteria: `Sweep arm ${index + 1} retains its exact environment and hyperparameter identities; its metrics are history appends independent of every other arm.`,
         estimatedMinutes: "1",
-        body: `# ${armId}\n\nAlgorithm: ${algorithm}\n\nEnvironment snapshot:\n\n\`\`\`json\n${encodeBoundedJson(verifiedEnvironment.spec, undefined, 2)}\n\`\`\`\n\nRun configuration:\n\n\`\`\`json\n${encodeBoundedJson(config, undefined, 2)}\n\`\`\``,
+        body: armBodies[index]!,
         dep: [verifiedEnvironment.id],
         environment: verifiedEnvironment.id,
         affectedVersion: specHash,
