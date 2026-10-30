@@ -3,7 +3,7 @@ import { decodeTrackerRecord, hasTrackerIdentity, encodeBoundedJson, MAX_TRACKER
 import assert from "node:assert/strict";
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { certifyCompleteListResult, normalizeItemId, EXIT_CODE, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
-import { hashJson, commitProcessTransaction, promotedGenerationIdsUnderApproval, readApprovalSpec, readCompleteLoopItem, withRlController, type JsonValue, type RlDurableStep } from "./index.ts";
+import { createVerifiedItem, hashJson, commitProcessTransaction, promotedGenerationIdsUnderApproval, readApprovalSpec, readCompleteLoopItem, withRlController, type JsonValue, type RlDurableStep } from "./index.ts";
 import { parseApprovalSpec } from "./lineage.ts";
 import type { BinaryCalibration, PrefixCheckpoint } from "./prefix.ts";
 import { openTrackerEnvironment } from "./tracker-environment.ts";
@@ -216,7 +216,7 @@ async function reserveMeta(client: PmClient, coordinates: ProcessCoordinates, re
       const consumed = items.items.some((item) => item.type === "Generation") ? await promotedGenerationIdsUnderApproval(client, approval.id) : [];
       const totalPromotions = consumed.length + await retainedMetaPromotionHeadroom(client, approval.id, consumed) + promotionHeadroom;
       assert.ok(Number.isSafeInteger(totalPromotions) && totalPromotions <= approval.promotions, "meta_promotion_budget_exhausted");
-      await client.create({ id: key, type: "Decision", tags: "rl-meta-reservation", title: "Reserved bounded recipe search", body: encodeBoundedJson({ format: "pm-rl/meta-reservation/1", id: key, binding, approval: approval.id, charge, promotion_headroom: promotionHeadroom }, MAX_TRACKER_RECORD_BYTES) });
+      await createVerifiedItem(client, { id: key, type: "Decision", tags: "rl-meta-reservation", title: "Reserved bounded recipe search", body: encodeBoundedJson({ format: "pm-rl/meta-reservation/1", id: key, binding, approval: approval.id, charge, promotion_headroom: promotionHeadroom }, MAX_TRACKER_RECORD_BYTES) });
     },
     // Conservative reservations survive transaction recovery and are never refunded by search itself.
     async compensate() {},
@@ -292,7 +292,7 @@ export async function durableRecipeProposals(client: PmClient, id: string, reque
     assert.equal(record.state, "intent", "meta_proposal_state");
     return { recipes: seededRecipes(incumbent, request.config.seed, generation, request.config.candidates), proposer: "seeded:unresolved-model-attempt" };
   }
-  await client.create({ id: key, type: "Decision", title: "Bounded local recipe inference intent", body: encodeBoundedJson({ id: key, binding, state: "intent" }, MAX_TRACKER_RECORD_BYTES) });
+  await createVerifiedItem(client, { id: key, type: "Decision", title: "Bounded local recipe inference intent", body: encodeBoundedJson({ id: key, binding, state: "intent" }, MAX_TRACKER_RECORD_BYTES) });
   const result = await proposeRecipes(request, incumbent, generation, signal);
   await client.update(key, { body: encodeBoundedJson({ id: key, binding, state: "complete", result, digest: hashJson(result as unknown as JsonValue) }, MAX_TRACKER_RECORD_BYTES) });
   return result;

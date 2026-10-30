@@ -87,9 +87,17 @@ test("receipt-required, digest and storage failures retain artifacts and settle 
 
 test("wall expiry and AbortSignal settle a running real child while retaining partial artifacts", async () => {
   for (const cancel of [false, true]) {
-    const { client, coordinates, approval, pmRoot } = await processWorkspace(); const input = trainingInput(); const command = argv("hang"); const controller = new AbortController();
-    const run = executeProcessTrainer(client, coordinates, input, approval, { ...adapter, allowance: { ...allowance, wall_ms: cancel ? 5000 : 2000 } }, controller.signal, command);
+    const { client, coordinates, approval, pmRoot } = await processWorkspace(); const input = trainingInput();
+    const command = [process.execPath, new URL("./fixtures/process-hang.ts", import.meta.url).pathname]; const controller = new AbortController();
+    let signalRunning: (() => void) | undefined;
+    const running = new Promise<void>((resolve) => { signalRunning = resolve; });
+    const run = executeProcessTrainer(client, { ...coordinates, onTransition(context) {
+      if (context.transactionId.includes("-running-v") && context.transition === "committed") signalRunning?.();
+    } }, input, approval, { ...adapter, allowance: { ...allowance, wall_ms: cancel ? 5000 : 2000 } }, controller.signal, command);
     if (cancel) {
+      // Observe the durable running transition before starting the unchanged
+      // readiness wait; tracker setup time is not child execution time.
+      await Promise.race([running, run]);
       for (let attempt = 0; attempt < 200 && !existsSync(join(processStaging(pmRoot, processJobId(input, command)), "partial.json")); attempt += 1) await new Promise<void>((resolve) => { setTimeout(resolve, 10); });
       controller.abort();
     }
@@ -127,16 +135,49 @@ test("the shipped trainer writes real parameter updates and durable NDJSON recei
 });
 
 
-test("real transaction compensation releases a reservation and restores an interrupted transition", async () => {
+test("interrupted process publication retains committed reservations and transitions for reconciliation", async () => {
   const { client, coordinates, approval } = await processWorkspace(); const input = trainingInput(); const id = processJobId(input);
   await assert.rejects(reserveProcessJob(client, { ...coordinates, onTransition(context) { if (context.transition === "step_applied") throw new Error("reservation interruption"); } }, id, input, approval, allowance), /reservation interruption/);
-  const compensated = (await readProcessJob(client, id))!; assert.equal(compensated.state, "failed"); assert.equal(compensated.charge.training_steps, 0); assert.equal(compensated.settled, true);
+  const compensated = (await readProcessJob(client, id))!; assert.equal(compensated.state, "planned"); assert.equal(compensated.charge.training_steps, allowance.training_steps); assert.equal(compensated.settled, false);
+  assert.deepEqual(await reserveProcessJob(client, coordinates, id, input, approval, allowance), compensated);
   const alternate = { ...input, identity: { alternative: true } }; const nextId = processJobId(alternate);
   const planned = await reserveProcessJob(client, coordinates, nextId, alternate, approval, allowance);
   await assert.rejects(transitionProcessJob(client, { ...coordinates, onTransition(context) { if (context.transition === "step_applied") throw new Error("transition interruption"); } }, planned, "running", "launch"), /transition interruption/);
-  assert.equal((await readProcessJob(client, nextId))!.state, "planned");
-  assert.deepEqual(await transitionProcessJob(client, coordinates, planned, "planned", "ignored"), planned);
+  const running = (await readProcessJob(client, nextId))!;
+  assert.equal(running.state, "running");
+  assert.deepEqual(await transitionProcessJob(client, coordinates, running, "running", "ignored"), running);
   await assert.rejects(transitionProcessJob(client, coordinates, planned, "promoted", "illegal"), /Illegal process job transition/);
+});
+
+test("process compensation preserves peer revisions at every journal step boundary", async (context) => {
+  const transitions = ["prepared", "step_applied", "step_recorded", "committing", "committed", "compensating", "step_compensating", "step_compensated", "compensated"] as const;
+  for (const operation of ["reserve", "transition"] as const) for (const peer of ["valid", "foreign"] as const) for (const boundary of transitions) {
+    const { client, coordinates, approval } = await processWorkspace();
+    const input = trainingInput(); const id = processJobId(input);
+    const planned = operation === "transition" ? await reserveProcessJob(client, coordinates, id, input, approval, allowance) : null;
+    let expected: Awaited<ReturnType<typeof client.get>> | undefined;
+    let history: unknown; let injected = false;
+    const observed = { ...coordinates, async onTransition(context: { transition: string }) {
+      if (context.transition === boundary) {
+        injected = true;
+        if (operation === "reserve" && boundary === "prepared") await client.create({ id, type: "Task", title: "Peer progress", tags: "peer-evidence", body: "# Foreign peer replacement" });
+        else {
+          const current = (await client.get(id)).item;
+          const body = peer === "foreign" ? "# Foreign peer replacement" : JSON.stringify({ ...JSON.parse(String(current.body)) as Record<string, unknown>, state: "running", outcome: "peer-started", settled: false, charge: allowance });
+          await client.update(id, { title: "Peer progress", addTags: ["peer-evidence"], body });
+        }
+        expected = await client.get(id, { outputBudget: "unbounded", outputLimit: "unbounded" });
+        history = await client.run("history", { id, options: { verify: true, outputBudget: "unbounded", outputLimit: "unbounded" } });
+      }
+      // Reach the rollback boundaries through a real failed transaction.
+      if (context.transition === (boundary.startsWith("compens") || boundary.startsWith("step_compens") ? "step_applied" : boundary)) throw new Error("injected journal interruption");
+    } };
+    await assert.rejects(operation === "reserve" ? reserveProcessJob(client, observed, id, input, approval, allowance) : transitionProcessJob(client, observed, planned!, "running", "launch"));
+    assert.equal(injected, true, `${operation}:${boundary}`);
+    assert.deepEqual(await client.get(id, { outputBudget: "unbounded", outputLimit: "unbounded" }), expected, `${operation}:${boundary}: complete foreign state retained`);
+    assert.deepEqual(await client.run("history", { id, options: { verify: true, outputBudget: "unbounded", outputLimit: "unbounded" } }), history, `${operation}:${boundary}: no compensation writes`);
+  }
+  context.diagnostic(`${transitions.length * 4} real SDK peer interleavings across all journal boundaries`);
 });
 
 test("budget and job identity drift refuse execution through real tracker reads", async () => {

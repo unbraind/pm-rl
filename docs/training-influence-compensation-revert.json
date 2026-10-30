@@ -1,0 +1,40 @@
+{
+  "format": "pm-rl/compensation-revert/1",
+  "baseline": "1e3e620",
+  "tests": [
+    {
+      "function": "removePlannedArms",
+      "reverted": {
+        "pass": 0,
+        "fail": 1
+      },
+      "restored": {
+        "pass": 1,
+        "fail": 0
+      }
+    },
+    {
+      "function": "reserveProcessJob",
+      "reverted": {
+        "pass": 0,
+        "fail": 1
+      },
+      "restored": {
+        "pass": 1,
+        "fail": 0
+      }
+    },
+    {
+      "function": "transitionProcessJob",
+      "reverted": {
+        "pass": 0,
+        "fail": 1
+      },
+      "restored": {
+        "pass": 1,
+        "fail": 0
+      }
+    }
+  ],
+  "reviewed_source_unchanged": true
+}

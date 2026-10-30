@@ -1,0 +1,145 @@
+{
+  "format": "pm-rl/training-influence-evidence/validation-1",
+  "source": {
+    "repository": "unbraind/pm-ops",
+    "commit": "ba05bb8b96b313b86d25896ef40880712f295881",
+    "license": "MIT",
+    "files": 332,
+    "digest": "490e1582bc6db6d140a801eb636b49ae22a6069d48776939fc94c1e16df907ea",
+    "source_unchanged": true
+  },
+  "corpus": {
+    "items": 162,
+    "training": 116,
+    "held_out": 46,
+    "held_out_done_role": 42,
+    "status_semantics": "SDK registry terminal_done role"
+  },
+  "full": {
+    "digest": "4245e031b9512f24f1c248f1e16dec0e26b2a36544afd870ce4cbba78d30d34f",
+    "complete": true,
+    "interpretation": "association",
+    "ranking": null,
+    "baseline": "sha256:2d1ecdc707a565989c6032a3de41fcdd431c96bb097ed7d6eeadb7ffe03652db",
+    "evaluations": [
+      "all",
+      "other-roles",
+      "done-role"
+    ],
+    "comparisons": [
+      {
+        "slice": "omit-first-half",
+        "weight": 0,
+        "checkpoint": "sha256:957f6c7ca20e18ac332105f15ceeeaad2d5040ec2f5c7fc10ab0af8dfa360c0f",
+        "delta": [
+          0.004185111930395058,
+          -0.0051050371698604935,
+          0.005069888035181269
+        ]
+      },
+      {
+        "slice": "omit-second-half",
+        "weight": 0,
+        "checkpoint": "sha256:8c0412d8601c7d807e549cfd6a18eb964fa4718aa7938dbe42c613a9919e6268",
+        "delta": [
+          -0.003866597213557754,
+          0.004716265331986991,
+          -0.004684012694085915
+        ]
+      },
+      {
+        "slice": "reweight-first-half",
+        "weight": 2,
+        "checkpoint": "sha256:664cb54341e3216d5bfe9e8f855fbb51b349dd355eb9fa9c2e380470a8c9fe39",
+        "delta": [
+          -0.0010403833570880039,
+          0.0012690258791908104,
+          -0.0012603270938764677
+        ]
+      }
+    ],
+    "omitted": [],
+    "spent": {
+      "fits": 4,
+      "samples": 2048,
+      "updates": 32
+    },
+    "baseline_scores": [
+      0.5835642871304106,
+      0.39810865867304535,
+      0.6012267279358741
+    ],
+    "exact_checkpoints": [
+      {
+        "weight": 0.5294398029250367,
+        "digest": "sha256:2d1ecdc707a565989c6032a3de41fcdd431c96bb097ed7d6eeadb7ffe03652db"
+      },
+      {
+        "weight": 0.5567888960184869,
+        "digest": "sha256:957f6c7ca20e18ac332105f15ceeeaad2d5040ec2f5c7fc10ab0af8dfa360c0f"
+      },
+      {
+        "weight": 0.504278976075917,
+        "digest": "sha256:8c0412d8601c7d807e549cfd6a18eb964fa4718aa7938dbe42c613a9919e6268"
+      },
+      {
+        "weight": 0.5226599491473238,
+        "digest": "sha256:664cb54341e3216d5bfe9e8f855fbb51b349dd355eb9fa9c2e380470a8c9fe39"
+      }
+    ]
+  },
+  "partial": {
+    "digest": "971ec6a68b97ff6824e3bd8291503a390ab4aa0109395371d32d074fdb787a44",
+    "complete": false,
+    "interpretation": "association",
+    "ranking": null,
+    "baseline": "sha256:2d1ecdc707a565989c6032a3de41fcdd431c96bb097ed7d6eeadb7ffe03652db",
+    "evaluations": [
+      "all",
+      "other-roles",
+      "done-role"
+    ],
+    "comparisons": [
+      {
+        "slice": "omit-first-half",
+        "weight": 0,
+        "checkpoint": "sha256:957f6c7ca20e18ac332105f15ceeeaad2d5040ec2f5c7fc10ab0af8dfa360c0f",
+        "delta": [
+          0.004185111930395058,
+          -0.0051050371698604935,
+          0.005069888035181269
+        ]
+      }
+    ],
+    "omitted": [
+      {
+        "slice": "omit-second-half",
+        "reason": "fit_budget"
+      },
+      {
+        "slice": "reweight-first-half",
+        "reason": "fit_budget"
+      }
+    ],
+    "spent": {
+      "fits": 2,
+      "samples": 1024,
+      "updates": 16
+    }
+  },
+  "recursive_feedback": {
+    "generations": 2,
+    "promoted": 2,
+    "resumed_generations": 2,
+    "stop_reason": "generation_limit",
+    "final_checkpoint": "sha256:3433d4995bf6fbf41182bbc4d813df5b58f04ec8db42f0211a11f80c23c87084"
+  },
+  "no_git": true,
+  "git_absent_from_path": true,
+  "elapsed_ms": 41922.86381,
+  "limits": [
+    "Finite public snapshot status projection; not generalization evidence.",
+    "One fixed learner and seed; associations only, no causal identification or importance ranking.",
+    "History replay verifies the original evidence; it grants no promotion authority."
+  ]
+}

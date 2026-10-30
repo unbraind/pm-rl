@@ -166,8 +166,24 @@ query the host can already answer, not a feature to build.
 | `pm rl loop status <id>` | Reconstruct phases, consumed samples, checkpoints and terminal reason without writes. |
 | `pm rl loop resume <id>` | Load the seed's persisted programme; requires the governing `--approval` Decision. `--force-takeover` audits explicit recovery of an ambiguous or stale controller lease. |
 
+Interrupted Sweep publication retains every committed Run and Sweep. A failed
+acknowledgement or verification returns `superseded` with a reconciliation remedy;
+inspect current SDK state and choose a fresh id for a new plan. Process jobs use
+the same retention policy: interrupted publication keeps held budget charged and
+preserves the actual transition instead of reversing a peer's progress. Every process lifecycle write
+checks its captured durable history revision under the SDK item lock, and journal
+keys bind that revision and the full target digest. Publication failures propagate
+through the executor without being reclassified as trainer failures or refunds.
+A staging access failure on resume retains the running job's resource charges.
+Only a job still proven unlaunched may release its reservation; subsequent jobs
+remain subject to the consumed budget.
+
 All commands listed above are implemented. [Recursive training execution](RECURSIVE_TRAINING.md)
 documents the local process and Docker Compose adapters and remaining scheduler work.
+
+Influence evidence already admitted into a loop survives compaction of its report history:
+`run`, `resume` and `status` verify the persisted seed seal. New proposals still
+require their historical report citation, and altered seed seals refuse.
 
 ## Implemented refusals
 
@@ -778,6 +794,7 @@ observation/comparison, generation promotion and lineage work in plain directori
 dataset/improver builders and Git-tree episode replay need Git provenance. Plan
 registration, evaluation and promotion are tested with Git absent from `PATH` and
 an explicit discovery ceiling.
+Training-slice measurement, report replay and proposal feedback also work without Git.
 
 ## Shadow policy deployment
 
@@ -804,3 +821,7 @@ The approval variable controls GitHub releases; it does not impose a local npm
 publishing hold. Maintainers run the prepublish checks and authenticate with npm
 for local publication. The first local publish uses `--provenance=false`; daily
 GitHub OIDC releases keep provenance enabled.
+
+## Measured training-slice influence
+
+Run `pm rl influence run --file examples/training-influence.json` for explicitly budgeted omission/reweighting fits with exact seeded checkpoints. `pm rl influence show <report> --json` returns a compact packet of per-evaluation associations, explicit omissions and no ranking. `pm rl influence propose <report> --file next-programme.json --output evidenced-programme.json` carries certified measured evidence into the next recursive proposal; normal evaluation and promotion gates still apply. See the [SDK, bounds, remedies and concurrency contract](docs/training-influence.md).

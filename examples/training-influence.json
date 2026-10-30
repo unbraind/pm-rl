@@ -1,0 +1,19 @@
+{
+  "format": "pm-rl/training-influence/1",
+  "learner": { "seed": 42, "initial_weight": 0, "samples": 32, "fit_steps": 2, "learning_rate": 0.5 },
+  "training": [
+    { "id": "a", "feature": -1, "rewards": [1, 0] },
+    { "id": "b", "feature": 1, "rewards": [0, 1] },
+    { "id": "c", "feature": 0.4, "rewards": [1, 0] }
+  ],
+  "held_out": [
+    { "id": "x", "feature": -0.8, "rewards": [1, 0] },
+    { "id": "y", "feature": 0.8, "rewards": [0, 1] }
+  ],
+  "slices": [
+    { "id": "omit-positive", "members": ["b"], "weight": 0 },
+    { "id": "reweight-noisy", "members": ["c"], "weight": 3 }
+  ],
+  "evaluations": [{ "id": "all", "members": ["x", "y"] }, { "id": "positive", "members": ["y"] }],
+  "budget": { "fits": 3, "samples": 96, "updates": 6 }
+}

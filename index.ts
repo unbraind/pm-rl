@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import type { HistoryResult } from "@unbrained/pm-cli/sdk/query";
 import { decodeTrackerRecord, skippedTrackerRecords, parseBoundedJson, encodeBoundedJson, MAX_JSON_BYTES, MAX_TRACKER_RECORD_BYTES } from "./tracker-record.ts";
 /**
@@ -156,6 +157,7 @@ export {
 } from "./lm.ts";
 
 export { exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordRecursivePolicyCards, recordPolicyCard, POLICY_CARD_MAX_BYTES, type PolicyCard, type PolicyCardEvidence, type PolicyCardRefusal } from "./policy-card.ts";
+export { parseTrainingInfluence, measureTrainingInfluence, replayTrainingInfluence, summarizeTrainingInfluence, recordTrainingInfluence, readTrainingInfluence, attachTrainingInfluence, verifyTrainingInfluenceProposal, type TrainingInfluenceRequest, type TrainingInfluenceReport, type TrainingInfluenceEvidence, type TrainingInfluenceRefusal, type TrainingSlice, type InfluenceEvaluation, type InfluenceFit, type InfluenceComparison } from "./training-influence.ts";
 export { parseShadowDeployment, shadowInputDigest, registerShadowDeployment, observeShadow, compareShadow, type ShadowPolicy, type ShadowDeployment, type ShadowInput, type ShadowObservation, type ShadowReport, type ShadowRefusal } from "./shadow.ts";
 export { parseEvaluationPlan, evaluationPlanId, evaluationComparison, registerEvaluationPlan, readEvaluationPlan, evaluatePlan, recordPlanEvaluation, enforceEvaluationPlan, type EvaluationPlan, type EvaluationMember, type EvaluationObservation, type EvaluationPlanReport, type RegisteredEvaluationPlan, type EvaluationPlanRefusal, type ProtectedCohort, type CohortReport, type CohortRefusal } from "./evaluation-plan.ts";
 
@@ -216,6 +218,7 @@ import { acquireLock, certifyCompleteListResult, createPmCliExpectedError, EXIT_
 
 import { parseJsonRecord, rethrowOperationalRead, rethrowProvenanceRead } from "./refuse.ts";
 import { exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordRecursivePolicyCards, recordPolicyCard, validatePromotedPolicyCard, validatePolicyCardWrite, validateRefusedPolicyCard, discoverPolicyCards, verifyRetainedGenerationEvidence } from "./policy-card.ts";
+import { recordTrainingInfluence, readTrainingInfluence, summarizeTrainingInfluence, attachTrainingInfluence, verifyTrainingInfluenceProposal } from "./training-influence.ts";
 import { registerShadowDeployment, observeShadow, compareShadow } from "./shadow.ts";
 import { registerEvaluationPlan, readEvaluationPlan, recordPlanEvaluation, enforceEvaluationPlan } from "./evaluation-plan.ts";
 import { buildIntakeLoopCorpus, buildTrackerLoopCorpus } from "./corpus.ts";
@@ -761,8 +764,60 @@ export async function readCompleteLoopItem(client: PmClient, id: string, at?: st
   return result as GetResult;
 }
 
+/**
+ * Validate a complete certified history and order its SDK durable coordinates explicitly.
+ * CLI/SDK versions differ in presentation order; physical array positions are never revision identities.
+ * @param history - Unbounded verified SDK compact-history result.
+ * @param code - Domain refusal code for incomplete or invalid coordinates.
+ * @returns A fresh array ordered from earliest to latest durable revision.
+ * @internal
+ */
+export function orderedHistoryEntries(history: HistoryResult, code: string): NonNullable<HistoryResult["compact_history"]> {
+  if (!history.verification?.ok || history.limit !== null || !Array.isArray(history.compact_history) || history.compact_history.length !== history.count || history.count < 1) {
+    fail("History is incomplete or uncertified. Restore certified history or use a fresh report and retry.", code, EXIT_CODE.CONFLICT);
+  }
+  const coordinates = new Set<number>();
+  for (const row of history.compact_history) {
+    const coordinate = row?.version ?? row?.index;
+    if (!Number.isSafeInteger(coordinate) || coordinate < 1 || coordinates.has(coordinate)) fail("History has invalid or repeated revision coordinates. Restore certified history or use a fresh report and retry.", code, EXIT_CODE.CONFLICT);
+    coordinates.add(coordinate);
+  }
+  return [...history.compact_history].sort((left, right) => (left.version ?? left.index) - (right.version ?? right.index));
+}
+
+/**
+ * Create through the SDK and certify the observed native envelope against its birth revision.
+ *
+ * All package producers share this postcondition, including CLI-only recorders.
+ * SDK read-back supplies normalization; mutable titles/status annotations are not identity.
+ * Ordinary writers can still change the item after the final read; this is detection, not isolation.
+ * @param client - Target workspace SDK client.
+ * @param options - Native create envelope.
+ * @param code - Domain refusal code for a changed or foreign record.
+ * @returns Native creation receipt after validating the freshly observed item.
+ * @internal
+ */
+export async function createVerifiedItem(client: PmClient, options: Parameters<PmClient["create"]>[0], code = "record_write_drift"): Promise<Awaited<ReturnType<PmClient["create"]>>> {
+  const created = await client.create(options);
+  const fields = ["id", "type", "created_at", "body", "tags", "affected_version", "fixed_version", "component", "environment", "parent", "goal", "objective", "sprint", "release", "assignee", "reviewer", "blocked_by", "dependencies"] as const;
+  const birth = await readCompleteLoopItem(client, created.item.id, "1", fields.join(","));
+  const current = await readCompleteLoopItem(client, created.item.id, undefined, fields.join(","));
+  if (fields.some((field) => !isDeepStrictEqual(birth.item[field], current.item[field]))) {
+    fail("Native record changed after creation. Read the current target and retry with a fresh report or identity; peer data was retained.", code, EXIT_CODE.CONFLICT);
+  }
+  return created;
+}
+
+/** Read the latest certified durable SDK coordinate, independent of history presentation order. @internal */
+export async function readLoopRevision(client: PmClient, id: string): Promise<number> {
+  const history = await client.run("history", { id, options: { compact: true, verify: true, outputBudget: "unbounded", outputLimit: "unbounded" } }) as HistoryResult;
+  const entries = orderedHistoryEntries(history, "loop_write_conflict");
+  const latest = entries[entries.length - 1]!;
+  return latest.version ?? latest.index;
+}
+
 /** Apply a read-derived change through the SDK item transaction, refusing a stale revision under its item lock. @internal */
-export async function mutateLoopItem(client: PmClient, before: GetResult, message: string, change: (document: ItemDocument, closeStatus: string, terminal: boolean) => string[], preconditions: readonly GetResult[] = [], author = "pm-rl", op: "update" | "close" = "update"): Promise<GetResult> {
+export async function mutateLoopItem(client: PmClient, before: GetResult, message: string, change: (document: ItemDocument, closeStatus: string, terminal: boolean) => string[] | Promise<string[]>, preconditions: readonly GetResult[] = [], author = "pm-rl", op: "update" | "close" = "update", expectedRevision?: number): Promise<GetResult> {
   const config = await client.config("project", "get", "id_prefix");
   const pmRoot = dirname(config.settings_path);
   const settings = await readSettings(pmRoot);
@@ -777,10 +832,11 @@ export async function mutateLoopItem(client: PmClient, before: GetResult, messag
       if (current.item.updated_at !== dependency.item.updated_at || current.item.body !== dependency.item.body) fail("Promotion evidence or budget changed after it was read; retry from current evidence.", "loop_write_conflict", EXIT_CODE.CONFLICT);
     }
     const result = await runWithActiveExtensions({ path: pmRoot }, () => mutateItem({ pmRoot, settings, id: before.item.id, op, author, message, skipNoop: true,
-      mutate: (document) => {
+      mutate: async (document) => {
+        if (expectedRevision !== undefined && await readLoopRevision(client, before.item.id) !== expectedRevision) fail("Tracker history advanced after planning. Read the current target and retry; peer state and held budget were retained.", "superseded", EXIT_CODE.CONFLICT);
         if (document.metadata.updated_at !== expected.updated || document.body !== expected.body) fail("Tracker item changed after it was read; retry from current evidence.", "loop_write_conflict", EXIT_CODE.CONFLICT);
         const registry = resolveRuntimeStatusRegistry(settings.schema);
-        return { changedFields: change(document, registry.close_status, isTerminalStatus(document.metadata.status, registry)) };
+        return { changedFields: await change(document, registry.close_status, isTerminalStatus(document.metadata.status, registry)) };
       },
     }));
     after = { item: { ...result.item, body: result.body } };
@@ -897,9 +953,9 @@ async function readCompleteNotes(client: PmClient, id: string): Promise<LogNote[
 export async function createOrReadIdentical(client: PmClient, options: Parameters<PmClient["create"]>[0] & { id: string; type: "Decision" | "Environment" | "Run" | "Generation" }, collisionCode: string, matches: (item: GetResult["item"]) => boolean): Promise<{ item: GetResult["item"]; created: boolean }> {
   /** Read and validate the winner at either the initial read or collision boundary. */
   async function readMatching(): Promise<GetResult["item"]> {
-    const existing = await getTypedItem(client, options.id, options.type);
-    if (!matches(existing.item)) {
-      fail(`${options.type} id ${options.id} already exists with a different specification hash or provenance content.`, collisionCode, EXIT_CODE.CONFLICT);
+    const existing = await readCompleteLoopItem(client, options.id);
+    if (existing.item.type !== options.type || !matches(existing.item)) {
+      fail(`${options.type} id ${options.id} already exists with a different specification hash, native type or provenance content. Read the current target and use a fresh report or identity.`, collisionCode, EXIT_CODE.CONFLICT);
     }
     return existing.item;
   }
@@ -909,7 +965,7 @@ export async function createOrReadIdentical(client: PmClient, options: Parameter
     if (!isItemNotFound(error)) throw error;
   }
   try {
-    return { item: (await client.create(options)).item, created: true };
+    return { item: (await createVerifiedItem(client, options, collisionCode)).item, created: true };
   } catch (error) {
     if (!isPmCliExpectedError(error) || error.exitCode !== EXIT_CODE.CONFLICT || !/^Item "[^"]+" already exists$/.test(error.message)) throw error;
     const item = await readMatching();
@@ -1302,7 +1358,7 @@ async function registerBenchmark(context: CommandHandlerContext): Promise<RlComm
   } catch (error) {
     if (!isItemNotFound(error)) throw error;
   }
-  const result = await client.create({
+  const result = await createVerifiedItem(client, {
     id: requestedId,
     title: `${spec.name} ${spec.version}`,
     type: "Benchmark",
@@ -1357,7 +1413,7 @@ async function recordEvalResult(context: CommandHandlerContext): Promise<RlComma
   if (existingEval !== undefined) {
     return { action: "rl-eval-record", id: String(existingEval.item.id), created: false, details: spec as unknown as Readonly<Record<string, unknown>> };
   }
-  const result = await client.create({
+  const result = await createVerifiedItem(client, {
     id: requestedId,
     title: `${benchmark.spec.name} ${benchmark.spec.version}: ${checkpoint}`,
     type: "EvalResult",
@@ -1625,7 +1681,7 @@ async function recordEpisode(context: CommandHandlerContext): Promise<RlCommandR
   if (existingEpisode !== undefined) {
     return { action: "rl-episode-record", id: String(existingEpisode.item.id), created: false, details: episodeDetails(spec, verified.id) };
   }
-  const result = await client.create({
+  const result = await createVerifiedItem(client, {
     id: requestedId,
     title: `Gates ${verified.spec.name} ${verified.spec.version}: ${(candidateTree ?? patchHash!)!.slice(0, 16)}`,
     type: "GateEpisode",
@@ -1741,7 +1797,7 @@ async function recordOutcome(context: CommandHandlerContext): Promise<RlCommandR
   if (existingOutcome !== undefined) {
     return { action: "rl-outcome-record", id: String(existingOutcome.item.id), created: false, details: spec as unknown as Readonly<Record<string, unknown>> };
   }
-  const result = await client.create({
+  const result = await createVerifiedItem(client, {
     id: requestedId,
     title: `Merge outcome: ${pullRequest}`,
     type: "MergeOutcome",
@@ -3066,7 +3122,7 @@ async function acquireControllerLease(client: PmClient, coordinates: WorkspaceCo
         const owner = hashJson(realpathSync(resolve(coordinates.pmRoot)));
         const previous = await authority.get(launchId).catch((error: unknown) => isItemNotFound(error) ? null : Promise.reject(error));
         if (previous === null) {
-          await authority.create({ id: launchId, type: "Decision", title: `Loop ${id} launch authority`, body: owner });
+          await createVerifiedItem(authority, { id: launchId, type: "Decision", title: `Loop ${id} launch authority`, body: owner });
         } else if (String(previous.item.body) !== owner) {
           const comments = await readLoopComments(client, seedId).catch((error: unknown) => isItemNotFound(error) ? [] : Promise.reject(error));
           if (!comments.some((comment) => comment.text.startsWith(`Loop ${id} terminal report:`))) {
@@ -3148,13 +3204,14 @@ export async function runRlLoop(client: PmClient, coordinates: WorkspaceCoordina
   }
   // Fail fast on the approval before any collection is charged: a loop that
   // cannot promote must refuse before it spends budget, not after.
+  await verifyLoopInfluence(client, programme, request);
   await readApprovalSpec(client, request.approval);
   const controller = await prepareLoopController(client, coordinates, programme, request);
   let report: RlLoopReport;
   try {
     report = await executeLoopProgramme(client, coordinates, programme, request, controller);
   } catch (error) {
-    if (isPmCliExpectedError(error) && /^(?:already_promoted|already_refused|lost_claim|stale_revision|loop_write_conflict|loop_lease_lost|compare_and_set_refused|generation_terminal)$/.test(String(error.context.code))) {
+    if (isPmCliExpectedError(error) && /^(?:already_promoted|already_refused|lost_claim|stale_revision|loop_write_conflict|loop_lease_lost|compare_and_set_refused|generation_terminal|superseded)$/.test(String(error.context.code))) {
       // A fenced controller cannot write a terminal report, but it can report the peer's certified state.
       try { Object.assign(error.context, { authoritative_report: await rlLoopStatus(client, request.id, coordinates.pmRoot) }); }
       catch (readError) { Object.assign(error.context, { authoritative_read_error: isPmCliExpectedError(readError) ? String(readError.context.code) : "unavailable" }); }
@@ -3176,6 +3233,19 @@ export async function runRlLoop(client: PmClient, coordinates: WorkspaceCoordina
     await releaseControllerLease(client, controller);
   }
   return report;
+}
+
+/** Re-entry trusts only an identical sealed native seed; new proposals must resolve their historical citation. */
+async function verifyLoopInfluence(client: PmClient, programme: LoopProgramme, request: RlLoopRequest): Promise<void> {
+  if (programme.trainer === "bandit" && programme.config.influenceEvidence !== undefined) {
+    const seed = await readCompleteLoopItem(client, `${request.id}-seed`).catch((error: unknown) => isItemNotFound(error) ? null : Promise.reject(error));
+    if (seed !== null) {
+      const stored = parseLoopProgramme(storedLoopConfiguration(seed));
+      if (stored.config.digest !== programme.config.digest) fail("Loop configuration differs from its sealed seed. Restore the original configuration through the SDK or use a fresh loop id.", "loop_seed_drift", EXIT_CODE.CONFLICT);
+      return;
+    }
+  }
+  await verifyTrainingInfluenceProposal(client, request.config);
 }
 
 /**
@@ -3418,14 +3488,14 @@ async function durableLoopStep(client: PmClient, lease: ControllerLease, id: str
     const running = { format: "pm-rl/loop-step/1", key, input: hashJson(input), state: "running" };
     // Outer phase cards must fit before the first receipt/history write.
     const intent = { id: key, type: "Decision" as const, title: `Loop step ${phase} for ${id}`, tags: "rl-loop-step", body: encodeBoundedJson(running, MAX_TRACKER_RECORD_BYTES) };
-    const item = existing ?? (cards || phase === "promote" ? null : await client.create(intent));
+    const item = existing ?? (cards || phase === "promote" ? null : await createVerifiedItem(client, intent));
     const before = item === null ? null : existing ?? await readCompleteLoopItem(client, String(item.item.id));
     const winner = await readLoopStep(client, id, phase, input, before);
     if (winner !== null) return { value: winner, executed: false };
     const value = await execute();
     const body = encodeBoundedJson({ ...running, state: "complete", result: value, digest: hashJson(value) }, MAX_TRACKER_RECORD_BYTES);
     if (cards) await validatePolicyCardWrite(client, { ...intent, body }, true);
-    if (item === null) await client.create({ ...intent, body });
+    if (item === null) await createVerifiedItem(client, { ...intent, body });
     else {
       await mutateLoopItem(client, before!, "Complete durable loop receipt", (document) => { document.body = body; return ["body"]; }, [], lease.author);
     }
@@ -3839,8 +3909,7 @@ function terminalPromotionRefusal(error: PmCliExpectedError): boolean {
 /** Read the author of the first certified promoted version, independent of later annotations. */
 async function promotionAuthor(client: PmClient, id: string): Promise<string> {
   const history = await client.run("history", { id, options: { compact: true, verify: true, outputLimit: "unbounded", outputBudget: "unbounded" } }) as HistoryResult;
-  if (!history.verification?.ok || history.limit !== null || history.compact_history?.length !== history.count) fail("Promotion history is incomplete.", "loop_history_incomplete", EXIT_CODE.CONFLICT);
-  for (const row of history.compact_history) {
+  for (const row of orderedHistoryEntries(history, "loop_history_incomplete")) {
     const item = await readCompleteLoopItem(client, id, String(row.version ?? row.index));
     if (extractGenerationSpec(String(item.item.body), "Promotion attribution").promoted) return row.author;
   }
@@ -4411,6 +4480,10 @@ function storedLoopConfiguration(seed: GetResult): JsonValue {
   const spec = extractGenerationSpec(String(seed.item.body), `Generation ${seed.item.id}`);
   const configuration = jsonObject(spec.training_config, "Loop seed training configuration")["configuration"];
   if (configuration === undefined) fail("The seed stores no loop configuration.", "loop_invalid_training_config");
+  const stored = jsonObject(configuration, "Loop seed configuration");
+  if (stored["influence_evidence"] !== undefined && (seed.item.type !== "Generation" || !spec.seed || spec.parent !== null
+    || jsonObject(spec.training_config, "Loop seed training configuration")["programme"] !== parseLoopProgramme(configuration).config.digest
+    || seed.item.affected_version !== hashJson(generationProvenance(spec)))) fail("The influence-bearing seed configuration seal drifted. Restore the original seed through the SDK before resuming.", "loop_seed_drift", EXIT_CODE.CONFLICT);
   return configuration as JsonValue;
 }
 
@@ -4849,35 +4922,26 @@ async function refuseTakenPlanIdentity(
 }
 
 /**
- * Remove the arm runs an interrupted sweep plan already wrote.
+ * Refuse destructive compensation of a partially published sweep.
  *
- * A partial sweep leaves orphaned child runs that later reads would treat as
- * real arms, so every arm written before the failure is deleted. Deleting does
- * not free those identities: the host keeps the history stream, and a retry must
- * plan a new sweep id rather than remint the same arms. A removal that itself
- * fails is refused with both causes named — the removal failure first, then the
- * original create failure — because silent orphans are precisely what the
- * cleanup exists to prevent.
+ * A failed SDK acknowledgement or verification can follow a successful write.
+ * Neither a list of ids nor workspace transaction serialization proves exclusive
+ * ownership of the current revisions or absence of committed dependents. Retain
+ * all records, including their native histories, and require reconciliation from
+ * current SDK state. This also makes ordinary peer writes safe at every boundary.
  *
- * @param client - Client bound to the target workspace.
- * @param arms - The resolved ids of the arms written so far.
- * @param cause - The original failure that interrupted the plan, named in the
- *   refusal when a removal itself fails.
- * @returns When every arm was removed; the caller then rethrows its own cause.
- * @throws {sweep_cleanup_failed} When any removal fails, naming both causes.
+ * @param _client - Original workspace client; retained for SDK call compatibility.
+ * @param arms - Acknowledged arm identities, which are diagnostic rather than deletion authority.
+ * @param cause - Original create or verification failure.
+ * @param sweep - Requested parent identity, including when its acknowledgement was lost.
+ * @throws {superseded} Always: automatic compensation cannot prove safe ownership.
  */
-export async function removePlannedArms(client: PmClient, arms: ReadonlyArray<{ id: string }>, cause: unknown): Promise<void> {
-  for (const arm of arms) {
-    try {
-      await client.delete(arm.id, { force: true });
-    } catch (removeError) {
-      fail(
-        `${String(removeError)} — and removing the partially planned arm ${arm.id} also failed while recovering from ${String(cause)}, so the sweep has orphaned arms that must be deleted before it can be re-planned.`,
-        "sweep_cleanup_failed",
-        EXIT_CODE.CONFLICT,
-      );
-    }
-  }
+export async function removePlannedArms(_client: PmClient, arms: ReadonlyArray<{ id: string }>, cause: unknown, sweep?: string): Promise<never> {
+  fail(
+    `Sweep publication was interrupted (${String(cause)}). Retained committed records${sweep === undefined ? "" : ` for ${sweep}`}; acknowledged arms: ${arms.map((arm) => arm.id).join(", ") || "none"}. Compensation is superseded: read the Sweep and Runs through the SDK, reconcile any successful publication, and use a fresh sweep id for a new plan. Budget and peer data were retained.`,
+    "superseded",
+    EXIT_CODE.CONFLICT,
+  );
 }
 
 /**
@@ -4945,18 +5009,22 @@ async function planSweep(context: CommandHandlerContext): Promise<RlCommandResul
       `Arm run ${armId} is reserved by an existing history stream; sweep ${requestedId} cannot be re-planned under this id. Plan a new sweep id instead.`,
     );
   }
+  // Encode every arm before the first write: a client-side bound refusal keeps its own code and is never
+  // reported as an uncertain publication.
+  const environmentSnapshot = encodeBoundedJson(verifiedEnvironment.spec, undefined, 2);
+  const armBodies = configs.map((config, index) => `# ${armIds[index]}\n\nAlgorithm: ${algorithm}\n\nEnvironment snapshot:\n\n\`\`\`json\n${environmentSnapshot}\n\`\`\`\n\nRun configuration:\n\n\`\`\`json\n${encodeBoundedJson(config, undefined, 2)}\n\`\`\``);
   const arms: Array<{ id: string; config: JsonValue }> = [];
   try {
     for (const [index, config] of configs.entries()) {
       const armId = armIds[index]!;
-      const result = await client.create({
+      const result = await createVerifiedItem(client, {
         id: armId,
         title: armId,
         type: "Run",
         status: "in_progress",
         acceptanceCriteria: `Sweep arm ${index + 1} retains its exact environment and hyperparameter identities; its metrics are history appends independent of every other arm.`,
         estimatedMinutes: "1",
-        body: `# ${armId}\n\nAlgorithm: ${algorithm}\n\nEnvironment snapshot:\n\n\`\`\`json\n${encodeBoundedJson(verifiedEnvironment.spec, undefined, 2)}\n\`\`\`\n\nRun configuration:\n\n\`\`\`json\n${encodeBoundedJson(config, undefined, 2)}\n\`\`\``,
+        body: armBodies[index]!,
         dep: [verifiedEnvironment.id],
         environment: verifiedEnvironment.id,
         affectedVersion: specHash,
@@ -4968,11 +5036,8 @@ async function planSweep(context: CommandHandlerContext): Promise<RlCommandResul
       arms.push({ id: String(result.item.id), config });
     }
   } catch (error) {
-    // A mid-plan failure must not leave orphaned arm runs that later reads would
-    // treat as real children. Remove everything this invocation wrote, then let
-    // the original cause surface.
-    await removePlannedArms(client, arms, error);
-    throw error;
+    // Even a failed acknowledgement can follow a committed arm write.
+    return await removePlannedArms(client, arms, error, requestedId);
   }
   const spec: SweepSpec = {
     search_space: spaceRawSpace as Record<string, JsonValue[]>,
@@ -4983,13 +5048,11 @@ async function planSweep(context: CommandHandlerContext): Promise<RlCommandResul
     arms,
   };
   const sweepHash = hashJson(spec as unknown as JsonValue);
-  // The sweep create sits under the same cleanup contract as the arms: if it
-  // fails AFTER the arms exist, a retry under the same id would hit the arm
-  // pre-check and could never complete. Remove the arms this invocation wrote,
-  // then let the original cause surface.
+  // Publication and verification are separate outcomes. A committed Sweep can
+  // already reference these Runs when its acknowledgement or read-back fails.
   let sweepResult;
   try {
-    sweepResult = await client.create({
+    sweepResult = await createVerifiedItem(client, {
       id: requestedId,
       title: requestedId,
       type: "Sweep",
@@ -5004,8 +5067,7 @@ async function planSweep(context: CommandHandlerContext): Promise<RlCommandResul
       message: "Plan RL sweep",
     });
   } catch (error) {
-    await removePlannedArms(client, arms, error);
-    throw error;
+    return await removePlannedArms(client, arms, error, requestedId);
   }
   return {
     action: "rl-sweep-plan",
@@ -5109,7 +5171,7 @@ async function recordTransfer(context: CommandHandlerContext): Promise<RlCommand
     run_id: resolvedRunId,
     gaps,
   };
-  const result = await client.create({
+  const result = await createVerifiedItem(client, {
     id: requestedId,
     title: `Sim-to-real gap at ${checkpoint.slice(0, 16)}`,
     type: "Transfer",
@@ -5190,6 +5252,20 @@ async function showTransferGap(context: CommandHandlerContext): Promise<RlComman
 
 /** Commands authored separately so activation and tests share one exact contract. */
 export const RL_COMMANDS = [
+  defineCommand({ name: "rl influence run", description: "Measure budgeted training-slice associations and retain exact replayable checkpoints.", flags: [{ long: "--file", value_name: "path", value_type: "string", required: true, description: "Strict training influence experiment JSON with explicit budgets." }], run: async (context) => {
+    const result = await recordTrainingInfluence(clientFor(context), readJsonFile(stringOption(context, "file")!, "Training influence"));
+    return { action: "rl-influence-run", details: { id: result.id, created: result.created, ...summarizeTrainingInfluence(result.report) } };
+  } }),
+  defineCommand({ name: "rl influence show", description: "Replay certified training influence and return a compact association packet.", arguments: [{ name: "report", required: true, description: "Native influence Decision id." }], run: async (context) => {
+    const result = await readTrainingInfluence(clientFor(context), requiredArgument(context, "an influence report"));
+    return { action: "rl-influence-show", details: { id: result.id, at: result.at, ...summarizeTrainingInfluence(result.report) } };
+  } }),
+  defineCommand({ name: "rl influence propose", description: "Carry certified measured evidence into the next recursive proposal without changing its gates.", arguments: [{ name: "report", required: true, description: "Native influence Decision id." }], flags: [{ long: "--file", value_name: "path", value_type: "string", required: true, description: "Next bandit loop proposal JSON using the same datasets." }, { long: "--output", value_name: "path", value_type: "string", required: true, description: "New proposal JSON file; existing files refuse overwrite." }], run: async (context) => {
+    const programme = await attachTrainingInfluence(clientFor(context), readJsonFile(stringOption(context, "file")!, "Next proposal"), requiredArgument(context, "an influence report"));
+    try { await writeFile(stringOption(context, "output")!, encodeBoundedJson(programme), { flag: "wx" }); }
+    catch (error: unknown) { if ((error as NodeJS.ErrnoException).code === "EEXIST") fail("Proposal output already exists; choose a fresh output file.", "influence_output_exists", EXIT_CODE.CONFLICT); fail("Proposal output could not be written; choose an accessible directory and a fresh output file.", "influence_output_unavailable", EXIT_CODE.CONFLICT); }
+    return { action: "rl-influence-propose", details: { programme: hashJson(programme), evidence: (programme as Record<string, JsonValue>).influence_evidence } };
+  } }),
   defineCommand({ name: "rl policy-card export", description: "Export a minimized policy explanation with replayable evidence digests.", arguments: [{ name: "subject", required: true, description: "Generation or completed recursive-step id." }], flags: [{ long: "--selection", value_name: "index", value_type: "string", description: "Zero-based proposed candidate index for a proposal phase." }], run: async (context) => {
     const selection = stringOption(context, "selection", false);
     return { action: "rl-policy-card-export", details: { ...await exportPolicyCard(clientFor(context), requiredArgument(context, "a policy subject"), selection === undefined ? null : Number(selection)) } };

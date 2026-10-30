@@ -1,0 +1,116 @@
+{
+  "format": "pm-rl/training-influence-revert/1",
+  "function": "measureTrainingInfluence",
+  "behavior_removed": "Declared slice membership no longer changes training composition",
+  "mutant": {
+    "passed": 0,
+    "failed": 1
+  },
+  "restored": {
+    "passed": 1,
+    "failed": 0
+  },
+  "durable_versions": {
+    "function": "readTrainingInfluence",
+    "mutant": {
+      "passed": 0,
+      "failed": 1
+    },
+    "restored": {
+      "passed": 1,
+      "failed": 0
+    }
+  },
+  "native_envelopes": [
+    {
+      "function": "readTrainingInfluence SDK native identity",
+      "mutant": {
+        "passed": 0,
+        "failed": 1
+      },
+      "restored": {
+        "passed": 1,
+        "failed": 0
+      }
+    },
+    {
+      "function": "promotionAuthor",
+      "mutant": {
+        "passed": 0,
+        "failed": 1
+      },
+      "restored": {
+        "passed": 1,
+        "failed": 0
+      }
+    },
+    {
+      "function": "snapshot",
+      "mutant": {
+        "passed": 0,
+        "failed": 1
+      },
+      "restored": {
+        "passed": 1,
+        "failed": 0
+      }
+    },
+    {
+      "function": "orderedHistoryEntries",
+      "mutant": {
+        "passed": 0,
+        "failed": 1
+      },
+      "restored": {
+        "passed": 1,
+        "failed": 0
+      }
+    },
+    {
+      "function": "readTrainingInfluence current-envelope validation",
+      "mutant": {
+        "passed": 0,
+        "failed": 1
+      },
+      "restored": {
+        "passed": 1,
+        "failed": 0
+      }
+    },
+    {
+      "function": "matchingRetainedCard",
+      "mutant": {
+        "passed": 0,
+        "failed": 1
+      },
+      "restored": {
+        "passed": 1,
+        "failed": 0
+      }
+    },
+    {
+      "function": "ownedRecord",
+      "mutant": {
+        "passed": 0,
+        "failed": 1
+      },
+      "restored": {
+        "passed": 1,
+        "failed": 0
+      }
+    },
+    {
+      "function": "createVerifiedItem",
+      "mutant": {
+        "passed": 0,
+        "failed": 1
+      },
+      "restored": {
+        "passed": 1,
+        "failed": 0
+      }
+    }
+  ],
+  "reviewed_worktree_unchanged": true,
+  "command": "node --test --test-name-pattern='fixed learner and seed' test/training-influence.test.ts"
+}

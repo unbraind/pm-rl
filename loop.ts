@@ -66,6 +66,8 @@ const STRONG_IMPROVEMENT_FACTOR = 2;
 
 /** A complete bounded loop configuration with validated datasets and identities. */
 export interface LoopConfig {
+  /** Certified measured associations supplied to this proposal round; never promotion authority. */
+  readonly influenceEvidence?: JsonValue;
   /** Optimizer updates per batch, each reserved and charged for process execution. */
   readonly fitSteps: number;
   /** Explicit bounded exploration after an item-gate refusal; collectors always retain the incumbent. */
@@ -240,6 +242,7 @@ export function parseLoopConfig(raw: JsonValue): LoopConfig {
     if (datasets.training.some((example) => heldOut.has(canonicalJson({ feature: example.feature, ...(example.features === undefined ? {} : { features: [...example.features] }), rewards: [...example.rewards] })))) expectedFail("Process training and held-out content overlap.", "process_dataset_overlap");
   }
   const config: LoopConfig = {
+    ...(record["influence_evidence"] === undefined ? {} : { influenceEvidence: record["influence_evidence"] as JsonValue }),
     fitSteps,
     ...(record["objective"] === undefined ? {} : { objective: "intake-issue-balanced-v1" as const }),
     retryRejected,
@@ -253,6 +256,7 @@ export function parseLoopConfig(raw: JsonValue): LoopConfig {
     trainingDigest: datasets.trainingDigest,
     evaluationDigest: datasets.evaluationDigest,
     digest: loopDigest({
+      ...(record["influence_evidence"] === undefined ? {} : { influence_evidence: record["influence_evidence"] as JsonValue }),
       ...(record["objective"] === undefined ? {} : { objective: record["objective"] as JsonValue }),
       ...(fitSteps === 1 ? {} : { fitSteps }),
       ...(retryRejected ? { retryRejected } : {}),
@@ -481,6 +485,7 @@ export function loopPromotionScores(config: LoopConfig, step: LoopStepConfig, ge
  */
 export function generationTrainingConfig(config: LoopConfig, step: LoopStepConfig, generation: number, receipt: BanditGeneration): JsonValue {
   return {
+    ...(config.influenceEvidence === undefined ? {} : { influence_evidence: config.influenceEvidence }),
     ...(config.fitSteps === 1 ? {} : { fit_steps: config.fitSteps }),
     ...(config.recipe === undefined ? {} : { recipe: config.recipe.digest }),
     format: LOOP_GENERATION_FORMAT,
@@ -519,6 +524,7 @@ export function seedTrainingConfig(config: LoopConfig): JsonValue {
     programme: config.digest,
     initial_weight: config.initialWeight,
     configuration: {
+      ...(config.influenceEvidence === undefined ? {} : { influence_evidence: config.influenceEvidence }),
       ...(config.objective === undefined ? {} : { objective: config.objective }),
       ...(config.fitSteps === 1 ? {} : { fit_steps: config.fitSteps }),
       ...(config.retryRejected ? { retry_rejected: true } : {}),
