@@ -83,6 +83,14 @@ test("sealed loop evidence survives pruned report history through run resume and
     await assert.rejects(runRlLoop(w.client, w.coordinates, request), code("loop_seed_drift"));
     await w.client.update(original.id, { body: String(original.body), affectedVersion: original.affected_version });
   }
+  // Only absence lets a loop skip its sealed seed; any other seed read failure propagates unchanged.
+  const get = w.client.get.bind(w.client);
+  Reflect.set(w.client, "get", async (...args: Parameters<typeof get>) => {
+    if (args[0] === "maintenance-seed") throw new Error("seed storage unavailable");
+    return get(...args);
+  });
+  try { await assert.rejects(runRlLoop(w.client, w.coordinates, request), /seed storage unavailable/); }
+  finally { Reflect.set(w.client, "get", get); }
   await assert.rejects(runRlLoop(w.client, w.coordinates, { ...request, config: { ...w.proposal as Record<string, JsonValue>, seed: 43 } }), code("loop_seed_drift"));
   const resumed = await resumeRlLoop(w.client, w.coordinates, { id: request.id, approval: w.approval });
   assert.ok(resumed.generations.length); assert.equal(resumed.samples_consumed, expected.samples_consumed);

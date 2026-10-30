@@ -9,7 +9,7 @@ import type { HistoryResult } from "@unbrained/pm-cli/sdk/query";
 import { parseTags } from "@unbrained/pm-cli/sdk";
 import { init, normalizeItemId, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import extension, { createVerifiedItem, orderedHistoryEntries, hashJson, generationProvenance, runRlLoop, readCompleteLoopItem, extractGenerationSpec, type JsonValue, type RlCommandResult } from "../index.ts";
+import extension, { createVerifiedItem, orderedHistoryEntries, readLoopRevision, hashJson, generationProvenance, runRlLoop, readCompleteLoopItem, extractGenerationSpec, type JsonValue, type RlCommandResult } from "../index.ts";
 import { parseLoopConfig, generationTrainingConfig, seedTrainingConfig, runLoopGeneration } from "../loop.ts";
 import { parseTrainingInfluence, measureTrainingInfluence, replayTrainingInfluence, recordTrainingInfluence, readTrainingInfluence, attachTrainingInfluence, summarizeTrainingInfluence, verifyTrainingInfluenceProposal, type TrainingInfluenceRequest } from "../training-influence.ts";
 import { recordPolicyCard, recordRecursivePolicyCards, discoverPolicyCards } from "../policy-card.ts";
@@ -267,6 +267,16 @@ test("history order is irrelevant across 500 seeded native revision permutations
     for (let index = rows.length - 1; index > 0; index -= 1) { const other = rng() % (index + 1); [rows[index], rows[other]] = [rows[other], rows[index]]; }
     assert.deepEqual(orderedHistoryEntries({ ...history, compact_history: rows }, "influence_drift").map((row) => row.version ?? row.index), expected);
   }
+  // Legacy checkpoints carry no durable version; their physical index orders them, and the latest index is the revision.
+  const legacy = entries.map((row) => ({ ...row, version: null }));
+  assert.deepEqual(orderedHistoryEntries({ ...history, compact_history: [...legacy].reverse() }, "influence_drift").map((row) => row.index), legacy.map((row) => row.index).sort((left, right) => left - right));
+  const legacyRun = client.run.bind(client);
+  Reflect.set(client, "run", async (...args: Parameters<typeof legacyRun>) => {
+    const result = await legacyRun(...args);
+    return args[0] === "history" ? { ...result as HistoryResult, compact_history: (result as HistoryResult).compact_history!.map((row) => ({ ...row, version: null })) } : result;
+  });
+  assert.equal(await readLoopRevision(client, saved.id), Math.max(...legacy.map((row) => row.index)));
+  Reflect.set(client, "run", legacyRun);
   for (const rows of [[], [entries[0], entries[0]], [undefined], [{ ...entries[0], version: Infinity }], [{ ...entries[0], version: 0 }]]) {
     await assert.rejects(async () => orderedHistoryEntries({ ...history, count: rows.length, compact_history: rows } as HistoryResult, "influence_drift"), refused("influence_drift"));
   }
