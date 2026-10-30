@@ -4,8 +4,10 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { copyFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { refuseChangedReceipt, worktreeState } from "./fixtures/revert-receipt.ts";
 
 const repository = resolve(".");
+const receipt = "docs/training-influence-compensation-revert.json"; refuseChangedReceipt(repository, receipt); const reviewed = worktreeState(repository, receipt);
 const root = mkdtempSync(join(tmpdir(), "rl-compensation-revert-"));
 /** Extract one whole top-level function without altering the reviewed implementation. */
 function functionText(source: string, name: string): string {
@@ -47,5 +49,5 @@ try {
     results.push({ function: name, reverted: { pass: 0, fail: 1 }, restored: { pass: 1, fail: 0 } });
     process.stdout.write(`${name}: revert fails; restoration passes\n`);
   }
-  writeFileSync("docs/training-influence-compensation-revert.json", JSON.stringify({ format: "pm-rl/compensation-revert/1", baseline: "1e3e620", tests: results, reviewed_source_unchanged: true }, null, 2) + "\n");
+  writeFileSync(receipt, JSON.stringify({ format: "pm-rl/compensation-revert/1", baseline: "1e3e620", tests: results, reviewed_source_unchanged: worktreeState(repository, receipt) === reviewed }, null, 2) + "\n");
 } finally { rmSync(root, { recursive: true, force: true }); }

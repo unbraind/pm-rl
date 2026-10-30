@@ -4,8 +4,11 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { copyFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { refuseChangedReceipt, worktreeState } from "./fixtures/revert-receipt.ts";
 
 const repository = resolve("."); const root = mkdtempSync(join(tmpdir(), "rl-executor-revert-"));
+const stagingOnly = process.argv.includes("--staging-only");
+const receipt = stagingOnly ? "docs/training-influence-staging-revert.json" : "docs/training-influence-executor-revert.json"; refuseChangedReceipt(repository, receipt); const reviewed = worktreeState(repository, receipt);
 /** Extract one top-level function, allowing internal and public declarations. */
 function functionText(source: string, name: string): string {
   const signature = source.indexOf(`async function ${name}`); assert.ok(signature >= 0, name);
@@ -36,7 +39,6 @@ try {
     { file: "process.ts", name: "failedProcessCharge inaccessible reports", source: processSource, mutant: processSource.replace('    } catch { /* Inaccessible or vanished reports cannot prove unused resources. */ }', '    } catch (error) { throw error; }'), pattern: "recovery settlement retains reservations" },
     { file: "process.ts", name: "failedProcessCharge native birth proof", source: processSource, mutant: processSource.replace('state === "planned" && revision === 1', 'state === "planned"'), pattern: "staging failures cannot refund" },
   ];
-  const stagingOnly = process.argv.includes("--staging-only");
   const results = [];
   for (const check of stagingOnly ? checks.slice(-4) : checks.slice(0, -4)) {
     assert.notEqual(check.mutant, check.source, check.name);
@@ -48,5 +50,5 @@ try {
     results.push({ function: check.name, reverted: { pass: 0, fail: 1 }, restored: { pass: 1, fail: 0 } });
     process.stdout.write(`${check.name}: revert fails; restoration passes\n`);
   }
-  writeFileSync(stagingOnly ? "docs/training-influence-staging-revert.json" : "docs/training-influence-executor-revert.json", JSON.stringify({ format: "pm-rl/executor-revert/1", baseline: stagingOnly ? "f8678f5" : "a1575a2", tests: results, reviewed_source_unchanged: true }, null, 2) + "\n");
+  writeFileSync(receipt, JSON.stringify({ format: "pm-rl/executor-revert/1", baseline: stagingOnly ? "f8678f5" : "a1575a2", tests: results, reviewed_source_unchanged: worktreeState(repository, receipt) === reviewed }, null, 2) + "\n");
 } finally { rmSync(root, { recursive: true, force: true }); }
