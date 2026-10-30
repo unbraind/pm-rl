@@ -30,7 +30,7 @@ await runRlLoop(client, coordinates, {
 
 `measureTrainingInfluence` is the pure SDK operation. `parseTrainingInfluence` admits requests; `replayTrainingInfluence` validates a report by reproducing its producer, including exact parameters and collection identities. `summarizeTrainingInfluence` projects an already validated producer result. `readTrainingInfluence` replays one named native Decision through SDK-certified history; the full record contains the request and every exact checkpoint. `pm rl influence show <report>` returns the compact packet in TOON or JSON.
 
-`pm rl influence propose <report> --file next-programme.json --output evidenced-programme.json` attaches the compact evidence to the proposal. SDK callers use `attachTrainingInfluence`. The proposal must use the same ordered training and evaluation datasets; learner knobs may change. The next recursive round verifies the certified historical citation before starting, seals it into the programme identity, and retains it in every candidate's training configuration. The proposer can use measured movements as evidence; **no slice is automatically selected or ranked**. Existing propose → evaluate → gate → promote → learn behavior and budgets stay in force. Partial evidence is also carried forward honestly.
+`pm rl influence propose <report> --file next-programme.json --output evidenced-programme.json` attaches the compact evidence to the proposal. SDK callers use `attachTrainingInfluence`. The proposal must use the same ordered training and evaluation datasets; learner knobs may change. A new programme verifies the certified historical citation before starting, seals it into the programme identity, and retains it in every candidate's training configuration. Re-entering an existing loop with `run` or `resume` verifies the native seed provenance hash and recomputed programme digest instead of resolving that historical citation again. Compaction of the cited influence report therefore preserves admitted evidence; it does not admit a new programme with a pruned citation. Other required policy-card citations remain independently verified: pruning a different generation/run history can still refuse recovery when that proof cannot be replayed. An altered seed returns `loop_seed_drift` with a restore-or-fresh-id remedy. Status uses the same seed verifier. The proposer can use measured movements as evidence; **no slice is automatically selected or ranked**. Existing propose → evaluate → gate → promote → learn behavior and budgets stay in force. Partial evidence is also carried forward honestly.
 
 ## Persistence and concurrent writers
 
@@ -45,6 +45,8 @@ Refusals provide remedies: `influence_invalid` requires a corrected bounded requ
 ## Without git
 
 Measurement, report read/replay and proposal feedback work in plain directories and through an injected SDK client. They execute no Git command. Public-history dataset builders still require their existing committed-source provenance.
+
+Dataset shape and dimension failures return `influence_invalid`; duplicate or shared dataset identities return `influence_overlap`. The SDK and CLI run/propose paths use the same classification. A pruned historical citation remains `history_version_pruned`, rather than a retryable storage error.
 
 ## Reproduction evidence
 

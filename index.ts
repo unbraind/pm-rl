@@ -3204,7 +3204,7 @@ export async function runRlLoop(client: PmClient, coordinates: WorkspaceCoordina
   }
   // Fail fast on the approval before any collection is charged: a loop that
   // cannot promote must refuse before it spends budget, not after.
-  await verifyTrainingInfluenceProposal(client, request.config);
+  await verifyLoopInfluence(client, programme, request);
   await readApprovalSpec(client, request.approval);
   const controller = await prepareLoopController(client, coordinates, programme, request);
   let report: RlLoopReport;
@@ -3233,6 +3233,19 @@ export async function runRlLoop(client: PmClient, coordinates: WorkspaceCoordina
     await releaseControllerLease(client, controller);
   }
   return report;
+}
+
+/** Re-entry trusts only an identical sealed native seed; new proposals must resolve their historical citation. */
+async function verifyLoopInfluence(client: PmClient, programme: LoopProgramme, request: RlLoopRequest): Promise<void> {
+  if (programme.trainer === "bandit" && programme.config.influenceEvidence !== undefined) {
+    const seed = await readCompleteLoopItem(client, `${request.id}-seed`).catch((error: unknown) => isItemNotFound(error) ? null : Promise.reject(error));
+    if (seed !== null) {
+      const stored = parseLoopProgramme(storedLoopConfiguration(seed));
+      if (stored.config.digest !== programme.config.digest) fail("Loop configuration differs from its sealed seed. Restore the original configuration through the SDK or use a fresh loop id.", "loop_seed_drift", EXIT_CODE.CONFLICT);
+      return;
+    }
+  }
+  await verifyTrainingInfluenceProposal(client, request.config);
 }
 
 /**
@@ -4467,6 +4480,10 @@ function storedLoopConfiguration(seed: GetResult): JsonValue {
   const spec = extractGenerationSpec(String(seed.item.body), `Generation ${seed.item.id}`);
   const configuration = jsonObject(spec.training_config, "Loop seed training configuration")["configuration"];
   if (configuration === undefined) fail("The seed stores no loop configuration.", "loop_invalid_training_config");
+  const stored = jsonObject(configuration, "Loop seed configuration");
+  if (stored["influence_evidence"] !== undefined && (seed.item.type !== "Generation" || !spec.seed || spec.parent !== null
+    || jsonObject(spec.training_config, "Loop seed training configuration")["programme"] !== parseLoopProgramme(configuration).config.digest
+    || seed.item.affected_version !== hashJson(generationProvenance(spec)))) fail("The influence-bearing seed configuration seal drifted. Restore the original seed through the SDK before resuming.", "loop_seed_drift", EXIT_CODE.CONFLICT);
   return configuration as JsonValue;
 }
 

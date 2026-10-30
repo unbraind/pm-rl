@@ -106,14 +106,18 @@ function members(value: unknown, available: ReadonlySet<string>): string[] {
   requireShape(new Set(result).size === result.length && result.every((id) => available.has(id)));
   return result;
 }
+/** Preserve dataset error categories consistently for every influence entry point. */
+function influenceDatasets(training: readonly BanditExample[], evaluation: readonly BanditExample[]) {
+  try { return validatedBanditDatasets({ training, evaluation }); }
+  catch (error) { return refuse(error instanceof Error && error.message.startsWith("bandit_overlap:") ? "influence_overlap" : "influence_invalid"); }
+}
 /** Parse the only request schema, including finite domains, dense arrays and input-content isolation. */
 export function parseTrainingInfluence(value: unknown): TrainingInfluenceRequest {
   const row = object(value, ["format", "learner", "training", "held_out", "slices", "evaluations", "budget"]);
   requireShape(row.format === "pm-rl/training-influence/1");
   const learner = object(row.learner, ["seed", "initial_weight", "samples", "fit_steps", "learning_rate"]);
   const training = examples(row.training); const heldOut = examples(row.held_out);
-  let datasets;
-  try { datasets = validatedBanditDatasets({ training, evaluation: heldOut }); } catch { return refuse("influence_overlap"); }
+  const datasets = influenceDatasets(training, heldOut);
   const inputIdentity = (example: BanditExample): string => canonicalJson({ feature: example.feature, ...(example.features === undefined ? {} : { features: [...example.features] }) });
   const heldInputs = new Set(heldOut.map(inputIdentity));
   if (training.some((example) => heldInputs.has(inputIdentity(example)))) refuse("influence_overlap");
@@ -149,7 +153,7 @@ function fit(request: TrainingInfluenceRequest, training: readonly BanditExample
 /** Execute in declaration order, including baseline cost, retaining honest partial evidence at exhaustion. */
 export function measureTrainingInfluence(value: unknown): TrainingInfluenceReport {
   const request = parseTrainingInfluence(value);
-  const datasets = validatedBanditDatasets({ training: request.training, evaluation: request.held_out });
+  const datasets = influenceDatasets(request.training, request.held_out);
   const source = banditCheckpoint(request.learner.initial_weight);
   const spent = { fits: 0, samples: 0, updates: 0 };
   /** Exact integer budget comparisons include every baseline and intervention fit. */
@@ -240,8 +244,8 @@ export async function attachTrainingInfluence(client: PmClient, programme: JsonV
   const row = programme as Record<string, JsonValue>;
   const retained = await readTrainingInfluence(client, id);
   const result: JsonValue = { ...row, influence_evidence: evidence(retained.id, retained.at, retained.report) as unknown as JsonValue };
-  parseLoopConfig(result);
   await verifyTrainingInfluenceProposal(client, result);
+  parseLoopConfig(result);
   return result;
 }
 /** Resolve evidence from its certified historical revision, so later edits cannot silently rebind a proposal. */
@@ -253,7 +257,6 @@ export async function verifyTrainingInfluenceProposal(client: PmClient, programm
   requireShape(supplied !== null && typeof supplied === "object" && typeof supplied.id === "string" && typeof supplied.at === "string" && /^[1-9][0-9]*$/.test(supplied.at));
   const retained = await readTrainingInfluence(client, supplied.id, supplied.at);
   if (canonicalJson(supplied as unknown as JsonValue) !== canonicalJson(evidence(retained.id, retained.at, retained.report) as unknown as JsonValue)) refuse("influence_drift");
-  let datasets;
-  try { datasets = validatedBanditDatasets({ training: row.training as unknown as BanditExample[], evaluation: row.evaluation as unknown as BanditExample[] }); } catch { return refuse("influence_overlap"); }
+  const datasets = influenceDatasets(row.training as unknown as BanditExample[], row.evaluation as unknown as BanditExample[]);
   if (datasets.trainingDigest !== retained.report.training || datasets.evaluationDigest !== retained.report.held_out || row.trainer !== undefined && row.trainer !== "bandit") refuse("influence_overlap");
 }

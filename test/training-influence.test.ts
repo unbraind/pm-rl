@@ -122,7 +122,7 @@ test("native records, compact CLI packets and historical evidence feed the next 
   const evidence = config.influenceEvidence as Record<string, JsonValue>;
   await assert.rejects(verifyTrainingInfluenceProposal(client, { ...programme() as Record<string, JsonValue>, influence_evidence: { ...evidence, report: "changed" } }), refused("influence_drift"));
   for (const supplied of [null, {}, { id: retained.id, at: "invalid" }]) await assert.rejects(verifyTrainingInfluenceProposal(client, { ...programme() as Record<string, JsonValue>, influence_evidence: supplied as JsonValue }));
-  for (const patch of [{ training: [] }, { trainer: "lm" }, { evaluation: p.training }]) await assert.rejects(verifyTrainingInfluenceProposal(client, { ...proposal as Record<string, JsonValue>, ...patch } as unknown as JsonValue), refused("influence_overlap"));
+  for (const patch of [{ training: [] }, { trainer: "lm" }, { evaluation: p.training }]) await assert.rejects(verifyTrainingInfluenceProposal(client, { ...proposal as Record<string, JsonValue>, ...patch } as unknown as JsonValue), refused("training" in patch ? "influence_invalid" : "influence_overlap"));
   const p2 = request(12); const second = await recordTrainingInfluence(client, p2);
   const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
   const input = join(root, "experiment.json"); const next = join(root, "proposal.json"); writeFileSync(input, JSON.stringify(p2)); writeFileSync(next, JSON.stringify(programme(p2)));

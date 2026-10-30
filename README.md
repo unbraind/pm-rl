@@ -181,6 +181,10 @@ remain subject to the consumed budget.
 All commands listed above are implemented. [Recursive training execution](RECURSIVE_TRAINING.md)
 documents the local process and Docker Compose adapters and remaining scheduler work.
 
+Influence evidence already admitted into a loop survives compaction of its report history:
+`run`, `resume` and `status` verify the persisted seed seal. New proposals still
+require their historical report citation, and altered seed seals refuse.
+
 ## Implemented refusals
 
 The first slice fails closed when context would otherwise become misleading:

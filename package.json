@@ -169,6 +169,7 @@
       "test/worst-cohort.test.ts",
       "test/json-boundaries.test.ts",
       "test/training-influence.test.ts",
+      "test/training-influence-maintenance.test.ts",
       "test/evaluation-compatibility.test.ts"
     ],
     "thresholds": {

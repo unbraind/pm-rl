@@ -1,0 +1,62 @@
+{
+  "format": "pm-rl/influence-maintenance-revert/1",
+  "baseline": "cd7370d",
+  "tests": [
+    {
+      "function": "influenceDatasets error category",
+      "reverted": {
+        "pass": 0,
+        "fail": 1
+      },
+      "restored": {
+        "pass": 1,
+        "fail": 0
+      }
+    },
+    {
+      "function": "attachTrainingInfluence admission order",
+      "reverted": {
+        "pass": 0,
+        "fail": 1
+      },
+      "restored": {
+        "pass": 1,
+        "fail": 0
+      }
+    },
+    {
+      "function": "runRlLoop sealed re-entry",
+      "reverted": {
+        "pass": 0,
+        "fail": 1
+      },
+      "restored": {
+        "pass": 1,
+        "fail": 0
+      }
+    },
+    {
+      "function": "storedLoopConfiguration seed seal",
+      "reverted": {
+        "pass": 0,
+        "fail": 1
+      },
+      "restored": {
+        "pass": 1,
+        "fail": 0
+      }
+    },
+    {
+      "function": "isProvenanceReadFailure permanent pruning",
+      "reverted": {
+        "pass": 0,
+        "fail": 1
+      },
+      "restored": {
+        "pass": 1,
+        "fail": 0
+      }
+    }
+  ],
+  "reviewed_source_unchanged": true
+}

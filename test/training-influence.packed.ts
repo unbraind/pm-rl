@@ -46,6 +46,7 @@ for (const mode of ["npm-global", "bun-global", "npx", "bunx", "project-local"])
   const project = mode === "npm-global" ? "training" : mode === "bun-global" ? "training-influence" : "rl";
   const tracker = await init(project, { defaults: true, author: "influence-packed", agentGuidance: "skip" }, { cwd: root });
   extra = { ...extra, PM_PATH: tracker.path, GIT_CEILING_DIRECTORIES: dirname(root) };
+  const client = new PmClient({ cwd: root, pmRoot: tracker.path, noExtensions: true });
   /** All routes exercise the exact extension tarball, with the host supplied by the selected installation mode. */
   const command = (args: string[]): string => execute(launcher, [...prefixArgs, ...args], root, extra);
   assert.match(command(["--version"]), /2026\.10\.28/);
@@ -63,6 +64,33 @@ for (const mode of ["npm-global", "bun-global", "npx", "bunx", "project-local"])
   writeFileSync(next, JSON.stringify({ environment: { name: "Packed sensitivity", version: "1" }, training: input.training, evaluation: input.held_out, seed: 42, initial_weight: 0, samples_per_generation: 32, fit_steps: 2, max_generations: 1, budget: 32, learning_rate: 0.5, minimum_improvement: 0.01, maximum_gap: 1, evaluation_samples: 100, confidence: 0.95, min_samples: 2 }));
   command(["rl", "influence", "propose", run.details.id, "--file", next, "--output", evidenced, "--json"]);
   assert.ok((JSON.parse(readFileSync(evidenced, "utf8")) as Record<string, unknown>).influence_evidence);
+  const approval = await client.create({ id: "sealed-approval", type: "Decision", title: "Sealed proposal allowance", body: '```json\n{"permitted_promotions":2}\n```', unset: ["parent", "goal", "objective", "sprint", "release", "assignee", "reviewer", "blocked_by"], clearDeps: true });
+  const initialLoop = JSON.parse(command(["rl", "loop", "run", "packed-sealed", "--file", evidenced, "--approval", approval.item.id, "--json"])) as { details: { final_checkpoint: string } };
+  for (let annotation = 0; annotation < 5; annotation += 1) await client.update(run.details.id, { title: `Report annotation ${annotation}` });
+  assert.equal((await client.historyCompact(run.details.id, { before: "5" })).changed, true);
+  for (const format of [[], ["--json"]]) {
+    assert.throws(() => command(["rl", "loop", "run", "packed-new-pruned", "--file", evidenced, "--approval", approval.item.id, ...format]), (error: unknown) => {
+      assert.ok(error instanceof Error && "stdout" in error && "stderr" in error);
+      assert.match(String(error.stdout) + String(error.stderr), /pruned/); return true;
+    });
+    const resumed = command(["rl", "loop", "resume", "packed-sealed", "--approval", approval.item.id, ...format]);
+    assert.ok(resumed.includes(initialLoop.details.final_checkpoint));
+    const status = command(["rl", "loop", "status", "packed-sealed", ...format]);
+    assert.ok(status.includes(initialLoop.details.final_checkpoint));
+  }
+  const repeatedLoop = JSON.parse(command(["rl", "loop", "run", "packed-sealed", "--file", evidenced, "--approval", approval.item.id, "--json"])) as { details: { final_checkpoint: string } };
+  assert.equal(repeatedLoop.details.final_checkpoint, initialLoop.details.final_checkpoint);
+  const invalidInput = { ...input, training: input.training.map((row, index) => ({ ...row, ...(index === 0 ? { features: [row.feature] } : {}) })) };
+  const invalidFile = join(root, "invalid-dataset.json"); writeFileSync(invalidFile, JSON.stringify(invalidInput));
+  const invalidNext = join(root, "invalid-next.json"); writeFileSync(invalidNext, JSON.stringify({ ...JSON.parse(readFileSync(next, "utf8")) as Record<string, unknown>, training: invalidInput.training }));
+  for (const format of [[], ["--json"]]) for (const args of [["run", "--file", invalidFile], ["propose", run.details.id, "--file", invalidNext, "--output", join(root, "invalid-output.json")]]) {
+    assert.throws(() => command(["rl", "influence", ...args, ...format]), (error: unknown) => {
+      assert.ok(error instanceof Error && "stdout" in error && "stderr" in error);
+      assert.match(String(error.stdout) + String(error.stderr), /influence_invalid/); return true;
+    });
+  }
+  assert.equal(existsSync(join(root, "invalid-output.json")), false);
+
   writeFileSync(file, JSON.stringify({ ...input, budget: { fits: 1, samples: 32, updates: 2 } }));
   const partial = JSON.parse(command(["rl", "influence", "run", "--file", file, "--json"])) as { details: { complete: boolean; ranking: unknown; omitted: unknown[] } };
   assert.equal(partial.details.complete, false); assert.equal(partial.details.ranking, null); assert.equal(partial.details.omitted.length, 2);
@@ -97,7 +125,6 @@ for (const mode of ["npm-global", "bun-global", "npx", "bunx", "project-local"])
     assert.equal(checked.publication_refusals, 2); assert.equal(checked.peer_state_retained, true);
     assert.equal(checked.staging_recoveries, 2); assert.equal(checked.resumed_budget_retained, true); assert.equal(checked.materialization_refusals, 1);
   } finally { unlinkSync(probe); }
-  const client = new PmClient({ cwd: root, pmRoot: tracker.path, noExtensions: true });
   const projectPrefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
   const processAllowance = { training_steps: 1, wall_ms: 5000, storage_bytes: 65536, compute_units: 1000, tokens: 4 };
   const processApproval = await client.create({ id: "packed-process-approval", type: "Decision", title: "One recursive packed fit", body: "```json\n" + JSON.stringify({ permitted_promotions: 1, resource_budget: processAllowance }) + "\n```" });
@@ -125,7 +152,7 @@ for (const mode of ["npm-global", "bun-global", "npx", "bunx", "project-local"])
   assert.equal((await client.get(run.details.id, { full: true })).item.type, "Task");
   assert.equal(existsSync(join(root, "foreign-proposal.json")), false);
   assert.equal(existsSync(join(root, "injected")), false);
-  results.push({ project_prefix: projectPrefix, foreign_refusals: 6, shell_metacharacter_path: true, mode, host: "2026.10.28", sweep_arms: 2, sweep_json_toon: true, publication_refusals: 2, staging_recoveries: 2, resumed_budget_retained: true, materialization_refusals: 1, process_loop_json_toon: true, process_loop_resume: true, comparisons: run.details.comparisons.length, json_bytes: Buffer.byteLength(json), toon_bytes: Buffer.byteLength(toon), retry_created: false, partial_omitted: partial.details.omitted.length, no_git: true, proposal_feedback: true });
+  results.push({ compacted_seed_resume: true, sealed_rerun: true, pruned_new_refusals: 2, dataset_invalid_refusals: 4, project_prefix: projectPrefix, foreign_refusals: 6, shell_metacharacter_path: true, mode, host: "2026.10.28", sweep_arms: 2, sweep_json_toon: true, publication_refusals: 2, staging_recoveries: 2, resumed_budget_retained: true, materialization_refusals: 1, process_loop_json_toon: true, process_loop_resume: true, comparisons: run.details.comparisons.length, json_bytes: Buffer.byteLength(json), toon_bytes: Buffer.byteLength(toon), retry_created: false, partial_omitted: partial.details.omitted.length, no_git: true, proposal_feedback: true });
   process.stdout.write(`${mode}: passed\n`);
 }
 const bytes = readFileSync(archive);

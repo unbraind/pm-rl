@@ -6,11 +6,11 @@ status: in_progress
 priority: 2
 tags[3]: evaluation,influence,training
 created_at: "2026-10-29T08:20:10.275Z"
-updated_at: "2026-10-29T20:16:53.598Z"
+updated_at: "2026-10-30T14:50:13.459Z"
 author: codex-agent
 acceptance_criteria: "Reports reproduce on a fixed learner and seed; Held-out data never enters training; Exhausted experiment budgets return partial evidence without a ranking claim; Typed SDK and compact CLI output, audit records, recursive proposal evidence, non-git public-copy validation, seeded model tests and npm plus Bun release gates"
 parent: pm-rl-apvf
-comments[42]{created_at,author,text}:
+comments[48]{created_at,author,text}:
   "2026-10-29T08:20:18.810Z",codex-agent,"Overlap rechecked against current core CLI/SDK, pm-rl policy-card.ts and evaluation-plan.ts, and pm-jev counterfactual.ts. Core owns native records/history/locks; policy cards explain provenance and validity; Jev removes inference evidence. This feature measures retraining sensitivity. Preserve all normal proposal, evaluation, promotion and feedback gates. Results remain associations; no causal identification claim. Current published CLI is 2026.10.28; package SDK remains pinned 2026.10.25."
   "2026-10-29T08:28:28.000Z",codex-agent,"Implemented the first typed request/report schema and fixed seeded retraining using the existing bandit kernel. Integer multiplicities implement omissions/reweighting; exact integer budgets include the baseline. Numerical tests confirm deterministic checkpoints, changed held-out scores without changed fitted parameters, strict dense/finite admission, and partial evidence with ranking=null. Native report identity is immutable; proposal evidence cites a certified SDK history revision and is retained in seed/candidate provenance. No shared experiment budget, plan replay or new promotion authority is introduced."
   "2026-10-29T08:46:27.483Z",codex-agent,"Public-copy validation passed on unbraind/pm-ops at ba05bb8b96b313b86d25896ef40880712f295881: 162 items, 116 training, 46 held out, 42 held-out done-role items (SDK registry semantics). Four fits used 2048 samples and 32 updates; overall expected-reward deltas were +0.004185111930395058, -0.003866597213557754 and -0.0010403833570880039. The two-fit budget retained two named omissions without a ranking. Source fingerprint stayed unchanged across 332 read-only files. Both recursive generations promoted through existing gates and both replayed on resume with the same final checkpoint. Git was absent from PATH. Behavioral revert in a disposable copy removed training-slice membership effects: the deterministic movement test failed 0/1, then restored behavior passed 1/1. See docs/training-influence-evidence.json and docs/training-influence-revert.json."
@@ -53,7 +53,13 @@ comments[42]{created_at,author,text}:
   "2026-10-29T20:01:29.497Z",codex-agent,"Revert proof completed in disposable copies only: node test/training-influence.executor-revert.ts --staging-only reports 4 mutants failing and all 4 restorations passing. Targets: executeReservedProcessJob staging settlement, processTransitionTarget consumption floor (expanded 100 SDK refund refusals), failedProcessCharge inaccessible report handling, and its untouched native birth proof. The original checkout stayed unchanged. An additional installed-Bun negative probe against preliminary artifact 0e90b62aad6c8a60aa8069fde2196a3ae3ec5cb04b4c0dcb72ad8b39989f8a9f fails because unverified materialization is accepted; the final recaptured artifact includes the guard and is being validated across all five install modes. Strict tracker health remains ok with the same two existing advisories; no history repair or telemetry changes."
   "2026-10-29T20:15:45.380Z",codex-agent,"Final packed command node test/training-influence.packed.ts <captured-archive> docs/training-influence-packed.json passes 5/5: npm global, Bun global, npx, bunx and project-local hosts on CLI 2026.10.28, no Git. Totals: 10 publication refusals retaining peer SDK state, 10 planned/running staging recoveries, 5 generic materialization refusals, 30 foreign influence refusals, and 5 successful recursive process run/status/resume programmes with JSON/TOON. Final artifact SHA-256 d12c4d23e89844af56771beecafaba2eda1ef1bfcb939af2538f95788c611a42, 822020 bytes, 226 source-matching files. Disposable ignored shipped-file mutation detected; restoration matches; captured archive unchanged. npm run check, npm run build:test, npm run build, npm run docstring (425 declarations, 55 files), changelog checks and strict isolated health pass. Full npm/Bun release gates will run on the pushed head; no full-gate or coverage approval is claimed yet."
   "2026-10-29T20:16:53.597Z",codex-agent,"Round-4 code and validation are pushed at 3255acc8da44c280ed9d732019de854e32759512. Full release-gate CI: https://github.com/unbraind/pm-rl/actions/runs/40947525619 (queued at handoff); current-head checks: https://github.com/unbraind/pm-rl/pull/119/checks. Complete npm Node 22/26 and Bun Node 26 release gates remain required at unchanged 100/100/100/100 thresholds with at most two workers. Monitoring cutoff is 2026-10-29 20:46 UTC, measured from the 20:16 code push; this audit-only update does not restart it. Any subsequent metadata-only push requires fresh exact-head CI observation; code and the validated artifact remain identical. Claim released, item not closed, no merge/release and no full-gate approval claimed."
-files[23]{path,scope}:
+  "2026-10-30T13:56:59.279Z",codex-agent,"Round 5: merged current main first, retaining both compatibility and influence coverage entries and native history prefixes. Rules under review: immutable evidence must survive maintenance without accepting new unverified proposals; dataset refusals must preserve invalid versus overlap categories through every SDK/CLI caller; follow-up acceptance must describe its actual scope. Audit citation consumers and error adapters, reproduce real SDK compaction in non-git trackers, and add adversarial regression/revert proofs. The recipe follow-up description explicitly excludes executor settlement/refunds; clarify that exclusion and its acceptance criteria rather than expanding unrelated inference work."
+  "2026-10-30T14:13:48.096Z",codex-agent,"Class audit found two additional affected adapters: attachTrainingInfluence parsed the loop before influence validation, masking dataset codes in CLI propose; shared provenance reads treated history_version_pruned as transient. Both now retain the correct categories. Recovery uses only the native seed whose recomputed programme digest and generation provenance seal match; new ids and changed configurations still verify/refuse historical citations. Policy-card proof requirements remain independently enforced. New non-git tests use an uncompacted control loop as the checkpoint/budget oracle, test seed tampering and both CLI formats, and distinguish report compaction from pruning an unrelated required policy-card history. The follow-up scope/acceptance clarification was recorded through pinned SDK-backed pm commands."
+  "2026-10-30T14:15:49.904Z",codex-agent,"Previous-head CI 40947668736 has passed Node 22 and Node 26 release gates. The Bun job is not a code-failure result: its check annotation states that the hosted runner lost communication with the server; the job exposes no failed steps/logs. It remains missing Bun gate evidence, not a pass. The new head will receive fresh npm/Bun gates. New error-category tests pass 500 seeded cases and SDK plus CLI JSON/TOON checks; history compaction tests compare checkpoints, promotions and consumed samples to a separate uncompacted control, preserve new-proposal historical verification, and reject tampered seeds and missing unrelated policy-card proofs."
+  "2026-10-30T14:24:39.657Z",codex-agent,"Managed validation passed 15/15, no skips or cancellations: node --test --test-concurrency=2 test/training-influence.test.ts test/training-influence-maintenance.test.ts. This retains all 500 native SDK state sequences and 500 history permutations, adds 500 category/shape cases, exercises SDK plus CLI JSON/TOON run/propose paths, and compares compaction recovery against an uncompacted control. New proposals with pruned citations and altered native seed seals refuse; existing run/resume/status preserve admitted influence evidence without changing checkpoint, promotions or sample charges. One pre-existing empty-dataset expectation was corrected from overlap to invalid; all its cases and exact refusal assertions remain. Independent policy-card history loss still refuses rather than bypassing another gate."
+  "2026-10-30T14:27:25.433Z",codex-agent,"Behavioral revert proof: node test/training-influence-maintenance-revert.ts reports five mutants failing and all five restored versions passing, using disposable source copies and real non-git SDK trackers. Targets: shared dataset-category adapter, propose admission order, run re-entry citation handling, persisted seed seal validation, and permanent-pruning error classification. Only the changed function/guard was reverted per case; the actual worktree remained fixed. npm run check, build:test, build and docstrings pass; the captured artifact is source-matching, and all five packed install modes are now testing compaction recovery, refusal of new pruned proposals, unchanged checkpoints and invalid-dataset codes in JSON/TOON."
+  "2026-10-30T14:50:10.736Z",codex-agent,"Final packed validation passed 5/5 modes: npm global, Bun global, npx, bunx and project-local on CLI 2026.10.28 with no Git. Each mode seals a loop, compacts its report, resumes and reads status in JSON/TOON, re-enters with the same checkpoint, refuses new pruned proposals and preserves invalid-dataset categories. Totals: 10 pruned-new refusals and 20 invalid-dataset refusals, alongside all earlier publication/staging/materialization/foreign-record probes. Captured artifact SHA-256 8668e3619f2e47eac780fd26c088b581d930099bc98cee98b97e6b8211fc4a4b; 823086 bytes, 226 source-matching files; ignored shipped-file mutation detected and restoration verified. Managed tests 15/15; five behavior mutants fail and five restorations pass. Typecheck, test compilation, build, lint, zero duplicates, docstrings and changelog checks pass. Strict health remains ok with the same two existing advisories. Fresh full npm/Bun CI evidence remains required on the pushed head."
+files[26]{path,scope}:
   evaluation-plan.ts,project
   examples/training-influence.json,project
   index.ts,project
@@ -62,6 +68,7 @@ files[23]{path,scope}:
   package.json,project
   policy-card.ts,project
   process.ts,project
+  refuse.ts,project
   shadow.ts,project
   test/fixtures/process-controller.ts,project
   test/fixtures/process-hang.ts,project
@@ -70,6 +77,8 @@ files[23]{path,scope}:
   test/process-publication.test.ts,project
   test/process.test.ts,project
   test/sweep.test.ts,project
+  test/training-influence-maintenance-revert.ts,project
+  test/training-influence-maintenance.test.ts,project
   test/training-influence.acceptance.ts,project
   test/training-influence.compensation-revert.ts,project
   test/training-influence.executor-revert.ts,project
@@ -77,7 +86,7 @@ files[23]{path,scope}:
   test/training-influence.revert.ts,project
   test/training-influence.test.ts,project
   training-influence.ts,project
-tests[11]{command,scope,timeout_seconds,pm_context_mode,workspace_context_mode,provenance{author,created_at,source_kind,source_ref}}:
+tests[13]{command,scope,timeout_seconds,pm_context_mode,workspace_context_mode,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-concurrency=2 test/training-influence.test.ts,project,900,none,snapshot,codex-agent,"2026-10-29T08:45:10.064Z",local_mutation,feat/measured-training-slice-influence-reports
   "node --test --test-concurrency=2 --test-name-pattern=every\\ producer\\|influence\\ ownership test/training-influence.test.ts",project,120,none,snapshot,codex-agent,"2026-10-29T11:20:53.213Z",local_mutation,feat/measured-training-slice-influence-reports
   "node --test --test-concurrency=1 --test-name-pattern=history\\ order\\|retained\\ policy-card\\ ownership\\|reversed\\ native\\ history\\|retained\\ ancestry\\ ownership test/training-influence.test.ts test/policy-card.test.ts",project,240,none,snapshot,codex-agent,"2026-10-29T12:25:17.732Z",local_mutation,feat/measured-training-slice-influence-reports
@@ -89,12 +98,15 @@ tests[11]{command,scope,timeout_seconds,pm_context_mode,workspace_context_mode,p
   "node --test --test-concurrency=2 --test-name-pattern=\"staging.creation.failures|every.failure.settlement.edge|recovery.settlement.retains.reservations\" test/process-publication.test.ts",project,900,none,snapshot,codex-agent,"2026-10-29T19:32:00.647Z",local_mutation,feat/measured-training-slice-influence-reports
   node --test --test-concurrency=2 test/process-loop.test.ts,project,900,none,snapshot,codex-agent,"2026-10-29T19:45:02.055Z",local_mutation,feat/measured-training-slice-influence-reports
   node test/training-influence.executor-revert.ts --staging-only,project,900,none,isolated,codex-agent,"2026-10-29T19:47:33.279Z",local_mutation,feat/measured-training-slice-influence-reports
-docs[9]{path,scope}:
+  node --test --test-concurrency=2 test/training-influence.test.ts test/training-influence-maintenance.test.ts,project,900,none,snapshot,codex-agent,"2026-10-30T14:10:29.710Z",local_mutation,feat/measured-training-slice-influence-reports
+  node test/training-influence-maintenance-revert.ts,project,1800,none,isolated,codex-agent,"2026-10-30T14:20:07.293Z",local_mutation,feat/measured-training-slice-influence-reports
+docs[10]{path,scope}:
   docs/process-trainer.md,project
   docs/training-influence-artifact-parity.json,project
   docs/training-influence-compensation-revert.json,project
   docs/training-influence-evidence.json,project
   docs/training-influence-executor-revert.json,project
+  docs/training-influence-maintenance-revert.json,project
   docs/training-influence-packed.json,project
   docs/training-influence-revert.json,project
   docs/training-influence-staging-revert.json,project

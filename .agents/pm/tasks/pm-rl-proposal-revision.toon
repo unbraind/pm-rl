@@ -1,15 +1,17 @@
 id: pm-rl-proposal-revision
 title: Audit revision fencing for recipe proposal publication
-description: "Static whole-package audit found a separate forward-only inference receipt path: durableRecipeProposals in meta.ts creates an intent, awaits proposal work, then completes it with a direct SDK update without a captured expected revision. It has no executor failure settlement or resource refund path. Reproduce ordinary peer replacement with a loopback model fixture and a real non-git SDK tracker before changing behavior; no live model call was made in this audit. Keep this separate from the process publication/failure class corrected in PR 119."
+description: "Scope: forward-only durableRecipeProposals inference publication in meta.ts. An intent is created before awaiting proposal work, then completed by direct SDK update without an expected native revision. Reproduce peer replacement during inference and interrupted publication using a loopback model fixture and a real non-git SDK tracker. Non-goals: process executor settlement and resource refunds are separate paths, already tracked by the process recovery corrections in PR 119; this task does not assert that inference owns those paths."
 type: Task
 status: open
 priority: 2
 tags[3]: concurrency,follow-up,static-audit
 created_at: "2026-10-29T17:12:16.873Z"
-updated_at: "2026-10-29T17:12:17.824Z"
+updated_at: "2026-10-30T13:59:08.104Z"
 author: codex-agent
 estimated_minutes: 60
-acceptance_criteria: A real SDK interleaving proves the current behavior; any fix preserves peer data and avoids duplicate inference; retry validates native revisions and stored binding; new output and legacy receipts remain readable
+acceptance_criteria: "A real SDK loopback interleaving reproduces peer replacement during inference and interruption after inference before receipt publication; success, failure, cancellation and retry preserve peer state and stored binding; retry validates every native target revision and avoids duplicate inference; process reservation and settled resource charges remain unchanged by this forward-only publication path; newly produced and released legacy receipts remain readable"
+comments[1]{created_at,author,text}:
+  "2026-10-30T13:59:05.806Z",codex-agent,"Round-5 review clarification: the earlier description said this path has no executor failure settlement or resource refund path, rather than saying it lacks implementations of those mechanisms. The review inferred a missing refund responsibility incorrectly. Scope and non-goals are now explicit, and acceptance names the actual pre/post-inference publication failure, cancellation and retry paths, including preservation of existing process charges. No inference implementation was changed."
 files[2]{path,scope}:
   meta.ts,project
   test/meta.test.ts,project

@@ -1,12 +1,16 @@
 {
   "format": "pm-rl/training-influence-packed/1",
   "artifact": {
-    "sha256": "d12c4d23e89844af56771beecafaba2eda1ef1bfcb939af2538f95788c611a42",
-    "bytes": 822020,
+    "sha256": "8668e3619f2e47eac780fd26c088b581d930099bc98cee98b97e6b8211fc4a4b",
+    "bytes": 823086,
     "inspected_contents": true
   },
   "modes": [
     {
+      "compacted_seed_resume": true,
+      "sealed_rerun": true,
+      "pruned_new_refusals": 2,
+      "dataset_invalid_refusals": 4,
       "project_prefix": "training-",
       "foreign_refusals": 6,
       "shell_metacharacter_path": true,
@@ -29,6 +33,10 @@
       "proposal_feedback": true
     },
     {
+      "compacted_seed_resume": true,
+      "sealed_rerun": true,
+      "pruned_new_refusals": 2,
+      "dataset_invalid_refusals": 4,
       "project_prefix": "training-influence-",
       "foreign_refusals": 6,
       "shell_metacharacter_path": true,
@@ -51,6 +59,10 @@
       "proposal_feedback": true
     },
     {
+      "compacted_seed_resume": true,
+      "sealed_rerun": true,
+      "pruned_new_refusals": 2,
+      "dataset_invalid_refusals": 4,
       "project_prefix": "rl-",
       "foreign_refusals": 6,
       "shell_metacharacter_path": true,
@@ -73,6 +85,10 @@
       "proposal_feedback": true
     },
     {
+      "compacted_seed_resume": true,
+      "sealed_rerun": true,
+      "pruned_new_refusals": 2,
+      "dataset_invalid_refusals": 4,
       "project_prefix": "rl-",
       "foreign_refusals": 6,
       "shell_metacharacter_path": true,
@@ -95,6 +111,10 @@
       "proposal_feedback": true
     },
     {
+      "compacted_seed_resume": true,
+      "sealed_rerun": true,
+      "pruned_new_refusals": 2,
+      "dataset_invalid_refusals": 4,
       "project_prefix": "rl-",
       "foreign_refusals": 6,
       "shell_metacharacter_path": true,
