@@ -9,7 +9,7 @@ import { Readable, Writable } from "node:stream";
 import { runReferenceTrainer, referenceTrainerMain, writeTrainerArtifact } from "../process-bandit.ts";
 import { parseLoopProgramme, parseLoopConfig } from "../loop.ts";
 import { mock, test } from "node:test";
-import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
+import { isPmCliExpectedError, normalizeRawItemId } from "@unbrained/pm-cli/sdk/runtime";
 import { appendDiagnostics, executeProcessTrainer, launchTrainer, transitionProcessJob, stopTrainer, parseProcessAdapter, parseResources, processJobId, processStaging, processJobBodyId, listProcessJobs, readProcessJob, referenceTrainerArgv, reserveProcessJob, stagingBytes, validateProcessCompletion, verifiedProcessPolicy, type ProcessCompletion } from "../process.ts";
 import { allowance, configuration, processWorkspace, trainingInput } from "./fixtures/process-workspace.ts";
 // Node's parent coverage hooks remain active; SIGKILL-able children must not inherit its raw-report directory.
@@ -116,6 +116,15 @@ test("completion validation refuses foreign lineage, unsafe resources and unread
     writeFileSync(receiptFile, JSON.stringify({ ...completion, ...patch })); assert.throws(() => validateProcessCompletion(directory, job.id, input, allowance));
   }
   writeFileSync(receiptFile, original);
+  for (const wall of [-1, NaN, Infinity, Number.MAX_SAFE_INTEGER, job.completion!.usage.wall_ms + 2]) assert.throws(() => validateProcessCompletion(directory, job.id, input, allowance, directory, wall), isPmCliExpectedError);
+  const nativeStat = fs.lstatSync;
+  const malformedClock = mock.method(fs, "lstatSync", ((path: PathLike, options?: unknown) => {
+    const stat = Reflect.apply(nativeStat, fs, [path, options]) as object;
+    return path === receiptFile ? new Proxy(stat, { get(target, key) { return key === "mtimeMs" ? NaN : Reflect.get(target, key, target); } }) : stat;
+  }) as typeof fs.lstatSync);
+  syncBuiltinESMExports();
+  try { assert.throws(() => validateProcessCompletion(directory, job.id, input, allowance), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "process_limit_exceeded"); }
+  finally { malformedClock.mock.restore(); syncBuiltinESMExports(); }
   assert.throws(() => validateProcessCompletion(directory, job.id, input, { ...allowance, storage_bytes: 200 }));
   assert.throws(() => verifiedProcessPolicy({ ...job, completion: { ...job.completion!, digest: "foreign" } }, pmRoot, input));
   mkdirSync(join(directory, "unexpected")); assert.throws(() => stagingBytes(directory));
@@ -126,8 +135,9 @@ test("completion validation refuses foreign lineage, unsafe resources and unread
 test("the shipped trainer writes real parameter updates and durable NDJSON receipts", async () => {
   const { root } = await processWorkspace(); const input = trainingInput(); let output = "";
   const stream = new Writable({ write(chunk: Buffer, _encoding, callback) { output += String(chunk); callback(); } });
-  await runReferenceTrainer(Readable.from([JSON.stringify({ job: "standalone", input })]), stream, root);
-  const events = output.trim().split('\n').map((line) => JSON.parse(line) as { type: string });
+  await runReferenceTrainer(Readable.from([JSON.stringify({ job: "#Standalone", input })]), stream, root);
+  const events = output.trim().split('\n').map((line) => JSON.parse(line) as { type: string; job: string });
+  assert.ok(events.every((event) => event.job === normalizeRawItemId("#Standalone")));
   assert.deepEqual(events.map((event) => event.type), ["progress", "complete"]);
   assert.throws(() => writeTrainerArtifact(join(root, "checkpoint.json"), {}), /EEXIST/);
   assert.throws(() => parseLoopProgramme({ trainer: "lm", adapter }));
@@ -185,6 +195,11 @@ test("budget and job identity drift refuse execution through real tracker reads"
   const job = await reserveProcessJob(client, coordinates, id, input, approval, allowance);
   const original = JSON.stringify(job);
   assert.equal(processJobBodyId(original), job.id);
+  // The explicit declaration boundary keeps the strict must-refuse assertions;
+  // the default v1 reader preserves every previously valid stored spelling.
+  for (const id of [`#${job.id.toUpperCase()}`, " padded ", "a".repeat(201)]) assert.equal(processJobBodyId(JSON.stringify({ ...job, id })), id);
+  assert.equal(processJobBodyId(JSON.stringify({ ...job, id: `#${job.id.toUpperCase()}` }), false), (JSON.parse(String((await client.get(job.id, { full: true })).item.body)) as { id: string }).id);
+  for (const id of ["..", "../foreign", " padded ", "", "a".repeat(201)]) assert.equal(processJobBodyId(JSON.stringify({ ...job, id }), false), null);
   for (const body of ["# Markdown", 'pm-rl/process-job/1 prose', '{"format":"other-package/process-job/1"}', '{"format":"pm-rl/process-job/1","id":17}']) assert.equal(processJobBodyId(body), null);
   for (const patch of [{ format: "foreign" }, { id: "foreign" }, { state: "foreign" }, { settled: "foreign" }, { charge: { ...allowance, training_steps: 0 } }, { completion: undefined }, { completion: [] }, { completion: "foreign" }, { completion: { usage: null } }]) {
     await client.update(id, { body: JSON.stringify({ ...job, ...patch }) }); await assert.rejects(readProcessJob(client, id));
@@ -243,7 +258,7 @@ test("native child identity failure and PID reuse do not authorize an unrelated 
   const path = process.env["PATH"]; process.env["PATH"] = "";
   try { await assert.rejects(launchTrainer(directory, "native", input, allowance, argv("hang")), /Cannot establish trainer process identity/); }
   finally { process.env["PATH"] = path; }
-  stopTrainer(process.pid, "foreign birth time");
+  await stopTrainer(process.pid, "foreign birth time");
   assert.equal(process.pid > 0, true);
 });
 

@@ -15,6 +15,7 @@ import extension, {
   generationProvenance,
   extractGenerationSpec,
   hashJson,
+  registerGenerationCore,
   RL_ITEM_TYPES,
   type JsonValue,
   type RlCommandResult,
@@ -343,6 +344,34 @@ test("parseScoreRecord accepts attributed scores and refuses every incomparable 
   }
 });
 
+/**
+ * The stable refusal code each malformed generation record must produce, in write and read mode. Assertions
+ * check the code as well as the message, because messages are presentation and can stay similar while the code
+ * regresses (CodeRabbit on #107). Write mode refuses padded identifiers as invalid identifiers; read mode trims
+ * them first, so a whitespace-only parent reads as a missing parent.
+ */
+const GENERATION_REFUSAL_CODES: Record<string, readonly [write: string, read: string]> = {
+  "not valid JSON": ["invalid_generation_json", "invalid_generation_json"],
+  "one JSON object": ["invalid_json_object", "invalid_json_object"],
+  "collection_runs array of strings": ["invalid_collection_runs", "invalid_collection_runs"],
+  "parent to be a string or null": ["invalid_parent", "invalid_parent"],
+  "declares seed but has a parent": ["seed_with_parent", "seed_with_parent"],
+  "non-empty parent for a non-seed": ["missing_parent", "missing_parent"],
+  "State boundary refused": ["rl_identifier_invalid", "missing_parent"],
+  "non-empty policy for a non-seed": ["missing_policy", "missing_policy"],
+  "non-empty environment_version for a non-seed": ["missing_environment", "missing_environment"],
+  "non-empty reward_spec_version for a non-seed": ["missing_reward_spec", "missing_reward_spec"],
+  "at least one collection run": ["missing_collection_runs", "missing_collection_runs"],
+  "approval to be a string or null": ["invalid_approval", "invalid_approval"],
+  "gap to be a finite number or null": ["invalid_gap", "invalid_gap"],
+  "promotion_evidence to be a string or null": ["invalid_promotion_evidence", "invalid_promotion_evidence"],
+};
+
+/** Match a typed refusal by its stable code, and optionally by its message. */
+function refusedAs(code: string, message?: RegExp): (error: unknown) => boolean {
+  return (error) => (error as { context?: { code?: string } }).context?.code === code && (message === undefined || message.test(String((error as Error).message)));
+}
+
 test("parseGenerationSpec accepts the seed and a full candidate and refuses every malformed provenance", () => {
   const seedText = JSON.stringify(seedSpec("ckpt-0", ""));
   assert.equal(parseGenerationSpec(seedText, "g").seed, true);
@@ -361,7 +390,7 @@ test("parseGenerationSpec accepts the seed and a full candidate and refuses ever
     [JSON.stringify({ base_checkpoint: "b", collection_runs: [], parent: 5, seed: false }), /parent to be a string or null/],
     [JSON.stringify({ base_checkpoint: "b", collection_runs: [], parent: "p", seed: true }), /declares seed but has a parent/],
     [JSON.stringify({ base_checkpoint: "b", collection_runs: [], parent: null, seed: false }), /non-empty parent for a non-seed/],
-    [JSON.stringify({ base_checkpoint: "b", collection_runs: [], parent: "  ", seed: false }), /non-empty parent for a non-seed/],
+    [JSON.stringify({ base_checkpoint: "b", collection_runs: [], parent: "  ", seed: false }), /State boundary refused/],
     [JSON.stringify({ base_checkpoint: "b", collection_runs: [], parent: "p", seed: false }), /non-empty policy for a non-seed/],
     [JSON.stringify({ base_checkpoint: "b", collection_runs: [], parent: "p", policy: "x", seed: false }), /non-empty environment_version for a non-seed/],
     [JSON.stringify({ base_checkpoint: "b", collection_runs: [], parent: "p", policy: "x", environment_version: "e", seed: false }), /non-empty reward_spec_version for a non-seed/],
@@ -371,7 +400,9 @@ test("parseGenerationSpec accepts the seed and a full candidate and refuses ever
     [JSON.stringify({ ...fullBase }).replace('"gap":null', '"gap":1e999'), /gap to be a finite number or null/],
     [JSON.stringify({ ...fullBase, promotion_evidence: 5 }), /promotion_evidence to be a string or null/],
   ] as Array<[string, RegExp]>) {
-    assert.throws(() => parseGenerationSpec(text, "g"), message);
+    const [writeCode, readCode] = GENERATION_REFUSAL_CODES[message.source];
+    assert.throws(() => parseGenerationSpec(text, "g", "write"), refusedAs(writeCode, message));
+    assert.throws(() => parseGenerationSpec(text, "g"), refusedAs(readCode));
   }
   // The promotion invariant: approval, proxy_score, held_out_score and gap are
   // non-null EXACTLY when promoted is true. A promoted record carrying all four
@@ -407,7 +438,7 @@ test("parseGenerationSpec accepts the seed and a full candidate and refuses ever
   // gen-0 from the head set - the same padded-identity class as the
   // contamination gate bypass fixed earlier in this PR.
   const paddedParent = { ...candidate, parent: "  gen-0  " };
-  assert.equal(parseGenerationSpec(JSON.stringify(paddedParent), "g").parent, "gen-0");
+  assert.throws(() => parseGenerationSpec(JSON.stringify(paddedParent), "g", "write"), refusedAs("rl_identifier_invalid", /State boundary refused/));
   // A seed body legitimately omits the parent key. Before `parent` collapsed
   // `undefined` to null like every other optional field, that body was refused
   // as invalid_parent with a message saying parent must be a string or null -
@@ -420,8 +451,8 @@ test("parseGenerationSpec accepts the seed and a full candidate and refuses ever
   // equivalent to one that omits the key — it must NOT be refused as
   // seed_with_parent. A non-seed body with a blank parent is still refused as
   // missing_parent, because the normalized null is not a usable parent.
-  assert.equal(parseGenerationSpec(JSON.stringify({ ...spec({ seed: true, parent: null }), parent: "   " }), "g").parent, null);
-  assert.equal(parseGenerationSpec(JSON.stringify({ ...spec({ seed: true, parent: null }), parent: "" }), "g").parent, null);
+  assert.throws(() => parseGenerationSpec(JSON.stringify({ ...spec({ seed: true, parent: null }), parent: "   " }), "g", "write"), refusedAs("rl_identifier_invalid", /State boundary refused/));
+  assert.throws(() => parseGenerationSpec(JSON.stringify({ ...spec({ seed: true, parent: null }), parent: "" }), "g", "write"), refusedAs("rl_identifier_invalid", /State boundary refused/));
   // A NON-seed body missing the key must still be refused - but for the reason
   // that is true of it (no parent) rather than for a type it never violated.
   const candidateNoParentKey: Record<string, unknown> = { ...candidate };
@@ -431,14 +462,14 @@ test("parseGenerationSpec accepts the seed and a full candidate and refuses ever
   // the comparison is the one bounding the recursive promotion budget. A
   // promoted record storing "  a  " matches no approval id, so it consumes none
   // of a's budget while still counting as promoted everywhere else.
-  assert.equal(parseGenerationSpec(JSON.stringify({ ...promotedBase, approval: "  a  " }), "g").approval, "a");
+  assert.throws(() => parseGenerationSpec(JSON.stringify({ ...promotedBase, approval: "  a  " }), "g", "write"), refusedAs("rl_identifier_invalid", /State boundary refused/));
   // collection_runs was the last stored identity list left un-normalized. It
   // lives inside the JSON fence, which pm treats as opaque body text and does
   // NOT normalize, so unlike the Run's typed `environment` field a padded entry
   // here IS reachable — and each entry is resolved by strict id lookup during
   // the ancestry walk, so it would resolve nothing and quietly degrade the
   // contamination graph.
-  assert.deepEqual(parseGenerationSpec(JSON.stringify({ ...promotedBase, collection_runs: ["  run-a  ", "run-b"] }), "g").collection_runs, ["run-a", "run-b"]);
+  assert.throws(() => parseGenerationSpec(JSON.stringify({ ...promotedBase, collection_runs: ["  run-a  ", "run-b"] }), "g", "write"), refusedAs("rl_identifier_invalid", /State boundary refused/));
   assert.throws(() => parseGenerationSpec(JSON.stringify({ ...promotedBase, collection_runs: ["run-a", "   "] }), "g"), /collection run id to be a non-empty identity/);
   // A blank approval is the same bypass without the padding: it is non-null, so
   // it satisfies the promotion-evidence invariant above, and it equals no
@@ -527,28 +558,8 @@ test("isGapWidening requires strictly increasing gaps over the full window", () 
  * literal, because normalization happens at parse time and a hand-built literal
  * would bypass the very code path under test.
  */
-test("a padded environment identity cannot slip past the contamination refusal", () => {
-  const padded = parseGenerationSpec(
-    JSON.stringify(
-      spec({
-        environment_version: "  env-eval\t",
-        reward_spec_version: "reward-1",
-        collection_runs: ["run-1"],
-        policy: "p1",
-        seed: false,
-        parent: "gen-0",
-      }),
-    ),
-    "padded",
-  );
-  assert.equal(padded.environment_version, "env-eval", "parse must normalize the identity");
-
-  const found = findContaminationPath(
-    [{ id: "gen-c1", spec: padded, runEnvironments: new Map() }],
-    "env-eval",
-  );
-  assert.ok(found, "a padded identity must still be caught by the contamination refusal");
-  assert.equal(found.overlap, "env-eval");
+test("a padded environment identity refuses before contamination lookup", () => {
+  assert.throws(() => parseGenerationSpec(JSON.stringify(spec({ environment_version: "  env-eval\t", reward_spec_version: "reward-1", collection_runs: ["run-1"], policy: "p1", seed: false, parent: "gen-0" })), "padded", "write"), (error) => isPmCliExpectedError(error) && error.context.code === "rl_identifier_invalid");
 });
 
 test("findContaminationPath follows environment and collection-run edges and is decided on identity", () => {
@@ -737,6 +748,10 @@ test("registering a candidate refuses an unpromoted parent, a policy-mismatched 
   const env = await registerEnv(harness, pmRoot, root, "Train");
   const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed", "ckpt-seed");
   const goodRun = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-good"], options: { environment: env, algorithm: "ckpt-seed" } }));
+  // Internal SDK callers also retain the empty-list guard after CLI intake refuses empty CSV members.
+  await assert.rejects(registerGenerationCore(client, { id: "gen-empty-native", baseCheckpoint: "ckpt-x", parent: seed, policy: "ckpt-x", collectionRuns: [], environment: env, config: {} }),
+    (error) => isPmCliExpectedError(error) && error.context.code === "missing_collection_runs" && error.message === "pm rl generation register requires --collection-runs for a non-seed generation.");
+  await assert.rejects(client.get("gen-empty-native"), /Item gen-empty-native not found/);
   // An unpromoted, non-seed candidate cannot parent another candidate.
   const unpromoted = resultOf(await harness.runCommand({
     command: "rl generation register", pmRoot, args: ["gen-unpromoted"],
@@ -752,9 +767,14 @@ test("registering a candidate refuses an unpromoted parent, a policy-mismatched 
     harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-mismatch"], options: { baseCheckpoint: "ckpt-x", parent: seed, policy: "ckpt-x", collectionRuns: wrongRun.id, environment: env } }),
     /references policy other-policy, not the parent generation's policy ckpt-seed/,
   );
-  // An empty collection-runs list for a non-seed is refused.
+  // Empty/padded identifiers refuse before collection provenance is resolved.
   await assert.rejects(
     harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-noruns"], options: { baseCheckpoint: "ckpt-x", parent: seed, policy: "ckpt-x", collectionRuns: " , ", environment: env } }),
+    (error) => isPmCliExpectedError(error) && error.context.code === "rl_identifier_invalid",
+  );
+  // An omitted collection-runs list retains its actionable missing-option refusal.
+  await assert.rejects(
+    harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-noruns"], options: { baseCheckpoint: "ckpt-x", parent: seed, policy: "ckpt-x", environment: env } }),
     /requires --collection-runs/,
   );
   // A missing base checkpoint is refused.
@@ -977,27 +997,17 @@ test("promotion refuses to advance past the approved budget and names the item t
   );
 });
 
-test("a padded --parent never reaches storage, because the option boundary normalizes it", async () => {
-  // A regression guard on the OPTION boundary, exercised through the real
-  // command. `stringOption` returns `value.trim()`, which is precisely why
-  // `rl generation register` does not re-trim before storing. If that ever
-  // stops being true, a padded `--parent " gen-seed "` lands in both the
-  // specification JSON and the pm parent field, matching nothing until
-  // `parseGenerationSpec` trims it again on the way back out — and this fails,
-  // naming the assumption the command depends on.
+test("a padded --parent refuses before storing any generation", async () => {
   const { root, pmRoot, client, harness } = await workspace();
   const env = await registerEnv(harness, pmRoot, root, "Grid");
   const seed = await registerSeed(harness, pmRoot, "gen-seed", "ckpt-seed", "ckpt-seed");
   const run = resultOf(await harness.runCommand({ command: "rl run start", pmRoot, args: ["run-1"], options: { environment: env, algorithm: "ckpt-seed" } }));
-  const registered = resultOf(await harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-padded-parent"], options: { baseCheckpoint: "ckpt-c1", parent: `  ${seed}  `, policy: "ckpt-c1", collectionRuns: run.id, environment: env } }));
-  const stored = await client.get(registered.id!, { depth: "deep" });
-  const fenced = /```json\n([\s\S]+?)\n```/.exec(String(stored.item.body));
-  const spec = JSON.parse(String(fenced?.[1])) as { parent: string };
-  assert.equal(spec.parent, seed, "the specification stores the trimmed parent identity");
-  assert.equal(String(stored.item.parent), seed, "the pm parent field stores the same trimmed identity");
+  await assert.rejects(harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-padded-parent"], options: { baseCheckpoint: "ckpt-c1", parent: `  ${seed}  `, policy: "ckpt-c1", collectionRuns: run.id, environment: env } }), (error) => isPmCliExpectedError(error) && error.context.code === "rl_identifier_invalid");
+  await assert.rejects(harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-padded-parent"], options: { baseCheckpoint: "ckpt-c1", parent: seed, policy: "ckpt-c1", collectionRuns: ` ${run.id} `, environment: env } }), (error) => isPmCliExpectedError(error) && error.context.code === "rl_identifier_invalid");
+  await assert.rejects(client.get("gen-padded-parent"), (error) => isPmCliExpectedError(error) && error.exitCode === 3);
 });
 
-test("a promoted generation whose stored approval is padded still consumes that approval's budget", async () => {
+test("a legacy promoted generation with a padded approval consumes its budget", async () => {
   // The budget is counted by comparing each promoted generation's stored
   // approval to the approval id with strict equality. Generations are pm items,
   // so a body can be authored by hand or by another tool; if a padded approval
@@ -1019,8 +1029,8 @@ test("a promoted generation whose stored approval is padded still consumes that 
   await assert.rejects(
     harness.runCommand({ command: "rl generation promote", pmRoot, args: ["gen-next"], options: { approval: approvalId, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "second" } }),
     (error: Error) => {
-      assert.match(error.message, /Advancing past the approved promotion budget is refused/);
-      assert.match(error.message, /1 promotion\(s\) consumed/, "the padded record must be counted, not merely make the count non-zero by accident");
+      assert.match(error.message, /approved promotion budget/);
+      assert.ok(isPmCliExpectedError(error) && error.context.code === "budget_exceeded");
       return true;
     },
   );

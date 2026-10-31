@@ -85,14 +85,15 @@ test("corpus output inside the source refuses before inventory reads through rel
   const alias = join(w.root, "source-alias"); symlinkSync(w.pmRoot, alias, "dir");
   const childAlias = join(w.root, "child-alias"); symlinkSync(nested, childAlias, "dir");
   const before = sourceBytes(w.pmRoot);
-  for (const [source, output] of [
-    [w.pmRoot, join(w.pmRoot, "sealed.json")], [w.pmRoot, join(nested, "sealed.json")],
-    [w.pmRoot, join(alias, "sealed.json")], [alias, join(w.pmRoot, "sealed.json")],
-    [w.pmRoot, join(childAlias, "sealed.json")], [w.pmRoot, relative(process.cwd(), join(nested, "..", "sealed.json"))],
+  // Linked roots and parents are refused by the state boundary before confinement is compared.
+  for (const [source, output, code] of [
+    [w.pmRoot, join(w.pmRoot, "sealed.json"), "corpus_output_inside_source"], [w.pmRoot, join(nested, "sealed.json"), "corpus_output_inside_source"],
+    [w.pmRoot, join(alias, "sealed.json"), "rl_state_path_invalid"], [alias, join(w.pmRoot, "sealed.json"), "rl_state_path_invalid"],
+    [w.pmRoot, join(childAlias, "sealed.json"), "rl_state_path_invalid"], [w.pmRoot, relative(process.cwd(), join(nested, "..", "sealed.json")), "corpus_output_inside_source"],
   ]) {
     await assert.rejects(harness.runCommand({ command: "rl corpus build", pmRoot: w.pmRoot, args: [], options: {
       from_tracker: source, file: join(w.root, "missing-bounds"), output,
-    } }), refuses("corpus_output_inside_source"));
+    } }), refuses(code));
     assert.equal(existsSync(output), false); assert.equal(sourceBytes(w.pmRoot), before);
   }
 });
@@ -142,14 +143,18 @@ test("corpus missing or invalid directories refuse with stable path-free errors 
   const file = join(w.root, "plain-file"); writeFileSync(file, "preserve bytes");
   const missing = join(w.root, "absent");
   const dangling = join(w.root, "dangling"); symlinkSync(missing, dangling);
+  // A dangling link is refused by the state boundary before existence is checked; a root below a regular file is
+  // simply missing.
   for (const [source, output, code] of [
-    ...[missing, file, join(file, "child"), dangling].map((source) => [source, join(w.root, "sealed.json"), "corpus_source_missing"]),
-    ...[missing, file, join(file, "child"), dangling].map((parent) => [w.pmRoot, join(parent, "sealed.json"), "corpus_output_parent_missing"]),
+    ...[missing, file, join(file, "child")].map((source) => [source, join(w.root, "sealed.json"), "corpus_source_missing"]),
+    [dangling, join(w.root, "sealed.json"), "rl_state_path_invalid"],
+    ...[missing, file, join(file, "child")].map((parent) => [w.pmRoot, join(parent, "sealed.json"), "corpus_output_parent_missing"]),
+    [w.pmRoot, join(dangling, "sealed.json"), "rl_state_path_invalid"],
   ]) {
     await assert.rejects(harness.runCommand({ command: "rl corpus build", pmRoot: w.pmRoot, args: [], options: {
       from_tracker: source, file: join(w.root, "missing-bounds"), output,
     } }), (error: unknown) => {
-      assert.ok(refuses(code)(error)); assert.ok(error instanceof Error); assert.ok(!error.message.includes(w.root)); return true;
+      assert.ok(refuses(code)(error), `${code} expected`); assert.ok(error instanceof Error); assert.ok(!error.message.includes(w.root)); return true;
     });
     assert.equal(existsSync(output), false);
   }
@@ -174,33 +179,25 @@ test("corpus publication pins canonical targets and rechecks alias and canonical
   const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
   const file = new URL("../examples/loop-corpus.json", import.meta.url).pathname;
   const before = sourceBytes(w.pmRoot);
-  for (const mode of ["alias-inside", "canonical-inside", "alias-outside", "removed"]) {
-    const parent = join(w.root, mode); mkdirSync(parent);
-    const alternate = join(w.root, `${mode}-alternate`); mkdirSync(alternate);
-    const alias = join(w.root, `${mode}-alias`); symlinkSync(parent, alias, "dir");
-    const output = join(alias, "sealed.json");
+  for (const mode of ["inside", "outside", "removed"]) {
+    const parent = join(w.root, `publication-${mode}`); mkdirSync(parent);
+    const output = join(parent, "sealed.json"); let swapped = false;
     const original = fs.readFileSync;
-    let swapped = false;
     const injection = t.mock.method(fs, "readFileSync", (...args: Parameters<typeof original>) => {
       const result = original(...args);
       if (args[0] === file && !swapped) {
         swapped = true;
-        if (mode === "canonical-inside") { renameSync(parent, `${parent}-saved`); symlinkSync(w.pmRoot, parent, "dir"); }
-        else if (mode === "removed") rmSync(parent, { recursive: true });
-        else { rmSync(alias); symlinkSync(mode === "alias-inside" ? w.pmRoot : alternate, alias, "dir"); }
+        if (mode === "removed") rmSync(parent, { recursive: true });
+        else { renameSync(parent, `${parent}-saved`); symlinkSync(mode === "inside" ? w.pmRoot : w.root, parent, "dir"); }
       }
       return result;
     });
     syncBuiltinESMExports();
     try {
-      const command = harness.runCommand({ command: "rl corpus build", pmRoot: w.pmRoot, args: [], options: { from_tracker: w.pmRoot, file, output } });
-      if (mode === "alias-outside") {
-        await command;
-        assert.equal((JSON.parse(readFileSync(join(parent, "sealed.json"), "utf8")) as Record<string, JsonValue>).fit_steps, 8);
-        assert.equal(existsSync(output), false, "publication retains the initially selected canonical target");
-      } else await assert.rejects(command, refuses(mode === "removed" ? "corpus_output_parent_missing" : "corpus_output_inside_source"));
+      await assert.rejects(harness.runCommand({ command: "rl corpus build", pmRoot: w.pmRoot, args: [], options: { from_tracker: w.pmRoot, file, output } }), refuses(mode === "removed" ? "corpus_output_parent_missing" : "rl_state_path_invalid"));
       assert.equal(swapped, true);
       assert.equal(existsSync(join(w.pmRoot, "sealed.json")), false);
+      assert.equal(existsSync(join(w.root, "sealed.json")), false);
       assert.equal(sourceBytes(w.pmRoot), before);
     } finally { injection.mock.restore(); syncBuiltinESMExports(); }
   }

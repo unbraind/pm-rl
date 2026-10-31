@@ -1,22 +1,24 @@
+import { canonicalIdentifier, canonicalProgrammeId, statePath, storedStateComponent, identifierClient, checkedStateFile, identifier, operationIdentifier } from "./state-boundary.ts";
 import { decodeTrackerRecord, hasTrackerIdentity, parseBoundedJson, encodeBoundedJson, MAX_TRACKER_RECORD_BYTES } from "./tracker-record.ts";
 /** Durable argv-only trainer execution, staged receipts and approved resource reservations. */
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
 import type { CommitWorkspaceTransactionOptions, WorkspaceTransactionStep, WorkspaceTransactionTransitionContext } from "@unbrained/pm-cli/sdk";
 import type { GetResult, PmClient } from "@unbrained/pm-cli/sdk/core";
-import { EXIT_CODE, isPmCliExpectedError, certifyCompleteListResult, normalizeItemId } from "@unbrained/pm-cli/sdk/runtime";
+import { EXIT_CODE, createPmCliExpectedError, isPmCliExpectedError, certifyCompleteListResult, normalizeItemId } from "@unbrained/pm-cli/sdk/runtime";
 import { banditCheckpoint, MAX_BANDIT_FIT_STEPS, type BanditCheckpoint, type BanditExample, type BanditObservation } from "./bandit.ts";
-import { createVerifiedItem, canonicalJson, commitProcessTransaction, loopProcessStartTime, withProcessJobFence, readCompleteLoopItem, readLoopRevision, mutateLoopItem, type JsonValue } from "./index.ts";
+import { certifyAppliedRevision, createVerifiedItem, canonicalJson, commitProcessTransaction, loopProcessStartTime, withProcessJobFence, withValidatedMutation, readCompleteLoopItem, readLoopRevision, mutateLoopItem, type JsonValue } from "./index.ts";
 import { expectedFail } from "./refuse.ts";
 import { validateLmProcessCheckpoint, type LmProcessPayload } from "./process-lm.ts";
 import { validatePrefixCompletion, type PrefixPayload } from "./prefix.ts";
 import { launchComposeTrainer, stopComposeTrainer } from "./compose.ts";
-import { encodeCheckpointArtifacts, readCheckpointArtifact, type CheckpointArtifact } from "./checkpoint-artifacts.ts";
+import { encodeCheckpointArtifacts, readCheckpointArtifact, requireCheckpointStorage, type CheckpointArtifact } from "./checkpoint-artifacts.ts";
+import { retryOwnedStop, waitForOwnedClose } from "./owned-stop.ts";
 
 /** Independently accounted resource dimensions; all values are nonnegative safe integers. */
 export const RESOURCE_KEYS = ["training_steps", "wall_ms", "storage_bytes", "compute_units", "tokens"] as const;
@@ -75,7 +77,7 @@ export interface ProcessInput<P extends { readonly digest: string } = BanditChec
 /** Required durable completion evidence; successful process exit alone is never sufficient. */
 export interface ProcessCompletion<P extends { readonly digest: string } = BanditCheckpoint> {
   /** Versioned stream and disk schema. */
-  readonly format: "pm-rl/process-completion/1";
+  readonly format: "pm-rl/process-completion/1" | "pm-rl/process-completion/2";
   /** Content-bound job identity. */
   readonly job: string;
   /** Only this job's flat staging checkpoint is eligible. */
@@ -141,12 +143,12 @@ export interface ProcessCoordinates {
 export function processDigest(value: unknown): string {
   return `sha256:${createHash("sha256").update(canonicalJson(value as JsonValue)).digest("hex")}`;
 }
-/** Validate a complete integer vector at the protocol and approval boundaries. */
-export function parseResources(value: unknown): Resources {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) expectedFail("A complete resource vector is required.", "process_invalid_resources");
+/** Validate a complete integer vector; stored-state readers select a typed conflict instead of a usage refusal. */
+export function parseResources(value: unknown, exitCode: number = EXIT_CODE.USAGE): Resources {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) expectedFail("A complete resource vector is required.", "process_invalid_resources", exitCode);
   const record = value as Record<string, unknown>;
   for (const key of RESOURCE_KEYS) {
-    if (!Number.isSafeInteger(record[key]) || Number(record[key]) < 0) expectedFail(`Invalid resource dimension ${key}.`, "process_invalid_resources");
+    if (!Number.isSafeInteger(record[key]) || Number(record[key]) < 0) expectedFail(`Invalid resource dimension ${key}.`, "process_invalid_resources", exitCode);
   }
   return Object.fromEntries(RESOURCE_KEYS.map((key) => [key, record[key]])) as Resources;
 }
@@ -178,8 +180,10 @@ export function processJobId(input: TrainerInput, argv: readonly string[] = refe
   return `process-${processDigest({ input, launcher: processDigest(launcher) }).slice(7)}`;
 }
 /** Resolve this job's retained evidence directory under the tracker. */
-export function processStaging(root: string, id: string): string {
-  return join(root, "runtime", "pm-rl", "jobs", id);
+export function processStaging(root: string, id: string, stored = false): string {
+  const retained = statePath(root, "runtime", "pm-rl", "jobs", storedStateComponent(id));
+  if (stored || existsSync(retained)) return retained;
+  return statePath(root, "runtime", "pm-rl", "jobs", canonicalIdentifier(id));
 }
 /** Stable job coordinates and protocol markers distinguish process records before body parsing. */
 const PROCESS_RECORD = { type: "Task", tag: "rl-process-job", format: "pm-rl/process-job/1" };
@@ -198,6 +202,7 @@ export function readProcessJob<P extends TrainerPolicy>(client: PmClient, id: st
 export function readProcessJob(client: PmClient, id: string): Promise<ProcessJob<TrainerPolicy> | null>;
 /** Read metadata without a root, or hydrate a typed checkpoint using explicit tracker coordinates. */
 export async function readProcessJob(client: PmClient, id: string, root?: string): Promise<ProcessJob<TrainerPolicy> | null> {
+  id = operationIdentifier(id);
   const item = await readCompleteLoopItem(client, id).catch((error: unknown) => {
     if (isPmCliExpectedError(error) && error.exitCode === EXIT_CODE.NOT_FOUND) return null;
     throw error;
@@ -207,31 +212,31 @@ export async function readProcessJob(client: PmClient, id: string, root?: string
 }
 /** Decode every live or historical job through the same native envelope and producer contract. */
 async function decodeProcessJob(client: PmClient, id: string, item: GetResult, root?: string): Promise<ProcessJob<TrainerPolicy> | null> {
-  const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
+  const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
   const namespace = processNamespace(prefix);
   const legacy = hasTrackerIdentity(item.item, PROCESS_RECORD.format, (key) => normalizeItemId(key, prefix));
-  let decoded = decodeTrackerRecord(client, item.item, { ...PROCESS_RECORD, namespace, legacy, valid: (row) => row.id === id });
+  let decoded = decodeTrackerRecord(client, item.item, { ...PROCESS_RECORD, namespace, legacy, valid: (row) => typeof row.id === "string" && normalizeItemId(operationIdentifier(row.id), prefix) === item.item.id });
   if (decoded === null) {
     if (!namespace(item.item.id) || !await knownProcessRecord(client, item.item.id, prefix)) return null;
     // A legacy tag edit cannot hide owned capacity; foreign originals remain skipped.
-    decoded = decodeTrackerRecord(client, item.item, { ...PROCESS_RECORD, namespace, legacy: true, valid: (row) => row.id === id });
-    if (decoded === null) expectedFail("Owned job envelope drifted.", "process_job_drift");
+    decoded = decodeTrackerRecord(client, item.item, { ...PROCESS_RECORD, namespace, legacy: true, valid: (row) => typeof row.id === "string" && normalizeItemId(operationIdentifier(row.id), prefix) === item.item.id });
+    if (decoded === null) expectedFail("Owned job envelope drifted.", "process_job_drift", EXIT_CODE.CONFLICT);
   }
   const job = decoded as unknown as ProcessJob<TrainerPolicy>;
-  validateProcessAccounting(job);
+  validateProcessAccounting(job, EXIT_CODE.CONFLICT);
   if (root !== undefined && job.completion?.artifact !== undefined) return { ...job, completion: { ...job.completion, policy: readCheckpointArtifact(root, job.completion.artifact) as TrainerPolicy } };
   return job;
 }
 /** Apply the same state and resource schema before producing and after decoding a job. */
-function validateProcessAccounting(job: ProcessJob<TrainerPolicy>): void {
-  if (!["planned", "running", "materialized", "evaluated", "promoted", "failed", "cancelled", "invalidated"].includes(job.state)) expectedFail("Job identity or state drifted.", "process_job_drift");
-  parseResources(job.allowance); parseResources(job.charge);
+function validateProcessAccounting(job: ProcessJob<TrainerPolicy>, exitCode: number = EXIT_CODE.USAGE): void {
+  if (!["planned", "running", "materialized", "evaluated", "promoted", "failed", "cancelled", "invalidated"].includes(job.state)) expectedFail("Job identity or state drifted.", "process_job_drift", exitCode);
+  parseResources(job.allowance, exitCode); parseResources(job.charge, exitCode);
   if (job.completion !== null) {
-    if (typeof job.completion !== "object" || Array.isArray(job.completion)) expectedFail("Job completion envelope drifted.", "process_job_drift");
-    parseResources(job.completion.usage);
+    if (typeof job.completion !== "object" || Array.isArray(job.completion)) expectedFail("Job completion envelope drifted.", "process_job_drift", EXIT_CODE.CONFLICT);
+    parseResources(job.completion.usage, exitCode);
   }
   if (typeof job.settled !== "boolean" || (!job.settled && processDigest(job.charge) !== processDigest(job.allowance))
-    || (job.completion !== null && processDigest(job.charge) !== processDigest(job.completion.usage))) expectedFail("Reservation accounting drifted.", "process_job_drift");
+    || (job.completion !== null && processDigest(job.charge) !== processDigest(job.completion.usage))) expectedFail("Reservation accounting drifted.", "process_job_drift", exitCode);
 }
 /** Strip hydrated prefix parameters before writing tracker bodies or comparing durable receipts. */
 function storedProcessJob<P extends TrainerPolicy>(job: ProcessJob<P>): ProcessJob<TrainerPolicy> {
@@ -255,10 +260,10 @@ export async function verifyProcessJobBudget(client: PmClient, job: ProcessJob<T
 /**
  * Identify a stored process job by its parsed format, independent of JSON spacing or key order.
  *
- * Returns the job's own id (item ids carry the tracker prefix, job ids do not), or null for any other body.
+ * Stored records preserve their literal id by default; stored=false validates a new declaration and unrelated bodies return null.
  */
-export function processJobBodyId(body: string): string | null {
-  const row = decodeTrackerRecord(null, { type: "Task", body }, { type: "Task", format: "pm-rl/process-job/1", valid: (value) => typeof value.id === "string" });
+export function processJobBodyId(body: string, stored = true): string | null {
+  const row = decodeTrackerRecord(null, { type: "Task", body }, { type: "Task", format: "pm-rl/process-job/1", valid: (value) => { if (stored) operationIdentifier(value.id); else value.id = canonicalIdentifier(identifier(value.id)); return true; } });
   return row === null ? null : String(row.id);
 
 }
@@ -270,9 +275,9 @@ export function processJobBodyId(body: string): string | null {
  * remain integrity refusals; foreign replacements cannot enter the returned job list as null payloads.
  */
 export async function listProcessJobs(client: PmClient): Promise<ProcessJob<TrainerPolicy>[]> {
-  const listed = certifyCompleteListResult(await client.listAllComplete({ includeBody: true }));
+  const listed = certifyCompleteListResult(await identifierClient(client).listAllComplete({ includeBody: true }));
   const jobs: ProcessJob<TrainerPolicy>[] = [];
-  const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
+  const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
   const namespace = processNamespace(prefix);
   for (const item of listed.items) {
     const coordinate = /(?:^|-)(process-[a-f0-9]{64})$/.exec(item.id);
@@ -303,34 +308,63 @@ async function commitRetainingProcessState(options: Omit<CommitWorkspaceTransact
       async compensate() { retained = true; },
     })) });
   } catch (error) {
-    if (retained || !isPmCliExpectedError(error)) expectedFail(`Process publication was interrupted (${String(error)}). Compensation is superseded; any committed job state and held budget were retained. Read the current job through the SDK and resume its current state before retrying.`, "superseded", EXIT_CODE.CONFLICT);
+    if (retained || !isPmCliExpectedError(error) || error.context.code === "loop_write_conflict") expectedFail(`Process publication was interrupted (${String(error)}). Compensation is superseded; any committed job state and held budget were retained. Read the current job through the SDK and resume its current state before retrying.`, "superseded", EXIT_CODE.CONFLICT);
     throw error;
   }
 }
 
-/** Reserve once under the workspace writer lock, counting every held or settled job on this approval. */
-export async function reserveProcessJob(client: PmClient, coordinates: ProcessCoordinates, id: string, input: TrainerInput, approval: string, allowance: Resources): Promise<ProcessJob<TrainerPolicy>> {
+/** Reserve once against transaction peers and validate retained inputs independently of ordinary writers. */
+export async function reserveProcessJob(client: PmClient, coordinates: ProcessCoordinates, rawId: string, input: TrainerInput, approval: string, allowance: Resources): Promise<ProcessJob<TrainerPolicy>> {
+  const id = await canonicalProgrammeId(client, rawId);
+  allowance = parseResources(allowance); encodeBoundedJson(input);
+  const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
+  let approved: Awaited<ReturnType<typeof approvedResources>>;
+  let reserved: ProcessJob<TrainerPolicy> | null = null;
+  /** Compare the request with every retained immutable field before adopting a reservation. */
+  async function inspectReservation(): Promise<ProcessJob<TrainerPolicy> | null> {
+    const discovered = await readProcessJob(client, id);
+    if (discovered !== null) {
+      const snapshot = await readProcessSnapshot(client, id, coordinates.pmRoot);
+      const existing = snapshot.job;
+      if (normalizeItemId(existing.id, prefix) !== normalizeItemId(id, prefix) || existing.input !== processDigest(input)
+        || processDigest(existing.binding) !== processDigest(input.identity)
+        || normalizeItemId(existing.approval, prefix) !== approved.id
+        || RESOURCE_KEYS.some(key => parseResources(existing.allowance)[key] !== allowance[key])) expectedFail("Reservation replay inputs changed.", "process_job_drift", EXIT_CODE.CONFLICT);
+      if (existing.budget_digest !== approved.digest) expectedFail("Approved budget identity changed.", "process_budget_drift", EXIT_CODE.CONFLICT);
+      await certifyAppliedRevision(client, snapshot.native.item.id, snapshot.revision);
+      reserved = existing;
+      return existing;
+    }
+    const occupied = await readCompleteLoopItem(client, id).catch((error: unknown) => {
+      if (isPmCliExpectedError(error) && error.exitCode === EXIT_CODE.NOT_FOUND) return null;
+      throw error;
+    });
+    if (occupied !== null) expectedFail("Reservation target belongs to another record.", "process_job_drift", EXIT_CODE.CONFLICT);
+    return null;
+  }
+  /** Validate capacity before journaling, then repeat the same decision at the write boundary. */
+  async function validateReservation(): Promise<void> {
+    approved = await approvedResources(client, approval);
+    if (await inspectReservation() !== null) return;
+    const charges = (await listProcessJobs(client)).filter((job) => job.approval === approved.id).map((job) => job.charge);
+    for (const key of RESOURCE_KEYS) {
+      const total = charges.reduce((sum, charge) => sum + charge[key], allowance[key]);
+      if (!Number.isSafeInteger(total) || total > approved.budget[key]) expectedFail(`Approved ${key} budget exhausted.`, "process_budget_exhausted");
+    }
+  }
   const step: Omit<WorkspaceTransactionStep, "compensate"> = {
     id: "reserve",
-    async inspect() { return { state: await readProcessJob(client, id) === null ? "pending" : "applied" }; },
+    async inspect() { return { state: await inspectReservation() === null ? "pending" : "applied" }; },
     async apply() {
-      const approved = await approvedResources(client, approval);
-      const charges = (await listProcessJobs(client)).filter((job) => job.approval === approved.id).map((job) => job.charge);
-      for (const key of RESOURCE_KEYS) {
-        const total = charges.reduce((sum, charge) => sum + charge[key], allowance[key]);
-        if (!Number.isSafeInteger(total) || total > approved.budget[key]) expectedFail(`Approved ${key} budget exhausted.`, "process_budget_exhausted");
-      }
+      await validateReservation();
+      if (await inspectReservation() !== null) return;
       const job: ProcessJob<TrainerPolicy> = { format: "pm-rl/process-job/1", id, input: processDigest(input), binding: input.identity, approval: approved.id, budget_digest: approved.digest,
         state: "planned", allowance, charge: allowance, settled: false, completion: null, outcome: "reserved" };
       await createVerifiedItem(client, { id, type: "Task", tags: "rl-process-job", title: `Process trainer ${id.slice(-12)}`, body: encodeBoundedJson(job, MAX_TRACKER_RECORD_BYTES) });
     },
   };
-  await commitRetainingProcessState({ ...coordinates, transactionId: `${id}-reserve`, steps: [step] });
-  const job = (await readProcessJob(client, id))!;
-  const approved = await approvedResources(client, approval);
-  if (job.input !== processDigest(input) || job.approval !== approved.id || processDigest(job.allowance) !== processDigest(allowance)) expectedFail("Reservation replay inputs changed.", "process_job_drift");
-  await verifyProcessJobBudget(client, job);
-  return job;
+  await withValidatedMutation(client, id, validateReservation, () => commitRetainingProcessState({ ...coordinates, transactionId: `${id}-reserve`, steps: [step] }));
+  return reserved!;
 }
 /** Construct zero usage or the released allowance of a proven unlaunched job. */
 function zeroResources(): Resources { return { training_steps: 0, wall_ms: 0, storage_bytes: 0, compute_units: 0, tokens: 0 }; }
@@ -401,28 +435,43 @@ export async function transitionProcessJob<P extends TrainerPolicy>(client: PmCl
   return await commitProcessTransition(client, coordinates, source, target) as ProcessJob<P>;
 }
 /** Measure retained flat staging files, skipping vanished entries and rejecting links or directories. */
-export function stagingBytes(directory: string): number {
+export function stagingBytes(directory: string, callback?: string): number {
   let bytes = 0;
-  for (const name of readdirSync(directory)) {
-    const stat = lstatSync(join(directory, name), { throwIfNoEntry: false });
+  const operation = <T,>(site: string, execute: () => T): T => callback === undefined ? execute() : callbackOperation(`${callback}.staging.${site}`, execute);
+  for (const name of operation("list", () => readdirSync(directory))) {
+    const stat = operation("stat", () => lstatSync(operation("path", () => statePath(directory, name)), { throwIfNoEntry: false }));
     if (stat === undefined) continue;
     if (!stat.isFile()) expectedFail("Staging contains an unsupported file or symbolic link.", "process_checkpoint_invalid");
     bytes += stat.size;
   }
   return bytes;
 }
+/** Preserve SDK-recorded accounting across the fractional and integer-millisecond filesystem clocks used by supported historical writers. */
+function recordedWallTime(file: string, started: number, declared: number, measured: number, recorded: number | undefined): number {
+  if (recorded === undefined || recorded === measured) return measured;
+  const ns = lstatSync(file, { bigint: true }).mtimeNs;
+  const ms = Number(ns / 1_000_000_000n) * 1000 + Number(ns % 1_000_000_000n) / 1_000_000;
+  const fine = Math.max(declared, Math.ceil(ms - started));
+  const coarse = Math.max(declared, Math.floor(ms) - started);
+  if (recorded !== fine && recorded !== coarse) expectedFail("Recorded wall accounting differs from both supported filesystem clocks. Restore the recorded completion and original staging files before retrying.", "process_job_drift");
+  return recorded;
+}
 /** Validate the staged completion against immutable input, readable bytes and every resource dimension. */
-export function validateProcessCompletion<P extends TrainerPolicy>(directory: string, id: string, input: ProcessInput<P>, allowance: Resources, artifactRoot = directory): ProcessCompletion<P> {
-  if (!existsSync(join(directory, "completion.json"))) expectedFail("Trainer supplied no completion receipt.", "process_receipt_required");
+export function validateProcessCompletion<P extends TrainerPolicy>(directory: string, id: string, input: ProcessInput<P>, allowance: Resources, artifactRoot = directory, recordedWallMs?: number): ProcessCompletion<P> {
+  id = operationIdentifier(id);
+  if (recordedWallMs !== undefined) parseResources({ ...zeroResources(), wall_ms: recordedWallMs });
+  if (!existsSync(statePath(directory, "completion.json"))) expectedFail("Trainer supplied no completion receipt.", "process_receipt_required");
   const bytes = stagingBytes(directory);
-  if (bytes > allowance.storage_bytes || lstatSync(join(directory, "completion.json")).size > 65_536) expectedFail("Trainer exceeded staging storage allowance.", "process_limit_exceeded");
-  if (input.prefix !== undefined && lstatSync(join(directory, "completion.json")).size > 4096) expectedFail("Prefix staging receipt exceeds 4096 bytes.", "process_receipt_invalid");
-  const value = parseBoundedJson(readFileSync(join(directory, "completion.json"), "utf8")) as ProcessCompletion<P>;
-  if (value.format !== "pm-rl/process-completion/1" || value.job !== id || value.checkpoint !== "checkpoint.json"
+  if (bytes > allowance.storage_bytes || lstatSync(statePath(directory, "completion.json")).size > 65_536) expectedFail("Trainer exceeded staging storage allowance.", "process_limit_exceeded");
+  if (input.prefix !== undefined && lstatSync(statePath(directory, "completion.json")).size > 4096) expectedFail("Prefix staging receipt exceeds 4096 bytes.", "process_receipt_invalid");
+  const saved = parseBoundedJson(readFileSync(statePath(directory, "completion.json"), "utf8")) as ProcessCompletion<P>;
+  operationIdentifier(saved.job);
+  const value = saved.format === "pm-rl/process-completion/2" ? { ...saved, job: operationIdentifier(saved.job) } : saved;
+  if (!["pm-rl/process-completion/1", "pm-rl/process-completion/2"].includes(value.format) || operationIdentifier(value.job) !== id || value.checkpoint !== "checkpoint.json"
     || processDigest(value.training_config) !== processDigest(input.training_config) || value.source_policy !== input.source.digest
     || processDigest(value.lineage) !== processDigest(input.lineage)) expectedFail("Completion lineage or configuration drifted.", "process_receipt_invalid");
-  if (lstatSync(join(directory, value.checkpoint)).size > (input.lm?.config.limits.maxCheckpointBytes ?? 4096)) expectedFail("Checkpoint exceeds its schema bound.", "process_checkpoint_invalid");
-  let content = readFileSync(join(directory, value.checkpoint));
+  if (lstatSync(statePath(directory, value.checkpoint)).size > (input.lm?.config.limits.maxCheckpointBytes ?? 4096)) expectedFail("Checkpoint exceeds its schema bound.", "process_checkpoint_invalid");
+  let content = readFileSync(statePath(directory, value.checkpoint));
   if (value.artifact !== undefined) {
     if (input.prefix === undefined || processDigest(parseBoundedJson(content.toString("utf8"))) !== processDigest(value.artifact) || value.policy.digest !== value.artifact.policy || value.digest !== value.artifact.digest) expectedFail("Checkpoint reference differs from its completion.", "process_checkpoint_invalid");
     content = Buffer.from(JSON.stringify(readCheckpointArtifact(artifactRoot, value.artifact)));
@@ -440,11 +489,11 @@ export function validateProcessCompletion<P extends TrainerPolicy>(directory: st
   const usage = parseResources(value.usage);
   if (usage.training_steps !== input.training_config.steps || usage.storage_bytes !== content.length) expectedFail("Completion lacks measured training or checkpoint use.", "process_receipt_invalid");
   for (const key of RESOURCE_KEYS) if (usage[key] > allowance[key]) expectedFail(`Trainer exceeded reserved ${key}.`, "process_limit_exceeded");
-  if (lstatSync(join(directory, "runner.json")).size > 4096) expectedFail("Trainer identity metadata exceeds its schema bound.", "process_receipt_invalid");
-  const runner = parseBoundedJson(readFileSync(join(directory, "runner.json"), "utf8")) as { started_at: number };
-  if (!Number.isSafeInteger(runner.started_at) || runner.started_at <= 0 || runner.started_at > lstatSync(join(directory, "completion.json")).mtimeMs + 1) expectedFail("Trainer wall identity is invalid.", "process_receipt_invalid");
-  const wall = Math.max(usage.wall_ms, Math.ceil(lstatSync(join(directory, "completion.json")).mtimeMs - runner.started_at));
-  if (wall > allowance.wall_ms) expectedFail("Trainer exceeded observed wall allowance.", "process_limit_exceeded");
+  if (lstatSync(statePath(directory, "runner.json")).size > 4096) expectedFail("Trainer identity metadata exceeds its schema bound.", "process_receipt_invalid");
+  const runner = parseBoundedJson(readFileSync(statePath(directory, "runner.json"), "utf8")) as { started_at: number };
+  if (!Number.isSafeInteger(runner.started_at) || runner.started_at <= 0 || runner.started_at > lstatSync(statePath(directory, "completion.json")).mtimeMs + 1) expectedFail("Trainer wall identity is invalid.", "process_receipt_invalid");
+  const wall = recordedWallTime(statePath(directory, "completion.json"), runner.started_at, usage.wall_ms, Math.max(usage.wall_ms, Math.ceil(lstatSync(statePath(directory, "completion.json")).mtimeMs - runner.started_at)), recordedWallMs);
+  if (!Number.isSafeInteger(wall) || wall > allowance.wall_ms) expectedFail("Trainer exceeded observed wall allowance.", "process_limit_exceeded");
   const totalBytes = bytes + (value.artifact?.bytes ?? 0);
   if (totalBytes > allowance.storage_bytes) expectedFail("Checkpoint artifact exceeded the approved storage allowance.", "process_limit_exceeded");
   return { ...value, ...(value.artifact === undefined ? {} : { policy: readCheckpointArtifact(artifactRoot, value.artifact) as P }), usage: { ...usage, wall_ms: wall, storage_bytes: totalBytes } };
@@ -454,88 +503,164 @@ export function verifiedProcessPolicy<P extends TrainerPolicy>(job: ProcessJob<T
   if (job.input !== processDigest(input)) expectedFail("Job input identity drifted.", "process_job_drift");
   if (!inspectTerminal && ["failed", "cancelled", "invalidated"].includes(job.state)) expectedFail(`Process job is ${job.state}: ${job.outcome}.`, "process_job_terminal");
   if (job.completion === null) return null;
-  const staged = validateProcessCompletion(processStaging(root, job.id), job.id, input, job.allowance, root);
+  const staged = validateProcessCompletion(processStaging(root, job.id, true), job.id, input, job.allowance, root, job.completion.usage.wall_ms);
   if (processDigest(storedProcessJob({ ...job, completion: staged })) !== processDigest(storedProcessJob(job))) expectedFail("Committed completion differs from staging.", "process_job_drift");
   return staged.policy;
 }
 /** Kill only an exact, locally verified child birth identity; PID reuse never grants stop authority. */
-export function stopTrainer(pid: number, start: string): void {
-  if (loopProcessStartTime(pid) === start) process.kill(pid, "SIGKILL");
+export async function stopTrainer(pid: number, start: string): Promise<void> {
+  if (!Number.isSafeInteger(pid) || pid < 1 || pid > 2_147_483_647 || typeof start !== "string" || start.length === 0 || start.length > 512) expectedFail("Use the retained positive PID and exact native birth identity for recovery.", "process_job_drift");
+  const stopped = await retryOwnedStop(() => {
+    const current = loopProcessStartTime(pid);
+    // An unreadable identity proves absence only when the kernel reports no such process.
+    if (current === null) {
+      try { process.kill(pid, 0); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ESRCH") return true; }
+      return false;
+    }
+    if (current !== start) return true;
+    process.kill(pid, "SIGKILL");
+    const after = loopProcessStartTime(pid);
+    return after !== null && after !== start;
+  });
+  if (!stopped) expectedFail("Owned trainer stop failed after six bounded attempts; inspect the retained runner identity and stop that exact process before retrying.", "process_stop_failed");
 }
-/** Launch a real child with bounded NDJSON, wall/storage polling and owner-checked cancellation. */
-export async function launchTrainer(directory: string, id: string, input: TrainerInput, allowance: Resources, argv: readonly string[], signal?: AbortSignal): Promise<void> {
-  const request = encodeBoundedJson({ job: id, input, ...(input.prefix === undefined ? {} : { artifactRoot: resolve(directory, "../../../..") }) });
+/** Observe operation boundaries in real callback execution; tests may inject one failure without replacing SDK behavior. @internal */
+export const controllerCallbackIO: { before: (site: string) => void } = { before: () => undefined };
+/** Run one callback operation under the owning callback's error boundary. @internal */
+export function callbackOperation<T>(site: string, operation: () => T): T { controllerCallbackIO.before(site); return operation(); }
+/** Observe synchronous and asynchronous callback errors without throwing from event dispatch. @internal */
+export function controllerCallback<A extends unknown[]>(name: string, failure: (error: unknown) => void, operation: (...args: A) => void | Promise<void>): (...args: A) => void {
+  /** Failure sinks record the error before cleanup; dispatch must survive even a faulty sink. */
+  const report = (error: unknown): void => { try { failure(error); } catch { /* Never throw from event dispatch or a promise rejection handler. */ } };
+  return (...args) => {
+    try { controllerCallbackIO.before(`callback.${name}`); void Promise.resolve(operation(...args)).catch(report); }
+    catch (error) { report(error); }
+  };
+}
+/** Launch a real child with one stop/reap path for every setup, event, timer and stream failure. */
+export async function launchTrainer(directory: string, id: string, input: TrainerInput, allowance: Resources, argv: readonly string[], signal?: AbortSignal, artifactRoot = directory): Promise<void> {
+  operationIdentifier(id);
+  const request = encodeBoundedJson({ job: id, input, ...(input.prefix === undefined ? {} : { artifactRoot: statePath(artifactRoot) }) });
   const startedAt = Date.now();
   const started = performance.now();
   const child = spawn(argv[0], argv.slice(1), { cwd: directory, shell: false, stdio: ["pipe", "pipe", "pipe"] });
   let failure: unknown;
+  let failed = false;
   let complete = false;
   let pending = "";
+  let reaped = false;
+  let stopping = false;
+  let stopExhausted = false;
+  let stopTask: Promise<void> | undefined;
+  let identity: string | null = null;
+  let timer: ReturnType<typeof setInterval> | undefined;
   const decoder = new StringDecoder("utf8");
   let outputBytes = 0;
   let measured = zeroResources();
-  let identity: string | null = null;
-  /** Preserve the first refusal while stopping only this child's verified identity. */
-  const refuse = (error: unknown): void => { failure ??= error; if (identity !== null) stopTrainer(child.pid!, identity); };
-  /** Enforce observed wall/storage and monotonic adapter reports while the child is alive. */
-  const poll = (): void => {
-    try {
-      if (signal?.aborted === true) expectedFail("Trainer cancelled; retained artifacts and settled reservation.", "process_cancelled");
-      if (performance.now() - started > allowance.wall_ms || stagingBytes(directory) > allowance.storage_bytes) expectedFail("Trainer exceeded wall or staging allowance.", "process_limit_exceeded");
-    } catch (error) { refuse(error); }
+  /** Detach only this child's handles after a bounded cleanup failure; retain its runner identity for recovery. */
+  const detach = (): void => {
+    for (const stream of [child.stdin, child.stdout, child.stderr]) {
+      try { stream.removeAllListeners("data"); stream.destroy(); } catch { /* Other handles must still be detached. */ }
+    }
+    try { child.unref(); } catch { /* Terminal failure still settles and releases the owning lease. */ }
   };
-  const closed = new Promise<void>((resolve) => {
-    child.once("error", (error) => { failure ??= error; });
-    child.once("close", (code) => { pending += decoder.end(); if (code !== 0) failure ??= new Error("Trainer exited unsuccessfully."); resolve(); });
-  });
-  child.stdout.on("data", (chunk: Buffer) => {
-    try {
+  /** Never claim reaping when stop authority could not be exercised; settle conservatively instead. */
+  const exhausted = (): void => {
+    stopExhausted = true; failed = true;
+    failure = createPmCliExpectedError("Owned trainer could not be stopped or reaped after bounded retries; its reservation is conservatively settled and runner identity retained.", { exitCode: EXIT_CODE.CONFLICT, context: { code: "process_stop_failed", required: "Stop the exact retained runner identity and verify it is gone before starting a fresh programme." } });
+    close(); detach();
+  };
+  /** Preserve the first failure; the live ChildProcess handle owns stop authority before identity publication too. */
+  const refuse = (error: unknown): void => {
+    if (!failed) { failure = error; failed = true; }
+    if (stopping || stopExhausted || reaped) return;
+    stopping = true;
+    stopTask = (async () => {
+      try {
+        let attempt = 0;
+        const stopped = await retryOwnedStop(() => {
+          if (reaped || child.pid === undefined || child.exitCode !== null || child.signalCode !== null) return true;
+          attempt += 1;
+          return callbackOperation("failure.kill", () => attempt === 2 ? process.kill(child.pid!, "SIGKILL") : child.kill("SIGKILL"));
+        });
+        if (!stopped) {
+          if (identity !== null) await stopTrainer(child.pid!, identity);
+          else if (!await retryOwnedStop(() => callbackOperation("failure.fallback-kill", () => child.kill("SIGKILL")))) { exhausted(); return; }
+        }
+        if (!await waitForOwnedClose(closed)) {
+          if (child.exitCode !== null || child.signalCode !== null) detach();
+          if (!await waitForOwnedClose(closed)) exhausted();
+        }
+      } catch { exhausted(); }
+      finally { stopping = false; }
+    })();
+    void stopTask.catch(refuse);
+  };
+  /** The watchdog and abort handler share the same observed failure path. */
+  const watchdog = (): void => {
+    if (signal?.aborted === true) expectedFail("Trainer cancelled; retained artifacts and settled reservation.", "process_cancelled");
+    if (performance.now() - started > allowance.wall_ms || callbackOperation("poll.staging", () => stagingBytes(directory, "poll")) > allowance.storage_bytes) expectedFail("Trainer exceeded wall or staging allowance.", "process_limit_exceeded");
+  };
+  const poll = controllerCallback("poll", refuse, watchdog);
+  const timerPoll = controllerCallback("timer", refuse, watchdog);
+  const abortPoll = controllerCallback("abort", refuse, watchdog);
+  let close!: () => void;
+  const closed = new Promise<void>((resolve) => { close = resolve; });
+  child.on("error", controllerCallback("error", refuse, (error: Error) => { refuse(error); }));
+  // Reaping acknowledgement is unconditional, including an injected failure in the close callback itself.
+  child.once("close", controllerCallback("close", (error) => { reaped = true; refuse(error); close(); }, (code: number | null) => {
+    reaped = true; pending += decoder.end();
+    if (code !== 0) refuse(createPmCliExpectedError("Trainer exited unsuccessfully; retained artifacts and settled reservation. Inspect the trainer diagnostics before retrying.", { exitCode: EXIT_CODE.CONFLICT, context: { code: "trainer_failure", required: "Inspect retained trainer diagnostics and the approved recovery allowance before retrying." } }));
+    close();
+  }));
+  child.stdout.on("data", controllerCallback("stdout", refuse, (chunk: Buffer) => {
       outputBytes += chunk.length;
       if (outputBytes > 65_536) expectedFail("Trainer channel exceeded 65536 bytes.", "process_channel_invalid");
       pending += decoder.write(chunk);
       let newline: number;
       while ((newline = pending.indexOf("\n")) >= 0) {
         const line = pending.slice(0, newline); pending = pending.slice(newline + 1);
-        writeFileSync(join(directory, "events.ndjson"), `${line}\n`, { flag: "a" });
+        callbackOperation("stdout.write", () => writeFileSync(callbackOperation("stdout.path", () => statePath(directory, "events.ndjson")), `${line}\n`, { flag: "a" }));
         const event = parseBoundedJson(line) as { type: string; job: string; usage: Resources; receipt: ProcessCompletion };
-        if (complete || event.job !== id || !["progress", "complete"].includes(event.type)) expectedFail("Invalid trainer event sequence.", "process_channel_invalid");
-        if (event.type === "complete") { complete = true; const finalUsage = parseResources(event.receipt.usage); for (const key of RESOURCE_KEYS) if (finalUsage[key] < measured[key]) expectedFail("Completion regressed measured use.", "process_limit_exceeded"); if (stagingBytes(directory) > allowance.storage_bytes || lstatSync(join(directory, "completion.json")).size > 65_536) expectedFail("Completion channel exceeded its schema bound.", "process_channel_invalid"); const disk = parseBoundedJson(readFileSync(join(directory, "completion.json"), "utf8")) as unknown; if (processDigest(event.receipt) !== processDigest(disk)) expectedFail("Stream completion differs from durable receipt.", "process_receipt_invalid"); }
+        if (complete || operationIdentifier(event.job) !== operationIdentifier(id) || !["progress", "complete"].includes(event.type)) expectedFail("Invalid trainer event sequence.", "process_channel_invalid");
+        if (event.type === "complete") { complete = true; const finalUsage = parseResources(event.receipt.usage); for (const key of RESOURCE_KEYS) if (finalUsage[key] < measured[key]) expectedFail("Completion regressed measured use.", "process_limit_exceeded"); if (callbackOperation("stdout.staging", () => stagingBytes(directory, "stdout")) > allowance.storage_bytes || callbackOperation("stdout.stat", () => lstatSync(callbackOperation("stdout.completion-path", () => statePath(directory, "completion.json")))).size > 65_536) expectedFail("Completion channel exceeded its schema bound.", "process_channel_invalid"); const disk = parseBoundedJson(callbackOperation("stdout.read", () => readFileSync(callbackOperation("stdout.read-path", () => statePath(directory, "completion.json")), "utf8"))) as unknown; if (processDigest(event.receipt) !== processDigest(disk)) expectedFail("Stream completion differs from durable receipt.", "process_receipt_invalid"); }
         else {
           const usage = parseResources(event.usage);
           for (const key of RESOURCE_KEYS) if (usage[key] < measured[key] || usage[key] > allowance[key]) expectedFail(`Progress exceeded or regressed ${key}.`, "process_limit_exceeded");
           measured = usage;
         }
       }
-      poll();
-    } catch (error) { refuse(error); }
-  });
-  child.stderr.on("data", (chunk: Buffer) => {
+
+    poll();
+  }));
+  child.stderr.on("data", controllerCallback("stderr", refuse, (chunk: Buffer) => {
     outputBytes += chunk.length;
-    if (outputBytes > 65_536) { refuse(new Error("Trainer diagnostics exceeded channel allowance.")); return; }
-    appendDiagnostics(join(directory, "stderr.log"), chunk, refuse);
-  });
-  await once(child, "spawn");
-  identity = loopProcessStartTime(child.pid!);
-  if (identity === null) { child.kill("SIGKILL"); await closed; expectedFail("Cannot establish trainer process identity.", "process_identity_unavailable"); }
-  const timer = setInterval(poll, 25);
-  signal?.addEventListener("abort", poll);
-  child.stdin.on("error", () => undefined);
+    if (outputBytes > 65_536) throw new Error("Trainer diagnostics exceeded channel allowance.");
+    callbackOperation("stderr.write", () => writeFileSync(callbackOperation("stderr.path", () => statePath(directory, "stderr.log")), chunk, { flag: "a" }));
+  }));
+  child.stdin.on("error", controllerCallback("stdin", refuse, (error: Error) => { refuse(error); }));
   try {
-    writeFileSync(join(directory, "runner.json"), encodeBoundedJson({ pid: child.pid, start: identity, started_at: startedAt }), { flag: "wx" });
+    await once(child, "spawn");
+    identity = loopProcessStartTime(child.pid!);
+    if (identity === null) expectedFail("Cannot establish trainer process identity.", "process_identity_unavailable");
+    timer = setInterval(timerPoll, 25);
+    signal?.addEventListener("abort", abortPoll);
+    writeFileSync(statePath(directory, "runner.json"), encodeBoundedJson({ pid: child.pid, start: identity, started_at: startedAt }), { flag: "wx" });
     child.stdin.end(request);
     poll();
     await closed;
+    if (failed) throw failure;
+    if (!complete || pending.length > 0) expectedFail("Trainer exited without a complete NDJSON receipt.", "process_receipt_required");
   } catch (error) {
     refuse(error);
     await closed;
-    throw error;
-  } finally { clearInterval(timer); signal?.removeEventListener("abort", poll); }
-  if (failure !== undefined) throw failure;
-  if (!complete || pending.length > 0) expectedFail("Trainer exited without a complete NDJSON receipt.", "process_receipt_required");
+    if (isPmCliExpectedError(failure)) throw failure;
+    throw createPmCliExpectedError(`Trainer failed (${failure instanceof Error ? failure.message : String(failure)}); child reaped and reservation settlement required.`, { exitCode: EXIT_CODE.CONFLICT, context: { code: "process_callback_failed", required: "Restore staging access and use a fresh programme for another fit." } });
+  } finally { await stopTask; clearInterval(timer); signal?.removeEventListener("abort", abortPoll); }
 }
 /** Append trainer diagnostics; a failed append becomes a refusal on the stop-and-settle path instead of an escaped throw. */
 export function appendDiagnostics(file: string, chunk: Buffer, refuse: (error: unknown) => void): void {
-  try { writeFileSync(file, chunk, { flag: "a" }); } catch (error) { refuse(error); }
+  try { writeFileSync(checkedStateFile(file), chunk, { flag: "a" }); } catch (error) { refuse(error); }
 }
 /** Release only proven unlaunched work; otherwise retain prior charges and every readable excess report. */
 function failedProcessCharge(directory: string, prior: Resources, state?: ProcessJobState, revision?: number): Resources {
@@ -544,7 +669,7 @@ function failedProcessCharge(directory: string, prior: Resources, state?: Proces
   const files = ["completion.json", "events.ndjson"];
   for (const name of files) {
     try {
-      const file = join(directory, name);
+      const file = statePath(directory, name);
       if (!existsSync(file) || !lstatSync(file).isFile() || lstatSync(file).size > 65_536) continue;
       for (const line of readFileSync(file, "utf8").split("\n").filter((line) => line.length > 0)) {
         try {
@@ -564,6 +689,8 @@ function failedProcessCharge(directory: string, prior: Resources, state?: Proces
 export async function executeProcessTrainer<P extends TrainerPolicy>(client: PmClient, coordinates: ProcessCoordinates, input: ProcessInput<P>, approval: string, adapter: ProcessAdapter, signal?: AbortSignal, argv: readonly string[] = referenceTrainerArgv()): Promise<ProcessJob<P>> {
   if (input.training_config.steps !== adapter.allowance.training_steps) expectedFail("Optimizer steps differ from the declared reservation.", "process_invalid_adapter");
   if (input.prefix !== undefined && (input.lm !== undefined || adapter.kind !== "process-bandit")) expectedFail("Prefix fits require the packaged process adapter.", "process_invalid_adapter");
+  // Prefix fits publish checkpoint artifacts; refuse unsupported runtimes before the job is reserved.
+  if (input.prefix !== undefined) requireCheckpointStorage();
   if ((input.lm !== undefined) !== (adapter.kind === "compose-lm") || (input.lm !== undefined && adapter.kind === "compose-lm" && input.lm.memory_bytes !== adapter.memory_bytes)) expectedFail("Trainer payload differs from the declared adapter limits.", "process_invalid_adapter");
   encodeBoundedJson(input);
   const id = processJobId(input, argv, adapter);
@@ -577,8 +704,8 @@ async function executeReservedProcessJob(client: PmClient, coordinates: ProcessC
   let source = await readProcessSnapshot(client, id, coordinates.pmRoot);
   if (processDigest(storedProcessJob(source.job)) !== processDigest(storedProcessJob(reserved))) expectedFail("Process reservation advanced before execution. Reconcile current SDK state before retrying; held budget was retained.", "superseded", EXIT_CODE.CONFLICT);
   const policy = verifiedProcessPolicy(source.job, coordinates.pmRoot, input);
-  if (policy !== null) return source.job;
-  const directory = processStaging(coordinates.pmRoot, id);
+  if (policy !== null) return transitionProcessJob(client, coordinates, source.job, source.job.state, source.job.outcome);
+  const directory = processStaging(coordinates.pmRoot, source.job.id, true);
   const diagnostics: { cleanup?: ProcessJob["cleanup"] } = {};
   /** Attach bounded cleanup evidence without exposing the staging path. */
   const cleanupFailed = (error: unknown): void => { diagnostics.cleanup = { code: "cleanup_failed", error: String(error).replaceAll(directory, "<staging>").slice(0, 4096) }; };
@@ -599,16 +726,17 @@ async function executeReservedProcessJob(client: PmClient, coordinates: ProcessC
   try {
     if (launch) {
       if (adapter.kind !== "process-bandit") await launchComposeTrainer(directory, id, input, source.job.allowance, adapter.image, cleanupFailed, signal, adapter.kind === "compose-lm" ? adapter : undefined);
-      else await launchTrainer(directory, id, input, source.job.allowance, argv, signal);
+      else await launchTrainer(directory, source.job.id, input, source.job.allowance, argv, signal, coordinates.pmRoot);
     } else if (adapter.kind !== "process-bandit") {
       try { await stopComposeTrainer(directory, id, adapter.image, "recovery", adapter.kind === "compose-lm" ? adapter : undefined); }
       catch (error) { cleanupFailed(error); }
-    } else if (existsSync(join(directory, "runner.json"))) {
-      const runner = parseBoundedJson(readFileSync(join(directory, "runner.json"), "utf8")) as { pid: number; start: string };
-      stopTrainer(runner.pid, runner.start);
+    } else if (existsSync(statePath(directory, "runner.json"))) {
+      const runner = parseBoundedJson(readFileSync(statePath(directory, "runner.json"), "utf8")) as { pid: number; start: string };
+      await stopTrainer(runner.pid, runner.start);
     }
-    completion = validateProcessCompletion(directory, id, input, source.job.allowance, coordinates.pmRoot);
+    completion = validateProcessCompletion(directory, source.job.id, input, source.job.allowance, coordinates.pmRoot);
   } catch (error) {
+    if (isPmCliExpectedError(error) && error.context.code === "process_stop_failed") cleanupFailed(error);
     const state = signal?.aborted === true ? "cancelled" : "failed";
     const charge = failedProcessCharge(directory, source.job.charge, source.job.state, source.revision);
     await commitProcessTransition(client, coordinates, source, processTransitionTarget(source.job, state, isPmCliExpectedError(error) ? String(error.context.code) : "trainer_failure", null, charge, diagnostics, source.revision));

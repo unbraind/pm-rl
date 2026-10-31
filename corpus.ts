@@ -1,3 +1,4 @@
+import { identifierClient } from "./state-boundary.ts";
 /** Read-only, Git-independent tracker snapshots for the existing durable recursive controller. */
 import type { ItemMetadata, PmClient } from "@unbrained/pm-cli/sdk/core";
 import { createPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
@@ -89,7 +90,7 @@ export function sealTrackerLoopCorpus(items: readonly Pick<ItemMetadata, "id" | 
 
 /** Read a certified complete local SDK inventory without executing extensions, Git, or source mutations. */
 export async function buildTrackerLoopCorpus(client: PmClient, bounds: JsonValue): Promise<TrackerLoopCorpus> {
-  const inventory = await client.listAllComplete({ includeBody: false });
+  const inventory = await identifierClient(client).listAllComplete({ includeBody: false });
   return sealTrackerLoopCorpus(inventory.items, bounds);
 }
 
@@ -174,7 +175,7 @@ export function sealIntakeCorpus(items: readonly Pick<ItemMetadata, "id" | "titl
 
 /** Read a complete SDK inventory and creation histories through a caller-supplied backend reader, without Git. */
 export async function buildIntakeLoopCorpus(client: PmClient, bounds: JsonValue, readHistory: (id: string) => string | Promise<string>): Promise<{ programme: JsonValue; snapshot: string; training_items: number; held_out_items: number; held_out_positive: number }> {
-  const inventory = await client.listAllComplete({ includeBody: false });
+  const inventory = await identifierClient(client).listAllComplete({ includeBody: false });
   const items = await Promise.all(inventory.items.map(async (item) => projectIntakeHistory(await readHistory(item.id))));
   const programme = sealIntakeCorpus(items, bounds);
   const config = parseLoopConfig(programme);

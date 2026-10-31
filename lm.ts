@@ -1,4 +1,5 @@
-import { assertJsonEncoding, parseBoundedJson } from "./tracker-record.ts";
+import { statePath, identifier } from "./state-boundary.ts";
+import { parseBoundedJson, assertJsonEncoding } from "./tracker-record.ts";
 /**
  * @module pm-rl/lm
  *
@@ -30,7 +31,7 @@ import { assertJsonEncoding, parseBoundedJson } from "./tracker-record.ts";
 
 import { createHash, randomUUID } from "node:crypto";
 import { link, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+
 
 import { parseProcessAdapter, type ProcessAdapter } from "./process.ts";
 import { EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
@@ -669,14 +670,14 @@ export function serializeLmCheckpoint(checkpoint: LmCheckpoint, config: Pick<LmL
 
 /** Tracker-relative location of immutable, content-addressed adapter artifacts. */
 export function lmCheckpointPath(checkpoint: LmCheckpoint): string {
-  return `runtime/pm-rl/artifacts/${checkpoint.digest.slice(7)}.json`;
+  return `runtime/pm-rl/artifacts/${identifier(checkpoint.digest, "digest").slice(7)}.json`;
 }
 
 /** Verify the bytes on disk against the canonical checkpoint and its identity. */
 export async function verifyLmCheckpointArtifact(pmRoot: string, checkpoint: LmCheckpoint, config: LmLoopConfig): Promise<void> {
   let text: string;
   try {
-    text = await readFile(join(pmRoot, lmCheckpointPath(checkpoint)), "utf8");
+    text = await readFile(statePath(pmRoot, ...lmCheckpointPath(checkpoint).split("/")), "utf8");
   } catch {
     expectedFail("LM checkpoint artifact is missing or unreadable.", "lm_checkpoint_artifact_missing", EXIT_CODE.CONFLICT);
   }
@@ -692,16 +693,19 @@ export async function verifyLmCheckpointArtifact(pmRoot: string, checkpoint: LmC
  * artifact at the content-addressed path, so a resumed loop can still persist it.
  */
 export async function persistLmCheckpoint(pmRoot: string, checkpoint: LmCheckpoint, config: LmLoopConfig, write: typeof writeFile = writeFile): Promise<void> {
-  await mkdir(join(pmRoot, "runtime/pm-rl/artifacts"), { recursive: true });
-  const target = join(pmRoot, lmCheckpointPath(checkpoint));
-  const temporary = `${target}.${randomUUID()}.tmp`;
+  await mkdir(statePath(pmRoot, "runtime", "pm-rl", "artifacts"), { recursive: true });
+  const temporaryName = `${checkpoint.digest.slice(7)}.${randomUUID()}.tmp`;
+  // Rebuild each path from the root right before its effect, so a component swapped during the write is refused.
+  const temporary = (): string => statePath(pmRoot, "runtime", "pm-rl", "artifacts", temporaryName);
+  const target = (): string => statePath(pmRoot, ...lmCheckpointPath(checkpoint).split("/"));
+  target(); // Refuse an invalid destination before writing anything.
   try {
-    await write(temporary, serializeLmCheckpoint(checkpoint, config).text, { flag: "wx" });
-    await link(temporary, target);
+    await write(temporary(), serializeLmCheckpoint(checkpoint, config).text, { flag: "wx" });
+    await link(temporary(), target());
   } catch (error) {
     if (!(error instanceof Error) || !("code" in error) || error.code !== "EEXIST") throw error;
   } finally {
-    await rm(temporary, { force: true });
+    await rm(temporary(), { force: true });
   }
   await verifyLmCheckpointArtifact(pmRoot, checkpoint, config);
 }

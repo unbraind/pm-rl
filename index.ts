@@ -1,3 +1,6 @@
+import { canonicalIdentifier, canonicalNamespaceIdentifier, preservedProgrammeId, programmeStepName, programmeRequest, acquireStateLock, statePath, identifier, checkedStateFile, identifierClient, commitStateTransaction, schemaIdentity, operationIdentifier, DECISION_INPUT_FIELDS, type ValidationMode } from "./state-boundary.ts";
+/** Select released-schema reads or explicit validation of a new declaration. */
+export type { ValidationMode } from "./state-boundary.ts";
 import { isDeepStrictEqual } from "node:util";
 import type { HistoryResult } from "@unbrained/pm-cli/sdk/query";
 import { decodeTrackerRecord, skippedTrackerRecords, parseBoundedJson, encodeBoundedJson, MAX_JSON_BYTES, MAX_TRACKER_RECORD_BYTES } from "./tracker-record.ts";
@@ -156,10 +159,11 @@ export {
   type StoredLmGeneration,
 } from "./lm.ts";
 
-export { exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordRecursivePolicyCards, recordPolicyCard, POLICY_CARD_MAX_BYTES, type PolicyCard, type PolicyCardEvidence, type PolicyCardRefusal } from "./policy-card.ts";
+export { exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordRecursivePolicyCards, recordPolicyCard, POLICY_CARD_MAX_BYTES, type PolicyCard, type PolicyCardDecisionEvidence, type PolicyCardDecisionReference, type PolicyCardEvidence, type PolicyCardRefusal } from "./policy-card.ts";
 export { parseTrainingInfluence, measureTrainingInfluence, replayTrainingInfluence, summarizeTrainingInfluence, recordTrainingInfluence, readTrainingInfluence, attachTrainingInfluence, verifyTrainingInfluenceProposal, type TrainingInfluenceRequest, type TrainingInfluenceReport, type TrainingInfluenceEvidence, type TrainingInfluenceRefusal, type TrainingSlice, type InfluenceEvaluation, type InfluenceFit, type InfluenceComparison } from "./training-influence.ts";
 export { parseShadowDeployment, shadowInputDigest, registerShadowDeployment, observeShadow, compareShadow, type ShadowPolicy, type ShadowDeployment, type ShadowInput, type ShadowObservation, type ShadowReport, type ShadowRefusal } from "./shadow.ts";
-export { parseEvaluationPlan, evaluationPlanId, evaluationComparison, registerEvaluationPlan, readEvaluationPlan, evaluatePlan, recordPlanEvaluation, enforceEvaluationPlan, type EvaluationPlan, type EvaluationMember, type EvaluationObservation, type EvaluationPlanReport, type RegisteredEvaluationPlan, type EvaluationPlanRefusal, type ProtectedCohort, type CohortReport, type CohortRefusal } from "./evaluation-plan.ts";
+export { recordSequentialEvaluation, readSequentialEvaluation, type SequentialStopping, type SequentialBoundary, type SequentialEvaluationResult, type SequentialEvaluationSkip } from "./sequential-evaluation.ts";
+export { parseEvaluationPlan, resolveEvaluationPlan, evaluationPlanId, evaluationComparison, registerEvaluationPlan, readEvaluationPlan, readEvaluationDecision, parseEvaluationEvidence, evaluatePlan, recordPlanEvaluation, enforceEvaluationPlan, type EvaluationPlan, type EvaluationMember, type EvaluationObservation, type EvaluationPlanReport, type RegisteredEvaluationPlan, type EvaluationPlanRefusal, type ProtectedCohort, type CohortReport, type CohortRefusal } from "./evaluation-plan.ts";
 
 export { decidePromotion, hoeffdingEpsilon, parsePromotionCriterion, parsePromotionEvidence, type PromotionCriterion, type PromotionDecision, type PromotionEvidence, type PromotionGateInput } from "./promotion.ts";
 export { recipeArtifact, parseRecipe, seededRecipes, INITIAL_RECIPE, RECIPE_BOUNDS, type Recipe, type RecipeKnobs } from "./recipe.ts";
@@ -196,9 +200,10 @@ import {
   type LmLoopConfig,
 } from "./lm.ts";
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { constants as fsConstants, existsSync, lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { open, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { basename, delimiter, dirname, join, relative, resolve, sep } from "node:path";
@@ -212,19 +217,22 @@ import {
   type CommandHandlerContext,
   type ExtensionApi,
 } from "@unbrained/pm-cli/sdk/authoring";
-import { commitWorkspaceTransaction, applyTerminalOrderingPolicy, mutateItem, readSettings, runWithActiveExtensions, type CommitWorkspaceTransactionOptions, type ItemDocument, resolveRuntimeStatusRegistry, type LogNote } from "@unbrained/pm-cli/sdk";
+import { applyTerminalOrderingPolicy, mutateItem, readSettings, runWithActiveExtensions, type CommitWorkspaceTransactionOptions, type ItemDocument, resolveRuntimeStatusRegistry, type LogNote } from "@unbrained/pm-cli/sdk";
 import { PmClient, type GetResult, type ItemMetadata } from "@unbrained/pm-cli/sdk/core";
-import { acquireLock, certifyCompleteListResult, createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError, isTerminalStatus, type PmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
+import { certifyCompleteListResult, createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError, isTerminalStatus, type PmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 
 import { parseJsonRecord, rethrowOperationalRead, rethrowProvenanceRead } from "./refuse.ts";
 import { exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordRecursivePolicyCards, recordPolicyCard, validatePromotedPolicyCard, validatePolicyCardWrite, validateRefusedPolicyCard, discoverPolicyCards, verifyRetainedGenerationEvidence } from "./policy-card.ts";
 import { recordTrainingInfluence, readTrainingInfluence, summarizeTrainingInfluence, attachTrainingInfluence, verifyTrainingInfluenceProposal } from "./training-influence.ts";
 import { registerShadowDeployment, observeShadow, compareShadow } from "./shadow.ts";
-import { registerEvaluationPlan, readEvaluationPlan, recordPlanEvaluation, enforceEvaluationPlan } from "./evaluation-plan.ts";
+import { recordSequentialEvaluation, readSequentialEvaluation, withEvaluationLease } from "./sequential-evaluation.ts";
+/** Typed persisted input graphs returned by the evaluation SDK. */
+export type { EvaluationEvidence } from "./lineage.ts";
+import { registerEvaluationPlan, readEvaluationPlan, recordPlanEvaluation, enforceEvaluationPlan, enforceEvaluationDecision, readEvaluationDecision, evaluationEvidence, parseEvaluationEvidence, evaluationInputDigest, decisionSnapshotDigest } from "./evaluation-plan.ts";
 import { buildIntakeLoopCorpus, buildTrackerLoopCorpus } from "./corpus.ts";
 import { decodeCheckpointArtifacts, encodeCheckpointArtifacts, collectCheckpointArtifacts, inspectCheckpointArtifact } from "./checkpoint-artifacts.ts";
 
-import { encodeEventSegments, parseNdjsonStream, readSeries, type MetricEvent } from "./series.ts";
+import { encodeEventSegments, parseNdjsonStream, readSeries, MetricEventError, type MetricEvent } from "./series.ts";
 
 import {
   buildCompareView,
@@ -256,7 +264,7 @@ import {
   renderLineageTable,
   DEFAULT_GAP_WINDOW,
   type AncestryEntry,
-  type GenerationSpec,
+  type GenerationSpec, type EvaluationEvidence,
   type LineageAncestry,
   type LineageView,
   type ScoreRecord,
@@ -358,7 +366,7 @@ import {
 } from "./systemone.ts";
 
 import { lmProcessInput, processLmTraining, verifyLmProcessJob } from "./process-lm.ts";
-import { executeProcessTrainer, listProcessJobs, readProcessJob, processJobId, verifiedProcessPolicy, transitionProcessJob, verifyProcessJobBudget, type ProcessJob, type ProcessJobState, type TrainerPolicy } from "./process.ts";
+import { controllerCallback, executeProcessTrainer, listProcessJobs, readProcessJob, processJobId, verifiedProcessPolicy, transitionProcessJob, verifyProcessJobBudget, type ProcessJob, type ProcessJobState, type TrainerPolicy } from "./process.ts";
 export { executeProcessTrainer, reserveProcessJob, readProcessJob, processJobId, processStaging, parseResources, parseProcessAdapter, validateProcessCompletion, referenceTrainerArgv, type ProcessJob, type ProcessCompletion, type ProcessAdapter, type ProcessInput, type Resources } from "./process.ts";
 
 import { banditCheckpoint, type BanditCheckpoint, type BanditGeneration } from "./bandit.ts";
@@ -581,16 +589,20 @@ function fail(message: string, code: string, exitCode: number = EXIT_CODE.USAGE)
 function stringOption(context: CommandHandlerContext, key: string, required = true): string | undefined {
   const camel = key.replaceAll(/_([a-z])/g, (_match, letter: string) => letter.toUpperCase());
   const value = context.options[key] ?? context.options[camel];
+  if (typeof value === "string" && ["checkpoint", "base_checkpoint", "policy"].includes(key)) return value; // Labels are validated only when a new record will be written.
+  if (typeof value === "string" && ["environment", "parent", "approval", "run", "benchmark", "candidate", "incumbent", "source", "target"].includes(key)) { operationIdentifier(value); return value; }
+  if (typeof value === "string" && ["collection_runs", "contaminated_by"].includes(key)) { value.split(",").forEach((id) => operationIdentifier(id)); return value; }
   if (typeof value === "string" && value.trim().length > 0) return value.trim();
   if (required) fail(`pm rl requires --${key.replaceAll("_", "-")}.`, `missing_${key}`);
   return undefined;
 }
 
 /** Return the first positional argument or fail with actionable usage. */
-function requiredArgument(context: CommandHandlerContext, label: string): string {
+function requiredArgument(context: CommandHandlerContext, label: string, kind: "item" | "digest" = "item"): string {
   const value = context.args.find((argument) => !argument.startsWith("-"));
   if (value === undefined || value.trim().length === 0) fail(`pm rl requires ${label}.`, "missing_argument");
-  return value.trim();
+  if (kind === "item") { operationIdentifier(value); return value; }
+  return identifier(value, kind);
 }
 
 /**
@@ -660,12 +672,14 @@ function parseJsonObject(text: string, source: string, code: string, exitCode: n
 }
 
 /** Require non-empty string values for a domain specification's identity fields. */
-function requireJsonStrings(record: Readonly<Record<string, JsonValue>>, keys: readonly string[], source: string, codePrefix: string, exitCode: number = EXIT_CODE.USAGE): void {
+function requireJsonStrings(record: Record<string, JsonValue>, keys: readonly string[], source: string, codePrefix: string, exitCode: number = EXIT_CODE.USAGE, mode: ValidationMode = "read"): void {
   for (const key of keys) {
     const value = record[key];
     if (typeof value !== "string" || value.trim().length === 0) {
       fail(`${source} requires a non-empty string ${key}.`, `${codePrefix}_${key}`, exitCode);
     }
+    if (mode === "write" && key.endsWith("_id")) record[key] = identifier(value);
+    if (mode === "write" && key === "checkpoint") identifier(value, "artifact");
   }
 }
 
@@ -696,7 +710,7 @@ export function parseEnvironmentSpec(text: string, source = "Environment file"):
 }
 
 /** Parse and validate a benchmark specification and canonicalize contamination ids. */
-export function parseBenchmarkSpec(text: string, source = "Benchmark file"): BenchmarkSpec {
+export function parseBenchmarkSpec(text: string, source = "Benchmark file", mode: ValidationMode = "read"): BenchmarkSpec {
   const record = parseJsonObject(text, source, "invalid_benchmark_json");
   requireJsonStrings(record, ["name", "version"], source, "invalid_benchmark");
   for (const key of ["task_suite", "scoring_function", "pass_criteria"] as const) {
@@ -718,14 +732,14 @@ export function parseBenchmarkSpec(text: string, source = "Benchmark file"): Ben
     scoring_function: record.scoring_function!,
     pass_criteria: record.pass_criteria!,
     direction: record.direction,
-    contaminated_environments: [...new Set(contaminatedEnvironments.map((id) => id.trim()))].sort(),
+    contaminated_environments: [...new Set(contaminatedEnvironments.map((id) => schemaIdentity(id, "item", mode)))].sort(),
   };
 }
 
 /** Parse and validate one stored evaluation provenance record. */
-export function parseEvalResultSpec(text: string, source = "EvalResult"): EvalResultSpec {
+export function parseEvalResultSpec(text: string, source = "EvalResult", mode: ValidationMode = "read"): EvalResultSpec {
   const record = parseJsonObject(text, source, "invalid_eval_result_json", EXIT_CODE.CONFLICT);
-  requireJsonStrings(record, ["checkpoint", "run_id", "benchmark_id", "environment_id", "environment_spec_hash", "reward_spec_hash"], source, "invalid_eval_result", EXIT_CODE.CONFLICT);
+  requireJsonStrings(record, ["checkpoint", "run_id", "benchmark_id", "environment_id", "environment_spec_hash", "reward_spec_hash"], source, "invalid_eval_result", EXIT_CODE.CONFLICT, mode);
   if (typeof record.score !== "number" || !Number.isFinite(record.score)) {
     fail(`${source} score must be finite.`, "invalid_eval_result_score", EXIT_CODE.CONFLICT);
   }
@@ -755,12 +769,91 @@ export function idSegment(value: string): string {
   return segment.length > 0 ? segment : "environment";
 }
 
+/** One SDK projection whose exact current revision contributed to a promotion decision. */
+interface PromotionEvidenceRead { readonly at?: string; readonly fields?: string; readonly item: GetResult["item"] | null; readonly authorization?: true }
+/** SDK-certified records actually read by a decision; nested readers contribute to their enclosing decision too. */
+interface DecisionReads { readonly client: PmClient; readonly inputs: Map<string, GetResult["item"]>; readonly parent?: DecisionReads; readonly childrenOnly: boolean; lastId?: string }
+const decisionReads = new AsyncLocalStorage<DecisionReads>();
+/** Complete SDK domain projection shared by decision input hashing and citations. @internal */
+export { DECISION_INPUT_FIELDS } from "./state-boundary.ts";
+/** Add provenance location without replacing the exception used by controller verdict classification. */
+function annotateDecisionError(error: PmCliExpectedError, fallback: string): PmCliExpectedError {
+  const id = String(error.context.item_id ?? fallback);
+  if (id !== "evaluation-input" && !error.message.includes(id)) error.message = `${error.message} Record ${id}.`;
+  Object.assign(error.context, { item_id: id });
+  return error;
+}
+/** Return the inputs read by the decision itself, without maintaining a parallel dependency list. @internal */
+export async function captureDecisionInputs<T>(client: PmClient, execute: () => Promise<T>, childrenOnly = false): Promise<{ value: T; inputs: GetResult["item"][] }> {
+  const state: DecisionReads = { client, inputs: new Map(), parent: decisionReads.getStore(), childrenOnly };
+  return decisionReads.run(state, async () => {
+    try { return { value: await execute(), inputs: [...state.inputs.values()].sort((a, b) => Buffer.compare(Buffer.from(a.id), Buffer.from(b.id))) }; }
+    catch (error) {
+      if (!isPmCliExpectedError(error)) throw error;
+      throw annotateDecisionError(error, state.lastId ?? "evaluation-input");
+    }
+  });
+}
+/** Historical reads establish dependencies too; prefer live projections when the validator also reads them. */
+function observeDecisionInput(client: PmClient, item: GetResult["item"], at: string | undefined): void {
+  // Only a decision reader can certify inputs. A nested controller is still
+  // bookkeeping, not an evaluator, even when another controller encloses it.
+  const reader = decisionReads.getStore();
+  if (reader?.childrenOnly !== false) return;
+  for (let state: DecisionReads | undefined = reader; state !== undefined; state = state.parent) {
+    if (state.client === client && (!state.childrenOnly || state !== decisionReads.getStore())) { state.lastId = item.id; if (at === undefined || !state.inputs.has(item.id)) state.inputs.set(item.id, structuredClone(item)); }
+  }
+}
+const promotionEvidence = new AsyncLocalStorage<{ client: PmClient; reads: Map<string, PromotionEvidenceRead[]>; detectChanges: boolean }>();
+/** Collect every live evidence read, including absent slots, until the guarded promotion write. @internal */
+export function withPromotionEvidence<T>(client: PmClient, execute: () => Promise<T>, detectChanges = false): Promise<T> {
+  return promotionEvidence.run({ client, reads: new Map(), detectChanges }, execute);
+}
+/** Retain SDK projections unchanged; historical coordinates and live revisions remain distinct. */
+function observePromotionEvidence(id: string, fields: string | undefined, item: GetResult["item"] | null, at: string | undefined, authorization = false): void {
+  const reads = promotionEvidence.getStore()!.reads;
+  // Refresh authorization to its latest SDK revision; retain every statistical
+  // projection, including when a Decision also serves as a review record.
+  const previous = (reads.get(id) ?? []).filter((read) => !authorization || read.authorization !== true);
+  if (!authorization && promotionEvidence.getStore()!.detectChanges && at === undefined && previous.some((read) => read.authorization !== true && read.at === undefined && read.fields === fields && canonicalJson(read.item as JsonValue) !== canonicalJson(item as JsonValue))) {
+    fail("Promotion evidence changed during validation; retry from current evidence. No new approval was consumed.", "loop_write_conflict", EXIT_CODE.CONFLICT);
+  }
+  if (!previous.some((read) => read.authorization === (authorization ? true : undefined) && read.at === at && read.fields === fields && canonicalJson(read.item as JsonValue) === canonicalJson(item as JsonValue))) previous.push({ at, fields, item: structuredClone(item), ...(authorization ? { authorization: true } : {}) });
+  reads.set(id, previous);
+}
 /** Read complete current or verified historical domain evidence without an output ceiling. */
 export async function readCompleteLoopItem(client: PmClient, id: string, at?: string, fields?: string): Promise<GetResult> {
-  const result = await client.get(id, { ...(fields === undefined ? { depth: "standard" } : { fields }), outputLimit: "unbounded", outputBudget: "unbounded", ...(at === undefined ? {} : { at }) }).catch(rethrowProvenanceRead);
+  const observing = promotionEvidence.getStore()?.client === client;
+  if (observing) {
+    operationIdentifier(id);
+    const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
+    id = canonicalizeIdentifier(id, prefix);
+  }
+  const result = await identifierClient(client).get(id, { ...(fields === undefined ? { depth: "standard" } : { fields }), outputLimit: "unbounded", outputBudget: "unbounded", ...(at === undefined ? {} : { at }) }).catch((error: unknown) => {
+    if (observing && isPmCliExpectedError(error) && error.exitCode === EXIT_CODE.NOT_FOUND) observePromotionEvidence(id, fields, null, at);
+    try { return rethrowProvenanceRead(error); }
+    catch (classified) {
+      if (decisionReads.getStore()?.client === client && isPmCliExpectedError(classified)) throw annotateDecisionError(classified, id);
+      throw classified;
+    }
+  });
   if (!("item" in result) || "output_budget_exceeded" in result) {
     fail(`Item ${id} was omitted despite an unbounded read request.`, "loop_history_incomplete", EXIT_CODE.CONFLICT);
   }
+  if (observing) observePromotionEvidence(result.item.id, fields, result.item, at);
+  const tracing = decisionReads.getStore();
+  if (at === undefined && result.item.type === "Run" && tracing?.client === client && !tracing.childrenOnly && fields !== DECISION_INPUT_FIELDS) {
+    await readCompleteLoopItem(client, result.item.id, undefined, DECISION_INPUT_FIELDS);
+    return result as GetResult;
+  }
+  if (at !== undefined && tracing?.client === client && !tracing.childrenOnly && !tracing.inputs.has(result.item.id)) {
+    await readCompleteLoopItem(client, result.item.id).catch((error: unknown) => {
+      // A certified historical projection survives a later native deletion.
+      // Only absence of the current counterpart is optional; storage failures still retry.
+      if (!isItemNotFound(error)) throw error;
+    });
+  }
+  observeDecisionInput(client, result.item, at);
   return result as GetResult;
 }
 
@@ -798,13 +891,14 @@ export function orderedHistoryEntries(history: HistoryResult, code: string): Non
  * @internal
  */
 export async function createVerifiedItem(client: PmClient, options: Parameters<PmClient["create"]>[0], code = "record_write_drift"): Promise<Awaited<ReturnType<PmClient["create"]>>> {
-  const created = await client.create(options);
+  const created = await identifierClient(client).create(options);
   const fields = ["id", "type", "created_at", "body", "tags", "affected_version", "fixed_version", "component", "environment", "parent", "goal", "objective", "sprint", "release", "assignee", "reviewer", "blocked_by", "dependencies"] as const;
   const birth = await readCompleteLoopItem(client, created.item.id, "1", fields.join(","));
   const current = await readCompleteLoopItem(client, created.item.id, undefined, fields.join(","));
   if (fields.some((field) => !isDeepStrictEqual(birth.item[field], current.item[field]))) {
     fail("Native record changed after creation. Read the current target and retry with a fresh report or identity; peer data was retained.", code, EXIT_CODE.CONFLICT);
   }
+  await certifyLoopWrite(client, created.item.id, 1, code);
   return created;
 }
 
@@ -816,30 +910,223 @@ export async function readLoopRevision(client: PmClient, id: string): Promise<nu
   return latest.version ?? latest.index;
 }
 
+/** Exact native write coordinates retained until the enclosing publication finishes. */
+const publicationWrites = new AsyncLocalStorage<Map<PmClient, Map<string, number>>>();
+/** Record the revision produced under the native item lock, refusing any later history even after ABA. */
+async function certifyLoopWrite(client: PmClient, id: string, revision: number, code = "loop_write_conflict"): Promise<void> {
+  const writes = publicationWrites.getStore();
+  if (writes !== undefined) {
+    let items = writes.get(client);
+    if (items === undefined) { items = new Map(); writes.set(client, items); }
+    items.set(id, revision);
+  }
+  if (await readLoopRevision(client, id) !== revision) fail("Tracker history advanced after publication. Retry from current evidence; peer state and history were retained.", code, EXIT_CODE.CONFLICT);
+}
+/** Pin an adopted applied snapshot without replacing an earlier owned-write or adoption witness. @internal */
+export async function certifyAppliedRevision(client: PmClient, id: string, revision: number): Promise<void> {
+  await certifyLoopWrite(client, id, publicationWrites.getStore()?.get(client)?.get(id) ?? revision);
+}
+/** Certify all native writes after observer hooks and enclosing publication checks, without excluding ordinary writers. @internal */
+export async function withWriteHistoryFence<T>(execute: () => Promise<T>): Promise<T> {
+  const writes = publicationWrites.getStore() ?? new Map<PmClient, Map<string, number>>();
+  return publicationWrites.run(writes, async () => {
+    const result = await execute();
+    for (const [client, items] of writes) for (const [id, revision] of items) await certifyLoopWrite(client, id, revision);
+    return result;
+  });
+}
+
+/** Locate the first certified semantic version through the SDK, retaining compaction coordinates. @internal */
+export async function firstDecisionSnapshot(client: PmClient, id: string, matches: (item: GetResult["item"]) => boolean, fields?: string): Promise<{ item: GetResult["item"]; at: string }> {
+  const history = await identifierClient(client).run("history", { id, options: { compact: true, verify: true, outputLimit: "unbounded", outputBudget: "unbounded" } }).catch(rethrowProvenanceRead) as HistoryResult;
+  for (const row of orderedHistoryEntries(history, "loop_history_incomplete")) {
+    const at = String(row.version ?? row.index);
+    const item = (await readCompleteLoopItem(client, id, at, fields)).item;
+    if (matches(item)) return { item, at };
+  }
+  throw createPmCliExpectedError(`Restore certified input ${id} before replaying its receipt.`, { exitCode: EXIT_CODE.CONFLICT, context: { code: "eval_plan_drift", item_id: id } });
+}
+/** Recognize actual completed executions; malformed historical envelopes establish no completion seal. @internal */
+export function completedDecisionReceipt(row: Readonly<Record<string, unknown>>): boolean {
+  if (row.format !== "pm-rl/loop-step/1" || row.state !== "complete" || typeof row.input !== "string" || !/^[a-f0-9]{64}$/.test(row.input)
+    || row.result === null || typeof row.result !== "object" || Array.isArray(row.result) || row.digest !== hashJson(row.result as JsonValue)) return false;
+  try { if (row.decision_evidence !== undefined) parseEvaluationEvidence(row.decision_evidence); }
+  catch { return false; }
+  return true;
+}
+/** A completed receipt cannot shed its input graph or replace it with a freshly rehashed subset. @internal */
+export async function verifyCompletedDecisionReceipt(client: PmClient, id: string, body: Readonly<Record<string, unknown>>, prospective = false): Promise<void> {
+  let original: Awaited<ReturnType<typeof firstDecisionSnapshot>>;
+  try {
+    original = await firstDecisionSnapshot(client, id, (item) => {
+      return decodeTrackerRecord(null, item, { type: "Decision", format: "pm-rl/loop-step/1", valid: completedDecisionReceipt }) !== null;
+    });
+  } catch (error) {
+    if (prospective && isPmCliExpectedError(error) && error.context.code === "eval_plan_drift") return;
+    if (prospective && isPmCliExpectedError(error) && error.exitCode === EXIT_CODE.NOT_FOUND) return;
+    throw error;
+  }
+  const sealed = parseBoundedJson(String(original.item.body)) as Record<string, unknown>;
+  if ((sealed.decision_evidence !== undefined || body.decision_evidence !== undefined) && canonicalJson(sealed as JsonValue) !== canonicalJson(body as JsonValue)) {
+    const originalGraph = sealed.decision_evidence as EvaluationEvidence | undefined;
+    const changedGraph = body.decision_evidence as EvaluationEvidence | undefined;
+    const changed = originalGraph?.inputs.find((input, index) => canonicalJson(input as unknown as JsonValue) !== canonicalJson((changedGraph?.inputs?.[index] ?? null) as unknown as JsonValue));
+    const snapshot = changed === undefined ? id : `${changed.id}@${changed.at ?? "unversioned"}`;
+    throw createPmCliExpectedError(`Completed decision ${id} changed at snapshot ${snapshot}; restore its original receipt.`, { exitCode: EXIT_CODE.CONFLICT, context: { code: "loop_step_drift", item_id: id, required: `Restore original snapshot ${snapshot}.` } });
+  }
+}
+/** Distinguish terminal evaluator outcomes without interpreting tracker status names. */
+function terminalEvaluation(spec: GenerationSpec): boolean { return spec.promoted || (spec.policy_evaluation as Record<string, JsonValue> | undefined)?.["decision"] === "refuse"; }
+/** Bind new promotion/rejection graphs to their first terminal SDK snapshot, including removal attempts. @internal */
+export async function verifyTerminalEvaluationReceipt(client: PmClient, item: GetResult["item"]): Promise<void> {
+  const current = extractGenerationSpec(String(item.body), "Decision receipt");
+  let first: Awaited<ReturnType<typeof firstDecisionSnapshot>>;
+  try { first = await firstDecisionSnapshot(client, item.id, (source) => terminalEvaluation(extractGenerationSpec(String(source.body), "Historical decision"))); }
+  catch (error) {
+    if (!terminalEvaluation(current) && isPmCliExpectedError(error) && error.context.code === "eval_plan_drift") return;
+    throw error;
+  }
+  const original = extractGenerationSpec(String(first.item.body), "First decision receipt");
+  /** Outcome fields are sealed together; provenance itself retains its original generation hash. */
+  function outcome(spec: GenerationSpec): JsonValue { return { graph: spec.evaluation_evidence as unknown as JsonValue ?? null, promoted: spec.promoted, approval: spec.approval, proxy: spec.proxy_score as unknown as JsonValue, held_out: spec.held_out_score as unknown as JsonValue, gap: spec.gap, evidence: spec.promotion_evidence, evaluator: spec.policy_evaluation ?? null }; }
+  if ((original.evaluation_evidence !== undefined || current.evaluation_evidence !== undefined) && canonicalJson(outcome(original)) !== canonicalJson(outcome(current))) {
+    throw createPmCliExpectedError(`Terminal decision ${item.id} changed; restore its first receipt.`, { exitCode: EXIT_CODE.CONFLICT, context: { code: "eval_plan_drift", item_id: item.id } });
+  }
+}
+/** Persist the exact history coordinates of evaluator reads in a durable enclosing step. @internal */
+export async function sealDecisionEvidence(client: PmClient, comparison: string, inputs: readonly GetResult["item"][]): Promise<EvaluationEvidence> {
+  return decisionReads.exit(async () => {
+    const refs = [];
+    for (const item of inputs) {
+      const digest = decisionSnapshotDigest(item);
+      const original = await firstDecisionSnapshot(client, item.id, (historical) => decisionSnapshotDigest(historical) === digest, DECISION_INPUT_FIELDS);
+      refs.push({ id: item.id, digest, at: original.at });
+    }
+    const body = { format: "pm-rl/evaluation-evidence/2" as const, comparison, inputs: refs };
+    return parseEvaluationEvidence({ ...body, digest: hashJson(body as unknown as JsonValue) });
+  });
+}
+/** Read only a certified historical input; enclosing decisions must not substitute a live projection. @internal */
+export async function readDecisionSnapshot(client: PmClient, id: string, at: string): Promise<GetResult> {
+  return decisionReads.exit(() => readCompleteLoopItem(client, id, at, DECISION_INPUT_FIELDS));
+}
+/** Completed executions consume recorded snapshots, including legacy comparison-based digests. @internal */
+export async function verifyDecisionSnapshots(client: PmClient, evidence: EvaluationEvidence): Promise<void> {
+  for (const input of evidence.inputs) {
+    const snapshot = `${input.id}@${input.at ?? "unversioned"}`;
+    try {
+      if (input.at === undefined) throw createPmCliExpectedError(`Receipt has no certified coordinate for ${snapshot}; restore the original versioned receipt.`, { exitCode: EXIT_CODE.CONFLICT, context: { code: "eval_plan_drift", item_id: input.id } });
+      const historical = await readDecisionSnapshot(client, input.id, input.at);
+      const digest = evidence.format === "pm-rl/evaluation-evidence/2" ? decisionSnapshotDigest(historical.item) : evaluationInputDigest(historical.item, evidence.comparison);
+      if (historical.item.id === input.id && digest === input.digest) continue;
+    } catch (error) { rethrowOperationalRead(error); }
+    throw createPmCliExpectedError(`Restore certified decision snapshot ${snapshot} before replay.`, { exitCode: EXIT_CODE.CONFLICT, context: { code: "eval_plan_drift", item_id: input.id, required: `Restore original snapshot ${snapshot}.` } });
+  }
+}
+/** One replay scope deduplicates upstream decisions while never caching across calls. */
+interface EvidenceVerification { readonly client: PmClient; readonly graphs: Set<string>; readonly subjects: Set<string> }
+const evidenceVerification = new AsyncLocalStorage<EvidenceVerification>();
+/** Revalidate certified versions and live content, using the actual evaluator for every upstream decision. @internal */
+export async function verifyDecisionEvidence(client: PmClient, evidence: EvaluationEvidence): Promise<void> {
+  if (evidence.format !== "pm-rl/evaluation-evidence/1") fail("Promotion requires current evaluator evidence; immutable execution snapshots are replay-only.", "eval_plan_evidence", EXIT_CODE.CONFLICT);
+  const current = evidenceVerification.getStore();
+  if (current?.client === client) return verifyDecisionInputs(client, evidence, current);
+  const scope: EvidenceVerification = { client, graphs: new Set(), subjects: new Set() };
+  return evidenceVerification.run(scope, () => verifyDecisionInputs(client, evidence, scope));
+}
+/** Traverse a complete evidence closure once, preserving SDK historical addresses and decision semantics. */
+async function verifyDecisionInputs(client: PmClient, evidence: EvaluationEvidence, scope: EvidenceVerification): Promise<void> {
+  if (scope.graphs.has(evidence.digest)) return;
+  scope.graphs.add(evidence.digest);
+  for (const input of evidence.inputs) {
+    const historical = await readCompleteLoopItem(client, input.id, input.at, DECISION_INPUT_FIELDS);
+    if (historical.item.id !== input.id || evaluationInputDigest(historical.item, evidence.comparison) !== input.digest) throw createPmCliExpectedError(`Restore cited decision input ${input.id} before replay.`, { exitCode: EXIT_CODE.CONFLICT, context: { code: "eval_plan_drift", item_id: input.id } });
+    const current = input.at === undefined ? historical : await readCompleteLoopItem(client, input.id, undefined, DECISION_INPUT_FIELDS);
+    if (evaluationInputDigest(current.item, evidence.comparison) !== input.digest) throw createPmCliExpectedError(`Decision input ${input.id} changed after sealing; restore the cited record.`, { exitCode: EXIT_CODE.CONFLICT, context: { code: "eval_plan_drift", item_id: input.id } });
+    if (current.item.type !== "Generation" || scope.subjects.has(current.item.id)) continue;
+    const nested = extractGenerationSpec(String(current.item.body), "Upstream decision evidence").evaluation_evidence;
+    if (nested !== undefined) {
+      scope.subjects.add(current.item.id);
+      const decision = await readEvaluationDecision(client, current.item.id);
+      if (decision.evidence?.digest !== nested.digest) throw createPmCliExpectedError(`Upstream decision ${current.item.id} does not match its evaluator.`, { exitCode: EXIT_CODE.CONFLICT, context: { code: "eval_plan_drift", item_id: current.item.id } });
+    }
+  }
+}
+
+/** Hold every certified SDK read through an outcome or publication write, releasing only owned leases. */
+async function withLockedPromotionEvidence<T>(client: PmClient, pmRoot: string, settings: Awaited<ReturnType<typeof readSettings>>, target: string | null, preconditions: readonly GetResult[], author: string, execute: () => Promise<T>): Promise<T> {
+  const releases: (() => Promise<void>)[] = [];
+  try {
+    // These are the SDK's native item locks, also observed by ordinary CLI and SDK peer writes.
+    const observed = promotionEvidence.getStore();
+    const reads = observed?.client === client ? observed.reads : new Map<string, PromotionEvidenceRead[]>();
+    const dependencies = new Map(preconditions.map((dependency) => [dependency.item.id, dependency]));
+    const ids = [...new Set([...dependencies.keys(), ...reads.keys()])].filter((id) => id !== target).sort();
+    for (const id of ids) releases.push(await acquireStateLock(pmRoot, id, settings.locks.ttl_seconds, author, false, false, settings.locks.wait_ms));
+    // All SDK writers now contend on these native leases. Validate after the last acquisition,
+    // and retain every lease through the authoritative SDK mutation and its terminal record.
+    await promotionEvidence.exit(async () => {
+      for (const [id, projections] of reads) for (const projection of projections) {
+        let current: GetResult["item"] | null;
+        try { current = (await readCompleteLoopItem(client, id, projection.at, projection.fields)).item; }
+        catch (error) { if (isPmCliExpectedError(error) && error.exitCode === EXIT_CODE.NOT_FOUND) current = null; else throw error; }
+        if (canonicalJson(current as JsonValue) !== canonicalJson(projection.item as JsonValue)) fail(projection.authorization === true ? "Promotion authorization changed after its budget decision; retry from current capacity. No new approval was consumed." : "Promotion evidence changed after validation; retry from current evidence. No new approval was consumed.", "loop_write_conflict", EXIT_CODE.CONFLICT);
+      }
+      for (const dependency of dependencies.values()) {
+        const current = await readCompleteLoopItem(client, dependency.item.id);
+        if (current.item.updated_at !== dependency.item.updated_at || current.item.body !== dependency.item.body) fail("Promotion evidence or budget changed after it was read; retry from current evidence.", "loop_write_conflict", EXIT_CODE.CONFLICT);
+      }
+    });
+    return await promotionEvidence.exit(execute);
+  } finally {
+    for (const release of releases.reverse()) await release();
+  }
+}
+
+/** Validate before journaling, then fence the exact SDK inputs through publication. @internal */
+export function withValidatedMutation<T, R>(client: PmClient, target: string, validate: () => Promise<T>, publish: (validated: T) => Promise<R>): Promise<R> {
+  operationIdentifier(target);
+  /** A peer completing during source discovery requires fresh validation, never frozen replay. */
+  async function attempt(remaining: number): Promise<R> {
+    let publishing = false;
+    try { return await withPromotionEvidence(client, async () => {
+    const config = await identifierClient(client).config("project", "get", "id_prefix");
+    const root = dirname(config.settings_path);
+    const id = canonicalizeIdentifier(target, String(config.nested_setting!.value));
+    const validated = await validate();
+    return withLockedPromotionEvidence(client, root, await readSettings(root), id, [], "pm-rl-preflight", () => { publishing = true; return publish(validated); });
+    }); } catch (error) {
+      if (!publishing && remaining > 0 && isPmCliExpectedError(error) && error.context.code === "loop_write_conflict") return attempt(remaining - 1);
+      throw error;
+    }
+  }
+  return attempt(2);
+}
+
 /** Apply a read-derived change through the SDK item transaction, refusing a stale revision under its item lock. @internal */
 export async function mutateLoopItem(client: PmClient, before: GetResult, message: string, change: (document: ItemDocument, closeStatus: string, terminal: boolean) => string[] | Promise<string[]>, preconditions: readonly GetResult[] = [], author = "pm-rl", op: "update" | "close" = "update", expectedRevision?: number): Promise<GetResult> {
-  const config = await client.config("project", "get", "id_prefix");
+  operationIdentifier(before.item.id); preconditions.forEach((dependency) => operationIdentifier(dependency.item.id));
+  const config = await identifierClient(client).config("project", "get", "id_prefix");
   const pmRoot = dirname(config.settings_path);
   const settings = await readSettings(pmRoot);
   const expected = { updated: before.item.updated_at, body: String(before.item.body) };
-  const releases: (() => Promise<void>)[] = [];
-  let after: GetResult;
   try {
-    // These are the SDK's native item locks, also observed by ordinary CLI and SDK peer writes.
-    for (const dependency of [...preconditions].sort((a, b) => a.item.id.localeCompare(b.item.id))) {
-      releases.push(await acquireLock(pmRoot, dependency.item.id, settings.locks.ttl_seconds, author, false, false, settings.locks.wait_ms));
-      const current = await readCompleteLoopItem(client, dependency.item.id);
-      if (current.item.updated_at !== dependency.item.updated_at || current.item.body !== dependency.item.body) fail("Promotion evidence or budget changed after it was read; retry from current evidence.", "loop_write_conflict", EXIT_CODE.CONFLICT);
-    }
-    const result = await runWithActiveExtensions({ path: pmRoot }, () => mutateItem({ pmRoot, settings, id: before.item.id, op, author, message, skipNoop: true,
-      mutate: async (document) => {
-        if (expectedRevision !== undefined && await readLoopRevision(client, before.item.id) !== expectedRevision) fail("Tracker history advanced after planning. Read the current target and retry; peer state and held budget were retained.", "superseded", EXIT_CODE.CONFLICT);
-        if (document.metadata.updated_at !== expected.updated || document.body !== expected.body) fail("Tracker item changed after it was read; retry from current evidence.", "loop_write_conflict", EXIT_CODE.CONFLICT);
-        const registry = resolveRuntimeStatusRegistry(settings.schema);
-        return { changedFields: await change(document, registry.close_status, isTerminalStatus(document.metadata.status, registry)) };
-      },
-    }));
-    after = { item: { ...result.item, body: result.body } };
+    return await withLockedPromotionEvidence(client, pmRoot, settings, before.item.id, preconditions, author, async () => {
+      let writtenRevision: number | undefined;
+      const result = await runWithActiveExtensions({ path: pmRoot }, () => mutateItem({ pmRoot, settings, id: before.item.id, op, author, message, skipNoop: true,
+        mutate: async (document) => {
+          const revision = await readLoopRevision(client, before.item.id);
+          if (expectedRevision !== undefined && revision !== expectedRevision) fail("Tracker history advanced after planning. Read the current target and retry; peer state and held budget were retained.", "superseded", EXIT_CODE.CONFLICT);
+          if (document.metadata.updated_at !== expected.updated || document.body !== expected.body) fail("Tracker item changed after it was read; retry from current evidence.", "loop_write_conflict", EXIT_CODE.CONFLICT);
+          const registry = resolveRuntimeStatusRegistry(settings.schema);
+          const changedFields = await change(document, registry.close_status, isTerminalStatus(document.metadata.status, registry));
+          writtenRevision = revision + (changedFields.length === 0 ? 0 : 1);
+          return { changedFields };
+        },
+      }));
+      await certifyLoopWrite(client, before.item.id, writtenRevision!);
+      return { item: { ...result.item, body: result.body } };
+    });
   } catch (error) {
     if (isPmCliExpectedError(error)) {
       try {
@@ -850,10 +1137,7 @@ export async function mutateLoopItem(client: PmClient, before: GetResult, messag
       }
     }
     throw error;
-  } finally {
-    for (const release of releases.reverse()) await release();
   }
-  return after;
 }
 
 /** Close a generation and optionally publish its outcome in one guarded SDK item transaction. */
@@ -875,7 +1159,7 @@ async function completeLoopGeneration(client: PmClient, before: GetResult, body:
 async function getTypedItem(client: PmClient, id: string, type: "Decision" | "Environment" | "Run" | "Generation" | "Benchmark" | "EvalResult" | "GateEpisode" | "MergeOutcome" | "Sweep" | "Transfer"): Promise<GetResult> {
   // Benchmarks validate edge roles, which deep presentation reads omit; every
   // other domain type uses the complete, unbounded loop read.
-  const result = type === "Benchmark" ? await client.get(id, { full: true }) : await readCompleteLoopItem(client, id);
+  const result = type === "Benchmark" ? await identifierClient(client).get(id, { full: true }) : await readCompleteLoopItem(client, id);
   if (result.item.type !== type) fail(`pm rl expected ${type} ${id}, not ${String(result.item.type)}.`, "wrong_item_type", EXIT_CODE.CONFLICT);
   return result;
 }
@@ -890,7 +1174,7 @@ async function getTypedItem(client: PmClient, id: string, type: "Decision" | "En
  */
 async function ensurePersistentTypes(client: PmClient): Promise<void> {
   for (const itemType of RL_ITEM_TYPES) {
-    await client.schemaAddType(itemType.name, {
+    await identifierClient(client).schemaAddType(itemType.name, {
       folder: itemType.folder,
       alias: [...itemType.aliases],
       description: itemType.description,
@@ -898,6 +1182,13 @@ async function ensurePersistentTypes(client: PmClient): Promise<void> {
       author: "pm-rl",
     });
   }
+}
+
+/** Publish a fully validated create envelope; reads and refused plans never install schema. */
+async function createRlItem(client: PmClient, options: NonNullable<Parameters<PmClient["create"]>[0]>, code = "record_write_drift"): ReturnType<PmClient["create"]> {
+  operationIdentifier(options.id);
+  await ensurePersistentTypes(client);
+  return createVerifiedItem(client, options, code);
 }
 
 /** Read a UTF-8 input file and convert filesystem failures into expected CLI errors. */
@@ -928,7 +1219,7 @@ function readJsonFile(path: string, label: string): JsonValue {
  * explicitly unbounded and any omission envelope still fails closed.
  */
 async function readCompleteNotes(client: PmClient, id: string): Promise<LogNote[]> {
-  const result = await client.notes(id, { outputBudget: "unbounded", outputLimit: "unbounded" });
+  const result = await identifierClient(client).notes(id, { outputBudget: "unbounded", outputLimit: "unbounded" });
   if ("output_budget_exceeded" in result) {
     fail(`Run ${id} note history was omitted despite an unbounded read request.`, "metric_history_incomplete", EXIT_CODE.CONFLICT);
   }
@@ -948,9 +1239,11 @@ async function readCompleteNotes(client: PmClient, id: string): Promise<LogNote[
  * @param options - Complete create envelope with an explicit identity and type.
  * @param collisionCode - Typed refusal when the existing identity differs.
  * @param matches - Checks the stored content and provenance, not just the id.
+ * @param beforeCreate - Validate new-write policy only after certified absence, never on legacy retries.
+ * @param afterCreate - Publish prevalidated dependent records while source leases remain held.
  * @returns The created or verified item and whether this caller created it.
  */
-export async function createOrReadIdentical(client: PmClient, options: Parameters<PmClient["create"]>[0] & { id: string; type: "Decision" | "Environment" | "Run" | "Generation" }, collisionCode: string, matches: (item: GetResult["item"]) => boolean): Promise<{ item: GetResult["item"]; created: boolean }> {
+export async function createOrReadIdentical(client: PmClient, options: Parameters<PmClient["create"]>[0] & { id: string; type: "Decision" | "Environment" | "Run" | "Generation" }, collisionCode: string, matches: (item: GetResult["item"]) => boolean, beforeCreate?: () => void | Promise<void>, afterCreate?: (item: GetResult["item"]) => Promise<void>): Promise<{ item: GetResult["item"]; created: boolean }> {
   /** Read and validate the winner at either the initial read or collision boundary. */
   async function readMatching(): Promise<GetResult["item"]> {
     const existing = await readCompleteLoopItem(client, options.id);
@@ -964,8 +1257,19 @@ export async function createOrReadIdentical(client: PmClient, options: Parameter
   } catch (error) {
     if (!isItemNotFound(error)) throw error;
   }
+  await beforeCreate?.();
   try {
-    return { item: (await createVerifiedItem(client, options, collisionCode)).item, created: true };
+    // Snapshot cards may describe an earlier successful transition in this same
+    // caller. Only a source-plus-dependent publication opts into one shared
+    // pre-create snapshot; do not re-apply a completed transition's old reads.
+    if (afterCreate === undefined) return { item: (await createRlItem(client, options, collisionCode)).item, created: true };
+    const config = await identifierClient(client).config("project", "get", "id_prefix");
+    const root = dirname(config.settings_path);
+    return await withLockedPromotionEvidence(client, root, await readSettings(root), canonicalizeIdentifier(options.id, String(config.nested_setting!.value)), [], "pm-rl-registration", async () => {
+      const item = (await createRlItem(client, options, collisionCode)).item;
+      await afterCreate(item);
+      return { item, created: true };
+    });
   } catch (error) {
     if (!isPmCliExpectedError(error) || error.exitCode !== EXIT_CODE.CONFLICT || !/^Item "[^"]+" already exists$/.test(error.message)) throw error;
     const item = await readMatching();
@@ -1004,7 +1308,6 @@ async function registerEnvironment(context: CommandHandlerContext): Promise<RlCo
   const path = stringOption(context, "file")!;
   const spec = parseEnvironmentSpec(readTextFile(path, "Environment file"), `Environment file ${path}`);
   const client = clientFor(context);
-  await ensurePersistentTypes(client);
   return registerEnvironmentSpecValue(client, spec);
 }
 
@@ -1049,7 +1352,6 @@ async function startRun(context: CommandHandlerContext): Promise<RlCommandResult
   const receiptPath = stringOption(context, "receipt_file", false);
   const receipt: ReceiptSpec | null = receiptPath === undefined ? null : parseReceipt(readTextFile(receiptPath, "Determinism receipt"), `Determinism receipt ${receiptPath}`);
   const client = clientFor(context);
-  await ensurePersistentTypes(client);
   return startRunCore(client, { id: requestedId, environmentId, algorithm, config, receipt });
 }
 
@@ -1228,7 +1530,7 @@ export const stdinSource: { stream: AsyncIterable<string | Uint8Array> } = {
  */
 async function appendRunMetrics(client: PmClient, runId: string, events: readonly MetricEvent[]): Promise<Readonly<Record<string, unknown>>> {
   const notes = encodeEventSegments(events);
-  await client.update(runId, {
+  await identifierClient(client).update(runId, {
     note: notes,
     message: `Append ${events.length} RL metric event(s) in ${notes.length} bounded segment(s) atomically`,
   });
@@ -1254,7 +1556,9 @@ async function logRun(context: CommandHandlerContext): Promise<RlCommandResult> 
   } catch (error) {
     fail(`Metric input could not be read: ${String(error)}`, "metric_input_failed");
   }
-  const events = parseNdjsonStream(input);
+  let events: MetricEvent[];
+  try { events = parseNdjsonStream(input); }
+  catch (error) { if (error instanceof MetricEventError) fail(error.message, error.code); throw error; }
   if (events.length === 0) fail("Metric input contains no events.", "empty_metric_stream");
   const client = clientFor(context);
   const run = await getTypedItem(client, id, "Run");
@@ -1283,7 +1587,7 @@ async function finishRun(context: CommandHandlerContext): Promise<RlCommandResul
     fail(`Run ${id} has no metric events and cannot be finished. Log the trainer's final finite measurements first.`, "run_has_no_metrics", EXIT_CODE.CONFLICT);
   }
   const actualResult = `Run closed with ${series.events.length} metric event(s) and ${series.comments} non-metric note(s).`;
-  const result = await client.close(id, reason, {
+  const result = await identifierClient(client).close(id, reason, {
     message: "Finish RL run",
     resolution: reason,
     expectedResult: "The run reaches a terminal state without rewriting its metric history.",
@@ -1338,13 +1642,13 @@ async function verifyBenchmarkIdentity(client: PmClient, benchmarkId: string): P
 /** Register one immutable benchmark suite and its typed contamination edges. */
 async function registerBenchmark(context: CommandHandlerContext): Promise<RlCommandResult> {
   const path = stringOption(context, "file")!;
-  const supplied = parseBenchmarkSpec(readTextFile(path, "Benchmark file"), `Benchmark file ${path}`);
+  const suppliedText = readTextFile(path, "Benchmark file");
+  const supplied = parseBenchmarkSpec(suppliedText, `Benchmark file ${path}`);
   const flagIds = (stringOption(context, "contaminated_by", false) ?? "")
     .split(",")
     .map((id) => id.trim())
     .filter((id) => id.length > 0);
   const client = clientFor(context);
-  await ensurePersistentTypes(client);
   const resolvedContamination = new Set<string>();
   for (const environmentId of [...new Set([...supplied.contaminated_environments, ...flagIds])]) {
     resolvedContamination.add((await verifyEnvironmentIdentity(client, environmentId, "benchmark contamination edges")).id);
@@ -1358,7 +1662,8 @@ async function registerBenchmark(context: CommandHandlerContext): Promise<RlComm
   } catch (error) {
     if (!isItemNotFound(error)) throw error;
   }
-  const result = await createVerifiedItem(client, {
+  parseBenchmarkSpec(suppliedText, `Benchmark file ${path}`, "write");
+  const result = await createRlItem(client, {
     id: requestedId,
     title: `${spec.name} ${spec.version}`,
     type: "Benchmark",
@@ -1379,14 +1684,14 @@ async function registerBenchmark(context: CommandHandlerContext): Promise<RlComm
 async function recordEvalResult(context: CommandHandlerContext): Promise<RlCommandResult> {
   const runId = stringOption(context, "run")!;
   const benchmarkId = stringOption(context, "benchmark")!;
-  const checkpoint = stringOption(context, "checkpoint")!;
+  const rawCheckpoint = stringOption(context, "checkpoint")!;
+  const checkpoint = rawCheckpoint.trim();
   const score = Number(stringOption(context, "score")!);
   if (!Number.isFinite(score)) fail("pm rl eval record requires a finite --score.", "invalid_eval_result_score");
   const passedRaw = context.options.passed;
   const passed = typeof passedRaw === "boolean" ? passedRaw : passedRaw === "true" ? true : passedRaw === "false" ? false : undefined;
   if (passed === undefined) fail("pm rl eval record requires --passed true or --passed false.", "invalid_eval_result_passed");
   const client = clientFor(context);
-  await ensurePersistentTypes(client);
   const run = await getTypedItem(client, runId, "Run");
   const resolvedRunId = String(run.item.id);
   const environmentId = normalizeRunEnvironment(run.item.environment);
@@ -1413,7 +1718,8 @@ async function recordEvalResult(context: CommandHandlerContext): Promise<RlComma
   if (existingEval !== undefined) {
     return { action: "rl-eval-record", id: String(existingEval.item.id), created: false, details: spec as unknown as Readonly<Record<string, unknown>> };
   }
-  const result = await createVerifiedItem(client, {
+  identifier(rawCheckpoint, "artifact");
+  const result = await createRlItem(client, {
     id: requestedId,
     title: `${benchmark.spec.name} ${benchmark.spec.version}: ${checkpoint}`,
     type: "EvalResult",
@@ -1443,9 +1749,8 @@ async function recordEvalResult(context: CommandHandlerContext): Promise<RlComma
 async function showLeaderboard(context: CommandHandlerContext): Promise<RlCommandResult> {
   const requestedBenchmarkId = requiredArgument(context, "a benchmark id");
   const client = clientFor(context);
-  await ensurePersistentTypes(client);
   const benchmark = await verifyBenchmarkIdentity(client, requestedBenchmarkId);
-  const inventory = await client.listAllComplete({ includeBody: true });
+  const inventory = await identifierClient(client).listAllComplete({ includeBody: true });
   const byId = new Map(inventory.items.map((item) => [item.id, item]));
   const environmentCache = new Map<string, Awaited<ReturnType<typeof verifyEnvironmentIdentity>>>();
   const candidates: LeaderboardCandidate[] = [];
@@ -1614,7 +1919,6 @@ async function registerGateEnvironment(context: CommandHandlerContext): Promise<
   const specHash = hashJson(spec as unknown as JsonValue);
   const requestedId = `env-${idSegment(spec.name)}-${idSegment(spec.version)}-${specHash.slice(0, 12)}`;
   const client = clientFor(context);
-  await ensurePersistentTypes(client);
   return registerImmutableEnvironment(client, requestedId, specHash, "rl-episode-env-register", () => ({
     id: requestedId,
     title: `${spec.name} ${spec.version} gates at ${spec.commit.slice(0, 12)}`,
@@ -1657,7 +1961,6 @@ async function recordEpisode(context: CommandHandlerContext): Promise<RlCommandR
   }
   assertNoCredentials("The pull request link", pullRequest);
   const client = clientFor(context);
-  await ensurePersistentTypes(client);
   const verified = await verifyGateEnvironmentIdentity(client, environmentId);
   const resultsText = readTextFile(resultsPath, "Gate results");
   const gateResults = parseGateResults(resultsText, `Gate results ${resultsPath}`, verified.spec);
@@ -1681,7 +1984,7 @@ async function recordEpisode(context: CommandHandlerContext): Promise<RlCommandR
   if (existingEpisode !== undefined) {
     return { action: "rl-episode-record", id: String(existingEpisode.item.id), created: false, details: episodeDetails(spec, verified.id) };
   }
-  const result = await createVerifiedItem(client, {
+  const result = await createRlItem(client, {
     id: requestedId,
     title: `Gates ${verified.spec.name} ${verified.spec.version}: ${(candidateTree ?? patchHash!)!.slice(0, 16)}`,
     type: "GateEpisode",
@@ -1733,7 +2036,6 @@ async function replayEpisode(context: CommandHandlerContext): Promise<RlCommandR
   const patchPath = stringOption(context, "patch_file", false);
   const resultsPath = stringOption(context, "gates_results")!;
   const client = clientFor(context);
-  await ensurePersistentTypes(client);
   const episode = await getTypedItem(client, id, "GateEpisode");
   const resolvedId = String(episode.item.id);
   const spec = parseEpisodeSpec(
@@ -1790,14 +2092,13 @@ async function recordOutcome(context: CommandHandlerContext): Promise<RlCommandR
   const specHash = hashJson(spec as unknown as JsonValue);
   const requestedId = `outcome-${specHash.slice(0, 12)}`;
   const client = clientFor(context);
-  await ensurePersistentTypes(client);
   const existingOutcome = await matchingImmutableRecord(client, requestedId, "MergeOutcome", "MergeOutcome", "outcome_identity_collision", specHash, (body) =>
     parseOutcomeSpec(storedJson(body, `MergeOutcome ${requestedId}`, "outcome_missing_spec"), `MergeOutcome ${requestedId} specification`) as unknown as JsonValue,
   );
   if (existingOutcome !== undefined) {
     return { action: "rl-outcome-record", id: String(existingOutcome.item.id), created: false, details: spec as unknown as Readonly<Record<string, unknown>> };
   }
-  const result = await createVerifiedItem(client, {
+  const result = await createRlItem(client, {
     id: requestedId,
     title: `Merge outcome: ${pullRequest}`,
     type: "MergeOutcome",
@@ -1828,9 +2129,8 @@ async function recordOutcome(context: CommandHandlerContext): Promise<RlCommandR
  */
 async function simRealGap(context: CommandHandlerContext): Promise<RlCommandResult> {
   const client = clientFor(context);
-  await ensurePersistentTypes(client);
   const episodes: Array<{ id: string; spec: EpisodeSpec }> = [];
-  for (const item of (await client.list({ type: "GateEpisode", status: "all", noTruncate: true, fields: "id,body" })).items) {
+  for (const item of (await identifierClient(client).list({ type: "GateEpisode", status: "all", noTruncate: true, fields: "id,body" })).items) {
     // A listed item the SDK types without an id carries no identity to report
     // or pair, so it contributes no row rather than failing the corpus.
     if (item.id === undefined) continue;
@@ -1843,7 +2143,7 @@ async function simRealGap(context: CommandHandlerContext): Promise<RlCommandResu
     episodes.push({ id: item.id, spec: parseEpisodeSpec(text, `Episode ${item.id} specification`) });
   }
   const outcomes: Array<{ id: string; spec: { pull_request: string; merged: boolean } }> = [];
-  for (const item of (await client.list({ type: "MergeOutcome", status: "all", noTruncate: true, fields: "id,body" })).items) {
+  for (const item of (await identifierClient(client).list({ type: "MergeOutcome", status: "all", noTruncate: true, fields: "id,body" })).items) {
     if (item.id === undefined) continue;
     let text: string;
     try {
@@ -1964,19 +2264,7 @@ export async function environmentInvalidationReason(client: PmClient, envId: str
   }
 }
 
-/** Normalize a Run's environment identity for strict-equality comparison.
- *
- * The pm SDK already trims typed item fields, so padding is not reachable for
- * a metadata field — a Run whose `.toon` literally stores `environment: "  e  "`
- * reads back trimmed. The trim is purely defensive: it pins the security gate
- * (contamination compare) against a future SDK change, and the dependency is
- * asserted by a dedicated test. Both `buildAncestry` and the register command's
- * run-environment check compare this field, so they must normalise it the same
- * way.
- *
- * @param value - The raw `run.item.environment` value.
- * @returns The trimmed string, or the original non-string value unchanged.
- */
+/** Validate the SDK-read Environment reference without trimming an identifier in package code. */
 function normalizeRunEnvironment(value: string | undefined): string | undefined {
   return typeof value === "string" ? value.trim() : value;
 }
@@ -2001,7 +2289,7 @@ function normalizeRunEnvironment(value: string | undefined): string | undefined 
  * @returns The ancestry from the head back to the seed.
  */
 async function buildAncestry(client: PmClient, headId: string, strict: boolean): Promise<AncestryEntry[]> {
-  const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
+  const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
   const ancestry: AncestryEntry[] = [];
   const visited = new Set<string>();
   let currentId: string | null = canonicalizeIdentifier(headId, prefix);
@@ -2115,7 +2403,7 @@ export async function promotedGenerationIdsUnderApproval(client: PmClient, appro
   // identity rather than fetching an approval for every historical generation.
   const canonical = (await readApprovalSpec(client, approvalId)).id;
   const identities = new Map<string, string>([[canonical, canonical], [approvalId, canonical]]);
-  const result = await client.list({ type: "Generation", status: "all", noTruncate: true, fields: "id,body" });
+  const result = await identifierClient(client).list({ type: "Generation", status: "all", noTruncate: true, fields: "id,body" });
   const promoted: string[] = [];
   for (const item of result.items) {
     // The SDK types a listed item's `id` as optional; a record without one
@@ -2148,8 +2436,8 @@ export async function promotedGenerationIdsUnderApproval(client: PmClient, appro
 
 /** Find generation item ids that are not a parent of any other generation. */
 async function findGenerationHeads(client: PmClient): Promise<string[]> {
-  const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
-  const result = await client.list({ type: "Generation", status: "all", noTruncate: true, fields: "id,body" });
+  const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
+  const result = await identifierClient(client).list({ type: "Generation", status: "all", noTruncate: true, fields: "id,body" });
   const parentIds = new Set<string>();
   const allIds: string[] = [];
   for (const item of result.items) {
@@ -2208,10 +2496,8 @@ function parseGapWindow(raw: string): number {
 async function registerGeneration(context: CommandHandlerContext): Promise<RlCommandResult> {
   const requestedId = requiredArgument(context, "a generation id");
   const baseCheckpoint = stringOption(context, "base_checkpoint")!;
-  // `stringOption` returns `value.trim()` and maps a blank to `undefined`, so
-  // `parentInput` is already normalized and already non-empty when defined.
-  // Re-trimming here would state a normalization this boundary does not
-  // perform, which is worse than not restating it at all.
+  // Preserve raw references until the SDK resolves them; only a new declaration
+  // applies write policy after an existing immutable registration is ruled out.
   const parentInput = stringOption(context, "parent", false);
   const isSeed = parentInput === undefined;
   const configPath = stringOption(context, "config_file", false);
@@ -2222,7 +2508,7 @@ async function registerGeneration(context: CommandHandlerContext): Promise<RlCom
     baseCheckpoint,
     parent: isSeed ? null : parentInput,
     policy: isSeed ? (stringOption(context, "policy", false) ?? "") : stringOption(context, "policy")!,
-    collectionRuns: isSeed ? [] : stringOption(context, "collection_runs")!.split(",").map((run) => run.trim()).filter((run) => run.length > 0),
+    collectionRuns: isSeed ? [] : stringOption(context, "collection_runs")!.split(","),
     environment: isSeed ? undefined : stringOption(context, "environment")!,
     config,
   });
@@ -2230,6 +2516,8 @@ async function registerGeneration(context: CommandHandlerContext): Promise<RlCom
 
 /** The resolved provenance of one generation registration, shared by the command and the recursive loop. */
 interface GenerationRegistrationRequest {
+  /** Validate a compound controller's candidate before any earlier environment/artifact publication. */
+  readonly preflight?: boolean;
   /** Requested generation item id. */
   readonly id: string;
   /** Content-addressed base checkpoint identity the generation started from. */
@@ -2262,11 +2550,17 @@ interface GenerationRegistrationRequest {
  * @param client - Client bound to the target workspace.
  * @param request - The resolved generation provenance.
  * @returns The command result naming the created generation and its identities.
+ * @internal
  */
-async function registerGenerationCore(client: PmClient, request: GenerationRegistrationRequest): Promise<RlCommandResult> {
-  const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
+export async function registerGenerationCore(client: PmClient, request: GenerationRegistrationRequest): Promise<RlCommandResult> {
+  return withPromotionEvidence(client, () => registerGenerationSnapshot(client, request));
+}
+/** Validate the entire proposed source before publishing it and its card under the read-derived source leases. */
+async function registerGenerationSnapshot(client: PmClient, request: GenerationRegistrationRequest): Promise<RlCommandResult> {
+  operationIdentifier(request.id);
+  const baseCheckpoint = request.baseCheckpoint.trim();
+  const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
   const requestedId = canonicalizeIdentifier(request.id, prefix);
-  const baseCheckpoint = request.baseCheckpoint;
   const parentInput = request.parent === null ? null : canonicalizeIdentifier(request.parent, prefix);
   const config = request.config;
   const isSeed = parentInput === null;
@@ -2278,14 +2572,14 @@ async function registerGenerationCore(client: PmClient, request: GenerationRegis
   if (isSeed) {
     // A seed may declare the policy that collected its data; without one the
     // recorded policy is empty and candidates parented to it skip the check.
-    policy = request.policy;
+    policy = request.policy.trim();
   } else {
     const parent = await getTypedItem(client, parentInput!, "Generation");
     const parentSpec = extractGenerationSpec(String(parent.item.body), `Parent generation ${parentInput}`);
     if (!parentSpec.promoted && !parentSpec.seed) {
       fail(`Parent generation ${parentInput} is not promoted. Only a promoted generation (or the seed) may parent a candidate.`, "parent_not_promoted", EXIT_CODE.CONFLICT);
     }
-    policy = request.policy;
+    policy = request.policy.trim();
     collectionRuns = [...new Set(request.collectionRuns.map((id) => canonicalizeIdentifier(id, prefix)))].sort();
     if (collectionRuns.length === 0) {
       fail("pm rl generation register requires --collection-runs for a non-seed generation.", "missing_collection_runs");
@@ -2357,12 +2651,30 @@ async function registerGenerationCore(client: PmClient, request: GenerationRegis
     message: isSeed ? "Register seed RL generation" : "Register candidate RL generation",
     ...(isSeed ? {} : { parent: parentInput, dep: deps, environment: environmentId }),
   };
-  await validatePolicyCardWrite(client, createOptions);
-  await ensurePersistentTypes(client);
-  const result = await createOrReadIdentical(client, createOptions, "generation_identity_collision", (item) =>
-    item.affected_version === specHash && hashJson(generationProvenance(extractGenerationSpec(String(item.body), `Generation ${requestedId}`))) === specHash,
+  /** Share the same identity predicate and prospective validator between preflight and publication. */
+  const matches = (item: GetResult["item"]): boolean => item.type === "Generation" && item.affected_version === specHash && hashJson(generationProvenance(extractGenerationSpec(String(item.body), `Generation ${requestedId}`))) === specHash;
+  const validateNew = async (): Promise<void> => {
+      identifier(request.id);
+      if (request.parent !== null) operationIdentifier(request.parent, "item", "write");
+      if (request.environment !== undefined) operationIdentifier(request.environment, "item", "write");
+      request.collectionRuns.forEach((id) => operationIdentifier(id, "item", "write"));
+      identifier(request.baseCheckpoint, "artifact");
+      if (request.policy !== "") identifier(request.policy, "artifact");
+      await validatePolicyCardWrite(client, createOptions);
+  };
+  if (request.preflight) {
+    const existing = await readCompleteLoopItem(client, requestedId).catch((error: unknown) => isItemNotFound(error) ? null : Promise.reject(error));
+    if (existing === null) await validateNew();
+    else {
+      if (!matches(existing.item)) fail(`Generation id ${requestedId} already exists with different provenance.`, "generation_identity_collision", EXIT_CODE.CONFLICT);
+      await exportPolicyCard(client, requestedId);
+    }
+    return { action: "rl-generation-register", id: requestedId, created: false, details: { preflight: true } };
+  }
+  const result = await createOrReadIdentical(client, createOptions, "generation_identity_collision", matches, validateNew,
+    async (item) => { await recordPolicyCard(client, item.id); },
   );
-  await recordPolicyCard(client, String(result.item.id));
+  if (!result.created) await recordPolicyCard(client, String(result.item.id));
   return {
     action: "rl-generation-register",
     id: result.item.id,
@@ -2396,7 +2708,10 @@ async function registerGenerationCore(client: PmClient, request: GenerationRegis
  * @returns The parsed approval specification and its canonical SDK identity.
  */
 export async function readApprovalSpec(client: PmClient, approvalId: string): Promise<ApprovalSpec & { id: string; snapshot: GetResult }> {
-  const approval = await readCompleteLoopItem(client, approvalId);
+  // Capacity is authorization, not statistical evidence. The locked budget
+  // decision uses this SDK snapshot explicitly as a write precondition.
+  const approval = await promotionEvidence.exit(() => readCompleteLoopItem(client, approvalId));
+  if (promotionEvidence.getStore()?.client === client) observePromotionEvidence(approval.item.id, undefined, approval.item, undefined, true);
   if (String(approval.item.type) !== "Decision") {
     fail(`pm rl expected a Decision ${approvalId} as the approval item, not ${String(approval.item.type)}.`, "wrong_approval_type", EXIT_CODE.CONFLICT);
   }
@@ -2418,7 +2733,7 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
   const scoresPath = stringOption(context, "scores")!;
   const evidence = stringOption(context, "evidence")!;
   const client = clientFor(context);
-  const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
+  const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
   const id = canonicalizeIdentifier(requestedId, prefix);
   const approvalId = canonicalizeIdentifier(requestedApproval, prefix);
   const generation = await getTypedItem(client, id, "Generation");
@@ -2443,7 +2758,7 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
   let outcome: PromotionOutcome;
   if (spec.promoted) outcome = await recoverManualPromotion(client, generation, approvalId, proxyScore, heldOutScore, evidence);
   else {
-    try { outcome = await promoteGenerationCore(client, { pmRoot: context.pm_root, author: authorFor(context) }, id, approvalId, proxyScore, heldOutScore, evidence); }
+    try { outcome = await promoteGenerationCore(client, { pmRoot: context.pm_root, author: authorFor(context) }, id, approvalId, proxyScore, heldOutScore, evidence); await recordPolicyCard(client, id); }
     catch (error) {
       if (!isPmCliExpectedError(error) || error.context.code !== "already_promoted") throw error;
       // A matching peer can commit after our first read and fail before publication.
@@ -2451,7 +2766,6 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
       outcome = await recoverManualPromotion(client, await getTypedItem(client, id, "Generation"), approvalId, proxyScore, heldOutScore, evidence);
     }
   }
-  await recordPolicyCard(client, id);
   return {
     action: "rl-generation-promote",
     id,
@@ -2464,25 +2778,44 @@ async function promoteGeneration(context: CommandHandlerContext): Promise<RlComm
       budget_consumed: outcome.promotedCount + 1,
       budget_permitted: outcome.permittedPromotions,
       evidence,
+      ...(outcome.evidenceDigest === undefined ? {} : { decision_evidence: outcome.evidenceDigest }),
     },
   };
 }
 
 /** Resume after the atomic promotion boundary using its sealed request, without another budget mutation. */
-async function recoverManualPromotion(client: PmClient, generation: GetResult, approvalId: string, proxy: ScoreRecord, held: ScoreRecord, evidence: string): Promise<PromotionOutcome> {
-  const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
-  const spec = canonicalizeGenerationSpec(extractGenerationSpec(String(generation.item.body), "Committed promotion"), prefix);
-  if (canonicalizeIdentifier(approvalId, prefix) !== canonicalizeIdentifier(spec.approval!, prefix)
-    || canonicalJson(canonicalizeScoreRecord(proxy, prefix) as unknown as JsonValue) !== canonicalJson(spec.proxy_score as unknown as JsonValue)
-    || canonicalJson(canonicalizeScoreRecord(held, prefix) as unknown as JsonValue) !== canonicalJson(spec.held_out_score as unknown as JsonValue)
-    || evidence !== spec.promotion_evidence) {
-    fail(`Generation ${generation.item.id} is already promoted by a different request.`, "already_promoted", EXIT_CODE.CONFLICT);
+async function recoverManualPromotion(client: PmClient, previous: GetResult, approvalId: string, proxy: ScoreRecord, held: ScoreRecord, evidence: string): Promise<PromotionOutcome> {
+  return withPromotionEvidence(client, async () => {
+    const generation = await getTypedItem(client, previous.item.id, "Generation");
+    const config = await identifierClient(client).config("project", "get", "id_prefix");
+    const prefix = String(config.nested_setting!.value);
+    const spec = canonicalizeGenerationSpec(extractGenerationSpec(String(generation.item.body), "Committed promotion"), prefix);
+    if (!spec.promoted) fail("Committed promotion changed; retry from the current Generation.", "loop_write_conflict", EXIT_CODE.CONFLICT);
+    requirePromotionEvidence(spec, generation.item.id);
+    if (canonicalizeIdentifier(approvalId, prefix) !== canonicalizeIdentifier(spec.approval!, prefix)
+      || canonicalJson(canonicalizeScoreRecord(proxy, prefix) as unknown as JsonValue) !== canonicalJson(spec.proxy_score as unknown as JsonValue)
+      || canonicalJson(canonicalizeScoreRecord(held, prefix) as unknown as JsonValue) !== canonicalJson(spec.held_out_score as unknown as JsonValue)
+      || evidence !== spec.promotion_evidence) {
+      fail(`Generation ${generation.item.id} is already promoted by a different request.`, "already_promoted", EXIT_CODE.CONFLICT);
+    }
+    // Verify the current source and all citations before repairing its publication.
+    await enforceEvaluationPlan(client, generation.item.id, spec.held_out_score!);
+    await exportPolicyCard(client, generation.item.id);
+    const approval = await readApprovalSpec(client, approvalId);
+    const consumed = await promotedGenerationIdsUnderApproval(client, approval.id);
+    const root = dirname(config.settings_path);
+    return withLockedPromotionEvidence(client, root, await readSettings(root), null, [], "pm-rl", async () => {
+      await recordPolicyCard(client, generation.item.id);
+      return { status: String(generation.item.status), gap: spec.gap!, promotedCount: consumed.length - 1, permittedPromotions: approval.permitted_promotions, ...(spec.evaluation_evidence === undefined ? {} : { evidenceDigest: spec.evaluation_evidence.digest }) };
+    });
+  });
+}
+
+/** Refuse incomplete committed outcomes before recovery evaluates, closes or republishes them. */
+function requirePromotionEvidence(spec: GenerationSpec, id: string): void {
+  if (spec.approval === null || spec.proxy_score === null || spec.held_out_score === null || spec.gap === null || spec.promotion_evidence === null) {
+    fail(`Promoted generation ${id} is missing its approval or scored evidence; restore its sealed promotion receipt before recovery.`, "promoted_missing_evidence", EXIT_CODE.CONFLICT);
   }
-  // Verify the current source and all citations before repairing its publication.
-  await exportPolicyCard(client, generation.item.id);
-  const approval = await readApprovalSpec(client, approvalId);
-  const consumed = await promotedGenerationIdsUnderApproval(client, approval.id);
-  return { status: String(generation.item.status), gap: spec.gap!, promotedCount: consumed.length - 1, permittedPromotions: approval.permitted_promotions };
 }
 
 /** The workspace coordinates a transactional promotion needs outside the client. */
@@ -2503,6 +2836,8 @@ interface PromotionOutcome {
   readonly promotedCount: number;
   /** The approval's permitted promotion count, re-read inside the lock. */
   readonly permittedPromotions: number;
+  /** Root of the persisted evaluation inputs when a plan governed this promotion. */
+  readonly evidenceDigest?: string;
 }
 
 /**
@@ -2527,8 +2862,8 @@ interface PromotionOutcome {
  */
 export async function promoteGenerationCore(client: PmClient, coordinates: WorkspaceCoordinates, id: string, approvalId: string, proxyScore: ScoreRecord, heldOutScore: ScoreRecord, evidence: string, onTransition?: CommitWorkspaceTransactionOptions["onTransition"]): Promise<PromotionOutcome> {
   const { pmRoot, author } = coordinates;
-  const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
-  const evaluationEnvironment = canonicalizeIdentifier(heldOutScore.evaluation_context, prefix);
+  const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
+  const evaluationEnvironment = canonicalizeScoreRecord(heldOutScore, prefix).evaluation_context;
   const ancestry = await buildAncestry(client, id, true);
   const contamination = findContaminationPath(ancestry, evaluationEnvironment);
   if (contamination !== null) {
@@ -2540,8 +2875,6 @@ export async function promoteGenerationCore(client: PmClient, coordinates: Works
   // taken, so an obviously invalid approval never queues behind a live promotion.
   // The value is deliberately discarded — every number the decision and the
   // receipt use is re-read inside the lock.
-  await readApprovalSpec(client, approvalId);
-  await exportPolicyCard(client, id);
   // Count the consumed budget and write the promotion inside one workspace
   // writer lock. Two concurrent promotions would otherwise both read the same
   // count, both observe headroom, and both promote — the race a recursive loop
@@ -2558,9 +2891,10 @@ export async function promoteGenerationCore(client: PmClient, coordinates: Works
   // the SUCCESS path with no receipt. The revert path had the same defect and
   // was fixed a round earlier; this is its other half.
   let canonicalApprovalId = "";
-  const renderPromotedBody = (base: GenerationSpec): string => {
+  const renderPromotedBody = (base: GenerationSpec, evaluated?: EvaluationEvidence): string => {
     const promotedSpec: GenerationSpec = {
       ...base,
+      ...(evaluated === undefined ? {} : { evaluation_evidence: evaluated }),
       promoted: true,
       approval: canonicalApprovalId,
       proxy_score: proxyScore,
@@ -2570,9 +2904,19 @@ export async function promoteGenerationCore(client: PmClient, coordinates: Works
     };
     return `# ${id}\n\n\`\`\`json\n${encodeBoundedJson(promotedSpec, undefined, 2)}\n\`\`\``;
   };
-  const prospective = await getTypedItem(client, id, "Generation");
-  canonicalApprovalId = (await readApprovalSpec(client, approvalId)).id;
-  await validatePromotedPolicyCard(client, id, renderPromotedBody(extractGenerationSpec(String(prospective.item.body), "Prospective promotion")));
+  try { await withPromotionEvidence(client, async () => {
+    await readApprovalSpec(client, approvalId);
+    await exportPolicyCard(client, id);
+    const prospective = await getTypedItem(client, id, "Generation");
+    canonicalApprovalId = (await readApprovalSpec(client, approvalId)).id;
+    await validatePromotedPolicyCard(client, id, renderPromotedBody(extractGenerationSpec(String(prospective.item.body), "Prospective promotion")));
+  }, true); } catch (error) {
+    if (isPmCliExpectedError(error) && error.context.code === "loop_write_conflict") {
+      const winner = extractGenerationSpec(String((await getTypedItem(client, id, "Generation")).item.body), "Concurrent promotion");
+      if (winner.promoted) fail(`Generation ${id} is already promoted.`, "already_promoted", EXIT_CODE.CONFLICT);
+    }
+    throw error;
+  }
   let promotedCount = 0;
   // Neutral like its two neighbours, NOT seeded from `approvalSpec`. That is the
   // pre-lock read, and seeding it here makes this the one variable of the three
@@ -2584,25 +2928,16 @@ export async function promoteGenerationCore(client: PmClient, coordinates: Works
   // and for the receipt.
   let permittedPromotions = 0;
   let closedStatus = "";
-  await commitWorkspaceTransaction({
-    pmRoot,
-    // Unique per invocation. The transaction is used here for MUTUAL EXCLUSION,
-    // not for idempotent replay, and the two must not share a key: keying on the
-    // generation makes concurrent callers promoting the SAME generation look
-    // like replays of one committed transaction, so the journal skips `apply`
-    // and every caller reports success for a promotion only one of them
-    // performed. Correctness under concurrency comes from the re-check inside
-    // the lock instead.
-    transactionId: `pm-rl-generation-promote-${id}-${randomUUID()}`,
-    onTransition,
-    author,
-    lockWaitMs: PROMOTION_LOCK_WAIT_MS,
-    steps: [{
-      id: "promote-generation",
-      // Only this invocation's successful atomic write can report applied. A peer's
-      // promoted body must still reach the authoritative already-promoted refusal.
-      inspect: async () => ({ state: closedStatus === "" ? "pending" : "applied" }),
-      apply: async () => {
+  let evidenceDigest: string | undefined;
+  // Promotion has one atomic native item mutation. Acquire the same SDK
+  // workspace lease as other budget writers, validate everything, and only then
+  // publish. A speculative transaction journal would itself consume durable
+  // state on a refused budget or evidence check.
+  const transactionId = `pm-rl-generation-promote-${hashJson(id).slice(0, 32)}-${randomUUID()}`;
+  const release = await acquireStateLock(pmRoot, "sdk-workspace-transaction", 30, author, false, false, PROMOTION_LOCK_WAIT_MS);
+  try {
+    await onTransition?.({ transactionId, attempt: 1, transition: "prepared" });
+    await withPromotionEvidence(client, async () => {
         // Re-read inside the lock. The pre-lock `already_promoted` check runs on
         // a read every concurrent caller performs before any of them holds the
         // lock, so all of them pass it and would each promote the same
@@ -2614,7 +2949,20 @@ export async function promoteGenerationCore(client: PmClient, coordinates: Works
           fail(`Generation ${id} is already promoted.`, "already_promoted", EXIT_CODE.CONFLICT);
         }
         if (currentSpec.seed) fail("A seed generation cannot be promoted.", "seed_not_promoted", EXIT_CODE.CONFLICT);
-        await enforceEvaluationPlan(client, String(current.item.id), heldOutScore);
+        // Authorization has precedence over statistical evidence. This read,
+        // consumed count and retained capacity all belong to this writer lock;
+        // the approval snapshot remains fenced through the eventual SDK write.
+        const lockedApprovalSpec = await readApprovalSpec(client, approvalId);
+        canonicalApprovalId = lockedApprovalSpec.id;
+        const promotedIds = await promotedGenerationIdsUnderApproval(client, canonicalApprovalId);
+        promotedCount = promotedIds.length;
+        const retainedHeadroom = await retainedMetaPromotionHeadroom(client, canonicalApprovalId, promotedIds, String(current.item.id));
+        permittedPromotions = lockedApprovalSpec.permitted_promotions;
+        if (promotedCount + retainedHeadroom >= permittedPromotions) {
+          fail(`Advancing past the approved promotion budget is refused. ${promotedCount} promotion(s) consumed; ${retainedHeadroom} promotion(s) held for meta search; approval ${approvalId} permits ${permittedPromotions}. Extend approval item ${approvalId} to authorize more promotions.`, "budget_exceeded", EXIT_CODE.CONFLICT);
+        }
+        const evaluated = await enforceEvaluationDecision(client, String(current.item.id), heldOutScore);
+        evidenceDigest = evaluated?.digest;
         // THE authoritative contamination decision, taken inside the lock over
         // the ancestry the verdict actually depends on.
         //
@@ -2635,35 +2983,25 @@ export async function promoteGenerationCore(client: PmClient, coordinates: Works
         if (lockedContamination !== null) {
           fail(`Promotion refused: the evaluation set is reachable from the candidate's training data over provenance edges. Path: ${renderContaminationPath(lockedContamination)}`, "contamination_refused", EXIT_CODE.CONFLICT);
         }
-        // Re-read inside the lock for the same reason the count is: the budget
-        // is a comparison between two values, and re-reading only one of them
-        // leaves the comparison stale in the other direction.
-        const lockedApprovalSpec = await readApprovalSpec(client, approvalId);
-        canonicalApprovalId = lockedApprovalSpec.id;
-        const promotedIds = await promotedGenerationIdsUnderApproval(client, canonicalApprovalId);
-        promotedCount = promotedIds.length;
-        const retainedHeadroom = await retainedMetaPromotionHeadroom(client, canonicalApprovalId, promotedIds, String(current.item.id));
-        permittedPromotions = lockedApprovalSpec.permitted_promotions;
-        if (promotedCount + retainedHeadroom >= permittedPromotions) {
-          fail(`Advancing past the approved promotion budget is refused. ${promotedCount} promotion(s) consumed; ${retainedHeadroom} promotion(s) held for meta search; approval ${approvalId} permits ${permittedPromotions}. Extend approval item ${approvalId} to authorize more promotions.`, "budget_exceeded", EXIT_CODE.CONFLICT);
-        }
         if ((currentSpec.policy_evaluation as Record<string, JsonValue> | undefined)?.["decision"] === "refuse") fail("Generation was refused by its evaluator.", "already_refused", EXIT_CODE.CONFLICT);
-        const promotedBody = renderPromotedBody(currentSpec);
+        const promotedBody = renderPromotedBody(currentSpec, evaluated);
         await validatePromotedPolicyCard(client, id, promotedBody);
         const result = await completeLoopGeneration(client, current, promotedBody, evidence,
           `Promoted with proxy=${proxyScore.value}, held_out=${heldOutScore.value}, gap=${gap.toFixed(4)}. Budget consumed: ${promotedCount + 1} of ${permittedPromotions}.`, [lockedApprovalSpec.snapshot], author);
         closedStatus = String(result.item.status);
         return { status: closedStatus };
-      },
-      // One atomic item mutation is the only step: a failed apply has nothing to restore.
-      compensate: async () => {},
-    }],
-  });
-  return { status: closedStatus, gap, promotedCount, permittedPromotions };
+    });
+    for (const transition of ["step_applied", "step_recorded", "committing", "committed"] as const) {
+      await onTransition?.({ transactionId, attempt: 1, transition, ...(transition.startsWith("step_") ? { stepId: "promote-generation" } : {}) });
+    }
+  } finally { await release(); }
+  return { status: closedStatus, gap, promotedCount, permittedPromotions, ...(evidenceDigest === undefined ? {} : { evidenceDigest }) };
 }
 
 /** One executed generation's persisted record within a loop report. */
 export interface RlLoopGenerationReport {
+  /** Root of the inputs sealed by this generation's promotion decision. */
+  readonly decision_evidence?: string;
   /** One-based generation number. */
   readonly generation: number;
   /** The generation's collection Run item id. */
@@ -2793,7 +3131,7 @@ interface ControllerLease {
   /** Releases the workspace lock; safe to call exactly once. */
   readonly release: () => Promise<void>;
   /** Serialize effects with takeover and reject a displaced controller. */
-  readonly guard: <T>(operation: () => Promise<T>) => Promise<T>;
+  readonly guard: <T>(operation: () => Promise<T>, cleanup?: boolean) => Promise<T>;
   /** The seed item id whose claim records durable controller ownership. */
   readonly seedId: string;
   /** The verified birth time captured before acquiring this controller's locks. */
@@ -2808,13 +3146,14 @@ export const LOOP_CANCELLED_EXIT_CODE = 130;
 
 /** Derive the workspace lock id of one loop's controller lease. */
 export function loopLeaseLockId(id: string): string {
-  return `pm-rl-loop-${idSegment(id)}`;
+  return `pm-rl-loop-${canonicalIdentifier(id)}`;
 }
 
 /** Read a lease; missing is null, while unreadable or malformed records remain ambiguous. */
 async function readLeaseRecord(pmRoot: string, lockId: string): Promise<Record<string, unknown> | null> {
+  const file = statePath(pmRoot, "locks", `${canonicalIdentifier(lockId)}.lock`);
   try {
-    const parsed: unknown = parseBoundedJson(await readFile(join(pmRoot, "locks", `${lockId}.lock`), "utf8"));
+    const parsed: unknown = parseBoundedJson(await readFile(file, "utf8"));
     if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return {};
     return parsed as Record<string, unknown>;
   } catch (error) {
@@ -2875,13 +3214,15 @@ function leaseHolderState(record: Record<string, unknown>, io: LoopProcessIdenti
 
 /** Publish the SDK token and verified holder identity together without exposing partial JSON. */
 async function publishControllerIdentity(lockPath: string, processStartTime: string, renew = false): Promise<void> {
-  const acquired = parseBoundedJson(await readFile(lockPath, "utf8")) as Record<string, unknown>;
-  const temporary = `${lockPath}.${randomUUID()}.tmp`;
+  const acquired = parseBoundedJson(await readFile(checkedStateFile(lockPath), "utf8")) as Record<string, unknown>;
+  const temporary = statePath(dirname(lockPath), `${basename(lockPath)}.${randomUUID()}.tmp`);
+  let created = false;
   try {
     await writeFile(temporary, `${encodeBoundedJson({ ...acquired, ...(renew ? { created_at: new Date().toISOString() } : {}), hostname: hostname(), process_start_time: processStartTime }, MAX_JSON_BYTES - 1)}\n`, { encoding: "utf8", flag: "wx" });
-    await rename(temporary, lockPath);
+    created = true;
+    await rename(checkedStateFile(temporary), checkedStateFile(lockPath));
   } finally {
-    await unlink(temporary).catch(() => undefined);
+    if (created) await unlink(checkedStateFile(temporary)).catch(() => undefined);
   }
 }
 
@@ -2904,7 +3245,13 @@ async function expireDeadControllerMutex(root: string, id: string, io: LoopProce
     ? { ...record, hostname: hostname(), process_start_time: Buffer.from(owner.slice(prefix.length).split(":")[0], "base64url").toString("utf8") }
     : record;
   if (leaseHolderState(identity, io) !== "dead") return;
-  const handle = await open(join(root, "locks", `${id}.lock`), "r+").catch((error: unknown) => {
+  await expireControllerRecord(root, id, record);
+}
+
+/** Expire only the observed inode/token; the SDK removes stale locks under its native cleanup lease. */
+async function expireControllerRecord(root: string, id: string, record: Record<string, unknown>): Promise<void> {
+  if (typeof record["token"] !== "string") return;
+  const handle = await open(statePath(root, "locks", `${operationIdentifier(id)}.lock`), fsConstants.O_RDWR | fsConstants.O_NOFOLLOW).catch((error: unknown) => {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw error;
   });
@@ -2922,33 +3269,42 @@ async function expireDeadControllerMutex(root: string, id: string, io: LoopProce
 
 /** Recover only demonstrably dead process-owned SDK transaction locks, then publish the new writer's birth identity. */
 export async function commitProcessTransaction(options: CommitWorkspaceTransactionOptions): Promise<void> {
-  await expireDeadControllerMutex(options.pmRoot, "sdk-workspace-transaction", undefined);
-  const start = loopProcessStartTime(process.pid);
-  if (start === null) fail("Cannot establish process transaction identity.", "process_identity_unavailable");
-  // The SDK creates the writer lock with the transaction author as its owner before "prepared". A phase identity
-  // there lets expireDeadControllerMutex prove a holder killed in that window dead instead of blocking for the TTL.
-  const author = `pm-rl-phase:${hashJson(hostname())}:${Buffer.from(start).toString("base64url")}:${options.author}`;
-  await commitWorkspaceTransaction({ ...options, author, lockTtlSeconds: 1_000_000_000, onTransition: async (context) => {
-    if (context.transition === "prepared") await publishControllerIdentity(join(options.pmRoot, "locks", "sdk-workspace-transaction.lock"), start);
-    await options.onTransition?.(context);
-  } });
+  return withWriteHistoryFence(async () => {
+    operationIdentifier(options.transactionId, "component"); options.steps.forEach((step) => operationIdentifier(step.id, "component"));
+    await expireDeadControllerMutex(options.pmRoot, "sdk-workspace-transaction", undefined);
+    const start = loopProcessStartTime(process.pid);
+    if (start === null) fail("Cannot establish process transaction identity.", "process_identity_unavailable");
+    // The SDK creates the writer lock with the transaction author as its owner before "prepared". A phase identity
+    // there lets expireDeadControllerMutex prove a holder killed in that window dead instead of blocking for the TTL.
+    const author = `pm-rl-phase:${hashJson(hostname())}:${Buffer.from(start).toString("base64url")}:${options.author}`;
+    await commitStateTransaction({ ...options, author, lockTtlSeconds: 1_000_000_000, onTransition: async (context) => {
+      if (context.transition === "prepared") await publishControllerIdentity(statePath(options.pmRoot, "locks", "sdk-workspace-transaction.lock"), start);
+      await publicationWrites.exit(() => options.onTransition?.(context));
+    } });
+    // The workspace lease excludes other transactions, not ordinary SDK writers.
+    // A committed journal can also skip inspect entirely; certify the live domain
+    // outcome after all observer hooks and on every committed replay.
+    for (const step of options.steps) if ((await step.inspect()).state !== "applied") fail("Transaction outcome changed; retry from current tracker state.", "loop_write_conflict", EXIT_CODE.CONFLICT);
+  });
 }
 
 /** Serialize standalone SDK adapter execution on the same owner-verified mutex used by controller phases. */
-export async function withProcessJobFence<T>(coordinates: WorkspaceCoordinates, id: string, execute: () => Promise<T>): Promise<T> {
+export async function withProcessJobFence<T>(coordinates: WorkspaceCoordinates, id: string, execute: () => Promise<T>, waitMs?: number): Promise<T> {
+  id = canonicalIdentifier(id); statePath(coordinates.pmRoot);
   const start = loopProcessStartTime(process.pid);
   if (start === null) fail("Cannot establish trainer owner identity.", "process_identity_unavailable");
-  const release = await controllerMutex(coordinates.pmRoot, id, coordinates.author, start, undefined);
+  const release = await controllerMutex(coordinates.pmRoot, id, coordinates.author, start, undefined, waitMs);
   try { return await execute(); } finally { await release(); }
 }
 
 /** Acquire the SDK phase mutex; only proven dead holders are expired for SDK cleanup. */
 async function controllerMutex(root: string, id: string, author: string, start: string, io: LoopProcessIdentityIO | undefined, waitMs = 5000): Promise<() => Promise<void>> {
+  id = canonicalIdentifier(id);
   await expireDeadControllerMutex(root, id, io);
   const owner = `pm-rl-phase:${hashJson(hostname())}:${Buffer.from(start).toString("base64url")}:${author}`;
-  const release = await acquireLock(root, id, 1_000_000_000, owner, false, false, waitMs);
+  const release = await acquireStateLock(root, id, 1_000_000_000, owner, false, false, waitMs);
   try {
-    await publishControllerIdentity(join(root, "locks", `${id}.lock`), start);
+    await publishControllerIdentity(statePath(root, "locks", `${id}.lock`), start);
   } catch (error) {
     await release();
     throw error;
@@ -2961,7 +3317,8 @@ function controllerGitMarker(start: string, ceiling: string): string | null {
   const ceilings = ceiling.split(delimiter).filter(Boolean).map((path) => resolve(path));
   let directory = resolve(start);
   for (;;) {
-    const marker = join(directory, ".git");
+    // Discovery may cross symlinked ancestors (macOS /var, a linked /home); only the marker itself must not be a link.
+    const marker = statePath(join(directory, ".git"));
     if (existsSync(marker)) return marker;
     const parent = dirname(directory);
     if (parent === directory || ceilings.includes(parent)) return null;
@@ -2984,14 +3341,14 @@ export function controllerAuthorityRoot(pmRoot: string, ceiling = process.env["G
       const pointer = /^gitdir: (.+)\r?\n?$/.exec(readFileSync(marker, "utf8"));
       if (pointer === null) throw new Error("invalid gitdir pointer");
       metadata = resolve(dirname(marker), pointer[1].trim());
-    } else if (!existsSync(join(marker, "HEAD")) && !existsSync(join(marker, "objects")) && !existsSync(join(marker, "commondir"))) {
+    } else if (!existsSync(statePath(marker, "HEAD")) && !existsSync(statePath(marker, "objects")) && !existsSync(statePath(marker, "commondir"))) {
       // An empty marker is not a Git repository; standalone trackers remain usable.
       return pmRoot;
     }
-    const commonFile = join(metadata, "commondir");
+    const commonFile = statePath(metadata, "commondir");
     const common = existsSync(commonFile) ? resolve(metadata, readFileSync(commonFile, "utf8").trim()) : metadata;
-    if (!statSync(join(metadata, "HEAD")).isFile() || !statSync(join(common, "objects")).isDirectory()) throw new Error("incomplete Git metadata");
-    return join(realpathSync(common), "pm-rl-controllers");
+    if (!statSync(statePath(metadata, "HEAD")).isFile() || !statSync(statePath(common, "objects")).isDirectory()) throw new Error("incomplete Git metadata");
+    return statePath(realpathSync(common), "pm-rl-controllers");
   } catch {
     fail("Cannot resolve shared controller authority from Git metadata; restore the repository metadata before retrying.", "loop_git_metadata_unavailable", EXIT_CODE.CONFLICT);
   }
@@ -3020,12 +3377,13 @@ export function controllerAuthorityRoot(pmRoot: string, ceiling = process.env["G
  * @throws An expected `loop_controller_active` refusal when a live controller holds the lease.
  */
 async function acquireControllerLease(client: PmClient, coordinates: WorkspaceCoordinates, request: RlLoopRequest, seedId: string, recovery?: { readonly command: string; readonly auditItem: string }): Promise<ControllerLease> {
-  const id = request.id;
+  const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
+  const id = canonicalNamespaceIdentifier(request.id, prefix);
   // Git worktrees share the repository metadata, so the SDK's lease and
   // launch journal are shared even when the tracked PM roots diverge.
   const authorityRoot = controllerAuthorityRoot(coordinates.pmRoot);
   const lockId = loopLeaseLockId(id);
-  const lockPath = join(authorityRoot, "locks", `${lockId}.lock`);
+  const lockPath = statePath(authorityRoot, "locks", `${lockId}.lock`);
   const refusal = `Lease ${relative(coordinates.pmRoot, lockPath)}; operator recovery: ${recovery?.command ?? `pm rl loop resume ${id} --approval ${request.approval} --force-takeover`}.`;
   const ownStart = loopProcessStartTime(process.pid, process.platform, request.processIdentityIO);
   if (ownStart === null) {
@@ -3036,7 +3394,7 @@ async function acquireControllerLease(client: PmClient, coordinates: WorkspaceCo
   const releaseRecovery = await controllerMutex(authorityRoot, `${lockId}-recovery`, coordinates.author, ownStart, request.processIdentityIO, 0).catch(async (error: unknown) => {
     if (!isPmCliExpectedError(error) || error.exitCode !== EXIT_CODE.CONFLICT) throw error;
     const holder = await readLeaseRecord(authorityRoot, lockId) ?? await readLeaseRecord(authorityRoot, `${lockId}-recovery`);
-    const phaseLock = relative(coordinates.pmRoot, join(authorityRoot, "locks", `${lockId}-recovery.lock`));
+    const phaseLock = relative(coordinates.pmRoot, statePath(authorityRoot, "locks", `${lockId}-recovery.lock`));
     // --force-takeover cannot clear this phase mutex, so the refusal names the manual recovery instead.
     fail(`Loop ${id} lease recovery is contended (holder ${String(holder?.["owner"])}, lease expiry ${holder === null || !Number.isFinite(controllerExpiry(holder)) ? "unknown" : new Date(controllerExpiry(holder)).toISOString()}). A controller holds the phase mutex ${phaseLock}; if its holder cannot be verified, stop that process and remove ${phaseLock} before retrying. --force-takeover does not clear the phase mutex.`, "loop_controller_active", EXIT_CODE.CONFLICT);
   });
@@ -3059,16 +3417,16 @@ async function acquireControllerLease(client: PmClient, coordinates: WorkspaceCo
       }
       if (request.forceTakeover === true) {
         // Host and owner digests identify the previous holder without publishing machine identity.
-        await client.update(recovery?.auditItem ?? seedId, { comment: [`Loop ${id} forced lease takeover by ${coordinates.author}: ${JSON.stringify({
+        await identifierClient(client).update(recovery?.auditItem ?? seedId, { comment: [`Loop ${id} forced lease takeover by ${coordinates.author}: ${JSON.stringify({
           previous_holder: { pid: typeof record["pid"] === "number" ? record["pid"] : null, process_start_time_digest: hashJson(String(record["process_start_time"])),
             hostname_digest: hashJson(String(record["hostname"])), owner_digest: hashJson(String(record["owner"])) },
           lock: relative(coordinates.pmRoot, lockPath),
         })}`] });
       }
-      await unlink(lockPath);
+      await expireControllerRecord(authorityRoot, lockId, record);
     }
     try {
-      release = await acquireLock(authorityRoot, lockId, LOOP_LEASE_TTL_SECONDS, coordinates.author);
+      release = await acquireStateLock(authorityRoot, lockId, LOOP_LEASE_TTL_SECONDS, coordinates.author, false, false);
     } catch (error) {
       if (!isPmCliExpectedError(error) || error.exitCode !== EXIT_CODE.CONFLICT) throw error;
       fail(`Loop ${id} is already being executed by another controller. ${refusal}`, "loop_controller_active", EXIT_CODE.CONFLICT);
@@ -3084,8 +3442,10 @@ async function acquireControllerLease(client: PmClient, coordinates: WorkspaceCo
     await releaseRecovery();
   }
   let activePhases = 0;
+  let heartbeatFailure: PmCliExpectedError | undefined;
   /** Fence every effect and completion receipt against controller takeover. */
-  const guard = async <T>(operation: () => Promise<T>): Promise<T> => {
+  const guard = async <T>(operation: () => Promise<T>, cleanup = false): Promise<T> => {
+    if (!cleanup && heartbeatFailure !== undefined) throw heartbeatFailure;
     const observed = await readLeaseRecord(authorityRoot, lockId);
     // A missing or empty captured token can never fence an effect, even if the observed record is equally empty.
     if (observed === null || typeof token !== "string" || token.length === 0 || observed["token"] !== token) fail(`Loop ${id} controller lease was replaced; this controller cannot advance.`, "loop_lease_lost", EXIT_CODE.CONFLICT);
@@ -3112,15 +3472,15 @@ async function acquireControllerLease(client: PmClient, coordinates: WorkspaceCo
     await guard(async () => {
       if (authorityRoot !== coordinates.pmRoot) {
         const authority = new PmClient({ pmRoot: authorityRoot, cwd: dirname(coordinates.pmRoot), author: coordinates.author, noExtensions: true });
-        const releaseInitialization = await acquireLock(authorityRoot, "pm-rl-controller-init", 30, coordinates.author, false, false, 5000);
+        const releaseInitialization = await acquireStateLock(authorityRoot, "pm-rl-controller-init", 30, coordinates.author, false, false, 5000);
         try {
-          await authority.init("rl-controller", { defaults: true, agentGuidance: "skip", author: "pm-rl-controller" });
+          await identifierClient(authority).init("rl-controller", { defaults: true, agentGuidance: "skip", author: "pm-rl-controller" });
         } finally {
           await releaseInitialization();
         }
         const launchId = loopLeaseLockId(id);
         const owner = hashJson(realpathSync(resolve(coordinates.pmRoot)));
-        const previous = await authority.get(launchId).catch((error: unknown) => isItemNotFound(error) ? null : Promise.reject(error));
+        const previous = await identifierClient(authority).get(launchId).catch((error: unknown) => isItemNotFound(error) ? null : Promise.reject(error));
         if (previous === null) {
           await createVerifiedItem(authority, { id: launchId, type: "Decision", title: `Loop ${id} launch authority`, body: owner });
         } else if (String(previous.item.body) !== owner) {
@@ -3135,12 +3495,29 @@ async function acquireControllerLease(client: PmClient, coordinates: WorkspaceCo
     await release();
     throw error;
   }
-  let heartbeat: Promise<void> = Promise.resolve();
-  const timer = setInterval(() => {
-    if (activePhases === 0) heartbeat = guard(async () => undefined).catch(() => undefined);
-  }, LOOP_LEASE_TTL_SECONDS * 1000 / 3);
+  const heartbeats = new Set<Promise<void>>();
+  /** Retain the first observed background failure for the controller's awaited cleanup path. */
+  const heartbeatFailed = (error: unknown): void => {
+    heartbeatFailure ??= isPmCliExpectedError(error) ? error : createPmCliExpectedError("Controller heartbeat failed; resume from durable state after restoring tracker access.", { exitCode: EXIT_CODE.CONFLICT, context: { code: "loop_callback_failed", required: "Restore tracker access and resume with the canonical loop id." } });
+  };
+  const timer = setInterval(controllerCallback("heartbeat", heartbeatFailed, async () => {
+    if (activePhases === 0) {
+      const pending = guard(async () => undefined).catch(heartbeatFailed); heartbeats.add(pending);
+      try { await pending; } finally { heartbeats.delete(pending); }
+    }
+  }), LOOP_LEASE_TTL_SECONDS * 1000 / 3);
   timer.unref();
-  return { release: async () => { clearInterval(timer); await heartbeat; await release(); }, guard, seedId, processStartTime: ownStart, author: coordinates.author };
+  return { release: async () => {
+    clearInterval(timer); await Promise.allSettled([...heartbeats]);
+    try {
+      const failure = heartbeatFailure;
+      if (failure !== undefined) {
+        try { await guard(() => appendCommentOnce(client, recovery?.auditItem ?? seedId, `Loop ${id} terminal callback failure: ${String(failure.context.code)}; resume after restoring tracker access.`), true); }
+        catch { /* Preserve the first failure when audit storage is unavailable or a peer owns the lease. */ }
+      }
+    } finally { await release(); }
+    if (heartbeatFailure !== undefined) throw heartbeatFailure;
+  }, guard, seedId, processStartTime: ownStart, author: coordinates.author };
 }
 
 /**
@@ -3177,7 +3554,9 @@ async function acquireControllerLease(client: PmClient, coordinates: WorkspaceCo
  * @returns The bounded terminal report of the executed loop.
  * @throws An expected `loop_cancelled` error when the request's signal aborted.
  */
-export async function runRlLoop(client: PmClient, coordinates: WorkspaceCoordinates, request: RlLoopRequest): Promise<RlLoopReport> {
+export async function runRlLoop(client: PmClient, coordinates: WorkspaceCoordinates, rawRequest: RlLoopRequest): Promise<RlLoopReport> {
+  if (coordinates.author.trim().length === 0) throw new TypeError("Loop transaction author must not be empty.");
+  const request = await programmeRequest(client, rawRequest);
   let programme: LoopProgramme;
   try {
     let configuration = request.config;
@@ -3209,7 +3588,8 @@ export async function runRlLoop(client: PmClient, coordinates: WorkspaceCoordina
   const controller = await prepareLoopController(client, coordinates, programme, request);
   let report: RlLoopReport;
   try {
-    report = await executeLoopProgramme(client, coordinates, programme, request, controller);
+    const active = { ...request, id: await preservedProgrammeId(client, request.id) };
+    report = await executeLoopProgramme(client, coordinates, programme, active, controller);
   } catch (error) {
     if (isPmCliExpectedError(error) && /^(?:already_promoted|already_refused|lost_claim|stale_revision|loop_write_conflict|loop_lease_lost|compare_and_set_refused|generation_terminal|superseded)$/.test(String(error.context.code))) {
       // A fenced controller cannot write a terminal report, but it can report the peer's certified state.
@@ -3270,7 +3650,7 @@ export type RefusalAuditContext = PmCliExpectedError["context"] & { audit_commen
  */
 async function appendRefusalAuditComment(client: PmClient, id: string, text: string): Promise<string | undefined> {
   try {
-    await client.comments(id, { add: text, ifAbsent: true });
+    await identifierClient(client).comments(id, { add: text, ifAbsent: true });
     return undefined;
   } catch (error) {
     return error instanceof Error ? error.message : String(error);
@@ -3299,14 +3679,11 @@ async function prepareLoopController(client: PmClient, coordinates: WorkspaceCoo
   const lease = await acquireControllerLease(client, coordinates, request, `${request.id}-seed`);
   try {
     return await lease.guard(async () => {
-      await ensurePersistentTypes(client);
       const environmentSpec = programme.trainer === "bandit"
         ? loopEnvironmentSpec(programme.config)
         : programme.trainer === "systemone"
           ? systemOneEnvironmentSpec(programme.config)
           : lmEnvironmentSpec(programme.config);
-      const environment = await registerEnvironmentSpecValue(client, environmentSpec);
-      const environmentId = String(environment.id);
       let seedConfig = programme.trainer === "bandit"
         ? seedTrainingConfig(programme.config)
         : programme.trainer === "systemone"
@@ -3317,9 +3694,6 @@ async function prepareLoopController(client: PmClient, coordinates: WorkspaceCoo
         : programme.trainer === "systemone"
           ? programme.config.initial
           : programme.config.initial;
-      if (programme.trainer === "lm") {
-        await persistLmCheckpoint(coordinates.pmRoot, programme.config.initial, programme.config);
-      }
       const previousSeed = await readCompleteLoopItem(client, `${request.id}-seed`)
         .catch((error: unknown) => isItemNotFound(error) ? null : Promise.reject(error));
       if (previousSeed !== null) {
@@ -3327,7 +3701,7 @@ async function prepareLoopController(client: PmClient, coordinates: WorkspaceCoo
         const stored = jsonObject(spec.training_config, "Loop seed configuration");
         if (stored["programme"] === programme.config.digest) seedConfig = spec.training_config as JsonValue;
       }
-      const seedRegistration = await registerGenerationCore(client, {
+      const seedRequest: GenerationRegistrationRequest = {
         id: `${request.id}-seed`,
         baseCheckpoint: seedCheckpoint.digest,
         parent: null,
@@ -3335,7 +3709,14 @@ async function prepareLoopController(client: PmClient, coordinates: WorkspaceCoo
         collectionRuns: [],
         environment: undefined,
         config: seedConfig,
-      });
+      };
+      await registerGenerationCore(client, { ...seedRequest, preflight: true });
+      const environment = await registerEnvironmentSpecValue(client, environmentSpec);
+      const environmentId = String(environment.id);
+      if (programme.trainer === "lm") {
+        await persistLmCheckpoint(coordinates.pmRoot, programme.config.initial, programme.config);
+      }
+      const seedRegistration = await registerGenerationCore(client, seedRequest);
       // Item ids are normalized by the tracker (an id prefix may be prepended), so
       // every later reference — run creation, parent edges, comments, closes, and
       // the report — uses the id each create actually returned, never a guessed
@@ -3346,7 +3727,7 @@ async function prepareLoopController(client: PmClient, coordinates: WorkspaceCoo
       // continues its persisted programme, while a different configuration under
       // the same id fails here as an identity collision rather than quietly
       // forking the lineage.
-      await client.claim(seedId, { force: true, message: `pm-rl loop controller lease for ${request.id}: ${JSON.stringify({ hostname_digest: hashJson(hostname()), pid: process.pid, process_start_time: lease.processStartTime })}` });
+      await identifierClient(client).claim(seedId, { force: true, message: `pm-rl loop controller lease for ${request.id}: ${JSON.stringify({ hostname_digest: hashJson(hostname()), pid: process.pid, process_start_time: lease.processStartTime })}` });
       return {
         programme,
         seedId,
@@ -3363,7 +3744,7 @@ async function prepareLoopController(client: PmClient, coordinates: WorkspaceCoo
 
 /** Release the controller lease: the seed claim first, then the workspace lock. */
 async function releaseControllerLease(client: PmClient, prepared: LoopPrepared): Promise<void> {
-  await prepared.lease.guard(() => client.release(prepared.lease.seedId)).catch(() => undefined);
+  await prepared.lease.guard(() => identifierClient(client).release(prepared.lease.seedId), true).catch(() => undefined);
   await prepared.lease.release();
 }
 
@@ -3461,21 +3842,30 @@ function loopStepInput(programme: LoopProgramme, chain: LoopChain, generation: n
 }
 
 /** Read an immutable completed PM step receipt, refusing changed inputs or damaged payloads. */
+async function originalLoopStepKey(client: PmClient, item: GetResult["item"], id: string, phase: string): Promise<string> {
+  const original = (await readCompleteLoopItem(client, item.id, "1")).item;
+  const record = decodeTrackerRecord(client, original, { type: "Decision", format: "pm-rl/loop-step/1" });
+  const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
+  if (record === null || typeof record.key !== "string" || canonicalizeIdentifier(operationIdentifier(record.key), prefix) !== item.id || programmeStepName(record.key, prefix, id, phase) === null) fail("Restore the original durable receipt identity before resuming.", "loop_step_drift", EXIT_CODE.CONFLICT);
+  return record.key;
+}
+/** Read an immutable completed PM step receipt without normalizing its stored logical key. */
 async function readLoopStep(client: PmClient, id: string, phase: string, input: JsonValue, loaded?: GetResult | null): Promise<JsonValue | null> {
   const item = loaded === undefined ? await readCompleteLoopItem(client, `${id}-step-${phase}`).catch((error: unknown) => isItemNotFound(error) ? null : Promise.reject(error)) : loaded;
   if (item === null) return null;
   const decoded = decodeTrackerRecord(client, item.item, { type: "Decision", format: "pm-rl/loop-step/1" });
   if (decoded === null) fail("Loop step receipt is malformed or foreign; see skipped records.", "loop_step_drift", EXIT_CODE.CONFLICT);
   const record = decoded as Record<string, JsonValue>;
-  if (item.item.type !== "Decision" || record["format"] !== "pm-rl/loop-step/1" || record["key"] !== `${id}-step-${phase}` || record["input"] !== hashJson(input)
+  if (item.item.type !== "Decision" || record["format"] !== "pm-rl/loop-step/1" || record["key"] !== await originalLoopStepKey(client, item.item, id, phase) || record["input"] !== hashJson(input)
     || (record["state"] !== "running" && record["state"] !== "complete")) {
     fail("Loop step receipt disagrees with its generation and programme.", "loop_step_drift", EXIT_CODE.CONFLICT);
   }
-  if (record["state"] === "running") return null;
+  if (record["state"] === "running") { await verifyCompletedDecisionReceipt(client, item.item.id, record, true); return null; }
   const result = record["result"];
-  if (result === undefined || result === null || typeof result !== "object" || Array.isArray(result)
-    || record["digest"] !== hashJson(result)) fail("Loop step receipt payload is damaged.", "loop_step_drift", EXIT_CODE.CONFLICT);
-  return result;
+  if (!completedDecisionReceipt(record)) throw createPmCliExpectedError(`Loop step receipt ${item.item.id} is damaged; restore its complete original payload before retrying.`, { exitCode: EXIT_CODE.CONFLICT, context: { code: "loop_step_drift", item_id: item.item.id } });
+  await verifyCompletedDecisionReceipt(client, item.item.id, record);
+  if (record["decision_evidence"] !== undefined) await verifyDecisionSnapshots(client, parseEvaluationEvidence(record["decision_evidence"]));
+  return result!;
 }
 
 /** Execute only an unfinished generation-step key and commit its result under the controller fence. */
@@ -3483,23 +3873,29 @@ async function durableLoopStep(client: PmClient, lease: ControllerLease, id: str
   return lease.guard(async () => {
     const previous = await readLoopStep(client, id, phase, input);
     if (previous !== null) return { value: previous, executed: false };
-    const key = `${id}-step-${phase}`;
-    const existing = await readCompleteLoopItem(client, key).catch((error: unknown) => isItemNotFound(error) ? null : Promise.reject(error));
+    const requestedKey = `${id}-step-${phase}`;
+    const existing = await readCompleteLoopItem(client, requestedKey).catch((error: unknown) => isItemNotFound(error) ? null : Promise.reject(error));
+    if (existing === null) operationIdentifier(phase, "item", "write");
+    const key = existing === null ? requestedKey : await originalLoopStepKey(client, existing.item, id, phase);
     const running = { format: "pm-rl/loop-step/1", key, input: hashJson(input), state: "running" };
     // Outer phase cards must fit before the first receipt/history write.
     const intent = { id: key, type: "Decision" as const, title: `Loop step ${phase} for ${id}`, tags: "rl-loop-step", body: encodeBoundedJson(running, MAX_TRACKER_RECORD_BYTES) };
-    const item = existing ?? (cards || phase === "promote" ? null : await createVerifiedItem(client, intent));
+    const item = existing ?? (cards || phase === "promote" ? null : await createRlItem(client, intent));
     const before = item === null ? null : existing ?? await readCompleteLoopItem(client, String(item.item.id));
     const winner = await readLoopStep(client, id, phase, input, before);
     if (winner !== null) return { value: winner, executed: false };
-    const value = await execute();
-    const body = encodeBoundedJson({ ...running, state: "complete", result: value, digest: hashJson(value) }, MAX_TRACKER_RECORD_BYTES);
+    const captured = await captureDecisionInputs(client, execute, true);
+    const value = captured.value;
+    const decision = captured.inputs.length === 0 ? undefined : await sealDecisionEvidence(client, hashJson(input), captured.inputs);
+    const body = encodeBoundedJson({ ...running, state: "complete", result: value, digest: hashJson(value), ...(decision === undefined ? {} : { decision_evidence: decision }) }, MAX_TRACKER_RECORD_BYTES);
     if (cards) await validatePolicyCardWrite(client, { ...intent, body }, true);
-    if (item === null) await createVerifiedItem(client, { ...intent, body });
-    else {
-      await mutateLoopItem(client, before!, "Complete durable loop receipt", (document) => { document.body = body; return ["body"]; }, [], lease.author);
-    }
-    return { value, executed: true };
+    return withWriteHistoryFence(async () => {
+      if (item === null) await createRlItem(client, { ...intent, body });
+      else {
+        await mutateLoopItem(client, before!, "Complete durable loop receipt", (document) => { document.body = body; return ["body"]; }, [], lease.author);
+      }
+      return { value, executed: true };
+    });
   });
 }
 
@@ -3507,11 +3903,13 @@ async function durableLoopStep(client: PmClient, lease: ControllerLease, id: str
 export type RlDurableStep = (key: string, input: JsonValue, execute: () => Promise<JsonValue>) => Promise<JsonValue>;
 
 /** Reuse the inner lease and fenced receipts with the real approval, supported recovery command and audited operator override. */
-export async function withRlController<T>(client: PmClient, coordinates: WorkspaceCoordinates, request: Pick<RlLoopRequest, "id" | "approval" | "forceTakeover"> & { readonly recoveryCommand: string }, signal: AbortSignal, execute: (step: RlDurableStep) => Promise<T>): Promise<T> {
-  const { id } = request;
-  const lease = await acquireControllerLease(client, coordinates, { ...request, config: null, signal }, `${id}-step-programme`, { command: request.recoveryCommand, auditItem: request.approval });
+export async function withRlController<T>(client: PmClient, coordinates: WorkspaceCoordinates, rawRequest: Pick<RlLoopRequest, "id" | "approval" | "forceTakeover"> & { readonly recoveryCommand: string }, signal: AbortSignal, execute: (step: RlDurableStep) => Promise<T>): Promise<T> {
+  const request = await programmeRequest(client, rawRequest);
+  const lease = await acquireControllerLease(client, coordinates, { ...request, config: null, signal }, `${request.id}-step-programme`, { command: request.recoveryCommand, auditItem: request.approval });
   try {
+    const id = await preservedProgrammeId(client, request.id);
     return await execute(async (key, input, operation) => {
+      operationIdentifier(key);
       signal.throwIfAborted();
       const stored = await durableLoopStep(client, lease, id, key, input, async () => await encodeCheckpointArtifacts(coordinates.pmRoot, `step:${id}:${key}`, await operation(), async (value) => {
         const receipt = { format: "pm-rl/loop-step/1", key: `${id}-step-${key}`, input: hashJson(input), state: "complete", result: value, digest: hashJson(value as JsonValue) };
@@ -3532,7 +3930,7 @@ async function readRunMetricEvents(client: PmClient, runId: string): Promise<rea
 
 /** Read complete loop outcome comments; omitted history cannot establish a terminal verdict. */
 async function readLoopComments(client: PmClient, id: string): Promise<LogNote[]> {
-  const result = await client.comments(id, { outputBudget: "unbounded", outputLimit: "unbounded" });
+  const result = await identifierClient(client).comments(id, { outputBudget: "unbounded", outputLimit: "unbounded" });
   if ("output_budget_exceeded" in result) fail("Loop comment history was omitted.", "loop_history_incomplete", EXIT_CODE.CONFLICT);
   return result.comments;
 }
@@ -3541,7 +3939,7 @@ async function readLoopComments(client: PmClient, id: string): Promise<LogNote[]
 export async function appendCommentOnce(client: PmClient, id: string, text: string): Promise<void> {
   const comments = await readLoopComments(client, id);
   if (comments.some((comment) => comment.text === text)) return;
-  await client.comments(id, { add: text, ifAbsent: true });
+  await identifierClient(client).comments(id, { add: text, ifAbsent: true });
 }
 
 /** Read complete process outcomes belonging to this programme instance without exposing executable paths. */
@@ -3826,6 +4224,7 @@ async function inspectCandidateVerdict(client: PmClient, programme: LoopProgramm
     throw error;
   });
   const report: RlLoopGenerationReport = { generation, run: runId, item: String(item.item.id), promoted: spec.promoted,
+    ...(spec.evaluation_evidence === undefined ? {} : { decision_evidence: spec.evaluation_evidence.digest }),
     ...(spec.promoted ? { promoted_by: await promotionAuthor(client, item.item.id) } : {}),
     held_out_mean: verified.candidateHeldOutMean, candidate_checkpoint: verified.candidate.digest, refusal_reason: null };
   if (spec.promoted) {
@@ -3881,16 +4280,24 @@ async function inspectLoopGeneration(client: PmClient, programme: LoopProgramme,
   return inspectLmGeneration(pmRoot, client, programme, request, chain, generation);
 }
 
-/** Finish the close half of a committed promotion without applying or charging promotion again. */
-async function reconcileLoopPromotion(client: PmClient, lease: ControllerLease, itemId: string): Promise<void> {
-  await lease.guard(async () => {
+/** Finish the close half of a committed promotion without applying or charging promotion again. @internal */
+export async function reconcileLoopPromotion(client: PmClient, lease: Pick<ControllerLease, "author" | "guard">, itemId: string): Promise<void> {
+  await lease.guard(() => withPromotionEvidence(client, async () => {
     const item = await getTypedItem(client, itemId, "Generation");
     const spec = extractGenerationSpec(String(item.item.body), "Promoted loop generation");
     if (!spec.promoted) fail("Promotion recovery no longer agrees with current generation evidence.", "loop_step_drift", EXIT_CODE.CONFLICT);
-    if (item.item.status === "closed") return;
+    requirePromotionEvidence(spec, item.item.id);
+    await enforceEvaluationPlan(client, item.item.id, spec.held_out_score!);
+    const config = await identifierClient(client).config("project", "get", "id_prefix");
+    const registry = resolveRuntimeStatusRegistry((await readSettings(dirname(config.settings_path))).schema);
+    if (registry.terminal_done_statuses.has(String(item.item.status))) {
+      await recoverManualPromotion(client, item, spec.approval!, spec.proxy_score!, spec.held_out_score!, spec.promotion_evidence!);
+      return;
+    }
     await exportPolicyCard(client, itemId);
     await completeLoopGeneration(client, item, String(item.item.body), spec.promotion_evidence!, "Recovered the promotion close boundary; the approved promotion count and scores are unchanged.", [], lease.author);
-  });
+    await recoverManualPromotion(client, item, spec.approval!, spec.proxy_score!, spec.held_out_score!, spec.promotion_evidence!);
+  }));
 }
 
 /** Preserve the sealed evaluator's reason when a peer won the rejection transition. */
@@ -3908,7 +4315,7 @@ function terminalPromotionRefusal(error: PmCliExpectedError): boolean {
 
 /** Read the author of the first certified promoted version, independent of later annotations. */
 async function promotionAuthor(client: PmClient, id: string): Promise<string> {
-  const history = await client.run("history", { id, options: { compact: true, verify: true, outputLimit: "unbounded", outputBudget: "unbounded" } }) as HistoryResult;
+  const history = await identifierClient(client).run("history", { id, options: { compact: true, verify: true, outputLimit: "unbounded", outputBudget: "unbounded" } }) as HistoryResult;
   for (const row of orderedHistoryEntries(history, "loop_history_incomplete")) {
     const item = await readCompleteLoopItem(client, id, String(row.version ?? row.index));
     if (extractGenerationSpec(String(item.item.body), "Promotion attribution").promoted) return row.author;
@@ -3918,13 +4325,22 @@ async function promotionAuthor(client: PmClient, id: string): Promise<string> {
 
 /** Seal an actual rejection; peer terminal states and CAS refusals are authoritative. @internal */
 export async function recordRefusedPolicyCard(client: PmClient, id: string, reason: string | null, author = "pm-rl"): Promise<"promoted" | "refused"> {
+  // Rejection and checkpoint publication are transitions of the same candidate.
+  // Acquire their shared protocol lease before reading any decision state;
+  // ordinary SDK writers still face the native revision/CAS guards below.
+  return await withEvaluationLease(client, id, [], () => withPromotionEvidence(client, () => sealPolicyRejection(client, id, reason, author)));
+}
+/** Hold all decision inputs through the rejection write, with the same SDK revision guard as promotion. */
+async function sealPolicyRejection(client: PmClient, id: string, reason: string | null, author: string): Promise<"promoted" | "refused"> {
   const current = await readCompleteLoopItem(client, id);
   const existing = extractGenerationSpec(String(current.item.body), "Rejected generation");
   if (existing.promoted) { await recordPolicyCard(client, id); return "promoted"; }
   // An existing refusal belongs to its evaluator; never replace its reason with a local transition error.
   if ((existing.policy_evaluation as Record<string, JsonValue> | undefined)?.["decision"] !== "refuse") {
-    const body = await validateRefusedPolicyCard(client, id, { decision: "refuse", reason_digest: hashJson(reason) });
-    try { await mutateLoopItem(client, current, "Seal policy rejection", (document) => { document.body = body; return ["body"]; }, [], author); }
+    try {
+      const body = await validateRefusedPolicyCard(client, id, { decision: "refuse", reason_digest: hashJson(reason) });
+      await mutateLoopItem(client, current, "Seal policy rejection", (document) => { document.body = body; return ["body"]; }, [], author);
+    }
     catch (error) {
       const fresh = extractGenerationSpec(String((await readCompleteLoopItem(client, id)).item.body), "Concurrent outcome");
       if (fresh.promoted) { await recordPolicyCard(client, id); return "promoted"; }
@@ -3956,7 +4372,6 @@ async function executeLoopProgramme(client: PmClient, coordinates: WorkspaceCoor
     }
     if (inspection.kind === "complete") {
       await reconcileLoopPromotion(client, prepared.lease, inspection.report.item);
-      await prepared.lease.guard(() => recordPolicyCard(client, inspection.report.item));
       if (programme.trainer === "bandit" && programme.config.process !== undefined) {
         const receipt = runLoopGeneration(programme.config, chain.step, generation, chain.current as BanditCheckpoint, inspection.advance.checkpoint as BanditCheckpoint);
         await finishProcessGeneration(client, coordinates, prepared.lease, programme.config, chain, generation, receipt, "promoted", "promotion_verified", request);
@@ -4047,7 +4462,7 @@ async function executePendingGeneration(client: PmClient, coordinates: Workspace
       await collectGenerationBatch(client, programme, request, chain, pending, collectingRun);
       const run = await getTypedItem(client, collectingRun, "Run");
       if (String(run.item.status) === "in_progress") {
-        await client.close(collectingRun, "collection complete", { message: "Finish RL run", resolution: "collection complete",
+        await identifierClient(client).close(collectingRun, "collection complete", { message: "Finish RL run", resolution: "collection complete",
           expectedResult: "The run reaches a terminal state without rewriting its metric history.", actualResult: `Collected the generation ${generation} batch for loop ${request.id}.` });
       }
       return { run: collectingRun, events: await readRunMetricEvents(client, collectingRun) as unknown as JsonValue };
@@ -4272,7 +4687,7 @@ async function systemOneReceiptNamespace(client: PmClient, runId: string, create
   if (entries.length === 1) return entries[0].slice(prefix.length);
   if (!create) return null;
   const namespace = randomUUID();
-  await client.update(runId, { comment: [prefix + namespace] });
+  await identifierClient(client).update(runId, { comment: [prefix + namespace] });
   return namespace;
 }
 
@@ -4354,6 +4769,7 @@ async function completeGenerationEvidence(client: PmClient, programme: Exclude<L
  * @throws An expected NOT_FOUND error when the loop's seed generation does not exist.
  */
 export async function rlLoopStatus(client: PmClient, id: string, pmRoot?: string): Promise<RlLoopStatusReport> {
+  id = await preservedProgrammeId(client, id);
   const seed = await getTypedItem(client, `${id}-seed`, "Generation");
   const configuration = storedLoopConfiguration(seed);
   const programme = parseLoopProgramme(configuration as JsonValue);
@@ -4469,7 +4885,8 @@ function statusOf(report: RlLoopGenerationReport, phase: RlLoopGenerationStatus[
  * @returns The bounded terminal report of the resumed loop.
  * @throws An expected NOT_FOUND error when the loop's seed generation does not exist.
  */
-export async function resumeRlLoop(client: PmClient, coordinates: WorkspaceCoordinates, request: Omit<RlLoopRequest, "config">): Promise<RlLoopReport> {
+export async function resumeRlLoop(client: PmClient, coordinates: WorkspaceCoordinates, rawRequest: Omit<RlLoopRequest, "config">): Promise<RlLoopReport> {
+  const request = await programmeRequest(client, rawRequest);
   const seed = await getTypedItem(client, `${request.id}-seed`, "Generation");
   const configuration = storedLoopConfiguration(seed);
   return runRlLoop(client, coordinates, { ...request, config: configuration as JsonValue });
@@ -4513,7 +4930,7 @@ async function runLoop(context: CommandHandlerContext): Promise<RlCommandResult>
 /** Resolve a required corpus directory without leaking missing or invalid filesystem coordinates. */
 function corpusDirectory(path: string, kind: "source" | "output_parent"): string {
   try {
-    const directory = realpathSync(path);
+    const directory = realpathSync(statePath(path));
     if (!statSync(directory).isDirectory()) fail("Corpus directory is missing or invalid.", `corpus_${kind}_missing`);
     return directory;
   } catch (error: unknown) {
@@ -4536,13 +4953,13 @@ async function buildCorpusCommand(context: CommandHandlerContext): Promise<RlCom
   const destination = (path: string): string => {
     const parent = corpusDirectory(dirname(path), "output_parent");
     if (`${parent}${sep}`.startsWith(join(source, sep))) fail("Corpus output must be outside the source tracker.", "corpus_output_inside_source", EXIT_CODE.CONFLICT);
-    return join(parent, basename(path));
+    return statePath(parent, basename(path));
   };
   const target = destination(output);
   const bounds = readJsonFile(stringOption(context, "file")!, "Corpus bounds");
   const client = new PmClient({ pmRoot: source, noExtensions: true });
   const corpus = (bounds as Record<string, JsonValue> | null)?.objective === "intake-issue-balanced-v1"
-    ? await buildIntakeLoopCorpus(client, bounds, (id) => readFileSync(join(source, "history", `${id}.jsonl`), "utf8"))
+    ? await buildIntakeLoopCorpus(client, bounds, (id) => readFileSync(statePath(source, "history", `${id}.jsonl`), "utf8"))
     : await buildTrackerLoopCorpus(client, bounds);
   destination(output);
   destination(target);
@@ -4631,7 +5048,7 @@ function installCancellationSignals(): { controller: AbortController; handlers: 
   const controller = new AbortController();
   const handlers: Array<[NodeJS.Signals, () => void]> = [];
   for (const name of ["SIGINT", "SIGTERM"] as const) {
-    const handler = (): void => { controller.abort(); };
+    const handler = controllerCallback("signal", (error) => { controller.abort(error); }, () => { controller.abort(); });
     handlers.push([name, handler]);
     process.once(name, handler);
   }
@@ -4666,6 +5083,7 @@ async function showGeneration(context: CommandHandlerContext): Promise<RlCommand
       gap: spec.gap,
       promotion_evidence: spec.promotion_evidence,
       ...(spec.evaluation_plan === undefined ? {} : { evaluation_plan: spec.evaluation_plan }),
+      ...(spec.evaluation_evidence === undefined ? {} : { evaluation_evidence: spec.evaluation_evidence }),
     },
   };
 }
@@ -4680,10 +5098,9 @@ async function renderLineageCommand(context: CommandHandlerContext): Promise<RlC
   const gapWindowRaw = stringOption(context, "gap_window", false);
   const gapWindow = gapWindowRaw === undefined ? DEFAULT_GAP_WINDOW : parseGapWindow(gapWindowRaw);
   const client = clientFor(context);
-  await ensurePersistentTypes(client);
   let heads: string[];
-  if (headInput !== undefined && headInput.trim().length > 0) {
-    const requestedHead = headInput.trim();
+  if (headInput !== undefined) {
+    const requestedHead = operationIdentifier(headInput);
     // Resolved before the tolerant walk. Tolerance exists for an unreadable
     // ANCESTOR; the head the caller named is the request itself, so a missing
     // or wrong-typed head must report that, not an empty ancestry.
@@ -4802,14 +5219,13 @@ function runBodySections(body: string, id: string): RunBodySections {
 async function invalidateResults(context: CommandHandlerContext): Promise<RlCommandResult> {
   const id = requiredArgument(context, "an environment or benchmark id");
   const client = clientFor(context);
-  await ensurePersistentTypes(client);
-  const root = await client.get(id, { depth: "deep" });
+  const root = await identifierClient(client).get(id, { depth: "deep" });
   const rootId = String(root.item.id);
   const rootType = String(root.item.type);
   if (rootType !== "Environment" && rootType !== "Benchmark") {
     fail(`pm rl invalidate starts from an environment or benchmark version (${INVALIDATION_ROOT_TYPES.join(", ")}). ${rootId} is ${rootType}, and changing it invalidates no tracked RL result.`, "wrong_invalidation_root", EXIT_CODE.CONFLICT);
   }
-  const inventory = await client.list({ status: "all", noTruncate: true, fields: "id,type,dependencies" });
+  const inventory = await identifierClient(client).list({ status: "all", noTruncate: true, fields: "id,type,dependencies" });
   const items: ItemDependencyEdge[] = [];
   for (const item of inventory.items) {
     // A listed item the SDK types without an id carries no identity to walk
@@ -4851,7 +5267,6 @@ async function compareRuns(context: CommandHandlerContext): Promise<RlCommandRes
   }
   const [baselineId, candidateId] = positional;
   const client = clientFor(context);
-  await ensurePersistentTypes(client);
   const baseline = await getTypedItem(client, baselineId, "Run");
   const candidate = await getTypedItem(client, candidateId, "Run");
   const baselineEnvironment = normalizeRunEnvironment(baseline.item.environment);
@@ -4914,7 +5329,7 @@ async function refuseTakenPlanIdentity(
     if (!isItemNotFound(error)) throw error;
   }
   try {
-    await client.run("history", { id });
+    await identifierClient(client).run("history", { id });
     fail(reservedMessage, reservedCode, EXIT_CODE.CONFLICT);
   } catch (error) {
     if (!isItemNotFound(error)) throw error;
@@ -4975,7 +5390,6 @@ async function planSweep(context: CommandHandlerContext): Promise<RlCommandResul
   // half-registered sweep or partial arms behind.
   const selectionRule = parseSelectionRule(ruleRaw);
   const client = clientFor(context);
-  await ensurePersistentTypes(client);
   const verifiedEnvironment = await verifyEnvironmentIdentity(client, environmentId, "sweep arms");
   const configs = expandSearchSpace(spaceRawSpace as Record<string, JsonValue[]>);
   if (configs.length === 0) {
@@ -5013,11 +5427,14 @@ async function planSweep(context: CommandHandlerContext): Promise<RlCommandResul
   // reported as an uncertain publication.
   const environmentSnapshot = encodeBoundedJson(verifiedEnvironment.spec, undefined, 2);
   const armBodies = configs.map((config, index) => `# ${armIds[index]}\n\nAlgorithm: ${algorithm}\n\nEnvironment snapshot:\n\n\`\`\`json\n${environmentSnapshot}\n\`\`\`\n\nRun configuration:\n\n\`\`\`json\n${encodeBoundedJson(config, undefined, 2)}\n\`\`\``);
-  const arms: Array<{ id: string; config: JsonValue }> = [];
-  try {
-    for (const [index, config] of configs.entries()) {
-      const armId = armIds[index]!;
-      const result = await createVerifiedItem(client, {
+  const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
+  const plannedArms = configs.map((config, index) => ({ id: canonicalizeIdentifier(armIds[index]!, prefix), config }));
+  const spec: SweepSpec = { search_space: spaceRawSpace as Record<string, JsonValue[]>, selection_rule: selectionRule, algorithm, environment_id: verifiedEnvironment.id, environment_spec_hash: specHash, arms: plannedArms };
+  const sweepHash = hashJson(spec as unknown as JsonValue);
+  const sweepBody = `# ${requestedId}\n\n\`\`\`json\n${encodeBoundedJson(spec, undefined, 2)}\n\`\`\``;
+  const armCreates = configs.map((config, index) => {
+    const armId = armIds[index]!;
+    return {
         id: armId,
         title: armId,
         type: "Run",
@@ -5031,7 +5448,13 @@ async function planSweep(context: CommandHandlerContext): Promise<RlCommandResul
         component: algorithm,
         fixedVersion: hashJson(config),
         message: `Plan RL sweep arm ${index + 1}`,
-      });
+    };
+  });
+  identifier(requestedId); armCreates.forEach(options => identifier(options.id));
+  const arms: Array<{ id: string; config: JsonValue }> = [];
+  try {
+    for (const [index, config] of configs.entries()) {
+      const result = await createRlItem(client, armCreates[index]!);
       // Report the RESOLVED id: the host scopes created ids under its alias.
       arms.push({ id: String(result.item.id), config });
     }
@@ -5039,27 +5462,17 @@ async function planSweep(context: CommandHandlerContext): Promise<RlCommandResul
     // Even a failed acknowledgement can follow a committed arm write.
     return await removePlannedArms(client, arms, error, requestedId);
   }
-  const spec: SweepSpec = {
-    search_space: spaceRawSpace as Record<string, JsonValue[]>,
-    selection_rule: selectionRule,
-    algorithm,
-    environment_id: verifiedEnvironment.id,
-    environment_spec_hash: specHash,
-    arms,
-  };
-  const sweepHash = hashJson(spec as unknown as JsonValue);
-  // Publication and verification are separate outcomes. A committed Sweep can
-  // already reference these Runs when its acknowledgement or read-back fails.
+  // Retain every acknowledged publication when a later write or read-back fails.
   let sweepResult;
   try {
-    sweepResult = await createVerifiedItem(client, {
+    sweepResult = await createRlItem(client, {
       id: requestedId,
       title: requestedId,
       type: "Sweep",
       status: "open",
       acceptanceCriteria: "The sweep retains its declared space, selection rule, and planned arms; its children are independent runs.",
       estimatedMinutes: "1",
-      body: `# ${requestedId}\n\n\`\`\`json\n${encodeBoundedJson(spec, undefined, 2)}\n\`\`\``,
+      body: sweepBody,
       dep: [verifiedEnvironment.id],
       affectedVersion: sweepHash,
       fixedVersion: algorithm,
@@ -5092,7 +5505,6 @@ async function planSweep(context: CommandHandlerContext): Promise<RlCommandResul
 async function showSweepStatus(context: CommandHandlerContext): Promise<RlCommandResult> {
   const id = requiredArgument(context, "a sweep id");
   const client = clientFor(context);
-  await ensurePersistentTypes(client);
   const sweep = await getTypedItem(client, id, "Sweep");
   const resolvedId = String(sweep.item.id);
   let specText: string | null;
@@ -5143,14 +5555,13 @@ async function showSweepStatus(context: CommandHandlerContext): Promise<RlComman
  * specification is refused rather than recorded.
  */
 async function recordTransfer(context: CommandHandlerContext): Promise<RlCommandResult> {
-  const requestedId = requiredArgument(context, "a transfer id");
+  const requestedId = identifier(requiredArgument(context, "a transfer id"));
   const sourceId = stringOption(context, "source")!;
   const targetId = stringOption(context, "target")!;
-  const checkpoint = stringOption(context, "checkpoint")!;
+  const checkpoint = identifier(stringOption(context, "checkpoint")!, "artifact");
   const runId = stringOption(context, "run")!;
   const metricsPath = stringOption(context, "metrics")!;
   const client = clientFor(context);
-  await ensurePersistentTypes(client);
   // Verified before the metrics are even parsed so a broken environment is the
   // first refusal reported.
   const source = await verifyEnvironmentIdentity(client, sourceId, "transfers");
@@ -5171,7 +5582,7 @@ async function recordTransfer(context: CommandHandlerContext): Promise<RlCommand
     run_id: resolvedRunId,
     gaps,
   };
-  const result = await createVerifiedItem(client, {
+  const result = await createRlItem(client, {
     id: requestedId,
     title: `Sim-to-real gap at ${checkpoint.slice(0, 16)}`,
     type: "Transfer",
@@ -5216,12 +5627,11 @@ async function recordTransfer(context: CommandHandlerContext): Promise<RlCommand
 async function showTransferGap(context: CommandHandlerContext): Promise<RlCommandResult> {
   const id = requiredArgument(context, "a run id");
   const client = clientFor(context);
-  await ensurePersistentTypes(client);
   const run = await getTypedItem(client, id, "Run");
   const resolvedRunId = String(run.item.id);
   const entries: Array<{ id: string; created_at: string; spec: TransferSpec; stale_reason: string | null }> = [];
   const stalenessCache = new Map<string, string | null>();
-  for (const item of (await client.list({ type: "Transfer", status: "all", noTruncate: true, fields: "id,body,created_at" })).items) {
+  for (const item of (await identifierClient(client).list({ type: "Transfer", status: "all", noTruncate: true, fields: "id,body,created_at" })).items) {
     // A listed item without an id carries no identity to plot or name.
     if (item.id === undefined) continue;
     let specText: string;
@@ -5280,7 +5690,7 @@ export const RL_COMMANDS = [
     { long: "--file", value_name: "path", value_type: "string", required: true, description: "Bounded loop JSON without environment, training or evaluation fields." },
     { long: "--output", value_name: "path", value_type: "string", required: true, description: "New sealed programme JSON; existing files refuse overwrite." },
   ], run: buildCorpusCommand }),
-  defineCommand({ name: "rl checkpoint show", description: "Verify and load a checkpoint from its SHA-256 artifact digest and promotion ledger.", arguments: [{ name: "digest", required: true, description: "SHA-256 artifact digest." }], run: async (context) => ({ action: "rl-checkpoint-show", details: inspectCheckpointArtifact(context.pm_root, requiredArgument(context, "an artifact digest")) }) }),
+  defineCommand({ name: "rl checkpoint show", description: "Verify and load a checkpoint from its SHA-256 artifact digest and promotion ledger.", arguments: [{ name: "digest", required: true, description: "SHA-256 artifact digest." }], run: async (context) => ({ action: "rl-checkpoint-show", details: inspectCheckpointArtifact(context.pm_root, requiredArgument(context, "an artifact digest", "digest")) }) }),
   defineCommand({ name: "rl checkpoint gc", description: "Collect checkpoint blobs unreachable from the promotion/audit ledger.", run: async (context) => ({ action: "rl-checkpoint-gc", details: await collectCheckpointArtifacts(context.pm_root) }) }),
   defineCommand({ name: "rl improver build", description: "Freeze chronological balanced public tracker tasks for recursive proposal-policy evaluation.", arguments: [{ name: "directories", variadic: true, description: "Additional tracker directories." }], flags: [
     { long: "--from-trackers", value_name: "directory", value_type: "string", required: true, description: "First copied public tracker directory." },
@@ -5337,12 +5747,25 @@ export const RL_COMMANDS = [
     const registered = await registerEvaluationPlan(clientFor(context), readJsonFile(stringOption(context, "file")!, "Evaluation plan"));
     return { action: "rl-eval-plan-register", id: registered.id, details: { comparison: registered.comparison, observations: registered.plan.stopping.observations, independent_units: registered.plan.stopping.independent_units, protected_cohorts: registered.plan.protected_cohorts?.length ?? 0 } };
   } }),
-  defineCommand({ name: "rl eval plan show", description: "Show compact predeclared comparison identity and fixed stopping sizes.", arguments: [{ name: "candidate", required: true, description: "Reserved candidate generation id." }], run: async (context) => {
+  defineCommand({ name: "rl eval plan show", description: "Show compact predeclared comparison identity and declared stopping sizes.", arguments: [{ name: "candidate", required: true, description: "Reserved candidate generation id." }], run: async (context) => {
     const client = clientFor(context);
-    const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
+    const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
     const registered = await readEvaluationPlan(client, canonicalizeIdentifier(requiredArgument(context, "a candidate id"), prefix));
     if (registered === null) fail("No predeclared plan. Register one before creating a fresh candidate.", "eval_plan_missing", EXIT_CODE.CONFLICT);
     return { action: "rl-eval-plan-show", id: registered.id, details: { comparison: registered.comparison, candidate: registered.plan.candidate, incumbent: registered.plan.incumbent, stopping: registered.plan.stopping, protected_cohorts: registered.plan.protected_cohorts?.length ?? 0 } };
+  } }),
+  defineCommand({ name: "rl eval plan advance", description: "Seal or resume the next reviewed sequential boundary from cumulative paired observations.", arguments: [{ name: "candidate", required: true, description: "Reserved candidate generation id." }], flags: [
+    { long: "--file", value_name: "path", value_type: "string", required: true, description: "Cumulative paired observation array JSON." },
+  ], run: async (context) => {
+    const client = clientFor(context); const item = await getTypedItem(client, requiredArgument(context, "a candidate id"), "Generation");
+    const report = await recordSequentialEvaluation(client, String(item.item.id), readJsonFile(stringOption(context, "file")!, "Sequential observations"));
+    return { action: "rl-eval-plan-advance", id: report.plan, details: { ...report } };
+  } }),
+  defineCommand({ name: "rl eval plan resume", description: "Read and revalidate the latest sequential checkpoint without adding observations.", arguments: [{ name: "candidate", required: true, description: "Reserved candidate generation id." }], run: async (context) => {
+    const client = clientFor(context); const item = await getTypedItem(client, requiredArgument(context, "a candidate id"), "Generation");
+    const report = await readSequentialEvaluation(client, String(item.item.id));
+    if (report === null) fail("No owned sequential checkpoint. Advance the first declared look or use a fresh candidate if a foreign checkpoint was skipped.", "eval_plan_missing", EXIT_CODE.CONFLICT);
+    return { action: "rl-eval-plan-resume", id: report.plan, details: { ...report } };
   } }),
   defineCommand({ name: "rl eval plan evaluate", description: "Seal one paired evaluation and enforce aggregate improvement plus protected cohort guardrails.", arguments: [{ name: "candidate", required: true, description: "Reserved candidate generation id." }], flags: [
     { long: "--file", value_name: "path", value_type: "string", required: true, description: "Paired observation array JSON." },

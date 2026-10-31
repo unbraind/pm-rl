@@ -1,19 +1,22 @@
+import { statePath, identifier } from "./state-boundary.ts";
 import { parseBoundedJson } from "./tracker-record.ts";
 /** Controller-owned Docker Compose lifecycle for the durable process trainer protocol. */
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { devNull } from "node:os";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { promisify } from "node:util";
 import { launchTrainer, type TrainerInput, type ProcessAdapter, type Resources } from "./process.ts";
 import { writeTrainerArtifact } from "./process-bandit.ts";
 import { expectedFail } from "./refuse.ts";
+import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
+import { retryOwnedStop } from "./owned-stop.ts";
 
 /** Derive an isolated Compose project from the full content-bound process job identity. */
 export function composeProject(id: string, directory: string): string {
   if (!/^process-[a-f0-9]{64}$/u.test(id)) expectedFail("Invalid Compose job identity.", "process_job_drift");
-  return `pm-rl-${createHash("sha256").update(JSON.stringify([id, resolve(directory)])).digest("hex")}`;
+  return `pm-rl-${createHash("sha256").update(JSON.stringify([identifier(id), resolve(directory)])).digest("hex")}`;
 }
 
 /** Generate only one networkless trainer with job-local storage and no host service inputs. */
@@ -35,12 +38,22 @@ export function composeConfiguration(image: string, limits?: Extract<ProcessAdap
 
 /** Pin every Compose invocation to this generated file and project, ignoring ambient discovery. */
 function composeArgs(directory: string, id: string): string[] {
-  return ["compose", "--ansi", "never", "--env-file", devNull, "--project-directory", directory, "--project-name", composeProject(id, directory), "--file", join(directory, "compose.json")];
+  return ["compose", "--ansi", "never", "--env-file", devNull, "--project-directory", directory, "--project-name", composeProject(id, directory), "--file", statePath(directory, "compose.json")];
 }
 
 /** Stop only this job's Compose project, preserving every host artifact and recording stop evidence. */
 export async function stopComposeTrainer(directory: string, id: string, image: string, reason: string, limits?: Extract<ProcessAdapter, { kind: "compose-lm" }>): Promise<void> {
-  const file = join(directory, "compose.json");
+  const observed: { container?: string; resources: unknown } = { resources: null };
+  let diagnostic = "";
+  if (!await retryOwnedStop(async () => {
+    try { await stopComposeAttempt(directory, id, image, reason, observed, limits); }
+    catch (error) { diagnostic = String(error).slice(0, 4096); throw error; }
+  }, isPmCliExpectedError)) expectedFail(`Owned container cleanup failed after bounded retries; retain its project and immutable identity for recovery. ${diagnostic}`, "process_stop_failed");
+}
+
+/** Revalidate ownership on every retry and never switch to a successor container sharing the old name. */
+async function stopComposeAttempt(directory: string, id: string, image: string, reason: string, observed: { container?: string; resources: unknown }, limits?: Extract<ProcessAdapter, { kind: "compose-lm" }>): Promise<void> {
+  const file = statePath(directory, "compose.json");
   // A crash before config publication cannot have launched a container.
   if (!existsSync(file)) return;
   if (readFileSync(file, "utf8") !== JSON.stringify(composeConfiguration(image, limits))) expectedFail("Compose configuration drifted; retained for inspection.", "process_job_drift");
@@ -50,21 +63,22 @@ export async function stopComposeTrainer(directory: string, id: string, image: s
   // then remove its immutable daemon ID so name reuse cannot grant stop authority.
   const listed = await promisify(execFile)("docker", ["container", "ls", "--all", "--no-trunc", "--filter", `name=^/${project}-trainer$`, "--filter", `label=com.docker.compose.project=${project}`, "--filter", "label=com.docker.compose.service=trainer", "--format", "{{.ID}}"], options);
   const container = listed.stdout.trim();
-  let resources: unknown = null;
+  if (observed.container !== undefined && observed.container !== container && container.length > 0) expectedFail("A different container now occupies the retained project; leave that foreign identity intact.", "process_job_drift");
+  observed.container ??= container;
   if (limits !== undefined && container.length > 0) {
     const inspected = await promisify(execFile)("docker", ["container", "inspect", container, "--format", '{"memory_bytes":{{.HostConfig.Memory}},"nano_cpus":{{.HostConfig.NanoCpus}},"oom_killed":{{.State.OOMKilled}},"exit_code":{{.State.ExitCode}},"network":{{json .HostConfig.NetworkMode}},"user":{{json .Config.User}}}'], options);
-    resources = parseBoundedJson(inspected.stdout) as unknown;
+    Object.assign(observed, { resources: parseBoundedJson(inspected.stdout) as unknown });
   }
   if (container.length > 0) await promisify(execFile)("docker", ["container", "rm", "--force", container], options);
   await promisify(execFile)("docker", [...composeArgs(directory, id), "down", "--timeout", "0"], options);
-  const evidence = join(directory, "compose-stop.json");
-  if (!existsSync(evidence)) writeTrainerArtifact(evidence, { format: "pm-rl/compose-stop/1", job: id, project, reason, ...(limits === undefined ? {} : { resources }) });
+  const evidence = statePath(directory, "compose-stop.json");
+  if (!existsSync(evidence)) writeTrainerArtifact(evidence, { format: "pm-rl/compose-stop/1", job: id, project, reason, ...(limits === undefined ? {} : { resources: observed.resources }) });
 }
 
 /** Run the container as the trainer; the controller owns its reservation, watchdog and cleanup. */
 export async function launchComposeTrainer(directory: string, id: string, input: TrainerInput, allowance: Resources, image: string, onCleanupFailure: (error: unknown) => void, signal?: AbortSignal, limits?: Extract<ProcessAdapter, { kind: "compose-lm" }>): Promise<void> {
-  if (limits !== undefined) writeTrainerArtifact(join(directory, "input.json"), { job: id, input });
-  writeTrainerArtifact(join(directory, "compose.json"), composeConfiguration(image, limits));
+  if (limits !== undefined) writeTrainerArtifact(statePath(directory, "input.json"), { job: id, input });
+  writeTrainerArtifact(statePath(directory, "compose.json"), composeConfiguration(image, limits));
   let reason = "failed";
   try {
     await launchTrainer(directory, id, input, allowance, ["docker", ...composeArgs(directory, id), "run", "--no-deps", "--pull", "never", "-T", "--name", `${composeProject(id, directory)}-trainer`, "trainer"], signal);

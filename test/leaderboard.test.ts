@@ -142,7 +142,7 @@ test("benchmark and evaluation parsers canonicalize valid provenance and refuse 
     scoring_function: "accuracy",
     pass_criteria: { gte: 0.5 },
     direction: "maximize",
-    contaminated_environments: [" env-b ", "env-a", "env-a"],
+    contaminated_environments: ["env-b", "env-a", "env-a"],
     harness: { seed: 42 },
   };
   assert.deepEqual(parseBenchmarkSpec(JSON.stringify(valid)), {
@@ -151,6 +151,8 @@ test("benchmark and evaluation parsers canonicalize valid provenance and refuse 
     version: "1",
     contaminated_environments: ["env-a", "env-b"],
   });
+  assert.throws(() => parseBenchmarkSpec(JSON.stringify({ ...valid, contaminated_environments: [" env-b "] }), "New benchmark", "write"),
+    (error) => isPmCliExpectedError(error) && error.context.code === "rl_identifier_invalid");
   for (const [text, message] of [
     ["bad", /not valid JSON/],
     ["[]", /one JSON object/],
@@ -167,13 +169,17 @@ test("benchmark and evaluation parsers canonicalize valid provenance and refuse 
   }
 
   const evalSpec = {
-    checkpoint: " ckpt ", score: 0.9, passed: true, run_id: " run ", benchmark_id: " bench ",
-    environment_id: " env ", environment_spec_hash: " spec ", reward_spec_hash: " reward ",
+    checkpoint: "ckpt", score: 0.9, passed: true, run_id: "run", benchmark_id: "bench",
+    environment_id: "env", environment_spec_hash: " spec ", reward_spec_hash: " reward ",
   };
   assert.deepEqual(parseEvalResultSpec(JSON.stringify(evalSpec)), {
     checkpoint: "ckpt", score: 0.9, passed: true, run_id: "run", benchmark_id: "bench",
     environment_id: "env", environment_spec_hash: "spec", reward_spec_hash: "reward",
   });
+  for (const key of ["checkpoint", "run_id", "benchmark_id", "environment_id"] as const) {
+    assert.throws(() => parseEvalResultSpec(JSON.stringify({ ...evalSpec, [key]: ` ${evalSpec[key]} ` }), "New evaluation", "write"),
+      (error) => isPmCliExpectedError(error) && error.context.code === "rl_identifier_invalid");
+  }
   for (const [text, message] of [
     ["bad", /not valid JSON/],
     ["[]", /one JSON object/],
@@ -300,6 +306,10 @@ test("benchmark and evaluation commands reject incomplete input and mutated iden
   await assert.rejects(harness.runCommand({ command: "rl leaderboard", pmRoot }), /requires a benchmark id/);
   const benchmarkId = await benchmark(root, pmRoot, harness);
   await assert.rejects(harness.runCommand({ command: "rl eval record", pmRoot, options: { run: source.run, benchmark: benchmarkId, checkpoint: "sha", score: "NaN", passed: true } }), /finite --score/);
+  for (const checkpoint of [" ckpt ", "../outside", "sha256:../outside"]) {
+    await assert.rejects(harness.runCommand({ command: "rl eval record", pmRoot, options: { run: source.run, benchmark: benchmarkId, checkpoint, score: "1", passed: true } }),
+      (error) => isPmCliExpectedError(error) && error.context.code === "rl_identifier_invalid");
+  }
   await assert.rejects(harness.runCommand({ command: "rl eval record", pmRoot, options: { run: source.run, benchmark: benchmarkId, checkpoint: "sha", score: "1", passed: "maybe" } }), /requires --passed true/);
 
   const result = await evaluation(pmRoot, harness, source.run, benchmarkId, "sha", 1, true);

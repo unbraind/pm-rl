@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { hostname } from "node:os";
 import { test } from "node:test";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import { acquireLock, certifyCompleteListResult } from "@unbrained/pm-cli/sdk/runtime";
+import { acquireLock, isPmCliExpectedError, certifyCompleteListResult } from "@unbrained/pm-cli/sdk/runtime";
 import extension, { hashJson, runRlLoop, promotedGenerationIdsUnderApproval, type JsonValue, type RlCommandResult, loopLeaseLockId, loopProcessStartTime, LOOP_LEASE_TTL_SECONDS, RL_COMMANDS } from "../index.ts";
 import { compareRecipes, durableRecipeProposals, metaReservation, parseMetaConfig, proposeRecipes, recipeExamples, recipeSuccessor, runRlMeta, scoreTrackerPolicy, retainedMetaPromotionHeadroom, type MetaConfig, type MetaRequest } from "../meta.ts";
 import { INITIAL_RECIPE, recipeArtifact, seededRecipes } from "../recipe.ts";
@@ -387,7 +387,7 @@ test("two real meta generations retain recipes and process jobs, then resume wit
   assert.deepEqual(await runRlMeta(w.client, w.coordinates, request), first);
   assert.equal(String((await w.client.get("recursive-reservation")).item.body), original);
   assert.deepEqual(await listProcessJobs(w.client), jobs);
-  await assert.rejects(runRlMeta(w.client, w.coordinates, { ...request, config: { ...request.config, seed: 43 } }), /disagrees/);
+  await assert.rejects(runRlMeta(w.client, w.coordinates, { ...request, config: { ...request.config, seed: 43 } }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "meta_reservation_drift");
   const receipt = await w.client.get("recursive-step-m1-promote"); const record = JSON.parse(String(receipt.item.body)) as { result: { promoted: string } }; record.result.promoted = "forged";
   await w.client.update(receipt.item.id, { body: JSON.stringify(record) });
   await assert.rejects(runRlMeta(w.client, w.coordinates, request), /damaged/);
@@ -513,9 +513,10 @@ test("canonical proposal lookup ignores matching foreign bindings and refuses da
   const path = join(w.coordinates.pmRoot, "decisions", `${broken.item.id}.toon`); const original = readFileSync(path, "utf8");
   try {
     writeFileSync(path, "broken: [invalid\n");
-    const failure: unknown = await w.client.get(broken.item.id).catch((error: unknown) => error);
-    assert.ok(failure instanceof Error, "damaged tracker item must fail the real SDK read");
+    const failure: unknown = await w.client.listAllComplete({ includeBody: false }).catch((error: unknown) => error);
+    assert.ok(failure instanceof Error, "damaged tracker item must fail the real SDK inventory read");
     await assert.rejects(durableRecipeProposals(w.client, "broken", request, INITIAL_RECIPE, 1, signal), { message: failure.message });
+    assert.equal(readFileSync(path, "utf8"), "broken: [invalid\n");
   } finally { writeFileSync(path, original); }
 });
 
@@ -575,10 +576,18 @@ test("programme identity cannot hide approval reservations through SDK case fold
   const w = await metaWorkspace(); const request = requestFor(w, "canonical", { ...metaConfig, meta_generations: 1, candidates: 1 });
   const spec = { ...metaSpec, meta_budget: { training_samples: 1024, proposal_calls: 0, recipe_promotions: 1 } };
   await w.client.update(w.approval, { body: `\`\`\`json\n${JSON.stringify(spec)}\n\`\`\`` });
-  for (const id of ["UPPER", "under_score", "", "../outside"]) {
-    await assert.rejects(runRlMeta(w.client, w.coordinates, { ...request, id, onStep() { throw new Error("noncanonical programme reached a write"); } }), /meta_programme_id/);
+  for (const id of ["under_score", "", "../outside"]) {
+    await assert.rejects(runRlMeta(w.client, w.coordinates, { ...request, id, onStep() { throw new Error("noncanonical programme reached a write"); } }), (error) => (isPmCliExpectedError(error) && error.context.code === "rl_identifier_invalid") || (error instanceof Error && /meta_programme_id/.test(error.message)));
   }
   assert.equal(certifyCompleteListResult(await w.client.listAllComplete({ includeBody: false })).items.length, 1, "invalid identities leave only the approval");
+  const alias = await metaWorkspace();
+  const aliased = requestFor(alias, "UPPER", { ...metaConfig, meta_generations: 1, candidates: 1 });
+  await alias.client.update(alias.approval, { body: `\`\`\`json\n${JSON.stringify(spec)}\n\`\`\`` });
+  await assert.rejects(runRlMeta(alias.client, alias.coordinates, { ...aliased, onStep() { throw new Error("canonical pause"); } }), /canonical pause/);
+  const reserved = await alias.client.get("upper-reservation", { full: true });
+  await assert.rejects(runRlMeta(alias.client, alias.coordinates, { ...aliased, id: "upper", onStep() { throw new Error("canonical pause"); } }), /canonical pause/);
+  assert.deepEqual(await alias.client.get("UPPER-reservation", { full: true }), reserved);
+
   await w.client.create({ id: "LEGACY-reservation", type: "Decision", title: "Retained case-folded allocation", body: JSON.stringify({
     format: "pm-rl/meta-reservation/1", id: "LEGACY-reservation", approval: w.approval,
     charge: { training_samples: 1024, proposal_calls: 0, recipe_promotions: 1 }, promotion_headroom: 4,
@@ -616,7 +625,7 @@ test("one pre-approved Decision cannot be enlarged, replaced or oversubscribed, 
   await w.client.update(w.approval, { body: `\`\`\`json\n${JSON.stringify(metaSpec)}\n\`\`\`` });
   const reservation = await w.client.get("bound-reservation");
   const replacement = await w.client.create({ type: "Decision", title: "Identical spec with a different approval identity", body: `\`\`\`json\n${JSON.stringify(metaSpec)}\n\`\`\`` });
-  await assert.rejects(runRlMeta(w.client, w.coordinates, { ...request, approval: replacement.item.id, onStep(key) { if (key === "programme") throw new Error("approval identity switched"); } }), /disagrees/);
+  await assert.rejects(runRlMeta(w.client, w.coordinates, { ...request, approval: replacement.item.id, onStep(key) { if (key === "programme") throw new Error("approval identity switched"); } }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "meta_reservation_drift");
   await w.client.update(reservation.item.id, { title: "Renamed reserved search", body: JSON.stringify(JSON.parse(String(reservation.item.body)), null, 2) });
   await w.client.create({ id: "foreign-reservation", type: "Decision", title: "Unbound copied envelope", body: reservation.item.body });
   await w.client.create({ id: "prose-reservation", type: "Decision", title: "Unrelated control record", body: "Prose mentioning pm-rl/meta-reservation/1" });

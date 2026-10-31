@@ -340,6 +340,16 @@ changing the body or materializing dependent checkpoint receipts. Journal keys
 include the source revision and the full target digest; retries inspect current
 SDK state, preserve a peer winner, and do not replay an older prepared body.
 Fixed-clock ABA updates therefore refuse even when body and timestamps match.
+Publication also retains the exact revision produced by each native write and
+checks it after all transaction observer hooks. Restoring the applied body cannot
+hide a later peer history entry: the call refuses with a typed conflict and keeps
+the peer's item and append-only history. The same publication check covers meta
+reservations, evaluation declarations and checkpoints, and completed loop
+receipts. A fresh invocation may adopt a now-stable valid record; this check is
+detection at the publication boundary, not exclusion of ordinary writers.
+An adopted reservation pins its validated historical revision for the active
+transaction too. Later inspections cannot refresh that witness after peer ABA.
+Nested recovery retains child witnesses even when a caller catches a refusal.
 Failure, cancellation, invalidation and later lifecycle transitions refuse
 reductions below the current charge (`process_charge_regression`), even with a
 claimed completion. Retain the charge; only the executor's validated materialization may release unused
@@ -400,3 +410,18 @@ bun run release:check
 npm run changelog:full
 npm run changelog:check
 ```
+
+
+Recovery preserves the SDK-recorded wall charge. Historical Node writers observed
+fractional filesystem milliseconds; older Bun writers observed integer
+milliseconds. A recorded charge must exactly match one of those two measurements
+of the same nanosecond timestamp and declared usage. Other charges refuse; this
+is not a general tolerance. Initial measurement keeps the writer's existing
+behavior, and receipt contents, checkpoint bytes, every other resource and the
+approved allowance remain checked. Copy retained staging files with timestamps
+preserved. The main-produced corpus checks both runtime directions through the
+SDK, without normalizing the reference state.
+
+`processJobBodyId(body)` retains a stored version-one ID exactly. The explicit
+`processJobBodyId(body, false)` declaration check validates and canonicalizes a
+new ID. Strict new-write refusals remain tested separately from legacy reads.

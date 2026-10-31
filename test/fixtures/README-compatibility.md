@@ -1,51 +1,78 @@
-# Published compatibility oracle
+# Published version-1 compatibility oracle
 
-Part 1 of the [#107 split](https://github.com/unbraind/pm-rl/pull/107).
-The native JSON fixtures and authoring drivers are copied verbatim from that
-branch. No runtime behavior changes are included.
+`released-compatibility.json` contains portable text files and SDK snapshots
+written by the published `pm-rl@2026.7.31` archive. Its registry integrity is
+recorded in `producer.integrity`. No runtime cache, lock, transaction, archive or
+binary is checked in. The fixture includes schema files because SDK reads must
+resolve the original configured types and status roles.
 
-`released-compatibility.json` was written by `pm-rl@2026.7.31`; its exact registry
-integrity is recorded in `producer.integrity`. It contains 66 native text files,
-30 SDK snapshots, 18 fixed Plans and 500 generated cases across 13 parser,
-canonicalizer and evaluator paths. Legacy label forms include whitespace,
-Unicode, separators, dot segments, NUL and long text, including a 201-byte ID.
-The tests compare published hashes and actual SDK read-back, without a second
-normalization model. SDK and CLI retries, fixed evaluation and promotion work
-in ordinary temporary trackers outside Git.
+The published writer registers fixed plans containing all 16 legacy label forms,
+including spaces, colons, Unicode, separators, dot segments, NUL and long text.
+It also writes a 201-byte native seed ID, a long fixed-plan ID and a long result
+ID that the former 200-byte read restriction rejected. Ordinary generation
+records retain the published whitespace behavior for parents, collections,
+approval references and checkpoint/policy labels. A benchmark and EvalResult
+exercise immutable-command retries with legacy checkpoint text.
 
-To regenerate, verify and unpack that exact published archive into a scratch
-consumer with the pinned SDK. Copy `released-compatibility-writer.ts` and
-`compatibility-inputs.ts`, redirect the static package imports to the archive's
-`dist/*.js`, then run the writer with a fresh tracker and output JSON path.
-Keep the published runtime independent of the implementation under test.
-Scan generated text for private content before committing.
+`compatibility-inputs.ts` constructs raw inputs without normalizing outputs.
+`released-compatibility-writer.ts` calls the published parsers, canonicalizers and
+evaluator for 500 generated cases across 13 paths and records their hashes as the
+reference model. Current tests compare those hashes directly, and read the
+portable native files back through the real SDK. Expected normalization is never
+implemented by the tests. Native fixtures read, evaluate, retry and promote
+through both SDK and CLI; source item fields and seals are checked unchanged.
 
-`main-controller-compatibility.ts` authors 15 completed, interrupted and running
-controller/loop cases with main's public APIs under three ID prefixes. Its
-`write`, `exercise`, `cards` and process modes support later compatibility work.
-Run it against an isolated main checkout with the pinned dependencies and
-preserve native timestamps when copying its output.
+To regenerate, unpack the exact published archive into a scratch consumer, make
+the repo-pinned SDK available there, and copy the writer with its static
+`../../<module>.ts` imports redirected to that archive's `dist/<module>.js` files.
+Keep `compatibility-inputs.ts` as the shared raw input factory. Execute the copied
+writer with a fresh non-git tracker directory and the fixture JSON output path.
+Verify the archive integrity and scan generated text for private paths before
+committing. Do not replace the published runtime with the working-tree module.
 
-`main-process-clocks.json` preserves actual main API/SDK output from Node 24.19.0
-and Bun 1.3.5. The same timestamp produced 31 ms and 30 ms charges. The
-`processes-capture` and `processes-reclock` driver modes author those outputs.
-Cross-clock acceptance, sequential protocol, decision provenance and identity
-validation changes remain in #107. Long-ID promotion also remains there: main
-can read the fixture, but its transaction filename exceeds the filesystem limit.
-
-Source checks:
+Targeted checks:
 
 ```sh
-node --test --test-concurrency=2 test/evaluation-compatibility.test.ts
+node --test --test-concurrency=1 test/evaluation-compatibility.test.ts
+node --test --test-concurrency=1 test/state-boundary.test.ts
 ```
 
-Packed acceptance takes a validated archive and a local evidence destination:
+The existing must-refuse corpus remains enforced under explicit `"write"`
+validation. The paired must-allow corpus exercises the released default read
+contract. A padded stored approval must consume its budget rather than becoming
+uncountable or granting another promotion. Unsafe SDK/path operations name their
+value and preserve an external expired-lock tripwire.
+
+The packed-consumer acceptance runner takes the archive and output evidence:
 
 ```sh
 node test/evaluation-compatibility.acceptance.ts package.tgz evidence.json
 bun test/evaluation-compatibility.acceptance.ts package.tgz evidence.json
 ```
 
-The archive is installed into the verbatim native tracker. Git is removed from
-PATH for JSON/TOON reads, fixed evaluation, retries, promotion and card export.
-The new declaration restrictions and dependent regressions stay on #107.
+It installs the archive into the native fixture tracker, removes Git from PATH,
+and exercises JSON/TOON reads, evaluation, old declaration/benchmark/EvalResult
+retries, promotion and policy-card export. Revert receipts and exact commands
+are recorded in `pm-rl-sequential`.
+
+
+`main-controller-compatibility.ts` is a second native oracle. The controller test
+checks out origin/main into an owned temporary worktree, runs this exact driver
+with main's public APIs, then resumes two copies with main and the PR. It covers
+15 controllers/loops under `rl`, `fleet` and `rl-prefixed`, including genuine
+running training receipts, older fixed-plan cards and uppercase process state.
+The oracle compares complete SDK-read identities, retained card decisions and
+resumed receipt payloads, without a handwritten canonicalization model. Native
+tracker copies remain outside Git. The current reader alone contributes coverage;
+baseline creation is never attributed to the implementation under test.
+
+
+`main-process-clocks.json` contains SDK-read process records and retained bytes
+captured from the same main checkout with Node 24.19.0 and Bun 1.3.5. Its shared
+nanosecond timestamp produced 31 ms and 30 ms wall charges through main's actual
+validator and forward transition API. Recreate it with `processes-capture` and
+`processes-reclock` modes of the common main driver. The regression imports each
+record through the real SDK, compares the read-back DTO to the captured SDK
+result, and checks both native clock observations and forged charges. Expected
+state is never normalized by a handwritten model. Whole tracker copies use a
+metadata-preserving native copier so validation sees the original timestamps.

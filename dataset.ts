@@ -1,9 +1,10 @@
-import { encodeBoundedJson, parseBoundedJson } from "./tracker-record.ts";
+import { statePath } from "./state-boundary.ts";
+import { parseBoundedJson, encodeBoundedJson } from "./tracker-record.ts";
 /** Public, commit-pinned tracker histories projected to a small redistributable lifecycle task. */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { hashJson, type JsonValue } from "./index.ts";
 import { calibratePrefixTarget, prefixInnerExample, projectHistoryPrefix, validateHistoryPrefix, validateLifecyclePrefix, type HistoryPrefix, type PrefixProjection, type TargetDistribution } from "./prefix-data.ts";
 
@@ -87,7 +88,7 @@ export function buildTrackerDataset(directories: readonly string[], output: stri
     const path = realpathSync(directory);
     assert.ok(!path.split("/").some((part) => ["pm-hosted-data", "pm-web", "pm-gpt"].includes(part)), "dataset_forbidden_source");
     const root = dirname(dirname(path));
-    assert.equal(path, join(root, ".agents", "pm"), "dataset_tracker_directory");
+    assert.equal(path, statePath(root, ".agents", "pm"), "dataset_tracker_directory");
     const remote = sourceCommand("git", ["remote", "get-url", "origin"], root);
     const match = /^(?:https:\/\/github\.com\/|git@github\.com:)([\w-]+\/pm-[\w-]+?)(?:\.git)?$/.exec(remote);
     assert.ok(match !== null, "dataset_github_source");
@@ -147,15 +148,15 @@ export function buildTrackerDataset(directories: readonly string[], output: stri
   const manifest = { ...record, digest: hashJson(record as unknown as JsonValue) };
   const files = TRACKER_SPLITS.map((split) => ({ name: `${split}.json`, text: encodeBoundedJson(data[split]) }));
   const manifestText = encodeBoundedJson(manifest, undefined, 2);
-  mkdirSync(output, { recursive: true });
-  for (const file of files) writeFileSync(join(output, file.name), file.text, { flag: "wx" });
-  writeFileSync(join(output, "dataset.json"), manifestText, { flag: "wx" });
+  mkdirSync(statePath(output), { recursive: true });
+  for (const file of files) writeFileSync(statePath(output, file.name), file.text, { flag: "wx" });
+  writeFileSync(statePath(output, "dataset.json"), manifestText, { flag: "wx" });
   return manifest;
 }
 
 /** Verify a dataset manifest without opening held-out or final-test compartments. */
 export function readTrackerDataset(directory: string): TrackerDataset {
-  const { digest, ...record } = parseBoundedJson(readFileSync(join(directory, "dataset.json"), "utf8")) as TrackerDataset;
+  const { digest, ...record } = parseBoundedJson(readFileSync(statePath(directory, "dataset.json"), "utf8")) as TrackerDataset;
   assert.equal(hashJson(record as unknown as JsonValue), digest, "dataset_manifest_identity");
   assert.ok(record.format === "pm-rl/tracker-dataset/1" && ["terminal-disposition", "history-prefix"].includes(record.task), "dataset_format");
   assert.equal(new Set(record.sources.map((source) => source.repo)).size, record.sources.length, "dataset_duplicate_repo");

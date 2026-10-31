@@ -1,5 +1,6 @@
 /** Online deployment regressions use real SDK trackers with no Git or mocked clients. */
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, symlinkSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
@@ -139,6 +140,9 @@ test("changed policy bindings and edited sealed records fail closed", async () =
 
 test("CLI online observation and authoritative promotion work with git absent from PATH", async () => {
   const w = await workspace(); const bin = join(w.root, "bin"); mkdirSync(bin); symlinkSync(process.execPath, join(bin, "node"));
+  // Git is absent; the native birth-identity tool behind the process-job fence stays reachable.
+  const identityTool = process.platform === "linux" ? "getconf" : "ps";
+  symlinkSync(execFileSync("/bin/sh", ["-c", `command -v ${identityTool}`], { encoding: "utf8" }).trim(), join(bin, identityTool));
   const oldPath = process.env.PATH; const oldCeiling = process.env.GIT_CEILING_DIRECTORIES;
   process.env.PATH = bin; process.env.GIT_CEILING_DIRECTORIES = dirname(w.root);
   try {
@@ -392,4 +396,15 @@ test("manifest identity checksum and post-registration cohort edits retain field
   const edited = await workspace(); const registered = await registerShadowDeployment(edited.client, edited.d, edited.p);
   await edited.client.update(registered.id, { body: canonicalJson({ ...edited.d, inputs: { ...edited.d.inputs, extra: shadowInputDigest("event") } } as unknown as JsonValue) });
   await assert.rejects(compareShadow(edited.client, "rl-candidate"), fieldRefusal("shadow_drift", registered.id, "body"));
+});
+
+
+test("dependent shadow identifiers refuse before any plan or receipt is allocated", async () => {
+  const candidate = `rl-${"x".repeat(112)}`;
+  const d = { ...deployment(), generation: candidate }; const w = await workspace(d);
+  const p = { ...w.p, candidate };
+  const before = (await w.client.listAllComplete({ includeBody: true })).items;
+  await assert.rejects(registerShadowDeployment(w.client, d, p), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "rl_identifier_invalid");
+  assert.deepEqual((await w.client.listAllComplete({ includeBody: true })).items, before);
+  assert.equal(await readEvaluationPlan(w.client, candidate), null);
 });

@@ -1343,7 +1343,7 @@ test("authoritative status read failures preserve the concurrent transition erro
     await assert.rejects(runRlLoop(w.client, w.coordinates, { ...w.request, onPhase(phase) { if (phase === "evaluate") armed = true; } }), (error: unknown) => {
       assert.ok(isPmCliExpectedError(error)); assert.equal(error.context.code, "loop_write_conflict");
       const context = error.context as typeof error.context & { authoritative_read_error: string };
-      assert.equal(context.authoritative_read_error, native ? "unavailable" : "provenance_read_retryable"); return true;
+      assert.equal(context.authoritative_read_error, native ? "unavailable" : "backend_unavailable"); return true;
     });
     const actual = extractGenerationSpec(String((await w.peer.get(w.generationId)).item.body), "Unchanged positive evaluation");
     assert.equal(actual.promoted, false); assert.equal((actual.policy_evaluation as Record<string, JsonValue>).decision, "promote");

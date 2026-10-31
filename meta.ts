@@ -1,13 +1,16 @@
+import { canonicalProgrammeId, preservedProgrammeId, programmeRequest, identifierClient } from "./state-boundary.ts";
 import { decodeTrackerRecord, hasTrackerIdentity, encodeBoundedJson, MAX_TRACKER_RECORD_BYTES } from "./tracker-record.ts";
 /** Durable recipe search over sealed tracker compartments, using the existing trainer and promotion gate. */
 import assert from "node:assert/strict";
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { certifyCompleteListResult, normalizeItemId, EXIT_CODE, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
-import { createVerifiedItem, hashJson, commitProcessTransaction, promotedGenerationIdsUnderApproval, readApprovalSpec, readCompleteLoopItem, withRlController, type JsonValue, type RlDurableStep } from "./index.ts";
+import { certifyAppliedRevision, readLoopRevision, createVerifiedItem, hashJson, commitProcessTransaction, withValidatedMutation, promotedGenerationIdsUnderApproval, readApprovalSpec, readCompleteLoopItem, withRlController, type JsonValue, type RlDurableStep } from "./index.ts";
 import { parseApprovalSpec } from "./lineage.ts";
 import type { BinaryCalibration, PrefixCheckpoint } from "./prefix.ts";
 import { openTrackerEnvironment } from "./tracker-environment.ts";
 import { parseProcessAdapter, type ProcessAdapter, type ProcessCoordinates } from "./process.ts";
+import { expectedFail, rethrowOperationalRead } from "./refuse.ts";
+import { requireCheckpointStorage } from "./checkpoint-artifacts.ts";
 import { decidePromotion, hoeffdingEpsilon, parsePromotionCriterion, type PromotionCriterion, type PromotionEvidence, type PromotionDecision } from "./promotion.ts";
 import { parseRecipe, seededRecipes, RECIPE_BOUNDS, type Recipe } from "./recipe.ts";
 import { requestSystemOneDecision, calibratedProbabilities } from "./systemone.ts";
@@ -127,9 +130,9 @@ async function knownMetaReservation(client: PmClient, id: string, prefix: string
 
 /** Read canonical reservation records for one approval, ignoring foreign copies and unrelated Decisions. */
 async function metaReservations(client: PmClient, approval: string): Promise<readonly { prefix: string; record: NonNullable<ReturnType<typeof metaReservation>> }[]> {
-  const items = certifyCompleteListResult(await client.listAllComplete({ includeBody: false }));
+  const items = certifyCompleteListResult(await identifierClient(client).listAllComplete({ includeBody: false }));
   const canonical = (await readApprovalSpec(client, approval)).id;
-  const prefix = String((await client.config("project", "get", "id_prefix")).nested_setting!.value);
+  const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
   const reservations: { prefix: string; record: NonNullable<ReturnType<typeof metaReservation>> }[] = [];
   for (const item of items.items.filter((entry) => entry.type === "Decision" && entry.id.endsWith("-reservation"))) {
     const current = (await readCompleteLoopItem(client, item.id)).item;
@@ -168,8 +171,8 @@ export async function retainedMetaPromotionHeadroom(client: PmClient, approval: 
   return retained;
 }
 
-/** Atomically hold worst-case allowances once, or verify retained capacity before an unfinished phase executes. */
-async function reserveMeta(client: PmClient, coordinates: ProcessCoordinates, request: MetaRequest, binding: string, retained = false): Promise<void> {
+/** Hold worst-case allowances once, or verify retained capacity before an unfinished phase executes. @internal */
+export async function reserveMeta(client: PmClient, coordinates: ProcessCoordinates, request: MetaRequest, binding: string, retained = false, preflight = false): Promise<void> {
   const { config } = request;
   const charge = { training_samples: (1 + config.meta_generations * config.candidates) * RECIPE_BOUNDS.steps[1] * RECIPE_BOUNDS.batch[1],
     proposal_calls: request.proposer === "decision-model" ? 2 * config.meta_generations : 0, recipe_promotions: config.meta_generations };
@@ -177,31 +180,38 @@ async function reserveMeta(client: PmClient, coordinates: ProcessCoordinates, re
   const key = `${request.id}-reservation`;
   /** Read and verify an existing allocation even when the programme or SDK transaction receipt is already complete. */
   const inspect = async (): Promise<{ state: "pending" | "applied" }> => {
-    const previous = await readMetaReceipt(client, key);
-    if (previous === null) return { state: "pending" };
-    assert.equal(previous.item.type, "Decision", "meta_reservation_drift");
+    const discovered = await readMetaReceipt(client, key);
+    if (discovered === null) return { state: "pending" };
+    const revision = await readLoopRevision(client, discovered.item.id);
+    const previous = await readCompleteLoopItem(client, discovered.item.id, String(revision));
+    const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
     const decoded = decodeTrackerRecord(client, previous.item, { type: "Decision", format: "pm-rl/meta-reservation/1" });
-    assert.ok(decoded !== null, "meta_reservation_drift");
+    if (previous.item.type !== "Decision" || decoded === null) expectedFail("meta_reservation_drift: reservation envelope changed.", "meta_reservation_drift", EXIT_CODE.CONFLICT);
     const record = decoded as { format: string; id: string; binding: string; approval: string; charge: JsonValue; promotion_headroom: number };
-    assert.equal(record.binding, binding, "meta_reservation_drift");
-    assert.equal(record.format, "pm-rl/meta-reservation/1", "meta_reservation_drift");
-    assert.equal(record.id, key, "meta_reservation_drift");
+    if (record.binding !== binding || record.format !== "pm-rl/meta-reservation/1"
+      || typeof record.id !== "string" || normalizeItemId(record.id, prefix) !== normalizeItemId(key, prefix)
+      || record.charge === undefined || hashJson(record.charge) !== hashJson(charge) || record.promotion_headroom !== promotionHeadroom) expectedFail("meta_reservation_drift: reservation request changed.", "meta_reservation_drift", EXIT_CODE.CONFLICT);
     let recordedApproval: string;
     try { recordedApproval = (await readApprovalSpec(client, record.approval)).id; }
-    catch (error) { throw new Error("meta_reservation_drift", { cause: error }); }
-    assert.equal(recordedApproval, (await metaApproval(client, request.approval)).id, "meta_reservation_drift");
-    assert.equal(hashJson(record.charge), hashJson(charge), "meta_reservation_drift");
-    assert.equal(record.promotion_headroom, promotionHeadroom, "meta_reservation_drift");
+    catch (error) {
+      // A temporary backend failure stays retryable instead of becoming a permanent drift verdict.
+      rethrowOperationalRead(error);
+      if (isPmCliExpectedError(error)) expectedFail("meta_reservation_drift: reservation approval changed.", "meta_reservation_drift", EXIT_CODE.CONFLICT);
+      throw error;
+    }
+    if (recordedApproval !== (await metaApproval(client, request.approval)).id) expectedFail("meta_reservation_drift: reservation approval changed.", "meta_reservation_drift", EXIT_CODE.CONFLICT);
+    await certifyAppliedRevision(client, previous.item.id, revision);
     return { state: "applied" };
   };
   if (retained) {
-    assert.equal((await inspect()).state, "applied", "meta_reservation_missing");
+    if ((await inspect()).state !== "applied") expectedFail("meta_reservation_missing: restore the retained reservation before continuing.", "meta_reservation_missing", EXIT_CODE.CONFLICT);
     return;
   }
-  await commitProcessTransaction({ ...coordinates, transactionId: `${key}-reserve`, steps: [{ id: "reserve", inspect,
-    async apply() {
+  /** Validate current capacity and retained identity before the coordinator writes its journal. */
+  async function validateCapacity(): Promise<void> {
+    if ((await inspect()).state === "applied") return;
       const approval = await metaApproval(client, request.approval);
-      const items = certifyCompleteListResult(await client.listAllComplete({ includeBody: false }));
+      const items = certifyCompleteListResult(await identifierClient(client).listAllComplete({ includeBody: false }));
       const charges: Record<string, number>[] = [];
       for (const { record } of await metaReservations(client, approval.id)) {
         for (const key of ["training_samples", "proposal_calls", "recipe_promotions"]) {
@@ -211,16 +221,25 @@ async function reserveMeta(client: PmClient, coordinates: ProcessCoordinates, re
       }
       for (const key of ["training_samples", "proposal_calls", "recipe_promotions"] as const) {
         const total = charges.reduce((sum, entry) => sum + entry[key], charge[key]);
-        assert.ok(Number.isSafeInteger(total) && total <= approval.limits[key], `meta_budget_exhausted: ${key}`);
+        if (!Number.isSafeInteger(total) || total > approval.limits[key]) expectedFail(`meta_budget_exhausted: ${key}. Obtain capacity before starting this bounded search.`, "meta_budget_exhausted");
       }
       const consumed = items.items.some((item) => item.type === "Generation") ? await promotedGenerationIdsUnderApproval(client, approval.id) : [];
       const totalPromotions = consumed.length + await retainedMetaPromotionHeadroom(client, approval.id, consumed) + promotionHeadroom;
-      assert.ok(Number.isSafeInteger(totalPromotions) && totalPromotions <= approval.promotions, "meta_promotion_budget_exhausted");
-      await createVerifiedItem(client, { id: key, type: "Decision", tags: "rl-meta-reservation", title: "Reserved bounded recipe search", body: encodeBoundedJson({ format: "pm-rl/meta-reservation/1", id: key, binding, approval: approval.id, charge, promotion_headroom: promotionHeadroom }, MAX_TRACKER_RECORD_BYTES) });
+      if (!Number.isSafeInteger(totalPromotions) || totalPromotions > approval.promotions) expectedFail("meta_promotion_budget_exhausted. Obtain promotion capacity before starting this bounded search.", "meta_promotion_budget_exhausted");
+  }
+  if (preflight) { await validateCapacity(); return; }
+  await withValidatedMutation(client, key, validateCapacity, () => commitProcessTransaction({ ...coordinates, transactionId: `${key}-reserve`, steps: [{ id: "reserve", inspect,
+    async apply() {
+      await validateCapacity();
+      const approval = await metaApproval(client, request.approval);
+      if ((await inspect()).state === "applied") return;
+      try {
+        await createVerifiedItem(client, { id: key, type: "Decision", tags: "rl-meta-reservation", title: "Reserved bounded recipe search", body: encodeBoundedJson({ format: "pm-rl/meta-reservation/1", id: key, binding, approval: approval.id, charge, promotion_headroom: promotionHeadroom }, MAX_TRACKER_RECORD_BYTES) });
+      } catch (error) { if ((await inspect()).state !== "applied") throw error; }
     },
     // Conservative reservations survive transaction recovery and are never refunded by search itself.
     async compensate() {},
-  }] });
+  }] }));
 }
 
 /** Numerical task helpers are shared with the sealed evaluator, without granting search a data reader. */
@@ -273,6 +292,7 @@ export async function proposeRecipes(request: Pick<MetaRequest, "config" | "prop
 
 /** Persist a single inference intent; an unresolved attempt resumes with seeded recipes instead of spending twice. @internal */
 export async function durableRecipeProposals(client: PmClient, id: string, request: Pick<MetaRequest, "config" | "proposer" | "decisionEndpoint">, incumbent: Recipe, generation: number, signal: AbortSignal): Promise<{ recipes: Recipe[]; proposer: string }> {
+  id = await preservedProgrammeId(client, id);
   if (request.proposer === "seeded") return proposeRecipes(request, incumbent, generation, signal);
   const key = `${id}-m${generation}-proposal-attempt`;
   const binding = hashJson({ config: request.config as unknown as JsonValue, incumbent: incumbent.digest, generation, endpoint: request.decisionEndpoint ?? "http://127.0.0.1:11434" });
@@ -294,14 +314,17 @@ export async function durableRecipeProposals(client: PmClient, id: string, reque
   }
   await createVerifiedItem(client, { id: key, type: "Decision", title: "Bounded local recipe inference intent", body: encodeBoundedJson({ id: key, binding, state: "intent" }, MAX_TRACKER_RECORD_BYTES) });
   const result = await proposeRecipes(request, incumbent, generation, signal);
-  await client.update(key, { body: encodeBoundedJson({ id: key, binding, state: "complete", result, digest: hashJson(result as unknown as JsonValue) }, MAX_TRACKER_RECORD_BYTES) });
+  await identifierClient(client).update(key, { body: encodeBoundedJson({ id: key, binding, state: "complete", result, digest: hashJson(result as unknown as JsonValue) }, MAX_TRACKER_RECORD_BYTES) });
   return result;
 }
 
 /** Search and promote recipes with one shared approval; completion receipts adopt inner jobs after interruption. */
-export async function runRlMeta(client: PmClient, coordinates: ProcessCoordinates, request: MetaRequest): Promise<MetaReport> {
+export async function runRlMeta(client: PmClient, coordinates: ProcessCoordinates, rawRequest: MetaRequest): Promise<MetaReport> {
+  const request = await programmeRequest(client, { ...rawRequest, id: await canonicalProgrammeId(client, rawRequest.id) });
   assert.ok(/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(request.id) && request.id.length <= 20, "meta_programme_id");
   const config = parseMetaConfig(request.config);
+  // Prefix recipes publish checkpoint artifacts; refuse unsupported runtimes before the meta reservation.
+  if (config.initial_recipe.knobs.prefix !== undefined) requireCheckpointStorage();
   assert.ok(request.proposer === "seeded" || request.proposer === "decision-model", "meta_proposer");
   const signal = request.signal === undefined ? AbortSignal.timeout(config.timeout_ms) : AbortSignal.any([request.signal, AbortSignal.timeout(config.timeout_ms)]);
   const environment = openTrackerEnvironment(client, coordinates, request.dataset, config, request.approval);
@@ -310,6 +333,7 @@ export async function runRlMeta(client: PmClient, coordinates: ProcessCoordinate
   const input = { format: config.initial_recipe.knobs.prefix === undefined ? "pm-rl/meta-programme/1" : "pm-rl/meta-programme/3", id: request.id, config: config as unknown as JsonValue, dataset: environment.digest, approval_id: approval.id, approval: approval.digest,
     proposer: request.proposer, endpoint: request.decisionEndpoint ?? "http://127.0.0.1:11434" };
   const binding = hashJson(input);
+  await reserveMeta(client, coordinates, request, binding, false, true);
   const recoveryCommand = `pm rl meta run ${request.id} --file <programme.json> --dataset <dataset-directory> --approval ${request.approval} --proposer ${request.proposer} --force-takeover`;
   return withRlController(client, coordinates, { id: request.id, approval: request.approval, forceTakeover: request.forceTakeover, recoveryCommand }, signal, async (durable) => {
     /** Verify approval identity at every boundary, and notify observers only after the receipt is durable. */
@@ -358,7 +382,7 @@ export async function runRlMeta(client: PmClient, coordinates: ProcessCoordinate
     }) as unknown as MetaReport["final_test"];
     const report: MetaReport = { initial, incumbent, generations, final_test: final, dataset: environment.digest };
     await step("complete", { report: report as unknown as JsonValue }, async () => {
-      await client.update(`${request.id}-step-programme`, { comment: [`Loop ${request.id} terminal report: bounded recipe search complete.`] });
+      await identifierClient(client).update(`${request.id}-step-programme`, { comment: [`Loop ${request.id} terminal report: bounded recipe search complete.`] });
       return { report: report as unknown as JsonValue };
     });
     return report;

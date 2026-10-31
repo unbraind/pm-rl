@@ -1,0 +1,12 @@
+id: pm-rl-minimatch-advisory
+title: Triage development-only minimatch advisory GHSA-g3hv-75wg-m249
+description: "Default-branch Dependabot alert 2 reports transitive development dependency minimatch 10.2.6 in package-lock.json, affected below 11.0.1. Advisory: https://github.com/advisories/GHSA-g3hv-75wg-m249 ; alert: https://github.com/unbraind/pm-rl/security/dependabot/2 . Production audit on publication-fence source a450cdb reported zero vulnerabilities. Triage the Dependabot remediation separately, verify the resolved lockfile and development-tool impact, and preserve the feature branch dependency pins until that review. This is an advisory number, not GitHub issue 2."
+type: Task
+status: open
+priority: 2
+tags[3]: dependency,follow-up,security
+created_at: "2026-10-31T13:48:38.079Z"
+updated_at: "2026-10-31T13:48:38.079Z"
+author: codex-agent
+parent: pm-rl-review107later
+body: ""

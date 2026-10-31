@@ -1,0 +1,84 @@
+{
+  "implementation": "ca5a5e8d256dfa88bb2ab544c06c9b41870e5ea9",
+  "producer": {
+    "name": "pm-rl",
+    "version": "2026.7.31",
+    "integrity": "sha512-jRIgerasEWztIIFq5cdFk6FL/qHEp9pvxxAPJ47ySn3JHL+lJAS+H+4/kzat13GNqWSdFvlrFMLScHNt9uDx7Q=="
+  },
+  "published_sdk_snapshots": 30,
+  "published_fixture_bytes": 914511,
+  "native_and_boundary_tests": {
+    "pass": 6,
+    "fail": 0,
+    "cancel": 0,
+    "skip": 0
+  },
+  "additional_regressions": {
+    "pass": 3,
+    "fail": 0,
+    "cancel": 0,
+    "skip": 0,
+    "canonical_identity_pairs": 500
+  },
+  "linked_oracle": {
+    "pass": 1,
+    "cases": 500,
+    "paths": 13
+  },
+  "function_only_revert_proofs": [
+    "parseEvaluationPlan strict read fails oracle",
+    "requiredTrimmedString strict read fails oracle"
+  ],
+  "packed_node_and_bun": {
+    "producer": "pm-rl@2026.7.31",
+    "native_text_files": 66,
+    "legacy_plans": 18,
+    "sdk_oracle_cases": 500,
+    "oracle_paths": 13,
+    "json_and_toon": true,
+    "fixed_report_unchanged": true,
+    "declaration_unchanged": true,
+    "legacy_retries": 3,
+    "promoted": true,
+    "approval_consumed": 1,
+    "policy_card_exported": true,
+    "unlinked_plan_graph": true,
+    "long_id_promoted": true,
+    "long_card_json_bytes": 3427,
+    "non_git": true,
+    "git_absent_from_path": true
+  },
+  "public_node_and_bun": {
+    "recorded_in": [
+      "docs/sequential-evaluation-evidence.json",
+      "docs/decision-evidence-validation.json"
+    ],
+    "source": "https://github.com/unbraind/pm-rl",
+    "commit": "26650e303ec2cb6fcdc6c51092bcc30b2f1ed27c",
+    "snapshot": "372131c7566653569a723ae2e2b778e0bd7b11b6caf3e1141acfb677e54845c1",
+    "source_digest": "b34c789d270d4aa0637b743da95d10f38aa9661ea03eedd7037c4f527e8a6302",
+    "comparison": "f1f14db345bfd37283ecfb693adc37bf70c4f9fe977293ebc964f6f33f0be0c2",
+    "items": 113,
+    "done_role_items": 92,
+    "evidence_digests": {
+      "node": "6bcab3b46e72898874fe2db918e39e737bc83dc443b043a32f6b11cc0f51bc1d",
+      "bun": "3b3295ecbe88248c2b63cb623e901d047c3261f30f75e68d2f0be005e4766099"
+    },
+    "note": "One final public acceptance cohort; runtime-specific roots remain distinct and refer to the generated receipts."
+  },
+  "release_ci": "https://github.com/unbraind/pm-rl/actions/runs/40488393574",
+  "release_ci_status_at_recording": "queued; not a passing gate claim",
+  "current_packed_acceptance": {
+    "runtime_source_commit": "a450cdb740e7eca8788e2793b4b9ac99cb1c3d80",
+    "public_source_commit": "26650e303ec2cb6fcdc6c51092bcc30b2f1ed27c",
+    "archive_sha256": "5b63274458ea3a2cefb6a007d5e0de80662a80b1b4aeebe94ec826fa940bb347",
+    "shipped_files": 241,
+    "runtime_files": 180,
+    "final_acceptance_passes": 6,
+    "native_fixture_preparations": 2,
+    "public_source_read_only_and_unchanged": true,
+    "native_fixture_replayed_after_evidence_repack": true,
+    "final_fixture_replay_passes": 2
+  },
+  "historical_receipts_note": "implementation, earlier native/boundary regression counters and release_ci describe historical runs. Current packed/public results are packed_node_and_bun, public_node_and_bun and current_packed_acceptance."
+}

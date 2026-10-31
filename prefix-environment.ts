@@ -1,3 +1,4 @@
+import { identifierClient } from "./state-boundary.ts";
 /** Inner history-prefix fits and final majority testing behind sealed evaluator capabilities. */
 import assert from "node:assert/strict";
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
@@ -65,7 +66,7 @@ export async function fitHistoryPrefix(client: PmClient, coordinates: ProcessCoo
       training_frequency: binaryCalibration(evaluation.map(() => prevalence), evaluation.map((example) => example.label === "slow" ? 1 : 0)) } };
   const evaluated = job.state === "materialized" ? await transitionProcessJob(client, coordinates, job, "evaluated", refusal ?? "inner_gate_accepted") : job;
   if (accepted && evaluated.state === "evaluated") await transitionProcessJob(client, coordinates, evaluated, "promoted", "inner_gate_accepted");
-  await client.update(job.id, { comment: [`History-prefix fit ${id}: changed=${changed}, accepted=${accepted}, gain=${fit.gain}, lower_bound=${fit.gain_lower_bound}, refusal=${refusal ?? "none"}.`] });
+  await identifierClient(client).update(job.id, { comment: [`History-prefix fit ${id}: changed=${changed}, accepted=${accepted}, gain=${fit.gain}, lower_bound=${fit.gain_lower_bound}, refusal=${refusal ?? "none"}.`] });
   return { ...(accepted ? candidate : seed), fit };
 }
 

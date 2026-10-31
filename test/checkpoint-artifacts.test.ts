@@ -129,7 +129,7 @@ test("artifact addressing verifies bytes, schemas, ledger roots and conservative
   writeFileSync(join(dirname(file), ".pending-interrupted"), "incomplete write");
   assert.deepEqual(await collectCheckpointArtifacts(w.pmRoot), { retained: 2, removed: 1 });
   assert.ok(existsSync(file)); assert.ok(existsSync(join(dirname(file), ".pending-interrupted")));
-  assert.throws(() => checkpointArtifactPath(w.pmRoot, "../../escape"), refuses("checkpoint_artifact_invalid"));
+  assert.throws(() => checkpointArtifactPath(w.pmRoot, "../../escape"), refuses("rl_identifier_invalid"));
   for (const patch of [{ bytes: 0 }, { bytes: 1.5 }, { bytes: MAX_CHECKPOINT_BYTES + 1 }, { format: "old" }, { kind: "other" }, { policy: "bad" }]) assert.throws(() => readCheckpointArtifact(w.pmRoot, { ...ref, ...patch } as CheckpointArtifact), refuses("checkpoint_artifact_invalid"));
   assert.throws(() => inspectCheckpointArtifact(w.pmRoot, `sha256:${"c".repeat(64)}`), refuses("checkpoint_artifact_missing"));
   const original = readFileSync(file);
@@ -146,7 +146,7 @@ test("artifact addressing verifies bytes, schemas, ledger roots and conservative
   writeFileSync(file, original); unlinkSync(file);
   assert.throws(() => readCheckpointArtifact(w.pmRoot, ref), refuses("checkpoint_artifact_missing"));
   symlinkSync(secondOrphan, file);
-  assert.throws(() => readCheckpointArtifact(w.pmRoot, ref), refuses("checkpoint_artifact_corrupt"));
+  assert.throws(() => readCheckpointArtifact(w.pmRoot, ref), refuses("rl_state_path_invalid"));
   unlinkSync(file); writeFileSync(file, original);
   /** A self-consistent byte digest still needs a valid semantic checkpoint identity. */
   const install = (text: string): CheckpointArtifact => {
@@ -221,10 +221,7 @@ test("checkpoint descriptor keeps the validated inode when its path is replaced"
       else if (replacement === "directory") mkdirSync(file);
       else { writeFileSync(file, original); fs.truncateSync(file, MAX_CHECKPOINT_BYTES + 1); }
     };
-    const originalLstat = fs.lstatSync; const originalFstat = fs.fstatSync;
-    const pathStat = mock.method(fs, "lstatSync", (path: fs.PathLike) => {
-      const stat = originalLstat(path); if (path === file) swap(); return stat;
-    });
+    const originalFstat = fs.fstatSync;
     const descriptorStat = mock.method(fs, "fstatSync", (handle: number) => {
       const stat = originalFstat(handle); swap(); return stat;
     });
@@ -234,7 +231,7 @@ test("checkpoint descriptor keeps the validated inode when its path is replaced"
       assert.equal(swapped, true);
       assert.equal(closes.mock.calls.filter((call) => call.arguments[0] === descriptorStat.mock.calls[0].arguments[0]).length, 1, "validated descriptor must close on success");
     } finally {
-      pathStat.mock.restore(); descriptorStat.mock.restore(); closes.mock.restore(); syncBuiltinESMExports();
+      descriptorStat.mock.restore(); closes.mock.restore(); syncBuiltinESMExports();
       fs.rmSync(file, { recursive: true }); fs.renameSync(saved, file);
     }
   }
@@ -245,10 +242,7 @@ test("checkpoint descriptor bounds reads when the validated inode grows or shrin
   const ref = await encodeCheckpointArtifacts(w.pmRoot, "bounded", initialImprover()) as CheckpointArtifact;
   const file = checkpointArtifactPath(w.pmRoot, ref.digest); const original = readFileSync(file);
   for (const size of [0, MAX_CHECKPOINT_BYTES + 100]) {
-    const originalLstat = fs.lstatSync; const originalFstat = fs.fstatSync;
-    const pathStat = mock.method(fs, "lstatSync", (path: fs.PathLike) => {
-      const stat = originalLstat(path); if (path === file) fs.truncateSync(file, size); return stat;
-    });
+    const originalFstat = fs.fstatSync;
     const descriptorStat = mock.method(fs, "fstatSync", (handle: number) => {
       const stat = originalFstat(handle); fs.truncateSync(file, size); return stat;
     });
@@ -261,7 +255,7 @@ test("checkpoint descriptor bounds reads when the validated inode grows or shrin
       assert.ok(total <= original.length + 1, "growth must not cause an unbounded read");
       assert.equal(closes.mock.calls.filter((call) => call.arguments[0] === descriptorStat.mock.calls[0].arguments[0]).length, 1, "validated descriptor must close on size drift");
     } finally {
-      for (const spy of [pathStat, descriptorStat, reads, pathReads, closes]) spy.mock.restore();
+      for (const spy of [descriptorStat, reads, pathReads, closes]) spy.mock.restore();
       syncBuiltinESMExports(); writeFileSync(file, original);
     }
   }
@@ -310,11 +304,11 @@ test("checkpoint inspection structurally validates every ledger reference withou
   const w = await checkpointWorkspace();
   const ref = await encodeCheckpointArtifacts(w.pmRoot, "healthy", initialImprover()) as CheckpointArtifact;
   const ledger = join(w.pmRoot, "artifacts/pm-rl/ledger");
-  for (const invalid of [null, 1, { ...ref, bytes: 0 }, { ...ref, digest: "../../escape" }]) {
+  for (const [invalid, code] of [[null, "checkpoint_artifact_invalid"], [1, "checkpoint_artifact_invalid"], [{ ...ref, bytes: 0 }, "checkpoint_artifact_invalid"], [{ ...ref, digest: "../../escape" }, "rl_identifier_invalid"]] as const) {
     const text = JSON.stringify({ format: "pm-rl/checkpoint-ledger/1", key: "invalid", artifacts: [invalid] });
     const file = join(ledger, `${createHash("sha256").update(text).digest("hex")}.json`);
     writeFileSync(file, text);
-    assert.throws(() => inspectCheckpointArtifact(w.pmRoot, ref.digest), refuses("checkpoint_artifact_invalid"));
+    assert.throws(() => inspectCheckpointArtifact(w.pmRoot, ref.digest), refuses(code));
     unlinkSync(file);
   }
 });
@@ -336,7 +330,7 @@ test("checkpoint batch publication writes one complete ledger root and retries i
   const original = fs.linkSync;
   let ledgerAttempts = 0;
   const failure = mock.method(fs, "linkSync", (...args: Parameters<typeof original>) => {
-    if (dirname(String(args[1])) === join(w.pmRoot, "artifacts/pm-rl/ledger")) {
+    if (fs.realpathSync(dirname(String(args[1]))) === join(w.pmRoot, "artifacts/pm-rl/ledger")) {
       ledgerAttempts += 1;
       assert.equal(readdirSync(join(w.pmRoot, "artifacts/pm-rl/sha256")).length, 2, "all blobs precede the ledger root");
       throw new Error("synthetic ledger publication failure");
@@ -369,6 +363,17 @@ test("checkpoint batch publication refuses oversized ledger metadata before publ
   } finally { writes.mock.restore(); syncBuiltinESMExports(); }
   assert.equal(existsSync(join(w.pmRoot, "artifacts/pm-rl/sha256")), false);
   assert.deepEqual(readCheckpointLedger(w.pmRoot), []);
+});
+
+test("Git discovery crosses symlinked ancestors but refuses a linked marker", async () => {
+  const w = await checkpointWorkspace();
+  const real = join(w.root, "real"); const tracker = join(real, "tracker"); mkdirSync(tracker, { recursive: true });
+  const linked = join(w.root, "linked"); symlinkSync(real, linked, process.platform === "win32" ? "junction" : "dir");
+  // A standalone tracker below a linked ancestor (macOS /var, a linked /home) stays usable.
+  assert.equal(controllerHasGitAncestor(join(linked, "tracker"), w.root), false);
+  const elsewhere = join(w.root, "elsewhere"); mkdirSync(elsewhere);
+  symlinkSync(elsewhere, join(real, ".git"), process.platform === "win32" ? "junction" : "dir");
+  assert.throws(() => controllerHasGitAncestor(tracker, w.root), refuses("rl_state_path_invalid"));
 });
 
 test("plain-directory controllers never invoke Git and honor discovery ceilings", async () => {
@@ -559,4 +564,138 @@ test("two processes promote into one plain tracker without losing roots or corru
     for (const job of jobs) assert.ok(roots.some((entry) => entry.key === `job:${job.id}:promoted`));
     assert.equal((await collectCheckpointArtifacts(w.pmRoot)).retained, 1);
   } finally { for (const child of children) if (child.exitCode === null) child.kill("SIGKILL"); }
+});
+
+
+test("checkpoint operations refuse a directory link swapped between check and use", async (t) => {
+  for (const boundary of ["mkdir", "open", "write", "link", "unlink"] as const) {
+    await t.test(boundary, async () => {
+    const w = await checkpointWorkspace();
+    const outside = join(w.root, "outside"); mkdirSync(outside); writeFileSync(join(outside, "sentinel"), "untouched");
+    const artifacts = join(w.pmRoot, "artifacts"); mkdirSync(artifacts);
+    const saved = join(w.pmRoot, "saved-artifacts");
+    let swapped = false;
+    /** Replace only this disposable store; descriptor-relative calls must never enter the link. */
+    function swap(): void { if (!swapped) { swapped = true; fs.renameSync(artifacts, saved); symlinkSync(outside, artifacts, "dir"); } }
+    const method = { mkdir: "mkdirSync", open: "openSync", write: "writeFileSync", link: "linkSync", unlink: "unlinkSync" }[boundary] as "mkdirSync" | "openSync" | "writeFileSync" | "linkSync" | "unlinkSync";
+    const native = fs[method];
+    const hook = mock.method(fs, method, (...args: unknown[]) => {
+      const path = String(args[0]);
+      if ((boundary === "mkdir" && (path.endsWith("/artifacts") || path.endsWith("/pm-rl") || path.endsWith("/sha256")))
+        || (boundary === "open" && path.includes(".pending-"))
+        || (boundary === "write" && typeof args[0] === "number")
+        || boundary === "link" || boundary === "unlink") swap();
+      return Reflect.apply(native, fs, args);
+    }); syncBuiltinESMExports();
+    try { await assert.rejects(encodeCheckpointArtifacts(w.pmRoot, `swap-${boundary}`, initialImprover()), refuses("rl_state_path_invalid")); }
+    finally { hook.mock.restore(); syncBuiltinESMExports(); }
+    assert.ok(swapped, boundary);
+    assert.deepEqual(readdirSync(outside), ["sentinel"]); assert.equal(readFileSync(join(outside, "sentinel"), "utf8"), "untouched");
+    });
+  }
+});
+
+test("checkpoint publication permits a symlinked ancestor above its root", async () => {
+  const w = await checkpointWorkspace(); const alias = join(w.root, "parent-alias");
+  symlinkSync(dirname(w.pmRoot), alias, "dir"); const root = join(alias, w.pmRoot.split("/").at(-1)!);
+  const value = initialImprover(); const ref = await encodeCheckpointArtifacts(root, "ancestor-allowed", value) as CheckpointArtifact;
+  assert.deepEqual(readCheckpointArtifact(root, ref), value); assert.equal(readCheckpointLedger(root).length, 1);
+});
+
+
+test("unsupported checkpoint runtimes refuse writes while retaining existing checkpoint reads", async () => {
+  const w = await checkpointWorkspace(); const existing = await checkpointWorkspace();
+  const value = initialImprover(); const ref = await encodeCheckpointArtifacts(existing.pmRoot, "retained", value) as CheckpointArtifact;
+  const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
+  try {
+    Object.defineProperty(process, "platform", { ...platform, value: "unsupported" });
+    await assert.rejects(encodeCheckpointArtifacts(w.pmRoot, "unsupported", value), refuses("checkpoint_storage_unsupported"));
+    await assert.rejects(collectCheckpointArtifacts(w.pmRoot), refuses("checkpoint_storage_unsupported"));
+    assert.deepEqual(readCheckpointArtifact(existing.pmRoot, ref), value);
+    assert.deepEqual(inspectCheckpointArtifact(existing.pmRoot, ref.digest), { artifact: ref, value });
+    assert.equal(readCheckpointLedger(existing.pmRoot).length, 1);
+    assert.deepEqual(readCheckpointLedger(w.pmRoot), []);
+  } finally { Object.defineProperty(process, "platform", platform); }
+  assert.equal(existsSync(join(w.pmRoot, "artifacts")), false);
+});
+
+test("descriptor traversal refuses unavailable procfs, inode mismatch and no-follow errors", async () => {
+  for (const mode of ["missing", "denied", "mismatch", "link", "mkdir"] as const) {
+    const w = await checkpointWorkspace();
+    const open = fs.openSync; const stat = fs.fstatSync; const mkdir = fs.mkdirSync;
+    let stats = 0;
+    const opens = mock.method(fs, "openSync", (...args: Parameters<typeof open>) => {
+      if (String(args[0]).startsWith("/proc/self/fd/") && ["missing", "denied"].includes(mode)) throw Object.assign(new Error("unavailable procfs"), { code: mode === "denied" ? "EACCES" : "ENOENT" });
+      if (String(args[0]).endsWith("/pm-rl") && mode === "link") throw Object.assign(new Error("link substitution"), { code: "ELOOP" });
+      return open(...args);
+    });
+    const statsHook = mock.method(fs, "fstatSync", (handle: number) => {
+      const result = stat(handle);
+      return mode === "mismatch" && ++stats === 2 ? { ...result, ino: Number(result.ino) + 1 } : result;
+    });
+    const mkdirHook = mock.method(fs, "mkdirSync", (...args: Parameters<typeof mkdir>) => {
+      if (String(args[0]).startsWith("/proc/self/fd/") && mode === "mkdir") throw new Error("synthetic descriptor mkdir failure");
+      return mkdir(...args);
+    }); syncBuiltinESMExports();
+    try {
+      await assert.rejects(encodeCheckpointArtifacts(w.pmRoot, mode, initialImprover()), mode === "mkdir" ? /synthetic descriptor mkdir failure/ : refuses(mode === "link" ? "rl_state_path_invalid" : "checkpoint_storage_unsupported"));
+    } finally { opens.mock.restore(); statsHook.mock.restore(); mkdirHook.mock.restore(); syncBuiltinESMExports(); }
+  }
+});
+
+
+test("a blob removed during cleanup refuses as changed state, not as unsupported storage", async () => {
+  // CodeRabbit on #107: after the procfs probe succeeded, an ENOENT means the state changed underneath the held
+  // descriptors. Reporting checkpoint_storage_unsupported sent operators to change runtimes on a supported host.
+  const w = await checkpointWorkspace();
+  const blobs = join(w.pmRoot, "artifacts", "pm-rl", "sha256"); mkdirSync(blobs, { recursive: true });
+  const blob = `${"a".repeat(64)}.json`; fs.writeFileSync(join(blobs, blob), "{}");
+  const lstat = fs.lstatSync; let removed = false;
+  const hook = mock.method(fs, "lstatSync", (...args: Parameters<typeof lstat>) => {
+    if (!removed && String(args[0]).endsWith(`/${blob}`)) { removed = true; fs.unlinkSync(join(blobs, blob)); }
+    return lstat(...args);
+  }); syncBuiltinESMExports();
+  try {
+    await assert.rejects(collectCheckpointArtifacts(w.pmRoot), refuses("rl_state_path_invalid"));
+  } finally { hook.mock.restore(); syncBuiltinESMExports(); }
+  assert.equal(removed, true);
+});
+
+test("checkpoint descriptor checks refuse replacement by another ordinary directory", async () => {
+  const w = await checkpointWorkspace(); const artifacts = join(w.pmRoot, "artifacts"); mkdirSync(artifacts);
+  const write = fs.writeFileSync; let replaced = false;
+  const hook = mock.method(fs, "writeFileSync", (...args: Parameters<typeof write>) => {
+    if (!replaced && typeof args[0] === "number") {
+      replaced = true; fs.renameSync(artifacts, join(w.pmRoot, "old-artifacts")); mkdirSync(artifacts);
+    }
+    return write(...args);
+  }); syncBuiltinESMExports();
+  try { await assert.rejects(encodeCheckpointArtifacts(w.pmRoot, "replaced", initialImprover()), refuses("rl_state_path_invalid")); }
+  finally { hook.mock.restore(); syncBuiltinESMExports(); }
+  assert.ok(replaced); assert.deepEqual(readdirSync(artifacts), []);
+});
+
+
+test("checkpoint publication refuses a pending leaf replaced with a link at publication", async () => {
+  const w = await checkpointWorkspace(); const outside = join(w.root, "outside.json"); writeFileSync(outside, "sentinel");
+  const link = fs.linkSync; let swapped = false;
+  const hook = mock.method(fs, "linkSync", (...args: Parameters<typeof link>) => {
+    if (!swapped) { swapped = true; unlinkSync(args[0]); symlinkSync(outside, args[0]); }
+    return link(...args);
+  }); syncBuiltinESMExports();
+  try { await assert.rejects(encodeCheckpointArtifacts(w.pmRoot, "leaf-substitution", initialImprover()), refuses("rl_state_path_invalid")); }
+  finally { hook.mock.restore(); syncBuiltinESMExports(); }
+  assert.ok(swapped); assert.equal(readFileSync(outside, "utf8"), "sentinel");
+  assert.equal(existsSync(join(w.pmRoot, "artifacts/pm-rl/ledger")), false);
+});
+
+
+test("checkpoint ledger reads never create missing storage or replace an invalid store", async () => {
+  const w = await checkpointWorkspace();
+  assert.deepEqual(readCheckpointLedger(w.pmRoot), []);
+  assert.equal(existsSync(join(w.pmRoot, "artifacts")), false);
+  const store = join(w.pmRoot, "artifacts", "pm-rl"); mkdirSync(store, { recursive: true });
+  const ledger = join(store, "ledger"); writeFileSync(ledger, "retain invalid storage for inspection");
+  assert.throws(() => readCheckpointLedger(w.pmRoot), (error: unknown) => (error as NodeJS.ErrnoException).code === "ENOTDIR");
+  assert.equal(readFileSync(ledger, "utf8"), "retain invalid storage for inspection");
 });

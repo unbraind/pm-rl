@@ -3,7 +3,7 @@ LABEL pm-rl-trainer="pm-rl-bandit"
 WORKDIR /trainer
 COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts --no-audit --no-fund
-COPY bandit.ts promotion.ts item-evaluation.ts process-bandit.ts tracker-record.ts ./
+COPY bandit.ts promotion.ts item-evaluation.ts process-bandit.ts tracker-record.ts state-boundary.ts ./
 COPY scripts/script-launcher.ts ./scripts/
 COPY test/fixtures/compose-trainer.ts ./test/fixtures/
 ARG MODE=fit

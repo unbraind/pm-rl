@@ -1,0 +1,22 @@
+id: pm-rl-lifecycle
+title: Migrate evaluation lifecycle APIs to a clock-independent ordering contract
+description: "Follow-up to pm-rl-sequential. Migrate the evaluation lifecycle to review approved -> Plan sealed -> all collection Runs -> candidate -> ordered checkpoints/looks -> promotion, with a clock-independent proof of artifact ordering. The accepted chronology guards and creation-order regression proofs in PR107 complete the current sequential-evaluation scope; this migration is separate work."
+type: Feature
+status: open
+priority: 2
+tags[2]: api,evaluation-lifecycle
+created_at: "2026-10-27T05:03:56.149Z"
+updated_at: "2026-10-31T15:39:48.249Z"
+author: codex-agent
+acceptance_criteria: "Migrate the typed SDK and CLI to one lifecycle contract: review approved -> Plan sealed -> all collection Runs -> candidate -> ordered checkpoints/looks -> promotion; document the migration and preserve fixed-sample behavior.; Prove lifecycle ordering independently of wall-clock timestamps, including clock skew, equal timestamps and rollback; every promotion and approval path calls the same validator and adversarial artifact-pair permutations refuse every out-of-order transition."
+comments[2]{created_at,author,text}:
+  "2026-10-27T05:56:09.951Z",codex-agent,"Round 3 correction to the previous scope split: PR 107 now requires complete chronology coverage for all existing artifacts, including every collection Run before the candidate and every cumulative look. That correctness fix stays in pm-rl-sequential. This Feature still exclusively tracks the public lifecycle API migration and clock-independent ordering proof; it does not block that fix or expand its API."
+  "2026-10-31T15:36:42.952Z",codex-agent,"PRRT_kwDOTqJmqs6yR9cm: corrected description and acceptance_criteria with pm update to review approved -> Plan sealed -> all collection Runs -> candidate -> ordered checkpoints/looks -> promotion. Verified against reviewSequentialPlan, evaluationLifecycleArtifacts and README. Clock-independent ordering and fixed-sample compatibility requirements remain. This corrects planning text only; the future API migration remains open."
+files[3]{path,scope}:
+  evaluation-plan.ts,project
+  sequential-evaluation.ts,project
+  test/sequential-evaluation.test.ts,project
+docs[2]{path,scope}:
+  examples/sequential-evaluation-plan.json,project
+  README.md,project
+body: "Origin: [pm-rl-sequential](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-sequential.toon). The orchestrator accepted validateEvaluationOrder, its 17 creation-order cases and function-only revert proofs as sufficient for [PR107](https://github.com/unbraind/pm-rl/pull/107). This Feature owns the separate lifecycle API migration and clock-independent ordering proof; it does not block PR107."

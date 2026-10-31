@@ -1,3 +1,4 @@
+import type { ValidationMode } from "./state-boundary.ts";
 /**
  * @module pm-rl/transfer
  *
@@ -115,9 +116,9 @@ export function parseTransferMetrics(text: string, source = "Transfer metrics"):
  * @throws When a provenance field is absent or blank, or the stored gaps are
  *   malformed — a hand-authored body is the reachable path for both.
  */
-export function parseTransferSpec(text: string, source = "Transfer specification"): TransferSpec {
+export function parseTransferSpec(text: string, source = "Transfer specification", mode: ValidationMode = "read"): TransferSpec {
   const record = parseJsonRecord(text, source, "invalid_transfer_json", EXIT_CODE.CONFLICT);
-  const stringField = (key: string): string => requiredTrimmedString(record, key, source, "invalid_transfer_", EXIT_CODE.CONFLICT);
+  const stringField = (key: string): string => requiredTrimmedString(record, key, source, "invalid_transfer_", EXIT_CODE.CONFLICT, mode);
   return {
     source_environment_id: stringField("source_environment_id"),
     target_environment_id: stringField("target_environment_id"),

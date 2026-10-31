@@ -506,6 +506,10 @@ Prefix checkpoints now live in SHA-256 artifacts, with small staging references,
 verified resume/replay, and reachability-based garbage collection. Hashing widths
 through 64 retain the existing 4096-byte reservation. Widths above 64, up to 4096,
 require an explicit larger storage approval; optimizer and promotion bounds are unchanged. See [checkpoint storage and measurements](docs/checkpoint-artifacts.md).
+Checkpoint storage requires Linux with procfs descriptor access. On other platforms,
+`pm rl improver run`, prefix `pm rl meta run` recipes and prefix process fits refuse with
+`checkpoint_storage_unsupported` before they reserve a job, take a controller lease or write
+a receipt. Existing checkpoint reads keep working.
 
 For item-paired promotion against constant policies, use
 `examples/loop-corpus-baseline.json`. Its bounded title-vector learner and
@@ -636,6 +640,134 @@ job. Evaluation is an adaptive validation set; a separate final benchmark is
 needed after repeated selection. See [the execution contract](RECURSIVE_TRAINING.md)
 for the local process and Compose adapters; [the decision adapter](docs/durable-systemone-validation.md) documents the implemented frozen-model calibration trainer.
 
+## Reviewed sequential evaluation boundaries
+
+A reviewed sequential plan can stop collection early for sufficient benefit or
+futility. Start with [the sequential example](examples/sequential-evaluation-plan.json).
+Keep the existing plan format, population, objective, reward bounds and complete
+member-to-unit mapping. Replace `stopping` with:
+
+```json
+{
+  "kind": "sequential",
+  "method": "hoeffding-alpha-spending/1",
+  "observations": 100,
+  "independent_units": 100,
+  "unit_order": ["project-0", "project-1", "project-2"],
+  "looks": [10, 25, 50, 100],
+  "review": "rl-sequential-review"
+}
+```
+
+The abbreviated `unit_order` above must contain **all** units exactly once in a
+real plan. Looks are strictly increasing counts of complete independent units;
+the final look equals `independent_units`. Freeze their order before outcomes
+exist. At most 10,000 members and 64 looks are accepted. Arrays must be dense,
+keys exact, rewards finite and inside the declared bounds. Sequential plans
+are capped at 1 MiB; an additional worst-case checkpoint size check ensures
+all declared observations fit the bounded tracker-record decoder. Existing `fixed`
+plans and `evaluate` retain their single-look behavior. Online `shadow` plans
+continue to use their existing fixed protocol; combining `shadow` with sequential
+stopping is refused at the schema boundary.
+
+Review the complete design first: `evaluationComparison(plan)` computes its
+identity through the same strict SDK parser used by registration. Create a
+Decision whose JSON body encodes `JSON.stringify({format:
+"pm-rl/sequential-review/1", comparison: evaluationComparison(plan)})` and whose
+canonical ID is `stopping.review`. This attributable review receipt attests to
+the statistical design; it grants no policy promotion budget. Register the plan
+before creating the candidate or **any** collection run. Plan, review, candidate,
+incumbent and collection creation histories are checked through the SDK.
+The review's creation must strictly precede plan creation, and the plan must
+strictly precede every collection Run; all collection Runs must precede candidate
+creation. This also
+applies to correctly hashed plans created directly through the SDK.
+Every cumulative look is bound to **all** collection Runs in the candidate's
+sealed provenance and must follow those Runs and the candidate; later looks must
+follow their predecessors. Collection Runs may be recorded in any order, but none
+may be created after the candidate or any look. The resulting lifecycle is
+review → Plan → all collection Runs → candidate → ordered looks → promotion. One validator compares SDK creation snapshots and
+native creation-event order on reads, retries and promotion. Pre-sealing a
+correctly hashed checkpoint never makes it eligible for a later declaration.
+Raw historical provenance hashes remain unchanged; subsequent reference comparisons
+resolve SDK aliases to canonical item IDs for both fixed and sequential plans. Version-one controller names,
+phase keys, approval inputs and completed receipt digests retain their original
+spelling from certified SDK birth history. SDK-canonical identities coordinate
+leases without renaming stored records. A valid terminal evaluation seal governs
+recovery; earlier candidate cards remain history and cannot invalidate later
+sealed Run evidence. Final evidence corruption still refuses with the record named.
+
+Candidate registration validates its proposed Generation with the same decision
+reader and lifecycle validator before allocating its item or history stream.
+Invalid chronology leaves the candidate ID available for a corrected request.
+New candidates also refuse previously sealed result, look or shadow evidence,
+including deleted seals; the shared decision-slot schedule is fenced through
+creation. Existing fixed-plan reads keep their persisted ordering contract.
+Dependent shadow receipts, controller seeds, sweep encodings and resource
+reservations are also checked before their first publication. Promotion checks
+current capacity and evidence under the SDK workspace lease before its single
+atomic item write. Deterministic refusals preserve authoritative tracker bytes;
+SDK read indexes, usage observations and renewable locks remain derived state.
+
+```bash
+pm rl eval plan register --file examples/sequential-evaluation-plan.json --json
+# Create the collection run and candidate after the plan is sealed.
+# Each file includes every member in the first declared complete unit prefix.
+pm rl eval plan advance rl-sequential-candidate --file look-10.json --json
+pm rl eval plan resume rl-sequential-candidate --json
+pm rl eval plan advance rl-sequential-candidate --file look-25.json
+```
+
+`advance` takes cumulative paired observations, never caller-supplied counts.
+It seals exactly the next look. `resume` revalidates the saved chain without
+adding observations. Retrying an identical old look returns the **latest**
+checkpoint, preserving every accepted observation exactly once. Reordered rows,
+JSON whitespace and CRLF are harmless; changed old outcomes, gaps, edits,
+deletions and looks after a terminal stop refuse. Immutable checkpoint identities
+bind the comparison, slot and previous checkpoint revision. Every retry reads
+current target evidence; there is no replay of a frozen mutation journal.
+SDK token-owned leases serialize package writers; native item locks protect
+current provenance against ordinary SDK mutations. Advance holds the candidate
+and Plan leases while discovering source identities, then reads its candidate,
+rejection state, reviewed rule, complete checkpoint chain and verdict again under
+the expanded source leases. Discovery values never decide a write. Retries also
+lease their existing target checkpoint; the SDK owns a new target's atomic create.
+A concurrent sealed rejection either wins before acquisition and prevents the
+next look, or contends on the same candidate lease. Manual and recursive promotion,
+including recovery of the close boundary, retain leases over every live evidence
+revision through the terminal write. Changed evidence refuses with
+`loop_write_conflict` before any new approval consumption. Foreign checkpoint records
+are skipped with a reason and left intact. No Git repository or executable is
+needed, and source trackers are never modified by evaluation.
+An already-promoted manual retry revalidates the evaluation before repairing
+publication; changed checkpoint or review evidence refuses that repair.
+
+Both TOON and JSON reports stay independent of cohort size. `sequential` reports
+`state` (`continue`, `sufficient`, `futile`, `exhausted`), `look`, `error_bound`
+and normalized paired-improvement bounds `lower`/`upper` in `[-1, 1]`.
+`continue` means collect **only** the next declared look; other states end this
+plan. `sufficient` is the only state admissible to the existing promotion gate,
+which still checks score bindings, contamination and explicit promotion approval.
+Typed `eval_plan_invalid`, `eval_plan_evidence`, `eval_plan_stopping`,
+`eval_plan_drift`, `eval_plan_missing`, `eval_plan_late` and `eval_plan_refused`
+errors retain conflict exits and remedies. A foreign slot produces a typed
+`status: skipped` result with a fresh-candidate remedy.
+
+The statistical protocol uses [Hoeffding's bounded-variable inequality](https://doi.org/10.1080/01621459.1963.10500830).
+Within-unit means count once, with equal unit weights. Normalize paired rewards
+to `[0,1]`, so oriented unit differences lie in `[-1,1]`. With `K` frozen looks
+and `alpha = 1 - confidence`, the simultaneous half-width at `n` units is
+`sqrt(2 * log(2*K/alpha) / n)`: two-sided failure at one look is at most
+`alpha/K`; a union bound controls any incorrect sufficient/futile boundary by
+`alpha` across the entire plan. Compare the interval to the normalized
+`effectThreshold` only after `minSamples`. Crossing the lower bound stops for
+sufficiency, the upper bound for futility; otherwise the final look exhausts the
+plan. Units must be independent and representative of the same target effect;
+the receipt cannot establish those assumptions. A stopped empirical mean is
+descriptive and can be biased; the simultaneous test controls decision error,
+not an unbiased point estimate or error across multiple candidate plans.
+One public repository remains one correlation unit in the real-data validation.
+
 ## Predeclared causal evaluation plans
 
 Declare the target population, selection rule, member-to-correlation-unit mapping,
@@ -680,7 +812,7 @@ from erasing uncertainty. Ties never promote. Reported `candidate_mean` and
 `incumbent_mean` retain the declared reward units; the statistical `verdict`
 bounds, epsilons, margin and reason use the normalized units.
 Unknown members, duplicates, supplied aggregate counts, changed objective/scale,
-missing observations, extra observations and adaptive stopping are refused. Up to
+missing observations, extra observations and undeclared adaptive stopping are refused. Up to
 10,000 members are supported. This fixed-stop format allows one sealed paired
 look per plan, including a statistical refusal; retrying identical evidence is
 idempotent. Changing a population, grouping, stopping size, criterion or incumbent
@@ -814,6 +946,124 @@ pm rl policy-card adopt --file card.json --json
 ```
 
 Save the JSON result's unwrapped `details` as `card.json`. Cards contain scope and policy digests, allowed explanation actions, numeric limits, regression diagnostics and exact replayable evidence references. They omit training examples, policy parameters and credentials. Adoption checks the complete ancestry to the root, including every retained card and its evidence. Policy identity binds content-addressed artifacts plus configuration; unfitted proposals use a separate proposal digest. Transient read errors remain retryable and leave the programme resumable. Missing provenance blocks adoption checks; a card grants no execution authority. Recursive candidates, proposals and promotion outcomes retain cards automatically, so later improvers can inspect earlier wins and losses. These commands work without Git. See the [SDK, format, refusals and public-copy evidence](docs/policy-cards.md).
+
+### Complete decision evidence
+
+Generation cards embed the exact SDK input graph returned by the
+promotion evaluator: reviewed Plan, review Decision, every look, cohort data,
+collection Runs and generation provenance. Completed-step cards embed the frozen
+manifest from their execution receipt. Promotion and completed-step receipts
+seal their inputs. Promotion evidence validates current records; completed steps
+and their cards replay the immutable SDK-history snapshots consumed at execution,
+remaining valid after later promotions. Damaged snapshots and removed/rehashed
+dependencies refuse with the offending record in `context.item_id` and its
+snapshot coordinate in the error remedy. Sequential command output
+adds a compact `evidence_digest`; `readEvaluationDecision` exposes the full graph.
+Legacy cards and fixed report identities remain readable. See the
+[SDK example, graph contract and regression evidence](docs/decision-evidence.md).
+
+Cards keep their 4096-byte limit and complete citations. When an inline manifest
+would exceed that limit, a typed `pm-rl/evaluation-evidence-ref/1` hash link binds
+the full manifest resolved from the cited receipt or shared decision reader.
+Replay verifies the same inputs and refuses omitted citations or altered roots.
+
+### Identifier and state-path boundaries
+
+Version-1 readers preserve the published label language and comparison hashes.
+Cohort members such as `case 1`, units such as `session:1`, descriptive contexts,
+checkpoint/policy labels and stored reference padding remain readable and
+evaluable. These labels are data, not filesystem components. Parsers default to
+`"read"`; pass the typed `ValidationMode` value `"write"` to validate a new
+declaration. Registration applies that policy only after confirming that a new
+record is needed, so a retry of an existing legacy declaration remains valid.
+New item definitions retain their 200-byte limit; existing SDK references and
+native leaves use the SDK's filename contract within the 255-byte component
+limit. SDK canonicalization remains authoritative. New promotion journal names
+hash the canonical target ID and include a fresh nonce, avoiding long filenames.
+An unsupported legacy value refuses only the requested SDK/filesystem operation,
+with a typed code, the value and a remedy; its record remains readable/exportable.
+See the [published-writer fixture and compatibility proof](test/fixtures/README-compatibility.md).
+
+SDK and CLI references pass shared operation validation before SDK use.
+New identifiers pass the strict `identifier` schema. Native item aliases are
+resolved by the SDK, including configured prefixes;
+creation retains the SDK's alphabet and item-id rules. Package identifiers use
+Unicode letters/numbers/combining marks, dots, underscores and hyphens, bounded to
+200 UTF-8 bytes. A leading `#` is an SDK item-reference alias. `.`, `..`, empty or
+padded values, whitespace, separators, NUL, percent encoding and drive/absolute
+paths refuse on new declarations and state components; they are never silently
+sanitized. Existing SDK reference aliases use the SDK normalizer. Human prose,
+explicit input/output directory roots retain their separate contracts. Score
+contexts also admit exact `sha256:` plus 64 lowercase hex digits (optionally
+SDK-prefixed); this schema variant never admits a digest as a path component or
+native item identifier. New checkpoint/policy labels use the single-token
+pattern and 200-byte bound, with an optional literal `sha256:` prefix; they refuse
+padding and traversal before storage. Legacy labels retain their read language.
+Checkpoint filenames require an exact unprefixed
+`sha256:` digest with 64 lowercase hex digits before extracting its filename.
+File components use the same schema with a 255-byte filename limit.
+Unicode package lease/component names work; native item creation remains subject
+to the SDK's own rules.
+
+`statePath` constructs package-owned locks, cleanup gates, checkpoints, artifact
+and ledger files, trainer staging, datasets and temporary filenames under an
+explicit nonempty NUL-free root of at most 4096 UTF-8 bytes. It resolves the
+result, checks confinement, and rejects a symlinked root, any symlinked
+directory between the root and the leaf, and symlinked leaves (including
+dangling links). Links above the explicit root are permitted. Git metadata discovery
+and explicit filesystem locations establish roots; they are never identifier
+components. Delayed effects and cleanup recheck their paths. State refusals have
+codes `rl_identifier_invalid` or `rl_state_path_invalid` and a `required` remedy:
+use the documented identifier or restore ordinary state directories. Shorten
+identifiers further when their derived item/filename would exceed these bounds.
+
+After strict validation, identifier-derived keys use the SDK's canonical identity.
+`canonicalIdentifier` delegates case and shorthand resolution to
+`normalizeRawItemId`; native references use `normalizeItemId` with the configured
+prefix. Logical programme names retain their prefix-free namespace after SDK
+resolution, so `Race`, `race`, `#RACE` and the configured prefixed spelling share
+controller leases, reservations, receipts and input digests. Literal filenames
+and content-addressed bytes retain their own domains. Whitespace still refuses
+before resolution. Unicode equivalence follows the installed SDK; this package
+does not add its own NFC/NFD folding.
+Original stored provenance seals are verified before canonical semantic
+projection. Cohort member and correlation-unit labels are case-sensitive opaque
+data, bounded by the same 200-byte single-token pattern; they are never SDK item
+or filesystem keys. This preserves distinct frozen units such as `Unit` and
+`unit`, including in existing fixed-sample plans.
+
+SDK callers preparing a review can use `await resolveEvaluationPlan(client, input)`
+before `evaluationComparison(plan)`. This resolves candidate, incumbent and review
+references before computing the comparison hash that the Decision must review.
+Registration and read/resume use those same canonical references.
+
+Every package event, stream, timer and signal handler uses `controllerCallback`.
+Its entire body, including path construction, is guarded; rejected promises are
+observed. Trainer failures stop the owned child, await its close, conservatively
+settle the reservation once and persist a terminal job before releasing its fence.
+Thrown values such as `null` and `undefined` remain failures even after a
+successful child close; they cannot materialize an eligible policy.
+Heartbeat failures retain a terminal audit and release owned claims; cleanup
+still revalidates ownership and waits for all pending heartbeats before releasing
+the lease. Typed `process_callback_failed` errors include a recovery remedy.
+Ordinary unsuccessful trainer exits retain the `trainer_failure` outcome and
+existing bounded retry policy, with a typed error and diagnostics remedy.
+Native stop failures use six bounded attempts with backoff, followed by exact
+birth-identity recovery when available. Failed attempts do not latch cleanup.
+If the owned child still cannot be stopped, `process_stop_failed` conservatively
+settles the reservation, releases leases and retains its runner identity. Stop
+that exact runner and verify it is gone before beginning a fresh programme;
+the terminal record does not claim that an unkillable child was reaped.
+
+Evaluation dependencies are validated before acquiring even the outer lease and
+use SDK-normalized item identities for their native locks. Lock release delegates
+to the SDK's token check inside its cleanup lease; a successor's lock is retained.
+Recovery expires only the observed open inode/token and delegates stale removal
+to that native protocol. A symlinked state tree must be repaired before retrying.
+The seeded security property exercises 500 sequences on a standalone tracker,
+with external tree-hash tripwires, the reported expired review-lock traversal,
+valid prefixes and Unicode component names, invalid identifier forms, symlinked
+roots/directories/leaves/cleanup gates, and a peer replacing a lease.
 
 Every workflow job granted write permissions, including CodeQL, Dependabot and
 reusable workflow calls, requires the exact repository `unbraind/pm-rl`.
