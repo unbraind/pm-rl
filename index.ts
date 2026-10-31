@@ -922,18 +922,16 @@ async function certifyLoopWrite(client: PmClient, id: string, revision: number, 
   }
   if (await readLoopRevision(client, id) !== revision) fail("Tracker history advanced after publication. Retry from current evidence; peer state and history were retained.", code, EXIT_CODE.CONFLICT);
 }
+/** Pin an adopted applied snapshot without replacing an earlier owned-write or adoption witness. @internal */
+export async function certifyAppliedRevision(client: PmClient, id: string, revision: number): Promise<void> {
+  await certifyLoopWrite(client, id, publicationWrites.getStore()?.get(client)?.get(id) ?? revision);
+}
 /** Certify all native writes after observer hooks and enclosing publication checks, without excluding ordinary writers. @internal */
 export async function withWriteHistoryFence<T>(execute: () => Promise<T>): Promise<T> {
-  const parent = publicationWrites.getStore();
-  const writes = new Map<PmClient, Map<string, number>>();
+  const writes = publicationWrites.getStore() ?? new Map<PmClient, Map<string, number>>();
   return publicationWrites.run(writes, async () => {
     const result = await execute();
     for (const [client, items] of writes) for (const [id, revision] of items) await certifyLoopWrite(client, id, revision);
-    if (parent !== undefined) for (const [client, items] of writes) {
-      let previous = parent.get(client);
-      if (previous === undefined) { previous = new Map(); parent.set(client, previous); }
-      for (const [id, revision] of items) previous.set(id, revision);
-    }
     return result;
   });
 }

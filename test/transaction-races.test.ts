@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { after, before, test } from "node:test";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { EXIT_CODE, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
-import { commitProcessTransaction, createVerifiedItem, hashJson, mutateLoopItem, readCompleteLoopItem, readLoopRevision, withWriteHistoryFence, withRlController, type JsonValue } from "../index.ts";
+import { certifyAppliedRevision, commitProcessTransaction, createVerifiedItem, hashJson, mutateLoopItem, readCompleteLoopItem, readLoopRevision, withWriteHistoryFence, withRlController, type JsonValue } from "../index.ts";
 import { reserveMeta, type MetaRequest } from "../meta.ts";
 import { RESOURCE_KEYS, processDigest, processJobId, readProcessJob, reserveProcessJob, transitionProcessJob, type ProcessJob, type ProcessCoordinates } from "../process.ts";
 import { allowance, processWorkspace, trainingInput } from "./fixtures/process-workspace.ts";
@@ -181,6 +181,64 @@ test("publication history fences permit nested own writes and no-ops but retain 
     if (competing) await assert.rejects(publish, conflict); else { await publish; assert.equal(await readLoopRevision(w.client, id), 2); }
     assert.deepEqual(nativeBytes(w.pmRoot, id), expected);
   }
+});
+
+test("publication fences retain failed child witnesses across body-matching recovery", async () => {
+  const w = await processWorkspace(); const peer = peerFor(w); const id = "rl-child-recovery";
+  let expected: readonly string[] = [];
+  await assert.rejects(withWriteHistoryFence(async () => {
+    await assert.rejects(withWriteHistoryFence(async () => {
+      await createVerifiedItem(w.client, { id, type: "Task", title: "Child publication", body: "Original" });
+      await peer.update(id, { body: "Peer change" }); await peer.update(id, { body: "Original" });
+      expected = nativeBytes(w.pmRoot, id);
+    }), conflict);
+    assert.equal((await readCompleteLoopItem(w.client, id)).item.body, "Original");
+  }), conflict);
+  assert.deepEqual(nativeBytes(w.pmRoot, id), expected);
+});
+
+test("adopted reservation snapshots refuse post-adoption ABA and stable retries converge", async () => {
+  const w = await processWorkspace({ ...allowance, training_steps: 100 }); const peer = peerFor(w);
+  await peer.update(w.approval, { body: '```json\n' + JSON.stringify({ ...metaSpec, permitted_promotions: 10_000, resource_budget: { ...allowance, training_steps: 100 }, meta_budget: { training_samples: 100_000_000, proposal_calls: 10_000, recipe_promotions: 10_000 } }) + '\n```' });
+  const template = await reserveProcessJob(w.client, w.coordinates, processJobId(trainingInput()), trainingInput(), w.approval, allowance);
+  const metaRequest: MetaRequest = { id: "adopt-template", config: { ...metaConfig, meta_generations: 1, candidates: 1 }, dataset: "unused", approval: w.approval, proposer: "seeded" };
+  await reserveMeta(w.client, w.coordinates, metaRequest, "binding");
+  const metaTemplate = JSON.parse(String((await readCompleteLoopItem(peer, "adopt-template-reservation")).item.body)) as Record<string, unknown>;
+  for (const domain of ["process", "meta"] as const) {
+    const request = { ...trainingInput(), identity: { adopted: domain } }; const id = domain === "process" ? processJobId(request) : "adopt-meta-reservation";
+    const record = domain === "process" ? { ...template, id, input: processDigest(request), binding: request.identity } : { ...metaTemplate, id };
+    const native = await peer.create({ id, type: domain === "process" ? "Task" : "Decision", tags: domain === "process" ? "rl-process-job" : "rl-meta-reservation", title: "Matching peer allocation", body: JSON.stringify(record) });
+    let injected = false; let expected: readonly string[] = [];
+    const path = join(w.pmRoot, domain === "process" ? "tasks" : "decisions", `${native.item.id}.toon`); const history = join(w.pmRoot, "history", `${native.item.id}.jsonl`);
+    const coordinates: ProcessCoordinates = { ...w.coordinates, async onTransition(context) {
+      if (context.transition !== "committing" || injected) return;
+      injected = true;
+      await peer.update(id, { body: "Peer ABA" }); await peer.update(id, { body: JSON.stringify(record) });
+      expected = [readFileSync(path, "utf8"), readFileSync(history, "utf8")];
+    } };
+    const publish = (observed: ProcessCoordinates) => domain === "process"
+      ? reserveProcessJob(w.client, observed, id, request, w.approval, allowance)
+      : reserveMeta(w.client, observed, { ...metaRequest, id: "adopt-meta" }, "binding");
+    await assert.rejects(publish(coordinates), conflict, domain); assert.ok(injected);
+    assert.deepEqual([readFileSync(path, "utf8"), readFileSync(history, "utf8")], expected);
+    await publish(w.coordinates);
+    assert.deepEqual([readFileSync(path, "utf8"), readFileSync(history, "utf8")], expected);
+  }
+});
+
+test("an adopted snapshot cannot refresh its witness after a peer restores matching bytes", async () => {
+  const w = await processWorkspace(); const peer = peerFor(w); const id = "rl-adopted-snapshot";
+  await peer.create({ id, type: "Task", title: "Stable peer snapshot", body: "Original" });
+  await certifyAppliedRevision(w.client, id, await readLoopRevision(w.client, id));
+  let expected: readonly string[] = [];
+  await assert.rejects(withWriteHistoryFence(async () => {
+    await createVerifiedItem(w.client, { id: "other-owned-item", type: "Task", title: "Own publication" });
+    await certifyAppliedRevision(w.client, id, await readLoopRevision(w.client, id));
+    await peer.update(id, { body: "Peer body" }); await peer.update(id, { body: "Original" });
+    expected = nativeBytes(w.pmRoot, id);
+    await certifyAppliedRevision(w.client, id, await readLoopRevision(w.client, id));
+  }), conflict);
+  assert.deepEqual(nativeBytes(w.pmRoot, id), expected);
 });
 
 test("a temporary approval read while verifying a retained meta reservation stays retryable", async () => {

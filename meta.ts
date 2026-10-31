@@ -4,7 +4,7 @@ import { decodeTrackerRecord, hasTrackerIdentity, encodeBoundedJson, MAX_TRACKER
 import assert from "node:assert/strict";
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { certifyCompleteListResult, normalizeItemId, EXIT_CODE, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
-import { createVerifiedItem, hashJson, commitProcessTransaction, withValidatedMutation, promotedGenerationIdsUnderApproval, readApprovalSpec, readCompleteLoopItem, withRlController, type JsonValue, type RlDurableStep } from "./index.ts";
+import { certifyAppliedRevision, readLoopRevision, createVerifiedItem, hashJson, commitProcessTransaction, withValidatedMutation, promotedGenerationIdsUnderApproval, readApprovalSpec, readCompleteLoopItem, withRlController, type JsonValue, type RlDurableStep } from "./index.ts";
 import { parseApprovalSpec } from "./lineage.ts";
 import type { BinaryCalibration, PrefixCheckpoint } from "./prefix.ts";
 import { openTrackerEnvironment } from "./tracker-environment.ts";
@@ -180,8 +180,10 @@ export async function reserveMeta(client: PmClient, coordinates: ProcessCoordina
   const key = `${request.id}-reservation`;
   /** Read and verify an existing allocation even when the programme or SDK transaction receipt is already complete. */
   const inspect = async (): Promise<{ state: "pending" | "applied" }> => {
-    const previous = await readMetaReceipt(client, key);
-    if (previous === null) return { state: "pending" };
+    const discovered = await readMetaReceipt(client, key);
+    if (discovered === null) return { state: "pending" };
+    const revision = await readLoopRevision(client, discovered.item.id);
+    const previous = await readCompleteLoopItem(client, discovered.item.id, String(revision));
     const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
     const decoded = decodeTrackerRecord(client, previous.item, { type: "Decision", format: "pm-rl/meta-reservation/1" });
     if (previous.item.type !== "Decision" || decoded === null) expectedFail("meta_reservation_drift: reservation envelope changed.", "meta_reservation_drift", EXIT_CODE.CONFLICT);
@@ -198,6 +200,7 @@ export async function reserveMeta(client: PmClient, coordinates: ProcessCoordina
       throw error;
     }
     if (recordedApproval !== (await metaApproval(client, request.approval)).id) expectedFail("meta_reservation_drift: reservation approval changed.", "meta_reservation_drift", EXIT_CODE.CONFLICT);
+    await certifyAppliedRevision(client, previous.item.id, revision);
     return { state: "applied" };
   };
   if (retained) {

@@ -347,6 +347,9 @@ the peer's item and append-only history. The same publication check covers meta
 reservations, evaluation declarations and checkpoints, and completed loop
 receipts. A fresh invocation may adopt a now-stable valid record; this check is
 detection at the publication boundary, not exclusion of ordinary writers.
+An adopted reservation pins its validated historical revision for the active
+transaction too. Later inspections cannot refresh that witness after peer ABA.
+Nested recovery retains child witnesses even when a caller catches a refusal.
 Failure, cancellation, invalidation and later lifecycle transitions refuse
 reductions below the current charge (`process_charge_regression`), even with a
 claimed completion. Retain the charge; only the executor's validated materialization may release unused

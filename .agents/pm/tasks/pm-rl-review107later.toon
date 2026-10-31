@@ -6,12 +6,12 @@ status: in_progress
 priority: 2
 tags[2]: "gh:unbraind/pm-rl#107",review
 created_at: "2026-10-30T13:55:27.424Z"
-updated_at: "2026-10-31T12:54:34.798Z"
+updated_at: "2026-10-31T13:24:58.709Z"
 assignee: codex-agent
 claim_principal: codex-agent
 author: codex-agent
 parent: pm-rl-sequential
-comments[24]{created_at,author,text}:
+comments[29]{created_at,author,text}:
   "2026-10-30T18:08:05.446Z",codex-agent,"Related stopping/identity diagnostic on untouched cd91de9: node --test --test-concurrency=1 --test-name-pattern=\"native child identity failure and PID reuse\" test/process.test.ts reports 1 test, 0 pass, 1 failure. The fixture expects Cannot establish trainer process identity but receives Trainer exceeded wall or staging allowance. The current full integration attempt flags the same test. This does not establish that the later stopTrainer thread has the same root cause; retain the identity and allowance evidence for triage without weakening the existing bounds."
   "2026-10-31T00:21:05.202Z",codex-agent,"The original native-child identity failure now passes: identity tools honor the supplied PATH instead of bypassing it with a platform installation path. With an empty PATH, a real child fails with process_identity_unavailable and is reaped. This fixes the observed fixture/lookup defect; the three later review threads remain separately tracked and unclosed."
   "2026-10-31T01:52:18.677Z","harness:claude-code","Fixed all three by hand on #107. (1) PRRT_kwDOTqJmqs6x8fDu stopTrainer: an unreadable birth identity counts as stopped only when kill(pid, 0) reports ESRCH, and an unreadable identity after SIGKILL is not proof of stop. New assertion in controller-boundaries 'recovery stops only the exact live trainer' fails on revert (0/1). (2) PRRT_kwDOTqJmqs6x8fDs fixed-result read path: the result must follow the plan, every collection Run and the candidate, via the shared fixedLifecycleArtifacts. New test 'fixed results created before their collection Run and candidate never promote' fails on revert (0/1). Legitimate recording always verifies Runs and candidate first, so no released result can have the old ordering. (3) PRRT_kwDOTqJmqs6x8fDn: the stale public_node_and_bun copy now references docs/sequential-evaluation-evidence.json (same commit, snapshot and comparison, current evidence_digest). Also fixed: the 'git absent from PATH' CLI test and evaluation-plan.acceptance now link the platform identity tool, because the merged process-job fence needs getconf/ps (the test failed at e0fb7d9 with process_identity_unavailable)."
@@ -36,6 +36,11 @@ comments[24]{created_at,author,text}:
   "2026-10-31T12:51:30.835Z",codex-agent,"Process refusal compatibility revert proof: revert only commitRetainingProcessState to c0900da. The unchanged executor/publication final-snapshot-gap regression fails its superseded predicate because the new history fence propagates loop_write_conflict directly. Restoring the domain mapping passes the complete process-publication file 14/14. This control is a typed-code mismatch, not a missing-rejection claim; peer state remains retained in both cases."
   "2026-10-31T12:51:32.437Z",codex-agent,"Reservation-specific revert proof: revert only createVerifiedItem to its c0900da envelope-only postcondition. The new process/meta reservation publication ABA regression fails with Missing expected rejection at the post-apply boundary. Fixed source passes all eight post-create hook cases across both domains. The matching-peer adoption regressions remain unchanged."
   "2026-10-31T12:51:34.440Z",codex-agent,"Final causal proof checkpoint: all 12 disposable function/adapter controls fail behaviorally on the final implementation (11 missing-rejection controls and one typed process-code mismatch). Restoration passes the seven-test ABA/positive corpus. Original transition property remains byte-identical, with all 10 hook/ABA cases passing. A fresh sequential endpoint comparison passes on c0900da, exposed a check-after-lease-release window in the initial patch, and now passes unchanged after placing the final certificate inside the source leases. The initial broad seven-file run was 324/327; its three failures have passing targeted reruns. A final seven-file run is underway with the same single exhaustive-matrix deferral."
+  "2026-10-31T13:24:54.018Z",codex-agent,"Nested recovery revert proof: replace only withWriteHistoryFence with its merge-on-success implementation from 08d1a2b. The new child-refusal/body-matching recovery test fails with Missing expected rejection: the caught child conflict previously lost its witness. Shared nested witness storage restores the required refusal and preserves exact peer item/history bytes."
+  "2026-10-31T13:24:55.223Z",codex-agent,"Adopted process reservation revert proof: revert only reserveProcessJob to c0900da, retaining the shared fence elsewhere. The new pre-existing matching reservation/post-adoption ABA regression fails with Missing expected rejection at the committing hook. Fixed inspection validates an SDK historical snapshot and pins that accepted revision through commit; stable subsequent retry converges without rewriting the peer."
+  "2026-10-31T13:24:56.548Z",codex-agent,"Adopted meta reservation revert proof: revert only reserveMeta to c0900da. The same adoption regression passes its process case and fails the meta case with Missing expected rejection. Matching peers still adopt; once accepted in this call, a later peer ABA cannot refresh the saved revision. The temporary-approval-read retryability fix from the orchestrator is preserved."
+  "2026-10-31T13:24:57.619Z",codex-agent,"Applied revision helper revert proof: replace only certifyAppliedRevision with a signature-preserving no-certificate adapter. The adopted-reservation regression fails with Missing expected rejection. Fixed source also refuses attempts to refresh a pinned snapshot from a newer SDK revision after body restoration, while allowing stable reads outside publication and normal nested own writes."
+  "2026-10-31T13:24:58.708Z",codex-agent,"Updated proof and gate checkpoint: 16 final-source disposable controls pass their negative criteria (15 missing-rejection failures, one superseded-code compatibility mismatch). Restored source passes 10/10 regression families. The broad seven-file run passed 327/327, with the exhaustive snapshot matrix deferred and all original transition cases retained. The final nested/adoption extension additionally passed 9/9 selected nodes, including matching late peers and their conflicting pairs; affected process, publication, meta and transaction files are being rerun. Previous 08d1a2b packed acceptance was 6/6, but a fresh archive will be captured for the final extension before push."
 files[14]{path,scope}:
   checkpoint-artifacts.ts,project
   docs/evaluation-compatibility-evidence.json,project
@@ -51,7 +56,7 @@ files[14]{path,scope}:
   test/process.test.ts,project
   test/sequential-evaluation.test.ts,project
   test/transaction-races.test.ts,project
-tests[6]:
+tests[7]:
   - command: node --test --test-name-pattern='recovery stops only the exact live trainer' test/controller-boundaries.test.ts
     scope: project
     provenance:
@@ -101,6 +106,16 @@ tests[6]:
     provenance:
       author: codex-agent
       created_at: "2026-10-31T12:54:34.760Z"
+      source_kind: local_mutation
+      source_ref: feat/predeclared-sequential-evaluation
+  - command: "node --test --test-concurrency=1 --test-name-pattern=\"adopted reservation snapshots|an adopted snapshot cannot|publication fences retain failed child\" test/transaction-races.test.ts"
+    scope: project
+    timeout_seconds: 180
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-31T13:22:53.771Z"
       source_kind: local_mutation
       source_ref: feat/predeclared-sequential-evaluation
 docs[1]{path,scope}:

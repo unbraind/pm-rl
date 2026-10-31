@@ -12,7 +12,7 @@ import type { CommitWorkspaceTransactionOptions, WorkspaceTransactionStep, Works
 import type { GetResult, PmClient } from "@unbrained/pm-cli/sdk/core";
 import { EXIT_CODE, createPmCliExpectedError, isPmCliExpectedError, certifyCompleteListResult, normalizeItemId } from "@unbrained/pm-cli/sdk/runtime";
 import { banditCheckpoint, MAX_BANDIT_FIT_STEPS, type BanditCheckpoint, type BanditExample, type BanditObservation } from "./bandit.ts";
-import { createVerifiedItem, canonicalJson, commitProcessTransaction, loopProcessStartTime, withProcessJobFence, withValidatedMutation, readCompleteLoopItem, readLoopRevision, mutateLoopItem, type JsonValue } from "./index.ts";
+import { certifyAppliedRevision, createVerifiedItem, canonicalJson, commitProcessTransaction, loopProcessStartTime, withProcessJobFence, withValidatedMutation, readCompleteLoopItem, readLoopRevision, mutateLoopItem, type JsonValue } from "./index.ts";
 import { expectedFail } from "./refuse.ts";
 import { validateLmProcessCheckpoint, type LmProcessPayload } from "./process-lm.ts";
 import { validatePrefixCompletion, type PrefixPayload } from "./prefix.ts";
@@ -322,13 +322,16 @@ export async function reserveProcessJob(client: PmClient, coordinates: ProcessCo
   let reserved: ProcessJob<TrainerPolicy> | null = null;
   /** Compare the request with every retained immutable field before adopting a reservation. */
   async function inspectReservation(): Promise<ProcessJob<TrainerPolicy> | null> {
-    const existing = await readProcessJob(client, id);
-    if (existing !== null) {
+    const discovered = await readProcessJob(client, id);
+    if (discovered !== null) {
+      const snapshot = await readProcessSnapshot(client, id, coordinates.pmRoot);
+      const existing = snapshot.job;
       if (normalizeItemId(existing.id, prefix) !== normalizeItemId(id, prefix) || existing.input !== processDigest(input)
         || processDigest(existing.binding) !== processDigest(input.identity)
         || normalizeItemId(existing.approval, prefix) !== approved.id
         || RESOURCE_KEYS.some(key => parseResources(existing.allowance)[key] !== allowance[key])) expectedFail("Reservation replay inputs changed.", "process_job_drift", EXIT_CODE.CONFLICT);
       if (existing.budget_digest !== approved.digest) expectedFail("Approved budget identity changed.", "process_budget_drift", EXIT_CODE.CONFLICT);
+      await certifyAppliedRevision(client, snapshot.native.item.id, snapshot.revision);
       reserved = existing;
       return existing;
     }
