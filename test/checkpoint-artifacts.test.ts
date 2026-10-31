@@ -629,9 +629,10 @@ test("descriptor traversal refuses unavailable procfs, inode mismatch and no-fol
       if (String(args[0]).endsWith("/pm-rl") && mode === "link") throw Object.assign(new Error("link substitution"), { code: "ELOOP" });
       return open(...args);
     });
-    const statsHook = mock.method(fs, "fstatSync", (handle: number) => {
-      const result = stat(handle);
-      return mode === "mismatch" && ++stats === 2 ? { ...result, ino: Number(result.ino) + 1 } : result;
+    const statsHook = mock.method(fs, "fstatSync", (handle: number, options?: { bigint?: boolean }) => {
+      const result = stat(handle, options as { bigint: true });
+      // Identity checks read bigint stats, so the substituted inode is a bigint one above the held value.
+      return mode === "mismatch" && ++stats === 2 ? { ...result, ino: result.ino + 1n } : result;
     });
     const mkdirHook = mock.method(fs, "mkdirSync", (...args: Parameters<typeof mkdir>) => {
       if (String(args[0]).startsWith("/proc/self/fd/") && mode === "mkdir") throw new Error("synthetic descriptor mkdir failure");
@@ -643,6 +644,23 @@ test("descriptor traversal refuses unavailable procfs, inode mismatch and no-fol
   }
 });
 
+
+test("descriptor identity compares 64-bit inode numbers exactly", async () => {
+  // CodeRabbit on #107: as JavaScript numbers, inodes above Number.MAX_SAFE_INTEGER that differ in the low bits
+  // compare equal. With bigint stats, a probe that resolves a different inode in that range still refuses.
+  const w = await checkpointWorkspace(); const stat = fs.fstatSync; let calls = 0;
+  const base = 2n ** 60n;
+  const hook = mock.method(fs, "fstatSync", (handle: number, options?: { bigint?: boolean }) => {
+    const result = stat(handle, options as { bigint: true });
+    if (options?.bigint !== true) return result;
+    calls += 1;
+    // The held root reads as base, and the procfs probe as base + 1: distinct as bigints, equal as numbers.
+    return calls === 1 ? { ...result, ino: base } : calls === 2 ? { ...result, ino: base + 1n } : result;
+  }); syncBuiltinESMExports();
+  try { await assert.rejects(encodeCheckpointArtifacts(w.pmRoot, "wide-inode", initialImprover()), refuses("checkpoint_storage_unsupported")); }
+  finally { hook.mock.restore(); syncBuiltinESMExports(); }
+  assert.equal(Number(base) === Number(base + 1n), true, "the two inodes collide as numbers");
+});
 
 test("a blob removed during cleanup refuses as changed state, not as unsupported storage", async () => {
   // CodeRabbit on #107: after the procfs probe succeeded, an ENOENT means the state changed underneath the held

@@ -83,6 +83,12 @@ for (const runtime of ["node", "bun"]) {
     run(runtime, script, [final.archive, output], `${runtime}-${kind}`); packed.set(`${runtime}-${kind}`, receipt(output));
   }
   run(runtime, "test/sequential-evaluation.acceptance.ts", [source, join(out, `${runtime}-fresh-sequential.json`), sourceCommit, final.archive], `${runtime}-fresh-sequential`);
+  // A fresh run must reproduce the published receipt. Only evidence_digest may differ, because it hashes the run's
+  // own native fixture; line 62 asserts the same invariant between the independent Node and Bun runs.
+  const fresh = receipt(join(out, `${runtime}-fresh-sequential.json`)); const published = publicReceipts.get(runtime)!;
+  for (const key of new Set([...Object.keys(fresh), ...Object.keys(published)])) {
+    if (key !== "evidence_digest") assert.deepEqual(fresh[key], published[key], `${runtime} fresh receipt differs from the published one: ${key}`);
+  }
   const output = join(out, `${runtime}-sequential.json`);
   run(runtime, "test/sequential-evaluation.acceptance.ts", [source, output, sourceCommit, final.archive, join(out, `${runtime}-fixture.json`), "replay"], `${runtime}-sequential`);
   assert.deepEqual(receipt(output), publicReceipts.get(runtime));

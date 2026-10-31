@@ -290,7 +290,8 @@ test("generated chronology exhausts ALL permutations of every artifact with one 
     // Independently corrupt each clock/history coordinate at every cross-stage pair.
     for (let left = 0; left < artifacts.length; left += 1) for (let right = left + 1; right < artifacts.length; right += 1) {
       if (artifacts[left].stage === artifacts[right].stage) continue;
-      for (let dimension = 0; dimension < 3; dimension += 1) for (const value of [left, left - 1, NaN, Infinity, -Infinity]) {
+      // A wall-clock tie (dimensions 0 and 1) is admissible; only the history position (dimension 2) must strictly increase.
+      for (let dimension = 0; dimension < 3; dimension += 1) for (const value of dimension === 2 ? [left, left - 1, NaN, Infinity, -Infinity] : [left - 1, NaN, Infinity, -Infinity]) {
         const entries = artifacts.map((entry, index) => ({ stage: entry.stage, values: [index, index, index] }));
         entries[right].values[dimension] = value;
         assert.throws(() => validateEvaluationTimeline(entries), refusal("eval_plan_late"));
@@ -298,6 +299,11 @@ test("generated chronology exhausts ALL permutations of every artifact with one 
     }
   }
   assert.equal(permutations, 460200); assert.equal(accepted, 27);
+  // CodeRabbit on #107: a later stage that shares a clock value with the previous stage's maximum is not late, as
+  // long as its history position follows. Refusing it would discard the candidate's evidence (eval_plan_late).
+  validateEvaluationTimeline([{ stage: 0, values: [10, 10, 0] }, { stage: 1, values: [10, 10, 1] }, { stage: 2, values: [10, 11, 2] }]);
+  assert.throws(() => validateEvaluationTimeline([{ stage: 0, values: [10, 10, 1] }, { stage: 1, values: [10, 10, 1] }]), refusal("eval_plan_late"));
+  assert.throws(() => validateEvaluationTimeline([{ stage: 0, values: [10, 10, 0] }, { stage: 1, values: [9, 10, 1] }]), refusal("eval_plan_late"));
   assert.throws(() => evaluationLifecycleArtifacts(orderContract({ ...plan(), stopping: { kind: "fixed", observations: 64, independent_units: 64 } }), [], 0), refusal("eval_plan_stopping"));
   console.log(JSON.stringify({ exhaustiveArtifactPermutations: permutations, accepted, refused: permutations - accepted, runs: "1-3", looks: "1-3", independentClockAndHistoryFaults: true }));
 });

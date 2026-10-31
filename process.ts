@@ -346,7 +346,9 @@ export async function reserveProcessJob(client: PmClient, coordinates: ProcessCo
   async function validateReservation(): Promise<void> {
     approved = await approvedResources(client, approval);
     if (await inspectReservation() !== null) return;
-    const charges = (await listProcessJobs(client)).filter((job) => job.approval === approved.id).map((job) => job.charge);
+    // Normalize like inspectReservation: an adopted reservation may store its approval in an SDK alias spelling,
+    // and a raw comparison would leave its charge out of every later capacity check.
+    const charges = (await listProcessJobs(client)).filter((job) => normalizeItemId(job.approval, prefix) === approved.id).map((job) => job.charge);
     for (const key of RESOURCE_KEYS) {
       const total = charges.reduce((sum, charge) => sum + charge[key], allowance[key]);
       if (!Number.isSafeInteger(total) || total > approved.budget[key]) expectedFail(`Approved ${key} budget exhausted.`, "process_budget_exhausted");

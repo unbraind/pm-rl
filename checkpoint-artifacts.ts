@@ -109,11 +109,13 @@ function artifactDirectory<T>(root: string, parts: readonly string[], execute: (
     handles.push(openSync(statePath(root), constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW));
     const base = `/proc/self/fd/${handles[0]}`;
     // Prove procfs resolves the held inode before permitting any publication or cleanup.
-    const held = fstatSync(handles[handles.length - 1]);
+    // bigint stats: 64-bit inode numbers above Number.MAX_SAFE_INTEGER lose precision as numbers, and two different
+    // inodes could then compare equal, failing this substitution check open.
+    const held = fstatSync(handles[handles.length - 1], { bigint: true });
     let probe: number;
     try { probe = openSync(base, constants.O_RDONLY | constants.O_DIRECTORY); }
     catch { expectedFail("Checkpoint descriptor access is unavailable.", "checkpoint_storage_unsupported"); }
-    try { const actual = fstatSync(probe); if (actual.dev !== held.dev || actual.ino !== held.ino) expectedFail("Checkpoint descriptor identity could not be verified.", "checkpoint_storage_unsupported"); }
+    try { const actual = fstatSync(probe, { bigint: true }); if (actual.dev !== held.dev || actual.ino !== held.ino) expectedFail("Checkpoint descriptor identity could not be verified.", "checkpoint_storage_unsupported"); }
     finally { closeSync(probe); }
     probed = true;
     for (const part of parts) {
@@ -128,8 +130,8 @@ function artifactDirectory<T>(root: string, parts: readonly string[], execute: (
     function verify(): void {
       statePath(root, ...parts);
       for (let index = 0; index < handles.length; index++) {
-        const current = lstatSync(index === 0 ? root : `/proc/self/fd/${handles[index - 1]}/${parts[index - 1]}`);
-        const held = fstatSync(handles[index]);
+        const current = lstatSync(index === 0 ? root : `/proc/self/fd/${handles[index - 1]}/${parts[index - 1]}`, { bigint: true });
+        const held = fstatSync(handles[index], { bigint: true });
         if (current.isSymbolicLink() || current.dev !== held.dev || current.ino !== held.ino) expectedFail("Checkpoint directory identity changed.", "rl_state_path_invalid");
       }
     }

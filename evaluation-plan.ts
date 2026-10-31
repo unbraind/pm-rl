@@ -227,6 +227,8 @@ export function evaluationLifecycleArtifacts(registered: RegisteredEvaluationPla
 function fixedLifecycleArtifacts(registered: RegisteredEvaluationPlan, runs: readonly string[]): { id: string; stage: number }[] {
   return [{ id: registered.id, stage: 1 }, ...runs.map((id) => ({ id, stage: 2 })), { id: registered.plan.candidate, stage: 2 }];
 }
+/** Index of the SDK history position among the timeline coordinates; the other two are wall-clock values. */
+const HISTORY_COORDINATE = 2;
 /** Compare durable snapshot timestamps, mutation timestamps and SDK history positions together. @internal */
 export function validateEvaluationTimeline(entries: readonly { stage: number; values: readonly number[] }[]): void {
   let prior = [-Infinity, -Infinity, -Infinity];
@@ -234,7 +236,9 @@ export function validateEvaluationTimeline(entries: readonly { stage: number; va
     const next = [...prior];
     for (const entry of entries.filter((value) => value.stage === stage)) {
       // Collection Runs are exchangeable sources, but ALL must precede the candidate and every look.
-      if (!entry.values.every((value, index) => Number.isFinite(value) && value > prior[index])) refuse("eval_plan_late");
+      // The two wall-clock coordinates (created_at, first-mutation time) may tie across stages at clock resolution;
+      // they must never go backwards. The SDK history position orders records strictly, so it must increase.
+      if (!entry.values.every((value, index) => Number.isFinite(value) && (index === HISTORY_COORDINATE ? value > prior[index] : value >= prior[index]))) refuse("eval_plan_late");
       for (let index = 0; index < entry.values.length; index += 1) next[index] = Math.max(next[index], entry.values[index]);
     }
     prior = next;

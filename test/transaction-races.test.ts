@@ -325,6 +325,22 @@ test("matching peer reservations accept SDK aliases and replay without changing 
   await assert.rejects(reserveProcessJob(w.client, w.coordinates, occupied, { ...input, identity: { foreign: true } }, w.approval, allowance), conflict);
 });
 
+test("an adopted reservation stored under an SDK alias approval still counts against the budget", async () => {
+  // CodeRabbit on #107: adoption accepts an alias-spelled approval, so the capacity sum must normalize it too, or the
+  // adopted charge is left out and later reservations exceed the approved budget. The default budget fits two charges.
+  const w = await processWorkspace(); const peer = peerFor(w); const input = trainingInput();
+  const template = await reserveProcessJob(w.client, w.coordinates, processJobId(input), input, w.approval, allowance);
+  const request = { ...input, identity: { aliasCharge: true } }; const alternate = processJobId(request);
+  await reserveProcessJob(w.client, { ...w.coordinates, async onTransition(context) {
+    if (context.transition !== "prepared") return;
+    const body = JSON.stringify({ ...template, id: alternate.toUpperCase(), approval: "#RL-APPROVAL", input: processDigest(request), binding: request.identity });
+    await peer.create({ id: `rl-${alternate}`, type: "Task", tags: "rl-process-job", title: "Alias-approved peer", body });
+  } }, alternate, request, "#RL-APPROVAL", allowance);
+  const third = { ...input, identity: { overBudget: true } };
+  await assert.rejects(reserveProcessJob(w.client, w.coordinates, processJobId(third), third, w.approval, allowance),
+    (error: unknown) => isPmCliExpectedError(error) && error.context.code === "process_budget_exhausted");
+});
+
 test("a peer creating inside apply is never compensated as an owned reservation", async () => {
   const w = await processWorkspace(); const peer = peerFor(w); const input = trainingInput(); const raw = processJobId(input); const id = `rl-${raw}`;
   const client = w.client; const create = client.create.bind(client); let expected: readonly string[] = [];
