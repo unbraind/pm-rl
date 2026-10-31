@@ -42,6 +42,7 @@ const TAG = "pm-rl:sequential-checkpoint";
 
 /** Strict shape validation is shared by SDK and CLI at their single plan boundary. */
 export function parseSequentialStopping(value: unknown, members: readonly EvaluationMember[]): SequentialStopping {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) refuse("eval_plan_invalid");
   const p = value as Record<string, unknown>;
   const keys = ["kind", "method", "observations", "independent_units", "unit_order", "looks", "review"];
   if (Object.keys(p).length !== keys.length || keys.some((key) => !Object.hasOwn(p, key)) || p.method !== "hoeffding-alpha-spending/1") refuse("eval_plan_invalid");

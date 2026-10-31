@@ -425,6 +425,7 @@ test("strict sequential schemas reject sparse arrays, unknown choices, nonfinite
   assert.notEqual(evaluationComparison({ ...p, stopping: { ...rule, unit_order: [...rule.unit_order].reverse() } }), identity);
   assert.notEqual(evaluationComparison({ ...p, stopping: { ...rule, looks: [8, 16, 64] } }), identity);
   assert.throws(() => parseSequentialStopping({ ...rule, method: "wrong" }, p.members), refusal("eval_plan_invalid"));
+  for (const value of [null, undefined, 7, [rule]]) assert.throws(() => parseSequentialStopping(value, p.members), refusal("eval_plan_invalid"));
   for (const field of ["id", "unit"] as const) {
     const large = plan("rl-large", 1000);
     const members = large.members.map((member, index) => ({ ...member, [field]: `${index}`.padStart(1024, "x") }));
