@@ -1,6 +1,6 @@
 /** Adversarial graphs are certified and corrupted through the real SDK in a non-git tracker. */
 import assert from "node:assert/strict";
-import { rmSync, existsSync } from "node:fs";
+import { rmSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
@@ -11,6 +11,30 @@ import { exportPolicyCard, replayPolicyCard, type PolicyCard } from "../policy-c
 import { recordSequentialEvaluation } from "../sequential-evaluation.ts";
 import { skippedTrackerRecords, decodeTrackerRecord } from "../tracker-record.ts";
 import { decisionFixture } from "./fixtures/decision-evidence.ts";
+
+/** Read generated evidence without hard-coding corpus sizes, roots or source commits. */
+function evidence(name: string): Record<string, unknown> {
+  return JSON.parse(readFileSync(new URL(`../docs/${name}.json`, import.meta.url), "utf8")) as Record<string, unknown>;
+}
+
+test("current public evidence shares its generated source, measurements and runtime roots", () => {
+  const sequential = evidence("sequential-evaluation-evidence"), decision = evidence("decision-evidence-validation"), compatibility = evidence("evaluation-compatibility-evidence");
+  const { evidence_digest: nodeRoot, ...metrics } = sequential;
+  assert.deepEqual(decision.public_metrics, metrics);
+  const publicReplay = compatibility.public_node_and_bun as Record<string, unknown>;
+  for (const key of ["source", "commit", "snapshot", "source_digest", "comparison", "items", "done_role_items"]) assert.deepEqual(publicReplay[key], sequential[key], key);
+  const roots = decision.public_input_roots as Record<string, unknown>;
+  assert.equal(roots.node, nodeRoot); assert.match(String(roots.bun), /^[a-f0-9]{64}$/);
+  assert.deepEqual(publicReplay.evidence_digests, roots);
+  assert.equal(sequential.observations, sequential.items);
+  assert.ok(Math.abs(Number(sequential.candidate_mean) - Number(sequential.done_role_items) / Number(sequential.items)) < 1e-14);
+  const artifact = decision.current_packed_acceptance as Record<string, unknown>;
+  assert.equal(artifact.public_source_commit, sequential.commit);
+  assert.match(String(artifact.archive_sha256), /^[a-f0-9]{64}$/);
+  assert.deepEqual(compatibility.current_packed_acceptance, artifact);
+  assert.deepEqual(compatibility.packed_node_and_bun, decision.published_native_node);
+  assert.deepEqual(decision.published_native_bun, decision.published_native_node);
+});
 
 /** Every refusal must name an actual damaged input, never fail accidentally in JSON or filesystem code. */
 function names(ids: readonly string[]) { return (error: unknown) => isPmCliExpectedError(error) && ids.includes(String(error.context.item_id)); }

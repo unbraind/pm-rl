@@ -42,6 +42,9 @@
     "promoted": true,
     "approval_consumed": 1,
     "policy_card_exported": true,
+    "unlinked_plan_graph": true,
+    "long_id_promoted": true,
+    "long_card_json_bytes": 3427,
     "non_git": true,
     "git_absent_from_path": true
   },
@@ -51,16 +54,30 @@
       "docs/decision-evidence-validation.json"
     ],
     "source": "https://github.com/unbraind/pm-rl",
-    "commit": "120e20e160897cabe47920713e1b87b6647b2e85",
-    "snapshot": "96fd01781cb6b046a2069efe768fa3c4fd47a9c8f398d423fcd4aeb6bf0cfb84",
-    "source_digest": "7a9d2a37a25ad6d450fc05a0ad5ff440b3e228202dd8311e57e3bf0792fd36c6",
-    "comparison": "e6732f988aa5a4d087f68f5cc20b6d44f2d7f4420e0fa94c3484868107e4c1bc",
+    "commit": "26650e303ec2cb6fcdc6c51092bcc30b2f1ed27c",
+    "snapshot": "372131c7566653569a723ae2e2b778e0bd7b11b6caf3e1141acfb677e54845c1",
+    "source_digest": "b34c789d270d4aa0637b743da95d10f38aa9661ea03eedd7037c4f527e8a6302",
+    "comparison": "f1f14db345bfd37283ecfb693adc37bf70c4f9fe977293ebc964f6f33f0be0c2",
+    "items": 113,
+    "done_role_items": 92,
     "evidence_digests": {
-      "node": "0f81a4e56a4714fd5377180717b42e0a20fe27528f0e1716fcfb138aebe13d3c",
-      "bun": "99b141f7fc12b58d1ab0be1c68cadd2ac54512a883f220b7560652c552089c02"
+      "node": "6bcab3b46e72898874fe2db918e39e737bc83dc443b043a32f6b11cc0f51bc1d",
+      "bun": "3b3295ecbe88248c2b63cb623e901d047c3261f30f75e68d2f0be005e4766099"
     },
-    "note": "The public replay has one current result per runtime; this entry points at it instead of keeping an older copy. Node and Bun record different input roots for the same replay metadata (docs/decision-evidence-validation.json public_input_roots), so each root is scoped to its runtime and neither is claimed for both."
+    "note": "One final public acceptance cohort; runtime-specific roots remain distinct and refer to the generated receipts."
   },
   "release_ci": "https://github.com/unbraind/pm-rl/actions/runs/40488393574",
-  "release_ci_status_at_recording": "queued; not a passing gate claim"
+  "release_ci_status_at_recording": "queued; not a passing gate claim",
+  "current_packed_acceptance": {
+    "runtime_source_commit": "a450cdb740e7eca8788e2793b4b9ac99cb1c3d80",
+    "public_source_commit": "26650e303ec2cb6fcdc6c51092bcc30b2f1ed27c",
+    "archive_sha256": "5b63274458ea3a2cefb6a007d5e0de80662a80b1b4aeebe94ec826fa940bb347",
+    "shipped_files": 241,
+    "runtime_files": 180,
+    "final_acceptance_passes": 6,
+    "native_fixture_preparations": 2,
+    "public_source_read_only_and_unchanged": true,
+    "native_fixture_replayed_after_evidence_repack": true
+  },
+  "historical_receipts_note": "implementation, earlier native/boundary regression counters and release_ci describe historical runs. Current packed/public results are packed_node_and_bun, public_node_and_bun and current_packed_acceptance."
 }

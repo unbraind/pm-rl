@@ -6,10 +6,10 @@ status: in_progress
 priority: 2
 tags[2]: "gh:unbraind/pm-rl#107",review
 created_at: "2026-10-30T13:55:27.424Z"
-updated_at: "2026-10-31T13:55:35.834Z"
+updated_at: "2026-10-31T15:53:23.061Z"
 author: codex-agent
 parent: pm-rl-sequential
-comments[34]{created_at,author,text}:
+comments[45]{created_at,author,text}:
   "2026-10-30T18:08:05.446Z",codex-agent,"Related stopping/identity diagnostic on untouched cd91de9: node --test --test-concurrency=1 --test-name-pattern=\"native child identity failure and PID reuse\" test/process.test.ts reports 1 test, 0 pass, 1 failure. The fixture expects Cannot establish trainer process identity but receives Trainer exceeded wall or staging allowance. The current full integration attempt flags the same test. This does not establish that the later stopTrainer thread has the same root cause; retain the identity and allowance evidence for triage without weakening the existing bounds."
   "2026-10-31T00:21:05.202Z",codex-agent,"The original native-child identity failure now passes: identity tools honor the supplied PATH instead of bypassing it with a platform installation path. With an empty PATH, a real child fails with process_identity_unavailable and is reaped. This fixes the observed fixture/lookup defect; the three later review threads remain separately tracked and unclosed."
   "2026-10-31T01:52:18.677Z","harness:claude-code","Fixed all three by hand on #107. (1) PRRT_kwDOTqJmqs6x8fDu stopTrainer: an unreadable birth identity counts as stopped only when kill(pid, 0) reports ESRCH, and an unreadable identity after SIGKILL is not proof of stop. New assertion in controller-boundaries 'recovery stops only the exact live trainer' fails on revert (0/1). (2) PRRT_kwDOTqJmqs6x8fDs fixed-result read path: the result must follow the plan, every collection Run and the candidate, via the shared fixedLifecycleArtifacts. New test 'fixed results created before their collection Run and candidate never promote' fails on revert (0/1). Legitimate recording always verifies Runs and candidate first, so no released result can have the old ordering. (3) PRRT_kwDOTqJmqs6x8fDn: the stale public_node_and_bun copy now references docs/sequential-evaluation-evidence.json (same commit, snapshot and comparison, current evidence_digest). Also fixed: the 'git absent from PATH' CLI test and evaluation-plan.acceptance now link the platform identity tool, because the merged process-job fence needs getconf/ps (the test failed at e0fb7d9 with process_identity_unavailable)."
@@ -44,10 +44,23 @@ comments[34]{created_at,author,text}:
   "2026-10-31T13:40:43.270Z",codex-agent,"CI handoff before final evidence push: complete tracker writes and release this own claim before verifying the pushed head. Full npm Node 22, npm Node 26 and Bun release/aggregate coverage results are awaiting dispatch and are not claimed as passing. Track exact-head checks at https://github.com/unbraind/pm-rl/pull/107/checks and report per-job run URLs in the PR and final handoff. Start one 60-minute bounded watch after the final push; later fixes do not restart its cutoff. The unchanged exhaustive local snapshot matrix is delegated to those release gates. All 16 function-only negative controls are recorded above; final native history checks preserve peer bytes and never authorize reverse writes."
   "2026-10-31T13:48:39.140Z",codex-agent,"Pushed 7fc082a876b1e699a6c093e5b4d098959e6d16cc. Exact-head CI run 41206826617 has Node 22, Node 26 and Bun release queued; CodeQL run 41206826558 is queued. Initial push observed 2026-10-31 13:43:04 UTC; the bounded CI wait ends at 14:43:04 UTC and does not restart for metadata pushes. Separately tracked the default-branch development-only minimatch advisory in pm-rl-minimatch-advisory; production audit passed with zero vulnerabilities and no dependency pins changed."
   "2026-10-31T13:55:35.833Z",codex-agent,"CI receipt for pushed head 5d9987bff3fd476122927a5e4c3d3e289710c57c: release workflow https://github.com/unbraind/pm-rl/actions/runs/41207274759 has test (22), test (26), and Bun release (26) queued; CodeQL https://github.com/unbraind/pm-rl/actions/runs/41207274757 is queued. No full release or aggregate coverage pass is claimed. This receipt is metadata only; all 241 shipped files still byte-match the validated archive SHA-256 06bc00edd73164b9a346f3ad32c13537e212bd400d05a43d6d26c53a7eecd348. Continue observing the final metadata head until the original 14:43:04 UTC cutoff; the claim remains released and no items are closed."
-files[14]{path,scope}:
+  "2026-10-31T15:28:30.205Z",codex-agent,"Resumed for PRRT_kwDOTqJmqs6yR9cm and PRRT_kwDOTqJmqs6yR9cs on dacc8b2. Verified the lifecycle text contradicts README and creation-order validators, and three current evidence documents still cite the older public replay. Plan: correct the two lifecycle fields with pinned pm; generate all current public replay sections from one fresh packed Node/Bun acceptance cohort; retain explicitly historical execution receipts; run the requested static gates and acceptance, then push and observe exact-head CI. Runtime code is outside this evidence-only scope."
+  "2026-10-31T15:39:45.675Z",codex-agent,"STOP condition reached: the fresh final-archive node-sequential replay failed in the new acceptance harness at deep equality: cli_json_bytes actual 944 versus expected 945. The initial recorded JSON used advance and the replay JSON used resume; the complete evaluation report, source snapshot, comparison, measurements and evidence_digest were identical. This is an overly strict comparison between different CLI envelopes, not an established runtime defect. Runtime source was not changed, and no push is authorized after this failed gate. Preparation passed under Node and Bun; final archive Node compatibility and decision acceptance passed, final Node sequential failed, and the three final Bun scenarios were not run. No six-scenario acceptance success is claimed. Static check, explicit lint, docstring and test compilation passed; 0 clones across 58 sources and 502 declarations. The new cross-document consistency test is linked but not run because regeneration stopped before writing current_packed_acceptance. Generated files and the harness are retained as incomplete work for the orchestrator, without rollback."
+  "2026-10-31T15:39:46.875Z",codex-agent,"Attempted archive SHA-256 b976e49c5e06bd7ccce1b2b2f0bc9bbe14b453bb2252489ebf4833eedebab70e; fresh read-only public source 26650e303ec2cb6fcdc6c51092bcc30b2f1ed27c, 113 items, 92 done-role items, source digest b34c789d270d4aa0637b743da95d10f38aa9661ea03eedd7037c4f527e8a6302 unchanged. Working-tree grep -rn 120e20e docs/ README.md is empty, but the generated documents are not final-certified. Existing remote dacc8b2 CI run 41207769976 has Node 22, Node 26 and Bun release still in progress; CodeQL run 41207769971 passed. These results do not validate the new local changes. Preserve the failed attempt as a local WIP commit and do not push or start a new CI watch."
+  "2026-10-31T15:42:22.904Z",codex-agent,"Orchestrator resumed the stopped envelope-only attempt. Keep the lifecycle correction and generated public documents. Correct only the acceptance harness so both original and final fixture runs measure resume JSON against resume JSON and resume TOON against resume TOON; retain full report, evidence-root, source-digest and unchanged-peer assertions. Rerun generate/repack/replay and six final-archive scenarios, then all requested static gates. The unpublished WIP will be amended into one normal commit without changing existing PM history bytes."
+  "2026-10-31T15:51:21.857Z",codex-agent,"Completed fresh generate/repack/replay sequence: six final-archive acceptance executions passed (Node and Bun each compatibility, decision-evidence and sequential), plus two successful native-fixture preparations. Both final sequential replays deep-equal the complete recorded receipt, including report fields, evidence root, source digest and same-command envelope lengths: resume JSON 944 bytes and resume TOON 817 bytes. Read-only public source 26650e303ec2cb6fcdc6c51092bcc30b2f1ed27c has 113 items and 92 done-role items; its digest remains b34c789d270d4aa0637b743da95d10f38aa9661ea03eedd7037c4f527e8a6302. Final archive SHA-256 5b63274458ea3a2cefb6a007d5e0de80662a80b1b4aeebe94ec826fa940bb347, all 241 shipped files byte-verified, all 180 runtime files identical across preparation and final archives. Current public sections in all three documents come from this cohort; older execution counters and archives are explicitly historical. grep -rn 120e20e docs/ README.md is empty."
+  "2026-10-31T15:51:23.755Z",codex-agent,"Static gates passed: npm run check, npm run lint, npm run docstring, npm run build:test. Duplicates: 0 across 58 sources; docstrings: 502 declarations. Linked command node --test --test-concurrency=2 --test-name-pattern=\"current public evidence shares\" test/decision-evidence.test.ts passed 1/1, fail/cancel/skip 0, via pm test pm-rl-review107later --run --only-last --progress. Counts, source coordinates and runtime roots are read from the evidence files rather than hard-coded. No runtime source, dependency pin or coverage threshold changed."
+  "2026-10-31T15:52:30.461Z",codex-agent,"Revert proof PRRT_kwDOTqJmqs6yR9cs / sequential document: in a disposable no-git copy, restore only docs/sequential-evaluation-evidence.json from dacc8b2. node --test --test-concurrency=2 --test-name-pattern=\"current public evidence shares\" test/decision-evidence.test.ts fails with ERR_ASSERTION on the cross-document public metrics. Restoring the generated file passes 1/1."
+  "2026-10-31T15:52:31.803Z",codex-agent,"Revert proof PRRT_kwDOTqJmqs6yR9cs / decision document: restore only docs/decision-evidence-validation.json from dacc8b2 in the disposable copy. The same focused consistency test fails with ERR_ASSERTION; restoring current generated evidence passes. All other files remain fixed."
+  "2026-10-31T15:52:32.714Z",codex-agent,"Revert proof PRRT_kwDOTqJmqs6yR9cs / compatibility document: restore only docs/evaluation-compatibility-evidence.json from dacc8b2 in the disposable copy. The focused consistency test fails with ERR_ASSERTION on the public replay metadata. Restored-before and restored-after controls each pass 1/1."
+  "2026-10-31T15:52:33.710Z",codex-agent,"Revert proof for the replay-envelope correction: in the disposable copy, revert only the initial JSON capture to the advance result. Fixture preparation passes, then final-archive replay fails specifically at cli_json_bytes (resume 944 versus recorded advance 945). Restore the resume capture; new preparation and final replay both pass. Full report/root/digest comparisons remain unchanged. Four negative controls passed overall; no target-checkout runtime code or native history was reverted."
+  "2026-10-31T15:53:23.061Z",codex-agent,"Final pre-push verification passed: npm run changelog:full, npm run changelog:check, strict PM health, changed-text privacy, append-only history prefix checks, archive SHA-256 and byte comparison of all 241 shipped files. Health retains the two existing telemetry/provenance advisories; no repair or telemetry configuration changed. Reproduction command: node test/refresh-public-evidence.ts \"$PUBLIC_TRACKER_COPY\" 26650e303ec2cb6fcdc6c51092bcc30b2f1ed27c \"$EVIDENCE_OUTPUT\" with a fresh git-archive public tracker copy made read-only. Lifecycle correction remains open, review item remains in_progress, and both own claims are released."
+files[19]{path,scope}:
   checkpoint-artifacts.ts,project
+  docs/decision-evidence-validation.json,project
   docs/evaluation-compatibility-evidence.json,project
   docs/process-trainer.md,project
+  docs/sequential-evaluation-evidence.json,project
   evaluation-plan.ts,project
   index.ts,project
   meta.ts,project
@@ -55,11 +68,14 @@ files[14]{path,scope}:
   process.ts,project
   recursive-improver.ts,project
   sequential-evaluation.ts,project
+  test/decision-evidence.test.ts,project
   test/evaluation-plan.test.ts,project
   test/process.test.ts,project
+  test/refresh-public-evidence.ts,project
+  test/sequential-evaluation.acceptance.ts,project
   test/sequential-evaluation.test.ts,project
   test/transaction-races.test.ts,project
-tests[7]:
+tests[8]:
   - command: node --test --test-name-pattern='recovery stops only the exact live trainer' test/controller-boundaries.test.ts
     scope: project
     provenance:
@@ -121,6 +137,17 @@ tests[7]:
       created_at: "2026-10-31T13:22:53.771Z"
       source_kind: local_mutation
       source_ref: feat/predeclared-sequential-evaluation
-docs[1]{path,scope}:
+  - command: "node --test --test-concurrency=2 --test-name-pattern=\"current public evidence shares\" test/decision-evidence.test.ts"
+    scope: project
+    timeout_seconds: 120
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-31T15:37:26.502Z"
+      source_kind: local_mutation
+      source_ref: feat/predeclared-sequential-evaluation
+docs[2]{path,scope}:
   docs/process-trainer.md,project
+  README.md,project
 body: ""
