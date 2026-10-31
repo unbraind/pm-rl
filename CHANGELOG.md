@@ -4,6 +4,7 @@
 
 ### Added
 
+- Measure evaluation sensitivity to declared training slices ([pm-rl-measured-influence](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-measured-influence.toon))
 - Refuse promotion when a protected task cohort regresses ([pm-rl-worstcohort](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-worstcohort.toon))
 - Explain learned policy suitability with portable replayable cards ([pm-rl-policycards](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-policycards.toon))
 - Observe candidate policies safely before deployment ([pm-rl-shadow](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-shadow.toon))
