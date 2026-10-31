@@ -91,13 +91,13 @@ export function inspectCheckpointArtifact(root: string, digest: string): { artif
   if (artifact === undefined) expectedFail("Checkpoint digest has no promotion ledger root.", "checkpoint_artifact_missing");
   return { artifact, value: readCheckpointArtifact(root, artifact) };
 }
-/** Refuse runtimes without directory-relative no-follow access before acquiring a storage lease. */
-function requireArtifactDescriptors(): void {
+/** Refuse runtimes without directory-relative no-follow access before a storage lease or any durable programme state. */
+export function requireCheckpointStorage(): void {
   if (process.platform !== "linux") expectedFail("Checkpoint storage requires Linux descriptor-relative no-follow access.", "checkpoint_storage_unsupported");
 }
 /** Pin each directory with O_NOFOLLOW; procfs supplies directory-relative operations on Linux. */
 function artifactDirectory<T>(root: string, parts: readonly string[], execute: (directory: string, handles: readonly number[], verify: () => void) => T): T {
-  requireArtifactDescriptors();
+  requireCheckpointStorage();
   statePath(root, ...parts);
   const handles: number[] = [];
   let result: T;
@@ -160,7 +160,7 @@ function publishFile(root: string, kind: "sha256" | "ledger", digest: string, co
 function checkpointArtifactPathForKind(root: string, kind: string, digest: string): string { return statePath(root, "artifacts", "pm-rl", kind, `${digest.slice(7)}.json`); }
 /** Serialize short publication/GC critical sections using the SDK's token-owned tracker lock. */
 async function withArtifactLock<T>(root: string, operation: () => T): Promise<T> {
-  requireArtifactDescriptors();
+  requireCheckpointStorage();
   const release = await acquireStateLock(root, "rl-checkpoint-artifacts", 3600, "pm-rl", false, true, 30_000);
   try { return operation(); } finally { await release(); }
 }

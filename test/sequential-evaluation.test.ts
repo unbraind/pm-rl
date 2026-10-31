@@ -767,22 +767,22 @@ test("create failures re-read current ownership and preserve foreign winners", a
 
 test("registration interleavings and both publication boundaries preserve one reviewed winner", async () => {
   const previousWait = process.env.PM_LOCK_WAIT_MS; process.env.PM_LOCK_WAIT_MS = "0";
-  const w = await workspace(); const peer = new PmClient({ pmRoot: w.pmRoot, cwd: w.root, author: "peer-agent", noExtensions: true });
-  const state = { current: plan("rl-registration-baseline"), boundary: 0, injectAt: -1, injected: false };
-  /** Create each exact review before the registration under test. */
-  async function review(p: EvaluationPlan): Promise<void> { if (p.stopping.kind !== "sequential") throw new Error("fixture"); await peer.create({ id: p.stopping.review, type: "Decision", title: "Reviewed protocol", body: JSON.stringify({ format: "pm-rl/sequential-review/1", comparison: evaluationComparison(p) }) }); }
-  /** Let a real SDK peer attempt the same reviewed reservation at every observed boundary. */
-  async function step(): Promise<void> {
-    if (state.boundary++ !== state.injectAt) return;
-    state.injected = true;
-    try { assert.equal((await registerEvaluationPlan(peer, state.current)).comparison, evaluationComparison(state.current)); }
-    catch (error) { assert.ok(isPmCliExpectedError(error)); assert.equal(error.context.code, "lock_conflict"); }
-  }
-  const get = w.client.get.bind(w.client); const config = w.client.config.bind(w.client); const create = w.client.create.bind(w.client);
-  w.client.get = (async (...args) => { await step(); try { return await get(...args); } finally { await step(); } }) as PmClient["get"];
-  w.client.config = (async (...args) => { await step(); try { return await config(...args); } finally { await step(); } }) as PmClient["config"];
-  w.client.create = (async (...args) => { await step(); try { return await create(...args); } finally { await step(); } }) as PmClient["create"];
   try {
+    const w = await workspace(); const peer = new PmClient({ pmRoot: w.pmRoot, cwd: w.root, author: "peer-agent", noExtensions: true });
+    const state = { current: plan("rl-registration-baseline"), boundary: 0, injectAt: -1, injected: false };
+    /** Create each exact review before the registration under test. */
+    async function review(p: EvaluationPlan): Promise<void> { if (p.stopping.kind !== "sequential") throw new Error("fixture"); await peer.create({ id: p.stopping.review, type: "Decision", title: "Reviewed protocol", body: JSON.stringify({ format: "pm-rl/sequential-review/1", comparison: evaluationComparison(p) }) }); }
+    /** Let a real SDK peer attempt the same reviewed reservation at every observed boundary. */
+    async function step(): Promise<void> {
+      if (state.boundary++ !== state.injectAt) return;
+      state.injected = true;
+      try { assert.equal((await registerEvaluationPlan(peer, state.current)).comparison, evaluationComparison(state.current)); }
+      catch (error) { assert.ok(isPmCliExpectedError(error)); assert.equal(error.context.code, "lock_conflict"); }
+    }
+    const get = w.client.get.bind(w.client); const config = w.client.config.bind(w.client); const create = w.client.create.bind(w.client);
+    w.client.get = (async (...args) => { await step(); try { return await get(...args); } finally { await step(); } }) as PmClient["get"];
+    w.client.config = (async (...args) => { await step(); try { return await config(...args); } finally { await step(); } }) as PmClient["config"];
+    w.client.create = (async (...args) => { await step(); try { return await create(...args); } finally { await step(); } }) as PmClient["create"];
     await review(state.current); await registerEvaluationPlan(w.client, state.current); const boundaries = state.boundary;
     for (let index = 0; index < boundaries; index += 1) {
       state.current = plan(`rl-registration-${index}`); state.boundary = 0; state.injectAt = index; state.injected = false;
@@ -802,14 +802,14 @@ test("registration interleavings and both publication boundaries preserve one re
 
 test("a predecessor cannot become foreign between validation and dependent checkpoint publication", async () => {
   const previousWait = process.env.PM_LOCK_WAIT_MS; process.env.PM_LOCK_WAIT_MS = "0";
-  const w = await workspace(); const p = await prepared(w.client);
-  const peer = new PmClient({ pmRoot: w.pmRoot, cwd: w.root, author: "ordinary-sdk-peer", noExtensions: true });
-  await recordSequentialEvaluation(w.client, p.candidate, observations(p));
-  const before = await readCompleteLoopItem(peer, `${p.candidate}-evaluation-plan-look-1`); const create = w.client.create.bind(w.client); let attempted = 0;
-  /** Race the ordinary SDK writer on both sides of the dependent checkpoint creation. */
-  async function compete(): Promise<void> { attempted += 1; await assert.rejects(peer.update(before.item.id, { tags: "foreign" }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "lock_conflict"); }
-  w.client.create = (async (...args) => { await compete(); const result = await create(...args); await compete(); return result; }) as PmClient["create"];
   try {
+    const w = await workspace(); const p = await prepared(w.client);
+    const peer = new PmClient({ pmRoot: w.pmRoot, cwd: w.root, author: "ordinary-sdk-peer", noExtensions: true });
+    await recordSequentialEvaluation(w.client, p.candidate, observations(p));
+    const before = await readCompleteLoopItem(peer, `${p.candidate}-evaluation-plan-look-1`); const create = w.client.create.bind(w.client); let attempted = 0;
+    /** Race the ordinary SDK writer on both sides of the dependent checkpoint creation. */
+    async function compete(): Promise<void> { attempted += 1; await assert.rejects(peer.update(before.item.id, { tags: "foreign" }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "lock_conflict"); }
+    w.client.create = (async (...args) => { await compete(); const result = await create(...args); await compete(); return result; }) as PmClient["create"];
     assert.equal(report(await recordSequentialEvaluation(w.client, p.candidate, observations(p, 64, true))).sequential?.state, "sufficient");
     assert.equal(attempted, 2); assert.deepEqual(await readCompleteLoopItem(peer, before.item.id), before);
     await peer.update(before.item.id, { tags: "foreign" });

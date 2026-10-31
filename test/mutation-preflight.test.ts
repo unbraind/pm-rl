@@ -14,9 +14,11 @@ import { recordSequentialEvaluation } from "../sequential-evaluation.ts";
 import { recordPolicyCard, recordRecursivePolicyCards } from "../policy-card.ts";
 import { decisionFixture } from "./fixtures/decision-evidence.ts";
 import { allowance, processWorkspace, trainingInput } from "./fixtures/process-workspace.ts";
-import { reserveProcessJob, processJobId, transitionProcessJob } from "../process.ts";
+import { executeProcessTrainer, reserveProcessJob, processJobId, transitionProcessJob, type ProcessInput } from "../process.ts";
 import { metaWorkspace, metaConfig, metaSpec } from "./fixtures/meta-workspace.ts";
 import { runRlMeta } from "../meta.ts";
+import { runRecursiveImprover, type ImproverRequest } from "../recursive-improver.ts";
+import { recipeArtifact } from "../recipe.ts";
 import { registerShadowDeployment, observeShadow, compareShadow, shadowInputDigest, type ShadowDeployment } from "../shadow.ts";
 import type { GenerationSpec } from "../lineage.ts";
 import { collectCheckpointArtifacts } from "../checkpoint-artifacts.ts";
@@ -175,6 +177,26 @@ test("meta resource and promotion budgets refuse before controller intents or re
       await refusesUnchanged(w.coordinates.pmRoot, () => runRlMeta(w.client, w.coordinates, { id, config: metaConfig, dataset: w.dataset, approval: w.approval, proposer: "seeded" }), code);
     }
   } finally { rmSync(w.root, { recursive: true, force: true }); }
+});
+
+/** Report an unsupported runtime only while one programme call runs, so tracker snapshots use the real platform. */
+function onUnsupportedPlatform(run: () => Promise<unknown>): () => Promise<unknown> {
+  return async () => {
+    const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
+    Object.defineProperty(process, "platform", { ...platform, value: "unsupported" });
+    try { return await run(); } finally { Object.defineProperty(process, "platform", platform); }
+  };
+}
+
+test("checkpoint-producing programmes refuse unsupported runtimes before any reservation, lease or receipt", async () => {
+  const meta = await metaWorkspace(); const jobs = await processWorkspace();
+  try {
+    const prefixConfig = { ...metaConfig, initial_recipe: recipeArtifact({ ...metaConfig.initial_recipe.knobs, prefix: { regularisation: 0.001, ngram_order: 2, hashing_width: 32 } }) };
+    await refusesUnchanged(meta.coordinates.pmRoot, onUnsupportedPlatform(() => runRlMeta(meta.client, meta.coordinates, { id: "prefix-unsupported", config: prefixConfig, dataset: meta.dataset, approval: meta.approval, proposer: "seeded" })), "checkpoint_storage_unsupported");
+    await refusesUnchanged(jobs.pmRoot, onUnsupportedPlatform(() => runRecursiveImprover(jobs.client, jobs.coordinates, { id: "improver", approval: jobs.approval } as unknown as ImproverRequest)), "checkpoint_storage_unsupported");
+    const prefixInput = { ...trainingInput(), prefix: {} } as unknown as ProcessInput<never>;
+    await refusesUnchanged(jobs.pmRoot, onUnsupportedPlatform(() => executeProcessTrainer(jobs.client, jobs.coordinates, prefixInput, jobs.approval, { kind: "process-bandit", allowance })), "checkpoint_storage_unsupported");
+  } finally { rmSync(meta.root, { recursive: true, force: true }); rmSync(jobs.root, { recursive: true, force: true }); }
 });
 
 test("shadow dependent receipt conflicts refuse before allocating a Plan or fixed evaluation result", async () => {

@@ -3283,7 +3283,8 @@ function controllerGitMarker(start: string, ceiling: string): string | null {
   const ceilings = ceiling.split(delimiter).filter(Boolean).map((path) => resolve(path));
   let directory = resolve(start);
   for (;;) {
-    const marker = statePath(directory, ".git");
+    // Discovery may cross symlinked ancestors (macOS /var, a linked /home); only the marker itself must not be a link.
+    const marker = statePath(join(directory, ".git"));
     if (existsSync(marker)) return marker;
     const parent = dirname(directory);
     if (parent === directory || ceilings.includes(parent)) return null;

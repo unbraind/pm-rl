@@ -506,6 +506,10 @@ Prefix checkpoints now live in SHA-256 artifacts, with small staging references,
 verified resume/replay, and reachability-based garbage collection. Hashing widths
 through 64 retain the existing 4096-byte reservation. Widths above 64, up to 4096,
 require an explicit larger storage approval; optimizer and promotion bounds are unchanged. See [checkpoint storage and measurements](docs/checkpoint-artifacts.md).
+Checkpoint storage requires Linux with procfs descriptor access. On other platforms,
+`pm rl improver run`, prefix `pm rl meta run` recipes and prefix process fits refuse with
+`checkpoint_storage_unsupported` before they reserve a job, take a controller lease or write
+a receipt. Existing checkpoint reads keep working.
 
 For item-paired promotion against constant policies, use
 `examples/loop-corpus-baseline.json`. Its bounded title-vector learner and

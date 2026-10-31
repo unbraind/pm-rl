@@ -245,6 +245,8 @@ async function exportSnapshotCard(client: PmClient, primary: { item: CardItem; c
   const { evidence, resource, prefix, decisionGraph } = await generationEvidence(client, primary.citation.id, primary);
   return assemble(primary.citation.id, primary.item, evidence, resource, selection, prefix, legacy ? undefined : decisionGraph);
 }
+/** Citation order shared by export and replay: UTF-8 bytes, as hashed evidence uses; equal to the default sort for native ASCII IDs. */
+function citationOrder(left: string, right: string): number { return Buffer.compare(Buffer.from(left), Buffer.from(right)); }
 /** Define the complete generation evidence set once for card identity and loop resume: citations, Runs and decoded metric notes. @internal */
 export async function generationEvidence(client: PmClient, subject: string, selected?: { item: CardItem; citation: PolicyCardEvidence }): Promise<{ primary: CardItem; evidence: PolicyCardEvidence[]; entries: CardItem[]; resource: Record<string, number>; prefix: string; decisionGraph?: EvaluationEvidence }> {
   const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
@@ -258,7 +260,7 @@ export async function generationEvidence(client: PmClient, subject: string, sele
   const dependencies = [...parsed.dependencies, ...decision.ids].filter((id) => id !== primary.item.id || parsed.dependencies.includes(id));
   if (dependencies.includes(primary.item.id)) refuse("card_missing_provenance");
   if (new Set(dependencies).size >= MAX_EVIDENCE) refuse("card_limit");
-  for (const id of [...new Set(dependencies)].sort()) {
+  for (const id of [...new Set(dependencies)].sort(citationOrder)) {
     const coordinate = primary.item.type === "Decision" ? decision.graph?.inputs.find((input) => input.id === id)?.at : undefined;
     const entry = await snapshot(client, id, coordinate); evidence.push(entry.citation); entries.push(entry.item);
   }
@@ -489,7 +491,7 @@ export async function replayPolicyCard(client: PmClient, value: unknown): Promis
   verifyDecisionBindings(items[0], items.slice(1), decision?.graph);
   await verifyEvidenceBindings(client, items[0], items.slice(1), decision);
   for (const item of items.slice(1)) Object.assign(resource, evidenceLimits(subject, item));
-  const card = assemble(subject, items[0], [results[0], ...results.slice(1).sort((left, right) => left.id.localeCompare(right.id))], resource, selection, prefix, decision?.graph);
+  const card = assemble(subject, items[0], [results[0], ...results.slice(1).sort((left, right) => citationOrder(left.id, right.id))], resource, selection, prefix, decision?.graph);
   if (canonicalJson(candidate as JsonValue) !== canonicalJson(card as unknown as JsonValue)) refuse("card_drift");
   return { card, results };
 }

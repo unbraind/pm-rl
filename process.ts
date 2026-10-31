@@ -17,7 +17,7 @@ import { expectedFail } from "./refuse.ts";
 import { validateLmProcessCheckpoint, type LmProcessPayload } from "./process-lm.ts";
 import { validatePrefixCompletion, type PrefixPayload } from "./prefix.ts";
 import { launchComposeTrainer, stopComposeTrainer } from "./compose.ts";
-import { encodeCheckpointArtifacts, readCheckpointArtifact, type CheckpointArtifact } from "./checkpoint-artifacts.ts";
+import { encodeCheckpointArtifacts, readCheckpointArtifact, requireCheckpointStorage, type CheckpointArtifact } from "./checkpoint-artifacts.ts";
 import { retryOwnedStop, waitForOwnedClose } from "./owned-stop.ts";
 
 /** Independently accounted resource dimensions; all values are nonnegative safe integers. */
@@ -686,6 +686,8 @@ function failedProcessCharge(directory: string, prior: Resources, state?: Proces
 export async function executeProcessTrainer<P extends TrainerPolicy>(client: PmClient, coordinates: ProcessCoordinates, input: ProcessInput<P>, approval: string, adapter: ProcessAdapter, signal?: AbortSignal, argv: readonly string[] = referenceTrainerArgv()): Promise<ProcessJob<P>> {
   if (input.training_config.steps !== adapter.allowance.training_steps) expectedFail("Optimizer steps differ from the declared reservation.", "process_invalid_adapter");
   if (input.prefix !== undefined && (input.lm !== undefined || adapter.kind !== "process-bandit")) expectedFail("Prefix fits require the packaged process adapter.", "process_invalid_adapter");
+  // Prefix fits publish checkpoint artifacts; refuse unsupported runtimes before the job is reserved.
+  if (input.prefix !== undefined) requireCheckpointStorage();
   if ((input.lm !== undefined) !== (adapter.kind === "compose-lm") || (input.lm !== undefined && adapter.kind === "compose-lm" && input.lm.memory_bytes !== adapter.memory_bytes)) expectedFail("Trainer payload differs from the declared adapter limits.", "process_invalid_adapter");
   encodeBoundedJson(input);
   const id = processJobId(input, argv, adapter);

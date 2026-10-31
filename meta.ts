@@ -10,6 +10,7 @@ import type { BinaryCalibration, PrefixCheckpoint } from "./prefix.ts";
 import { openTrackerEnvironment } from "./tracker-environment.ts";
 import { parseProcessAdapter, type ProcessAdapter, type ProcessCoordinates } from "./process.ts";
 import { expectedFail } from "./refuse.ts";
+import { requireCheckpointStorage } from "./checkpoint-artifacts.ts";
 import { decidePromotion, hoeffdingEpsilon, parsePromotionCriterion, type PromotionCriterion, type PromotionEvidence, type PromotionDecision } from "./promotion.ts";
 import { parseRecipe, seededRecipes, RECIPE_BOUNDS, type Recipe } from "./recipe.ts";
 import { requestSystemOneDecision, calibratedProbabilities } from "./systemone.ts";
@@ -317,6 +318,8 @@ export async function runRlMeta(client: PmClient, coordinates: ProcessCoordinate
   const request = await programmeRequest(client, { ...rawRequest, id: await canonicalProgrammeId(client, rawRequest.id) });
   assert.ok(/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(request.id) && request.id.length <= 20, "meta_programme_id");
   const config = parseMetaConfig(request.config);
+  // Prefix recipes publish checkpoint artifacts; refuse unsupported runtimes before the meta reservation.
+  if (config.initial_recipe.knobs.prefix !== undefined) requireCheckpointStorage();
   assert.ok(request.proposer === "seeded" || request.proposer === "decision-model", "meta_proposer");
   const signal = request.signal === undefined ? AbortSignal.timeout(config.timeout_ms) : AbortSignal.any([request.signal, AbortSignal.timeout(config.timeout_ms)]);
   const environment = openTrackerEnvironment(client, coordinates, request.dataset, config, request.approval);

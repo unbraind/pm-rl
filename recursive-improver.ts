@@ -7,6 +7,7 @@ import { readImproverDataset, type IMPROVER_ROLES, type ImproverDataset } from "
 import { initialImprover, parseImprover, proposeLearners, updateImprover, type ImproverPolicy, type ProposalOutcome } from "./improver.ts";
 import { compareImprovers, openImproverEnvironment, IMPROVER_CRITERION, IMPROVER_MAX_ATTEMPTS, type ImproverLearner, type LearnerTrial } from "./improver-environment.ts";
 import { hoeffdingEpsilon } from "./promotion.ts";
+import { requireCheckpointStorage } from "./checkpoint-artifacts.ts";
 import type { ProcessCoordinates } from "./process.ts";
 
 /** Fixed logical optimizer budget per proposal; the absolute deadline survives process death. */
@@ -80,6 +81,8 @@ export function selectImprover(policy: ImproverPolicy, candidate: ImproverPolicy
 
 /** Resume verified phase receipts and process jobs; immutable inputs and the original deadline fence unfinished work. */
 export async function runRecursiveImprover(client: PmClient, coordinates: ProcessCoordinates, rawRequest: ImproverRequest): Promise<ImproverReport> {
+  // Every improver generation is a checkpoint artifact; refuse unsupported runtimes before any lease or receipt.
+  requireCheckpointStorage();
   const request = await programmeRequest(client, rawRequest);
   assert.ok(/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(request.id) && request.id.length <= 12, "improver_programme_id");
   const config = parseImproverConfig(request.config);

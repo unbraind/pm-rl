@@ -365,6 +365,17 @@ test("checkpoint batch publication refuses oversized ledger metadata before publ
   assert.deepEqual(readCheckpointLedger(w.pmRoot), []);
 });
 
+test("Git discovery crosses symlinked ancestors but refuses a linked marker", async () => {
+  const w = await checkpointWorkspace();
+  const real = join(w.root, "real"); const tracker = join(real, "tracker"); mkdirSync(tracker, { recursive: true });
+  const linked = join(w.root, "linked"); symlinkSync(real, linked, process.platform === "win32" ? "junction" : "dir");
+  // A standalone tracker below a linked ancestor (macOS /var, a linked /home) stays usable.
+  assert.equal(controllerHasGitAncestor(join(linked, "tracker"), w.root), false);
+  const elsewhere = join(w.root, "elsewhere"); mkdirSync(elsewhere);
+  symlinkSync(elsewhere, join(real, ".git"), process.platform === "win32" ? "junction" : "dir");
+  assert.throws(() => controllerHasGitAncestor(tracker, w.root), refuses("rl_state_path_invalid"));
+});
+
 test("plain-directory controllers never invoke Git and honor discovery ceilings", async () => {
   const w = await checkpointWorkspace();
   const ceiling = process.env.GIT_CEILING_DIRECTORIES;
