@@ -344,6 +344,34 @@ test("parseScoreRecord accepts attributed scores and refuses every incomparable 
   }
 });
 
+/**
+ * The stable refusal code each malformed generation record must produce, in write and read mode. Assertions
+ * check the code as well as the message, because messages are presentation and can stay similar while the code
+ * regresses (CodeRabbit on #107). Write mode refuses padded identifiers as invalid identifiers; read mode trims
+ * them first, so a whitespace-only parent reads as a missing parent.
+ */
+const GENERATION_REFUSAL_CODES: Record<string, readonly [write: string, read: string]> = {
+  "not valid JSON": ["invalid_generation_json", "invalid_generation_json"],
+  "one JSON object": ["invalid_json_object", "invalid_json_object"],
+  "collection_runs array of strings": ["invalid_collection_runs", "invalid_collection_runs"],
+  "parent to be a string or null": ["invalid_parent", "invalid_parent"],
+  "declares seed but has a parent": ["seed_with_parent", "seed_with_parent"],
+  "non-empty parent for a non-seed": ["missing_parent", "missing_parent"],
+  "State boundary refused": ["rl_identifier_invalid", "missing_parent"],
+  "non-empty policy for a non-seed": ["missing_policy", "missing_policy"],
+  "non-empty environment_version for a non-seed": ["missing_environment", "missing_environment"],
+  "non-empty reward_spec_version for a non-seed": ["missing_reward_spec", "missing_reward_spec"],
+  "at least one collection run": ["missing_collection_runs", "missing_collection_runs"],
+  "approval to be a string or null": ["invalid_approval", "invalid_approval"],
+  "gap to be a finite number or null": ["invalid_gap", "invalid_gap"],
+  "promotion_evidence to be a string or null": ["invalid_promotion_evidence", "invalid_promotion_evidence"],
+};
+
+/** Match a typed refusal by its stable code, and optionally by its message. */
+function refusedAs(code: string, message?: RegExp): (error: unknown) => boolean {
+  return (error) => (error as { context?: { code?: string } }).context?.code === code && (message === undefined || message.test(String((error as Error).message)));
+}
+
 test("parseGenerationSpec accepts the seed and a full candidate and refuses every malformed provenance", () => {
   const seedText = JSON.stringify(seedSpec("ckpt-0", ""));
   assert.equal(parseGenerationSpec(seedText, "g").seed, true);
@@ -372,8 +400,9 @@ test("parseGenerationSpec accepts the seed and a full candidate and refuses ever
     [JSON.stringify({ ...fullBase }).replace('"gap":null', '"gap":1e999'), /gap to be a finite number or null/],
     [JSON.stringify({ ...fullBase, promotion_evidence: 5 }), /promotion_evidence to be a string or null/],
   ] as Array<[string, RegExp]>) {
-    assert.throws(() => parseGenerationSpec(text, "g", "write"), message);
-    assert.throws(() => parseGenerationSpec(text, "g"));
+    const [writeCode, readCode] = GENERATION_REFUSAL_CODES[message.source];
+    assert.throws(() => parseGenerationSpec(text, "g", "write"), refusedAs(writeCode, message));
+    assert.throws(() => parseGenerationSpec(text, "g"), refusedAs(readCode));
   }
   // The promotion invariant: approval, proxy_score, held_out_score and gap are
   // non-null EXACTLY when promoted is true. A promoted record carrying all four
@@ -409,7 +438,7 @@ test("parseGenerationSpec accepts the seed and a full candidate and refuses ever
   // gen-0 from the head set - the same padded-identity class as the
   // contamination gate bypass fixed earlier in this PR.
   const paddedParent = { ...candidate, parent: "  gen-0  " };
-  assert.throws(() => parseGenerationSpec(JSON.stringify(paddedParent), "g", "write"), /State boundary refused/);
+  assert.throws(() => parseGenerationSpec(JSON.stringify(paddedParent), "g", "write"), refusedAs("rl_identifier_invalid", /State boundary refused/));
   // A seed body legitimately omits the parent key. Before `parent` collapsed
   // `undefined` to null like every other optional field, that body was refused
   // as invalid_parent with a message saying parent must be a string or null -
@@ -422,8 +451,8 @@ test("parseGenerationSpec accepts the seed and a full candidate and refuses ever
   // equivalent to one that omits the key — it must NOT be refused as
   // seed_with_parent. A non-seed body with a blank parent is still refused as
   // missing_parent, because the normalized null is not a usable parent.
-  assert.throws(() => parseGenerationSpec(JSON.stringify({ ...spec({ seed: true, parent: null }), parent: "   " }), "g", "write"), /State boundary refused/);
-  assert.throws(() => parseGenerationSpec(JSON.stringify({ ...spec({ seed: true, parent: null }), parent: "" }), "g", "write"), /State boundary refused/);
+  assert.throws(() => parseGenerationSpec(JSON.stringify({ ...spec({ seed: true, parent: null }), parent: "   " }), "g", "write"), refusedAs("rl_identifier_invalid", /State boundary refused/));
+  assert.throws(() => parseGenerationSpec(JSON.stringify({ ...spec({ seed: true, parent: null }), parent: "" }), "g", "write"), refusedAs("rl_identifier_invalid", /State boundary refused/));
   // A NON-seed body missing the key must still be refused - but for the reason
   // that is true of it (no parent) rather than for a type it never violated.
   const candidateNoParentKey: Record<string, unknown> = { ...candidate };
@@ -433,14 +462,14 @@ test("parseGenerationSpec accepts the seed and a full candidate and refuses ever
   // the comparison is the one bounding the recursive promotion budget. A
   // promoted record storing "  a  " matches no approval id, so it consumes none
   // of a's budget while still counting as promoted everywhere else.
-  assert.throws(() => parseGenerationSpec(JSON.stringify({ ...promotedBase, approval: "  a  " }), "g", "write"), /State boundary refused/);
+  assert.throws(() => parseGenerationSpec(JSON.stringify({ ...promotedBase, approval: "  a  " }), "g", "write"), refusedAs("rl_identifier_invalid", /State boundary refused/));
   // collection_runs was the last stored identity list left un-normalized. It
   // lives inside the JSON fence, which pm treats as opaque body text and does
   // NOT normalize, so unlike the Run's typed `environment` field a padded entry
   // here IS reachable — and each entry is resolved by strict id lookup during
   // the ancestry walk, so it would resolve nothing and quietly degrade the
   // contamination graph.
-  assert.throws(() => parseGenerationSpec(JSON.stringify({ ...promotedBase, collection_runs: ["  run-a  ", "run-b"] }), "g", "write"), /State boundary refused/);
+  assert.throws(() => parseGenerationSpec(JSON.stringify({ ...promotedBase, collection_runs: ["  run-a  ", "run-b"] }), "g", "write"), refusedAs("rl_identifier_invalid", /State boundary refused/));
   assert.throws(() => parseGenerationSpec(JSON.stringify({ ...promotedBase, collection_runs: ["run-a", "   "] }), "g"), /collection run id to be a non-empty identity/);
   // A blank approval is the same bypass without the padding: it is non-null, so
   // it satisfies the promotion-evidence invariant above, and it equals no

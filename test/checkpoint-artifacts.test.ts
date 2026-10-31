@@ -644,6 +644,23 @@ test("descriptor traversal refuses unavailable procfs, inode mismatch and no-fol
 });
 
 
+test("a blob removed during cleanup refuses as changed state, not as unsupported storage", async () => {
+  // CodeRabbit on #107: after the procfs probe succeeded, an ENOENT means the state changed underneath the held
+  // descriptors. Reporting checkpoint_storage_unsupported sent operators to change runtimes on a supported host.
+  const w = await checkpointWorkspace();
+  const blobs = join(w.pmRoot, "artifacts", "pm-rl", "sha256"); mkdirSync(blobs, { recursive: true });
+  const blob = `${"a".repeat(64)}.json`; fs.writeFileSync(join(blobs, blob), "{}");
+  const lstat = fs.lstatSync; let removed = false;
+  const hook = mock.method(fs, "lstatSync", (...args: Parameters<typeof lstat>) => {
+    if (!removed && String(args[0]).endsWith(`/${blob}`)) { removed = true; fs.unlinkSync(join(blobs, blob)); }
+    return lstat(...args);
+  }); syncBuiltinESMExports();
+  try {
+    await assert.rejects(collectCheckpointArtifacts(w.pmRoot), refuses("rl_state_path_invalid"));
+  } finally { hook.mock.restore(); syncBuiltinESMExports(); }
+  assert.equal(removed, true);
+});
+
 test("checkpoint descriptor checks refuse replacement by another ordinary directory", async () => {
   const w = await checkpointWorkspace(); const artifacts = join(w.pmRoot, "artifacts"); mkdirSync(artifacts);
   const write = fs.writeFileSync; let replaced = false;

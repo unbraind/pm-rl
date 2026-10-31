@@ -101,6 +101,10 @@ function artifactDirectory<T>(root: string, parts: readonly string[], execute: (
   statePath(root, ...parts);
   const handles: number[] = [];
   let result: T;
+  // Set once procfs has resolved the held inode. Before that, ENOENT means the runtime lacks descriptor-relative
+  // storage. After it, ENOENT means a component or artifact was removed while held, and the remedy is to
+  // restore that state, not to change runtimes.
+  let probed = false;
   try {
     handles.push(openSync(statePath(root), constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW));
     const base = `/proc/self/fd/${handles[0]}`;
@@ -111,6 +115,7 @@ function artifactDirectory<T>(root: string, parts: readonly string[], execute: (
     catch { expectedFail("Checkpoint descriptor access is unavailable.", "checkpoint_storage_unsupported"); }
     try { const actual = fstatSync(probe); if (actual.dev !== held.dev || actual.ino !== held.ino) expectedFail("Checkpoint descriptor identity could not be verified.", "checkpoint_storage_unsupported"); }
     finally { closeSync(probe); }
+    probed = true;
     for (const part of parts) {
       const parent = `/proc/self/fd/${handles[handles.length - 1]}`;
       // mkdir never follows its final component; the subsequent open refuses an existing link.
@@ -133,7 +138,10 @@ function artifactDirectory<T>(root: string, parts: readonly string[], execute: (
     verify();
   } catch (error) {
     if (["ELOOP", "ENOTDIR"].includes(String((error as NodeJS.ErrnoException).code))) expectedFail("Checkpoint directory changed or contains a link.", "rl_state_path_invalid");
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") expectedFail("Descriptor-relative checkpoint storage is unavailable.", "checkpoint_storage_unsupported");
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      if (probed) expectedFail("Checkpoint state changed during the operation: a directory or artifact was removed. Restore it, then retry.", "rl_state_path_invalid");
+      expectedFail("Descriptor-relative checkpoint storage is unavailable.", "checkpoint_storage_unsupported");
+    }
     throw error;
   } finally { for (const handle of handles.reverse()) closeSync(handle); }
   return result;

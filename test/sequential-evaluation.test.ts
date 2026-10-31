@@ -463,7 +463,12 @@ test("strict sequential schemas reject sparse arrays, unknown choices, nonfinite
 test("only complete frozen unit prefixes at declared looks are admissible", () => {
   const p = plan(); const rows = observations(p);
   assert.equal(evaluatePlan(p, rows).sequential?.state, "continue");
-  for (const invalid of [[], rows.slice(1), [...rows, rows[0]], new Array(16), observations(p, 17), [...rows.slice(0, 15), { ...rows[15], id: "m063" }]]) assert.throws(() => evaluatePlan(p, invalid));
+  // Each inadmissible prefix refuses with its stable code, not just any error (CodeRabbit on #107).
+  for (const [invalid, code] of [
+    [[], "eval_plan_stopping"], [rows.slice(1), "eval_plan_stopping"], [[...rows, rows[0]], "eval_plan_evidence"],
+    [new Array(16), "eval_plan_stopping"], [observations(p, 17), "eval_plan_stopping"],
+    [[...rows.slice(0, 15), { ...rows[15], id: "m063" }], "eval_plan_stopping"],
+  ] as Array<[unknown[], string]>) assert.throws(() => evaluatePlan(p, invalid as never), refusal(code));
   const clustered = { ...p, members: [...p.members, { id: "extra", unit: "u0" }], stopping: { ...p.stopping, observations: 65 } };
   assert.throws(() => evaluatePlan(clustered, rows), refusal("eval_plan_stopping"));
   const result = evaluatePlan(clustered, [...rows, { id: "extra", candidate: 1, incumbent: 0 }]);
@@ -510,7 +515,7 @@ test("boundary input and output fuzzing stays finite across extreme representabl
     assert.ok(result.incumbent_mean >= lo && result.incumbent_mean <= hi);
     assert.ok(result.sequential!.lower >= -1 && result.sequential!.upper <= 1);
     const extreme = [NaN, Infinity, -Infinity, undefined, null, "1"][trial % 6];
-    assert.throws(() => evaluatePlan(q, [{ ...rows[0], candidate: extreme }, ...rows.slice(1)]));
+    assert.throws(() => evaluatePlan(q, [{ ...rows[0], candidate: extreme }, ...rows.slice(1)]), refusal("eval_plan_evidence"));
   }
 });
 
