@@ -9,7 +9,7 @@ import { parseApprovalSpec } from "./lineage.ts";
 import type { BinaryCalibration, PrefixCheckpoint } from "./prefix.ts";
 import { openTrackerEnvironment } from "./tracker-environment.ts";
 import { parseProcessAdapter, type ProcessAdapter, type ProcessCoordinates } from "./process.ts";
-import { expectedFail } from "./refuse.ts";
+import { expectedFail, rethrowOperationalRead } from "./refuse.ts";
 import { requireCheckpointStorage } from "./checkpoint-artifacts.ts";
 import { decidePromotion, hoeffdingEpsilon, parsePromotionCriterion, type PromotionCriterion, type PromotionEvidence, type PromotionDecision } from "./promotion.ts";
 import { parseRecipe, seededRecipes, RECIPE_BOUNDS, type Recipe } from "./recipe.ts";
@@ -192,6 +192,8 @@ export async function reserveMeta(client: PmClient, coordinates: ProcessCoordina
     let recordedApproval: string;
     try { recordedApproval = (await readApprovalSpec(client, record.approval)).id; }
     catch (error) {
+      // A temporary backend failure stays retryable instead of becoming a permanent drift verdict.
+      rethrowOperationalRead(error);
       if (isPmCliExpectedError(error)) expectedFail("meta_reservation_drift: reservation approval changed.", "meta_reservation_drift", EXIT_CODE.CONFLICT);
       throw error;
     }

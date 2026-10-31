@@ -98,6 +98,21 @@ test("transition boundary property: peer edits and ABA writes never become pendi
   console.log(JSON.stringify({ transition_hook_cases: cases, aba_cases: cases / 2 }));
 });
 
+test("a temporary approval read while verifying a retained meta reservation stays retryable", async () => {
+  const w = await processWorkspace(); const peer = peerFor(w);
+  await peer.update(w.approval, { body: '```json\n' + JSON.stringify({ ...metaSpec, permitted_promotions: 10_000, meta_budget: { training_samples: 100_000_000, proposal_calls: 10_000, recipe_promotions: 10_000 } }) + '\n```' });
+  const request: MetaRequest = { id: "rl-meta-retained", config: { ...metaConfig, meta_generations: 1, candidates: 1 }, dataset: "unused", approval: w.approval, proposer: "seeded" };
+  await reserveMeta(w.client, w.coordinates, request, "binding");
+  const get = w.client.get.bind(w.client); let fail = true;
+  w.client.get = (async (id, options) => {
+    if (fail && id === w.approval) { fail = false; throw Object.assign(new Error("Temporary approval read failure"), { code: "EIO" }); }
+    return get(id, options);
+  }) as PmClient["get"];
+  await assert.rejects(reserveMeta(w.client, w.coordinates, request, "binding", true), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "provenance_read_retryable");
+  assert.equal(fail, false, "the retained approval read must be the injected one");
+  await reserveMeta(w.client, w.coordinates, request, "binding", true);
+});
+
 test("meta reservation boundary property compares every retained request field including committed replay", { timeout: 600_000 }, async () => {
   const w = await processWorkspace(); const peer = peerFor(w);
   await peer.update(w.approval, { body: '```json\n' + JSON.stringify({ ...metaSpec, permitted_promotions: 10_000, meta_budget: { training_samples: 100_000_000, proposal_calls: 10_000, recipe_promotions: 10_000 } }) + '\n```' });
