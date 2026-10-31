@@ -1,4 +1,4 @@
-import { statePath, checkedStateFile, identifier } from "./state-boundary.ts";
+import { statePath, identifier } from "./state-boundary.ts";
 import { parseBoundedJson, assertJsonEncoding } from "./tracker-record.ts";
 /**
  * @module pm-rl/lm
@@ -694,15 +694,18 @@ export async function verifyLmCheckpointArtifact(pmRoot: string, checkpoint: LmC
  */
 export async function persistLmCheckpoint(pmRoot: string, checkpoint: LmCheckpoint, config: LmLoopConfig, write: typeof writeFile = writeFile): Promise<void> {
   await mkdir(statePath(pmRoot, "runtime", "pm-rl", "artifacts"), { recursive: true });
-  const target = statePath(pmRoot, ...lmCheckpointPath(checkpoint).split("/"));
-  const temporary = statePath(pmRoot, "runtime", "pm-rl", "artifacts", `${checkpoint.digest.slice(7)}.${randomUUID()}.tmp`);
+  const temporaryName = `${checkpoint.digest.slice(7)}.${randomUUID()}.tmp`;
+  // Rebuild each path from the root right before its effect, so a component swapped during the write is refused.
+  const temporary = (): string => statePath(pmRoot, "runtime", "pm-rl", "artifacts", temporaryName);
+  const target = (): string => statePath(pmRoot, ...lmCheckpointPath(checkpoint).split("/"));
+  target(); // Refuse an invalid destination before writing anything.
   try {
-    await write(temporary, serializeLmCheckpoint(checkpoint, config).text, { flag: "wx" });
-    await link(checkedStateFile(temporary), checkedStateFile(target));
+    await write(temporary(), serializeLmCheckpoint(checkpoint, config).text, { flag: "wx" });
+    await link(temporary(), target());
   } catch (error) {
     if (!(error instanceof Error) || !("code" in error) || error.code !== "EEXIST") throw error;
   } finally {
-    await rm(checkedStateFile(temporary), { force: true });
+    await rm(temporary(), { force: true });
   }
   await verifyLmCheckpointArtifact(pmRoot, checkpoint, config);
 }

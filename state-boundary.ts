@@ -107,7 +107,7 @@ export async function programmeRequest<T extends { readonly id: string; readonly
   canonicalItemIdentifier(request.id, prefix); canonicalItemIdentifier(request.approval, prefix);
   return { ...request, id: await preservedProgrammeId(client, request.id) };
 }
-/** Join validated components beneath an explicit state root, rejecting symlinked roots, ancestors and leaves, including dangling links. */
+/** Join validated components beneath an explicit state root, rejecting a linked root, linked directories below it and linked leaves (dangling too); links above the root are permitted. */
 export function statePath(root: string, ...components: (string | StoredStateComponent)[]): string {
   if (typeof root !== "string" || root.length === 0 || Buffer.byteLength(root) > 4096 || root.includes("\0")) refused("rl_state_path_invalid");
   const names = components.map((part) => {

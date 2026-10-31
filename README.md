@@ -1008,8 +1008,9 @@ to the SDK's own rules.
 `statePath` constructs package-owned locks, cleanup gates, checkpoints, artifact
 and ledger files, trainer staging, datasets and temporary filenames under an
 explicit nonempty NUL-free root of at most 4096 UTF-8 bytes. It resolves the
-result, checks confinement, and rejects symlinked
-ancestors, roots and leaves (including dangling links). Git metadata discovery
+result, checks confinement, and rejects a symlinked root, any symlinked
+directory between the root and the leaf, and symlinked leaves (including
+dangling links). Links above the explicit root are permitted. Git metadata discovery
 and explicit filesystem locations establish roots; they are never identifier
 components. Delayed effects and cleanup recheck their paths. State refusals have
 codes `rl_identifier_invalid` or `rl_state_path_invalid` and a `required` remedy:

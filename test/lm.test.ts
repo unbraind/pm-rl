@@ -1,7 +1,7 @@
 /** Causal language model: numerical proofs, checkpoints, refusals and replay. */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -384,6 +384,24 @@ test("a write that crashes mid-artifact leaves no partial checkpoint, so the res
     assert.deepEqual(readdirSync(join(root, "runtime/pm-rl/artifacts")), []);
     await persistLmCheckpoint(root, checkpoint, config);
     await verifyLmCheckpointArtifact(root, checkpoint, config);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("checkpoint publication refuses a state directory swapped for a link during the write", async () => {
+  const root = mkdtempSync(join(tmpdir(), "pm-rl-lm-swap-"));
+  const config = parseLmLoopConfig(configValue());
+  const checkpoint = config.initial;
+  try {
+    // A peer replaces `runtime` with a link to a moved copy while the temporary file is written.
+    const swapping: typeof writeFile = async (file, data, options) => {
+      await writeFile(file, data, options);
+      renameSync(join(root, "runtime"), join(root, "moved-runtime"));
+      symlinkSync(join(root, "moved-runtime"), join(root, "runtime"), process.platform === "win32" ? "junction" : "dir");
+    };
+    await assert.rejects(persistLmCheckpoint(root, checkpoint, config, swapping), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "rl_state_path_invalid");
+    assert.equal(existsSync(join(root, "moved-runtime", ...lmCheckpointPath(checkpoint).split("/").slice(1))), false, "no checkpoint may be published through the link");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
