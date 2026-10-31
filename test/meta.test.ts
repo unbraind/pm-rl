@@ -513,9 +513,10 @@ test("canonical proposal lookup ignores matching foreign bindings and refuses da
   const path = join(w.coordinates.pmRoot, "decisions", `${broken.item.id}.toon`); const original = readFileSync(path, "utf8");
   try {
     writeFileSync(path, "broken: [invalid\n");
-    const failure: unknown = await w.client.get(broken.item.id).catch((error: unknown) => error);
-    assert.ok(failure instanceof Error, "damaged tracker item must fail the real SDK read");
+    const failure: unknown = await w.client.listAllComplete({ includeBody: false }).catch((error: unknown) => error);
+    assert.ok(failure instanceof Error, "damaged tracker item must fail the real SDK inventory read");
     await assert.rejects(durableRecipeProposals(w.client, "broken", request, INITIAL_RECIPE, 1, signal), { message: failure.message });
+    assert.equal(readFileSync(path, "utf8"), "broken: [invalid\n");
   } finally { writeFileSync(path, original); }
 });
 
