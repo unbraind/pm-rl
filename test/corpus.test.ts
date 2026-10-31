@@ -85,14 +85,15 @@ test("corpus output inside the source refuses before inventory reads through rel
   const alias = join(w.root, "source-alias"); symlinkSync(w.pmRoot, alias, "dir");
   const childAlias = join(w.root, "child-alias"); symlinkSync(nested, childAlias, "dir");
   const before = sourceBytes(w.pmRoot);
-  for (const [source, output] of [
-    [w.pmRoot, join(w.pmRoot, "sealed.json")], [w.pmRoot, join(nested, "sealed.json")],
-    [w.pmRoot, join(alias, "sealed.json")], [alias, join(w.pmRoot, "sealed.json")],
-    [w.pmRoot, join(childAlias, "sealed.json")], [w.pmRoot, relative(process.cwd(), join(nested, "..", "sealed.json"))],
+  // Linked roots and parents are refused by the state boundary before confinement is compared.
+  for (const [source, output, code] of [
+    [w.pmRoot, join(w.pmRoot, "sealed.json"), "corpus_output_inside_source"], [w.pmRoot, join(nested, "sealed.json"), "corpus_output_inside_source"],
+    [w.pmRoot, join(alias, "sealed.json"), "rl_state_path_invalid"], [alias, join(w.pmRoot, "sealed.json"), "rl_state_path_invalid"],
+    [w.pmRoot, join(childAlias, "sealed.json"), "rl_state_path_invalid"], [w.pmRoot, relative(process.cwd(), join(nested, "..", "sealed.json")), "corpus_output_inside_source"],
   ]) {
     await assert.rejects(harness.runCommand({ command: "rl corpus build", pmRoot: w.pmRoot, args: [], options: {
       from_tracker: source, file: join(w.root, "missing-bounds"), output,
-    } }), (error) => refuses("corpus_output_inside_source")(error) || refuses("rl_state_path_invalid")(error));
+    } }), refuses(code));
     assert.equal(existsSync(output), false); assert.equal(sourceBytes(w.pmRoot), before);
   }
 });
@@ -142,14 +143,17 @@ test("corpus missing or invalid directories refuse with stable path-free errors 
   const file = join(w.root, "plain-file"); writeFileSync(file, "preserve bytes");
   const missing = join(w.root, "absent");
   const dangling = join(w.root, "dangling"); symlinkSync(missing, dangling);
+  // A dangling link, or a root below a regular file, is refused by the state boundary before existence is checked.
   for (const [source, output, code] of [
-    ...[missing, file, join(file, "child"), dangling].map((source) => [source, join(w.root, "sealed.json"), "corpus_source_missing"]),
-    ...[missing, file, join(file, "child"), dangling].map((parent) => [w.pmRoot, join(parent, "sealed.json"), "corpus_output_parent_missing"]),
+    ...[missing, file].map((source) => [source, join(w.root, "sealed.json"), "corpus_source_missing"]),
+    ...[join(file, "child"), dangling].map((source) => [source, join(w.root, "sealed.json"), "rl_state_path_invalid"]),
+    ...[missing, file, join(file, "child")].map((parent) => [w.pmRoot, join(parent, "sealed.json"), "corpus_output_parent_missing"]),
+    [w.pmRoot, join(dangling, "sealed.json"), "rl_state_path_invalid"],
   ]) {
     await assert.rejects(harness.runCommand({ command: "rl corpus build", pmRoot: w.pmRoot, args: [], options: {
       from_tracker: source, file: join(w.root, "missing-bounds"), output,
     } }), (error: unknown) => {
-      assert.ok(refuses(code)(error) || refuses("rl_state_path_invalid")(error)); assert.ok(error instanceof Error); assert.ok(!error.message.includes(w.root)); return true;
+      assert.ok(refuses(code)(error), `${code} expected`); assert.ok(error instanceof Error); assert.ok(!error.message.includes(w.root)); return true;
     });
     assert.equal(existsSync(output), false);
   }
