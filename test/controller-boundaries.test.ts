@@ -220,6 +220,11 @@ test("recovery stops only the exact live trainer birth identity and awaits nativ
   try {
     const identity = loopProcessStartTime(child.pid!); assert.ok(identity);
     await stopTrainer(child.pid!, `${identity}-foreign`); assert.equal(process.kill(child.pid!, 0), true);
+    const identityRead = loopProcessIdentityIO.read;
+    Object.assign(loopProcessIdentityIO, { read: (file: string) => { if (file === `/proc/${child.pid}/stat`) throw new Error("Child identity unavailable"); return identityRead(file); } });
+    try { await assert.rejects(stopTrainer(child.pid!, identity), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "process_stop_failed"); }
+    finally { Object.assign(loopProcessIdentityIO, { read: identityRead }); }
+    assert.equal(process.kill(child.pid!, 0), true);
     await stopTrainer(child.pid!, identity); assert.equal((await closed)[1], "SIGKILL");
   } finally { if (child.exitCode === null && child.signalCode === null) { child.kill("SIGKILL"); await closed; } }
 });

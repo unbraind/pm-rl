@@ -46,42 +46,14 @@
     "git_absent_from_path": true
   },
   "public_node_and_bun": {
+    "recorded_in": "docs/sequential-evaluation-evidence.json",
     "source": "https://github.com/unbraind/pm-rl",
     "commit": "120e20e160897cabe47920713e1b87b6647b2e85",
     "snapshot": "96fd01781cb6b046a2069efe768fa3c4fd47a9c8f398d423fcd4aeb6bf0cfb84",
     "source_digest": "7a9d2a37a25ad6d450fc05a0ad5ff440b3e228202dd8311e57e3bf0792fd36c6",
-    "source_read_only": true,
-    "source_unchanged": true,
-    "non_git": true,
-    "git_absent_from_path": true,
-    "items": 107,
-    "done_role_items": 87,
-    "cli_json_bytes": 853,
-    "cli_toon_bytes": 730,
-    "resumed_exactly": true,
-    "checkpoint_records": 1,
-    "packed_chronology_refusals": 3,
-    "packed_chronology_unchanged": true,
-    "sequential": {
-      "state": "exhausted",
-      "look": 1,
-      "error_bound": 0.050000000000000044,
-      "lower": -1,
-      "upper": 1
-    },
-    "plan": "rl-candidate-evaluation-plan",
     "comparison": "e6732f988aa5a4d087f68f5cc20b6d44f2d7f4420e0fa94c3484868107e4c1bc",
-    "observations": 107,
-    "independent_units": 1,
-    "candidate_mean": 0.8130841121495327,
-    "incumbent_mean": 0.1869158878504673,
-    "verdict": {
-      "decision": "refuse",
-      "code": "sequential_exhausted",
-      "reason": "Sequential evaluation is exhausted; only a sufficient boundary permits the existing promotion gate."
-    },
-    "remedy": "Register a new plan and fresh candidate before collecting a different cohort or making another evaluation look.",
-    "limitation": "Descriptive public replay. One repository is one correlation unit; no causal benefit or deployed promotion claim."
+    "evidence_digest": "0f81a4e56a4714fd5377180717b42e0a20fe27528f0e1716fcfb138aebe13d3c",
+    "note": "The public replay has one current result; this entry points at it instead of keeping an older copy."
   },
   "release_ci": "https://github.com/unbraind/pm-rl/actions/runs/40488393574",
   "release_ci_status_at_recording": "queued; not a passing gate claim"

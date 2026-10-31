@@ -296,6 +296,15 @@ test("sealed creation timing refuses an early run with a rewritten current times
   await assert.rejects(recordPlanEvaluation(w.client, "rl-candidate", observations()), refusal("eval_plan_late"));
 });
 
+test("fixed results created before their collection Run and candidate never promote", async () => {
+  const w = await workspace(); const registered = await registerEvaluationPlan(w.client, plan());
+  const sealed = { comparison: registered.comparison, observations: observations().map((row) => ({ ...row })).sort((a, b) => a.id < b.id ? -1 : 1) };
+  await w.client.create({ id: `${registered.id}-result`, type: "Decision", title: "Fixed-stop paired evaluation result", body: JSON.stringify(sealed), affectedVersion: hashJson(sealed) });
+  await generation(w.client, "rl-candidate", spec("rl-seed"));
+  await assert.rejects(readEvaluationDecision(w.client, "rl-candidate"), refusal("eval_plan_late"));
+  await assert.rejects(enforceEvaluationPlan(w.client, "rl-candidate", score()), refusal("eval_plan_late"));
+});
+
 test("original candidate sources must match the declared parent and unchanged incumbent", async () => {
   for (const invalid of ["parent", "incumbent"]) {
     const w = await workspace(); await registerEvaluationPlan(w.client, plan());
@@ -361,6 +370,9 @@ test("CLI evaluation plan show normalizes short IDs before the candidate exists"
 
 test("CLI plan commands and actual promotion enforce the reservation with git absent from PATH", async () => {
   const w = await workspace(); const bin = join(w.root, "bin"); mkdirSync(bin); symlinkSync(process.execPath, join(bin, "node"));
+  // Git is absent; the native birth-identity tool behind the process-job fence stays reachable.
+  const identityTool = process.platform === "linux" ? "getconf" : "ps";
+  symlinkSync(execFileSync("/bin/sh", ["-c", `command -v ${identityTool}`], { encoding: "utf8" }).trim(), join(bin, identityTool));
   const previousPath = process.env.PATH; const previousCeiling = process.env.GIT_CEILING_DIRECTORIES;
   process.env.PATH = bin; process.env.GIT_CEILING_DIRECTORIES = dirname(w.root);
   try {

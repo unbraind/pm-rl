@@ -37,7 +37,9 @@ process.env.GIT_CEILING_DIRECTORIES = dirname(root);
 const initialized = await init("rl", { defaults: true, author: "evaluation-acceptance", agentGuidance: "skip" }, { cwd: root, pmRoot: join(root, ".agents/pm") });
 const commandEnv: NodeJS.ProcessEnv = { ...process.env, NODE_V8_COVERAGE: undefined, PM_PATH: initialized.path, PM_AUTHOR: "evaluation-acceptance" };
 execFileSync(process.execPath, [cli, "package", "install", archive, "--project", "--json"], { cwd: root, env: commandEnv, stdio: "pipe" });
-const bin = join(root, "bin"); mkdirSync(bin); symlinkSync(process.execPath, join(bin, "node")); commandEnv.PATH = bin;
+const bin = join(root, "bin"); mkdirSync(bin); symlinkSync(process.execPath, join(bin, "node"));
+const identityTool = process.platform === "linux" ? "getconf" : "ps";
+symlinkSync(execFileSync("/bin/sh", ["-c", `command -v ${identityTool}`], { encoding: "utf8" }).trim(), join(bin, identityTool)); commandEnv.PATH = bin;
 /** Exercise the installed CLI with no Git executable, capturing bounded machine output. */
 function command(args: string[]): string { return execFileSync(process.execPath, [cli, "rl", "eval", "plan", ...args], { cwd: root, env: commandEnv, encoding: "utf8" }); }
 const client = new PmClient({ pmRoot: initialized.path, cwd: root, author: "evaluation-acceptance", noExtensions: true });

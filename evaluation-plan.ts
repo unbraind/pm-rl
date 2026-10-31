@@ -223,6 +223,10 @@ export function evaluationLifecycleArtifacts(registered: RegisteredEvaluationPla
   if (registered.plan.stopping.kind !== "sequential") refuse("eval_plan_stopping");
   return [{ id: registered.plan.stopping.review, stage: 0 }, { id: registered.id, stage: 1 }, ...runs.map((id) => ({ id, stage: 2 })), { id: registered.plan.candidate, stage: 3 }, ...evaluationLookIds(registered.id, looks).map((id, index) => ({ id, stage: index + 4 }))];
 }
+/** Fixed plans precede their exchangeable collection Runs and candidate; a sealed result follows all of them. */
+function fixedLifecycleArtifacts(registered: RegisteredEvaluationPlan, runs: readonly string[], result?: string): { id: string; stage: number }[] {
+  return [{ id: registered.id, stage: 1 }, ...runs.map((id) => ({ id, stage: 2 })), { id: registered.plan.candidate, stage: 2 }, ...(result === undefined ? [] : [{ id: result, stage: 3 }])];
+}
 /** Compare durable snapshot timestamps, mutation timestamps and SDK history positions together. @internal */
 export function validateEvaluationTimeline(entries: readonly { stage: number; values: readonly number[] }[]): void {
   let prior = [-Infinity, -Infinity, -Infinity];
@@ -447,7 +451,7 @@ async function verifyTiming(client: PmClient, registered: RegisteredEvaluationPl
   if (spec.parent !== registered.plan.incumbent) refuse("eval_plan_drift");
   const incumbent = await optionalItem(client, spec.parent);
   if (incumbent === null || incumbent.type !== "Generation" || incumbent.affected_version !== registered.incumbent_version || hashJson(generationProvenance(extractGenerationSpec(String(incumbent.body), "Incumbent generation"))) !== registered.incumbent_version) refuse("eval_plan_drift");
-  await validateEvaluationOrder(client, registered.plan.stopping.kind === "sequential" ? { registered, looks: 0 } : [{ id: registered.id, stage: 1 }, ...spec.collection_runs.map((id) => ({ id, stage: 2 })), { id: registered.plan.candidate, stage: 2 }], 1000, prospective);
+  await validateEvaluationOrder(client, registered.plan.stopping.kind === "sequential" ? { registered, looks: 0 } : fixedLifecycleArtifacts(registered, spec.collection_runs), 1000, prospective);
 }
 /** Read the live candidate so SDK callers cannot forge provenance or predeclaration times. */
 export async function verifiedCandidate(client: PmClient, candidate: string, registered: RegisteredEvaluationPlan): Promise<void> {
@@ -547,7 +551,9 @@ export async function readEvaluationDecision(client: PmClient, candidate: string
     const raw = object(storedJson(result.body), ["comparison", "observations"]);
     if (result.type !== "Decision" || raw.comparison !== registered.comparison || result.affected_version !== hashJson(raw as JsonValue)) refuse("eval_plan_drift", result.id);
     await verifyCreatedRecord(client, result);
-    await validateEvaluationOrder(client, [{ id: registered.id, stage: 1 }, { id: result.id, stage: 3 }]);
+    const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
+    const sources = canonicalizeGenerationSpec(extractGenerationSpec(String((await readCompleteLoopItem(client, resolved)).item.body), "Fixed result sources"), prefix);
+    await validateEvaluationOrder(client, fixedLifecycleArtifacts(registered, sources.collection_runs, result.id));
     return { registered, report: evaluatePlan(registered.plan, raw.observations) };
   });
   for (const item of captured.inputs) {

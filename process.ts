@@ -508,9 +508,16 @@ export function verifiedProcessPolicy<P extends TrainerPolicy>(job: ProcessJob<T
 export async function stopTrainer(pid: number, start: string): Promise<void> {
   if (!Number.isSafeInteger(pid) || pid < 1 || pid > 2_147_483_647 || typeof start !== "string" || start.length === 0 || start.length > 512) expectedFail("Use the retained positive PID and exact native birth identity for recovery.", "process_job_drift");
   const stopped = await retryOwnedStop(() => {
-    if (loopProcessStartTime(pid) !== start) return true;
+    const current = loopProcessStartTime(pid);
+    // An unreadable identity proves absence only when the kernel reports no such process.
+    if (current === null) {
+      try { process.kill(pid, 0); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ESRCH") return true; }
+      return false;
+    }
+    if (current !== start) return true;
     process.kill(pid, "SIGKILL");
-    return loopProcessStartTime(pid) !== start;
+    const after = loopProcessStartTime(pid);
+    return after !== null && after !== start;
   });
   if (!stopped) expectedFail("Owned trainer stop failed after six bounded attempts; inspect the retained runner identity and stop that exact process before retrying.", "process_stop_failed");
 }

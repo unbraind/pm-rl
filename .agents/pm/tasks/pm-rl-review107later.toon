@@ -6,12 +6,19 @@ status: open
 priority: 2
 tags[2]: "gh:unbraind/pm-rl#107",review
 created_at: "2026-10-30T13:55:27.424Z"
-updated_at: "2026-10-31T00:21:05.202Z"
+updated_at: "2026-10-31T01:52:21.820Z"
 author: codex-agent
 parent: pm-rl-sequential
-comments[2]{created_at,author,text}:
+comments[3]{created_at,author,text}:
   "2026-10-30T18:08:05.446Z",codex-agent,"Related stopping/identity diagnostic on untouched cd91de9: node --test --test-concurrency=1 --test-name-pattern=\"native child identity failure and PID reuse\" test/process.test.ts reports 1 test, 0 pass, 1 failure. The fixture expects Cannot establish trainer process identity but receives Trainer exceeded wall or staging allowance. The current full integration attempt flags the same test. This does not establish that the later stopTrainer thread has the same root cause; retain the identity and allowance evidence for triage without weakening the existing bounds."
   "2026-10-31T00:21:05.202Z",codex-agent,"The original native-child identity failure now passes: identity tools honor the supplied PATH instead of bypassing it with a platform installation path. With an empty PATH, a real child fails with process_identity_unavailable and is reaped. This fixes the observed fixture/lookup defect; the three later review threads remain separately tracked and unclosed."
-files[1]{path,scope}:
+  "2026-10-31T01:52:18.677Z","harness:claude-code","Fixed all three by hand on #107. (1) PRRT_kwDOTqJmqs6x8fDu stopTrainer: an unreadable birth identity counts as stopped only when kill(pid, 0) reports ESRCH, and an unreadable identity after SIGKILL is not proof of stop. New assertion in controller-boundaries 'recovery stops only the exact live trainer' fails on revert (0/1). (2) PRRT_kwDOTqJmqs6x8fDs fixed-result read path: the result must follow the plan, every collection Run and the candidate, via the shared fixedLifecycleArtifacts. New test 'fixed results created before their collection Run and candidate never promote' fails on revert (0/1). Legitimate recording always verifies Runs and candidate first, so no released result can have the old ordering. (3) PRRT_kwDOTqJmqs6x8fDn: the stale public_node_and_bun copy now references docs/sequential-evaluation-evidence.json (same commit, snapshot and comparison, current evidence_digest). Also fixed: the 'git absent from PATH' CLI test and evaluation-plan.acceptance now link the platform identity tool, because the merged process-job fence needs getconf/ps (the test failed at e0fb7d9 with process_identity_unavailable)."
+files[4]{path,scope}:
+  docs/evaluation-compatibility-evidence.json,project
+  evaluation-plan.ts,project
+  process.ts,project
   test/process.test.ts,project
+tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test --test-name-pattern='recovery stops only the exact live trainer' test/controller-boundaries.test.ts,project,"harness:claude-code","2026-10-31T01:52:21.766Z",local_mutation,feat/predeclared-sequential-evaluation
+  node --test test/evaluation-plan.test.ts test/evaluation-compatibility.test.ts,project,"harness:claude-code","2026-10-31T01:52:21.766Z",local_mutation,feat/predeclared-sequential-evaluation
 body: ""
