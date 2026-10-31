@@ -1,6 +1,6 @@
 /**
  * Orchestrate existing acceptance scripts: prepare native fixtures, generate documents, repack, then run all
- * six Node/Bun scenarios against the final archive. Sequential replay retains native timestamps so the
+ * six fresh Node/Bun scenarios and two fixture replays against the final archive. Replay retains native timestamps so the
  * shipped receipt can certify that archive without a self-referential hash. Evaluation and refusal logic
  * stay in the acceptance scripts; this module joins their output and verifies final shipped bytes.
  */
@@ -82,6 +82,7 @@ for (const runtime of ["node", "bun"]) {
     const output = join(out, `${runtime}-${kind}.json`);
     run(runtime, script, [final.archive, output], `${runtime}-${kind}`); packed.set(`${runtime}-${kind}`, receipt(output));
   }
+  run(runtime, "test/sequential-evaluation.acceptance.ts", [source, join(out, `${runtime}-fresh-sequential.json`), sourceCommit, final.archive], `${runtime}-fresh-sequential`);
   const output = join(out, `${runtime}-sequential.json`);
   run(runtime, "test/sequential-evaluation.acceptance.ts", [source, output, sourceCommit, final.archive, join(out, `${runtime}-fixture.json`), "replay"], `${runtime}-sequential`);
   assert.deepEqual(receipt(output), publicReceipts.get(runtime));
@@ -90,7 +91,7 @@ assert.deepEqual(packed.get("node-compatibility"), packed.get("bun-compatibility
 decision.node = packed.get("node-decision"); decision.bun = packed.get("bun-decision");
 decision.published_native_node = packed.get("node-compatibility"); decision.published_native_bun = packed.get("bun-compatibility");
 compatibility.packed_node_and_bun = packed.get("node-compatibility");
-const artifact = { runtime_source_commit: execFileSync("git", ["log", "-1", "--format=%H", "--", ":(top,glob)*.ts"], { encoding: "utf8" }).trim(), public_source_commit: sourceCommit, archive_sha256: final.sha256, shipped_files: final.files.length, runtime_files: final.runtime.size, final_acceptance_passes: 6, native_fixture_preparations: 2, public_source_read_only_and_unchanged: true, native_fixture_replayed_after_evidence_repack: true };
+const artifact = { runtime_source_commit: execFileSync("git", ["log", "-1", "--format=%H", "--", ":(top,glob)*.ts"], { encoding: "utf8" }).trim(), public_source_commit: sourceCommit, archive_sha256: final.sha256, shipped_files: final.files.length, runtime_files: final.runtime.size, final_acceptance_passes: 6, final_fixture_replay_passes: 2, native_fixture_preparations: 2, public_source_read_only_and_unchanged: true, native_fixture_replayed_after_evidence_repack: true };
 decision.current_packed_acceptance = artifact; compatibility.current_packed_acceptance = artifact;
 decision.historical_receipts_note = "source_commit, earlier static/property counters and immutable_execution_round_6 describe historical runs. Current Node/Bun public replay and packed acceptance are public_metrics, public_input_roots and current_packed_acceptance; no historical archive is the current artifact.";
 compatibility.historical_receipts_note = "implementation, earlier native/boundary regression counters and release_ci describe historical runs. Current packed/public results are packed_node_and_bun, public_node_and_bun and current_packed_acceptance.";

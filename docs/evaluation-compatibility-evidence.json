@@ -77,7 +77,8 @@
     "final_acceptance_passes": 6,
     "native_fixture_preparations": 2,
     "public_source_read_only_and_unchanged": true,
-    "native_fixture_replayed_after_evidence_repack": true
+    "native_fixture_replayed_after_evidence_repack": true,
+    "final_fixture_replay_passes": 2
   },
   "historical_receipts_note": "implementation, earlier native/boundary regression counters and release_ci describe historical runs. Current packed/public results are packed_node_and_bun, public_node_and_bun and current_packed_acceptance."
 }
