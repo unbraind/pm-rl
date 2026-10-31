@@ -2,7 +2,7 @@ import { acquireStateLock, statePath, checkedStateFile, operationIdentifier } fr
 import { parseBoundedJson } from "./tracker-record.ts";
 /** Immutable checkpoint blobs and an append-only promotion/audit ledger, independent of Git. */
 import { createHash, randomUUID } from "node:crypto";
-import { closeSync, constants, fstatSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, constants, fstatSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 
 import { expectedFail } from "./refuse.ts";
 import { prefixCheckpoint, type PrefixCheckpoint } from "./prefix.ts";
@@ -94,6 +94,11 @@ export function inspectCheckpointArtifact(root: string, digest: string): { artif
 /** Refuse runtimes without directory-relative no-follow access before a storage lease or any durable programme state. */
 export function requireCheckpointStorage(): void {
   if (process.platform !== "linux") expectedFail("Checkpoint storage requires Linux descriptor-relative no-follow access.", "checkpoint_storage_unsupported");
+  // Linux without procfs (some containers and sandboxes) would otherwise pass this preflight and refuse only inside
+  // artifactDirectory, after a controller lease was taken. artifactDirectory's per-root probe stays authoritative.
+  let procfs = false;
+  try { procfs = statSync("/proc/self/fd").isDirectory(); } catch { procfs = false; }
+  if (!procfs) expectedFail("Checkpoint storage requires procfs descriptor access, and /proc/self/fd is unavailable.", "checkpoint_storage_unsupported");
 }
 /** Pin each directory with O_NOFOLLOW; procfs supplies directory-relative operations on Linux. */
 function artifactDirectory<T>(root: string, parts: readonly string[], execute: (directory: string, handles: readonly number[], verify: () => void) => T): T {

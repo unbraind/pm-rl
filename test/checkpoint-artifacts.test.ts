@@ -11,7 +11,7 @@ import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import extension, { controllerAuthorityRoot, controllerHasGitAncestor, withRlController } from "../index.ts";
-import { checkpointArtifactPath, collectCheckpointArtifacts, decodeCheckpointArtifacts, encodeCheckpointArtifacts, inspectCheckpointArtifact, MAX_CHECKPOINT_BYTES, readCheckpointArtifact, readCheckpointLedger, type CheckpointArtifact } from "../checkpoint-artifacts.ts";
+import { checkpointArtifactPath, collectCheckpointArtifacts, decodeCheckpointArtifacts, encodeCheckpointArtifacts, inspectCheckpointArtifact, MAX_CHECKPOINT_BYTES, readCheckpointArtifact, readCheckpointLedger, type CheckpointArtifact, requireCheckpointStorage } from "../checkpoint-artifacts.ts";
 import { prefixCheckpoint } from "../prefix.ts";
 import { initialImprover } from "../improver.ts";
 import { executeImproverFit, improverAdapter, type LearnerTrial } from "../improver-environment.ts";
@@ -644,6 +644,22 @@ test("descriptor traversal refuses unavailable procfs, inode mismatch and no-fol
   }
 });
 
+
+test("Linux without procfs refuses in the preflight, before any artifact state exists", async () => {
+  // CodeRabbit on #107: the preflight checked only the platform, so a Linux host without procfs refused later inside
+  // artifactDirectory, after a controller lease could already be held.
+  const w = await checkpointWorkspace(); const stat = fs.statSync;
+  const hook = mock.method(fs, "statSync", (...args: Parameters<typeof stat>) => {
+    if (String(args[0]) === "/proc/self/fd") throw Object.assign(new Error("no procfs"), { code: "ENOENT" });
+    return stat(...args);
+  }); syncBuiltinESMExports();
+  try {
+    assert.throws(() => requireCheckpointStorage(), refuses("checkpoint_storage_unsupported"));
+    await assert.rejects(encodeCheckpointArtifacts(w.pmRoot, "no-procfs", initialImprover()), refuses("checkpoint_storage_unsupported"));
+  } finally { hook.mock.restore(); syncBuiltinESMExports(); }
+  assert.equal(existsSync(join(w.pmRoot, "artifacts")), false);
+  requireCheckpointStorage();
+});
 
 test("descriptor identity compares 64-bit inode numbers exactly", async () => {
   // CodeRabbit on #107: as JavaScript numbers, inodes above Number.MAX_SAFE_INTEGER that differ in the low bits
