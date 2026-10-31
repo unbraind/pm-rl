@@ -6,15 +6,15 @@ status: in_progress
 priority: 2
 tags[1]: "gh:unbraind/pm-rl#107"
 created_at: "2026-10-30T17:10:11.700Z"
-updated_at: "2026-10-31T00:29:16.102Z"
-assignee: codex-agent
-claim_principal: codex-agent
+updated_at: "2026-10-31T00:46:33.457Z"
 author: codex-agent
 parent: pm-rl-sequential
-comments[2]{created_at,author,text}:
+comments[3]{created_at,author,text}:
   "2026-10-30T17:10:46.795Z",codex-agent,"Original-head control: cd91de9, sanitized child identity, a real standalone SDK tracker, one test worker. Result: 1 test, 0 pass, 1 failure, Missing expected rejection at test/loop.test.ts:833. The current review integration attempt has the same failed assertion. Determine whether explicit package author validation is intended or whether the test reflects an outdated SDK assumption; do not silently turn infrastructure failures into evaluation refusals."
   "2026-10-31T00:29:16.101Z",codex-agent,"The invalid-author probe now passes 1/1. runRlLoop rejects an empty transaction author before programme discovery or allocation. The regression compares the complete real SDK item list before and after, proving no candidate or promotion-refusal record is created. This strengthens the old late-failure assertion; the original cd91de9 control failed with Missing expected rejection."
-files[1]{path,scope}:
+  "2026-10-31T00:38:42.162Z",codex-agent,runRlLoop validates empty coordinates.author before discovery or allocation. The real native tracker test asserts the complete item list remains unchanged. The corrected single-test run passed 1/1; the final combined native-contract selection passed 5/5 including this case. npm run check and test typechecking passed on the integrated source head 7f547db.
+files[2]{path,scope}:
+  loop.ts,project
   test/loop.test.ts,project
 tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   "node --test --test-concurrency=1 --test-name-pattern=\"an invalid transaction identity propagates\" test/loop.test.ts",project,codex-agent,"2026-10-30T17:10:44.401Z",local_mutation,feat/predeclared-sequential-evaluation

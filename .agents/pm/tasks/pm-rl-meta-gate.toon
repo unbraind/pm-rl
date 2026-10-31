@@ -6,15 +6,15 @@ status: in_progress
 priority: 2
 tags[1]: "gh:unbraind/pm-rl#107"
 created_at: "2026-10-30T17:28:28.277Z"
-updated_at: "2026-10-31T00:21:02.328Z"
-assignee: codex-agent
-claim_principal: codex-agent
+updated_at: "2026-10-31T00:46:31.058Z"
 author: codex-agent
 parent: pm-rl-sequential
-comments[2]{created_at,author,text}:
+comments[3]{created_at,author,text}:
   "2026-10-30T17:40:47.675Z",codex-agent,"Additional original-head control: node --test --test-concurrency=1 --experimental-test-coverage --test-coverage-include=policy-card.ts --test-name-pattern=\"authoritative status read failures preserve\" test/policy-card.test.ts on untouched cd91de9 reports 3 tests, 1 pass, 2 failed nodes (the typed subtest and its parent). Native read failures pass, but the typed path returns backend_unavailable where the test expects provenance_read_retryable at line 1339. The current integration attempt has the same failing test. Preserve original backend errors and reconcile the intended public refusal contract; this case is outside the seven requested fixes."
   "2026-10-31T00:21:02.325Z",codex-agent,"Gate follow-through after merging main: the two-generation replay, SDK programme-alias and pre-approved Decision probes now pass 3/3. Meta programme lookup first resolves the SDK canonical namespace and then recovers original birth spelling, preserving existing payload identity. Stale tests now require meta_reservation_drift rather than the older disagrees prose. The authoritative status-read family passes both native and typed backend cases (3 test nodes); its assertion retains backend_unavailable instead of expecting an unrelated provenance wrapper. No underlying peer conflict, budget or backend preservation assertion was removed."
-files[2]{path,scope}:
+  "2026-10-31T00:38:29.406Z",codex-agent,"Integrated current main contracts at source head 7f547db: canonical namespace resolution now precedes legacy birth spelling recovery, so a new uppercase programme alias reaches the same normalized identity while persisted payload spellings remain readable. Focused meta selection passed 3/3; combined native read-error family passed both subcases, preserving the native or typed backend error without sealing refusal. Updated obsolete message assertions to typed meta_reservation_drift. Full release evidence is delegated to pushed-head CI."
+files[3]{path,scope}:
+  meta.ts,project
   test/meta.test.ts,project
   test/policy-card.test.ts,project
 tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
