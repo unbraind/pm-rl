@@ -32,7 +32,7 @@ export function rethrowProvenanceRead(error: unknown): never {
 
 /** Only explicit SDK absence or integrity classifications establish a provenance failure. */
 export function isProvenanceReadFailure(error: PmCliExpectedError): boolean {
-  return error.exitCode === EXIT_CODE.NOT_FOUND || ["item_document_invalid", "history_target_out_of_range", "history_drift", "card_drift"].includes(String(error.context.code));
+  return error.exitCode === EXIT_CODE.NOT_FOUND || ["item_document_invalid", "history_target_out_of_range", "history_version_pruned", "history_drift", "card_drift"].includes(String(error.context.code));
 }
 
 /** Report an unavailable read without declaring the underlying policy permanently invalid. */

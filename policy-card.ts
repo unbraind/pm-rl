@@ -199,7 +199,7 @@ async function verifyCardAncestry(client: PmClient, leaf: string): Promise<void>
     visited.add(fresh.subject);
     if (fresh.policy_digest === null) refuse("card_missing_provenance");
     const retained = await snapshot(client, `policy-card-${fresh.digest}`);
-    if (retained.item.type !== "Decision" || retained.item.affected_version !== fresh.digest || retained.item.body !== canonicalJson(fresh as unknown as JsonValue)) refuse("card_drift");
+    if (!matchingRetainedCard((await readCompleteLoopItem(client, `policy-card-${fresh.digest}`)).item, fresh)) refuse("card_drift");
     await replayPolicyCard(client, parseBoundedJson(String(retained.item.body)));
     const generation = (await snapshot(client, fresh.subject)).item;
     const spec = extractGenerationSpec(String(generation.body), "Policy ancestry");
@@ -516,12 +516,16 @@ export async function recordPolicyCard(client: PmClient, subject: string, select
   await persistPolicyCard(client, card);
   return card;
 }
+/** Shared retained-envelope contract for publication, batch preflight and ancestry consumers. */
+function matchingRetainedCard(item: Pick<GetResult["item"], "type" | "body" | "tags" | "affected_version">, card: PolicyCard): boolean {
+  return item.type === "Decision" && item.tags?.includes("rl-policy-card") === true && item.affected_version === card.digest && item.body === canonicalJson(card as unknown as JsonValue);
+}
 /** Publish an already validated projection without re-reading a changing source. */
 async function persistPolicyCard(client: PmClient, card: PolicyCard): Promise<void> {
   const id = `policy-card-${card.digest}`; const subject = card.subject;
   const body = canonicalJson(card as unknown as JsonValue);
   await createOrReadIdentical(client, { id, type: "Decision", title: "Portable policy explanation", tags: "rl-policy-card", body, affectedVersion: card.digest, dep: [subject] }, "card_drift", (item) => {
-    if (item.body !== body || item.affected_version !== card.digest) refuse("card_drift");
+    if (!matchingRetainedCard(item, card)) refuse("card_drift");
     return true;
   });
 }
@@ -537,7 +541,7 @@ export async function recordRecursivePolicyCards(client: PmClient, subject: stri
   // Validate all known publication collisions before the first batch write.
   for (const card of cards) {
     const existing = await optionalItem(client, `policy-card-${card.digest}`);
-    if (existing !== null && (existing.type !== "Decision" || existing.body !== canonicalJson(card as unknown as JsonValue) || existing.affected_version !== card.digest)) refuse("card_drift");
+    if (existing !== null && !matchingRetainedCard(existing, card)) refuse("card_drift");
   }
   for (const card of cards) await persistPolicyCard(client, card);
 }

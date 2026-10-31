@@ -387,7 +387,7 @@ test("two real meta generations retain recipes and process jobs, then resume wit
   assert.deepEqual(await runRlMeta(w.client, w.coordinates, request), first);
   assert.equal(String((await w.client.get("recursive-reservation")).item.body), original);
   assert.deepEqual(await listProcessJobs(w.client), jobs);
-  await assert.rejects(runRlMeta(w.client, w.coordinates, { ...request, config: { ...request.config, seed: 43 } }), /disagrees/);
+  await assert.rejects(runRlMeta(w.client, w.coordinates, { ...request, config: { ...request.config, seed: 43 } }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "meta_reservation_drift");
   const receipt = await w.client.get("recursive-step-m1-promote"); const record = JSON.parse(String(receipt.item.body)) as { result: { promoted: string } }; record.result.promoted = "forged";
   await w.client.update(receipt.item.id, { body: JSON.stringify(record) });
   await assert.rejects(runRlMeta(w.client, w.coordinates, request), /damaged/);
@@ -624,7 +624,7 @@ test("one pre-approved Decision cannot be enlarged, replaced or oversubscribed, 
   await w.client.update(w.approval, { body: `\`\`\`json\n${JSON.stringify(metaSpec)}\n\`\`\`` });
   const reservation = await w.client.get("bound-reservation");
   const replacement = await w.client.create({ type: "Decision", title: "Identical spec with a different approval identity", body: `\`\`\`json\n${JSON.stringify(metaSpec)}\n\`\`\`` });
-  await assert.rejects(runRlMeta(w.client, w.coordinates, { ...request, approval: replacement.item.id, onStep(key) { if (key === "programme") throw new Error("approval identity switched"); } }), /disagrees/);
+  await assert.rejects(runRlMeta(w.client, w.coordinates, { ...request, approval: replacement.item.id, onStep(key) { if (key === "programme") throw new Error("approval identity switched"); } }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "meta_reservation_drift");
   await w.client.update(reservation.item.id, { title: "Renamed reserved search", body: JSON.stringify(JSON.parse(String(reservation.item.body)), null, 2) });
   await w.client.create({ id: "foreign-reservation", type: "Decision", title: "Unbound copied envelope", body: reservation.item.body });
   await w.client.create({ id: "prose-reservation", type: "Decision", title: "Unrelated control record", body: "Prose mentioning pm-rl/meta-reservation/1" });

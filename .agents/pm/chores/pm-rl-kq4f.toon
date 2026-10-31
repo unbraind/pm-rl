@@ -2,11 +2,13 @@ id: pm-rl-kq4f
 title: Repair the legacy training receipt check for the pm-toolchain update
 description: "Reproduce the focused durable-loop failure on Dependabot PR 114, preserve evidence and candidate-drift assertions, and adapt only the dependency contract that changed."
 type: Chore
-status: in_progress
+status: closed
 priority: 2
 tags[3]: ci,dependabot,"gh:unbraind/pm-rl#114"
 created_at: "2026-10-28T19:41:30.408Z"
-updated_at: "2026-10-28T20:46:39.180Z"
+updated_at: "2026-10-30T09:28:51.838Z"
+closed_at: "2026-10-30T09:28:50.976Z"
+completed_at: "2026-10-28T22:04:04.000Z"
 author: codex-agent
 comments[8]{created_at,author,text}:
   "2026-10-28T19:42:12.054Z",codex-agent,"The bumped SDK causes the legacy bandit receipt test to JSON.parse an absent item.body. Reproduce the single failing case, inspect the SDK read projection contract, and request exactly the persisted evidence needed without weakening drift detection. Main is already an ancestor of the Dependabot head."
@@ -23,4 +25,5 @@ tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   "node --test --test-concurrency=2 --test-name-pattern=\"legacy bandit training verifies\" test/durable-loop.test.ts",project,codex-agent,"2026-10-28T19:42:27.659Z",local_mutation,dependabot/npm_and_yarn/pm-toolchain-cc78843e61
 docs[1]{path,scope}:
   "https://github.com/unbraind/pm-rl/actions/runs/40741784864",project
+close_reason: "Delivered by PR #114 (76af6b5): chore(deps-dev): bump the pm-toolchain group across 1 directory with 3 updates"
 body: ""

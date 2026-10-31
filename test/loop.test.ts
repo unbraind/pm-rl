@@ -828,16 +828,14 @@ test("an invalid transaction identity propagates rather than being recorded as a
     status: "open",
     body: `# infra-approval\n\n\`\`\`json\n${JSON.stringify({ permitted_promotions: 3 })}\n\`\`\``,
   });
-  // The SDK rejects an empty transaction author with a TypeError. The real
-  // coordinator validation must propagate without becoming a gate refusal.
+  // Reject invalid transaction identity before allocating or publishing loop work.
+  const before = (await client.listAllComplete({ includeBody: true })).items;
   await assert.rejects(
     runRlLoop(client, { pmRoot: initialized.path, author: "" }, { id: "infra-loop", config: LOOP_CONFIG, approval: String(approval.item.id) }),
     /author/,
   );
-  const candidate = await client.get("infra-loop-g1", { depth: "deep" });
-  assert.equal(candidate.item.status, "open");
-  const comments = await client.comments(String(candidate.item.id));
-  assert.ok(!JSON.stringify(comments).includes("promotion refused"), "an infrastructure failure must not be recorded as a promotion refusal");
+  assert.deepEqual((await client.listAllComplete({ includeBody: true })).items, before,
+    "invalid transaction identity cannot allocate a candidate or record a promotion refusal");
 });
 
 test("two simultaneous Git worktree loops preserve every item, metric and history in both merge directions", async () => {

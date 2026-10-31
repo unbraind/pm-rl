@@ -12,19 +12,13 @@ let held = false;
 async function barrier(): Promise<void> { process.send!("ready"); await new Promise<void>((resolve) => { process.once("message", () => resolve()); abort.signal.addEventListener("abort", () => resolve(), { once: true }); }); }
 const create = client.create.bind(client);
 client.create = async (options) => { const result = await create(options); if (!held && mode === "planned" && String(options?.body).includes('"state":"planned"')) { held = true; await barrier(); } return result; };
-const coordinates: ProcessCoordinates = { pmRoot, author: "process-test",
-  /** Observe the supported native transaction boundary rather than one particular SDK mutation entry point. */
-  async onTransition(context) {
-    const state = mode === "race" ? "running" : mode === "committed-materialized" ? "materialized" : mode;
-    const suffix = `-${state}`;
-    if (held || !context.transactionId.endsWith(suffix) || !/(?:^|-)process-[a-f0-9]{64}$/.test(context.transactionId.slice(0, -suffix.length))) return;
-    const before = mode === "materialized";
-    if (context.transition !== (before ? "prepared" : "step_applied") || !before && context.stepId !== "outcome") return;
-    held = true; await barrier();
-  },
-};
 try {
   if (mode === "race") { process.send!("starting"); await new Promise<void>((resolve) => { process.once("message", () => resolve()); }); }
+  const coordinates: ProcessCoordinates = { pmRoot, author: "process-test", async onTransition(context) {
+    const state = mode === "race" ? "running" : mode === "committed-materialized" ? "materialized" : mode;
+    const boundary = mode === "materialized" ? "prepared" : "step_applied";
+    if (!held && context.transactionId.includes(`-${state}-v`) && context.transition === boundary) { held = true; await barrier(); }
+  } };
   const report = await runRlLoop(client, coordinates, { id: "process-drill", approval, config: JSON.parse(encoded) as JsonValue, signal: abort.signal,
     ...(mode === "cancel" ? { processTrainerArgv: [process.execPath, new URL("./process-trainer.ts", import.meta.url).pathname, "hang"] } : {}),
   });

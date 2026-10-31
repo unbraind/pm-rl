@@ -1,10 +1,10 @@
-import { preservedProgrammeId, programmeRequest, identifierClient } from "./state-boundary.ts";
+import { canonicalProgrammeId, preservedProgrammeId, programmeRequest, identifierClient } from "./state-boundary.ts";
 import { decodeTrackerRecord, hasTrackerIdentity, encodeBoundedJson, MAX_TRACKER_RECORD_BYTES } from "./tracker-record.ts";
 /** Durable recipe search over sealed tracker compartments, using the existing trainer and promotion gate. */
 import assert from "node:assert/strict";
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { certifyCompleteListResult, normalizeItemId, EXIT_CODE, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
-import { hashJson, commitProcessTransaction, withValidatedMutation, promotedGenerationIdsUnderApproval, readApprovalSpec, readCompleteLoopItem, withRlController, type JsonValue, type RlDurableStep } from "./index.ts";
+import { createVerifiedItem, hashJson, commitProcessTransaction, withValidatedMutation, promotedGenerationIdsUnderApproval, readApprovalSpec, readCompleteLoopItem, withRlController, type JsonValue, type RlDurableStep } from "./index.ts";
 import { parseApprovalSpec } from "./lineage.ts";
 import type { BinaryCalibration, PrefixCheckpoint } from "./prefix.ts";
 import { openTrackerEnvironment } from "./tracker-environment.ts";
@@ -228,7 +228,7 @@ export async function reserveMeta(client: PmClient, coordinates: ProcessCoordina
       const approval = await metaApproval(client, request.approval);
       if ((await inspect()).state === "applied") return;
       try {
-        await identifierClient(client).create({ id: key, type: "Decision", tags: "rl-meta-reservation", title: "Reserved bounded recipe search", body: encodeBoundedJson({ format: "pm-rl/meta-reservation/1", id: key, binding, approval: approval.id, charge, promotion_headroom: promotionHeadroom }, MAX_TRACKER_RECORD_BYTES) });
+        await createVerifiedItem(client, { id: key, type: "Decision", tags: "rl-meta-reservation", title: "Reserved bounded recipe search", body: encodeBoundedJson({ format: "pm-rl/meta-reservation/1", id: key, binding, approval: approval.id, charge, promotion_headroom: promotionHeadroom }, MAX_TRACKER_RECORD_BYTES) });
       } catch (error) { if ((await inspect()).state !== "applied") throw error; }
     },
     // Conservative reservations survive transaction recovery and are never refunded by search itself.
@@ -306,7 +306,7 @@ export async function durableRecipeProposals(client: PmClient, id: string, reque
     assert.equal(record.state, "intent", "meta_proposal_state");
     return { recipes: seededRecipes(incumbent, request.config.seed, generation, request.config.candidates), proposer: "seeded:unresolved-model-attempt" };
   }
-  await identifierClient(client).create({ id: key, type: "Decision", title: "Bounded local recipe inference intent", body: encodeBoundedJson({ id: key, binding, state: "intent" }, MAX_TRACKER_RECORD_BYTES) });
+  await createVerifiedItem(client, { id: key, type: "Decision", title: "Bounded local recipe inference intent", body: encodeBoundedJson({ id: key, binding, state: "intent" }, MAX_TRACKER_RECORD_BYTES) });
   const result = await proposeRecipes(request, incumbent, generation, signal);
   await identifierClient(client).update(key, { body: encodeBoundedJson({ id: key, binding, state: "complete", result, digest: hashJson(result as unknown as JsonValue) }, MAX_TRACKER_RECORD_BYTES) });
   return result;
@@ -314,7 +314,7 @@ export async function durableRecipeProposals(client: PmClient, id: string, reque
 
 /** Search and promote recipes with one shared approval; completion receipts adopt inner jobs after interruption. */
 export async function runRlMeta(client: PmClient, coordinates: ProcessCoordinates, rawRequest: MetaRequest): Promise<MetaReport> {
-  const request = await programmeRequest(client, rawRequest);
+  const request = await programmeRequest(client, { ...rawRequest, id: await canonicalProgrammeId(client, rawRequest.id) });
   assert.ok(/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(request.id) && request.id.length <= 20, "meta_programme_id");
   const config = parseMetaConfig(request.config);
   assert.ok(request.proposer === "seeded" || request.proposer === "decision-model", "meta_proposer");

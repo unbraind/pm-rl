@@ -42,10 +42,14 @@ test("origin main corpus: completed and interrupted controllers, loops, receipts
     const base = spawnSync("git", ["rev-parse", "--verify", "--quiet", "refs/remotes/origin/main"], { cwd: repo, env, encoding: "utf8" });
     if (base.status === 1 && base.error === undefined && base.stderr === "") { t.skip("origin/main is missing; fetch the base branch to run the baseline corpus"); return; }
     assert.equal(base.status, 0, base.error?.message ?? base.stderr);
-    execFileSync("git", ["worktree", "add", "--detach", writer, "origin/main"], { cwd: repo, env, stdio: "pipe" }); registered = true;
+    // Freeze the legacy producer: later main correctly forbids its manual resource-refund API.
+    const oracleSource = "26650e303ec2cb6fcdc6c51092bcc30b2f1ed27c";
+    const ancestor = spawnSync("git", ["merge-base", "--is-ancestor", oracleSource, "refs/remotes/origin/main"], { cwd: repo, env, encoding: "utf8" });
+    assert.equal(ancestor.status, 0, "Fetch complete main history: the legacy oracle must be a certified main ancestor");
+    execFileSync("git", ["worktree", "add", "--detach", writer, oracleSource], { cwd: repo, env, stdio: "pipe" }); registered = true;
     symlinkSync(join(repo, "node_modules"), join(writer, "node_modules"), "dir");
     cpSync(join(repo, "test/fixtures/main-controller-compatibility.ts"), join(writer, "test/fixtures/main-controller-compatibility.ts"));
-    // Creation is intentionally performed by origin/main, never the implementation under test.
+    // Creation uses the frozen main oracle, never the implementation under test.
     drive(writer, "write", corpus, env);
     const authored = JSON.parse(readFileSync(join(corpus, "corpus.json"), "utf8")) as { cases: { root: string }[] };
     assert.equal(authored.cases.length, 15, "the baseline must author every controller and loop case");

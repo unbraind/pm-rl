@@ -6,7 +6,7 @@ import type { GetResult, PmClient } from "@unbrained/pm-cli/sdk/core";
 import { listMutationEvents } from "@unbrained/pm-cli/sdk";
 import { dirname } from "node:path";
 import { createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError, readSettings } from "@unbrained/pm-cli/sdk/runtime";
-import { extractGenerationSpec, generationProvenance, hashJson, readCompleteLoopItem, captureDecisionInputs, verifyTerminalEvaluationReceipt, verifyDecisionEvidence, type JsonValue } from "./index.ts";
+import { createVerifiedItem, extractGenerationSpec, generationProvenance, hashJson, readCompleteLoopItem, captureDecisionInputs, verifyTerminalEvaluationReceipt, verifyDecisionEvidence, type JsonValue } from "./index.ts";
 import { decidePromotion, type PromotionCriterion, type PromotionDecision } from "./promotion.ts";
 import { enforceShadowComparison, shadowEvidenceIds } from "./shadow.ts";
 import { rethrowOperationalRead } from "./refuse.ts";
@@ -306,9 +306,8 @@ async function registerParsedPlan(client: PmClient, plan: EvaluationPlan, input:
   if (hashJson(generationProvenance(extractGenerationSpec(String(incumbent.body), "Incumbent generation"))) !== version) refuse("eval_plan_drift");
   const id = evaluationPlanId(plan.candidate);
   try {
-    await identifierClient(client).create({ id, title: "Predeclared paired policy evaluation", type: "Plan", body: evaluationPlanBody(plan),
-      unset: ["parent", "sprint", "release", "blocked-by"], clearDeps: true,
-      affectedVersion: hashJson({ comparison, incumbent_version: version }), message: "Predeclare fixed cohort evaluation plan" });
+    await createVerifiedItem(client, { id, title: "Predeclared paired policy evaluation", type: "Plan", body: evaluationPlanBody(plan),
+      unset: ["parent", "sprint", "release", "blocked-by"], clearDeps: true, affectedVersion: hashJson({ comparison, incumbent_version: version }), message: "Predeclare fixed cohort evaluation plan" });
   } catch (error) {
     const winner = await readEvaluationPlan(client, plan.candidate);
     if (winner === null || winner.comparison !== comparison || winner.incumbent_version !== version) throw error;
@@ -495,7 +494,7 @@ async function recordLeasedEvaluation(client: PmClient, candidate: string, input
   } else {
     const current = extractGenerationSpec(String((await readCompleteLoopItem(client, candidate)).item.body), "Locked fixed candidate");
     if (current.evaluation_evidence !== undefined && (current.promoted || (current.policy_evaluation as Record<string, JsonValue> | undefined)?.decision === "refuse")) refuse("eval_plan_stopping", candidate);
-    try { await identifierClient(client).create({ id, type: "Decision", title: "Fixed-stop paired evaluation result", body, unset: ["parent", "sprint", "release", "blocked-by"], clearDeps: true, affectedVersion: hashJson(storedJson(body) as JsonValue), message: "Seal predeclared evaluation evidence" }); }
+    try { await createVerifiedItem(client, { id, type: "Decision", title: "Fixed-stop paired evaluation result", body, unset: ["parent", "sprint", "release", "blocked-by"], clearDeps: true, affectedVersion: hashJson(storedJson(body) as JsonValue), message: "Seal predeclared evaluation evidence" }); }
     catch (error) {
       const winner = await optionalItem(client, id);
       if (winner === null || winner.type !== "Decision" || winner.body !== body || winner.affected_version !== hashJson(storedJson(body) as JsonValue)) throw error;

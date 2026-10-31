@@ -64,7 +64,11 @@ concurrent SDK calls. Successful materialization atomically commits its receipt,
 state and measured charge; the unused allowance is released. Failed/cancelled
 jobs settle conservatively against the whole reserved vector, increased to any
 larger observable storage or valid reported use. Unknown use is never assumed
-zero. Compensated reservations record their released vector and outcome. Settled
+zero. Only an untouched native birth revision still in `planned` at the SDK
+revision fence can release its reservation after staging creation fails.
+Edited planned records retain the charge conservatively: a current planned
+label alone cannot prove that earlier work never ran. A resumed `running` job retains
+its whole charge even when staging is absent, obstructed or inaccessible. Settled
 training and retained storage remain charged, including after evaluation refusal.
 
 All dimensions and the original approval specification digest are rechecked.
@@ -312,6 +316,43 @@ CPU milliseconds. Observed fit wall use was 78 / 78 ms; retained staging was
 2,176 / 2,203 bytes. The unchanged held-out environment and reward identities are
 bound into each job. Rejected, missing-receipt, corrupt and oversized candidates
 never become generation two's collector.
+
+## Interrupted publication
+
+A create or update can commit before an acknowledgement, history read, or later
+journal step fails. The transaction mutex serializes other transactions; ordinary
+SDK and CLI writers can still advance a job. Automatic reverse writes therefore
+retain the current job and its held charge, record the journal's compensation
+boundary without changing the item, and return a typed `superseded` refusal with
+the original failure and an SDK reconciliation remedy. A reservation stays
+planned and charged; a published transition keeps its actual state. Retrying
+inspects current SDK state. A foreign replacement remains untouched. Operators
+must reconcile retained jobs before spending their budget again; failed
+publication never authorizes a refund. This policy also preserves native history
+and avoids an unprotected read/delete or read/restore window.
+
+The executor separates `running` and `materialized` publication from trainer error
+handling. A failed publication acknowledgement cannot settle from its earlier
+local state. Real trainer failures, cancellation and unlaunched staging failures
+use the same source-revision guard as evaluated, promoted and invalidated jobs.
+The SDK verifies a durable history coordinate under its native item lock before
+changing the body or materializing dependent checkpoint receipts. Journal keys
+include the source revision and the full target digest; retries inspect current
+SDK state, preserve a peer winner, and do not replay an older prepared body.
+Fixed-clock ABA updates therefore refuse even when body and timestamps match.
+Failure, cancellation, invalidation and later lifecycle transitions refuse
+reductions below the current charge (`process_charge_regression`), even with a
+claimed completion. Retain the charge; only the executor's validated materialization may release unused
+allowance. Generic SDK lifecycle transitions cannot authorize a refund merely
+by supplying a claimed completion object. Unreadable usage
+reports retain the reservation, while readable excess consumption increases it.
+
+The item lock fences the native write; the workspace mutex only serializes
+participating transactions. Cross-item reads and external trainer startup remain
+outside that item lock. A peer can edit after a final read; subsequent receipt
+publication or failure settlement revalidates the captured revision and retains
+peer state and held budget on conflict.
+
 
 ## Verification
 

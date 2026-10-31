@@ -1,0 +1,12 @@
+{
+  "format": "pm-rl/training-influence-artifact-parity/1",
+  "files": 226,
+  "bytes": 823086,
+  "sha256": "8668e3619f2e47eac780fd26c088b581d930099bc98cee98b97e6b8211fc4a4b",
+  "source_parity": true,
+  "ignored_shipped_mutation_detected": true,
+  "restored_parity": true,
+  "mutated_file": "dist/training-influence.js",
+  "mutation_location": "disposable extracted copy",
+  "artifact_modified": false
+}
