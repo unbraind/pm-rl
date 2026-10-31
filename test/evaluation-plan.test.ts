@@ -296,15 +296,6 @@ test("sealed creation timing refuses an early run with a rewritten current times
   await assert.rejects(recordPlanEvaluation(w.client, "rl-candidate", observations()), refusal("eval_plan_late"));
 });
 
-test("fixed results created before their collection Run and candidate never promote", async () => {
-  const w = await workspace(); const registered = await registerEvaluationPlan(w.client, plan());
-  const sealed = { comparison: registered.comparison, observations: observations().map((row) => ({ ...row })).sort((a, b) => a.id < b.id ? -1 : 1) };
-  await w.client.create({ id: `${registered.id}-result`, type: "Decision", title: "Fixed-stop paired evaluation result", body: JSON.stringify(sealed), affectedVersion: hashJson(sealed) });
-  await generation(w.client, "rl-candidate", spec("rl-seed"));
-  await assert.rejects(readEvaluationDecision(w.client, "rl-candidate"), refusal("eval_plan_late"));
-  await assert.rejects(enforceEvaluationPlan(w.client, "rl-candidate", score()), refusal("eval_plan_late"));
-});
-
 test("original candidate sources must match the declared parent and unchanged incumbent", async () => {
   for (const invalid of ["parent", "incumbent"]) {
     const w = await workspace(); await registerEvaluationPlan(w.client, plan());

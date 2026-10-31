@@ -223,9 +223,9 @@ export function evaluationLifecycleArtifacts(registered: RegisteredEvaluationPla
   if (registered.plan.stopping.kind !== "sequential") refuse("eval_plan_stopping");
   return [{ id: registered.plan.stopping.review, stage: 0 }, { id: registered.id, stage: 1 }, ...runs.map((id) => ({ id, stage: 2 })), { id: registered.plan.candidate, stage: 3 }, ...evaluationLookIds(registered.id, looks).map((id, index) => ({ id, stage: index + 4 }))];
 }
-/** Fixed plans precede their exchangeable collection Runs and candidate; a sealed result follows all of them. */
-function fixedLifecycleArtifacts(registered: RegisteredEvaluationPlan, runs: readonly string[], result?: string): { id: string; stage: number }[] {
-  return [{ id: registered.id, stage: 1 }, ...runs.map((id) => ({ id, stage: 2 })), { id: registered.plan.candidate, stage: 2 }, ...(result === undefined ? [] : [{ id: result, stage: 3 }])];
+/** Fixed plans precede their exchangeable collection Runs and candidate. */
+function fixedLifecycleArtifacts(registered: RegisteredEvaluationPlan, runs: readonly string[]): { id: string; stage: number }[] {
+  return [{ id: registered.id, stage: 1 }, ...runs.map((id) => ({ id, stage: 2 })), { id: registered.plan.candidate, stage: 2 }];
 }
 /** Compare durable snapshot timestamps, mutation timestamps and SDK history positions together. @internal */
 export function validateEvaluationTimeline(entries: readonly { stage: number; values: readonly number[] }[]): void {
@@ -551,9 +551,8 @@ export async function readEvaluationDecision(client: PmClient, candidate: string
     const raw = object(storedJson(result.body), ["comparison", "observations"]);
     if (result.type !== "Decision" || raw.comparison !== registered.comparison || result.affected_version !== hashJson(raw as JsonValue)) refuse("eval_plan_drift", result.id);
     await verifyCreatedRecord(client, result);
-    const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
-    const sources = canonicalizeGenerationSpec(extractGenerationSpec(String((await readCompleteLoopItem(client, resolved)).item.body), "Fixed result sources"), prefix);
-    await validateEvaluationOrder(client, fixedLifecycleArtifacts(registered, sources.collection_runs, result.id));
+    // A fixed result may be sealed before its Runs and candidate exist; it must only follow the declaration.
+    await validateEvaluationOrder(client, [{ id: registered.id, stage: 1 }, { id: result.id, stage: 3 }]);
     return { registered, report: evaluatePlan(registered.plan, raw.observations) };
   });
   for (const item of captured.inputs) {

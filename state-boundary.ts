@@ -120,7 +120,10 @@ export function statePath(root: string, ...components: (string | StoredStateComp
   try {
     let cursor = target;
     for (;;) {
-      const stat = lstatSync(cursor, { throwIfNoEntry: false });
+      let stat: ReturnType<typeof lstatSync> | undefined;
+      // A regular-file ancestor is not a link: leave ENOTDIR to the caller's own operation.
+      try { stat = lstatSync(cursor, { throwIfNoEntry: false }); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOTDIR") throw error; }
       if (stat?.isSymbolicLink()) refused("rl_state_path_invalid");
       if (cursor === base) break;
       const parent = dirname(cursor); if (parent === cursor) break; cursor = parent;

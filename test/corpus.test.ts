@@ -143,10 +143,11 @@ test("corpus missing or invalid directories refuse with stable path-free errors 
   const file = join(w.root, "plain-file"); writeFileSync(file, "preserve bytes");
   const missing = join(w.root, "absent");
   const dangling = join(w.root, "dangling"); symlinkSync(missing, dangling);
-  // A dangling link, or a root below a regular file, is refused by the state boundary before existence is checked.
+  // A dangling link is refused by the state boundary before existence is checked; a root below a regular file is
+  // simply missing.
   for (const [source, output, code] of [
-    ...[missing, file].map((source) => [source, join(w.root, "sealed.json"), "corpus_source_missing"]),
-    ...[join(file, "child"), dangling].map((source) => [source, join(w.root, "sealed.json"), "rl_state_path_invalid"]),
+    ...[missing, file, join(file, "child")].map((source) => [source, join(w.root, "sealed.json"), "corpus_source_missing"]),
+    [dangling, join(w.root, "sealed.json"), "rl_state_path_invalid"],
     ...[missing, file, join(file, "child")].map((parent) => [w.pmRoot, join(parent, "sealed.json"), "corpus_output_parent_missing"]),
     [w.pmRoot, join(dangling, "sealed.json"), "rl_state_path_invalid"],
   ]) {
