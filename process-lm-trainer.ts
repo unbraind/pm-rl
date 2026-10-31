@@ -1,4 +1,4 @@
-import { statePath, operationIdentifier } from "./state-boundary.ts";
+import { statePath } from "./state-boundary.ts";
 import { parseBoundedJson } from "./tracker-record.ts";
 /** Packaged TypeScript LM entrypoint implementing the shared durable process protocol. */
 import { createHash } from "node:crypto";
@@ -8,7 +8,7 @@ import type { Readable, Writable } from "node:stream";
 import { trainLmStep, lmTrainingJson, serializeLmCheckpoint } from "./lm.ts";
 import { restoreLmProcessInput, lmFitTokens } from "./process-lm.ts";
 import type { ProcessCompletion, ProcessInput } from "./process.ts";
-import { writeTrainerCompletion } from "./process-bandit.ts";
+import { trainerJobIdentity, writeTrainerCompletion } from "./process-bandit.ts";
 import { isMainInvocation } from "./scripts/script-launcher.ts";
 
 /** Fit actual collected rewards, fsync the canonical checkpoint and then publish completion. */
@@ -16,11 +16,10 @@ export async function runLmTrainer(stdin: Readable = process.stdin, stdout: Writ
   let text = "";
   for await (const chunk of stdin) text += String(chunk);
   const { job: rawJob, input } = parseBoundedJson(text) as { job: string; input: ProcessInput<{ readonly digest: string }> };
-  const job = operationIdentifier(rawJob);
-  const format = job === rawJob ? "pm-rl/process-completion/1" as const : "pm-rl/process-completion/2" as const;
+  const { job, format, marker } = trainerJobIdentity(rawJob);
   const start = performance.now(); const cpu = process.cpuUsage();
   const { config, source, payload } = restoreLmProcessInput(input);
-  stdout.write(`${JSON.stringify({ ...(format === "pm-rl/process-completion/2" ? { format: "pm-rl/trainer-event/2" } : {}), type: "progress", job, usage: { training_steps: 0, wall_ms: 0, storage_bytes: 0, compute_units: 0, tokens: 0 } })}\n`);
+  stdout.write(`${JSON.stringify({ ...marker, type: "progress", job, usage: { training_steps: 0, wall_ms: 0, storage_bytes: 0, compute_units: 0, tokens: 0 } })}\n`);
   const training = trainLmStep(config, payload.step, payload.generation, source, payload.observations, null);
   const checkpoint = serializeLmCheckpoint(training.candidate, config);
   const handle = openSync(statePath(directory, "checkpoint.json"), "wx");

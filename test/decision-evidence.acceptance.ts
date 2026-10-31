@@ -13,10 +13,10 @@ const archive = resolve(process.argv[2]); const output = resolve(process.argv[3]
 const w = await decisionFixture(false, false);
 const cli = resolve("node_modules/@unbrained/pm-cli/dist/cli.js");
 const env: NodeJS.ProcessEnv = { ...process.env, PM_AUTHOR: "decision-test", PM_PATH: w.pmRoot, GIT_CEILING_DIRECTORIES: dirname(w.root), NPM_CONFIG_USERCONFIG: devNull, NODE_V8_COVERAGE: undefined };
-execFileSync(process.execPath, [cli, "package", "install", archive, "--project", "--json"], { cwd: w.root, env, stdio: "pipe" });
 const bin = join(w.root, "bin"); mkdirSync(bin); symlinkSync(process.execPath, join(bin, "node"));
 const identityTool = process.platform === "linux" ? "getconf" : "ps";
 symlinkSync(execFileSync("/bin/sh", ["-c", `command -v ${identityTool}`], { encoding: "utf8" }).trim(), join(bin, identityTool)); env.PATH = bin;
+execFileSync(process.execPath, [cli, "package", "install", archive, "--project", "--json"], { cwd: w.root, env, stdio: "pipe" });
 /** Run the actual installed archive in a tracker with no Git executable. */
 function command(args: string[]): string { return execFileSync(process.execPath, [cli, "rl", ...args], { cwd: w.root, env, encoding: "utf8" }); }
 const scores = join(w.root, "scores.json"); writeFileSync(scores, JSON.stringify({ proxy_score: { ...w.score, evaluation_context: "proxy" }, held_out_score: w.score }));

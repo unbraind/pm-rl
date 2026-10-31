@@ -22,11 +22,10 @@ export async function runReferenceTrainer(stdin: Readable = process.stdin, stdou
   let text = "";
   for await (const chunk of stdin) text += String(chunk);
   const { job: rawJob, input } = parseBoundedJson(text) as { job: string; input: ProcessInput };
-  const job = operationIdentifier(rawJob);
-  const format = job === rawJob ? "pm-rl/process-completion/1" as const : "pm-rl/process-completion/2" as const;
+  const { job, format, marker } = trainerJobIdentity(rawJob);
   const start = performance.now();
   const cpu = process.cpuUsage();
-  stdout.write(`${JSON.stringify({ ...(format === "pm-rl/process-completion/2" ? { format: "pm-rl/trainer-event/2" } : {}), type: "progress", job, usage: { training_steps: 0, wall_ms: 0, storage_bytes: 0, compute_units: 0, tokens: 0 } })}\n`);
+  stdout.write(`${JSON.stringify({ ...marker, type: "progress", job, usage: { training_steps: 0, wall_ms: 0, storage_bytes: 0, compute_units: 0, tokens: 0 } })}\n`);
   const policy = fitBanditBatch(input.training, input.source, input.observations, input.training_config.learning_rate, input.training_config.steps);
   writeTrainerArtifact(statePath(directory, "checkpoint.json"), policy, 4096);
   const cpuUse = process.cpuUsage(cpu);
@@ -44,6 +43,20 @@ export async function referenceTrainerMain(argv = process.argv, moduleUrl = impo
 await referenceTrainerMain();
 
 
+/**
+ * The job identity and wire formats a trainer uses for one raw job id. This is the trainer-to-controller contract:
+ * a canonical id keeps the version-1 completion format, while a normalized alias id uses version 2 and marks its
+ * progress events as trainer-event/2. Every trainer derives them here, so no two trainers can emit different
+ * formats for the same job.
+ *
+ * @param rawJob - The job id exactly as the controller passed it.
+ * @returns The normalized job id, its completion format, and the progress-event marker to spread into events.
+ */
+export function trainerJobIdentity(rawJob: string): { job: string; format: "pm-rl/process-completion/1" | "pm-rl/process-completion/2"; marker: { format?: "pm-rl/trainer-event/2" } } {
+  const job = operationIdentifier(rawJob);
+  const format = job === rawJob ? "pm-rl/process-completion/1" as const : "pm-rl/process-completion/2" as const;
+  return { job, format, marker: format === "pm-rl/process-completion/2" ? { format: "pm-rl/trainer-event/2" as const } : {} };
+}
 /** Publish the exclusive durable receipt before its matching versioned completion event. @internal */
 export function writeTrainerCompletion(directory: string, receipt: ProcessCompletion<{ readonly digest: string }>, stdout: Writable, maximum = 65_536): void {
   writeTrainerArtifact(statePath(directory, "completion.json"), receipt, maximum);

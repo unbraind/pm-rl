@@ -1,11 +1,11 @@
-import { statePath, operationIdentifier } from "./state-boundary.ts";
+import { statePath } from "./state-boundary.ts";
 import { parseBoundedJson } from "./tracker-record.ts";
 /** Packaged history-prefix trainer using the existing stdin, NDJSON and durable disk contract. */
 
 import type { Readable, Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { fitPrefix, type PrefixCheckpoint } from "./prefix.ts";
-import { writeTrainerArtifact, writeTrainerCompletion } from "./process-bandit.ts";
+import { trainerJobIdentity, writeTrainerArtifact, writeTrainerCompletion } from "./process-bandit.ts";
 import type { ProcessInput, ProcessCompletion } from "./process.ts";
 import { isMainInvocation } from "./scripts/script-launcher.ts";
 import { encodeCheckpointArtifacts, type CheckpointArtifact } from "./checkpoint-artifacts.ts";
@@ -19,8 +19,7 @@ export async function runPrefixTrainer(stdin: Readable, stdout: Writable, direct
   let text = "";
   for await (const chunk of stdin) text += String(chunk);
   const { job: rawJob, input, artifactRoot = directory } = parseBoundedJson(text) as { job: string; input: ProcessInput<PrefixCheckpoint>; artifactRoot?: string };
-  const job = operationIdentifier(rawJob);
-  const format = job === rawJob ? "pm-rl/process-completion/1" as const : "pm-rl/process-completion/2" as const;
+  const { job, format } = trainerJobIdentity(rawJob);
   const start = performance.now(); const cpu = process.cpuUsage();
   const policy = fitPrefix(input.prefix!, input.source, input.training_config.learning_rate);
   const artifact = await encodeCheckpointArtifacts(artifactRoot, `job:${job}:staged`, policy) as CheckpointArtifact;

@@ -19,7 +19,6 @@ const root = mkdtempSync(join(tmpdir(), "rl-packed-legacy-")); const pmRoot = jo
 for (const [name, contents] of Object.entries(fixture.files)) { const path = statePath(pmRoot, ...name.split("/")); mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, contents); }
 const cli = resolve("node_modules/@unbrained/pm-cli/dist/cli.js");
 const env: NodeJS.ProcessEnv = { ...process.env, PM_PATH: pmRoot, PM_AUTHOR: "compatibility-test", NPM_CONFIG_USERCONFIG: devNull, GIT_CEILING_DIRECTORIES: dirname(root), NODE_V8_COVERAGE: undefined };
-execFileSync(process.execPath, [cli, "package", "install", archive, "--project", "--json"], { cwd: root, env, stdio: "pipe" });
 // Direct checks run the installed archive's modules, so archive export or build drift fails here; source checks live in
 // evaluation-compatibility.test.ts. The archive exists only at run time and its module graph uses top-level await, so a
 // generated probe imports it statically in a child of the same runtime (no dynamic import, no require(esm)).
@@ -43,6 +42,7 @@ function archiveSpec(id: string): GenerationSpec { return JSON.parse(execFileSyn
 const bin = join(root, "bin"); mkdirSync(bin); symlinkSync(process.execPath, join(bin, "node"));
 const identityTool = process.platform === "linux" ? "getconf" : "ps";
 symlinkSync(execFileSync("/bin/sh", ["-c", `command -v ${identityTool}`], { encoding: "utf8" }).trim(), join(bin, identityTool)); env.PATH = bin;
+execFileSync(process.execPath, [cli, "package", "install", archive, "--project", "--json"], { cwd: root, env, stdio: "pipe" });
 /** Use actual CLI formatting and the archive-installed extension with Git absent from PATH. */
 function command(args: string[]): string { return execFileSync(process.execPath, [cli, "rl", ...args], { cwd: root, env, encoding: "utf8" }); }
 const before = archiveRead(`${fixture.plan.candidate}-evaluation-plan`);

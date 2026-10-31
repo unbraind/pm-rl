@@ -35,8 +35,8 @@ if (process.argv[7] === "replay") { await replayPublicFixture(resolve(process.ar
 const root = mkdtempSync(join(tmpdir(), "rl-sequential-public-")); process.env.GIT_CEILING_DIRECTORIES = dirname(root);
 const tracker = await init("rl", { defaults: true, author: "sequential-acceptance", agentGuidance: "skip" }, { cwd: root, pmRoot: join(root, ".agents/pm") });
 const cli = resolve("node_modules/@unbrained/pm-cli/dist/cli.js"); const env: NodeJS.ProcessEnv = { ...process.env, PM_PATH: tracker.path, PM_AUTHOR: "sequential-acceptance", NODE_V8_COVERAGE: undefined };
-execFileSync(process.execPath, [cli, "package", "install", archive, "--project", "--json"], { cwd: root, env, stdio: "pipe" });
 const bin = join(root, "bin"); mkdirSync(bin); symlinkSync(process.execPath, join(bin, "node")); const identityTool = process.platform === "linux" ? "getconf" : "ps"; symlinkSync(execFileSync("/bin/sh", ["-c", `command -v ${identityTool}`], { encoding: "utf8" }).trim(), join(bin, identityTool)); env.PATH = bin;
+execFileSync(process.execPath, [cli, "package", "install", archive, "--project", "--json"], { cwd: root, env, stdio: "pipe" });
 /** Execute the actual installed command surface without any Git executable. */
 function command(args: string[]): string { return execFileSync(process.execPath, [cli, "rl", "eval", "plan", ...args], { cwd: root, env, encoding: "utf8" }); }
 const client = new PmClient({ cwd: root, pmRoot: tracker.path, author: "sequential-acceptance", noExtensions: true });
@@ -97,8 +97,8 @@ async function replayPublicFixture(file: string): Promise<void> {
   const expected = JSON.parse(readFileSync(output, "utf8")) as ReturnType<typeof publicEvidence>;
   const pmRoot = join(retained.root, ".agents/pm"), cli = resolve("node_modules/@unbrained/pm-cli/dist/cli.js");
   const env: NodeJS.ProcessEnv = { ...process.env, PM_PATH: pmRoot, PM_AUTHOR: "sequential-acceptance", GIT_CEILING_DIRECTORIES: dirname(retained.root), NODE_V8_COVERAGE: undefined };
-  execFileSync(process.execPath, [cli, "package", "install", archive, "--project", "--json"], { cwd: retained.root, env, stdio: "pipe" });
   env.PATH = join(retained.root, "bin");
+  execFileSync(process.execPath, [cli, "package", "install", archive, "--project", "--json"], { cwd: retained.root, env, stdio: "pipe" });
   /** Read or retry the installed final archive with Git absent from PATH. */
   function command(args: string[]): string { return execFileSync(process.execPath, [cli, "rl", "eval", "plan", ...args], { cwd: retained.root, env, encoding: "utf8" }); }
   const client = new PmClient({ cwd: retained.root, pmRoot, author: "sequential-acceptance", noExtensions: true });
