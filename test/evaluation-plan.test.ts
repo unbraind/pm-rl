@@ -555,3 +555,26 @@ test("hashed evidence uses UTF-8 byte order for mixed-form and Unicode native ID
   assert.deepEqual(evidence.inputs.map(item => item.id), expected);
   assert.equal(evaluationEvidence("a".repeat(64), [...items].reverse()).digest, evidence.digest);
 });
+
+test("fixed declaration and result publication refuse native create ABA without erasing peer history", async () => {
+  for (const domain of ["plan", "result"]) {
+    const w = await workspace(); const peer = new PmClient({ pmRoot: w.pmRoot, cwd: w.root, author: "ordinary-peer", noExtensions: true });
+    if (domain === "result") { await registerEvaluationPlan(w.client, plan()); await generation(w.client, "rl-candidate", spec("rl-seed")); }
+    const create = w.client.create.bind(w.client); let injected = false; let path = ""; let history = ""; let expected: readonly string[] = [];
+    w.client.create = (async (options) => {
+      const result = await create(options);
+      if (!injected) {
+        injected = true; const body = String((await readCompleteLoopItem(peer, result.item.id)).item.body);
+        await peer.update(result.item.id, { body: "Peer evidence" }); await peer.update(result.item.id, { body });
+        path = join(w.pmRoot, domain === "plan" ? "plans" : "decisions", `${result.item.id}.toon`); history = join(w.pmRoot, "history", `${result.item.id}.jsonl`);
+        expected = [readFileSync(path, "utf8"), readFileSync(history, "utf8")];
+      }
+      return result;
+    }) as PmClient["create"];
+    const publish = () => domain === "plan" ? registerEvaluationPlan(w.client, plan()) : recordPlanEvaluation(w.client, "rl-candidate", observations());
+    await assert.rejects(publish(), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_write_conflict");
+    assert.ok(injected); assert.deepEqual([readFileSync(path, "utf8"), readFileSync(history, "utf8")], expected);
+    await publish(); // A new invocation may adopt the now-stable, valid native record.
+    assert.deepEqual([readFileSync(path, "utf8"), readFileSync(history, "utf8")], expected);
+  }
+});

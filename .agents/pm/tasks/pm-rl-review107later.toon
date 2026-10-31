@@ -2,14 +2,16 @@ id: pm-rl-review107later
 title: Triage the three later review threads outside the seven-finding round
 description: "Follow up PRRT_kwDOTqJmqs6x8fDn (duplicate public acceptance evidence), PRRT_kwDOTqJmqs6x8fDs (fixed-result lifecycle sources), and PRRT_kwDOTqJmqs6x8fDu (unreadable process birth identity). These arrived after the seven requested threads; preserve released compatibility and require independent regression/revert evidence before changes."
 type: Task
-status: open
+status: in_progress
 priority: 2
 tags[2]: "gh:unbraind/pm-rl#107",review
 created_at: "2026-10-30T13:55:27.424Z"
-updated_at: "2026-10-31T12:11:44.065Z"
+updated_at: "2026-10-31T12:54:34.798Z"
+assignee: codex-agent
+claim_principal: codex-agent
 author: codex-agent
 parent: pm-rl-sequential
-comments[9]{created_at,author,text}:
+comments[24]{created_at,author,text}:
   "2026-10-30T18:08:05.446Z",codex-agent,"Related stopping/identity diagnostic on untouched cd91de9: node --test --test-concurrency=1 --test-name-pattern=\"native child identity failure and PID reuse\" test/process.test.ts reports 1 test, 0 pass, 1 failure. The fixture expects Cannot establish trainer process identity but receives Trainer exceeded wall or staging allowance. The current full integration attempt flags the same test. This does not establish that the later stopTrainer thread has the same root cause; retain the identity and allowance evidence for triage without weakening the existing bounds."
   "2026-10-31T00:21:05.202Z",codex-agent,"The original native-child identity failure now passes: identity tools honor the supplied PATH instead of bypassing it with a platform installation path. With an empty PATH, a real child fails with process_identity_unavailable and is reaped. This fixes the observed fixture/lookup defect; the three later review threads remain separately tracked and unclosed."
   "2026-10-31T01:52:18.677Z","harness:claude-code","Fixed all three by hand on #107. (1) PRRT_kwDOTqJmqs6x8fDu stopTrainer: an unreadable birth identity counts as stopped only when kill(pid, 0) reports ESRCH, and an unreadable identity after SIGKILL is not proof of stop. New assertion in controller-boundaries 'recovery stops only the exact live trainer' fails on revert (0/1). (2) PRRT_kwDOTqJmqs6x8fDs fixed-result read path: the result must follow the plan, every collection Run and the candidate, via the shared fixedLifecycleArtifacts. New test 'fixed results created before their collection Run and candidate never promote' fails on revert (0/1). Legitimate recording always verifies Runs and candidate first, so no released result can have the old ordering. (3) PRRT_kwDOTqJmqs6x8fDn: the stale public_node_and_bun copy now references docs/sequential-evaluation-evidence.json (same commit, snapshot and comparison, current evidence_digest). Also fixed: the 'git absent from PATH' CLI test and evaluation-plan.acceptance now link the platform identity tool, because the merged process-job fence needs getconf/ps (the test failed at e0fb7d9 with process_identity_unavailable)."
@@ -19,17 +21,88 @@ comments[9]{created_at,author,text}:
   "2026-10-31T06:49:22.781Z","harness:claude-code","CodeRabbit round on c7c44d1: the exported parseSequentialStopping now refuses null, undefined, primitives and arrays with eval_plan_invalid before Object.keys, instead of throwing TypeError. The strict-schema test covers all four guard operands and fails on revert (0/1). Check (0 clones), lint and changelog pass."
   "2026-10-31T07:47:50.716Z","harness:claude-code","CodeRabbit round on 2454499: the retained meta reservation check now calls rethrowOperationalRead before converting an approval read error into meta_reservation_drift, so a temporary backend failure stays provenance_read_retryable. New transaction-races test injects one EIO on the retained approval read and expects retryable, then success on retry; it fails on revert (0/1). The reservation boundary property test (including the absent-approval change, still a conflict) passes. Check (0 clones), lint and changelog pass."
   "2026-10-31T12:11:44.064Z","harness:claude-code","CI on 4e9dbd5 (main merged) failed 5 tests on Node 26. Bisected locally: four already failed at e0fb7d9 (both staging tests, the shadow git-absent test and the transition boundary property); one was mine. Fixed: (1) Reverted my fixed-result ordering in readEvaluationDecision, because 'fixed results retain pre-candidate sealing' pins that a fixed result may be sealed before its Runs and candidate and must only follow the declaration. CodeRabbit thread 8fDs conflicted with that design, and I removed my contrary test. (2) statePath treats ENOTDIR from lstat as absent instead of a link refusal, so a regular-file ancestor surfaces as the caller's own ENOTDIR and the staging failure releases and fails the reservation (both staging tests pass). The corpus case 'root below a regular file' is corpus_source_missing again. (3) The shadow git-absent CLI test links the platform identity tool. Remaining: transition boundary property at step_applied with ABA (the post-commit inspect sees an identical body), queued as a codex continuation. Corpus, state-boundary, checkpoint-artifacts and evaluation-plan 90/90; the four fixed tests pass; check (0 clones), lint, docstring and changelog pass."
-files[8]{path,scope}:
+  "2026-10-31T12:14:38.946Z",codex-agent,"Continuation from c0900da: preserve all orchestrator fixes. Reproduce the step_applied ABA transition property, then fence successful writes with immutable SDK history coordinates. Audit meta reservation, evaluation and loop-step transaction publication for the same post-apply window; add real non-git peer-write regressions and function-only revert proofs. Use at most two test workers; preserve all existing hook and ABA cases and forward-only retention. No transaction lease is claimed to exclude ordinary writers."
+  "2026-10-31T12:26:48.032Z",codex-agent,"ABA function-only revert proof: commitProcessTransaction (transaction). In a disposable source copy, revert only this function to c0900da; for the newly introduced helpers, use a signature-preserving no-fence adapter. The corresponding real native peer-write regression fails with Missing expected rejection, never a compile or setup failure. Control exit 1. The original transition hook/ABA property remains byte-identical. Restore fixed functions after each control; final disposable source rerun passes all 5/5 regression families. No target worktree source or tracker history is reverted."
+  "2026-10-31T12:26:49.215Z",codex-agent,"ABA function-only revert proof: mutateLoopItem (mutation). In a disposable source copy, revert only this function to c0900da; for the newly introduced helpers, use a signature-preserving no-fence adapter. The corresponding real native peer-write regression fails with Missing expected rejection, never a compile or setup failure. Control exit 1. The original transition hook/ABA property remains byte-identical. Restore fixed functions after each control; final disposable source rerun passes all 5/5 regression families. No target worktree source or tracker history is reverted."
+  "2026-10-31T12:26:50.389Z",codex-agent,"ABA function-only revert proof: createVerifiedItem (creation). In a disposable source copy, revert only this function to c0900da; for the newly introduced helpers, use a signature-preserving no-fence adapter. The corresponding real native peer-write regression fails with Missing expected rejection, never a compile or setup failure. Control exit 1. The original transition hook/ABA property remains byte-identical. Restore fixed functions after each control; final disposable source rerun passes all 5/5 regression families. No target worktree source or tracker history is reverted."
+  "2026-10-31T12:26:51.742Z",codex-agent,"ABA function-only revert proof: withPlanLease (fixed-plan-scope). In a disposable source copy, revert only this function to c0900da; for the newly introduced helpers, use a signature-preserving no-fence adapter. The corresponding real native peer-write regression fails with Missing expected rejection, never a compile or setup failure. Control exit 1. The original transition hook/ABA property remains byte-identical. Restore fixed functions after each control; final disposable source rerun passes all 5/5 regression families. No target worktree source or tracker history is reverted."
+  "2026-10-31T12:26:53.223Z",codex-agent,"ABA function-only revert proof: withEvaluationLease (evaluation-scope). In a disposable source copy, revert only this function to c0900da; for the newly introduced helpers, use a signature-preserving no-fence adapter. The corresponding real native peer-write regression fails with Missing expected rejection, never a compile or setup failure. Control exit 1. The original transition hook/ABA property remains byte-identical. Restore fixed functions after each control; final disposable source rerun passes all 5/5 regression families. No target worktree source or tracker history is reverted."
+  "2026-10-31T12:26:54.472Z",codex-agent,"ABA function-only revert proof: appendSequentialLook (sequential-create). In a disposable source copy, revert only this function to c0900da; for the newly introduced helpers, use a signature-preserving no-fence adapter. The corresponding real native peer-write regression fails with Missing expected rejection, never a compile or setup failure. Control exit 1. The original transition hook/ABA property remains byte-identical. Restore fixed functions after each control; final disposable source rerun passes all 5/5 regression families. No target worktree source or tracker history is reverted."
+  "2026-10-31T12:26:56.031Z",codex-agent,"ABA function-only revert proof: durableLoopStep (loop-receipt-scope). In a disposable source copy, revert only this function to c0900da; for the newly introduced helpers, use a signature-preserving no-fence adapter. The corresponding real native peer-write regression fails with Missing expected rejection, never a compile or setup failure. Control exit 1. The original transition hook/ABA property remains byte-identical. Restore fixed functions after each control; final disposable source rerun passes all 5/5 regression families. No target worktree source or tracker history is reverted."
+  "2026-10-31T12:26:57.188Z",codex-agent,"ABA function-only revert proof: withWriteHistoryFence (publication-fence). In a disposable source copy, revert only this function to c0900da; for the newly introduced helpers, use a signature-preserving no-fence adapter. The corresponding real native peer-write regression fails with Missing expected rejection, never a compile or setup failure. Control exit 1. The original transition hook/ABA property remains byte-identical. Restore fixed functions after each control; final disposable source rerun passes all 5/5 regression families. No target worktree source or tracker history is reverted."
+  "2026-10-31T12:26:58.319Z",codex-agent,"ABA function-only revert proof: certifyLoopWrite (write-witness). In a disposable source copy, revert only this function to c0900da; for the newly introduced helpers, use a signature-preserving no-fence adapter. The corresponding real native peer-write regression fails with Missing expected rejection, never a compile or setup failure. Control exit 1. The original transition hook/ABA property remains byte-identical. Restore fixed functions after each control; final disposable source rerun passes all 5/5 regression families. No target worktree source or tracker history is reverted."
+  "2026-10-31T12:27:48.563Z",codex-agent,"Implementation receipts: the unchanged original transition property passes all 10 hook/ABA combinations. Five ABA regression families pass (transition, process/meta reservation, fixed declaration/result, sequential checkpoint, and loop receipt). A separate positive test allows nested own writes and native no-ops while refusing a subsequent peer ABA; the existing producer-envelope contract also passes. npm run check passes with zero clones across 58 sources; explicit lint passes; docstrings cover 501 declarations. The requested seven-file run is in progress with two workers; only the previously timed-out exhaustive sequential snapshot matrix is deferred to CI, with the focused endpoint variant and all transaction hooks retained locally."
+  "2026-10-31T12:51:29.236Z",codex-agent,"Observer isolation revert proof: replace only publicationWrites.exit around the onTransition callback with the previous direct callback call, retaining the new fence everywhere else. The same-client helper-write ABA regression then fails with Missing expected rejection. Restoring observer isolation passes; callbacks cannot relabel their own ordinary-peer writes as the transaction target revision."
+  "2026-10-31T12:51:30.835Z",codex-agent,"Process refusal compatibility revert proof: revert only commitRetainingProcessState to c0900da. The unchanged executor/publication final-snapshot-gap regression fails its superseded predicate because the new history fence propagates loop_write_conflict directly. Restoring the domain mapping passes the complete process-publication file 14/14. This control is a typed-code mismatch, not a missing-rejection claim; peer state remains retained in both cases."
+  "2026-10-31T12:51:32.437Z",codex-agent,"Reservation-specific revert proof: revert only createVerifiedItem to its c0900da envelope-only postcondition. The new process/meta reservation publication ABA regression fails with Missing expected rejection at the post-apply boundary. Fixed source passes all eight post-create hook cases across both domains. The matching-peer adoption regressions remain unchanged."
+  "2026-10-31T12:51:34.440Z",codex-agent,"Final causal proof checkpoint: all 12 disposable function/adapter controls fail behaviorally on the final implementation (11 missing-rejection controls and one typed process-code mismatch). Restoration passes the seven-test ABA/positive corpus. Original transition property remains byte-identical, with all 10 hook/ABA cases passing. A fresh sequential endpoint comparison passes on c0900da, exposed a check-after-lease-release window in the initial patch, and now passes unchanged after placing the final certificate inside the source leases. The initial broad seven-file run was 324/327; its three failures have passing targeted reruns. A final seven-file run is underway with the same single exhaustive-matrix deferral."
+files[14]{path,scope}:
   checkpoint-artifacts.ts,project
   docs/evaluation-compatibility-evidence.json,project
+  docs/process-trainer.md,project
   evaluation-plan.ts,project
+  index.ts,project
   meta.ts,project
   policy-card.ts,project
   process.ts,project
   recursive-improver.ts,project
+  sequential-evaluation.ts,project
+  test/evaluation-plan.test.ts,project
   test/process.test.ts,project
-tests[3]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
-  node --test --test-name-pattern='recovery stops only the exact live trainer' test/controller-boundaries.test.ts,project,"harness:claude-code","2026-10-31T01:52:21.766Z",local_mutation,feat/predeclared-sequential-evaluation
-  node --test test/evaluation-plan.test.ts test/evaluation-compatibility.test.ts,project,"harness:claude-code","2026-10-31T01:52:21.766Z",local_mutation,feat/predeclared-sequential-evaluation
-  node --test test/mutation-preflight.test.ts test/checkpoint-artifacts.test.ts,project,"harness:claude-code","2026-10-31T03:58:14.333Z",local_mutation,feat/predeclared-sequential-evaluation
+  test/sequential-evaluation.test.ts,project
+  test/transaction-races.test.ts,project
+tests[6]:
+  - command: node --test --test-name-pattern='recovery stops only the exact live trainer' test/controller-boundaries.test.ts
+    scope: project
+    provenance:
+      author: "harness:claude-code"
+      created_at: "2026-10-31T01:52:21.766Z"
+      source_kind: local_mutation
+      source_ref: feat/predeclared-sequential-evaluation
+  - command: node --test test/evaluation-plan.test.ts test/evaluation-compatibility.test.ts
+    scope: project
+    provenance:
+      author: "harness:claude-code"
+      created_at: "2026-10-31T01:52:21.766Z"
+      source_kind: local_mutation
+      source_ref: feat/predeclared-sequential-evaluation
+  - command: node --test test/mutation-preflight.test.ts test/checkpoint-artifacts.test.ts
+    scope: project
+    provenance:
+      author: "harness:claude-code"
+      created_at: "2026-10-31T03:58:14.333Z"
+      source_kind: local_mutation
+      source_ref: feat/predeclared-sequential-evaluation
+  - command: "node --test --test-concurrency=2 --test-name-pattern=\"transition boundary property: peer edits|reservation publication rejects ABA|loop receipt publication rejects|publication history fences permit|fixed declaration and result publication refuse|sequential checkpoint publication refuses\" test/transaction-races.test.ts test/evaluation-plan.test.ts test/sequential-evaluation.test.ts"
+    scope: project
+    timeout_seconds: 180
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-31T12:27:47.348Z"
+      source_kind: local_mutation
+      source_ref: feat/predeclared-sequential-evaluation
+  - command: "node --test --test-concurrency=1 --test-name-pattern=\"observer helper writes cannot\" test/transaction-races.test.ts"
+    scope: project
+    timeout_seconds: 120
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-31T12:40:06.264Z"
+      source_kind: local_mutation
+      source_ref: feat/predeclared-sequential-evaluation
+  - command: "node --test --test-concurrency=2 --test-skip-pattern=\"^sequential mutation snapshot matrix interleaves every transition at every SDK boundary$\" test/transaction-races.test.ts test/process.test.ts test/process-publication.test.ts test/meta.test.ts test/sequential-evaluation.test.ts test/evaluation-plan.test.ts test/controller-boundaries.test.ts"
+    scope: project
+    timeout_seconds: 1800
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-31T12:54:34.760Z"
+      source_kind: local_mutation
+      source_ref: feat/predeclared-sequential-evaluation
+docs[1]{path,scope}:
+  docs/process-trainer.md,project
 body: ""

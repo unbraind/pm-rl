@@ -18,6 +18,27 @@ import type { GenerationSpec, ScoreRecord } from "../lineage.ts";
 const roots: string[] = [];
 after(() => { for (const root of roots) rmSync(root, { recursive: true, force: true }); });
 
+test("sequential checkpoint publication refuses native create ABA and a stable retry converges", async () => {
+  const w = await workspace(); const p = await prepared(w.client);
+  const peer = new PmClient({ pmRoot: w.pmRoot, cwd: w.root, author: "ordinary-peer", noExtensions: true });
+  const create = w.client.create.bind(w.client); let injected = false; let path = ""; let history = ""; let expected: readonly string[] = [];
+  w.client.create = (async (options) => {
+    const result = await create(options);
+    if (!injected) {
+      injected = true; const body = String((await readCompleteLoopItem(peer, result.item.id)).item.body);
+      await peer.update(result.item.id, { body: "Peer checkpoint" }); await peer.update(result.item.id, { body });
+      path = join(w.pmRoot, "decisions", `${result.item.id}.toon`); history = join(w.pmRoot, "history", `${result.item.id}.jsonl`);
+      expected = [readFileSync(path, "utf8"), readFileSync(history, "utf8")];
+    }
+    return result;
+  }) as PmClient["create"];
+  await assert.rejects(recordSequentialEvaluation(w.client, p.candidate, observations(p)), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_write_conflict");
+  assert.ok(injected); assert.deepEqual([readFileSync(path, "utf8"), readFileSync(history, "utf8")], expected);
+  const retry = await recordSequentialEvaluation(w.client, p.candidate, observations(p));
+  assert.ok(!("status" in retry)); assert.equal(retry.sequential?.look, 1);
+  assert.deepEqual([readFileSync(path, "utf8"), readFileSync(history, "utf8")], expected);
+});
+
 test("promotion revision guard covers arbitrary SDK projections, absent slots and every lease boundary", async () => {
   const w = await workspace();
   const peer = new PmClient({ pmRoot: w.pmRoot, cwd: w.root, author: "evidence-peer", noExtensions: true });

@@ -340,6 +340,13 @@ changing the body or materializing dependent checkpoint receipts. Journal keys
 include the source revision and the full target digest; retries inspect current
 SDK state, preserve a peer winner, and do not replay an older prepared body.
 Fixed-clock ABA updates therefore refuse even when body and timestamps match.
+Publication also retains the exact revision produced by each native write and
+checks it after all transaction observer hooks. Restoring the applied body cannot
+hide a later peer history entry: the call refuses with a typed conflict and keeps
+the peer's item and append-only history. The same publication check covers meta
+reservations, evaluation declarations and checkpoints, and completed loop
+receipts. A fresh invocation may adopt a now-stable valid record; this check is
+detection at the publication boundary, not exclusion of ordinary writers.
 Failure, cancellation, invalidation and later lifecycle transitions refuse
 reductions below the current charge (`process_charge_regression`), even with a
 claimed completion. Retain the charge; only the executor's validated materialization may release unused

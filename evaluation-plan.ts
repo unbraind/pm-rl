@@ -6,7 +6,7 @@ import type { GetResult, PmClient } from "@unbrained/pm-cli/sdk/core";
 import { listMutationEvents } from "@unbrained/pm-cli/sdk";
 import { dirname } from "node:path";
 import { createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError, readSettings } from "@unbrained/pm-cli/sdk/runtime";
-import { createVerifiedItem, extractGenerationSpec, generationProvenance, hashJson, readCompleteLoopItem, captureDecisionInputs, verifyTerminalEvaluationReceipt, verifyDecisionEvidence, type JsonValue } from "./index.ts";
+import { withWriteHistoryFence, createVerifiedItem, extractGenerationSpec, generationProvenance, hashJson, readCompleteLoopItem, captureDecisionInputs, verifyTerminalEvaluationReceipt, verifyDecisionEvidence, type JsonValue } from "./index.ts";
 import { decidePromotion, type PromotionCriterion, type PromotionDecision } from "./promotion.ts";
 import { enforceShadowComparison, shadowEvidenceIds } from "./shadow.ts";
 import { rethrowOperationalRead } from "./refuse.ts";
@@ -324,7 +324,7 @@ async function withPlanLease<T>(client: PmClient, candidate: string, execute: ()
   const config = await identifierClient(client).config("project", "get", "id_prefix"); const root = dirname(config.settings_path);
   const settings = await readSettings(root);
   const lease = await acquireStateLease(root, `rl-eval-${hashJson(canonicalizeIdentifier(candidate, String(config.nested_setting!.value)))}`, settings.locks.ttl_seconds, "pm-rl-evaluation", false, false, 30_000, { maxWaitMs: 30_000 });
-  try { return await lease.fence(execute); } finally { await lease.release(); }
+  try { return await lease.fence(() => withWriteHistoryFence(execute)); } finally { await lease.release(); }
 }
 /** Canonical observation order makes floating-point aggregation and evidence retries reproducible. */
 export function normalizedObservations(input: readonly unknown[], mode: ValidationMode = "read"): EvaluationObservation[] {

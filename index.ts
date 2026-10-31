@@ -898,6 +898,7 @@ export async function createVerifiedItem(client: PmClient, options: Parameters<P
   if (fields.some((field) => !isDeepStrictEqual(birth.item[field], current.item[field]))) {
     fail("Native record changed after creation. Read the current target and retry with a fresh report or identity; peer data was retained.", code, EXIT_CODE.CONFLICT);
   }
+  await certifyLoopWrite(client, created.item.id, 1, code);
   return created;
 }
 
@@ -907,6 +908,34 @@ export async function readLoopRevision(client: PmClient, id: string): Promise<nu
   const entries = orderedHistoryEntries(history, "loop_write_conflict");
   const latest = entries[entries.length - 1]!;
   return latest.version ?? latest.index;
+}
+
+/** Exact native write coordinates retained until the enclosing publication finishes. */
+const publicationWrites = new AsyncLocalStorage<Map<PmClient, Map<string, number>>>();
+/** Record the revision produced under the native item lock, refusing any later history even after ABA. */
+async function certifyLoopWrite(client: PmClient, id: string, revision: number, code = "loop_write_conflict"): Promise<void> {
+  const writes = publicationWrites.getStore();
+  if (writes !== undefined) {
+    let items = writes.get(client);
+    if (items === undefined) { items = new Map(); writes.set(client, items); }
+    items.set(id, revision);
+  }
+  if (await readLoopRevision(client, id) !== revision) fail("Tracker history advanced after publication. Retry from current evidence; peer state and history were retained.", code, EXIT_CODE.CONFLICT);
+}
+/** Certify all native writes after observer hooks and enclosing publication checks, without excluding ordinary writers. @internal */
+export async function withWriteHistoryFence<T>(execute: () => Promise<T>): Promise<T> {
+  const parent = publicationWrites.getStore();
+  const writes = new Map<PmClient, Map<string, number>>();
+  return publicationWrites.run(writes, async () => {
+    const result = await execute();
+    for (const [client, items] of writes) for (const [id, revision] of items) await certifyLoopWrite(client, id, revision);
+    if (parent !== undefined) for (const [client, items] of writes) {
+      let previous = parent.get(client);
+      if (previous === undefined) { previous = new Map(); parent.set(client, previous); }
+      for (const [id, revision] of items) previous.set(id, revision);
+    }
+    return result;
+  });
 }
 
 /** Locate the first certified semantic version through the SDK, retaining compaction coordinates. @internal */
@@ -1085,14 +1114,19 @@ export async function mutateLoopItem(client: PmClient, before: GetResult, messag
   const expected = { updated: before.item.updated_at, body: String(before.item.body) };
   try {
     return await withLockedPromotionEvidence(client, pmRoot, settings, before.item.id, preconditions, author, async () => {
+      let writtenRevision: number | undefined;
       const result = await runWithActiveExtensions({ path: pmRoot }, () => mutateItem({ pmRoot, settings, id: before.item.id, op, author, message, skipNoop: true,
         mutate: async (document) => {
-          if (expectedRevision !== undefined && await readLoopRevision(client, before.item.id) !== expectedRevision) fail("Tracker history advanced after planning. Read the current target and retry; peer state and held budget were retained.", "superseded", EXIT_CODE.CONFLICT);
+          const revision = await readLoopRevision(client, before.item.id);
+          if (expectedRevision !== undefined && revision !== expectedRevision) fail("Tracker history advanced after planning. Read the current target and retry; peer state and held budget were retained.", "superseded", EXIT_CODE.CONFLICT);
           if (document.metadata.updated_at !== expected.updated || document.body !== expected.body) fail("Tracker item changed after it was read; retry from current evidence.", "loop_write_conflict", EXIT_CODE.CONFLICT);
           const registry = resolveRuntimeStatusRegistry(settings.schema);
-          return { changedFields: await change(document, registry.close_status, isTerminalStatus(document.metadata.status, registry)) };
+          const changedFields = await change(document, registry.close_status, isTerminalStatus(document.metadata.status, registry));
+          writtenRevision = revision + (changedFields.length === 0 ? 0 : 1);
+          return { changedFields };
         },
       }));
+      await certifyLoopWrite(client, before.item.id, writtenRevision!);
       return { item: { ...result.item, body: result.body } };
     });
   } catch (error) {
@@ -3237,21 +3271,23 @@ async function expireControllerRecord(root: string, id: string, record: Record<s
 
 /** Recover only demonstrably dead process-owned SDK transaction locks, then publish the new writer's birth identity. */
 export async function commitProcessTransaction(options: CommitWorkspaceTransactionOptions): Promise<void> {
-  operationIdentifier(options.transactionId, "component"); options.steps.forEach((step) => operationIdentifier(step.id, "component"));
-  await expireDeadControllerMutex(options.pmRoot, "sdk-workspace-transaction", undefined);
-  const start = loopProcessStartTime(process.pid);
-  if (start === null) fail("Cannot establish process transaction identity.", "process_identity_unavailable");
-  // The SDK creates the writer lock with the transaction author as its owner before "prepared". A phase identity
-  // there lets expireDeadControllerMutex prove a holder killed in that window dead instead of blocking for the TTL.
-  const author = `pm-rl-phase:${hashJson(hostname())}:${Buffer.from(start).toString("base64url")}:${options.author}`;
-  await commitStateTransaction({ ...options, author, lockTtlSeconds: 1_000_000_000, onTransition: async (context) => {
-    if (context.transition === "prepared") await publishControllerIdentity(statePath(options.pmRoot, "locks", "sdk-workspace-transaction.lock"), start);
-    await options.onTransition?.(context);
-  } });
-  // The workspace lease excludes other transactions, not ordinary SDK writers.
-  // A committed journal can also skip inspect entirely; certify the live domain
-  // outcome after all observer hooks and on every committed replay.
-  for (const step of options.steps) if ((await step.inspect()).state !== "applied") fail("Transaction outcome changed; retry from current tracker state.", "loop_write_conflict", EXIT_CODE.CONFLICT);
+  return withWriteHistoryFence(async () => {
+    operationIdentifier(options.transactionId, "component"); options.steps.forEach((step) => operationIdentifier(step.id, "component"));
+    await expireDeadControllerMutex(options.pmRoot, "sdk-workspace-transaction", undefined);
+    const start = loopProcessStartTime(process.pid);
+    if (start === null) fail("Cannot establish process transaction identity.", "process_identity_unavailable");
+    // The SDK creates the writer lock with the transaction author as its owner before "prepared". A phase identity
+    // there lets expireDeadControllerMutex prove a holder killed in that window dead instead of blocking for the TTL.
+    const author = `pm-rl-phase:${hashJson(hostname())}:${Buffer.from(start).toString("base64url")}:${options.author}`;
+    await commitStateTransaction({ ...options, author, lockTtlSeconds: 1_000_000_000, onTransition: async (context) => {
+      if (context.transition === "prepared") await publishControllerIdentity(statePath(options.pmRoot, "locks", "sdk-workspace-transaction.lock"), start);
+      await publicationWrites.exit(() => options.onTransition?.(context));
+    } });
+    // The workspace lease excludes other transactions, not ordinary SDK writers.
+    // A committed journal can also skip inspect entirely; certify the live domain
+    // outcome after all observer hooks and on every committed replay.
+    for (const step of options.steps) if ((await step.inspect()).state !== "applied") fail("Transaction outcome changed; retry from current tracker state.", "loop_write_conflict", EXIT_CODE.CONFLICT);
+  });
 }
 
 /** Serialize standalone SDK adapter execution on the same owner-verified mutex used by controller phases. */
@@ -3855,11 +3891,13 @@ async function durableLoopStep(client: PmClient, lease: ControllerLease, id: str
     const decision = captured.inputs.length === 0 ? undefined : await sealDecisionEvidence(client, hashJson(input), captured.inputs);
     const body = encodeBoundedJson({ ...running, state: "complete", result: value, digest: hashJson(value), ...(decision === undefined ? {} : { decision_evidence: decision }) }, MAX_TRACKER_RECORD_BYTES);
     if (cards) await validatePolicyCardWrite(client, { ...intent, body }, true);
-    if (item === null) await createRlItem(client, { ...intent, body });
-    else {
-      await mutateLoopItem(client, before!, "Complete durable loop receipt", (document) => { document.body = body; return ["body"]; }, [], lease.author);
-    }
-    return { value, executed: true };
+    return withWriteHistoryFence(async () => {
+      if (item === null) await createRlItem(client, { ...intent, body });
+      else {
+        await mutateLoopItem(client, before!, "Complete durable loop receipt", (document) => { document.body = body; return ["body"]; }, [], lease.author);
+      }
+      return { value, executed: true };
+    });
   });
 }
 

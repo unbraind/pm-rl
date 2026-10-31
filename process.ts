@@ -308,7 +308,7 @@ async function commitRetainingProcessState(options: Omit<CommitWorkspaceTransact
       async compensate() { retained = true; },
     })) });
   } catch (error) {
-    if (retained || !isPmCliExpectedError(error)) expectedFail(`Process publication was interrupted (${String(error)}). Compensation is superseded; any committed job state and held budget were retained. Read the current job through the SDK and resume its current state before retrying.`, "superseded", EXIT_CODE.CONFLICT);
+    if (retained || !isPmCliExpectedError(error) || error.context.code === "loop_write_conflict") expectedFail(`Process publication was interrupted (${String(error)}). Compensation is superseded; any committed job state and held budget were retained. Read the current job through the SDK and resume its current state before retrying.`, "superseded", EXIT_CODE.CONFLICT);
     throw error;
   }
 }

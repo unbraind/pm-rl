@@ -8,9 +8,9 @@ import { fileURLToPath } from "node:url";
 import { after, before, test } from "node:test";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { EXIT_CODE, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
-import { commitProcessTransaction, readCompleteLoopItem, type JsonValue } from "../index.ts";
+import { commitProcessTransaction, createVerifiedItem, hashJson, mutateLoopItem, readCompleteLoopItem, readLoopRevision, withWriteHistoryFence, withRlController, type JsonValue } from "../index.ts";
 import { reserveMeta, type MetaRequest } from "../meta.ts";
-import { RESOURCE_KEYS, processDigest, processJobId, readProcessJob, reserveProcessJob, transitionProcessJob, type ProcessJob } from "../process.ts";
+import { RESOURCE_KEYS, processDigest, processJobId, readProcessJob, reserveProcessJob, transitionProcessJob, type ProcessJob, type ProcessCoordinates } from "../process.ts";
 import { allowance, processWorkspace, trainingInput } from "./fixtures/process-workspace.ts";
 import { metaConfig, metaSpec } from "./fixtures/meta-workspace.ts";
 
@@ -96,6 +96,91 @@ test("transition boundary property: peer edits and ABA writes never become pendi
     assert.ok(injected); assert.deepEqual(nativeBytes(w.pmRoot, nativeId), expected);
   }
   console.log(JSON.stringify({ transition_hook_cases: cases, aba_cases: cases / 2 }));
+});
+
+test("observer helper writes cannot replace the transaction's own history witness", async () => {
+  const w = await processWorkspace(); const input = trainingInput();
+  const job = await reserveProcessJob(w.client, w.coordinates, processJobId(input), input, w.approval, allowance);
+  const id = (await readCompleteLoopItem(w.client, job.id)).item.id;
+  let injected = false; let expected: readonly string[] = [];
+  await assert.rejects(transitionProcessJob(w.client, { ...w.coordinates, async onTransition(context) {
+    if (context.transition !== "step_applied" || injected) return;
+    injected = true;
+    const before = await readCompleteLoopItem(w.client, id);
+    await mutateLoopItem(w.client, before, "Observer peer write", document => { document.body = "Observer body"; return ["body"]; }, [], "ordinary-peer");
+    const changed = await readCompleteLoopItem(w.client, id);
+    await mutateLoopItem(w.client, changed, "Observer ABA restoration", document => { document.body = String(before.item.body); return ["body"]; }, [], "ordinary-peer");
+    expected = nativeBytes(w.pmRoot, id);
+  } }, job, "running", "Launch trainer"), conflict);
+  assert.ok(injected); assert.deepEqual(nativeBytes(w.pmRoot, id), expected);
+});
+
+test("reservation publication rejects ABA after its own create at every remaining forward hook", async () => {
+  const w = await processWorkspace({ ...allowance, training_steps: 100 }); const peer = peerFor(w);
+  await peer.update(w.approval, { body: '```json\n' + JSON.stringify({ ...metaSpec, permitted_promotions: 10_000, resource_budget: { ...allowance, training_steps: 100 }, meta_budget: { training_samples: 100_000_000, proposal_calls: 10_000, recipe_promotions: 10_000 } }) + '\n```' });
+  for (const domain of ["process", "meta"] as const) for (const hook of forward.slice(1)) {
+    const name = `aba-${hook.replaceAll("_", "-")}`;
+    const request = { ...trainingInput(), identity: { domain, hook } }; const id = domain === "process" ? processJobId(request) : `${name}-reservation`;
+    let injected = false; let expected: readonly string[] = []; let path = ""; let history = "";
+    const coordinates = { ...w.coordinates, async onTransition(context: Parameters<NonNullable<ProcessCoordinates["onTransition"]>>[0]) {
+      if (context.transition !== hook || injected) return;
+      injected = true;
+      const item = (await readCompleteLoopItem(peer, id)).item;
+      await peer.update(id, { body: "Peer publication" }); await peer.update(id, { body: String(item.body) });
+      path = join(w.pmRoot, domain === "process" ? "tasks" : "decisions", `${item.id}.toon`); history = join(w.pmRoot, "history", `${item.id}.jsonl`);
+      expected = [readFileSync(path, "utf8"), readFileSync(history, "utf8")];
+    } };
+    const operation = domain === "process"
+      ? reserveProcessJob(w.client, coordinates, id, request, w.approval, { ...allowance, wall_ms: 0, storage_bytes: 0, compute_units: 0 })
+      : reserveMeta(w.client, coordinates, { id: name, config: { ...metaConfig, meta_generations: 1, candidates: 1 }, dataset: "unused", approval: w.approval, proposer: "seeded" }, "binding");
+    await assert.rejects(operation, conflict, `${domain}:${hook}`);
+    assert.ok(injected); assert.deepEqual([readFileSync(path, "utf8"), readFileSync(history, "utf8")], expected);
+  }
+});
+
+test("loop receipt publication rejects a native ABA after completing its own write", async () => {
+  for (const existing of [false, true]) {
+    const w = await processWorkspace(); const peer = peerFor(w); const run = w.client.run.bind(w.client);
+    const probe = { injected: false }; let reads = 0; let expected: readonly string[] = []; const id = "rl-aba-receipt-step-result";
+    if (existing) await peer.create({ id, type: "Decision", title: "Retained running receipt", tags: "rl-loop-step", body: JSON.stringify({ format: "pm-rl/loop-step/1", key: "aba-receipt-step-result", input: hashJson({}), state: "running" }) });
+    Object.assign(w.client, { run: (async (...args) => {
+      const result = await run(...args);
+      const options = args[1] as { id?: string } | undefined;
+      if (!probe.injected && args[0] === "history" && options?.id === id) {
+        const item = (await readCompleteLoopItem(peer, id)).item;
+        if (String(item.body).includes('"state":"complete"') && ++reads === 1) {
+          Object.assign(probe, { injected: true });
+          await peer.update(id, { body: "Peer receipt" }); await peer.update(id, { body: String(item.body) });
+          expected = [readFileSync(join(w.pmRoot, "decisions", `${id}.toon`), "utf8"), readFileSync(join(w.pmRoot, "history", `${id}.jsonl`), "utf8")];
+        }
+      }
+      return result;
+    }) as PmClient["run"] });
+    await assert.rejects(withRlController(w.client, w.coordinates, { id: "aba-receipt", approval: w.approval, recoveryCommand: "pm rl loop resume aba-receipt" }, new AbortController().signal,
+      step => step("result", {}, async () => ({ value: 1 }))), conflict);
+    assert.ok(probe.injected);
+    assert.deepEqual([readFileSync(join(w.pmRoot, "decisions", `${id}.toon`), "utf8"), readFileSync(join(w.pmRoot, "history", `${id}.jsonl`), "utf8")], expected);
+  }
+});
+
+test("publication history fences permit nested own writes and no-ops but retain a later peer ABA", async () => {
+  for (const competing of [false, true]) {
+    const w = await processWorkspace(); const peer = peerFor(w); const id = "rl-nested-writes";
+    let expected: readonly string[] = [];
+    const publish = withWriteHistoryFence(async () => {
+      await createVerifiedItem(w.client, { id, type: "Task", title: "Nested native writes", body: "Before" });
+      await withWriteHistoryFence(async () => {
+        const before = await readCompleteLoopItem(w.client, id);
+        await mutateLoopItem(w.client, before, "Own second revision", (document) => { document.body = "After"; return ["body"]; });
+        const after = await readCompleteLoopItem(w.client, id);
+        await mutateLoopItem(w.client, after, "Own no-op", () => []);
+      });
+      if (competing) { await peer.update(id, { body: "Peer write" }); await peer.update(id, { body: "After" }); }
+      expected = nativeBytes(w.pmRoot, id);
+    });
+    if (competing) await assert.rejects(publish, conflict); else { await publish; assert.equal(await readLoopRevision(w.client, id), 2); }
+    assert.deepEqual(nativeBytes(w.pmRoot, id), expected);
+  }
 });
 
 test("a temporary approval read while verifying a retained meta reservation stays retryable", async () => {
