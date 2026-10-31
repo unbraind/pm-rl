@@ -2,14 +2,19 @@ id: pm-rl-measured-influence
 title: Measure evaluation sensitivity to declared training slices
 description: "Run explicitly budgeted omission and integer reweighting experiments for declared training slices; retain exact checkpoints and measured per-evaluation associations, and carry bounded evidence into the next proposal."
 type: Feature
-status: in_progress
+status: closed
 priority: 2
 tags[3]: evaluation,influence,training
 created_at: "2026-10-29T08:20:10.275Z"
-updated_at: "2026-10-30T20:34:19.091Z"
+updated_at: "2026-10-31T01:40:28.212Z"
+closed_at: "2026-10-31T01:40:26.922Z"
+completed_at: "2026-10-30T23:52:29.000Z"
 author: codex-agent
 acceptance_criteria: "Reports reproduce on a fixed learner and seed; Held-out data never enters training; Exhausted experiment budgets return partial evidence without a ranking claim; Typed SDK and compact CLI output, audit records, recursive proposal evidence, non-git public-copy validation, seeded model tests and npm plus Bun release gates"
 parent: pm-rl-apvf
+resolution: "Delivered by PR #119 (a9c2b74): Report evaluation changes from training-slice omissions and reweighting"
+expected_result: "Reports reproduce on a fixed learner and seed; Held-out data never enters training; Exhausted experiment budgets return partial evidence without a ranking claim; Typed SDK and compact CLI output, audit records, recursive proposal evidence, non-git public-copy validation, seeded model tests and npm plus Bun release gates"
+actual_result: "PR #119 merged at 2026-10-30T23:52:29Z as a9c2b74; required CI passed on the merged head."
 comments[51]{created_at,author,text}:
   "2026-10-29T08:20:18.810Z",codex-agent,"Overlap rechecked against current core CLI/SDK, pm-rl policy-card.ts and evaluation-plan.ts, and pm-jev counterfactual.ts. Core owns native records/history/locks; policy cards explain provenance and validity; Jev removes inference evidence. This feature measures retraining sensitivity. Preserve all normal proposal, evaluation, promotion and feedback gates. Results remain associations; no causal identification claim. Current published CLI is 2026.10.28; package SDK remains pinned 2026.10.25."
   "2026-10-29T08:28:28.000Z",codex-agent,"Implemented the first typed request/report schema and fixed seeded retraining using the existing bandit kernel. Integer multiplicities implement omissions/reweighting; exact integer budgets include the baseline. Numerical tests confirm deterministic checkpoints, changed held-out scores without changed fitted parameters, strict dense/finite admission, and partial evidence with ranking=null. Native report identity is immutable; proposal evidence cites a certified SDK history revision and is retained in seed/candidate provenance. No shared experiment budget, plan replay or new promotion authority is introduced."
@@ -114,4 +119,5 @@ docs[10]{path,scope}:
   docs/training-influence-revert.json,project
   docs/training-influence-staging-revert.json,project
   docs/training-influence.md,project
+close_reason: "Delivered by PR #119 (a9c2b74): Report evaluation changes from training-slice omissions and reweighting"
 body: ""
