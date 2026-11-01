@@ -1,10 +1,11 @@
 /** Evidence publishing refuses cooperating writers and preserves saved bases after failed certification. */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import fs, { copyFileSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "node:test";
+import { mock, test } from "node:test";
+import { syncBuiltinESMExports } from "node:module";
 import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { acceptanceLog, publishEvidence } from "./fixtures/evidence-publication.ts";
 import { identityExecutable, identityPath } from "./fixtures/identity-path.ts";
@@ -66,4 +67,28 @@ test("cubic: Windows identity setup copies node and powershell without POSIX lin
     Object.defineProperty(process, "platform", platform); if (previousPath === undefined) delete process.env.PATH; else process.env.PATH = previousPath;
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+
+test("cubic: publication rereads each field, preserves partial progress and retains a successor lock", () => {
+  const root = mkdtempSync(join(tmpdir(), "rl-evidence-forward-"));
+  const base = new Map([["one.json", "one"], ["two.json", "two"]]); const documents = new Map([["one.json", "certified one"], ["two.json", "certified two"]]);
+  const nativeWrite = fs.writeFileSync; let injected = false;
+  for (const [file, text] of base) nativeWrite(join(root, file), text);
+  const write = mock.method(fs, "writeFileSync", (...args: Parameters<typeof fs.writeFileSync>) => {
+    nativeWrite(...args);
+    if (!injected && String(args[0]) === join(root, "one.json")) {
+      injected = true; nativeWrite(join(root, "two.json"), "peer two");
+      rmSync(join(root, ".public-evidence-refresh.lock")); nativeWrite(join(root, ".public-evidence-refresh.lock"), "successor lock");
+    }
+  }); syncBuiltinESMExports();
+  try {
+    assert.throws(() => publishEvidence(root, base, documents), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "evidence_write_conflict" && error.exitCode === 4);
+    assert.ok(injected); assert.equal(readFileSync(join(root, "one.json"), "utf8"), "certified one");
+    assert.equal(readFileSync(join(root, "two.json"), "utf8"), "peer two");
+    assert.equal(readFileSync(join(root, ".public-evidence-refresh.lock"), "utf8"), "successor lock");
+    rmSync(join(root, ".public-evidence-refresh.lock")); base.set("two.json", "peer two");
+    publishEvidence(root, base, documents);
+    assert.equal(readFileSync(join(root, "two.json"), "utf8"), "certified two");
+  } finally { write.mock.restore(); syncBuiltinESMExports(); rmSync(root, { recursive: true, force: true }); }
 });

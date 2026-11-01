@@ -516,7 +516,7 @@ test("synthetic Compose executable covers successful launch, trainer failure, ca
   for (const mode of ["success", "trainer-failure", "cancelled", "cleanup-refusal"] as const) await context.test(mode, async () => {
     const w = await processWorkspace(); const bin = join(w.root, "bin"); mkdirSync(bin);
     const directory = join(w.root, "staging"); mkdirSync(directory);
-    const image = `sha256:${"a".repeat(64)}`; const id = "process-synthetic-compose";
+    const image = `sha256:${"a".repeat(64)}`; const id = processJobId(trainingInput());
     const limits = { kind: "compose-lm", image, allowance, memory_bytes: 67108864, cpus: 1 } as const;
     const script = `#!${process.execPath}\nimport fs from 'node:fs'; import { runReferenceTrainer } from ${JSON.stringify(new URL("../process-bandit.ts", import.meta.url).href)}; const args=process.argv.slice(2); const mode=${JSON.stringify(mode)};
 if(args.includes('run')) { if(mode==='trainer-failure') { process.stderr.write('synthetic trainer failure');process.exitCode=7; } else { await runReferenceTrainer();if(mode==='cleanup-refusal')fs.writeFileSync('compose.json','changed configuration'); } }

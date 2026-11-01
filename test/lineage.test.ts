@@ -452,6 +452,7 @@ test("parseGenerationSpec accepts the seed and a full candidate and refuses ever
   // equivalent to one that omits the key — it must NOT be refused as
   // seed_with_parent. A non-seed body with a blank parent is still refused as
   // missing_parent, because the normalized null is not a usable parent.
+  for (const parent of ["   ", ""]) assert.equal(parseGenerationSpec(JSON.stringify({ ...spec({ seed: true, parent: null }), parent }), "g").parent, null);
   assert.throws(() => parseGenerationSpec(JSON.stringify({ ...spec({ seed: true, parent: null }), parent: "   " }), "g", "write"), refusedAs("rl_identifier_invalid", /State boundary refused/));
   assert.throws(() => parseGenerationSpec(JSON.stringify({ ...spec({ seed: true, parent: null }), parent: "" }), "g", "write"), refusedAs("rl_identifier_invalid", /State boundary refused/));
   // A NON-seed body missing the key must still be refused - but for the reason
@@ -463,6 +464,7 @@ test("parseGenerationSpec accepts the seed and a full candidate and refuses ever
   // the comparison is the one bounding the recursive promotion budget. A
   // promoted record storing "  a  " matches no approval id, so it consumes none
   // of a's budget while still counting as promoted everywhere else.
+  assert.equal(parseGenerationSpec(JSON.stringify({ ...promotedBase, approval: "  a  " }), "g").approval, "a");
   assert.throws(() => parseGenerationSpec(JSON.stringify({ ...promotedBase, approval: "  a  " }), "g", "write"), refusedAs("rl_identifier_invalid", /State boundary refused/));
   // collection_runs was the last stored identity list left un-normalized. It
   // lives inside the JSON fence, which pm treats as opaque body text and does
@@ -470,6 +472,7 @@ test("parseGenerationSpec accepts the seed and a full candidate and refuses ever
   // here IS reachable — and each entry is resolved by strict id lookup during
   // the ancestry walk, so it would resolve nothing and quietly degrade the
   // contamination graph.
+  assert.deepEqual(parseGenerationSpec(JSON.stringify({ ...promotedBase, collection_runs: ["  run-a  ", "run-b"] }), "g").collection_runs, ["run-a", "run-b"]);
   assert.throws(() => parseGenerationSpec(JSON.stringify({ ...promotedBase, collection_runs: ["  run-a  ", "run-b"] }), "g", "write"), refusedAs("rl_identifier_invalid", /State boundary refused/));
   assert.throws(() => parseGenerationSpec(JSON.stringify({ ...promotedBase, collection_runs: ["run-a", "   "] }), "g"), /collection run id to be a non-empty identity/);
   // A blank approval is the same bypass without the padding: it is non-null, so

@@ -1,4 +1,5 @@
 import { decode } from "@toon-format/toon";
+import { printResult } from "@unbrained/pm-cli/sdk";
 import { identityPath } from "./fixtures/identity-path.ts";
 /** Packed SDK plus installed CLI provenance proof; copy static imports to the packed consumer before execution. */
 import assert from "node:assert/strict";
@@ -17,6 +18,13 @@ const cli = resolve("node_modules/@unbrained/pm-cli/dist/cli.js");
 const env: NodeJS.ProcessEnv = { ...process.env, PM_AUTHOR: "decision-test", PM_PATH: w.pmRoot, GIT_CEILING_DIRECTORIES: dirname(w.root), NPM_CONFIG_USERCONFIG: devNull, NODE_V8_COVERAGE: undefined };
 env.PATH = identityPath(w.root);
 execFileSync(process.execPath, [cli, "package", "install", archive, "--project", "--json"], { cwd: w.root, env, stdio: "pipe" });
+/** Compare complete host representations using its public formatter, which intentionally omits empty TOON fields. */
+function toonProjection(value: unknown): unknown {
+  const chunks: string[] = []; const write = process.stdout.write;
+  process.stdout.write = (chunk: string | Uint8Array): boolean => { chunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8")); return true; };
+  try { printResult(value, { outputFormat: "toon" }); } finally { process.stdout.write = write; }
+  return decode(chunks.join(""));
+}
 /** Run the actual installed archive in a tracker with no Git executable. */
 function command(args: string[]): string { return execFileSync(process.execPath, [cli, "rl", ...args], { cwd: w.root, env, encoding: "utf8" }); }
 const scores = join(w.root, "scores.json"); writeFileSync(scores, JSON.stringify({ proxy_score: { ...w.score, evaluation_context: "proxy" }, held_out_score: w.score }));
@@ -36,14 +44,14 @@ for (const [subject, selection] of [[w.plan.candidate, null], ["rl-graph-step-de
   const options = selection === null ? [] : ["--selection", String(selection)];
   const exported = JSON.parse(command(["policy-card", "export", subject, ...options, "--json"])) as { details: PolicyCard };
   const value = exported.details;
-  assert.deepEqual(decode(command(["policy-card", "export", subject, ...options])), exported);
+  assert.deepEqual(decode(command(["policy-card", "export", subject, ...options])), toonProjection(exported));
   const { digest: _cardDigest, decision_evidence: _graph, ...remaining } = value;
   await assert.rejects(replayPolicyCard(w.client, { ...remaining, digest: hashJson(remaining as unknown as JsonValue) }), (error: unknown) => isPmCliExpectedError(error) && error.context.item_id === subject);
   assert.ok(value.decision_evidence); assert.match(command(["policy-card", "export", subject, ...options]), new RegExp(value.decision_evidence.digest));
   const file = join(w.root, `card-${cardTypes++}.json`); writeFileSync(file, JSON.stringify(value));
   const replayed = JSON.parse(command(["policy-card", "replay", "--file", file, "--json"])) as RlCommandResult;
   assert.equal(replayed.details?.digest, value.digest);
-  assert.deepEqual(decode(command(["policy-card", "replay", "--file", file])), replayed);
+  assert.deepEqual(decode(command(["policy-card", "replay", "--file", file])), toonProjection(replayed));
   cardBytes = Math.max(cardBytes, Buffer.byteLength(JSON.stringify(value))); cards.push({ file, value });
 }
 assert.deepEqual(cards[0].value.decision_evidence, decision.evidence);
@@ -88,5 +96,5 @@ for (const json of [true, false]) for (const args of [
   refusals += 1;
 }
 assert.deepEqual(await readCompleteLoopItem(w.client, w.plan.candidate), original);
-const evidence = { packed_sdk: true, installed_cli: true, card_types: cardTypes, graph_inputs: decision.evidence!.inputs.length, max_card_json_bytes: cardBytes, frozen_live_source_replays: frozenReplays, snapshot_corruption_refusals: snapshotRefusals, review_and_final_look_refusals: refusals, rehashed_graph_removal_refusals: cards.length, canonical_graph_ids: true, completed_step_downgrade_refusals: 1, json_and_toon: true, promotion_receipt_graph: true, exact_sdk_graph_in_card: true, approval_consumed: 1, source_generation_unchanged_on_refusal: true, non_git: true, git_absent_from_path: true };
+const evidence = { packed_sdk: true, installed_cli: true, card_types: cardTypes, graph_inputs: decision.evidence!.inputs.length, max_card_json_bytes: cardBytes, frozen_live_source_replays: frozenReplays, snapshot_corruption_refusals: snapshotRefusals, review_and_final_look_refusals: refusals, rehashed_graph_removal_refusals: cards.length, canonical_graph_ids: true, completed_step_downgrade_refusals: 1, json_and_toon: true, json_and_toon_comparison: "sdk-default-toon-projection", promotion_receipt_graph: true, exact_sdk_graph_in_card: true, approval_consumed: 1, source_generation_unchanged_on_refusal: true, non_git: true, git_absent_from_path: true };
 writeFileSync(output, JSON.stringify(evidence, null, 2) + "\n"); console.log(JSON.stringify(evidence));
