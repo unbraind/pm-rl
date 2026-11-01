@@ -57,7 +57,10 @@ function object(value: unknown): Record<string, unknown> {
 /** Validate one portable manifest representation without silently pruning any dependency. @internal */
 export function parsePolicyCardDecisionEvidence(value: unknown): PolicyCardDecisionEvidence {
   const row = object(value);
-  if (row.format !== "pm-rl/evaluation-evidence-ref/1") return parseEvaluationEvidence(value);
+  if (row.format !== "pm-rl/evaluation-evidence-ref/1") {
+    // This pure parser reads no storage: its refusals classify malformed card input.
+    try { return parseEvaluationEvidence(value); } catch { refuse("card_invalid"); }
+  }
   if (!fields(row, "comparison,digest,format") || !digestShape(row.comparison) || !digestShape(row.digest)) refuse("card_invalid");
   return { format: "pm-rl/evaluation-evidence-ref/1", comparison: row.comparison as string, digest: row.digest as string };
 }

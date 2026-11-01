@@ -438,6 +438,7 @@ test("parseGenerationSpec accepts the seed and a full candidate and refuses ever
   // gen-0 from the head set - the same padded-identity class as the
   // contamination gate bypass fixed earlier in this PR.
   const paddedParent = { ...candidate, parent: "  gen-0  " };
+  assert.equal(parseGenerationSpec(JSON.stringify(paddedParent), "g").parent, "gen-0");
   assert.throws(() => parseGenerationSpec(JSON.stringify(paddedParent), "g", "write"), refusedAs("rl_identifier_invalid", /State boundary refused/));
   // A seed body legitimately omits the parent key. Before `parent` collapsed
   // `undefined` to null like every other optional field, that body was refused
@@ -559,6 +560,9 @@ test("isGapWidening requires strictly increasing gaps over the full window", () 
  * would bypass the very code path under test.
  */
 test("a padded environment identity refuses before contamination lookup", () => {
+  const legacy = parseGenerationSpec(JSON.stringify(spec({ environment_version: "  env-eval\t", reward_spec_version: "reward-1", collection_runs: ["run-1"], policy: "p1", seed: false, parent: "gen-0" })), "padded");
+  assert.equal(legacy.environment_version, "env-eval");
+  assert.equal(findContaminationPath([{ id: "gen", spec: legacy, runEnvironments: new Map() }], "env-eval")?.overlap, "env-eval");
   assert.throws(() => parseGenerationSpec(JSON.stringify(spec({ environment_version: "  env-eval\t", reward_spec_version: "reward-1", collection_runs: ["run-1"], policy: "p1", seed: false, parent: "gen-0" })), "padded", "write"), (error) => isPmCliExpectedError(error) && error.context.code === "rl_identifier_invalid");
 });
 
@@ -1030,6 +1034,7 @@ test("a legacy promoted generation with a padded approval consumes its budget", 
     harness.runCommand({ command: "rl generation promote", pmRoot, args: ["gen-next"], options: { approval: approvalId, scores: writeScores(root, 12, "held-out-ctx", 9), evidence: "second" } }),
     (error: Error) => {
       assert.match(error.message, /approved promotion budget/);
+      assert.match(error.message, /1 promotion\(s\) consumed/, "the padded record must be counted exactly once");
       assert.ok(isPmCliExpectedError(error) && error.context.code === "budget_exceeded");
       return true;
     },
@@ -1762,3 +1767,13 @@ test("the in-lock already-promoted re-check refuses a peer write the pre-lock re
   );
 });
 
+
+
+test("cubic: new reward identities refuse unsafe references while released reads remain compatible", () => {
+  for (const reward of ["../escape", " padded ", "bad/reward", "bad%20reward"]) {
+    const body = JSON.stringify(spec({ reward_spec_version: reward }));
+    assert.throws(() => parseGenerationSpec(body, "Reward identity", "write"), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "rl_identifier_invalid" && error.exitCode === 2);
+    assert.equal(parseGenerationSpec(body, "Legacy reward identity").reward_spec_version, reward.trim());
+  }
+  for (const reward of ["reward-1", `sha256:${"a".repeat(64)}`]) assert.equal(parseGenerationSpec(JSON.stringify(spec({ reward_spec_version: reward })), "Reward identity", "write").reward_spec_version, reward);
+});

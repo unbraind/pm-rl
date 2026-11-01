@@ -830,12 +830,14 @@ test("an invalid transaction identity propagates rather than being recorded as a
   });
   // Reject invalid transaction identity before allocating or publishing loop work.
   const before = (await client.listAllComplete({ includeBody: true })).items;
+  const commentsBefore = await client.comments(String(approval.item.id));
   await assert.rejects(
     runRlLoop(client, { pmRoot: initialized.path, author: "" }, { id: "infra-loop", config: LOOP_CONFIG, approval: String(approval.item.id) }),
     /author/,
   );
   assert.deepEqual((await client.listAllComplete({ includeBody: true })).items, before,
     "invalid transaction identity cannot allocate a candidate or record a promotion refusal");
+  assert.deepEqual(await client.comments(String(approval.item.id)), commentsBefore);
 });
 
 test("two simultaneous Git worktree loops preserve every item, metric and history in both merge directions", async () => {

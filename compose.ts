@@ -55,7 +55,10 @@ export async function stopComposeTrainer(directory: string, id: string, image: s
 async function stopComposeAttempt(directory: string, id: string, image: string, reason: string, observed: { container?: string; resources: unknown }, limits?: Extract<ProcessAdapter, { kind: "compose-lm" }>): Promise<void> {
   const file = statePath(directory, "compose.json");
   // A crash before config publication cannot have launched a container.
-  if (!existsSync(file)) return;
+  if (!existsSync(file)) {
+    if (observed.container !== undefined) expectedFail("Compose configuration disappeared after ownership was observed; restore it before cleanup.", "process_job_drift");
+    return;
+  }
   if (readFileSync(file, "utf8") !== JSON.stringify(composeConfiguration(image, limits))) expectedFail("Compose configuration drifted; retained for inspection.", "process_job_drift");
   const project = composeProject(id, directory);
   const options = { timeout: 15_000, maxBuffer: 65_536 };

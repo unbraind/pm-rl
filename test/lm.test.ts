@@ -586,3 +586,17 @@ test("durable LM fit and evaluation restore actual tensors without another updat
   refuses(() => parseLmLoopConfig({ ...frozen, frozen_base: { ...envelope, weights: { ...weights, layers: [] } } }), "lm_invalid_checkpoint");
   refuses(() => parseLmLoopConfig({ ...frozen, frozen_base: { ...envelope, digest: "wrong" } }), "lm_invalid_checkpoint");
 });
+
+
+test("cubic: checkpoint boundary refusals differ from missing artifacts", async () => {
+  const root = mkdtempSync(join(tmpdir(), "rl-lm-boundary-"));
+  try {
+    const config = parseLmLoopConfig(configValue()); const checkpoint = lmCheckpoint(seededLmAdapter(config.shape, config.seed), config);
+    const outside = join(root, "outside"); const state = join(root, "state"); mkdirSync(outside); mkdirSync(state);
+    symlinkSync(outside, join(state, "runtime"), "dir");
+    await assert.rejects(verifyLmCheckpointArtifact(state, checkpoint, config), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "rl_state_path_invalid" && error.exitCode === 2);
+    rmSync(join(state, "runtime"));
+    await assert.rejects(verifyLmCheckpointArtifact(state, checkpoint, config), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "lm_checkpoint_artifact_missing" && error.exitCode === 4);
+    await persistLmCheckpoint(state, checkpoint, config); await verifyLmCheckpointArtifact(state, checkpoint, config);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

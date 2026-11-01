@@ -430,7 +430,10 @@ async function prepared(client: PmClient, p = plan()): Promise<EvaluationPlan> {
   assert.equal(p.stopping.kind, "sequential"); if (p.stopping.kind !== "sequential") throw new Error("fixture");
   await client.create({ id: p.stopping.review, type: "Decision", title: "Reviewed statistical protocol", body: JSON.stringify({ format: "pm-rl/sequential-review/1", comparison: evaluationComparison(p) }) });
   await registerEvaluationPlan(client, p);
-  try { await client.get("rl-collection"); } catch { await client.create({ id: "rl-collection", type: "Run", title: "Post-declaration collection" }); }
+  try { await client.get("rl-collection"); } catch (error) {
+    if (!isPmCliExpectedError(error) || error.exitCode !== 3) throw error;
+    await client.create({ id: "rl-collection", type: "Run", title: "Post-declaration collection" });
+  }
   // Each later candidate needs a collection created after its own sealed plan.
   const run = `${p.candidate}-run`;
   await client.create({ id: run, type: "Run", title: "Post-declaration collection" });
@@ -1066,4 +1069,25 @@ test("sealed rejection holds the candidate protocol lease before its first SDK s
   assert.equal(decision.report?.observations, 16);
   const current = extractGenerationSpec(String((await readCompleteLoopItem(peer, w.plan.candidate)).item.body), "Sealed stopped candidate");
   assert.equal((current.policy_evaluation as Record<string, JsonValue>).decision, "refuse");
+});
+
+
+test("cubic: collection fixture propagates a native SDK read failure without creating a replacement", async () => {
+  const w = await workspace();
+  const nativeGet = w.client.get.bind(w.client); const nativeCreate = w.client.create.bind(w.client);
+  let attempted = false; let injected = false;
+  w.client.get = (async (...args: Parameters<PmClient["get"]>) => {
+    if (args[0] === "rl-collection") {
+      injected = true;
+      await nativeCreate({ id: "rl-collection", type: "Run", title: "Malformed native fixture" });
+      writeFileSync(join(w.pmRoot, "runs", "rl-collection.toon"), "metadata: [\ninvalid native record");
+    }
+    return nativeGet(...args);
+  }) as PmClient["get"];
+  w.client.create = (async (...args: Parameters<PmClient["create"]>) => {
+    if (args[0]?.id === "rl-collection") attempted = true;
+    return nativeCreate(...args);
+  }) as PmClient["create"];
+  await assert.rejects(prepared(w.client), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "item_document_invalid" && error.exitCode === 1);
+  assert.ok(injected); assert.equal(attempted, false);
 });

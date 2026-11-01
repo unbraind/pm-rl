@@ -178,6 +178,10 @@ export function identifierClient(client: PmClient): PmClient {
     return (...args: unknown[]) => {
       if (typeof property === "string" && itemMethods.has(property)) { if (typeof args[0] === "string") operationIdentifier(args[0]); else identifier(args[0]); }
       if (property === "create" || property === "update") sdkReferences(args[property === "create" ? 0 : 1]);
+      if ((property === "run" || property === "runTyped") && args[0] === "history") {
+        const request = args[1] as { id?: unknown } | undefined;
+        operationIdentifier(request?.id);
+      }
       return Reflect.apply(method, target, args);
     };
   } });

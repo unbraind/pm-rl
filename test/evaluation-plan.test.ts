@@ -1,3 +1,4 @@
+import { identityPath } from "./fixtures/identity-path.ts";
 /** Real non-git trackers and adversarial cohorts for predeclared policy comparisons. */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -415,10 +416,7 @@ test("CLI evaluation plan show normalizes short IDs before the candidate exists"
 });
 
 test("CLI plan commands and actual promotion enforce the reservation with git absent from PATH", async () => {
-  const w = await workspace(); const bin = join(w.root, "bin"); mkdirSync(bin); symlinkSync(process.execPath, join(bin, "node"));
-  // Git is absent; the native birth-identity tool behind the process-job fence stays reachable.
-  const identityTool = process.platform === "linux" ? "getconf" : "ps";
-  symlinkSync(execFileSync("/bin/sh", ["-c", `command -v ${identityTool}`], { encoding: "utf8" }).trim(), join(bin, identityTool));
+  const w = await workspace(); const bin = identityPath(w.root);
   const previousPath = process.env.PATH; const previousCeiling = process.env.GIT_CEILING_DIRECTORIES;
   process.env.PATH = bin; process.env.GIT_CEILING_DIRECTORIES = dirname(w.root);
   try {

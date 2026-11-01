@@ -57,10 +57,11 @@ are recorded in `pm-rl-sequential`.
 
 
 `main-controller-compatibility.ts` is a second native oracle. The controller test
-checks out origin/main into an owned temporary worktree, runs this exact driver
+checks out the frozen main oracle commit `26650e303ec2cb6fcdc6c51092bcc30b2f1ed27c`
+into an owned temporary worktree, verifies it is an ancestor of `origin/main`, runs this exact driver
 with main's public APIs, then resumes two copies with main and the PR. It covers
 15 controllers/loops under `rl`, `fleet` and `rl-prefixed`, including genuine
-running training receipts, older fixed-plan cards and uppercase process state.
+running training receipts, older fixed-plan cards and uppercase process IDs.
 The oracle compares complete SDK-read identities, retained card decisions and
 resumed receipt payloads, without a handwritten canonicalization model. Native
 tracker copies remain outside Git. The current reader alone contributes coverage;

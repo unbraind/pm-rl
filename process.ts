@@ -539,6 +539,16 @@ export function controllerCallback<A extends unknown[]>(name: string, failure: (
     catch (error) { report(error); }
   };
 }
+/** Live handles retain stop authority when no reusable-PID-safe runner identity could be published. */
+const retainedTrainerChildren = new Map<number, { child: ReturnType<typeof spawn>; closed: Promise<void> }>();
+/** Retry cleanup through the original child handle, never reconstructing authority from a bare PID. @internal */
+export async function stopRetainedTrainer(pid: number): Promise<void> {
+  const retained = retainedTrainerChildren.get(pid);
+  if (retained === undefined) return;
+  const { child, closed } = retained;
+  const stopped = await retryOwnedStop(() => child.exitCode !== null || child.signalCode !== null || child.kill("SIGKILL"));
+  if (!stopped || !await waitForOwnedClose(closed)) expectedFail("Original trainer handle still requires cleanup; retry in the owning controller.", "process_stop_failed", EXIT_CODE.CONFLICT);
+}
 /** Launch a real child with one stop/reap path for every setup, event, timer and stream failure. */
 export async function launchTrainer(directory: string, id: string, input: TrainerInput, allowance: Resources, argv: readonly string[], signal?: AbortSignal, artifactRoot = directory): Promise<void> {
   operationIdentifier(id);
@@ -555,6 +565,7 @@ export async function launchTrainer(directory: string, id: string, input: Traine
   let stopExhausted = false;
   let stopTask: Promise<void> | undefined;
   let identity: string | null = null;
+  let runnerPublished = false;
   let timer: ReturnType<typeof setInterval> | undefined;
   const decoder = new StringDecoder("utf8");
   let outputBytes = 0;
@@ -569,8 +580,15 @@ export async function launchTrainer(directory: string, id: string, input: Traine
   /** Never claim reaping when stop authority could not be exercised; settle conservatively instead. */
   const exhausted = (): void => {
     stopExhausted = true; failed = true;
-    failure = createPmCliExpectedError("Owned trainer could not be stopped or reaped after bounded retries; its reservation is conservatively settled and runner identity retained.", { exitCode: EXIT_CODE.CONFLICT, context: { code: "process_stop_failed", required: "Stop the exact retained runner identity and verify it is gone before starting a fresh programme." } });
-    close(); detach();
+    const retainHandle = !runnerPublished && child.pid !== undefined && child.exitCode === null && child.signalCode === null;
+    if (retainHandle) {
+      const closed = new Promise<void>((resolve) => {
+        child.once("close", () => { retainedTrainerChildren.delete(child.pid!); resolve(); });
+      });
+      retainedTrainerChildren.set(child.pid!, { child, closed });
+    }
+    failure = createPmCliExpectedError("Owned trainer could not be stopped or reaped after bounded retries; its reservation is conservatively settled and stop authority retained.", { exitCode: EXIT_CODE.CONFLICT, context: { code: "process_stop_failed", ...{ pid: child.pid, retained_child_handle: retainHandle }, required: retainHandle ? "Retry stopRetainedTrainer in this owning controller; keep it alive until the original child closes." : "Stop the exact retained runner identity and verify it is gone before starting a fresh programme." } });
+    close(); if (!retainHandle) detach();
   };
   /** Preserve the first failure; the live ChildProcess handle owns stop authority before identity publication too. */
   const refuse = (error: unknown): void => {
@@ -648,6 +666,7 @@ export async function launchTrainer(directory: string, id: string, input: Traine
     timer = setInterval(timerPoll, 25);
     signal?.addEventListener("abort", abortPoll);
     writeFileSync(statePath(directory, "runner.json"), encodeBoundedJson({ pid: child.pid, start: identity, started_at: startedAt }), { flag: "wx" });
+    runnerPublished = true;
     child.stdin.end(request);
     poll();
     await closed;

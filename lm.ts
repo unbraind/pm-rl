@@ -675,9 +675,10 @@ export function lmCheckpointPath(checkpoint: LmCheckpoint): string {
 
 /** Verify the bytes on disk against the canonical checkpoint and its identity. */
 export async function verifyLmCheckpointArtifact(pmRoot: string, checkpoint: LmCheckpoint, config: LmLoopConfig): Promise<void> {
+  const file = statePath(pmRoot, ...lmCheckpointPath(checkpoint).split("/"));
   let text: string;
   try {
-    text = await readFile(statePath(pmRoot, ...lmCheckpointPath(checkpoint).split("/")), "utf8");
+    text = await readFile(file, "utf8");
   } catch {
     expectedFail("LM checkpoint artifact is missing or unreadable.", "lm_checkpoint_artifact_missing", EXIT_CODE.CONFLICT);
   }

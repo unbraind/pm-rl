@@ -1,3 +1,5 @@
+import { decode } from "@toon-format/toon";
+import { identityPath } from "./fixtures/identity-path.ts";
 /** Packed SDK plus installed CLI provenance proof; copy static imports to the packed consumer before execution. */
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
@@ -13,9 +15,7 @@ const archive = resolve(process.argv[2]); const output = resolve(process.argv[3]
 const w = await decisionFixture(false, false);
 const cli = resolve("node_modules/@unbrained/pm-cli/dist/cli.js");
 const env: NodeJS.ProcessEnv = { ...process.env, PM_AUTHOR: "decision-test", PM_PATH: w.pmRoot, GIT_CEILING_DIRECTORIES: dirname(w.root), NPM_CONFIG_USERCONFIG: devNull, NODE_V8_COVERAGE: undefined };
-const bin = join(w.root, "bin"); mkdirSync(bin); symlinkSync(process.execPath, join(bin, "node"));
-const identityTool = process.platform === "linux" ? "getconf" : "ps";
-symlinkSync(execFileSync("/bin/sh", ["-c", `command -v ${identityTool}`], { encoding: "utf8" }).trim(), join(bin, identityTool)); env.PATH = bin;
+env.PATH = identityPath(w.root);
 execFileSync(process.execPath, [cli, "package", "install", archive, "--project", "--json"], { cwd: w.root, env, stdio: "pipe" });
 /** Run the actual installed archive in a tracker with no Git executable. */
 function command(args: string[]): string { return execFileSync(process.execPath, [cli, "rl", ...args], { cwd: w.root, env, encoding: "utf8" }); }
@@ -34,13 +34,16 @@ let cardBytes = 0; let cardTypes = 0;
 const cards: { file: string; value: PolicyCard }[] = [];
 for (const [subject, selection] of [[w.plan.candidate, null], ["rl-graph-step-decision", null], ["rl-graph-step-decision", 0], ["rl-graph-step-decision", 1]] as const) {
   const options = selection === null ? [] : ["--selection", String(selection)];
-  const value = (JSON.parse(command(["policy-card", "export", subject, ...options, "--json"])) as { details: PolicyCard }).details;
+  const exported = JSON.parse(command(["policy-card", "export", subject, ...options, "--json"])) as { details: PolicyCard };
+  const value = exported.details;
+  assert.deepEqual(decode(command(["policy-card", "export", subject, ...options])), exported);
   const { digest: _cardDigest, decision_evidence: _graph, ...remaining } = value;
   await assert.rejects(replayPolicyCard(w.client, { ...remaining, digest: hashJson(remaining as unknown as JsonValue) }), (error: unknown) => isPmCliExpectedError(error) && error.context.item_id === subject);
   assert.ok(value.decision_evidence); assert.match(command(["policy-card", "export", subject, ...options]), new RegExp(value.decision_evidence.digest));
   const file = join(w.root, `card-${cardTypes++}.json`); writeFileSync(file, JSON.stringify(value));
-  assert.equal((JSON.parse(command(["policy-card", "replay", "--file", file, "--json"])) as RlCommandResult).details?.digest, value.digest);
-  assert.match(command(["policy-card", "replay", "--file", file]), new RegExp(value.digest));
+  const replayed = JSON.parse(command(["policy-card", "replay", "--file", file, "--json"])) as RlCommandResult;
+  assert.equal(replayed.details?.digest, value.digest);
+  assert.deepEqual(decode(command(["policy-card", "replay", "--file", file])), replayed);
   cardBytes = Math.max(cardBytes, Buffer.byteLength(JSON.stringify(value))); cards.push({ file, value });
 }
 assert.deepEqual(cards[0].value.decision_evidence, decision.evidence);

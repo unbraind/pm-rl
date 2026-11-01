@@ -1,3 +1,4 @@
+import { identityPath } from "./fixtures/identity-path.ts";
 /** Exercise a packed consumer against verbatim files written by the previous published package. */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -29,9 +30,10 @@ writeFileSync(probe, [
   `import { parseGenerationSpec } from ${JSON.stringify(pathToFileURL(join(installed, "lineage.js")).href)};`,
   "const [mode, id] = process.argv.slice(2);",
   `const client = new PmClient({ cwd: ${JSON.stringify(root)}, pmRoot: ${JSON.stringify(pmRoot)}, author: "compatibility-test", noExtensions: true });`,
-  "if (mode === \"decision\") { process.stdout.write(JSON.stringify(await readEvaluationDecision(client, id))); process.exit(0); }",
+  "if (mode === \"decision\") { process.stdout.write(JSON.stringify(await readEvaluationDecision(client, id))); } else {",
   "const read = await readCompleteLoopItem(client, id);",
   "process.stdout.write(JSON.stringify(mode === \"spec\" ? parseGenerationSpec(String(read.item.body).match(/```json\\n([\\s\\S]+?)\\n```/)[1], \"Packed compatibility\") : read));",
+  "}",
 ].join("\n"));
 /** Read one item, or parse its generation spec, with the archive's own modules. */
 function archiveRead(id: string): GetResult { return JSON.parse(execFileSync(process.execPath, [probe, "read", id], { cwd: root, env, encoding: "utf8" })) as GetResult; }
@@ -39,9 +41,7 @@ function archiveRead(id: string): GetResult { return JSON.parse(execFileSync(pro
 function archiveDecision(id: string): Awaited<ReturnType<typeof ReadEvaluationDecision>> { return JSON.parse(execFileSync(process.execPath, [probe, "decision", id], { cwd: root, env, encoding: "utf8" })) as Awaited<ReturnType<typeof ReadEvaluationDecision>>; }
 /** Parse an item's generation spec with the archive's lineage module. */
 function archiveSpec(id: string): GenerationSpec { return JSON.parse(execFileSync(process.execPath, [probe, "spec", id], { cwd: root, env, encoding: "utf8" })) as GenerationSpec; }
-const bin = join(root, "bin"); mkdirSync(bin); symlinkSync(process.execPath, join(bin, "node"));
-const identityTool = process.platform === "linux" ? "getconf" : "ps";
-symlinkSync(execFileSync("/bin/sh", ["-c", `command -v ${identityTool}`], { encoding: "utf8" }).trim(), join(bin, identityTool)); env.PATH = bin;
+env.PATH = identityPath(root);
 execFileSync(process.execPath, [cli, "package", "install", archive, "--project", "--json"], { cwd: root, env, stdio: "pipe" });
 /** Use actual CLI formatting and the archive-installed extension with Git absent from PATH. */
 function command(args: string[]): string { return execFileSync(process.execPath, [cli, "rl", ...args], { cwd: root, env, encoding: "utf8" }); }

@@ -12,7 +12,7 @@ import { PmClient, type CloseResult } from "@unbrained/pm-cli/sdk/core";
 import { init, isPmCliExpectedError, createPmCliExpectedError, type CloseTaskResult, type PmClientCloseActionOptions } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import extension, { RL_ITEM_TYPES, generationProvenance, extractGenerationSpec, hashJson, canonicalJson, readCompleteLoopItem, runRlLoop, resumeRlLoop, loopLeaseLockId, withRlController, recordRefusedPolicyCard, mutateLoopItem, promoteGenerationCore, appendCommentOnce, type JsonValue, type RlCommandResult } from "../index.ts";
-import { discoverPolicyCards, exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordRecursivePolicyCards, recordPolicyCard, POLICY_CARD_MAX_BYTES, validatePolicyCardWrite, generationEvidence, verifyRetainedGenerationEvidence, type PolicyCard } from "../policy-card.ts";
+import { discoverPolicyCards, exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordRecursivePolicyCards, recordPolicyCard, POLICY_CARD_MAX_BYTES, parsePolicyCardDecisionEvidence, validatePolicyCardWrite, generationEvidence, verifyRetainedGenerationEvidence, type PolicyCard } from "../policy-card.ts";
 import { encodeEvent, encodeEventSegments } from "../series.ts";
 import { prefixCheckpoint } from "../prefix.ts";
 import { parseScoreRecord, type GenerationSpec } from "../lineage.ts";
@@ -1738,4 +1738,14 @@ test("reversed native history preserves earliest policy citations and promotion 
   const resumed = await resumeRlLoop(w.client, { pmRoot: w.pmRoot, author: "card-test" }, { id: "order", approval: "rl-approval" });
   assert.equal(resumed.promoted, 1); assert.equal(resumed.generations[0].promoted_by, first.generations[0].promoted_by);
   assert.notEqual(resumed.generations[0].promoted_by, "annotation-peer");
+});
+
+
+test("cubic: malformed full card manifests retain the card refusal contract", async () => {
+  const w = await workspace(); const id = await generation(w.client); const card = await exportPolicyCard(w.client, id);
+  for (const evidence of [{}, { format: "pm-rl/evaluation-evidence/2" }, { format: "pm-rl/evaluation-evidence/1", comparison: "bad", digest: "bad", inputs: [] }]) {
+    assert.throws(() => parsePolicyCardDecisionEvidence(evidence), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "card_invalid" && error.exitCode === 4);
+    await assert.rejects(replayPolicyCard(w.client, { ...card, decision_evidence: evidence }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "card_invalid" && error.exitCode === 4);
+  }
+  assert.deepEqual((await replayPolicyCard(w.client, card)).card, card);
 });

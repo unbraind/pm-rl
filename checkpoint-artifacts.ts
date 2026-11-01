@@ -41,9 +41,10 @@ function validateReference(ref: CheckpointArtifact): void {
 }
 /** Read only regular bounded files and normalize missing/corrupt storage into stable typed refusals. @internal */
 export function readVerifiedFile(file: string, digest: string, bytes?: number): Buffer {
+  const checked = checkedStateFile(file);
   let content: Buffer;
   try {
-    const handle = openSync(checkedStateFile(file), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    const handle = openSync(checked, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     try {
       const stat = fstatSync(handle);
       if (!stat.isFile() || stat.size > MAX_CHECKPOINT_BYTES || (bytes !== undefined && stat.size !== bytes)) throw new Error("invalid file");

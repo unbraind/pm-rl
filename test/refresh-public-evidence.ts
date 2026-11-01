@@ -3,31 +3,40 @@
  * six fresh Node/Bun scenarios and two fixture replays against the final archive. Replay retains native timestamps so the
  * shipped receipt can certify that archive without a self-referential hash. Evaluation and refusal logic
  * stay in the acceptance scripts; this module joins their output and verifies final shipped bytes.
+ * Generation, repacking and certification occur in an isolated source copy. Only a fully successful run
+ * publishes documents under the cooperative refresh lock; unrelated writers are detected by saved-base rereads.
  */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { cpSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { isAbsolute, join, relative, resolve } from "node:path";
+import { acceptanceLog, publishEvidence } from "./fixtures/evidence-publication.ts";
 
 const [publicSource, sourceCommit, destination] = process.argv.slice(2);
 assert.match(sourceCommit, /^[a-f0-9]{40}$/);
+const original = process.cwd();
+const runtimeSourceCommit = execFileSync("git", ["log", "-1", "--format=%H", "--", ":(top,glob)*.ts"], { encoding: "utf8" }).trim();
 const out = resolve(destination), source = resolve(publicSource);
+const outside = relative(original, out);
+assert.ok(isAbsolute(outside) || outside === ".." || outside.startsWith("../"), "Use an output directory outside the source tree");
 mkdirSync(out, { recursive: true });
 const sequentialPath = "docs/sequential-evaluation-evidence.json", decisionPath = "docs/decision-evidence-validation.json", compatibilityPath = "docs/evaluation-compatibility-evidence.json";
 const initialTexts = new Map([sequentialPath, decisionPath, compatibilityPath].map((file) => [file, readFileSync(file, "utf8")]));
-/** Refuse concurrent evidence edits and retain peer bytes rather than overwriting them. */
-function publish(file: string, value: object): void {
-  const previous = initialTexts.get(file)!;
-  assert.equal(readFileSync(file, "utf8"), previous, `evidence_write_conflict: ${file}`);
-  const text = JSON.stringify(value, null, 2) + "\n";
-  writeFileSync(file, text); initialTexts.set(file, text);
+// Copy source and built modules, retaining the installed dependency graph without copying caches or Git state.
+const staged = join(out, "workspace"); mkdirSync(staged);
+for (const entry of readdirSync(original)) {
+  if ([".git", ".agents", "node_modules", "coverage", ".public-evidence-refresh.lock"].includes(entry) || entry.endsWith(".tgz")) continue;
+  cpSync(join(original, entry), join(staged, entry), { recursive: true });
 }
+symlinkSync(join(original, "node_modules"), join(staged, "node_modules"), "junction");
+process.chdir(staged);
+/** Update only the isolated staging tree; the public documents remain unchanged until certification succeeds. */
+function publish(file: string, value: object): void { writeFileSync(file, JSON.stringify(value, null, 2) + "\n"); }
 /** Run one acceptance process, retaining its complete local log and stopping on any failure. */
 function run(runtime: string, script: string, args: string[], label: string): void {
   try {
-    const log = execFileSync(runtime, [script, ...args], { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
-    writeFileSync(join(out, `${label}.log`), log);
+    acceptanceLog(join(out, `${label}.log`), () => execFileSync(runtime, [script, ...args], { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 }));
   } catch (error) {
     throw new Error(`Acceptance failed: ${label}; stop without runtime changes.`, { cause: error });
   }
@@ -97,11 +106,13 @@ assert.deepEqual(packed.get("node-compatibility"), packed.get("bun-compatibility
 decision.node = packed.get("node-decision"); decision.bun = packed.get("bun-decision");
 decision.published_native_node = packed.get("node-compatibility"); decision.published_native_bun = packed.get("bun-compatibility");
 compatibility.packed_node_and_bun = packed.get("node-compatibility");
-const artifact = { runtime_source_commit: execFileSync("git", ["log", "-1", "--format=%H", "--", ":(top,glob)*.ts"], { encoding: "utf8" }).trim(), public_source_commit: sourceCommit, archive_sha256: final.sha256, shipped_files: final.files.length, runtime_files: final.runtime.size, final_acceptance_passes: 6, final_fixture_replay_passes: 2, native_fixture_preparations: 2, public_source_read_only_and_unchanged: true, native_fixture_replayed_after_evidence_repack: true };
+const artifact = { runtime_source_commit: runtimeSourceCommit, public_source_commit: sourceCommit, archive_sha256: final.sha256, shipped_files: final.files.length, runtime_files: final.runtime.size, final_acceptance_passes: 6, final_fixture_replay_passes: 2, native_fixture_preparations: 2, public_source_read_only_and_unchanged: true, native_fixture_replayed_after_evidence_repack: true };
 decision.current_packed_acceptance = artifact; compatibility.current_packed_acceptance = artifact;
 decision.historical_receipts_note = "source_commit, earlier static/property counters and immutable_execution_round_6 describe historical runs. Current Node/Bun public replay and packed acceptance are public_metrics, public_input_roots and current_packed_acceptance; no historical archive is the current artifact.";
 compatibility.historical_receipts_note = "implementation, earlier native/boundary regression counters and release_ci describe historical runs. Current packed/public results are packed_node_and_bun, public_node_and_bun and current_packed_acceptance.";
 publish(decisionPath, decision); publish(compatibilityPath, compatibility);
 for (const file of final.files) assert.deepEqual(readFileSync(join(out, "final", "unpacked", "package", file)), readFileSync(file), `Final shipped bytes changed: ${file}`);
+publishEvidence(original, initialTexts, new Map([...initialTexts.keys()].map((file) => [file, readFileSync(file, "utf8")])));
+process.chdir(original);
 writeFileSync(join(out, "receipt.json"), JSON.stringify({ ...artifact, archive: final.archive }, null, 2) + "\n");
 console.log(JSON.stringify(artifact));

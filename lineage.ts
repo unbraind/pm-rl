@@ -218,7 +218,7 @@ function asString(record: Record<string, unknown>, key: string, source: string, 
     return "";
   }
   const normalized = value.trim();
-  if (mode === "write" && value !== "" && (key === "base_checkpoint" || key === "policy")) identifier(value, "artifact");
+  if (mode === "write" && value !== "" && (key === "base_checkpoint" || key === "policy" || key === "reward_spec_version")) identifier(value, "artifact");
   if (mode === "write" && normalized.length > 0 && (key === "environment_version" || key === "evaluation_context")) identifier(value, key === "evaluation_context" ? "context" : "item");
   if (required && normalized.length === 0) expectedFail(`${source} requires a non-empty ${key}.`, `empty_${key}`);
   return normalized;

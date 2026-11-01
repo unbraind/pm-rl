@@ -171,6 +171,7 @@
       "test/evaluation-plan.test.ts",
       "test/evaluation-compatibility.test.ts",
       "test/decision-evidence.test.ts",
+      "test/evidence-publication.test.ts",
       "test/durable-snapshots.test.ts",
       "test/evaluation-integration.test.ts",
       "test/shadow.test.ts",

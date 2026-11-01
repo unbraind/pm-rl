@@ -4,7 +4,7 @@ import { parseBoundedJson, encodeBoundedJson } from "./tracker-record.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname } from "node:path";
 import { hashJson, type JsonValue } from "./index.ts";
 import { calibratePrefixTarget, prefixInnerExample, projectHistoryPrefix, validateHistoryPrefix, validateLifecyclePrefix, type HistoryPrefix, type PrefixProjection, type TargetDistribution } from "./prefix-data.ts";
 
@@ -165,7 +165,7 @@ export function readTrackerDataset(directory: string): TrackerDataset {
 
 /** Open exactly one compartment, verifying content identity, provenance, bounds and repository isolation. */
 export function readTrackerSplit(directory: string, manifest: TrackerDataset, split: TrackerSplit): readonly TrackerExample[] {
-  const examples = parseBoundedJson(readFileSync(resolve(directory, `${split}.json`), "utf8")) as TrackerExample[];
+  const examples = parseBoundedJson(readFileSync(statePath(directory, `${split}.json`), "utf8")) as TrackerExample[];
   const spec = manifest.splits[split];
   assert.equal(hashJson(examples as unknown as JsonValue), spec.digest, "dataset_split_identity");
   assert.ok(examples.length > 0 && examples.length <= 10_000 && examples.length === spec.count, "dataset_split_size");

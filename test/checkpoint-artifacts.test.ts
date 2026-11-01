@@ -11,7 +11,7 @@ import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import extension, { controllerAuthorityRoot, controllerHasGitAncestor, withRlController } from "../index.ts";
-import { checkpointArtifactPath, collectCheckpointArtifacts, decodeCheckpointArtifacts, encodeCheckpointArtifacts, inspectCheckpointArtifact, MAX_CHECKPOINT_BYTES, readCheckpointArtifact, readCheckpointLedger, type CheckpointArtifact, requireCheckpointStorage } from "../checkpoint-artifacts.ts";
+import { checkpointArtifactPath, collectCheckpointArtifacts, decodeCheckpointArtifacts, encodeCheckpointArtifacts, inspectCheckpointArtifact, MAX_CHECKPOINT_BYTES, readCheckpointArtifact, readCheckpointLedger, type CheckpointArtifact, requireCheckpointStorage, readVerifiedFile } from "../checkpoint-artifacts.ts";
 import { prefixCheckpoint } from "../prefix.ts";
 import { initialImprover } from "../improver.ts";
 import { executeImproverFit, improverAdapter, type LearnerTrial } from "../improver-environment.ts";
@@ -732,4 +732,15 @@ test("checkpoint ledger reads never create missing storage or replace an invalid
   const ledger = join(store, "ledger"); writeFileSync(ledger, "retain invalid storage for inspection");
   assert.throws(() => readCheckpointLedger(w.pmRoot), (error: unknown) => (error as NodeJS.ErrnoException).code === "ENOTDIR");
   assert.equal(readFileSync(ledger, "utf8"), "retain invalid storage for inspection");
+});
+
+
+test("cubic: checked artifact boundaries retain their typed refusal before byte validation", async () => {
+  const w = await checkpointWorkspace();
+  const target = join(w.root, "blob"); const linked = join(w.root, "linked");
+  const content = Buffer.from("immutable artifact"); writeFileSync(target, content);
+  const digest = `sha256:${createHash("sha256").update(content).digest("hex")}`;
+  symlinkSync(target, linked);
+  assert.throws(() => readVerifiedFile(linked, digest), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "rl_state_path_invalid" && error.exitCode === 2);
+  assert.deepEqual(readVerifiedFile(target, digest), content);
 });

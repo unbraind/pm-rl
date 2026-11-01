@@ -42,3 +42,11 @@ test("snapshot corruption refuses by immutable locator while later source change
     assert.deepEqual(JSON.parse(String((await readCompleteLoopItem(client, "rl-legacy-step")).item.body)), receipt);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+
+test("cubic: durable cycle fixtures follow each immediately preceding promotion", async () => {
+  const report = await durableSnapshotProperty(3, "none");
+  assert.equal(report.cycles, 3); assert.equal(report.executions, 3); assert.equal(report.receipts, 4);
+  assert.equal(report.replays, 21); assert.equal(report.card_variants, 10);
+  assert.equal(report.snapshot_checks, 0); assert.equal(report.corrupt_card_checks, 0);
+});

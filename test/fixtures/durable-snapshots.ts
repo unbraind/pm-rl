@@ -9,8 +9,8 @@ import { recordSequentialEvaluation } from "../../sequential-evaluation.ts";
 import { decisionFixture } from "./decision-evidence.ts";
 import type { EvaluationEvidence, GenerationSpec } from "../../lineage.ts";
 
-/** Generate successive valid promotions, replay every earlier step, and corrupt every snapshot and pair. */
-export async function durableSnapshotProperty(cycles = 3) {
+/** Generate successive valid promotions and replays; default all runs every corruption pair, while none isolates the chain regression. */
+export async function durableSnapshotProperty(cycles = 3, corruption: "all" | "none" = "all") {
   const w = await decisionFixture(false, false);
   const coordinates = { pmRoot: w.pmRoot, author: "decision-test" };
   const request = { id: "snapshots", approval: "rl-approval", recoveryCommand: "pm rl meta resume snapshots" };
@@ -41,8 +41,12 @@ export async function durableSnapshotProperty(cycles = 3) {
       console.log(JSON.stringify({ snapshot_cycle: cycle, stage: "evaluated" }));
       const cards = [];
       for (const selection of [null, 0, 1]) cards.push(await exportPolicyCard(w.client, id, selection));
-      assert.equal(cards[0].decision_evidence?.format, "pm-rl/evaluation-evidence/2");
-      await assert.rejects(verifyDecisionEvidence(w.client, parseEvaluationEvidence(cards[0].decision_evidence)), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "eval_plan_evidence");
+      const graph = parseEvaluationEvidence(JSON.parse(String((await readCompleteLoopItem(w.client, id)).item.body)).decision_evidence);
+      assert.equal(graph.format, "pm-rl/evaluation-evidence/2");
+      // Successive incumbents enlarge the graph; the card may use its documented compact hash reference.
+      assert.equal(cards[0].decision_evidence?.digest, graph.digest);
+      assert.equal(cards[0].decision_evidence?.comparison, graph.comparison);
+      await assert.rejects(verifyDecisionEvidence(w.client, graph), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "eval_plan_evidence");
       receipts.push({ key, input, id, cards });
       const report = (await readEvaluationDecision(w.client, plan.candidate)).report!;
       const score = { ...w.score, seed_set: evaluationComparison(plan), value: report.candidate_mean };
@@ -56,7 +60,7 @@ export async function durableSnapshotProperty(cycles = 3) {
         }
       }
       if (cycle + 1 === cycles) break;
-      const incumbent = w.plan.incumbent; const version = String((await readCompleteLoopItem(w.client, incumbent)).item.affected_version);
+      const incumbent = plan.candidate; const version = String((await readCompleteLoopItem(w.client, incumbent)).item.affected_version);
       const candidate = `rl-candidate-${cycle + 1}`; const review = `rl-review-${cycle + 1}`; const run = `rl-collection-${cycle + 1}`;
       assert.equal(plan.stopping.kind, "sequential");
       plan = { ...plan, candidate, incumbent, incumbent_version: version, stopping: { ...w.plan.stopping, review } } as EvaluationPlan;
@@ -66,11 +70,13 @@ export async function durableSnapshotProperty(cycles = 3) {
       const source = extractGenerationSpec(String(w.native.item.body), "Next candidate source");
       const spec: GenerationSpec = { ...source, parent: incumbent, collection_runs: [run], base_checkpoint: `sha256:${hashJson(candidate)}`, evaluation_plan: evaluationComparison(plan) };
       await w.client.create({ id: candidate, type: "Generation", title: "Next candidate", body: `\`\`\`json\n${JSON.stringify(spec)}\n\`\`\``, affectedVersion: hashJson(generationProvenance(spec)) });
+      assert.equal(spec.parent, (receipts[receipts.length - 1].input as { candidate: string }).candidate);
+      assert.equal(plan.incumbent, spec.parent);
       await recordSequentialEvaluation(w.client, candidate, w.rows.slice(0, 16));
       await recordSequentialEvaluation(w.client, candidate, w.rows);
     }
     // Every immutable input, including pairs, remains integrity checked independently of live state.
-    for (const receipt of receipts) {
+    for (const receipt of corruption === "all" ? receipts : []) {
       const original = String((await readCompleteLoopItem(w.client, receipt.id)).item.body);
       const body = JSON.parse(original) as { decision_evidence: EvaluationEvidence };
       const refs = body.decision_evidence.inputs;
