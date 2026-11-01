@@ -1,6 +1,10 @@
 /** Immutable execution properties shared by native and packed Node/Bun consumers. */
 import assert from "node:assert/strict";
-import { rmSync } from "node:fs";
+import { cpSync, mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { PmClient } from "@unbrained/pm-cli/sdk/core";
+import { concurrentCases } from "./concurrent-cases.ts";
 import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { captureDecisionInputs, extractGenerationSpec, DECISION_INPUT_FIELDS, firstDecisionSnapshot, hashJson, generationProvenance, readCompleteLoopItem, withRlController, promoteGenerationCore, verifyDecisionEvidence, verifyDecisionSnapshots, type JsonValue } from "../../index.ts";
 import { evaluationInputDigest, evaluationEvidence, decisionSnapshotDigest, readEvaluationDecision, parseEvaluationEvidence, registerEvaluationPlan, evaluationComparison, type EvaluationPlan } from "../../evaluation-plan.ts";
@@ -80,24 +84,33 @@ export async function durableSnapshotProperty(cycles = 3, corruption: "all" | "n
       const original = String((await readCompleteLoopItem(w.client, receipt.id)).item.body);
       const body = JSON.parse(original) as { decision_evidence: EvaluationEvidence };
       const refs = body.decision_evidence.inputs;
-      for (let i = 0; i < refs.length; i += 1) for (let j = i; j < refs.length; j += 1) {
-        const damaged = [...new Set([i, j])];
-        const inputs = refs.map((ref, index) => damaged.includes(index) ? { ...ref, digest: "0".repeat(64) } : ref);
-        const graphBody = { format: body.decision_evidence.format, comparison: body.decision_evidence.comparison, inputs };
-        const graph = { ...graphBody, digest: hashJson(graphBody as unknown as JsonValue) };
-        const expected = `${refs[i].id}@${refs[i].at}`;
-        const named = (error: unknown) => isPmCliExpectedError(error) && error.message.includes(expected);
-        await assert.rejects(verifyDecisionSnapshots(w.client, graph), named); snapshotChecks += 1;
-        await w.client.update(receipt.id, { body: JSON.stringify({ ...body, decision_evidence: graph }) });
+      const pairs = refs.flatMap((_ref, i) => refs.slice(i).map((_next, offset) => [i, i + offset] as const));
+      // The prepared tracker is immutable throughout the sweep. A private native
+      // clone per pair keeps every original pair while preventing append-only
+      // corruption/repair events from making later history reads quadratic.
+      await concurrentCases(pairs, async ([i, j]) => {
+        const root = mkdtempSync(join(tmpdir(), "rl-snapshot-corruption-"));
         try {
-          await assert.rejects(withRlController(w.client, coordinates, request, new AbortController().signal, (step) => step(receipt.key, receipt.input, async () => assert.fail("Corrupted step reran"))), named);
+          cpSync(w.root, root, { recursive: true });
+          const client = new PmClient({ cwd: root, pmRoot: join(root, ".agents/pm"), author: "decision-test", noExtensions: true });
+          const damaged = [...new Set([i, j])];
+          const inputs = refs.map((ref, index) => damaged.includes(index) ? { ...ref, digest: "0".repeat(64) } : ref);
+          const graphBody = { format: body.decision_evidence.format, comparison: body.decision_evidence.comparison, inputs };
+          const graph = { ...graphBody, digest: hashJson(graphBody as unknown as JsonValue) };
+          const expected = `${refs[i].id}@${refs[i].at}`;
+          const named = (error: unknown) => isPmCliExpectedError(error) && error.message.includes(expected);
+          await assert.rejects(verifyDecisionSnapshots(client, graph), named); snapshotChecks += 1;
+          const corrupted = JSON.stringify({ ...body, decision_evidence: graph });
+          await client.update(receipt.id, { body: corrupted });
+          await assert.rejects(withRlController(client, { ...coordinates, pmRoot: join(root, ".agents/pm") }, request, new AbortController().signal, (step) => step(receipt.key, receipt.input, async () => assert.fail("Corrupted step reran"))), named);
           for (const card of receipt.cards) {
-            await assert.rejects(exportPolicyCard(w.client, receipt.id, card.selection), named);
-            await assert.rejects(replayPolicyCard(w.client, card), named); corruptions += 2;
+            await assert.rejects(exportPolicyCard(client, receipt.id, card.selection), named);
+            await assert.rejects(replayPolicyCard(client, card), named); corruptions += 2;
           }
-        } finally { await w.client.update(receipt.id, { body: original }); }
-        assert.equal((await readCompleteLoopItem(w.client, receipt.id)).item.body, original);
-      }
+          assert.equal((await readCompleteLoopItem(client, receipt.id)).item.body, corrupted, "refusals must preserve the competing native revision");
+        } finally { rmSync(root, { recursive: true, force: true }); }
+      });
+      assert.equal((await readCompleteLoopItem(w.client, receipt.id)).item.body, original);
       await verifyDecisionSnapshots(w.client, body.decision_evidence);
       console.log(JSON.stringify({ snapshot_receipt: receipt.key, corruption_checks: corruptions }));
     }

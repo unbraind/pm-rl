@@ -116,8 +116,13 @@ refusal prevents later evidence publication; an identical already-sealed retry
 can still return its current result. Fixed protected-cohort guards retain their
 original admission contract. Combining them with a sequential stopping protocol
 requires a separately specified design and currently refuses before registration.
-The SDK's fenceable fixed-plan lease uses the same confined state-path boundary
-as sequential locks, including acquisition, execution and final release.
+pm-rl confines its own reads and writes through its state-path boundaries. SDK
+lock acquisition is confined only once
+[pm-cli#1647](https://github.com/unbraind/pm-cli/issues/1647) ships; the current SDK
+can follow a `locks` directory swapped after the package's pathname preflight.
+The fixed-plan fenceable lease and sequential locks share that SDK limitation.
+See [pm-rl-confined-sdk-locks](../.agents/pm/tasks/pm-rl-confined-sdk-locks.toon).
+No pre-check is a workaround for the SDK's later `mkdir`.
 
 ```ts
 import { PmClient } from '@unbrained/pm-cli/sdk/core';

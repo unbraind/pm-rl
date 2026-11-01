@@ -1005,14 +1005,20 @@ File components use the same schema with a 255-byte filename limit.
 Unicode package lease/component names work; native item creation remains subject
 to the SDK's own rules.
 
-`statePath` constructs package-owned locks, cleanup gates, checkpoints, artifact
-and ledger files, trainer staging, datasets and temporary filenames under an
+`statePath` constructs package-owned checkpoints, artifact and ledger files,
+trainer staging, datasets and temporary filenames, and preflights SDK lock and
+cleanup-gate paths under an
 explicit nonempty NUL-free root of at most 4096 UTF-8 bytes. It resolves the
 result, checks confinement, and rejects a symlinked root, any symlinked
 directory between the root and the leaf, and symlinked leaves (including
 dangling links). Links above the explicit root are permitted. Git metadata discovery
 and explicit filesystem locations establish roots; they are never identifier
-components. Delayed effects and cleanup recheck their paths. State refusals have
+components. pm-rl's own reads and writes use these confined state boundaries;
+delayed effects and cleanup recheck their paths. SDK lock acquisition is confined
+only once [pm-cli#1647](https://github.com/unbraind/pm-cli/issues/1647) ships:
+the current SDK can follow a `locks` directory swapped after preflight. See
+[pm-rl-confined-sdk-locks](.agents/pm/tasks/pm-rl-confined-sdk-locks.toon).
+A pathname pre-check does not close that SDK race. State refusals have
 codes `rl_identifier_invalid` or `rl_state_path_invalid` and a `required` remedy:
 use the documented identifier or restore ordinary state directories. Shorten
 identifiers further when their derived item/filename would exceed these bounds.
@@ -1063,7 +1069,9 @@ Evaluation dependencies are validated before acquiring even the outer lease and
 use SDK-normalized item identities for their native locks. Lock release delegates
 to the SDK's token check inside its cleanup lease; a successor's lock is retained.
 Recovery expires only the observed open inode/token and delegates stale removal
-to that native protocol. A symlinked state tree must be repaired before retrying.
+to that native protocol. Those token checks protect ownership, not SDK pathname
+confinement: acquisition remains dependent on pm-cli#1647 as documented above.
+A symlinked state tree must be repaired before retrying.
 The seeded security property exercises 500 sequences on a standalone tracker,
 with external tree-hash tripwires, the reported expired review-lock traversal,
 valid prefixes and Unicode component names, invalid identifier forms, symlinked

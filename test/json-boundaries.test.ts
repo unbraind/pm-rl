@@ -246,3 +246,15 @@ test("shadow lookup expansion is rejected before it can reserve an evaluation pl
   await assert.rejects(registerShadowDeployment(w.client, deployment, {}), limit);
   assert.deepEqual(durable(w.pmRoot), before);
 });
+
+test("large valid JSON cannot overflow native V8 coverage counters", { timeout: 300000 }, () => {
+  const root = mkdtempSync(join(tmpdir(), "rl-json-counter-")); roots.push(root); const coverage = join(root, "coverage");
+  const result = spawnSync(process.execPath, [fileURLToPath(new URL("./fixtures/json-counter-stress.ts", import.meta.url))], { encoding: "utf8", timeout: 290000, env: { ...process.env, NODE_V8_COVERAGE: coverage } });
+  assert.equal(result.status, 0, result.stderr); assert.deepEqual(JSON.parse(result.stdout), { bytes: MAX_JSON_BYTES, encodings: 130 });
+  const records = readdirSync(coverage).filter(name => name.endsWith(".json")).flatMap(name => {
+    const report = JSON.parse(readFileSync(join(coverage, name), "utf8")) as { result: { url: string; functions: { functionName: string; ranges: { count: number }[] }[] }[] };
+    return report.result.filter(script => script.url === new URL("../tracker-record.ts", import.meta.url).href);
+  });
+  assert.ok(records.length > 0, "the actual tracker-record module must be measured");
+  for (const script of records) for (const fn of script.functions) for (const range of fn.ranges) assert.ok(range.count >= 0, `${fn.functionName}: negative native V8 count ${range.count}`);
+});

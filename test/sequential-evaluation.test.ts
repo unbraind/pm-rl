@@ -1,11 +1,15 @@
 /** Real SDK state machines, finite-look simulations and adversarial sequential evidence. */
 import assert from "node:assert/strict";
+import { BoundaryClasses, peerAffects, representativeBoundaries } from "./fixtures/boundary-classes.ts";
+import { concurrentCases } from "./fixtures/concurrent-cases.ts";
+import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync, symlinkSync, existsSync, cpSync } from "node:fs";
+import { mkdtempSync, rmSync, readdirSync, readFileSync, writeFileSync, mkdirSync, symlinkSync, existsSync, cpSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, test } from "node:test";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
+import type { HistoryResult } from "@unbrained/pm-cli/sdk/query";
 import { init, isPmCliExpectedError, locateItem, readLocatedItem, readSettings, resolveItemTypeRegistry } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import extension, { extractGenerationSpec, generationProvenance, hashJson, readCompleteLoopItem, mutateLoopItem, withPromotionEvidence, recordRefusedPolicyCard, promoteGenerationCore, reconcileLoopPromotion, withProcessJobFence, type RlCommandResult, type JsonValue } from "../index.ts";
@@ -894,7 +898,7 @@ test("a sealed rejection between candidate discovery and source acquisition neve
   assert.equal((await peer.listAllComplete({ includeBody: false })).items.some((item) => item.id.endsWith("-look-2")), !peerRefused);
 });
 
-/** Every SDK await edge is exercised on both sides, using independent native writers and SDK readback. */
+/** Discover every SDK edge; retain all mutable edges and certify commuting-read regions with independent native peers. */
 async function sequentialSnapshotMatrix(focused: boolean): Promise<void> {
   const stages = new Map<string, string>();
   const base = await decisionFixture(false, false, false, (stage, source) => {
@@ -919,26 +923,71 @@ async function sequentialSnapshotMatrix(focused: boolean): Promise<void> {
   try {
     const paths = focused ? ["advance"] as const : ["advance", "first", "retry", "register", "reject"] as const;
     for (const path of paths) {
-      let boundaries = 0; let candidateBoundary = -1;
       const transitions = focused ? ["sdk-reject"] as const : ["sdk-reject", "reject", "seal", "stop", "record-look", "budget"] as const;
-      for (const transition of transitions) {
+      const discoveries: number[] = [];
+      // Peer transitions use independent clones of the same prepared native fixture.
+      await concurrentCases(transitions, async (transition) => {
+        let boundaries = 0; let candidateBoundary = -1; let representatives: number[] = []; let commutingSlots = new Set<number>(); let witnesses = 0;
+        const source = path === "register" ? stages.get("review")! : path === "first" ? stages.get("candidate")! : base.root;
+        const preparedClient = new PmClient({ pmRoot: join(source, ".agents/pm"), cwd: source, author: "snapshot-preparation", noExtensions: true });
+        const prepared = structuredClone((await preparedClient.listAllComplete({ includeBody: true })).items);
         for (let injectAt = -1; injectAt < boundaries; injectAt += 1) {
+          if (!focused && injectAt !== -1 && !representatives.includes(injectAt)) continue;
           if (focused && injectAt !== -1 && injectAt !== 0 && injectAt !== boundaries - 1 && injectAt !== candidateBoundary) continue;
-          // A fresh native copy prevents a successful competitor from poisoning
-          // subsequent cases; all competing transitions themselves use the SDK.
-          const root = mkdtempSync(join(tmpdir(), "rl-snapshot-race-"));
-          cpSync(path === "register" ? stages.get("review")! : path === "first" ? stages.get("candidate")! : base.root, root, { recursive: true });
+          // Branch the one prepared native fixture; every branch has independent
+          // SDK/cache identity and keeps its own immutable audit until disposal.
+          const root = mkdtempSync(join(tmpdir(), "rl-snapshot-race-")); cpSync(source, root, { recursive: true });
           const pmRoot = join(root, ".agents/pm");
           const client = new PmClient({ pmRoot, cwd: root, author: "snapshot-writer", noExtensions: true });
           const peer = new PmClient({ pmRoot, cwd: root, author: "snapshot-peer", noExtensions: true });
           const get = client.get.bind(client); const config = client.config.bind(client); const create = client.create.bind(client); const run = client.run.bind(client);
+        /** Native data outside the peer write set, plus every existing creation record, must remain unchanged. */
+        function commutingInputs(): string {
+          const hash = createHash("sha256");
+          /** Only SDK coordination/telemetry is derived; settings, schema, items and unrelated history are protected. */
+          function visit(relative: string): void {
+            for (const entry of readdirSync(join(pmRoot, relative), { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+              if (relative === "" && ["runtime", "locks", "transactions"].includes(entry.name)) continue;
+              const name = join(relative, entry.name);
+              if (entry.isDirectory()) { visit(name); continue; }
+              const id = entry.name.replace(/\.(?:toon|md|jsonl)$/, "");
+              if (peerAffects(transition, base.plan.candidate, id)) continue;
+              hash.update(name); hash.update(readFileSync(join(pmRoot, name)));
+            }
+          }
+          visit("");
+          for (const item of prepared) {
+            const bytes = readFileSync(join(pmRoot, "history", `${item.id}.jsonl`)), newline = bytes.indexOf(10);
+            hash.update(newline >= 0 ? bytes.subarray(0, newline) : bytes);
+          }
+          return hash.digest("hex");
+        }
           let boundary = 0; let injected = false; let peerApplied = false; let peerCode = ""; let resultCode = "";
+          const classifier = new BoundaryClasses(pmRoot, new Set(prepared.map(item => String(item.id))), transition, base.plan.candidate);
+          const census = injectAt === -1 ? classifier : null;
+          const observation: { method: string; args: readonly unknown[] } = { method: "", args: [] };
+          /** Observe every baseline edge; all actual responses still come from the native SDK. */
+          function observe(method: string, side: "before" | "after", args: readonly unknown[]): void {
+            Object.assign(observation, { method, args }); census?.record(method, side, args);
+            if (census === null && !injected) assert.ok(classifier.classify(method, side, args).commutes || !commutingSlots.has(boundary), `${path}/${transition}/${boundary}: native completion order moved a mutable edge into a commuting region`);
+          }
+          /** Independently verify the sampled observation through the unwrapped native peer SDK. */
+          async function commutingValue(observed: Readonly<typeof observation>): Promise<unknown> {
+            try {
+              if (observed.method === "get") { const value = await Reflect.apply(peer.get, peer, observed.args) as Awaited<ReturnType<PmClient["get"]>>; assert.ok("item" in value); return value.item; }
+              if (observed.method === "config") return (await Reflect.apply(peer.config, peer, observed.args) as Awaited<ReturnType<PmClient["config"]>>).nested_setting;
+              const value = await Reflect.apply(peer.run, peer, observed.args) as HistoryResult; return { history: value.history, compact_history: value.compact_history, provenance_history: value.provenance_history };
+            } catch (error) {
+              assert.ok(isPmCliExpectedError(error)); return { code: error.context.code, exitCode: error.exitCode };
+            }
+          }
           /** Inject the full peer transition, preserving all normal validators, leases and receipts. */
           async function step(candidateRead = false): Promise<void> {
             const slot = boundary++;
             if (injectAt === -1 && candidateRead && candidateBoundary < 0) candidateBoundary = slot;
             if (slot !== injectAt) return;
-            injected = true;
+            injected = true; const commutingBefore = commutingInputs();
+            const sampled = commutingSlots.has(slot), observed = { ...observation }, valueBefore = sampled ? await commutingValue(observed) : null;
             try {
               if (transition === "sdk-reject") {
                 const before = await readCompleteLoopItem(peer, base.plan.candidate);
@@ -957,15 +1006,18 @@ async function sequentialSnapshotMatrix(focused: boolean): Promise<void> {
             } catch (error) {
               assert.ok(isPmCliExpectedError(error), `${path}/${transition}/${injectAt}: ${String(error)}`); peerCode = error.exitCode === 3 ? "sdk_not_found" : String(error.context.code);
               assert.ok(["lock_conflict", "loop_write_conflict", "eval_plan_stopping", "eval_plan_drift", "eval_plan_missing", "sdk_not_found", "item_exists", "item_already_exists"].includes(peerCode), `${path}/${transition}/${injectAt}: ${peerCode}`);
+            } finally {
+              assert.equal(commutingInputs(), commutingBefore, "peer changed a value classified as commuting; expand the boundary census before sampling");
+              if (sampled) { assert.deepEqual(await commutingValue(observed), valueBefore, `${path}/${transition}/${slot}/${observed.method}: the actual native observation did not commute with this peer`); witnesses += 1; }
             }
           }
           Object.assign(client, {
-            get: (async (...args) => { await step(); try { return await get(...args); } finally { await step(args[0] === base.plan.candidate && args[1]?.at === undefined); } }) as PmClient["get"],
-            config: (async (...args) => { await step(); try { return await config(...args); } finally { await step(); } }) as PmClient["config"],
-            create: (async (...args) => { await step(); try { return await create(...args); } finally { await step(); } }) as PmClient["create"],
+            get: (async (...args) => { observe("get", "before", args); await step(); try { return await get(...args); } finally { observe("get", "after", args); await step(args[0] === base.plan.candidate && args[1]?.at === undefined); } }) as PmClient["get"],
+            config: (async (...args) => { observe("config", "before", args); await step(); try { return await config(...args); } finally { observe("config", "after", args); await step(); } }) as PmClient["config"],
+            create: (async (...args) => { observe("create", "before", args); await step(); try { return await create(...args); } finally { observe("create", "after", args); await step(); } }) as PmClient["create"],
             // get/config/create already bracket their delegated SDK calls.
             // Direct package history awaits add distinct snapshot boundaries.
-            run: (async (...args) => { if (args[0] !== "history") return run(...args); await step(); try { return await run(...args); } finally { await step(); } }) as PmClient["run"],
+            run: (async (...args) => { if (args[0] !== "history") return run(...args); observe("history", "before", args); await step(); try { return await run(...args); } finally { observe("history", "after", args); await step(); } }) as PmClient["run"],
           });
           try {
             try {
@@ -977,7 +1029,12 @@ async function sequentialSnapshotMatrix(focused: boolean): Promise<void> {
               assert.ok(["lock_conflict", "loop_write_conflict", "eval_plan_stopping", "eval_plan_drift"].includes(resultCode), `${path}/${transition}/${injectAt}: ${resultCode}`);
             }
             Object.assign(client, { get, config, create, run });
-            if (injectAt === -1) { boundaries = boundary; console.log(JSON.stringify({ sequential_snapshot_path: path, transition, planned_boundaries: boundaries })); }
+            if (injectAt === -1) {
+              boundaries = boundary; assert.equal(census!.entries.length, boundary);
+              representatives = representativeBoundaries(census!.entries, candidateBoundary);
+              commutingSlots = new Set(census!.entries.flatMap((entry, index) => entry.commutes ? [index] : []));
+              console.log(JSON.stringify({ sequential_snapshot_path: path, transition, planned_boundaries: boundaries, exercised_boundaries: focused ? 3 : representatives.length, seed: 0x1071647, proof: "every peer-affected mutable edge and every write retained; reads outside the verified peer write set and existing immutable births commute until the next affected observation or native/lease generation change; first/last of every kind retained" }));
+            }
             else {
               assert.ok(injected, `${path}/${transition}/${injectAt}/${boundary}`);
               assert.ok(peerApplied || peerCode !== "");
@@ -1010,14 +1067,16 @@ async function sequentialSnapshotMatrix(focused: boolean): Promise<void> {
             if (decision.report !== null) await peer.update(`${base.plan.candidate}-evaluation-plan-look-1`, { title: "Released checkpoint lease" });
           } finally { Object.assign(client, { get, config, create, run }); rmSync(root, { recursive: true, force: true }); }
         }
-        console.log(JSON.stringify({ sequential_snapshot_path: path, transition, completed_boundaries: boundaries }));
-      }
-      console.log(JSON.stringify({ sequential_snapshot_path: path, sdk_boundaries: boundaries, interleavings: counts[path] }));
+        discoveries.push(boundaries);
+        console.log(JSON.stringify({ sequential_snapshot_path: path, transition, completed_boundaries: boundaries, commuting_witnesses: witnesses, exercised_boundaries: representatives.length }));
+      });
+      assert.equal(new Set(discoveries).size, 1, "independent transitions must discover the same complete primary boundary trace");
+      console.log(JSON.stringify({ sequential_snapshot_path: path, sdk_boundaries: discoveries[0], interleavings: counts[path] }));
     }
   } finally { if (previousWait === undefined) delete process.env.PM_LOCK_WAIT_MS; else process.env.PM_LOCK_WAIT_MS = previousWait; }
 }
 
-test("sequential mutation snapshot matrix interleaves every transition at every SDK boundary", () => sequentialSnapshotMatrix(false));
+test("sequential mutation snapshot matrix covers every mutable SDK edge and commuting observation region", () => sequentialSnapshotMatrix(false));
 test("sequential mutation snapshot focused endpoints and candidate discovery remain coherent", () => sequentialSnapshotMatrix(true));
 
 
@@ -1090,4 +1149,17 @@ test("cubic: collection fixture propagates a native SDK read failure without cre
   }) as PmClient["create"];
   await assert.rejects(prepared(w.client), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "item_document_invalid" && error.exitCode === 1);
   assert.ok(injected); assert.equal(attempted, false);
+});
+
+test("boundary witnesses preserve every mutable edge, observation kind, native epoch and fixed seed", () => {
+  const entries = [
+    { kind: "get:before:mutable", commutes: false, epoch: 0 },
+    ...Array.from({ length: 8 }, () => ({ kind: "config:before:project-setting", commutes: true, epoch: 0 })),
+    ...Array.from({ length: 8 }, () => ({ kind: "get:after:existing-birth", commutes: true, epoch: 1 })),
+    { kind: "create:after:mutable", commutes: false, epoch: 1 },
+  ];
+  const selected = representativeBoundaries(entries, 5); assert.deepEqual(selected, representativeBoundaries(entries, 5));
+  assert.ok(selected.includes(0) && selected.includes(5) && selected.includes(entries.length - 1));
+  assert.ok(selected.some(index => index >= 1 && index <= 8)); assert.ok(selected.some(index => index >= 9 && index <= 16));
+  for (const [index, entry] of entries.entries()) if (!entry.commutes) assert.ok(selected.includes(index));
 });

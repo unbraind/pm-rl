@@ -4,9 +4,9 @@ description: "Blocking Cubic thread PRRT_kwDOTqJmqs6yXRp3 reproduces a real chec
 type: Task
 status: open
 priority: 1
-tags[4]: blocking,filesystem,"gh:unbraind/pm-rl#107",sdk-gap
+tags[5]: blocking,filesystem,"gh:unbraind/pm-rl#107",sdk-gap,"upstream:pm-cli#1647"
 created_at: "2026-11-01T07:42:57.963Z"
-updated_at: "2026-11-01T10:09:22.335Z"
+updated_at: "2026-11-01T16:54:38.352Z"
 author: codex-agent
 acceptance_criteria: "Acquire, fence, release, stale cleanup owner writes and recovery audit writes operate through no-follow component handles, or refuse with a typed unsupported/boundary code before following an unsafe path.; Real filesystem regressions swap root, locks, cleanup gate and recovery directory at use; outside bytes and directory entries remain unchanged; ordinary roots and symlinked ancestors above the root retain released behavior.; Preserve native SDK token, stale-owner and fenced-lease semantics without a second hand-written lock protocol or process-global filesystem monkeypatch; regressions fail on revert."
 parent: pm-rl-review107cubic

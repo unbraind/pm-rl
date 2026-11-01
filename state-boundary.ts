@@ -187,7 +187,7 @@ export function identifierClient(client: PmClient): PmClient {
   } });
   guarded.set(client, proxy); guarded.set(proxy, proxy); return proxy;
 }
-/** Use the native token-owned SDK lease only after confining its lock and cleanup-gate paths; release revalidates confinement. */
+/** Preflight native lock paths; atomic SDK acquisition confinement depends on pm-cli#1647 (pm-rl-confined-sdk-locks). */
 export async function acquireStateLock(...args: Parameters<typeof sdkAcquireLock>): ReturnType<typeof sdkAcquireLock> {
   const [root, rawId] = args; const id = canonicalIdentifier(rawId);
   const lock = statePath(root, "locks", `${id}.lock`);
@@ -197,7 +197,7 @@ export async function acquireStateLock(...args: Parameters<typeof sdkAcquireLock
   return async () => { checkedStateFile(lock); statePath(root, "locks", `${id}.lock.stale-cleanup`, "owner.json"); await release(); };
 }
 
-/** Confine the SDK's fenceable lease and revalidate its paths at each ownership boundary. */
+/** Preflight fenceable SDK lease paths; pm-cli#1647 is required to close acquisition link races. */
 export async function acquireStateLease(...args: Parameters<typeof sdkAcquireLockLease>): ReturnType<typeof sdkAcquireLockLease> {
   const [root, rawId, ...policy] = args; const id = canonicalIdentifier(rawId);
   const lock = statePath(root, "locks", `${id}.lock`);
@@ -209,12 +209,12 @@ export async function acquireStateLease(...args: Parameters<typeof sdkAcquireLoc
       checkedStateFile(lock);
       return lease.fence(async () => { checkedStateFile(lock); return execute(); });
     },
-    /** Release only the SDK generation owned by this lease inside its confined root. */
+    /** Preflight the release path and delegate ownership to the SDK; acquisition confinement remains pending #1647. */
     async release(): Promise<void> { checkedStateFile(lock); statePath(root, "locks", `${id}.lock.stale-cleanup`, "owner.json"); await lease.release(); },
   };
 }
 
-/** Constrain the native journal and writer lease without adding process-tool requirements to SDK-only operations. */
+/** Preflight native journal and lease paths; SDK lock acquisition confinement remains pending pm-cli#1647. */
 export function commitStateTransaction(options: CommitWorkspaceTransactionOptions): ReturnType<typeof commitWorkspaceTransaction> {
   operationIdentifier(options.transactionId, "component"); options.steps.forEach((step) => operationIdentifier(step.id, "component"));
   statePath(options.pmRoot, "transactions", "sdk", `${options.transactionId}.json`);

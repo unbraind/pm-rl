@@ -15,10 +15,13 @@ const skipped = new WeakMap<object, Map<string, SkippedTrackerRecord>>();
 export function skippedTrackerRecords(client: object): readonly SkippedTrackerRecord[] { return [...(skipped.get(client)?.values() ?? [])].sort((a, b) => a.id.localeCompare(b.id)); }
 /** Bound nesting before parsing, ignoring brackets inside JSON strings. */
 function depthSafe(text: string): boolean {
-  let depth = 0; let quoted = false; let escaped = false;
-  for (const char of text) {
-    if (escaped) { escaped = false; continue; }
-    if (quoted && char === "\\") { escaped = true; continue; }
+  let depth = 0; let quoted = false;
+  // Ordinary string contents cannot change depth. Scan only JSON punctuation so
+  // large opaque labels do not execute a JavaScript branch for every character.
+  const punctuation = /["\\{}[\]]/g;
+  for (let match = punctuation.exec(text); match !== null; match = punctuation.exec(text)) {
+    const char = match[0];
+    if (quoted && char === "\\") { punctuation.lastIndex += 1; continue; }
     if (char === '"') quoted = !quoted;
     if (!quoted && (char === "{" || char === "[")) { depth += 1; if (depth > 64) return false; }
     if (!quoted && (char === "}" || char === "]")) depth -= 1;
