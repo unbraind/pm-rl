@@ -987,7 +987,7 @@ async function sequentialSnapshotMatrix(focused: boolean): Promise<void> {
             if (injectAt === -1 && candidateRead && candidateBoundary < 0) candidateBoundary = slot;
             if (slot !== injectAt) return;
             injected = true; const commutingBefore = commutingInputs();
-            const sampled = commutingSlots.has(slot), observed = { ...observation }, valueBefore = sampled ? await commutingValue(observed) : null;
+            const sampled = commutingSlots.has(slot), observed = { ...observation }, valueBefore = sampled ? structuredClone(await commutingValue(observed)) : null;
             try {
               if (transition === "sdk-reject") {
                 const before = await readCompleteLoopItem(peer, base.plan.candidate);
@@ -1008,7 +1008,7 @@ async function sequentialSnapshotMatrix(focused: boolean): Promise<void> {
               assert.ok(["lock_conflict", "loop_write_conflict", "eval_plan_stopping", "eval_plan_drift", "eval_plan_missing", "sdk_not_found", "item_exists", "item_already_exists"].includes(peerCode), `${path}/${transition}/${injectAt}: ${peerCode}`);
             } finally {
               assert.equal(commutingInputs(), commutingBefore, "peer changed a value classified as commuting; expand the boundary census before sampling");
-              if (sampled) { assert.deepEqual(await commutingValue(observed), valueBefore, `${path}/${transition}/${slot}/${observed.method}: the actual native observation did not commute with this peer`); witnesses += 1; }
+              if (sampled) { assert.deepEqual(structuredClone(await commutingValue(observed)), valueBefore, `${path}/${transition}/${slot}/${observed.method}: the actual native observation did not commute with this peer`); witnesses += 1; }
             }
           }
           Object.assign(client, {

@@ -36,6 +36,6 @@
     "reason": "Sequential evaluation is exhausted; only a sufficient boundary permits the existing promotion gate."
   },
   "remedy": "Register a new plan and fresh candidate before collecting a different cohort or making another evaluation look.",
-  "evidence_digest": "9fc93027d99ebfe15c04c79d83de15ff86bfdd0953fa3edaca7fc84dd4b9c1bc",
+  "evidence_digest": "5bef6e27919a1c599bbd56a74a99182ba2f7397b1bdafe9e000f75efcee35540",
   "limitation": "Descriptive public replay. One repository is one correlation unit; no causal benefit or deployed promotion claim."
 }

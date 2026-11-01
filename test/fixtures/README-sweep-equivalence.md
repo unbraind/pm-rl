@@ -22,7 +22,7 @@ action. A changed write set fails the proof assertion. No birth that was absent
 from the prepared inventory is considered immutable. Every sampled commuting
 observation is also executed through the unwrapped native peer SDK before and
 after the peer action; its projected item, history entries or setting must be
-deep-equal, including typed absence. Each replay also classifies the actual
+deep-equal to the saved immutable copy, including typed absence. Each replay also classifies the actual
 pre-injection observations: a reordered parallel completion cannot turn a
 sampled slot into a mutable read or write without failing the sweep.
 

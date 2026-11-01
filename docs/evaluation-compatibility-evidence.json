@@ -61,17 +61,17 @@
     "items": 113,
     "done_role_items": 92,
     "evidence_digests": {
-      "node": "9fc93027d99ebfe15c04c79d83de15ff86bfdd0953fa3edaca7fc84dd4b9c1bc",
-      "bun": "c8bac6dd0d214ae103f555a1cea97d024552c868e2071c609cc2d48dfd3da28e"
+      "node": "5bef6e27919a1c599bbd56a74a99182ba2f7397b1bdafe9e000f75efcee35540",
+      "bun": "cb7e1a9496bfb46e9335a519999e284b9a0e02f8e719531148f95cf76504e1e2"
     },
     "note": "One final public acceptance cohort; runtime-specific roots remain distinct and refer to the generated receipts."
   },
   "release_ci": "https://github.com/unbraind/pm-rl/actions/runs/40488393574",
   "release_ci_status_at_recording": "queued; not a passing gate claim",
   "current_packed_acceptance": {
-    "runtime_source_commit": "579c0e7fa0f517f249caed21d1373ca4dfb5caae",
+    "runtime_source_commit": "cf0e21f730b06fdb5b8b7bc88ad848fded02dbae",
     "public_source_commit": "26650e303ec2cb6fcdc6c51092bcc30b2f1ed27c",
-    "archive_sha256": "b64e6759d05e9eab8cca576e731f9716cc54ac83c791e7263779458e36cda98f",
+    "archive_sha256": "4ea2845631f959481923b9d6a9fa591fdfe2dfc41191dcdbd3758bd352de5e82",
     "shipped_files": 241,
     "runtime_files": 180,
     "final_acceptance_passes": 6,
