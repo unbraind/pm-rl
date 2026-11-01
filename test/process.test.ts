@@ -9,8 +9,8 @@ import { Readable, Writable } from "node:stream";
 import { runReferenceTrainer, referenceTrainerMain, writeTrainerArtifact } from "../process-bandit.ts";
 import { parseLoopProgramme, parseLoopConfig } from "../loop.ts";
 import { mock, test } from "node:test";
-import { isPmCliExpectedError, normalizeRawItemId } from "@unbrained/pm-cli/sdk/runtime";
-import { appendDiagnostics, executeProcessTrainer, launchTrainer, transitionProcessJob, stopTrainer, parseProcessAdapter, parseResources, processJobId, processStaging, processJobBodyId, listProcessJobs, readProcessJob, referenceTrainerArgv, reserveProcessJob, stagingBytes, validateProcessCompletion, verifiedProcessPolicy, type ProcessCompletion } from "../process.ts";
+import { isPmCliExpectedError, normalizeRawItemId, EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
+import { appendDiagnostics, executeProcessTrainer, launchTrainer, transitionProcessJob, stopTrainer, parseProcessAdapter, parseResources, processJobId, processStaging, processJobBodyId, listProcessJobs, readProcessJob, referenceTrainerArgv, reserveProcessJob, stagingBytes, validateProcessCompletion, verifiedProcessPolicy, verifyProcessJobBudget, type ProcessCompletion } from "../process.ts";
 import { allowance, configuration, processWorkspace, trainingInput } from "./fixtures/process-workspace.ts";
 // Node's parent coverage hooks remain active; SIGKILL-able children must not inherit its raw-report directory.
 delete process.env["NODE_V8_COVERAGE"];
@@ -56,6 +56,21 @@ test("real trainer materializes changed weights and replays one settled reservat
   assert.equal(readFileSync(join(pmRoot, "history", `rl-${first.id}.jsonl`), "utf8"), history);
   assert.equal(verifiedProcessPolicy(first, pmRoot, input)!.digest, first.completion!.policy.digest);
   assert.equal(referenceTrainerArgv().length, 2);
+});
+
+test("coverage: native completion and approval drift cannot supply a verified process policy", async () => {
+  const w = await processWorkspace(); const input = trainingInput();
+  const job = await executeProcessTrainer(w.client, w.coordinates, input, w.approval, adapter);
+  await verifyProcessJobBudget(w.client, job);
+  assert.equal(verifiedProcessPolicy(job, w.pmRoot, input)!.digest, job.completion!.policy.digest);
+  const peerBody = { ...job, completion: { ...job.completion!, training_config: { ...job.completion!.training_config, steps: job.completion!.training_config.steps + 1 } } };
+  await w.client.update(job.id, { body: JSON.stringify(peerBody) });
+  const changed = (await readProcessJob(w.client, job.id))!;
+  assert.throws(() => verifiedProcessPolicy(changed, w.pmRoot, input), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "process_job_drift" && error.exitCode === EXIT_CODE.USAGE && error.message === "Committed completion differs from staging.");
+  const approval = (await w.client.get(w.approval, { full: true })).item;
+  const spec = JSON.parse(String(approval.body).match(/```json\n([\s\S]+?)\n```/)![1]) as Record<string, unknown>;
+  await w.client.update(w.approval, { body: "```json\n" + JSON.stringify({ ...spec, permitted_promotions: 3 }) + "\n```" });
+  await assert.rejects(verifyProcessJobBudget(w.client, job), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "process_budget_drift" && error.exitCode === EXIT_CODE.USAGE);
 });
 
 test("atomic reservation-once survives concurrent replay and exhausted approval", async () => {

@@ -1,14 +1,14 @@
 /** Seeded identifier and path properties against a real standalone SDK tracker. */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import fs, { existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, readdirSync, lstatSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import fs, { existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, readdirSync, lstatSync, rmSync, symlinkSync, writeFileSync, appendFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { syncBuiltinESMExports } from "node:module";
 import { join, relative } from "node:path";
 import { after, mock, test } from "node:test";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
-import { init, isPmCliExpectedError, normalizeRawItemId } from "@unbrained/pm-cli/sdk/runtime";
-import { acquireStateLease, acquireStateLock, assertStatePathRoot, checkedStateFile, commitStateTransaction, identifier, identifierClient, statePath } from "../state-boundary.ts";
+import { init, isPmCliExpectedError, normalizeRawItemId, EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
+import { acquireStateLease, acquireStateLock, assertStatePathRoot, checkedStateFile, commitStateTransaction, identifier, identifierClient, statePath, preservedProgrammeId } from "../state-boundary.ts";
 import { recordSequentialEvaluation, withEvaluationLease } from "../sequential-evaluation.ts";
 import { parseEvaluationPlan, registerEvaluationPlan } from "../evaluation-plan.ts";
 import { parseBenchmarkSpec, parseEvalResultSpec, commitProcessTransaction, withProcessJobFence, loopLeaseLockId, readCompleteLoopItem } from "../index.ts";
@@ -22,6 +22,26 @@ import { checkpointArtifactPath, collectCheckpointArtifacts, encodeCheckpointArt
 
 const roots: string[] = [];
 after(() => { for (const root of roots) rmSync(root, { recursive: true, force: true }); });
+
+test("coverage: tied native receipt times use deterministic namespace discovery and corrupt history propagates", async (context) => {
+  const root = mkdtempSync(join(tmpdir(), "rl-boundary-ties-")); roots.push(root); const pmRoot = join(root, "tracker");
+  await init("rl", { defaults: true, author: "boundary-test", agentGuidance: "skip" }, { cwd: root, pmRoot });
+  const client = new PmClient({ cwd: root, pmRoot, author: "boundary-test", noExtensions: true });
+  context.mock.timers.enable({ apis: ["Date"], now: new Date("2026-10-29T00:00:00.000Z") });
+  try {
+    const rows = [];
+    for (const phase of ["z-custom", "a-custom"]) rows.push(await client.create({ id: `ties-step-${phase}`, type: "Decision", title: "Tied receipt", body: JSON.stringify({ format: "pm-rl/loop-step/1", key: `ties-step-${phase}` }) }));
+    assert.equal(rows[0].item.created_at, rows[1].item.created_at);
+    assert.equal(await preservedProgrammeId(client, "ties"), "ties");
+  } finally { context.mock.timers.reset(); }
+  const created = await client.create({ id: "broken-step-programme", type: "Decision", title: "Native history refusal", body: JSON.stringify({ format: "pm-rl/loop-step/1", key: "broken-step-programme" }) });
+  const history = join(pmRoot, "history", `${created.item.id}.jsonl`); appendFileSync(history, "not JSON\n");
+  const before = readFileSync(history, "utf8");
+  const invalid = (error: unknown): boolean => isPmCliExpectedError(error) && error.context.code === "history_json_invalid" && error.exitCode === EXIT_CODE.GENERIC_FAILURE;
+  await assert.rejects(client.get(created.item.id, { at: "1", full: true }), invalid);
+  await assert.rejects(preservedProgrammeId(client, "broken"), invalid);
+  assert.equal(readFileSync(history, "utf8"), before);
+});
 /** Verify that neither contents nor directory entries outside state changed. */
 function treeHash(root: string): string {
   const hash = createHash("sha256");

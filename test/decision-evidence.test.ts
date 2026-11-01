@@ -4,10 +4,10 @@ import { rmSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
-import { createPmCliExpectedError, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
+import { createPmCliExpectedError, isPmCliExpectedError, EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
 import { captureDecisionInputs, extractGenerationSpec, hashJson, readCompleteLoopItem, generationProvenance, sealDecisionEvidence, verifyDecisionEvidence, withRlController, recordRefusedPolicyCard, DECISION_INPUT_FIELDS, type JsonValue } from "../index.ts";
 import { evaluationEvidence, parseEvaluationEvidence, readEvaluationDecision, validateEvaluationReport } from "../evaluation-plan.ts";
-import { exportPolicyCard, replayPolicyCard, type PolicyCard } from "../policy-card.ts";
+import { exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordPolicyCard, type PolicyCard } from "../policy-card.ts";
 import { recordSequentialEvaluation } from "../sequential-evaluation.ts";
 import { skippedTrackerRecords, decodeTrackerRecord } from "../tracker-record.ts";
 import { decisionFixture } from "./fixtures/decision-evidence.ts";
@@ -16,6 +16,44 @@ import { decisionFixture } from "./fixtures/decision-evidence.ts";
 function evidence(name: string): Record<string, unknown> {
   return JSON.parse(readFileSync(new URL(`../docs/${name}.json`, import.meta.url), "utf8")) as Record<string, unknown>;
 }
+
+test("coverage: a version-addressed decision input refuses a later live change without rewriting peer history", async () => {
+  const w = await decisionFixture(false, false, false);
+  try {
+    await w.client.create({ id: "rl-sealed-input", title: "Decision source", body: "original signal" });
+    const id = "rl-sealed-input";
+    const original = await readCompleteLoopItem(w.client, id, "1", DECISION_INPUT_FIELDS);
+    const graph = evaluationEvidence(hashJson("sealed-input"), [original.item], new Map([[id, "1"]]));
+    const get = w.client.get.bind(w.client); let nested = false, reads = 0;
+    /** A native read may reenter the public verifier; the same closure must not read twice. */
+    w.client.get = (async (...args) => {
+      const result = await get(...args);
+      if (args[0] === id) {
+        reads += 1;
+        if (!nested) { nested = true; const before = reads; await verifyDecisionEvidence(w.client, graph); assert.equal(reads, before); }
+      }
+      return result;
+    }) as PmClient["get"];
+    try { await verifyDecisionEvidence(w.client, graph); } finally { Object.assign(w.client, { get }); }
+    assert.ok(nested);
+    await w.client.update(id, { body: "peer signal after sealing" });
+    const path = join(w.pmRoot, "tasks", `${id}.toon`), history = join(w.pmRoot, "history", `${id}.jsonl`);
+    const before = [readFileSync(path, "utf8"), readFileSync(history, "utf8")];
+    await assert.rejects(verifyDecisionEvidence(w.client, graph), (error: unknown) => isPmCliExpectedError(error)
+      && error.context.code === "eval_plan_drift" && error.exitCode === EXIT_CODE.CONFLICT && error.context.item_id === id);
+    assert.deepEqual([readFileSync(path, "utf8"), readFileSync(history, "utf8")], before);
+    assert.equal((await readCompleteLoopItem(w.client, id, "1", DECISION_INPUT_FIELDS)).item.body, original.item.body);
+  } finally { rmSync(w.root, { recursive: true, force: true }); }
+});
+
+test("coverage: a promoted declared policy card is freshly evaluated before adoption", async () => {
+  const w = await decisionFixture(true, false);
+  try {
+    const card = await recordPolicyCard(w.client, w.plan.candidate);
+    assert.ok(card.decision_evidence); assert.equal(card.outcome, "promoted");
+    assert.equal((await adoptPolicyCard(w.client, card)).digest, card.digest);
+  } finally { rmSync(w.root, { recursive: true, force: true }); }
+});
 
 test("current public evidence shares its generated source, measurements and runtime roots", () => {
   const sequential = evidence("sequential-evaluation-evidence"), decision = evidence("decision-evidence-validation"), compatibility = evidence("evaluation-compatibility-evidence");

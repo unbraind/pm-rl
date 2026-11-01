@@ -8,11 +8,11 @@ import { mock, test } from "node:test";
 import { clearTimeout, setTimeout } from "node:timers";
 import { readHistoryEntries } from "@unbrained/pm-cli/sdk";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import { getHistoryPath, isPmCliExpectedError, normalizeItemId, normalizeRawItemId } from "@unbrained/pm-cli/sdk/runtime";
+import { getHistoryPath, EXIT_CODE, isPmCliExpectedError, normalizeItemId, normalizeRawItemId } from "@unbrained/pm-cli/sdk/runtime";
 import { acquireStateLock, canonicalIdentifier, canonicalItemIdentifier, canonicalProgrammeId, commitStateTransaction } from "../state-boundary.ts";
-import extension, { resolveEvaluationPlan, evaluationComparison, loopLeaseLockId, loopProcessStartTime, loopProcessIdentityIO, withRlController, runRlLoop, type JsonValue } from "../index.ts";
+import extension, { registerGenerationCore, hashJson, resolveEvaluationPlan, evaluationComparison, loopLeaseLockId, loopProcessStartTime, loopProcessIdentityIO, withRlController, runRlLoop, type JsonValue } from "../index.ts";
 import { controllerCallback, controllerCallbackIO, executeProcessTrainer, processJobId, processStaging, readProcessJob, reserveProcessJob, stopTrainer } from "../process.ts";
-import { allowance, processWorkspace, trainingInput } from "./fixtures/process-workspace.ts";
+import { allowance, configuration, processWorkspace, trainingInput } from "./fixtures/process-workspace.ts";
 import { retryOwnedStop, waitForOwnedClose } from "../owned-stop.ts";
 import { composeConfiguration, stopComposeTrainer } from "../compose.ts";
 
@@ -410,4 +410,76 @@ test("primitive callback faults remain failures after successful close and settl
     }
     assert.deepEqual(unhandled, []); console.log(JSON.stringify({ primitive_fault_cases: count, unhandled: unhandled.length }));
   } finally { controllerCallbackIO.before = () => undefined; process.removeListener("uncaughtExceptionMonitor", monitor); process.removeListener("unhandledRejection", monitor); }
+});
+
+
+test("coverage: preflight and both optional durable receipt reads propagate native document failures", async () => {
+  for (const boundary of ["generation", "receipt-first", "receipt-second"] as const) {
+    const w = await processWorkspace(); const id = `rl-native-${boundary}`, key = boundary === "generation" ? id : `${id}-step-result`;
+    const folder = boundary === "generation" ? "generations" : "decisions";
+    if (boundary === "generation") await w.client.schemaAddType("Generation", { folder: "generations", defaultStatus: "open" });
+    const path = join(w.pmRoot, folder, `${key}.toon`), broken = "[not valid TOON\n";
+    const get = w.client.get.bind(w.client); let failure: unknown, reads = 0, injected = false;
+    /** Corrupt only this disposable native document and let the SDK produce the actual refusal. */
+    async function obstruct(): Promise<void> {
+      await w.client.create({ id: key, type: boundary === "generation" ? "Generation" : "Decision", title: "Native obstruction" });
+      writeFileSync(path, broken); injected = true;
+    }
+    w.client.get = (async (...args) => {
+      try { return await get(...args); }
+      catch (error) {
+        if (isPmCliExpectedError(error) && error.context.code === "item_document_invalid") failure ??= error;
+        throw error;
+      } finally {
+        if (boundary === "receipt-second" && normalizeItemId(String(args[0]), "rl") === key && ++reads === 1) await obstruct();
+      }
+    }) as typeof w.client.get;
+    try {
+      await assert.rejects(async () => {
+        if (boundary === "generation") {
+          await obstruct();
+          return registerGenerationCore(w.client, { id, parent: null, policy: "", baseCheckpoint: "checkpoint", collectionRuns: [], environment: undefined, config: {}, preflight: true });
+        }
+        return withRlController(w.client, w.coordinates, { id, approval: w.approval, recoveryCommand: "resume native" }, new AbortController().signal, async (step) => {
+          if (boundary === "receipt-first") await obstruct();
+          return step("result", {}, async () => { assert.fail("Malformed native receipts must refuse before execution"); });
+        });
+      }, (error: unknown) => error === failure && isPmCliExpectedError(error) && error.context.code === "item_document_invalid" && error.exitCode === EXIT_CODE.GENERIC_FAILURE);
+    } finally { Object.assign(w.client, { get }); }
+    assert.ok(injected); assert.equal(readFileSync(path, "utf8"), broken);
+    if (boundary === "receipt-second") assert.equal(reads, 2);
+  }
+});
+
+test("coverage: a rewritten durable receipt cannot invent a valid birth identity", async () => {
+  for (const birth of ["foreign-format", "non-string-key", "other-identity", "foreign-step-name"] as const) {
+    const w = await processWorkspace(), id = "rl-foreign-birth", key = `${id}-step-result`;
+    const original = birth === "foreign-format" ? { format: "foreign/1" }
+      : { format: "pm-rl/loop-step/1", key: birth === "non-string-key" ? 1 : birth === "other-identity" ? "rl-other-step-result" : `${id}-STEP-result` };
+    const born = await w.client.create({ id: key, type: "Decision", title: "Foreign birth", body: JSON.stringify(original) });
+    await w.client.update(key, { body: JSON.stringify({ format: "pm-rl/loop-step/1", key, input: hashJson({}), state: "running" }) });
+    const paths = [join(w.pmRoot, "decisions", `${born.item.id}.toon`), join(w.pmRoot, "history", `${born.item.id}.jsonl`)];
+    const before = paths.map(path => readFileSync(path, "utf8"));
+    await assert.rejects(withRlController(w.client, w.coordinates, { id, approval: w.approval, recoveryCommand: "resume foreign" }, new AbortController().signal, async (step) => step("result", {}, async () => { assert.fail("Foreign birth must refuse before execution"); })), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_step_drift" && error.exitCode === EXIT_CODE.CONFLICT, birth);
+    assert.deepEqual(paths.map(path => readFileSync(path, "utf8")), before);
+  }
+});
+
+test("coverage: generation discovery propagates an unreadable native collection Run", async () => {
+  const w = await processWorkspace(), id = "rl-broken-discovery", key = `${id}-g1-collect`;
+  await w.client.schemaAddType("Run", { folder: "runs", defaultStatus: "open" });
+  const get = w.client.get.bind(w.client); let injected = false, failure: unknown;
+  const path = join(w.pmRoot, "runs", `${key}.toon`), broken = "[not valid TOON\n";
+  /** Schedule a real malformed Run only at its first native lookup, after seed preflight. */
+  w.client.get = (async (...args) => {
+    if (!injected && normalizeItemId(String(args[0]), "rl") === key) {
+      injected = true; await w.client.create({ id: key, type: "Run", title: "Unreadable native Run" }); writeFileSync(path, broken);
+    }
+    try { return await get(...args); }
+    catch (error) { if (isPmCliExpectedError(error) && error.context.code === "item_document_invalid") failure ??= error; throw error; }
+  }) as typeof w.client.get;
+  try {
+    await assert.rejects(runRlLoop(w.client, w.coordinates, { id, approval: w.approval, config: { ...configuration, max_generations: 1 } }), (error: unknown) => error === failure && isPmCliExpectedError(error) && error.context.code === "item_document_invalid" && error.exitCode === EXIT_CODE.GENERIC_FAILURE);
+  } finally { Object.assign(w.client, { get }); }
+  assert.ok(injected); assert.equal(readFileSync(path, "utf8"), broken);
 });

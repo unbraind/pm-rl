@@ -8,7 +8,7 @@ import { after, test } from "node:test";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { init, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import extension, { extractGenerationSpec, generationProvenance, hashJson, readCompleteLoopItem, recordRefusedPolicyCard, type JsonValue, type RlCommandResult } from "../index.ts";
+import extension, { extractGenerationSpec, generationProvenance, hashJson, readCompleteLoopItem, recordRefusedPolicyCard, verifyDecisionEvidence, type JsonValue, type RlCommandResult } from "../index.ts";
 import { evaluationEvidence, evaluationComparison, evaluationPlanId, evaluatePlan, parseEvaluationPlan, registerEvaluationPlan, readEvaluationPlan, readEvaluationDecision, recordPlanEvaluation, enforceEvaluationPlan, type EvaluationPlan, type EvaluationObservation } from "../evaluation-plan.ts";
 import type { GenerationSpec, ScoreRecord } from "../lineage.ts";
 
@@ -60,6 +60,50 @@ test("transient creation-history read failures leave evaluation plans retryable"
   }) as PmClient["get"];
   await assert.rejects(readEvaluationPlan(w.client, "rl-candidate"), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "provenance_read_retryable");
   assert.equal((await readEvaluationPlan(w.client, "rl-candidate"))?.comparison, registered.comparison);
+});
+
+test("coverage: fixed evaluation bounds and source-time namespace changes remain typed refusals", async () => {
+  for (const replacement of ["absent", "sequential"] as const) {
+    const w = await workspace(); const primary = plan();
+    await registerEvaluationPlan(w.client, primary); await generation(w.client, primary.candidate, spec("rl-seed"));
+    await assert.rejects(recordPlanEvaluation(w.client, primary.candidate, null), refusal("eval_plan_stopping"));
+    await assert.rejects(recordPlanEvaluation(w.client, primary.candidate, Array.from({ length: 10_001 }, () => ({ id: "member", candidate: 1, incumbent: 0 }))), refusal("eval_plan_stopping"));
+    if (replacement === "sequential") {
+      const review = "rl-other-review";
+      const peerPlan = plan({ candidate: "rl-other-rl-candidate", stopping: { kind: "sequential", method: "hoeffding-alpha-spending/1", observations: primary.members.length, independent_units: primary.members.length, unit_order: primary.members.map(member => member.unit), looks: [primary.members.length], review } });
+      await w.client.create({ id: review, type: "Decision", title: "Peer statistical design", body: JSON.stringify({ format: "pm-rl/sequential-review/1", comparison: evaluationComparison(peerPlan) }) });
+      await registerEvaluationPlan(w.client, peerPlan);
+    }
+    const get = w.client.get.bind(w.client); let changed = false;
+    /** The SDK still performs every read; another real configuration write changes its next namespace. */
+    w.client.get = (async (...args) => {
+      const result = await get(...args);
+      if (!changed && args[0] === primary.candidate && args[1]?.at === undefined) {
+        changed = true; await w.client.config("project", "set", "id_prefix", "rl-other");
+      }
+      return result;
+    }) as PmClient["get"];
+    try { await assert.rejects(recordPlanEvaluation(w.client, primary.candidate, observations(primary)), refusal(replacement === "absent" ? "eval_plan_missing" : "eval_plan_stopping")); }
+    finally { Object.assign(w.client, { get }); }
+    assert.ok(changed); assert.equal((await w.client.config("project", "get", "id_prefix")).nested_setting!.value, "rl-other");
+    assert.equal(readFileSync(join(w.pmRoot, "plans", `${evaluationPlanId(primary.candidate)}.toon`), "utf8").includes(primary.population), true);
+  }
+});
+
+test("coverage: shared native upstream evidence closes a multi-generation verification graph once", async () => {
+  const w = await workspace(); let parent = "rl-seed", previous = spec();
+  for (let index = 1; index <= 3; index += 1) {
+    const candidate = `rl-linked-${index}`, current = spec(parent, [`rl-linked-run-${index}`]);
+    const declared = plan({ candidate, incumbent: parent, incumbent_version: hashJson(generationProvenance(previous)) });
+    await registerEvaluationPlan(w.client, declared); await generation(w.client, candidate, current);
+    await recordPlanEvaluation(w.client, candidate, observations(declared));
+    const graph = (await readEvaluationDecision(w.client, candidate)).evidence!;
+    await w.client.update(candidate, { body: "```json\n" + JSON.stringify({ ...current, evaluation_evidence: graph }) + "\n```" });
+    await verifyDecisionEvidence(w.client, graph);
+    parent = candidate; previous = { ...current, evaluation_evidence: graph };
+  }
+  const final = await readEvaluationDecision(w.client, parent);
+  assert.equal(final.report?.verdict.decision, "promote"); await verifyDecisionEvidence(w.client, final.evidence!);
 });
 
 test("all plan fields and correlation assignments determine comparison identity", () => {

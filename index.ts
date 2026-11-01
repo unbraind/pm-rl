@@ -1558,7 +1558,12 @@ async function logRun(context: CommandHandlerContext): Promise<RlCommandResult> 
   }
   let events: MetricEvent[];
   try { events = parseNdjsonStream(input); }
-  catch (error) { if (error instanceof MetricEventError) fail(error.message, error.code); throw error; }
+  catch (error) {
+    // input is a primitive string. parseNdjsonStream wraps every JSON, shape and metric
+    // validation failure in MetricEventError and invokes no caller code; IO failed above.
+    const metric = error as MetricEventError;
+    fail(metric.message, metric.code);
+  }
   if (events.length === 0) fail("Metric input contains no events.", "empty_metric_stream");
   const client = clientFor(context);
   const run = await getTypedItem(client, id, "Run");

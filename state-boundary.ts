@@ -126,7 +126,8 @@ export function statePath(root: string, ...components: (string | StoredStateComp
       catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOTDIR") throw error; }
       if (stat?.isSymbolicLink()) refused("rl_state_path_invalid");
       if (cursor === base) break;
-      const parent = dirname(cursor); if (parent === cursor) break; cursor = parent;
+      // Lexical containment above guarantees dirname reaches base before the filesystem root.
+      cursor = dirname(cursor);
     }
   } catch { refused("rl_state_path_invalid"); }
   return target;
