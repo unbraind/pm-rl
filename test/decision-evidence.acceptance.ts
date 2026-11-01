@@ -38,20 +38,20 @@ const resumed = JSON.parse(command(["eval", "plan", "resume", w.plan.candidate, 
 assert.equal(resumed.details?.evidence_digest, decision.evidence?.digest);
 await withRlController(w.client, { pmRoot: w.pmRoot, author: "decision-test" }, { id: "graph", approval: "rl-approval", recoveryCommand: "pm rl meta resume graph" }, new AbortController().signal,
   (step) => step("decision", { candidate: w.plan.candidate }, async () => { await readEvaluationDecision(w.client, w.plan.candidate); return { promoted: true, configs: [{ samples: 1 }, { samples: 2 }] }; }));
-let cardBytes = 0; let cardTypes = 0;
+let cardBytes = 0; let cardTypes = 0; let outputPairs = 0;
 const cards: { file: string; value: PolicyCard }[] = [];
 for (const [subject, selection] of [[w.plan.candidate, null], ["rl-graph-step-decision", null], ["rl-graph-step-decision", 0], ["rl-graph-step-decision", 1]] as const) {
   const options = selection === null ? [] : ["--selection", String(selection)];
   const exported = JSON.parse(command(["policy-card", "export", subject, ...options, "--json"])) as { details: PolicyCard };
   const value = exported.details;
-  assert.deepEqual(decode(command(["policy-card", "export", subject, ...options])), toonProjection(exported));
+  assert.deepEqual(decode(command(["policy-card", "export", subject, ...options])), toonProjection(exported)); outputPairs += 1;
   const { digest: _cardDigest, decision_evidence: _graph, ...remaining } = value;
   await assert.rejects(replayPolicyCard(w.client, { ...remaining, digest: hashJson(remaining as unknown as JsonValue) }), (error: unknown) => isPmCliExpectedError(error) && error.context.item_id === subject);
-  assert.ok(value.decision_evidence); assert.match(command(["policy-card", "export", subject, ...options]), new RegExp(value.decision_evidence.digest));
+  assert.ok(value.decision_evidence);
   const file = join(w.root, `card-${cardTypes++}.json`); writeFileSync(file, JSON.stringify(value));
   const replayed = JSON.parse(command(["policy-card", "replay", "--file", file, "--json"])) as RlCommandResult;
   assert.equal(replayed.details?.digest, value.digest);
-  assert.deepEqual(decode(command(["policy-card", "replay", "--file", file])), toonProjection(replayed));
+  assert.deepEqual(decode(command(["policy-card", "replay", "--file", file])), toonProjection(replayed)); outputPairs += 1;
   cardBytes = Math.max(cardBytes, Buffer.byteLength(JSON.stringify(value))); cards.push({ file, value });
 }
 assert.deepEqual(cards[0].value.decision_evidence, decision.evidence);
@@ -67,10 +67,12 @@ assert.deepEqual(extractGenerationSpec(String(original.item.body), "Packed recei
 await w.client.update("rl-review", { body: "corrupt review" });
 await w.client.update("rl-candidate-evaluation-plan-look-2", { affectedVersion: "corrupt final look" });
 let frozenReplays = 0;
-for (const { file, value } of cards.slice(1)) for (const json of [true, false]) {
+for (const { file, value } of cards.slice(1)) {
   const selection = value.selection === null ? [] : ["--selection", String(value.selection)];
   for (const args of [["policy-card", "export", value.subject, ...selection], ["policy-card", "replay", "--file", file]]) {
-    assert.match(command([...args, ...(json ? ["--json"] : [])]), new RegExp(value.digest)); frozenReplays += 1;
+    const json = command([...args, "--json"]); const toon = command(args);
+    assert.match(json, new RegExp(value.digest)); assert.match(toon, new RegExp(value.digest));
+    assert.deepEqual(decode(toon), toonProjection(JSON.parse(json))); outputPairs += 1; frozenReplays += 2;
   }
 }
 const frozenGraph = parseEvaluationEvidence(stepBody.decision_evidence);
@@ -96,5 +98,5 @@ for (const json of [true, false]) for (const args of [
   refusals += 1;
 }
 assert.deepEqual(await readCompleteLoopItem(w.client, w.plan.candidate), original);
-const evidence = { packed_sdk: true, installed_cli: true, card_types: cardTypes, graph_inputs: decision.evidence!.inputs.length, max_card_json_bytes: cardBytes, frozen_live_source_replays: frozenReplays, snapshot_corruption_refusals: snapshotRefusals, review_and_final_look_refusals: refusals, rehashed_graph_removal_refusals: cards.length, canonical_graph_ids: true, completed_step_downgrade_refusals: 1, json_and_toon: true, json_and_toon_comparison: "sdk-default-toon-projection", promotion_receipt_graph: true, exact_sdk_graph_in_card: true, approval_consumed: 1, source_generation_unchanged_on_refusal: true, non_git: true, git_absent_from_path: true };
+const evidence = { packed_sdk: true, installed_cli: true, card_types: cardTypes, graph_inputs: decision.evidence!.inputs.length, max_card_json_bytes: cardBytes, frozen_live_source_replays: frozenReplays, snapshot_corruption_refusals: snapshotRefusals, review_and_final_look_refusals: refusals, rehashed_graph_removal_refusals: cards.length, canonical_graph_ids: true, completed_step_downgrade_refusals: 1, json_and_toon: true, json_and_toon_comparison: "sdk-default-toon-projection", json_and_toon_envelope_pairs: outputPairs, promotion_receipt_graph: true, exact_sdk_graph_in_card: true, approval_consumed: 1, source_generation_unchanged_on_refusal: true, non_git: true, git_absent_from_path: true };
 writeFileSync(output, JSON.stringify(evidence, null, 2) + "\n"); console.log(JSON.stringify(evidence));

@@ -1051,9 +1051,13 @@ existing bounded retry policy, with a typed error and diagnostics remedy.
 Native stop failures use six bounded attempts with backoff, followed by exact
 birth-identity recovery when available. Failed attempts do not latch cleanup.
 If the owned child still cannot be stopped, `process_stop_failed` conservatively
-settles the reservation, releases leases and retains its runner identity. Stop
-that exact runner and verify it is gone before beginning a fresh programme;
-the terminal record does not claim that an unkillable child was reaped.
+settles the reservation and releases leases. Published runner identities remain
+available for recovery. If `runner.json` was not published, the owning controller
+retains the original `ChildProcess` handle and stays alive. SDK integrations retry
+`stopRetainedTrainer(error)` from `dist/process.js` with the original failure in
+that same controller before exiting; copied PID diagnostics confer no stop authority. Verify the exact
+runner is gone before beginning a fresh programme. The terminal record does not
+claim that an unkillable child was reaped.
 
 Evaluation dependencies are validated before acquiring even the outer lease and
 use SDK-normalized item identities for their native locks. Lock release delegates

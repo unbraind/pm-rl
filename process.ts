@@ -540,11 +540,16 @@ export function controllerCallback<A extends unknown[]>(name: string, failure: (
   };
 }
 /** Live handles retain stop authority when no reusable-PID-safe runner identity could be published. */
-const retainedTrainerChildren = new Map<number, { child: ReturnType<typeof spawn>; closed: Promise<void> }>();
+const retainedTrainerChildren = new WeakMap<ReturnType<typeof createPmCliExpectedError>, { child: ReturnType<typeof spawn>; closed: Promise<void> }>();
+/** Only the original failure that observed native close may acknowledge an idempotent cleanup. */
+const completedTrainerStops = new WeakSet<ReturnType<typeof createPmCliExpectedError>>();
 /** Retry cleanup through the original child handle, never reconstructing authority from a bare PID. @internal */
-export async function stopRetainedTrainer(pid: number): Promise<void> {
-  const retained = retainedTrainerChildren.get(pid);
-  if (retained === undefined) return;
+export async function stopRetainedTrainer(failure: ReturnType<typeof createPmCliExpectedError>): Promise<void> {
+  const retained = retainedTrainerChildren.get(failure);
+  if (retained === undefined) {
+    if (completedTrainerStops.has(failure)) return;
+    expectedFail("Trainer recovery requires the original failure object in its owning controller.", "process_stop_failed", EXIT_CODE.CONFLICT);
+  }
   const { child, closed } = retained;
   const stopped = await retryOwnedStop(() => child.exitCode !== null || child.signalCode !== null || child.kill("SIGKILL"));
   if (!stopped || !await waitForOwnedClose(closed)) expectedFail("Original trainer handle still requires cleanup; retry in the owning controller.", "process_stop_failed", EXIT_CODE.CONFLICT);
@@ -581,13 +586,14 @@ export async function launchTrainer(directory: string, id: string, input: Traine
   const exhausted = (): void => {
     stopExhausted = true; failed = true;
     const retainHandle = !runnerPublished && child.pid !== undefined && child.exitCode === null && child.signalCode === null;
+    const stopFailure = createPmCliExpectedError("Owned trainer could not be stopped or reaped after bounded retries; its reservation is conservatively settled and stop authority retained.", { exitCode: EXIT_CODE.CONFLICT, context: { code: "process_stop_failed", ...{ pid: child.pid, retained_child_handle: retainHandle }, required: retainHandle ? "Retry stopRetainedTrainer with this original error in the owning controller; keep it alive until the original child closes." : "Stop the exact retained runner identity and verify it is gone before starting a fresh programme." } });
     if (retainHandle) {
       const closed = new Promise<void>((resolve) => {
-        child.once("close", () => { retainedTrainerChildren.delete(child.pid!); resolve(); });
+        child.once("close", () => { completedTrainerStops.add(stopFailure); retainedTrainerChildren.delete(stopFailure); resolve(); });
       });
-      retainedTrainerChildren.set(child.pid!, { child, closed });
+      retainedTrainerChildren.set(stopFailure, { child, closed });
     }
-    failure = createPmCliExpectedError("Owned trainer could not be stopped or reaped after bounded retries; its reservation is conservatively settled and stop authority retained.", { exitCode: EXIT_CODE.CONFLICT, context: { code: "process_stop_failed", ...{ pid: child.pid, retained_child_handle: retainHandle }, required: retainHandle ? "Retry stopRetainedTrainer in this owning controller; keep it alive until the original child closes." : "Stop the exact retained runner identity and verify it is gone before starting a fresh programme." } });
+    failure = stopFailure;
     close(); if (!retainHandle) detach();
   };
   /** Preserve the first failure; the live ChildProcess handle owns stop authority before identity publication too. */

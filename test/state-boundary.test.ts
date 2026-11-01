@@ -317,7 +317,10 @@ test("cubic: native history entry points validate nested identifiers and preserv
   const client = new PmClient({ cwd: root, pmRoot, author: "boundary-test", noExtensions: true });
   await client.create({ id: "safe", type: "Task", title: "Safe history" });
   for (const method of ["run", "runTyped"] as const) {
+    await assert.rejects(async () => identifierClient(client)[method]("history"), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "rl_identifier_invalid" && error.exitCode === 2);
     for (const id of ["../escape", "bad/name", "", undefined]) await assert.rejects(async () => identifierClient(client)[method]("history", { id }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "rl_identifier_invalid" && error.exitCode === 2);
     assert.deepEqual(await identifierClient(client)[method]("history", { id: "#SAFE" }), await client[method]("history", { id: "#SAFE" }));
+    const fetched = await identifierClient(client)[method]("get", { id: "#SAFE" });
+    assert.ok("item" in fetched); assert.equal(fetched.item.id, "rl-safe");
   }
 });
