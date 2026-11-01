@@ -195,9 +195,9 @@ export async function reserveMeta(client: PmClient, coordinates: ProcessCoordina
     try { recordedApproval = (await readApprovalSpec(client, record.approval)).id; }
     catch (error) {
       // A temporary backend failure stays retryable instead of becoming a permanent drift verdict.
+      // This assertion returns only for a PmCliExpectedError; every other value was thrown.
       rethrowOperationalRead(error);
-      if (isPmCliExpectedError(error)) expectedFail("meta_reservation_drift: reservation approval changed.", "meta_reservation_drift", EXIT_CODE.CONFLICT);
-      throw error;
+      expectedFail("meta_reservation_drift: reservation approval changed.", "meta_reservation_drift", EXIT_CODE.CONFLICT);
     }
     if (recordedApproval !== (await metaApproval(client, request.approval)).id) expectedFail("meta_reservation_drift: reservation approval changed.", "meta_reservation_drift", EXIT_CODE.CONFLICT);
     await certifyAppliedRevision(client, previous.item.id, revision);

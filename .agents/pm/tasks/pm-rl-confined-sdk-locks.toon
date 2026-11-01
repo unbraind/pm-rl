@@ -4,12 +4,13 @@ description: "Blocking Cubic thread PRRT_kwDOTqJmqs6yXRp3 reproduces a real chec
 type: Task
 status: open
 priority: 1
-tags[5]: blocking,filesystem,"gh:unbraind/pm-rl#107",sdk-gap,"upstream:pm-cli#1647"
+tags[6]: blocking,filesystem,"gh:unbraind/pm-cli#1647","gh:unbraind/pm-rl#107",sdk-gap,"upstream:pm-cli#1647"
 created_at: "2026-11-01T07:42:57.963Z"
-updated_at: "2026-11-01T16:54:38.352Z"
+updated_at: "2026-11-01T18:27:41.143Z"
 author: codex-agent
 acceptance_criteria: "Acquire, fence, release, stale cleanup owner writes and recovery audit writes operate through no-follow component handles, or refuse with a typed unsupported/boundary code before following an unsafe path.; Real filesystem regressions swap root, locks, cleanup gate and recovery directory at use; outside bytes and directory entries remain unchanged; ordinary roots and symlinked ancestors above the root retain released behavior.; Preserve native SDK token, stale-owner and fenced-lease semantics without a second hand-written lock protocol or process-global filesystem monkeypatch; regressions fail on revert."
 parent: pm-rl-review107cubic
-comments[1]{created_at,author,text}:
+comments[2]{created_at,author,text}:
   "2026-11-01T10:09:22.335Z",codex-agent,"Public API audit: node_modules/@unbrained/pm-cli/dist/core/lock/lock.d.ts:109,118 expose acquireLock(pmRoot:string, id:string, ...) and acquireLockLease(pmRoot:string, id:string, ...), with no directory handle or filesystem capability parameter. sdk/workspace-transaction.d.ts:43-63 likewise accepts a string pmRoot and no filesystem provider. Native stale cleanup opens its owner path after awaited pathname operations. The latest inspected public SDK has the same limitation. Upstream issue search for symlink lock returned no matching open issue; no issue was filed. pm-cli#1620 concerns ordinary writers and is not evidence of path confinement. This dependency remains an unresolved blocking P1, not an approved scope deferral."
+  "2026-11-01T18:27:41.143Z",codex-agent,"Upstream acquisition race is now tracked by unbraind/pm-cli#1647. This supersedes only the earlier issue-search result, not the API audit or the unresolved safety limitation. README, decision-evidence documentation and state-boundary API comments now say pm-rl confines its own reads/writes while SDK lock acquisition confinement remains dependent on #1647; no pathname-only workaround was added. The follow-up remains open and unclaimed."
 body: ""

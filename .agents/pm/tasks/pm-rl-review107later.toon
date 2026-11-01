@@ -6,12 +6,12 @@ status: in_progress
 priority: 2
 tags[2]: "gh:unbraind/pm-rl#107",review
 created_at: "2026-10-30T13:55:27.424Z"
-updated_at: "2026-11-01T18:11:10.047Z"
+updated_at: "2026-11-01T19:24:15.167Z"
 assignee: codex-agent
 claim_principal: codex-agent
 author: codex-agent
 parent: pm-rl-sequential
-comments[95]{created_at,author,text}:
+comments[99]{created_at,author,text}:
   "2026-10-30T18:08:05.446Z",codex-agent,"Related stopping/identity diagnostic on untouched cd91de9: node --test --test-concurrency=1 --test-name-pattern=\"native child identity failure and PID reuse\" test/process.test.ts reports 1 test, 0 pass, 1 failure. The fixture expects Cannot establish trainer process identity but receives Trainer exceeded wall or staging allowance. The current full integration attempt flags the same test. This does not establish that the later stopTrainer thread has the same root cause; retain the identity and allowance evidence for triage without weakening the existing bounds."
   "2026-10-31T00:21:05.202Z",codex-agent,"The original native-child identity failure now passes: identity tools honor the supplied PATH instead of bypassing it with a platform installation path. With an empty PATH, a real child fails with process_identity_unavailable and is reaped. This fixes the observed fixture/lookup defect; the three later review threads remain separately tracked and unclosed."
   "2026-10-31T01:52:18.677Z","harness:claude-code","Fixed all three by hand on #107. (1) PRRT_kwDOTqJmqs6x8fDu stopTrainer: an unreadable birth identity counts as stopped only when kill(pid, 0) reports ESRCH, and an unreadable identity after SIGKILL is not proof of stop. New assertion in controller-boundaries 'recovery stops only the exact live trainer' fails on revert (0/1). (2) PRRT_kwDOTqJmqs6x8fDs fixed-result read path: the result must follow the plan, every collection Run and the candidate, via the shared fixedLifecycleArtifacts. New test 'fixed results created before their collection Run and candidate never promote' fails on revert (0/1). Legitimate recording always verifies Runs and candidate first, so no released result can have the old ordering. (3) PRRT_kwDOTqJmqs6x8fDn: the stale public_node_and_bun copy now references docs/sequential-evaluation-evidence.json (same commit, snapshot and comparison, current evidence_digest). Also fixed: the 'git absent from PATH' CLI test and evaluation-plan.acceptance now link the platform identity tool, because the merged process-job fence needs getconf/ps (the test failed at e0fb7d9 with process_identity_unavailable)."
@@ -107,7 +107,11 @@ comments[95]{created_at,author,text}:
   "2026-11-01T17:48:06.279Z",codex-agent,"The full exact-command run has completed the immutable snapshot sweep: all 337 snapshot checks and 1910 card corruption checks remain, with 3 generations/4 receipts/10 card variants and 21 historical replays. Duration is 309.609 s locally versus 3009.822 s in the failing CI log (different host, same Node 26.13.0). Pure concurrency without causal reduction remained too expensive in diagnostics. The final sequential reduction retains every live/history edge that its selected peer can affect and every observed write. Only reads outside the verified peer write set, the unchanged project prefix, and immutable births already present in the prepared inventory can commute. Each executed peer is checked against all native data/history outside its mask and all prepared birth records; any wider write invalidates the proof. Native/held-lease generation changes end each region. Fixed seed 0x1071647 chooses one native witness per commuting region, with first/last of every observation kind retained. No snapshot-corruption pairs are sampled. The proof is documented in test/fixtures/README-sweep-equivalence.md. Earlier comments describing an all-raw-edge attempt are intermediate, not the final sampling claim."
   "2026-11-01T18:09:59.267Z",codex-agent,"Implementation checkpoint: depthSafe now skips ordinary JSON text using native punctuation search; the max-size valid JSON stress test fails on the reverted scanner with negative V8 counts and passes after restoration. The old six loop-body lines 20-25 receive count -2113929216 after 130 encodings of 16777216 bytes; native Node coverage counts only positive lines while displaying only zero-count uncovered lines, explaining 77/83 = 92.77% with an empty uncovered column. This is signed counter overflow, not duplicate module loading. No coverage configuration, threshold or ignore changes. Current prepared-clone corruption sweep retains 337 snapshot checks and 1910 card checks, measured at 309.609 s versus 3009.822 s in failing CI. Sequential sweep proof additionally checks the actual native observation before/after each sampled peer, protects unrelated tracker bytes and every creation event, and refuses any completion-order reclassification of a mutable edge. Full exact npm run coverage and final sequential timings remain pending at this checkpoint. README and decision-evidence documentation explicitly defer SDK lock acquisition confinement to pm-cli#1647 and link pm-rl-confined-sdk-locks."
   "2026-11-01T18:11:10.046Z",codex-agent,"Focused timing checkpoint: reject/sdk-reject passes on Node 26.13.0 with native V8 coverage: 942 discovered edges, 121 exercised interleavings and 47 deep-equal native commutation witnesses, 333.685 s test duration (334.953 s process). The failing CI sweep executed all 942 edges per peer and measured roughly 1470-1630 s per reject transition; these are different hosts, so the final CI duration target remains to be verified. The first empirical proof attempt exposed an observation-bookkeeping bug under parallel native birth reads; retaining the exact observation across awaits fixes it. Actual pre-injection classification now also rejects any reordered mutable edge assigned a commuting baseline slot. No package runtime race assertion was weakened. Check/typecheck/lint/duplicates and build:test pass; duplicates reports zero clones; docstring reports 58 files and 523 declarations; changelog generation/check and append-only history prefix verification pass. Full coverage remains in progress."
-files[33]{path,scope}:
+  "2026-11-01T18:18:52.059Z",codex-agent,"Final packed receipt for runtime source eb45517411f488385ebb4112254a106706fecdcd: six fresh acceptance executions pass (Node/Bun x evaluation-compatibility, decision-evidence, sequential-evaluation), plus two retained-fixture resume replays and two native fixture preparations. Archive SHA-256 69f9b9568ec3b5d0ea4e06b24be56e3a905ae72c1bbb98a142ecad989361c820; 241 shipped files, including 180 runtime files, independently compared byte-for-byte with the working-tree pack and the certified archive. Public source 26650e303ec2cb6fcdc6c51092bcc30b2f1ed27c remains read-only and digest-unchanged: 113 items, 92 done-role items. All three generated documents describe this cohort; retained report, evidence root, same-command envelope sizes and source digest replay successfully. Search for 120e20e in docs and README is empty. Initial private pack setup lacked gzip; adding that utility to the private no-Docker tool path fixed setup before any acceptance was executed. No runtime or receipt check was weakened. The selector test also passes through pm test (1/1); its linked focused suite skip pattern now names the new sweep accurately. The full coverage run continues; one packed LM wall-clock assertion exceeded 20 s under contention and will be rerun alone unchanged."
+  "2026-11-01T19:01:53.146Z",codex-agent,"Progress: the exact one-worker CI coverage command is still running on Node 26.13.0, with 28 of the 30 exhaustive-path/peer sweeps completed so far and every native commutation/foreign-byte assertion passing. The private outer launcher allowance was extended; repository test clocks, coverage thresholds and source scope are unchanged. The remaining sequential work retains all affected edges (reject peers discovered 942 each; SDK rejection exercised 121, package rejection 133, sealing 62 and stopping 72). To bring whole-job duration toward the requested 1.5x-main target, the next bounded change will use two independent native test-file workers after this exact-flags diagnostic run finishes. A real two-file rendezvous regression will prove concurrency and merged 100% source coverage, including a function-only revert proof; no coverage attribution arithmetic or thresholds will change."
+  "2026-11-01T19:24:14.264Z",codex-agent,"Exact CI-flags diagnostic complete: npm run coverage on Node 26.13.0 / Bun 1.3.14, one native file worker, 1461 tests: 1441 pass, one LM timing assertion fails, 19 Docker cases skip because local Docker access is prohibited. tracker-record.ts is now 86/86 lines and 84/84 raw V8 blocks, all branches/functions covered; 287 root-source profiles have zero negative counters and at most one canonical root-source instance per profile. The LM case took 21851 ms against 20000 ms; the unchanged isolated rerun passes at 13161 ms, so this is host contention. Global local coverage retains Docker-only external-LM gaps (index.ts 4505-4506, process-lm.ts 60-64); no threshold or source exemption was changed. The raw block calculator additionally found non-Docker gaps hidden behind the former native line failure: sparse Run optional fields; prospective wrong identity; reordered retained graph fallback; completed-receipt native read failure and legacy unversioned snapshot label; and an unreachable meta throw. Four new real-SDK tests cover the reachable cases with code/exit assertions. meta.ts now removes the unreachable arm: refuse.ts:18-23 asserts PmCliExpectedError on return and throws every other value, so the following unconditional meta_reservation_drift refusal is exhaustive. Existing transient-approval behavior still passes. Focused linked run: 6/6. No SDK responses were mocked."
+  "2026-11-01T19:24:15.166Z",codex-agent,"Duration evidence: sequential snapshot sweep was 11030.827 s in failing CI and is 1972.589 s locally with the same five paths and six peers; every affected edge remains, with 1229 native interleavings representing 8112 discovered edge/peer positions. Fixed seed 0x1071647, first/last by kind, creation-event protection, unrelated-byte hashes and actual SDK before/after observations certify only commuting regions. Corruption sweep was 3009.822 s in CI and is 309.609 s locally, retaining all 337 snapshot checks and 1910 card checks. Hosts differ; final job duration remains a CI claim. Native test-file concurrency now uses the permitted bound of two to parallelize independent suites, without changing the source list, ignore list, attribution arithmetic or thresholds. Behavioral revert proof: reverting only runGate to one worker makes the two-file real native rendezvous fail after 10.579 s; restoring it passes, including 100% aggregate coverage for two separately exercised source functions. The final full two-worker command will run before the single push."
+files[34]{path,scope}:
   checkpoint-artifacts.ts,project
   docs/decision-evidence-validation.json,project
   docs/decision-evidence.md,project
@@ -125,6 +129,7 @@ files[33]{path,scope}:
   sequential-evaluation.ts,project
   state-boundary.ts,project
   test/controller-boundaries.test.ts,project
+  test/coverage-gate.test.ts,project
   test/decision-evidence.test.ts,project
   test/evaluation-plan.test.ts,project
   test/fixtures/boundary-classes.ts,project
@@ -141,7 +146,7 @@ files[33]{path,scope}:
   test/state-boundary.test.ts,project
   test/transaction-races.test.ts,project
   tracker-record.ts,project
-tests[11]:
+tests[12]:
   - command: node --test --test-name-pattern='recovery stops only the exact live trainer' test/controller-boundaries.test.ts
     scope: project
     provenance:
@@ -181,16 +186,6 @@ tests[11]:
     provenance:
       author: codex-agent
       created_at: "2026-10-31T12:40:06.264Z"
-      source_kind: local_mutation
-      source_ref: feat/predeclared-sequential-evaluation
-  - command: "node --test --test-concurrency=2 --test-skip-pattern=\"^sequential mutation snapshot matrix interleaves every transition at every SDK boundary$\" test/transaction-races.test.ts test/process.test.ts test/process-publication.test.ts test/meta.test.ts test/sequential-evaluation.test.ts test/evaluation-plan.test.ts test/controller-boundaries.test.ts"
-    scope: project
-    timeout_seconds: 1800
-    pm_context_mode: none
-    workspace_context_mode: snapshot
-    provenance:
-      author: codex-agent
-      created_at: "2026-10-31T12:54:34.760Z"
       source_kind: local_mutation
       source_ref: feat/predeclared-sequential-evaluation
   - command: "node --test --test-concurrency=1 --test-name-pattern=\"adopted reservation snapshots|an adopted snapshot cannot|publication fences retain failed child\" test/transaction-races.test.ts"
@@ -241,6 +236,26 @@ tests[11]:
     provenance:
       author: codex-agent
       created_at: "2026-11-01T17:59:31.451Z"
+      source_kind: local_mutation
+      source_ref: feat/predeclared-sequential-evaluation
+  - command: "node --test --test-concurrency=2 --test-skip-pattern=\"^sequential mutation snapshot matrix covers every mutable SDK edge and commuting observation region$\" test/transaction-races.test.ts test/process.test.ts test/process-publication.test.ts test/meta.test.ts test/sequential-evaluation.test.ts test/evaluation-plan.test.ts test/controller-boundaries.test.ts"
+    scope: project
+    timeout_seconds: 1800
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-01T18:15:16.535Z"
+      source_kind: local_mutation
+      source_ref: feat/predeclared-sequential-evaluation
+  - command: "node --test --test-concurrency=2 --test-name-pattern=\"block coverage:|bounded two-worker|temporary approval read while verifying\" test/evaluation-plan.test.ts test/coverage-gate.test.ts test/transaction-races.test.ts"
+    scope: project
+    timeout_seconds: 300
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-01T19:23:27.549Z"
       source_kind: local_mutation
       source_ref: feat/predeclared-sequential-evaluation
 docs[3]{path,scope}:

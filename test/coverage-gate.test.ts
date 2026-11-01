@@ -1,14 +1,13 @@
 /**
  * Behavioral tests for the coverage gate script.
  *
- * Every case imports the gate's exported functions and runs them in-process
- * against a throwaway workspace, because the properties worth protecting are
- * exactly the ones a subprocess run would miss: that the directory walk finds
- * every source file, that the lcov parser normalises paths, and that the gate
- * fails when files are missing from the report.
+ * Pure cases protect source discovery, report normalization and refusal paths
+ * in throwaway workspaces. A real two-file fixture also certifies bounded native
+ * concurrency and coverage merged across isolated workers.
  */
 
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -1266,8 +1265,8 @@ test("runGate surfaces a computeRequired failure through its own catch", () => {
 test("defaultSpawn forwards the command and returns the real exit status", () => {
   // The default spawn is the one `npm run coverage` relies on. Covering it with
   // a trivial command verifies the wrapper forwards argv and reports status;
-  // a full in-process gate run is unverifiable here because a test runner
-  // spawned from inside another test runner does not flush its lcov reporter.
+  // the real rendezvous fixture separately clears the inherited runner context
+  // before launching its isolated reporters so their lcov output flushes normally.
   const result = defaultSpawn(process.execPath, ["-e", "process.exit(0)"], {
     cwd: repoRoot,
     stdio: "inherit",
@@ -1451,4 +1450,35 @@ test("a file with several uncovered blocks is listed once", () => {
   assert.equal(result.total, 3);
   assert.equal(result.covered, 1);
   assert.deepEqual(result.uncoveredFiles, ["a.ts"]);
+});
+
+
+test("bounded two-worker coverage joins independent native suites and merges their source coverage", () => {
+  dir = makeTempDir(); const root = dir.root;
+  writeFileSync(join(root, "package.json"), '{"type":"module"}');
+  writeFileSync(join(root, "source.ts"), "/** First participant. */\nexport function first() { return 1; }\n/** Second participant. */\nexport function second() { return 2; }\n");
+  for (const [name, peer, member, expected] of [["first", "second", "first", 1], ["second", "first", "second", 2]] as const) {
+    writeFileSync(join(root, `${name}.test.ts`), `import assert from "node:assert/strict";
+import { existsSync, writeFileSync } from "node:fs";
+import { test } from "node:test";
+import { ${member} } from "./source.ts";
+test("${name} meets ${peer}", async () => {
+  assert.equal(${member}(), ${expected});
+  writeFileSync("${name}.ready", "ready");
+  const deadline = Date.now() + 10000;
+  while (!existsSync("${peer}.ready") && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
+  assert.ok(existsSync("${peer}.ready"), "independent native suite did not start before its peer finished");
+});
+`);
+  }
+  let output = "";
+  const result = runGate({ sources: ["source.ts"], tests: ["first.test.ts", "second.test.ts"], thresholds: { lines: 100, branches: 100, functions: 100, statements: 100 }, ignore: [] }, root,
+    // Delegate to real Node, isolating nested runner context and capturing its diagnostics.
+    (command, args, options) => {
+      const child = spawnSync(command, [...args], { ...options, stdio: "pipe", encoding: "utf8", env: { PATH: options.env?.PATH, HOME: options.env?.HOME, TZ: options.env?.TZ, NODE_V8_COVERAGE: options.env?.NODE_V8_COVERAGE } });
+      output += child.stdout + child.stderr; return child;
+    });
+  assert.equal(result.exitCode, 0, output + result.stderr);
+  assert.match(result.stdout, /1 source file.*thresholds met/);
+  assert.match(result.stdout, /statements 100\.00%/);
 });

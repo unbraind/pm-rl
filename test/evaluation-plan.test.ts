@@ -9,7 +9,7 @@ import { after, test } from "node:test";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { init, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import extension, { extractGenerationSpec, generationProvenance, hashJson, readCompleteLoopItem, recordRefusedPolicyCard, verifyDecisionEvidence, type JsonValue, type RlCommandResult } from "../index.ts";
+import extension, { extractGenerationSpec, generationProvenance, hashJson, readCompleteLoopItem, recordRefusedPolicyCard, verifyDecisionEvidence, verifyCompletedDecisionReceipt, type JsonValue, type RlCommandResult } from "../index.ts";
 import { evaluationEvidence, evaluationComparison, evaluationPlanId, evaluatePlan, parseEvaluationPlan, registerEvaluationPlan, readEvaluationPlan, readEvaluationDecision, recordPlanEvaluation, enforceEvaluationPlan, evaluationInputDigest, decisionSnapshotDigest, parseEvaluationEvidence, type EvaluationPlan, type EvaluationObservation } from "../evaluation-plan.ts";
 import type { GenerationSpec, ScoreRecord } from "../lineage.ts";
 
@@ -630,4 +630,51 @@ test("fixed declaration and result publication refuse native create ABA without 
     await publish(); // A new invocation may adopt the now-stable, valid native record.
     assert.deepEqual([readFileSync(path, "utf8"), readFileSync(history, "utf8")], expected);
   }
+});
+
+
+test("block coverage: sparse native Run snapshots retain absent optional evidence", async () => {
+  const w = await workspace(); await w.client.create({ id: "rl-empty-run", type: "Run", title: "Sparse released Run" });
+  const complete = await readCompleteLoopItem(w.client, "rl-empty-run");
+  const projected = await readCompleteLoopItem(w.client, "rl-empty-run", undefined, "id,type,body,affected_version,created_at,environment,component");
+  assert.equal(projected.item.environment, undefined); assert.equal(projected.item.notes, undefined);
+  assert.equal(decisionSnapshotDigest(projected.item), decisionSnapshotDigest(complete.item));
+});
+
+test("block coverage: a prospective wrong native identity refuses before candidate publication", async () => {
+  const w = await workspace(); const registered = await registerEvaluationPlan(w.client, plan());
+  const other = await generation(w.client, "rl-other-prospective", { ...spec("rl-seed"), evaluation_plan: registered.comparison });
+  await assert.rejects(readEvaluationDecision(w.client, registered.plan.candidate, true, other), refusal("eval_plan_drift"));
+  assert.equal((await w.client.listAllComplete({ includeBody: false })).items.some(item => item.id === registered.plan.candidate), false);
+});
+
+test("block coverage: reordered retained inputs identify the canonical candidate on refusal", async () => {
+  const w = await workspace(); const registered = await registerEvaluationPlan(w.client, plan());
+  const current = { ...spec("rl-seed"), evaluation_plan: registered.comparison };
+  await generation(w.client, registered.plan.candidate, current);
+  const graph = (await readEvaluationDecision(w.client, registered.plan.candidate)).evidence!;
+  assert.ok(graph.inputs.length > 1);
+  const body = { format: graph.format, comparison: graph.comparison, inputs: [...graph.inputs].reverse() };
+  const reordered = parseEvaluationEvidence({ ...body, digest: hashJson(body as unknown as JsonValue) });
+  const text = `\`\`\`json\n${JSON.stringify({ ...current, evaluation_evidence: reordered })}\n\`\`\``;
+  await w.client.update(registered.plan.candidate, { body: text });
+  const history = readFileSync(join(w.pmRoot, "history", `${registered.plan.candidate}.jsonl`));
+  await assert.rejects(readEvaluationDecision(w.client, registered.plan.candidate), (error: unknown) => isPmCliExpectedError(error) && error.exitCode === 4 && error.context.code === "eval_plan_drift" && error.context.item_id === registered.plan.candidate);
+  assert.equal((await readCompleteLoopItem(w.client, registered.plan.candidate)).item.body, text);
+  assert.deepEqual(readFileSync(join(w.pmRoot, "history", `${registered.plan.candidate}.jsonl`)), history);
+});
+
+test("block coverage: versionless completed receipts and native read failures retain typed refusals", async () => {
+  const w = await workspace(); const id = "rl-legacy-completion";
+  const source = await w.client.create({ id: "rl-versionless-input", title: "Legacy decision source", body: "original" });
+  const graph = evaluationEvidence(hashJson("legacy comparison"), [source.item]);
+  const result = { samples: 1 }; const original = { format: "pm-rl/loop-step/1", input: hashJson("legacy request"), state: "complete", result, digest: hashJson(result), decision_evidence: graph };
+  await w.client.create({ id, type: "Decision", title: "Legacy completed receipt", body: JSON.stringify(original) });
+  const alteredBody = { format: graph.format, comparison: graph.comparison, inputs: graph.inputs.map(ref => ({ ...ref, digest: hashJson("different input") })) };
+  const altered = { ...original, decision_evidence: parseEvaluationEvidence({ ...alteredBody, digest: hashJson(alteredBody as unknown as JsonValue) }) };
+  await assert.rejects(verifyCompletedDecisionReceipt(w.client, id, altered), (error: unknown) => isPmCliExpectedError(error) && error.exitCode === 4 && error.context.code === "loop_step_drift" && String(error.context.required).includes(`${source.item.id}@unversioned`));
+  const file = join(w.pmRoot, "decisions", `${id}.toon`), malformed = "metadata: [\nmalformed native receipt\n";
+  writeFileSync(file, malformed);
+  await assert.rejects(verifyCompletedDecisionReceipt(w.client, id, original), (error: unknown) => isPmCliExpectedError(error) && error.exitCode === 1 && error.context.code === "item_document_invalid");
+  assert.equal(readFileSync(file, "utf8"), malformed);
 });
