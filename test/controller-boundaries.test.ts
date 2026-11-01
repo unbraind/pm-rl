@@ -11,7 +11,7 @@ import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import { getHistoryPath, createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError, normalizeItemId, normalizeRawItemId } from "@unbrained/pm-cli/sdk/runtime";
 import { acquireStateLock, canonicalIdentifier, canonicalItemIdentifier, canonicalProgrammeId, commitStateTransaction } from "../state-boundary.ts";
 import extension, { registerGenerationCore, hashJson, resolveEvaluationPlan, evaluationComparison, loopLeaseLockId, loopProcessStartTime, loopProcessIdentityIO, withRlController, runRlLoop, type JsonValue } from "../index.ts";
-import { controllerCallback, controllerCallbackIO, executeProcessTrainer, processJobId, processStaging, readProcessJob, reserveProcessJob, stopRetainedTrainer, stopTrainer, type ProcessInput, type TrainerPolicy } from "../process.ts";
+import { controllerCallback, controllerCallbackIO, executeProcessTrainer, processJobId, processStaging, readProcessJob, reserveProcessJob, transitionProcessJob, stopRetainedTrainer, stopTrainer, type ProcessInput, type TrainerPolicy } from "../process.ts";
 import { allowance, configuration, processWorkspace, trainingInput } from "./fixtures/process-workspace.ts";
 import { lmCollectBatch, parseLmLoopConfig } from "../lm.ts";
 import { lmProcessInput } from "../process-lm.ts";
@@ -580,5 +580,27 @@ test("cubic coverage: both declared Compose adapters retain a typed trainer fail
       assert.equal(job.state, "failed"); assert.equal(job.outcome, "trainer_failure");
       assert.equal(JSON.parse(readFileSync(join(processStaging(w.pmRoot, job.id), "compose-stop.json"), "utf8")).reason, "failed");
     } finally { if (previous === undefined) delete process.env.PATH; else process.env.PATH = previous; }
+  });
+});
+
+test("cubic coverage: LM Compose recovery retains typed cleanup diagnostics while settling an interrupted reservation", async (context) => {
+  for (const foreign of [false, true]) await context.test(foreign ? "changed configuration" : "owned configuration", async () => {
+    const resources = { training_steps: 6, wall_ms: 60000, storage_bytes: 2097152, compute_units: 60000, tokens: 100000 };
+    const w = await processWorkspace(resources); const image = `sha256:${"a".repeat(64)}`;
+    const adapter = { kind: "compose-lm", image, allowance: resources, memory_bytes: 268435456, cpus: 1 } as const;
+    const example = JSON.parse(readFileSync(new URL("../examples/loop-lm.json", import.meta.url), "utf8")); const config = parseLmLoopConfig({ ...example, adapter });
+    const input = lmProcessInput(config, { learningRate: config.learningRate, evaluationSamples: config.evaluationSamples }, 1, config.initial, lmCollectBatch(config, 1, config.initial), "recovery");
+    const id = processJobId(input, undefined, adapter); const planned = await reserveProcessJob(w.client, w.coordinates, id, input, w.approval, resources);
+    await transitionProcessJob(w.client, w.coordinates, planned, "running", "Interrupted LM publication");
+    const directory = processStaging(w.pmRoot, id); mkdirSync(directory, { recursive: true });
+    writeFileSync(join(directory, "compose.json"), foreign ? "changed configuration" : JSON.stringify(composeConfiguration(image, adapter)));
+    const bin = join(w.root, "bin"); mkdirSync(bin);
+    writeFileSync(join(bin, "docker"), `#!${process.execPath}\nconst a=process.argv.slice(2);if(a[0]==='container'&&a[1]==='ls')console.log('owned-container');else if(a[1]==='inspect')console.log(JSON.stringify({memory_bytes:268435456,nano_cpus:1000000000,oom_killed:false,exit_code:0,network:'none',user:'65534:65534'}));\n`, { mode: 0o755 });
+    const previous = process.env.PATH; process.env.PATH = `${bin}${delimiter}${previous}`;
+    try { await assert.rejects(executeProcessTrainer(w.client, w.coordinates, input, w.approval, adapter), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "process_receipt_required" && error.exitCode === 2); }
+    finally { if (previous === undefined) delete process.env.PATH; else process.env.PATH = previous; }
+    const current = (await readProcessJob(w.client, id))!; assert.equal(current.state, "failed");
+    if (foreign) { assert.equal(current.cleanup?.code, "cleanup_failed"); assert.equal(readFileSync(join(directory, "compose.json"), "utf8"), "changed configuration"); }
+    else assert.equal(JSON.parse(readFileSync(join(directory, "compose-stop.json"), "utf8")).reason, "recovery");
   });
 });

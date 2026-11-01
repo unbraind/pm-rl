@@ -39,6 +39,8 @@
     "canonical_graph_ids": true,
     "completed_step_downgrade_refusals": 1,
     "json_and_toon": true,
+    "json_and_toon_comparison": "sdk-default-toon-projection",
+    "json_and_toon_envelope_pairs": 14,
     "promotion_receipt_graph": true,
     "exact_sdk_graph_in_card": true,
     "approval_consumed": 1,
@@ -59,6 +61,8 @@
     "canonical_graph_ids": true,
     "completed_step_downgrade_refusals": 1,
     "json_and_toon": true,
+    "json_and_toon_comparison": "sdk-default-toon-projection",
+    "json_and_toon_envelope_pairs": 14,
     "promotion_receipt_graph": true,
     "exact_sdk_graph_in_card": true,
     "approval_consumed": 1,
@@ -145,8 +149,8 @@
     "limitation": "Descriptive public replay. One repository is one correlation unit; no causal benefit or deployed promotion claim."
   },
   "public_input_roots": {
-    "node": "6bcab3b46e72898874fe2db918e39e737bc83dc443b043a32f6b11cc0f51bc1d",
-    "bun": "3b3295ecbe88248c2b63cb623e901d047c3261f30f75e68d2f0be005e4766099"
+    "node": "9fc93027d99ebfe15c04c79d83de15ff86bfdd0953fa3edaca7fc84dd4b9c1bc",
+    "bun": "c8bac6dd0d214ae103f555a1cea97d024552c868e2071c609cc2d48dfd3da28e"
   },
   "static_checks": {
     "typecheck": true,
@@ -298,9 +302,9 @@
     ]
   },
   "current_packed_acceptance": {
-    "runtime_source_commit": "fc3d8fc7fb503e8e38d02b2a95184030709a7039",
+    "runtime_source_commit": "579c0e7fa0f517f249caed21d1373ca4dfb5caae",
     "public_source_commit": "26650e303ec2cb6fcdc6c51092bcc30b2f1ed27c",
-    "archive_sha256": "23c873d7343083b1fe7013d5d98cbc08957e2b6f0bd47015c7d8ca7ac5d7ddd9",
+    "archive_sha256": "b64e6759d05e9eab8cca576e731f9716cc54ac83c791e7263779458e36cda98f",
     "shipped_files": 241,
     "runtime_files": 180,
     "final_acceptance_passes": 6,
