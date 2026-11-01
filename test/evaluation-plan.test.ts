@@ -9,7 +9,7 @@ import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { init, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import extension, { extractGenerationSpec, generationProvenance, hashJson, readCompleteLoopItem, recordRefusedPolicyCard, verifyDecisionEvidence, type JsonValue, type RlCommandResult } from "../index.ts";
-import { evaluationEvidence, evaluationComparison, evaluationPlanId, evaluatePlan, parseEvaluationPlan, registerEvaluationPlan, readEvaluationPlan, readEvaluationDecision, recordPlanEvaluation, enforceEvaluationPlan, type EvaluationPlan, type EvaluationObservation } from "../evaluation-plan.ts";
+import { evaluationEvidence, evaluationComparison, evaluationPlanId, evaluatePlan, parseEvaluationPlan, registerEvaluationPlan, readEvaluationPlan, readEvaluationDecision, recordPlanEvaluation, enforceEvaluationPlan, evaluationInputDigest, decisionSnapshotDigest, parseEvaluationEvidence, type EvaluationPlan, type EvaluationObservation } from "../evaluation-plan.ts";
 import type { GenerationSpec, ScoreRecord } from "../lineage.ts";
 
 const roots: string[] = [];
@@ -90,7 +90,7 @@ test("coverage: fixed evaluation bounds and source-time namespace changes remain
   }
 });
 
-test("coverage: shared native upstream evidence closes a multi-generation verification graph once", async () => {
+test("coverage: shared native upstream evidence verifies once and refuses extra retained inputs", async () => {
   const w = await workspace(); let parent = "rl-seed", previous = spec();
   for (let index = 1; index <= 3; index += 1) {
     const candidate = `rl-linked-${index}`, current = spec(parent, [`rl-linked-run-${index}`]);
@@ -104,6 +104,17 @@ test("coverage: shared native upstream evidence closes a multi-generation verifi
   }
   const final = await readEvaluationDecision(w.client, parent);
   assert.equal(final.report?.verdict.decision, "promote"); await verifyDecisionEvidence(w.client, final.evidence!);
+  const extra = await w.client.create({ id: "rl-extra-cited", title: "Unrelated retained input", body: "Real native record" });
+  const native = (await readCompleteLoopItem(w.client, extra.item.id, "1")).item, graph = final.evidence!;
+  const input = { id: native.id, digest: evaluationInputDigest(native, graph.comparison), ...(graph.format === "pm-rl/evaluation-evidence/2" ? { at: "1", snapshot_digest: decisionSnapshotDigest(native) } : {}) };
+  const { digest: _digest, ...manifest } = graph;
+  const body = { ...manifest, inputs: [...manifest.inputs, input].sort((a, b) => Buffer.compare(Buffer.from(a.id), Buffer.from(b.id))) };
+  const retained = parseEvaluationEvidence({ ...body, digest: hashJson(body as unknown as JsonValue) });
+  await w.client.update(parent, { body: "```json\n" + JSON.stringify({ ...previous, evaluation_evidence: retained }) + "\n```" });
+  const paths = [join(w.pmRoot, "generations", `${parent}.toon`), join(w.pmRoot, "history", `${parent}.jsonl`)];
+  const before = paths.map(path => readFileSync(path, "utf8"));
+  await assert.rejects(readEvaluationDecision(w.client, parent), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "eval_plan_drift" && error.exitCode === 4 && error.context.item_id === native.id);
+  assert.deepEqual(paths.map(path => readFileSync(path, "utf8")), before);
 });
 
 test("all plan fields and correlation assignments determine comparison identity", () => {

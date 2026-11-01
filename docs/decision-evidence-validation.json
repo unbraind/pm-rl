@@ -298,15 +298,15 @@
     ]
   },
   "current_packed_acceptance": {
-    "runtime_source_commit": "a450cdb740e7eca8788e2793b4b9ac99cb1c3d80",
+    "runtime_source_commit": "fc3d8fc7fb503e8e38d02b2a95184030709a7039",
     "public_source_commit": "26650e303ec2cb6fcdc6c51092bcc30b2f1ed27c",
-    "archive_sha256": "5b63274458ea3a2cefb6a007d5e0de80662a80b1b4aeebe94ec826fa940bb347",
+    "archive_sha256": "23c873d7343083b1fe7013d5d98cbc08957e2b6f0bd47015c7d8ca7ac5d7ddd9",
     "shipped_files": 241,
     "runtime_files": 180,
     "final_acceptance_passes": 6,
+    "final_fixture_replay_passes": 2,
     "native_fixture_preparations": 2,
     "public_source_read_only_and_unchanged": true,
-    "native_fixture_replayed_after_evidence_repack": true,
-    "final_fixture_replay_passes": 2
+    "native_fixture_replayed_after_evidence_repack": true
   }
 }
