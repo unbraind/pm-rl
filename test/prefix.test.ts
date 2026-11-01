@@ -171,6 +171,17 @@ test("trainer IO publishes exact measured checkpoint evidence and validation ref
   writeFileSync(join(root, "completion.json"), JSON.stringify(completion));
   assert.throws(() => validateProcessCompletion(root, "synthetic", input, { training_steps: 1, wall_ms: 30000, storage_bytes: stagingBytes(root) + completion.artifact!.bytes - 1, compute_units: 30000, tokens: 0 }, artifactRoot),
     (error: unknown) => isPmCliExpectedError(error) && error.context.code === "process_limit_exceeded" && error.message.includes("artifact exceeded"));
+  const generous = { training_steps: 1, wall_ms: 30000, storage_bytes: 100000, compute_units: 30000, tokens: 0 };
+  writeFileSync(join(root, "completion.json"), JSON.stringify(completion) + " ".repeat(4096));
+  assert.throws(() => validateProcessCompletion(root, "synthetic", input, generous, artifactRoot), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "process_receipt_invalid" && error.exitCode === 2);
+  writeFileSync(join(root, "completion.json"), JSON.stringify(completion));
+  assert.throws(() => validateProcessCompletion(root, "synthetic", { ...input, prefix: undefined }, generous, artifactRoot), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "process_checkpoint_invalid" && error.exitCode === 2);
+  const { artifact: _artifact, ...withoutArtifact } = completion; writeFileSync(join(root, "completion.json"), JSON.stringify(withoutArtifact));
+  assert.throws(() => validateProcessCompletion(root, "synthetic", input, generous, artifactRoot), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "process_checkpoint_invalid" && error.exitCode === 2);
+  writeFileSync(join(root, "completion.json"), JSON.stringify(completion));
+  const w = await metaWorkspace(); const before = (await w.client.listAllComplete({ includeBody: true })).items;
+  await assert.rejects(executeProcessTrainer(w.client, w.coordinates, input, w.approval, { kind: "compose-bandit", image: `sha256:${"a".repeat(64)}`, allowance: generous }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "process_invalid_adapter" && error.exitCode === 2);
+  assert.deepEqual((await w.client.listAllComplete({ includeBody: true })).items, before);
   const bytes = Buffer.from(JSON.stringify(verified.policy));
   assert.equal(verified.policy.digest, completion.policy.digest);
   assert.ok(output.includes('"complete"')); validatePrefixCompletion(bytes, verified, input as unknown as ProcessInput);

@@ -600,3 +600,12 @@ test("cubic: checkpoint boundary refusals differ from missing artifacts", async 
     await persistLmCheckpoint(state, checkpoint, config); await verifyLmCheckpointArtifact(state, checkpoint, config);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test("cubic coverage: live LM evaluation and its measured-wall replay produce the same report", () => {
+  const config = parseLmLoopConfig(configValue({ evaluation_samples: 16 }));
+  const step = { learningRate: config.learningRate, evaluationSamples: config.evaluationSamples };
+  const fit = trainLmStep(config, step, 1, config.initial, lmCollectBatch(config, 1, config.initial), 0);
+  const live = evaluateLmStep(config, step, fit, null);
+  assert.ok(Number.isFinite(live.wallMs) && live.wallMs >= fit.wallMs);
+  assert.deepEqual(evaluateLmStep(config, step, fit, live.wallMs), live);
+});

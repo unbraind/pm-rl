@@ -22,6 +22,7 @@ import extension, {
 } from "../index.ts";
 import {
   buildLineageAncestry,
+  canonicalizeIdentifier,
   DEFAULT_GAP_WINDOW,
   directionAwareGap,
   findContaminationPath,
@@ -1779,4 +1780,12 @@ test("cubic: new reward identities refuse unsafe references while released reads
     assert.equal(parseGenerationSpec(body, "Legacy reward identity").reward_spec_version, reward.trim());
   }
   for (const reward of ["reward-1", `sha256:${"a".repeat(64)}`]) assert.equal(parseGenerationSpec(JSON.stringify(spec({ reward_spec_version: reward })), "Reward identity", "write").reward_spec_version, reward);
+});
+
+test("cubic coverage: canonical identity and planned-generation parsing preserve typed boundaries", () => {
+  for (const id of [17, " "]) assert.throws(() => canonicalizeIdentifier(id as string, "rl"), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "rl_identifier_invalid" && error.exitCode === 2);
+  assert.equal(canonicalizeIdentifier("RL-SEED", "rl"), "rl-seed");
+  for (const evaluation_plan of [17, "bad"]) assert.throws(() => parseGenerationSpec(JSON.stringify({ ...spec(), evaluation_plan }), "Planned generation"), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "invalid_evaluation_plan" && error.exitCode === 2);
+  const evaluation_plan = "a".repeat(64);
+  assert.equal(parseGenerationSpec(JSON.stringify({ ...spec(), evaluation_plan }), "Planned generation").evaluation_plan, evaluation_plan);
 });

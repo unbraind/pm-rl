@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { ChildProcess, spawn } from "node:child_process";
 import { once } from "node:events";
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { mock, test } from "node:test";
 import { clearTimeout, setTimeout } from "node:timers";
@@ -11,8 +11,10 @@ import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import { getHistoryPath, createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError, normalizeItemId, normalizeRawItemId } from "@unbrained/pm-cli/sdk/runtime";
 import { acquireStateLock, canonicalIdentifier, canonicalItemIdentifier, canonicalProgrammeId, commitStateTransaction } from "../state-boundary.ts";
 import extension, { registerGenerationCore, hashJson, resolveEvaluationPlan, evaluationComparison, loopLeaseLockId, loopProcessStartTime, loopProcessIdentityIO, withRlController, runRlLoop, type JsonValue } from "../index.ts";
-import { controllerCallback, controllerCallbackIO, executeProcessTrainer, processJobId, processStaging, readProcessJob, reserveProcessJob, stopRetainedTrainer, stopTrainer } from "../process.ts";
+import { controllerCallback, controllerCallbackIO, executeProcessTrainer, processJobId, processStaging, readProcessJob, reserveProcessJob, stopRetainedTrainer, stopTrainer, type ProcessInput, type TrainerPolicy } from "../process.ts";
 import { allowance, configuration, processWorkspace, trainingInput } from "./fixtures/process-workspace.ts";
+import { lmCollectBatch, parseLmLoopConfig } from "../lm.ts";
+import { lmProcessInput } from "../process-lm.ts";
 import { retryOwnedStop, waitForOwnedClose } from "../owned-stop.ts";
 import { composeConfiguration, launchComposeTrainer, stopComposeTrainer } from "../compose.ts";
 
@@ -378,11 +380,14 @@ test("cleanup exhaustion fault matrix observes native detach, identity and close
           try { await assert.rejects(stopRetainedTrainer(retained), refuses); }
           finally { falseAck.mock.restore(); delete (child as unknown as { kill?: unknown }).kill; }
           childKill.mock.restore(); processKill.mock.restore();
-          let stopping: Promise<void> | undefined;
-          child!.once("exit", () => { stopping = stopRetainedTrainer(retained!); });
-          const closed = once(child!, "close");
-          if (mode === "identity-exit") child!.stdin!.end(); else nativeKill(pid!, "SIGKILL");
-          await closed; await stopping;
+          if (mode === "identity") await stopRetainedTrainer(retained);
+          else {
+            let stopping: Promise<void> | undefined;
+            child!.once("exit", () => { stopping = stopRetainedTrainer(retained!); });
+            const closed = once(child!, "close");
+            if (mode === "identity-exit") child!.stdin!.end(); else nativeKill(pid!, "SIGKILL");
+            await closed; await stopping;
+          }
           assert.throws(() => nativeKill(pid!, 0), { code: "ESRCH" });
           await stopRetainedTrainer(retained);
         } finally { unref.mock.restore(); }
@@ -412,7 +417,14 @@ test("container cleanup retries transient failures, bounds persistent failures a
       const calls = JSON.parse(readFileSync(state, "utf8")) as { removals: number; down: number; foreignRemovals: number };
       assert.equal(calls.foreignRemovals, 0); assert.equal(calls.removals, mode === "transient" ? 4 : mode === "persistent" ? 6 : 1);
       if (mode === "missing-after-observation") assert.equal(existsSync(join(directory, "compose-stop.json")), false);
-      if (mode === "transient") assert.equal(calls.down, 2);
+      if (mode === "transient") {
+        assert.equal(calls.down, 2); const receipt = readFileSync(join(directory, "compose-stop.json"), "utf8");
+        await stopComposeTrainer(directory, id, image, "retry", limits);
+        assert.equal(readFileSync(join(directory, "compose-stop.json"), "utf8"), receipt, "a completed stop receipt remains immutable on retry");
+        unlinkSync(join(directory, "compose-stop.json")); writeFileSync(join(directory, "compose.json"), JSON.stringify(composeConfiguration(image)));
+        await stopComposeTrainer(directory, id, image, "without-limits");
+        assert.equal("resources" in JSON.parse(readFileSync(join(directory, "compose-stop.json"), "utf8")), false);
+      }
     } finally { if (previous === undefined) delete process.env.PATH; else process.env.PATH = previous; }
   });
 });
@@ -544,6 +556,29 @@ else if(args[1]==='inspect') console.log(JSON.stringify({memory_bytes:67108864,n
       else await run;
       if (mode === "cleanup-refusal") { assert.equal(errors.length, 1); assert.ok(isPmCliExpectedError(errors[0]) && errors[0].context.code === "process_job_drift"); }
       else { assert.deepEqual(errors, []); assert.equal(JSON.parse(readFileSync(join(directory, "compose-stop.json"), "utf8")).reason, mode === "success" ? "exited" : mode === "cancelled" ? "cancelled" : "failed"); }
+    } finally { if (previous === undefined) delete process.env.PATH; else process.env.PATH = previous; }
+  });
+});
+
+test("cubic coverage: both declared Compose adapters retain a typed trainer failure through the executor", async (context) => {
+  for (const kind of ["compose-bandit", "compose-lm"] as const) await context.test(kind, async () => {
+    const image = `sha256:${"a".repeat(64)}`; const generous = { training_steps: kind === "compose-lm" ? 6 : 1, wall_ms: 60000, storage_bytes: 2097152, compute_units: 60000, tokens: 100000 };
+    const w = await processWorkspace({ ...generous, training_steps: 100 });
+    const adapter = kind === "compose-bandit" ? { kind, image, allowance: generous } : { kind, image, allowance: generous, memory_bytes: 268435456, cpus: 1 };
+    let input: ProcessInput<TrainerPolicy> = trainingInput();
+    if (kind === "compose-lm") {
+      const example = JSON.parse(readFileSync(new URL("../examples/loop-lm.json", import.meta.url), "utf8"));
+      const config = parseLmLoopConfig({ ...example, adapter }); const step = { learningRate: config.learningRate, evaluationSamples: config.evaluationSamples };
+      input = lmProcessInput(config, step, 1, config.initial, lmCollectBatch(config, 1, config.initial), "native-compose-failure");
+    }
+    const bin = join(w.root, "bin"); mkdirSync(bin);
+    const script = `#!${process.execPath}\nconst a=process.argv.slice(2);if(a.includes('run')) {process.stderr.write('synthetic executor trainer failure');process.exitCode=7;} else if(a[0]==='container'&&a[1]==='ls')console.log('owned-container');else if(a[1]==='inspect')console.log(JSON.stringify({memory_bytes:268435456,nano_cpus:1000000000,oom_killed:false,exit_code:7,network:'none',user:'65534:65534'}));\n`;
+    writeFileSync(join(bin, "docker"), script, { mode: 0o755 }); const previous = process.env.PATH; process.env.PATH = `${bin}${delimiter}${previous}`;
+    try {
+      await assert.rejects(executeProcessTrainer(w.client, w.coordinates, input, w.approval, adapter), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "trainer_failure" && error.exitCode === 4);
+      const job = (await readProcessJob(w.client, processJobId(input, undefined, adapter)))!;
+      assert.equal(job.state, "failed"); assert.equal(job.outcome, "trainer_failure");
+      assert.equal(JSON.parse(readFileSync(join(processStaging(w.pmRoot, job.id), "compose-stop.json"), "utf8")).reason, "failed");
     } finally { if (previous === undefined) delete process.env.PATH; else process.env.PATH = previous; }
   });
 });

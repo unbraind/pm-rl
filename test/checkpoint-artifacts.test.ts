@@ -744,3 +744,16 @@ test("cubic: checked artifact boundaries retain their typed refusal before byte 
   assert.throws(() => readVerifiedFile(linked, digest), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "rl_state_path_invalid" && error.exitCode === 2);
   assert.deepEqual(readVerifiedFile(target, digest), content);
 });
+
+/** Cleanup must classify unreachable filesystem entries before it removes any target. */
+test("cubic coverage: orphan checkpoint links and directories are refused without touching their targets", async () => {
+  const w = await checkpointWorkspace(); const directory = join(w.pmRoot, "artifacts", "pm-rl", "sha256"); mkdirSync(directory, { recursive: true });
+  const target = join(w.root, "orphan-tripwire"); writeFileSync(target, "unchanged");
+  const orphan = join(directory, `${"a".repeat(64)}.json`); symlinkSync(target, orphan);
+  await assert.rejects(collectCheckpointArtifacts(w.pmRoot), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "rl_state_path_invalid" && error.exitCode === 2);
+  assert.equal(readFileSync(target, "utf8"), "unchanged"); assert.ok(lstatSync(orphan).isSymbolicLink()); unlinkSync(orphan);
+  mkdirSync(orphan);
+  await assert.rejects(collectCheckpointArtifacts(w.pmRoot), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "checkpoint_artifact_corrupt" && error.exitCode === 2);
+  assert.ok(lstatSync(orphan).isDirectory()); fs.rmdirSync(orphan);
+  assert.deepEqual(await collectCheckpointArtifacts(w.pmRoot), { retained: 0, removed: 0 });
+});

@@ -1,6 +1,6 @@
 /** Create a Git-free CLI PATH while retaining the runtime's native process-birth lookup tool. */
-import { accessSync, constants, copyFileSync, mkdirSync, symlinkSync } from "node:fs";
-import { delimiter, join } from "node:path";
+import { accessSync, constants, copyFileSync, existsSync, mkdirSync, symlinkSync } from "node:fs";
+import { delimiter, dirname, join } from "node:path";
 
 /** Resolve the exact required executable from the caller's PATH, without assuming a POSIX shell. */
 export function identityExecutable(tool: string, searchPath = process.env.PATH ?? ""): string {
@@ -13,11 +13,15 @@ export function identityExecutable(tool: string, searchPath = process.env.PATH ?
 }
 /** Keep native node and process identity reachable on Windows, Linux and other Unix platforms. */
 export function identityPath(root: string): string {
-  const bin = join(root, "bin"); mkdirSync(bin);
   const tool = process.platform === "win32" ? "powershell.exe" : process.platform === "linux" ? "getconf" : "ps";
-  const files = [[process.execPath, process.platform === "win32" ? "node.exe" : "node"], [identityExecutable(tool), tool]];
-  for (const [source, name] of files) {
-    if (process.platform === "win32") copyFileSync(source, join(bin, name)); else symlinkSync(source, join(bin, name));
+  const executable = identityExecutable(tool); const bin = join(root, "bin");
+  if (process.platform === "win32") {
+    // Preserve the installed tool's own directory; require its PATH entry to remain Git-free.
+    const directory = dirname(executable);
+    if (["git", "git.exe", "git.com", "git.cmd", "git.bat"].some(name => existsSync(join(directory, name)))) throw new Error("Process identity directory must not contain Git.");
+    mkdirSync(bin); copyFileSync(process.execPath, join(bin, "node.exe"));
+    return [bin, directory].join(delimiter);
   }
+  mkdirSync(bin); symlinkSync(process.execPath, join(bin, "node")); symlinkSync(executable, join(bin, tool));
   return bin;
 }

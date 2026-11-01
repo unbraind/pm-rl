@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import fs, { copyFileSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { mock, test } from "node:test";
 import { syncBuiltinESMExports } from "node:module";
 import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
@@ -53,16 +53,20 @@ test("cubic: restricted identity PATH needs no shell and retains the actual nati
 });
 
 
-test("cubic: Windows identity setup copies node and powershell without POSIX links or a shell", () => {
+test("cubic: Windows identity setup preserves installed PowerShell without POSIX links or a shell", () => {
   const root = mkdtempSync(join(tmpdir(), "rl-windows-identity-"));
   const platform = Object.getOwnPropertyDescriptor(process, "platform")!; const previousPath = process.env.PATH;
   try {
     const tools = join(root, "tools"); mkdirSync(tools); copyFileSync(process.execPath, join(tools, "powershell.exe"));
     process.env.PATH = tools; Object.defineProperty(process, "platform", { ...platform, value: "win32" });
-    const bin = identityPath(root);
-    assert.deepEqual(readdirSync(bin).sort(), ["node.exe", "powershell.exe"]);
+    const bin = join(root, "bin");
+    assert.equal(identityPath(root), [bin, tools].join(delimiter));
+    assert.deepEqual(readdirSync(bin), ["node.exe"]);
     assert.deepEqual(readFileSync(join(bin, "node.exe")), readFileSync(process.execPath));
-    assert.deepEqual(readFileSync(join(bin, "powershell.exe")), readFileSync(join(tools, "powershell.exe")));
+    writeFileSync(join(tools, "git.exe"), "unavailable in a restricted identity PATH");
+    const other = join(root, "refused"); mkdirSync(other);
+    assert.throws(() => identityPath(other), /must not contain Git/);
+    assert.deepEqual(readdirSync(other), [], "all tool preflight precedes setup writes");
   } finally {
     Object.defineProperty(process, "platform", platform); if (previousPath === undefined) delete process.env.PATH; else process.env.PATH = previousPath;
     rmSync(root, { recursive: true, force: true });

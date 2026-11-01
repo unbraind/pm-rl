@@ -300,7 +300,8 @@ async function cardDecisionInputs(client: PmClient, item: CardItem, plan: GetRes
     } catch (error) {
       if (isPmCliExpectedError(error) && error.context.code === "loop_write_conflict") throw error;
       rethrowOperationalRead(error);
-      refuse("card_drift", isPmCliExpectedError(error) ? String(error.context.item_id ?? item.id) : item.id);
+      // rethrowOperationalRead returns only for expected errors; all native errors escape above.
+      refuse("card_drift", String(error.context.item_id ?? item.id));
     }
   }
   if (spec.evaluation_plan === undefined) return { ids: [] };

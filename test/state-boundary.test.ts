@@ -8,7 +8,7 @@ import { join, relative } from "node:path";
 import { after, mock, test } from "node:test";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { init, isPmCliExpectedError, normalizeRawItemId, EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
-import { acquireStateLease, acquireStateLock, assertStatePathRoot, checkedStateFile, commitStateTransaction, identifier, identifierClient, statePath, preservedProgrammeId } from "../state-boundary.ts";
+import { acquireStateLease, acquireStateLock, assertStatePathRoot, checkedStateFile, commitStateTransaction, identifier, identifierClient, statePath, storedStateComponent, preservedProgrammeId } from "../state-boundary.ts";
 import { recordSequentialEvaluation, withEvaluationLease } from "../sequential-evaluation.ts";
 import { parseEvaluationPlan, registerEvaluationPlan } from "../evaluation-plan.ts";
 import { parseBenchmarkSpec, parseEvalResultSpec, commitProcessTransaction, withProcessJobFence, loopLeaseLockId, readCompleteLoopItem } from "../index.ts";
@@ -323,4 +323,26 @@ test("cubic: native history entry points validate nested identifiers and preserv
     const fetched = await identifierClient(client)[method]("get", { id: "#SAFE" });
     assert.ok("item" in fetched); assert.equal(fetched.item.id, "rl-safe");
   }
+});
+
+test("cubic coverage: unissued state components and oversized legacy spellings are refused", () => {
+  const root = mkdtempSync(join(tmpdir(), "rl-component-boundary-")); roots.push(root);
+  for (const component of [null, undefined, 17, { value: "safe" }]) assert.throws(() => statePath(root, component as never), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "rl_state_path_invalid" && error.exitCode === 2);
+  assert.throws(() => storedStateComponent(`${" ".repeat(256)}safe`), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "rl_identifier_invalid" && error.exitCode === 2);
+  assert.equal(statePath(root, storedStateComponent("safe")), join(root, "safe"));
+});
+
+test("cubic coverage: native SDK history omission cannot certify a programme namespace", async () => {
+  const root = mkdtempSync(join(tmpdir(), "rl-omitted-history-")); roots.push(root); const pmRoot = join(root, "tracker");
+  await init("rl", { defaults: true, author: "boundary-test", agentGuidance: "skip" }, { cwd: root, pmRoot });
+  const client = new PmClient({ cwd: root, pmRoot, author: "boundary-test", noExtensions: true });
+  const created = await client.create({ id: "limited-step-programme", type: "Decision", title: "Native omission", body: JSON.stringify({ format: "pm-rl/loop-step/1", key: "limited-step-programme", padding: "large ".repeat(1000) }) });
+  const get = client.get.bind(client);
+  assert.equal("item" in await get(created.item.id, { at: "1", full: true, outputBudget: "1", outputLimit: "unbounded" }), false);
+  /** Apply a real transport budget to the native SDK request, preserving its actual omission envelope. */
+  Object.assign(client, { get: ((id, options) => get(id, { ...options, outputBudget: "1" })) as PmClient["get"] });
+  try { await assert.rejects(preservedProgrammeId(client, "limited"), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "provenance_read_retryable" && error.exitCode === 4); }
+  finally { Object.assign(client, { get }); }
+  assert.equal(await preservedProgrammeId(client, "limited"), "limited");
+  assert.throws(() => identifierClient(client).get(undefined as never), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "rl_identifier_invalid" && error.exitCode === 2);
 });

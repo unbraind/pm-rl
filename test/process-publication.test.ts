@@ -6,7 +6,9 @@ import { syncBuiltinESMExports } from "node:module";
 import { dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
+import { normalizeThrownExitCode, readThrownExitCode } from "@unbrained/pm-cli/sdk";
 import { isPmCliExpectedError, EXIT_CODE, normalizeItemId } from "@unbrained/pm-cli/sdk/runtime";
+import { composeConfiguration } from "../compose.ts";
 import { readLoopRevision, runRlLoop } from "../index.ts";
 import { executeProcessTrainer, processDigest, processJobId, processStaging, stopTrainer, readProcessJob, referenceTrainerArgv, reserveProcessJob, RESOURCE_KEYS, transitionProcessJob, type ProcessCompletion, type ProcessJobState, type ProcessCoordinates } from "../process.ts";
 import { allowance, configuration, processWorkspace, trainingInput } from "./fixtures/process-workspace.ts";
@@ -509,4 +511,53 @@ test("transition producers share the reader resource schema and refuse extreme v
   }
   const valid = await transitionProcessJob(client, coordinates, source, "failed", "producer-round-trip");
   assert.deepEqual(await readProcessJob(client, id), valid);
+});
+
+test("cubic coverage: an untyped native filesystem failure during target discovery propagates unchanged", async () => {
+  const w = await processWorkspace(); const input = trainingInput(), raw = processJobId(input), id = `rl-${raw}`;
+  const get = w.client.get.bind(w.client); let reads = 0; let failure: unknown;
+  /** Fail the transport with an actual filesystem read error after the SDK certified absence. */
+  w.client.get = (async (...args) => {
+    if (args[0] === id && ++reads === 2) {
+      try { readFileSync(w.pmRoot); } catch (error) { failure = error; throw error; }
+    }
+    return get(...args);
+  }) as PmClient["get"];
+  try { await assert.rejects(reserveProcessJob(w.client, w.coordinates, raw, input, w.approval, allowance), (error: unknown) => {
+    assert.equal(error, failure); assert.equal((error as NodeJS.ErrnoException).code, "EISDIR");
+    assert.equal(normalizeThrownExitCode(readThrownExitCode(error) ?? EXIT_CODE.GENERIC_FAILURE), 1); return true;
+  }); }
+  finally { Object.assign(w.client, { get }); }
+  assert.equal(reads, 2); assert.equal(await readProcessJob(w.client, raw), null);
+});
+
+test("cubic coverage: an occupied non-job identity cannot be adopted as a reservation", async () => {
+  const w = await processWorkspace(); const input = trainingInput(), id = processJobId(input);
+  const peer = await w.client.create({ id, title: "Unrelated peer task", body: "unrelated" });
+  const before = (await w.client.get(peer.item.id, { full: true })).item;
+  await assert.rejects(reserveProcessJob(w.client, w.coordinates, id, input, w.approval, allowance), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "process_job_drift" && error.exitCode === 4);
+  assert.deepEqual((await w.client.get(peer.item.id, { full: true })).item, before);
+});
+
+test("cubic coverage: interrupted process and Compose jobs clean owned staging before missing-receipt refusal", async () => {
+  for (const kind of ["process-bandit", "compose-bandit"] as const) {
+    const w = await processWorkspace(); const input = trainingInput(); const image = `sha256:${"a".repeat(64)}`;
+    const adapter = kind === "process-bandit" ? { kind, allowance } : { kind, allowance, image };
+    const id = processJobId(input, undefined, adapter); const planned = await reserveProcessJob(w.client, w.coordinates, id, input, w.approval, allowance);
+    await transitionProcessJob(w.client, w.coordinates, planned, "running", "Interrupted before receipt publication");
+    const directory = processStaging(w.pmRoot, id); mkdirSync(directory, { recursive: true });
+    const previous = process.env.PATH;
+    if (kind === "process-bandit") {
+      assert.throws(() => process.kill(2147483647, 0), (error: unknown) => (error as NodeJS.ErrnoException).code === "ESRCH");
+      writeFileSync(join(directory, "runner.json"), JSON.stringify({ pid: 2147483647, start: "prior-native-start" }));
+    } else {
+      writeFileSync(join(directory, "compose.json"), JSON.stringify(composeConfiguration(image)));
+      const bin = join(w.root, "bin"); mkdirSync(bin); writeFileSync(join(bin, "docker"), `#!${process.execPath}\nconst args=process.argv.slice(2);if(args[0]==='container'&&args[1]==='ls')console.log('retained-container');\n`, { mode: 0o755 });
+      process.env.PATH = `${bin}${process.platform === "win32" ? ";" : ":"}${previous}`;
+    }
+    try { await assert.rejects(executeProcessTrainer(w.client, w.coordinates, input, w.approval, adapter), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "process_receipt_required" && error.exitCode === 2); }
+    finally { if (previous === undefined) delete process.env.PATH; else process.env.PATH = previous; }
+    assert.equal((await readProcessJob(w.client, id))!.state, "failed");
+    if (kind === "compose-bandit") assert.equal(JSON.parse(readFileSync(join(directory, "compose-stop.json"), "utf8")).reason, "recovery");
+  }
 });
