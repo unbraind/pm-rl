@@ -1,6 +1,6 @@
 # Changelog
 
-## 2026.11.1 - 2026-11-01
+## Unreleased
 
 ### Added
 
@@ -109,6 +109,7 @@
 
 ### Closed
 
+- Closed: Approval ID aliases bypass retained meta promotion headroom ([pm-rl-github-eecd7460423f-85](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-github-eecd7460423f-85.toon))
 - Closed: Resolve CodeRabbit round-2 findings on PR 16 ([pm-rl-weum](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-weum.toon))
 - Closed: Converge changelog generation and verification on replace mode ([pm-rl-yjqx](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-yjqx.toon))
 - Closed: Release bot identity was absent from the allowlist, so the first release would break the audit permanently ([pm-rl-rgt4](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-rgt4.toon))
