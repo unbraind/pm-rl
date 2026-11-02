@@ -1021,8 +1021,9 @@ acquisition at its directory validation boundaries: a pre-existing symlinked
 pm-rl maps that SDK refusal to `rl_state_path_invalid` with exit code **2**.
 The original substitution at SDK `mkdir` also refuses without leaving a lock.
 A later directory replacement at the exclusive lock-file open is detected,
-but the published SDK deliberately retains the stray empty lock outside the
-tracker. This is not an atomic no-outside-write guarantee; the broader
+but SDK 2026.11.2 leaves the empty lock file it created outside the tracker
+([pm-cli#1652](https://github.com/unbraind/pm-cli/issues/1652)). The file holds
+no lock contents. This is not an atomic no-outside-write guarantee; the broader
 [pm-rl-confined-sdk-locks](.agents/pm/tasks/pm-rl-confined-sdk-locks.toon)
 acceptance remains open. The native regressions and this limit are pinned in
 `test/sdk-lock-confinement.test.ts`.
