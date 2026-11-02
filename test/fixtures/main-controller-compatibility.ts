@@ -238,8 +238,22 @@ async function exerciseCards(directory: string): Promise<void> {
   const row = corpus.cases.find(row => row.prefix === "rl" && row.kind === "loop" && !row.interrupted)!;
   writeFileSync(join(directory, "cards.json"), JSON.stringify(await cardDecisions(clientFor(row), row.prefix)));
 }
+/** A one-byte domain edit after SDK upgrade must still refuse automatic resume. */
+async function driftCorpus(directory: string): Promise<void> {
+  const row = loadCorpus(directory).cases.find(row => row.prefix === "rl" && row.kind === "loop" && !row.interrupted)!;
+  const client = clientFor(row);
+  const generation = (await readCompleteLoopItem(client, `${row.id}-g1`)).item;
+  const spec = extractGenerationSpec(String(generation.body), "Upgrade drift");
+  await verifyRetainedGenerationEvidence(client, generation.id);
+  const run = (await readCompleteLoopItem(client, spec.collection_runs[0]!)).item;
+  const original = String(run.body ?? ""); const changed = `${original}!`;
+  assert.equal(Buffer.byteLength(changed), Buffer.byteLength(original) + 1);
+  await client.update(run.id, { body: changed });
+  assert.equal((await readCompleteLoopItem(client, run.id)).item.body, changed, "the SDK retained the exact one-byte edit");
+  await assert.rejects(resumeRlLoop(client, { pmRoot: join(row.root, ".agents/pm"), author: "main-compatibility" }, { id: row.id, approval: "approval" }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_generation_drift");
+}
 const [mode, directory] = process.argv.slice(2);
 try {
-if (mode === "write") await writeCorpus(directory!); else if (mode === "exercise") await exerciseCorpus(directory!); else if (mode === "augment") await augmentCorpus(directory!); else if (mode === "running") await writeCorpus(directory!, true); else if (mode === "cards") await exerciseCards(directory!); else if (mode === "processes") await augmentProcesses(directory!); else if (mode === "processes-capture") await captureProcesses(directory!); else if (mode === "processes-read") await processCorpus(directory!); else if (mode === "processes-reclock") await processCorpus(directory!, true); else throw new Error("compatibility driver mode");
+if (mode === "write") await writeCorpus(directory!); else if (mode === "exercise") await exerciseCorpus(directory!); else if (mode === "augment") await augmentCorpus(directory!); else if (mode === "running") await writeCorpus(directory!, true); else if (mode === "cards") await exerciseCards(directory!); else if (mode === "drift") await driftCorpus(directory!); else if (mode === "processes") await augmentProcesses(directory!); else if (mode === "processes-capture") await captureProcesses(directory!); else if (mode === "processes-read") await processCorpus(directory!); else if (mode === "processes-reclock") await processCorpus(directory!, true); else throw new Error("compatibility driver mode");
 
 } catch (error) { console.error(isPmCliExpectedError(error) ? JSON.stringify({ code: error.context.code, message: error.message }) : error); process.exitCode = 1; }

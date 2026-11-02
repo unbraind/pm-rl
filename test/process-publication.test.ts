@@ -495,7 +495,7 @@ test("shared transition admission retains foreign targets and permits released l
   const expected = await evidence(client, foreign);
   await assert.rejects(transitionProcessJob(client, coordinates, { ...source, id: foreign }, "running", "foreign-request"), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "superseded");
   assert.deepEqual(await evidence(client, foreign), expected);
-  await client.update(id, { body: JSON.stringify(source, null, 2).replaceAll("\n", "\r\n"), removeTags: ["rl-process-job"], parent: "none", goal: "none", objective: "none", sprint: "none", release: "none" });
+  await client.update(id, { body: JSON.stringify(source, null, 2).replaceAll("\n", "\r\n"), removeTags: ["rl-process-job"], unset: ["parent", "goal", "objective", "sprint", "release"] });
   const legacy = (await readProcessJob(client, id))!;
   const result = await transitionProcessJob(client, coordinates, legacy, "running", "legacy-progress");
   assert.equal(result.state, "running"); assert.deepEqual(result.charge, allowance);

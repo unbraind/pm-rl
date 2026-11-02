@@ -208,15 +208,17 @@ test("peer creation and edits are reconciled at every native SDK read/write boun
     const p = request(1000 + step + (kind === "write" ? 0 : 100));
     const report = measureTrainingInfluence(p); const id = `rl-training-influence-${report.digest}`;
     if (kind === "feedback") await recordTrainingInfluence(peer, p);
-    resetBoundary(); injectAt = step;
+    resetBoundary(); injectAt = step; let injected = false;
     inject = async () => {
       if (kind === "write") {
         await recordTrainingInfluence(peer, p);
-        await peer.update(id, { title: "Peer succeeded", parent: "none" });
+        await peer.update(id, { title: "Peer succeeded", unset: ["parent"] });
       } else await peer.update(id, { body: "Foreign replacement" });
+      injected = true;
     };
     const outcome = await (kind === "write" ? recordTrainingInfluence(w.client, p) : attachTrainingInfluence(w.client, programme(p), id)).then((value) => ({ value }), (error: unknown) => ({ error }));
     assert.ok(boundary.count >= step); injectAt = -1;
+    assert.equal(injected, true, "the native peer mutation completed at the selected boundary");
     if ("error" in outcome) assert.ok(isPmCliExpectedError(outcome.error));
     if (kind === "write") {
       const native = (await peer.get(id, { full: true })).item;

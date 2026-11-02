@@ -231,6 +231,7 @@
     "@toon-format/toon": "4.4.0",
     "@types/node": "26.6.5",
     "@unbrained/pm-cli": "2026.11.2",
+    "@unbrained/pm-cli-legacy": "npm:@unbrained/pm-cli@2026.10.27",
     "eslint": "10.13.0",
     "jiti": "2.7.0",
     "jscpd": "5.4.2",

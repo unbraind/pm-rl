@@ -11,6 +11,7 @@
         "@toon-format/toon": "4.4.0",
         "@types/node": "26.6.5",
         "@unbrained/pm-cli": "2026.11.2",
+        "@unbrained/pm-cli-legacy": "npm:@unbrained/pm-cli@2026.10.27",
         "eslint": "10.13.0",
         "jiti": "2.7.0",
         "jscpd": "5.4.2",
@@ -184,6 +185,8 @@
     "@typescript/typescript-win32-x64": ["@typescript/typescript-win32-x64@7.0.2", "", { "os": "win32", "cpu": "x64" }, "sha512-0BQ3HkAHHlKLSp1qRvf3SUhGpGsDuhB/jgFw75guyqbxJqEaS0Cw/VFO8i2nHglJUzQCRtMMR/IBAKE3ETMC4g=="],
 
     "@unbrained/pm-cli": ["@unbrained/pm-cli@2026.11.2", "", { "dependencies": { "@opentelemetry/api": "1.9.1", "@opentelemetry/core": "2.12.0", "@opentelemetry/sdk-trace-base": "2.12.0", "@sentry/node": "10.76.2", "@toon-format/toon": "^4.4.0", "commander": "^15.0.0", "fast-json-patch": "^3.1.1", "npm-package-arg": "^13.0.2", "semver": "7.8.5", "tar": "7.5.22", "tinyglobby": "^0.2.17", "yaml": "^2.9.1" }, "peerDependencies": { "@types/node": "^22 || ^24 || ^26" }, "optionalPeers": ["@types/node"], "bin": { "pm": "dist/cli.js", "pm-cli": "dist/cli.js", "pm-mcp": "dist/mcp/server.js", "pm-mcp-http": "dist/mcp/http-server.js" } }, "sha512-kETZOqqcXsdWBGU1Epm6UGUHd5DQM3HgVXdNfSlRe3mnL4Gvi++pKgKFBgbvrn3I2lyEC+Lt8jD61yR2kIkWjA=="],
+
+    "@unbrained/pm-cli-legacy": ["@unbrained/pm-cli@2026.10.27", "", { "dependencies": { "@sentry/node": "10.76.2", "@toon-format/toon": "^4.4.0", "commander": "^15.0.0", "fast-json-patch": "^3.1.1", "npm-package-arg": "^13.0.2", "semver": "7.8.5", "tar": "7.5.22", "tinyglobby": "^0.2.17", "yaml": "^2.9.1" }, "peerDependencies": { "@types/node": "^22 || ^24 || ^26" }, "optionalPeers": ["@types/node"], "bin": { "pm": "dist/cli.js", "pm-cli": "dist/cli.js", "pm-mcp": "dist/mcp/server.js", "pm-mcp-http": "dist/mcp/http-server.js" } }, "sha512-G9XY/dGkJwl3jfPqgVXx6aAYj10V83gQ2FkkSSSEGxAMqy40OPtH7/53p8SSEwUspSEdSLX6yF7ooLaBlgqc4A=="],
 
     "acorn": ["acorn@8.18.0", "", { "bin": { "acorn": "bin/acorn" } }, "sha512-lGq+9yr1/GuAWaVYIHRjvvySG5/4VfKIvC8EWxStPdcDh/Ka7FG3twP6v4d5BkravUilhIAsG4Qj83t02LWUPQ=="],
 

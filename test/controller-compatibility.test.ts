@@ -47,7 +47,11 @@ test("origin main corpus: completed and interrupted controllers, loops, receipts
     const ancestor = spawnSync("git", ["merge-base", "--is-ancestor", oracleSource, "refs/remotes/origin/main"], { cwd: repo, env, encoding: "utf8" });
     assert.equal(ancestor.status, 0, "Fetch complete main history: the legacy oracle must be a certified main ancestor");
     execFileSync("git", ["worktree", "add", "--detach", writer, oracleSource], { cwd: repo, env, stdio: "pipe" }); registered = true;
-    symlinkSync(join(repo, "node_modules"), join(writer, "node_modules"), "dir");
+    // The frozen producer predates SDK history ordering. Certify with its actual
+    // SDK, then resume that untouched corpus with the current host SDK.
+    mkdirSync(join(writer, "node_modules/@unbrained"), { recursive: true });
+    symlinkSync(join(repo, "node_modules/@unbrained/pm-cli-legacy"), join(writer, "node_modules/@unbrained/pm-cli"), "dir");
+    assert.equal(JSON.parse(readFileSync(join(writer, "node_modules/@unbrained/pm-cli/package.json"), "utf8")).version, "2026.10.27");
     cpSync(join(repo, "test/fixtures/main-controller-compatibility.ts"), join(writer, "test/fixtures/main-controller-compatibility.ts"));
     // Creation uses the frozen main oracle, never the implementation under test.
     drive(writer, "write", corpus, env);
@@ -73,7 +77,8 @@ test("origin main corpus: completed and interrupted controllers, loops, receipts
       drive(repo, "processes-read", born, env); assert.deepEqual(JSON.parse(readFileSync(join(born, "process-results.json"), "utf8")), baseline);
       drive(repo, "processes-read", born, env, bun); assert.deepEqual(JSON.parse(readFileSync(join(born, "process-results.json"), "utf8")), baseline);
     }
-    console.log(JSON.stringify({ main_written_cases: 15, prefixes: ["rl", "fleet", "rl-prefixed"], states: ["completed", "interrupted"], source: "native SDK read-back" }));
+    drive(repo, "drift", join(root, "current"), env);
+    console.log(JSON.stringify({ main_written_cases: 15, writer_sdk: "2026.10.27", reader_sdk: "2026.11.2", one_byte_drift: "loop_generation_drift", prefixes: ["rl", "fleet", "rl-prefixed"], states: ["completed", "interrupted"], source: "native SDK read-back" }));
   } finally {
     if (registered) execFileSync("git", ["worktree", "remove", "--force", writer], { cwd: repo, env, stdio: "pipe" });
     rmSync(root, { recursive: true, force: true });
