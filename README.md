@@ -566,7 +566,7 @@ source commits. Release changelogs and GitHub provenance also require Git.
 ## Requirements
 
 - Node.js ≥ 22.18, tested on 22 and 26
-- `@unbrained/pm-cli` ≥ 2026.10.25 (peer dependency; fenced SDK leases)
+- `@unbrained/pm-cli` ≥ 2026.11.2 (tested SDK host; fenced leases and unsafe-lock refusals)
 - Works under `npm`/`npx` and `bun`/`bunx`
 - No runtime dependencies beyond the Node standard library
 
@@ -1014,11 +1014,19 @@ directory between the root and the leaf, and symlinked leaves (including
 dangling links). Links above the explicit root are permitted. Git metadata discovery
 and explicit filesystem locations establish roots; they are never identifier
 components. pm-rl's own reads and writes use these confined state boundaries;
-delayed effects and cleanup recheck their paths. SDK lock acquisition is confined
-only once [pm-cli#1647](https://github.com/unbraind/pm-cli/issues/1647) ships:
-the current SDK can follow a `locks` directory swapped after preflight. See
-[pm-rl-confined-sdk-locks](.agents/pm/tasks/pm-rl-confined-sdk-locks.toon).
-A pathname pre-check does not close that SDK race. State refusals have
+delayed effects and cleanup recheck their paths. SDK **2026.11.2**, providing
+[pm-cli#1647](https://github.com/unbraind/pm-cli/issues/1647), confines lock
+acquisition at its directory validation boundaries: a pre-existing symlinked
+`locks` directory refuses with `lock_path_unsafe` and leaves no outside lock.
+pm-rl maps that SDK refusal to `rl_state_path_invalid` with exit code **2**.
+The original substitution at SDK `mkdir` also refuses without leaving a lock.
+A later directory replacement at the exclusive lock-file open is detected,
+but the published SDK deliberately retains the stray empty lock outside the
+tracker. This is not an atomic no-outside-write guarantee; the broader
+[pm-rl-confined-sdk-locks](.agents/pm/tasks/pm-rl-confined-sdk-locks.toon)
+acceptance remains open. The native regressions and this limit are pinned in
+`test/sdk-lock-confinement.test.ts`.
+State refusals have
 codes `rl_identifier_invalid` or `rl_state_path_invalid` and a `required` remedy:
 use the documented identifier or restore ordinary state directories. Shorten
 identifiers further when their derived item/filename would exceed these bounds.

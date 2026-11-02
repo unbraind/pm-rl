@@ -116,13 +116,20 @@ refusal prevents later evidence publication; an identical already-sealed retry
 can still return its current result. Fixed protected-cohort guards retain their
 original admission contract. Combining them with a sequential stopping protocol
 requires a separately specified design and currently refuses before registration.
-pm-rl confines its own reads and writes through its state-path boundaries. SDK
-lock acquisition is confined only once
-[pm-cli#1647](https://github.com/unbraind/pm-cli/issues/1647) ships; the current SDK
-can follow a `locks` directory swapped after the package's pathname preflight.
-The fixed-plan fenceable lease and sequential locks share that SDK limitation.
-See [pm-rl-confined-sdk-locks](../.agents/pm/tasks/pm-rl-confined-sdk-locks.toon).
-No pre-check is a workaround for the SDK's later `mkdir`.
+pm-rl confines its own reads and writes through its state-path boundaries.
+The minimum and tested SDK host is **2026.11.2**, which provides
+[pm-cli#1647](https://github.com/unbraind/pm-cli/issues/1647). SDK lock acquisition
+checks every component below the tracker root, refuses a symlinked `locks`
+directory with `lock_path_unsafe`, and detects a directory replacement during
+creation. pm-rl translates that refusal to `rl_state_path_invalid`, exit **2**,
+for native client mutations, fixed-plan fenceable leases, sequential locks and
+workspace transactions. The original `mkdir` substitution leaves no outside
+lock. A later replacement at `open("wx")` refuses but leaves an empty outside
+lock, by the published SDK's explicit policy. The tests in
+`test/sdk-lock-confinement.test.ts` preserve both the refusal guarantees and
+that remaining limit. The broader no-outside-write acceptance on
+[pm-rl-confined-sdk-locks](../.agents/pm/tasks/pm-rl-confined-sdk-locks.toon)
+is still open; a pathname preflight cannot supply it.
 
 ```ts
 import { PmClient } from '@unbrained/pm-cli/sdk/core';

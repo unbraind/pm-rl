@@ -8,7 +8,7 @@ import { join, relative } from "node:path";
 import { after, mock, test } from "node:test";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { init, isPmCliExpectedError, normalizeRawItemId, EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
-import { acquireStateLease, acquireStateLock, assertStatePathRoot, checkedStateFile, commitStateTransaction, identifier, identifierClient, statePath, storedStateComponent, preservedProgrammeId } from "../state-boundary.ts";
+import { acquireStateLease, acquireStateLock, assertStatePathRoot, checkedStateFile, commitStateTransaction, identifier, identifierClient, statePath, storedStateComponent, preservedProgrammeId, canonicalProgrammeId, programmeStepName, operationIdentifier, programmeRequest } from "../state-boundary.ts";
 import { recordSequentialEvaluation, withEvaluationLease } from "../sequential-evaluation.ts";
 import { parseEvaluationPlan, registerEvaluationPlan } from "../evaluation-plan.ts";
 import { parseBenchmarkSpec, parseEvalResultSpec, commitProcessTransaction, withProcessJobFence, loopLeaseLockId, readCompleteLoopItem } from "../index.ts";
@@ -27,6 +27,10 @@ test("coverage: tied native receipt times use deterministic namespace discovery 
   const root = mkdtempSync(join(tmpdir(), "rl-boundary-ties-")); roots.push(root); const pmRoot = join(root, "tracker");
   await init("rl", { defaults: true, author: "boundary-test", agentGuidance: "skip" }, { cwd: root, pmRoot });
   const client = new PmClient({ cwd: root, pmRoot, author: "boundary-test", noExtensions: true });
+  assert.equal(await canonicalProgrammeId(client, "#RL-ties"), "ties");
+  assert.deepEqual(await programmeRequest(client, { id: "ties", approval: "rl-approval" }), { id: "ties", approval: "rl-approval" });
+  assert.equal(programmeStepName("ties-step-publish", "rl", "ties", "publish"), "ties");
+  for (const [key, phase] of [["ties", undefined], ["-step-publish", undefined], ["other-step-publish", undefined], ["ties-step-publish", "other"]]) assert.equal(programmeStepName(key!, "rl", "ties", phase), null);
   context.mock.timers.enable({ apis: ["Date"], now: new Date("2026-10-29T00:00:00.000Z") });
   try {
     const rows = [];
@@ -34,6 +38,11 @@ test("coverage: tied native receipt times use deterministic namespace discovery 
     assert.equal(rows[0].item.created_at, rows[1].item.created_at);
     assert.equal(await preservedProgrammeId(client, "ties"), "ties");
   } finally { context.mock.timers.reset(); }
+  await client.create({ id: "ignored-step-programme", type: "Decision", title: "Unrelated receipt", body: JSON.stringify({ format: "another-format/1" }) });
+  assert.equal(await preservedProgrammeId(client, "ignored"), "ignored");
+  assert.throws(() => operationIdentifier("x".repeat(1025)), refusal);
+  assert.throws(() => operationIdentifier(null), refusal);
+  assert.throws(() => statePath(pmRoot, 1 as never), refusal);
   const created = await client.create({ id: "broken-step-programme", type: "Decision", title: "Native history refusal", body: JSON.stringify({ format: "pm-rl/loop-step/1", key: "broken-step-programme" }) });
   const history = join(pmRoot, "history", `${created.item.id}.jsonl`); appendFileSync(history, "not JSON\n");
   const before = readFileSync(history, "utf8");

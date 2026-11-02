@@ -182,43 +182,49 @@ export function identifierClient(client: PmClient): PmClient {
         const request = args[1] as { id?: unknown } | undefined;
         operationIdentifier(request?.id);
       }
-      return Reflect.apply(method, target, args);
+      const result: unknown = Reflect.apply(method, target, args);
+      return result instanceof Promise ? result.catch(lockRefusal) : result;
     };
   } });
   guarded.set(client, proxy); guarded.set(proxy, proxy); return proxy;
 }
-/** Preflight native lock paths; atomic SDK acquisition confinement depends on pm-cli#1647 (pm-rl-confined-sdk-locks). */
+/** Translate the SDK unsafe-lock refusal without changing any other failure. */
+function lockRefusal(error: unknown): never {
+  if (isPmCliExpectedError(error) && error.context.code === "lock_path_unsafe") refused("rl_state_path_invalid");
+  throw error;
+}
+/** Preflight native paths and delegate acquisition link checks to SDK 2026.11.2. */
 export async function acquireStateLock(...args: Parameters<typeof sdkAcquireLock>): ReturnType<typeof sdkAcquireLock> {
   const [root, rawId] = args; const id = canonicalIdentifier(rawId);
   const lock = statePath(root, "locks", `${id}.lock`);
   statePath(root, "locks", `${id}.lock.stale-cleanup`, "owner.json");
-  const release = await sdkAcquireLock(root, id, ...args.slice(2) as [number, string, boolean?, boolean?, number?]);
+  const release = await sdkAcquireLock(root, id, ...args.slice(2) as [number, string, boolean?, boolean?, number?]).catch(lockRefusal);
   /** Native release reads its token under the SDK cleanup lease and cannot remove a successor. */
   return async () => { checkedStateFile(lock); statePath(root, "locks", `${id}.lock.stale-cleanup`, "owner.json"); await release(); };
 }
 
-/** Preflight fenceable SDK lease paths; pm-cli#1647 is required to close acquisition link races. */
+/** Preflight fenceable lease paths and preserve SDK 2026.11.2 acquisition refusals. */
 export async function acquireStateLease(...args: Parameters<typeof sdkAcquireLockLease>): ReturnType<typeof sdkAcquireLockLease> {
   const [root, rawId, ...policy] = args; const id = canonicalIdentifier(rawId);
   const lock = statePath(root, "locks", `${id}.lock`);
   statePath(root, "locks", `${id}.lock.stale-cleanup`, "owner.json");
-  const lease = await sdkAcquireLockLease(root, id, ...policy);
+  const lease = await sdkAcquireLockLease(root, id, ...policy).catch(lockRefusal);
   return {
     /** Enter the native ownership fence before executing a guarded SDK write. */
     async fence<T>(execute: () => Promise<T>): Promise<T> {
       checkedStateFile(lock);
       return lease.fence(async () => { checkedStateFile(lock); return execute(); });
     },
-    /** Preflight the release path and delegate ownership to the SDK; acquisition confinement remains pending #1647. */
+    /** Preflight the release path and delegate ownership to the SDK. */
     async release(): Promise<void> { checkedStateFile(lock); statePath(root, "locks", `${id}.lock.stale-cleanup`, "owner.json"); await lease.release(); },
   };
 }
 
-/** Preflight native journal and lease paths; SDK lock acquisition confinement remains pending pm-cli#1647. */
+/** Preflight native journal paths and translate SDK 2026.11.2 unsafe-lock refusals. */
 export function commitStateTransaction(options: CommitWorkspaceTransactionOptions): ReturnType<typeof commitWorkspaceTransaction> {
   operationIdentifier(options.transactionId, "component"); options.steps.forEach((step) => operationIdentifier(step.id, "component"));
   statePath(options.pmRoot, "transactions", "sdk", `${options.transactionId}.json`);
   statePath(options.pmRoot, "locks", "sdk-workspace-transaction.lock");
   statePath(options.pmRoot, "locks", "sdk-workspace-transaction.lock.stale-cleanup", "owner.json");
-  return commitWorkspaceTransaction(options);
+  return commitWorkspaceTransaction(options).catch(lockRefusal);
 }
