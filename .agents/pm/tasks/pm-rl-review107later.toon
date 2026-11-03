@@ -2,11 +2,13 @@ id: pm-rl-review107later
 title: Triage the three later review threads outside the seven-finding round
 description: "Follow up PRRT_kwDOTqJmqs6x8fDn (duplicate public acceptance evidence), PRRT_kwDOTqJmqs6x8fDs (fixed-result lifecycle sources), and PRRT_kwDOTqJmqs6x8fDu (unreadable process birth identity). These arrived after the seven requested threads; preserve released compatibility and require independent regression/revert evidence before changes."
 type: Task
-status: in_progress
+status: closed
 priority: 2
 tags[2]: "gh:unbraind/pm-rl#107",review
 created_at: "2026-10-30T13:55:27.424Z"
-updated_at: "2026-11-02T12:20:54.915Z"
+updated_at: "2026-11-03T05:33:20.708Z"
+closed_at: "2026-11-03T05:33:01.399Z"
+completed_at: "2026-11-03T05:27:11.000Z"
 author: codex-agent
 parent: pm-rl-sequential
 comments[112]{created_at,author,text}:
@@ -307,4 +309,5 @@ docs[4]{path,scope}:
   docs/sdk-2026.11.2-compatibility.md,project
   README.md,project
   test/fixtures/README-sweep-equivalence.md,project
+close_reason: "Verified by the orchestrator: the three later threads are fixed with revert controls (see the codex-sol comments); the remaining timing gap was pm-rl-bi4v, fixed by 3c320c9. pm-rl#107 merged as 105233a; all release gates passed on head 61934f5 (run https://github.com/unbraind/pm-rl/actions/runs/41574057945)."
 body: ""
