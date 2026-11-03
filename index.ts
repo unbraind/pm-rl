@@ -1165,14 +1165,29 @@ async function getTypedItem(client: PmClient, id: string, type: "Decision" | "En
 }
 
 /**
+ * Clients whose registered item types this process has already installed once.
+ *
+ * The SDK resolves the merge-attribute workspace per `schemaAddType` call, which
+ * spawns a `git rev-parse --show-toplevel` probe; repeating all nine calls before
+ * every create multiplies that probe by the loop's item count (225 spawns for one
+ * three-generation loop instead of 9) and dominates packed-CLI wall time.
+ */
+const persistentTypesInstalled = new WeakSet<PmClient>();
+
+/**
  * Persist the registered types so every core mutation can locate their folders.
  *
  * pm-cli 2026.8.1 resolves extension types for reads and creates but not core
  * updates or closes (upstream #855). `schemaAddType` is byte-idempotent, so this
  * compatibility step changes a tracker only on its first pm-rl mutation and can
- * be removed once the host uses one registry across all store paths.
+ * be removed once the host uses one registry across all store paths. Because the
+ * writes are byte-idempotent, one completed installation per client in this
+ * process keeps every create preceded by an installed schema without spending
+ * repeated workspace probes on unchanged trackers; a fresh process, a fresh
+ * client or a faulted installation still re-runs the full byte-idempotent sequence.
  */
 async function ensurePersistentTypes(client: PmClient): Promise<void> {
+  if (persistentTypesInstalled.has(client)) return;
   for (const itemType of RL_ITEM_TYPES) {
     await identifierClient(client).schemaAddType(itemType.name, {
       folder: itemType.folder,
@@ -1182,6 +1197,7 @@ async function ensurePersistentTypes(client: PmClient): Promise<void> {
       author: "pm-rl",
     });
   }
+  persistentTypesInstalled.add(client);
 }
 
 /** Publish a fully validated create envelope; reads and refused plans never install schema. */
