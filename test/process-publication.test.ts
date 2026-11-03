@@ -5,13 +5,138 @@ import fs, { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { syncBuiltinESMExports } from "node:module";
 import { dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import type { PmClient } from "@unbrained/pm-cli/sdk/core";
-import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
+import { PmClient } from "@unbrained/pm-cli/sdk/core";
+import { normalizeThrownExitCode, readThrownExitCode } from "@unbrained/pm-cli/sdk";
+import { isPmCliExpectedError, EXIT_CODE, normalizeItemId } from "@unbrained/pm-cli/sdk/runtime";
+import { composeConfiguration } from "../compose.ts";
 import { readLoopRevision, runRlLoop } from "../index.ts";
 import { executeProcessTrainer, processDigest, processJobId, processStaging, stopTrainer, readProcessJob, referenceTrainerArgv, reserveProcessJob, RESOURCE_KEYS, transitionProcessJob, type ProcessCompletion, type ProcessJobState, type ProcessCoordinates } from "../process.ts";
 import { allowance, configuration, processWorkspace, trainingInput } from "./fixtures/process-workspace.ts";
+import { reserveMeta } from "../meta.ts";
+import { metaConfig, metaSpec } from "./fixtures/meta-workspace.ts";
+import { optionalItem } from "../evaluation-plan.ts";
 
 const boundaries = ["prepared", "step_applied", "step_recorded", "committing", "committed", "compensating", "step_compensating", "step_compensated", "compensated"] as const;
+
+/** Native malformed-document failures must survive optional-read adapters unchanged. */
+function invalidNativeRead(error: unknown): boolean {
+  return isPmCliExpectedError(error) && error.context.code === "item_document_invalid" && error.exitCode === EXIT_CODE.GENERIC_FAILURE;
+}
+
+test("coverage: optional plan, process and meta reads preserve real non-NOT_FOUND SDK failures", async () => {
+  const w = await processWorkspace();
+  await w.client.update(w.approval, { body: "```json\n" + JSON.stringify(metaSpec) + "\n```" });
+  assert.equal(await optionalItem(w.client, "rl-absent"), null);
+  assert.equal(await readProcessJob(w.client, "rl-absent"), null);
+  for (const [id, type, folder] of [["rl-broken-plan", "Plan", "plans"], ["rl-broken-job", "Task", "tasks"], ["rl-broken-meta-reservation", "Decision", "decisions"]] as const) {
+    await w.client.create({ id, type, title: "Native read error" });
+    const path = join(w.pmRoot, folder, `${id}.toon`), broken = "[not valid TOON\n";
+    writeFileSync(path, broken);
+    await assert.rejects(w.client.get(id), invalidNativeRead);
+    if (type === "Plan") await assert.rejects(optionalItem(w.client, id), invalidNativeRead);
+    if (type === "Task") await assert.rejects(readProcessJob(w.client, id), invalidNativeRead);
+    if (type === "Decision") await assert.rejects(reserveMeta(w.client, w.coordinates, { id: "rl-broken-meta", config: metaConfig, dataset: "unused", approval: w.approval, proposer: "seeded" }, "binding", true), invalidNativeRead);
+    assert.equal(readFileSync(path, "utf8"), broken);
+  }
+});
+
+test("coverage: a retained meta reservation cannot change to another valid approval", async () => {
+  const w = await processWorkspace();
+  await w.client.update(w.approval, { body: "```json\n" + JSON.stringify(metaSpec) + "\n```" });
+  const request = { id: "rl-meta-approval-drift", config: metaConfig, dataset: "unused", approval: w.approval, proposer: "seeded" as const };
+  await reserveMeta(w.client, w.coordinates, request, "binding");
+  const other = await w.client.create({ id: "rl-other-approval", type: "Decision", title: "Independent valid approval", body: "```json\n" + JSON.stringify(metaSpec) + "\n```" });
+  const id = `${request.id}-reservation`;
+  const reservation = (await w.client.get(id, { full: true })).item;
+  await w.client.update(id, { body: JSON.stringify({ ...JSON.parse(String(reservation.body)), approval: other.item.id }) });
+  const paths = [join(w.pmRoot, "decisions", `${id}.toon`), join(w.pmRoot, "history", `${id}.jsonl`)];
+  const before = paths.map(path => readFileSync(path, "utf8"));
+  await assert.rejects(reserveMeta(w.client, w.coordinates, request, "binding", true), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "meta_reservation_drift" && error.exitCode === EXIT_CODE.CONFLICT);
+  assert.deepEqual(paths.map(path => readFileSync(path, "utf8")), before);
+});
+
+test("coverage: a native reservation target read failure after certified absence cannot become a new reservation", async () => {
+  const w = await processWorkspace(); const input = trainingInput(), raw = processJobId(input), id = `rl-${raw}`;
+  const peer = new PmClient({ cwd: w.root, pmRoot: w.pmRoot, author: "ordinary-peer", noExtensions: true });
+  const get = w.client.get.bind(w.client); let injected = false, reads = 0; let failure: unknown;
+  const path = join(w.pmRoot, "tasks", `${id}.toon`);
+  /** Delegate every response to the SDK; schedule a real peer file change between its two reads. */
+  w.client.get = (async (...args) => {
+    try { return await get(...args); }
+    catch (error) { if (invalidNativeRead(error)) failure ??= error; throw error; }
+    finally {
+      if (args[0] === id && args[1]?.at === undefined && ++reads === 1) {
+        await peer.create({ id, title: "Peer target" }); writeFileSync(path, "[not valid TOON\n"); injected = true;
+      }
+    }
+  }) as PmClient["get"];
+  try { await assert.rejects(reserveProcessJob(w.client, w.coordinates, raw, input, w.approval, allowance), (error: unknown) => error === failure && invalidNativeRead(error)); }
+  finally { Object.assign(w.client, { get }); }
+  assert.ok(injected); assert.equal(reads, 2); assert.equal(readFileSync(path, "utf8"), "[not valid TOON\n");
+});
+
+test("coverage: a matching reservation created after preparation is adopted without another write", async () => {
+  const input = trainingInput(), raw = processJobId(input);
+  const template = await processWorkspace();
+  const job = await reserveProcessJob(template.client, template.coordinates, raw, input, template.approval, allowance);
+  const w = await processWorkspace();
+  const peer = new PmClient({ cwd: w.root, pmRoot: w.pmRoot, author: "ordinary-peer", noExtensions: true });
+  let expected: readonly string[] = [], injected = false, prepared = false;
+  const list = w.client.listAllComplete.bind(w.client), create = w.client.create.bind(w.client); let createAttempts = 0;
+  /** Count real SDK writer calls: adopting the occupied identity needs no create request. */
+  w.client.create = (async (...args) => { createAttempts += 1; return create(...args); }) as PmClient["create"];
+  /** Inject after native capacity discovery, not before the coordinator's initial inspection. */
+  w.client.listAllComplete = (async (...args) => {
+    const result = await list(...args);
+    if (prepared && !injected) {
+      injected = true; const created = await peer.create({ id: raw, title: "Matching peer reservation", tags: "rl-process-job", body: JSON.stringify(job) });
+      expected = [readFileSync(join(w.pmRoot, "tasks", `${created.item.id}.toon`), "utf8"), readFileSync(join(w.pmRoot, "history", `${created.item.id}.jsonl`), "utf8")];
+    }
+    return result;
+  }) as PmClient["listAllComplete"];
+  let result: Awaited<ReturnType<typeof reserveProcessJob>>;
+  try { result = await reserveProcessJob(w.client, { ...w.coordinates, onTransition(context) { if (context.transition === "prepared") prepared = true; } }, raw, input, w.approval, allowance); }
+  finally { Object.assign(w.client, { listAllComplete: list, create }); }
+  assert.ok(injected); assert.deepEqual(result, job); assert.equal(createAttempts, 0, "matching peer reservation must be adopted without attempting another SDK create");
+  assert.deepEqual([readFileSync(join(w.pmRoot, "tasks", `rl-${raw}.toon`), "utf8"), readFileSync(join(w.pmRoot, "history", `rl-${raw}.jsonl`), "utf8")], expected);
+});
+
+test("coverage: publication-to-read races retain peer progress before return, execution and launch", async () => {
+  for (const boundary of ["returned", "execution", "launch"] as const) {
+    const w = await processWorkspace(), input = trainingInput(), raw = processJobId(input), nativeId = `rl-${raw}`;
+    const peer = new PmClient({ cwd: w.root, pmRoot: w.pmRoot, author: "ordinary-peer", noExtensions: true });
+    const initial = boundary === "returned" ? await reserveProcessJob(w.client, w.coordinates, raw, input, w.approval, allowance) : null;
+    const run = w.client.run.bind(w.client), get = w.client.get.bind(w.client);
+    let armed = false, histories = 0, snapshots = 0, injected = false; let expected: readonly string[] = [];
+    /** Commit a real ordinary SDK write after the selected native read has already taken its snapshot. */
+    async function advancePeer(): Promise<void> {
+      const current = (await readProcessJob(peer, nativeId))!;
+      await peer.update(nativeId, { body: JSON.stringify({ ...current, outcome: `peer-${boundary}` }) }); injected = true;
+      expected = [readFileSync(join(w.pmRoot, "tasks", `${nativeId}.toon`), "utf8"), readFileSync(join(w.pmRoot, "history", `${nativeId}.jsonl`), "utf8")];
+    }
+    w.client.run = (async (...args) => {
+      const result = await run(...args);
+      const id = (args[1] as { id?: string } | undefined)?.id;
+      if (armed && args[0] === "history" && id !== undefined && normalizeItemId(id, "rl") === nativeId && ++histories === (boundary === "execution" ? 3 : 2) && boundary !== "launch" && !injected) await advancePeer();
+      return result;
+    }) as PmClient["run"];
+    w.client.get = (async (...args) => {
+      const result = await get(...args);
+      if (armed && normalizeItemId(String(args[0]), "rl") === nativeId && args[1]?.at !== undefined && ++snapshots === 2 && boundary === "launch" && !injected) await advancePeer();
+      return result;
+    }) as PmClient["get"];
+    const coordinates = { ...w.coordinates, onTransition(context: Parameters<NonNullable<ProcessCoordinates["onTransition"]>>[0]) {
+      if (context.transition === "committed" && context.transactionId.includes(boundary === "execution" ? "-reserve" : "-running-")) armed = true;
+    } };
+    try {
+      const operation = initial === null ? executeProcessTrainer(w.client, coordinates, input, w.approval, { kind: "process-bandit", allowance }) : transitionProcessJob(w.client, coordinates, initial, "running", "Launch");
+      const message = boundary === "returned" ? "Process publication was superseded" : boundary === "execution" ? "advanced before execution" : "advanced before launch";
+      await assert.rejects(operation, (error: unknown) => isPmCliExpectedError(error) && error.context.code === "superseded" && error.exitCode === EXIT_CODE.CONFLICT && error.message.includes(message));
+    } finally { Object.assign(w.client, { run, get }); }
+    assert.ok(injected, boundary);
+    assert.deepEqual([readFileSync(join(w.pmRoot, "tasks", `${nativeId}.toon`), "utf8"), readFileSync(join(w.pmRoot, "history", `${nativeId}.jsonl`), "utf8")], expected);
+  }
+});
 
 /** Read complete native state and a monotonic coordinate through the actual SDK. */
 async function evidence(client: PmClient, id: string) {
@@ -370,7 +495,7 @@ test("shared transition admission retains foreign targets and permits released l
   const expected = await evidence(client, foreign);
   await assert.rejects(transitionProcessJob(client, coordinates, { ...source, id: foreign }, "running", "foreign-request"), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "superseded");
   assert.deepEqual(await evidence(client, foreign), expected);
-  await client.update(id, { body: JSON.stringify(source, null, 2).replaceAll("\n", "\r\n"), removeTags: ["rl-process-job"], parent: "none", goal: "none", objective: "none", sprint: "none", release: "none" });
+  await client.update(id, { body: JSON.stringify(source, null, 2).replaceAll("\n", "\r\n"), removeTags: ["rl-process-job"], unset: ["parent", "goal", "objective", "sprint", "release"] });
   const legacy = (await readProcessJob(client, id))!;
   const result = await transitionProcessJob(client, coordinates, legacy, "running", "legacy-progress");
   assert.equal(result.state, "running"); assert.deepEqual(result.charge, allowance);
@@ -386,4 +511,53 @@ test("transition producers share the reader resource schema and refuse extreme v
   }
   const valid = await transitionProcessJob(client, coordinates, source, "failed", "producer-round-trip");
   assert.deepEqual(await readProcessJob(client, id), valid);
+});
+
+test("cubic coverage: an untyped native filesystem failure during target discovery propagates unchanged", async () => {
+  const w = await processWorkspace(); const input = trainingInput(), raw = processJobId(input), id = `rl-${raw}`;
+  const get = w.client.get.bind(w.client); let reads = 0; let failure: unknown;
+  /** Fail the transport with an actual filesystem read error after the SDK certified absence. */
+  w.client.get = (async (...args) => {
+    if (args[0] === id && ++reads === 2) {
+      try { readFileSync(w.pmRoot); } catch (error) { failure = error; throw error; }
+    }
+    return get(...args);
+  }) as PmClient["get"];
+  try { await assert.rejects(reserveProcessJob(w.client, w.coordinates, raw, input, w.approval, allowance), (error: unknown) => {
+    assert.equal(error, failure); assert.equal((error as NodeJS.ErrnoException).code, "EISDIR");
+    assert.equal(normalizeThrownExitCode(readThrownExitCode(error) ?? EXIT_CODE.GENERIC_FAILURE), 1); return true;
+  }); }
+  finally { Object.assign(w.client, { get }); }
+  assert.equal(reads, 2); assert.equal(await readProcessJob(w.client, raw), null);
+});
+
+test("cubic coverage: an occupied non-job identity cannot be adopted as a reservation", async () => {
+  const w = await processWorkspace(); const input = trainingInput(), id = processJobId(input);
+  const peer = await w.client.create({ id, title: "Unrelated peer task", body: "unrelated" });
+  const before = (await w.client.get(peer.item.id, { full: true })).item;
+  await assert.rejects(reserveProcessJob(w.client, w.coordinates, id, input, w.approval, allowance), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "process_job_drift" && error.exitCode === 4);
+  assert.deepEqual((await w.client.get(peer.item.id, { full: true })).item, before);
+});
+
+test("cubic coverage: interrupted process and Compose jobs clean owned staging before missing-receipt refusal", async () => {
+  for (const kind of ["process-bandit", "compose-bandit"] as const) {
+    const w = await processWorkspace(); const input = trainingInput(); const image = `sha256:${"a".repeat(64)}`;
+    const adapter = kind === "process-bandit" ? { kind, allowance } : { kind, allowance, image };
+    const id = processJobId(input, undefined, adapter); const planned = await reserveProcessJob(w.client, w.coordinates, id, input, w.approval, allowance);
+    await transitionProcessJob(w.client, w.coordinates, planned, "running", "Interrupted before receipt publication");
+    const directory = processStaging(w.pmRoot, id); mkdirSync(directory, { recursive: true });
+    const previous = process.env.PATH;
+    if (kind === "process-bandit") {
+      assert.throws(() => process.kill(2147483647, 0), (error: unknown) => (error as NodeJS.ErrnoException).code === "ESRCH");
+      writeFileSync(join(directory, "runner.json"), JSON.stringify({ pid: 2147483647, start: "prior-native-start" }));
+    } else {
+      writeFileSync(join(directory, "compose.json"), JSON.stringify(composeConfiguration(image)));
+      const bin = join(w.root, "bin"); mkdirSync(bin); writeFileSync(join(bin, "docker"), `#!${process.execPath}\nconst args=process.argv.slice(2);if(args[0]==='container'&&args[1]==='ls')console.log('retained-container');\n`, { mode: 0o755 });
+      process.env.PATH = `${bin}${process.platform === "win32" ? ";" : ":"}${previous}`;
+    }
+    try { await assert.rejects(executeProcessTrainer(w.client, w.coordinates, input, w.approval, adapter), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "process_receipt_required" && error.exitCode === 2); }
+    finally { if (previous === undefined) delete process.env.PATH; else process.env.PATH = previous; }
+    assert.equal((await readProcessJob(w.client, id))!.state, "failed");
+    if (kind === "compose-bandit") assert.equal(JSON.parse(readFileSync(join(directory, "compose-stop.json"), "utf8")).reason, "recovery");
+  }
 });

@@ -288,7 +288,7 @@ test("SIGKILL before exec recovers missing and partial receipts once inside the 
     const exited = once(child, 'exit'); child.kill('SIGKILL'); assert.equal((await exited)[1], 'SIGKILL');
     const before = (await listProcessJobs(w.client)).length;
     if (mode === 'invalid') {
-      await assert.rejects(executeImproverFit(w.client, w.coordinates, input, w.approval, AbortSignal.timeout(60_000)), /lineage|configuration/);
+      await assert.rejects(executeImproverFit(w.client, w.coordinates, input, w.approval, AbortSignal.timeout(60_000)), (error) => isPmCliExpectedError(error) && error.context.code === "rl_identifier_invalid");
       await assert.rejects(executeImproverFit(w.client, w.coordinates, input, w.approval, AbortSignal.timeout(60_000)), /failed/);
       assert.equal((await listProcessJobs(w.client)).length, before, 'intact invalid evidence is never retried');
     } else {
@@ -420,10 +420,9 @@ test("three recursive generations survive SIGKILL after update, adopt receipts a
   assert.deepEqual(await listProcessJobs(w.client), after);
   const harness = await createExtensionTestHarness(extension, { name: 'pm-rl', capabilities: ['commands','hooks','schema'] });
   const configFile = join(w.root, 'programme.json'); writeFileSync(configFile, JSON.stringify(w.config));
-  const command = await harness.runCommand({ command: 'rl improver run', pmRoot: w.coordinates.pmRoot, args: [request.id], options: { file: configFile, dataset: w.dataset, approval: w.approval, forceTakeover: false }, global: { author: 'improver-test' } });
+  const command = await harness.runCommand({ command: 'rl improver run', pmRoot: w.coordinates.pmRoot, args: [request.id.toUpperCase()], options: { file: configFile, dataset: w.dataset, approval: w.approval, forceTakeover: false }, global: { author: 'improver-test' } });
   assert.equal(command.handled, true, command.errorMessage ?? 'improver command'); assert.deepEqual((command.result as RlCommandResult).details, report);
-  const invalid = await harness.runCommand({ command: 'rl improver run', pmRoot: w.coordinates.pmRoot, args: ['INVALID'], options: { file: configFile, dataset: w.dataset, approval: w.approval, force_takeover: true }, global: { author: 'improver-test' } });
-  assert.ok(invalid.errorMessage);
+  await assert.rejects(harness.runCommand({ command: 'rl improver run', pmRoot: w.coordinates.pmRoot, args: ['../INVALID'], options: { file: configFile, dataset: w.dataset, approval: w.approval, force_takeover: true }, global: { author: 'improver-test' } }), (error) => isPmCliExpectedError(error) && error.context.code === 'rl_identifier_invalid');
   await assert.rejects(runRecursiveImprover(w.client, w.coordinates, { ...request, signal: AbortSignal.abort(new Error('pre-cancelled')) }), /pre-cancelled/);
   await assert.rejects(runRecursiveImprover(w.client, w.coordinates, { ...request, config: { ...w.config, seed: 43 } }), /disagrees/);
   await assert.rejects(runRecursiveImprover(w.client, w.coordinates, { ...request, id: 'TOO-LONG-AND-INVALID' }), /programme_id/);

@@ -126,9 +126,10 @@ async function createApproval(client: PmClient, id: string, permittedPromotions:
 }
 
 /** Run one loop through the public command and return its structured report. */
-async function runLoopCommand(harness: ExtensionTestHarness, pmRoot: string, root: string, id: string, config: JsonValue, approval: string): Promise<RlLoopReport> {
+async function runLoopCommand(harness: ExtensionTestHarness, pmRoot: string, root: string, id: string, config: JsonValue, approval: string, client?: PmClient): Promise<RlLoopReport> {
   const file = writeJson(root, `${id}.json`, config);
-  const run = resultOf(await harness.runCommand({ command: "rl loop run", pmRoot, args: [id], options: { file, approval } }));
+  type HostSdk = NonNullable<Parameters<ExtensionTestHarness["runCommand"]>[0]["sdk"]>;
+  const run = resultOf(await harness.runCommand({ command: "rl loop run", pmRoot, args: [id], options: { file, approval }, ...(client === undefined ? {} : { sdk: { client } as unknown as HostSdk }) }));
   return run.details as unknown as RlLoopReport;
 }
 
@@ -446,6 +447,25 @@ test("pm rl loop run executes the bounded loop end to end and promotes every gen
   const ancestry = (lineage.details?.view as { ancestries: Array<{ head: string; rows: unknown[] }> }).ancestries[0]!;
   assert.equal(ancestry.head, report.generations[2]!.item);
   assert.equal(ancestry.rows.length, 4);
+});
+
+test("the loop installs the persistent schema once per client, not once per created item", async () => {
+  const { root, pmRoot, client, harness } = await workspace();
+  const approval = await createApproval(client, "schema-budget-approval", 10);
+  /** Every schemaAddType re-resolves the merge-attribute workspace and spawns a git provenance probe, so the count must stay bounded. */
+  let schemaCalls = 0;
+  const counting = new Proxy(client, {
+    get(target: PmClient, property: string | symbol) {
+      if (property === "schemaAddType") schemaCalls += 1;
+      const value = Reflect.get(target, property, target) as unknown;
+      return value;
+    },
+  });
+  const report = await runLoopCommand(harness, pmRoot, root, "schema-budget", LOOP_CONFIG, approval, counting);
+  assert.equal(report.promoted, 3, "the guarded loop must still promote every generation");
+  const bound = RL_ITEM_TYPES.length * 2;
+  assert.ok(schemaCalls > 0, "the loop must still install the schema before its first create");
+  assert.ok(schemaCalls <= bound, `one loop made ${schemaCalls} schemaAddType calls through one client; the byte-idempotent installation must not repeat per created item (bound ${bound} because each repeated probe spawns a git workspace resolution)`);
 });
 
 test("the typed SDK function runs the loop without the CLI host", async () => {
@@ -828,16 +848,16 @@ test("an invalid transaction identity propagates rather than being recorded as a
     status: "open",
     body: `# infra-approval\n\n\`\`\`json\n${JSON.stringify({ permitted_promotions: 3 })}\n\`\`\``,
   });
-  // The SDK rejects an empty transaction author with a TypeError. The real
-  // coordinator validation must propagate without becoming a gate refusal.
+  // Reject invalid transaction identity before allocating or publishing loop work.
+  const before = (await client.listAllComplete({ includeBody: true })).items;
+  const commentsBefore = await client.comments(String(approval.item.id));
   await assert.rejects(
     runRlLoop(client, { pmRoot: initialized.path, author: "" }, { id: "infra-loop", config: LOOP_CONFIG, approval: String(approval.item.id) }),
     /author/,
   );
-  const candidate = await client.get("infra-loop-g1", { depth: "deep" });
-  assert.equal(candidate.item.status, "open");
-  const comments = await client.comments(String(candidate.item.id));
-  assert.ok(!JSON.stringify(comments).includes("promotion refused"), "an infrastructure failure must not be recorded as a promotion refusal");
+  assert.deepEqual((await client.listAllComplete({ includeBody: true })).items, before,
+    "invalid transaction identity cannot allocate a candidate or record a promotion refusal");
+  assert.deepEqual(await client.comments(String(approval.item.id)), commentsBefore);
 });
 
 test("two simultaneous Git worktree loops preserve every item, metric and history in both merge directions", async () => {

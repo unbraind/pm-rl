@@ -201,22 +201,25 @@ test("peer creation and edits are reconciled at every native SDK read/write boun
       return value;
     });
   }
-  await recordTrainingInfluence(w.client, request(987)); const writeSteps = boundary.count;
-  const recorded = await recordTrainingInfluence(w.client, request(986)); resetBoundary();
+  // The byte-idempotent schema installation runs once per client, so warm it before measuring the producer's steady-state boundary sequence.
+  await recordTrainingInfluence(w.client, request(987)); resetBoundary();
+  const recorded = await recordTrainingInfluence(w.client, request(986)); const writeSteps = boundary.count; resetBoundary();
   await attachTrainingInfluence(w.client, programme(request(986)), recorded.id); const readSteps = boundary.count;
   for (const kind of ["write", "feedback"] as const) for (let step = 1; step <= (kind === "write" ? writeSteps : readSteps); step += 1) {
     const p = request(1000 + step + (kind === "write" ? 0 : 100));
     const report = measureTrainingInfluence(p); const id = `rl-training-influence-${report.digest}`;
     if (kind === "feedback") await recordTrainingInfluence(peer, p);
-    resetBoundary(); injectAt = step;
+    resetBoundary(); injectAt = step; let injected = false;
     inject = async () => {
       if (kind === "write") {
         await recordTrainingInfluence(peer, p);
-        await peer.update(id, { title: "Peer succeeded", parent: "none" });
+        await peer.update(id, { title: "Peer succeeded", unset: ["parent"] });
       } else await peer.update(id, { body: "Foreign replacement" });
+      injected = true;
     };
     const outcome = await (kind === "write" ? recordTrainingInfluence(w.client, p) : attachTrainingInfluence(w.client, programme(p), id)).then((value) => ({ value }), (error: unknown) => ({ error }));
     assert.ok(boundary.count >= step); injectAt = -1;
+    assert.equal(injected, true, "the native peer mutation completed at the selected boundary");
     if ("error" in outcome) assert.ok(isPmCliExpectedError(outcome.error));
     if (kind === "write") {
       const native = (await peer.get(id, { full: true })).item;

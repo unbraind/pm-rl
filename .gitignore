@@ -28,3 +28,5 @@ coverage/
 !.agents/pm/search/eval-queries.json
 # pm-cli:runtime-cache:end
 .pack-import-*
+
+.public-evidence-refresh.lock

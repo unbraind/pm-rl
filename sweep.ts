@@ -1,3 +1,4 @@
+import { schemaIdentity, type ValidationMode } from "./state-boundary.ts";
 /**
  * @module pm-rl/sweep
  *
@@ -169,9 +170,9 @@ export function expandSearchSpace(searchSpace: SearchSpace): Array<Record<string
  * @throws When the text is not one JSON object, a required field is absent, the
  *   search space declares nothing, the rule is malformed, or no arm is listed.
  */
-export function parseSweepSpec(text: string, source = "Sweep specification"): SweepSpec {
+export function parseSweepSpec(text: string, source = "Sweep specification", mode: ValidationMode = "read"): SweepSpec {
   const record = parseJsonRecord(text, source, "invalid_sweep_json", EXIT_CODE.CONFLICT);
-  const stringField = (key: string): string => requiredTrimmedString(record, key, source, "invalid_sweep_", EXIT_CODE.CONFLICT);
+  const stringField = (key: string): string => requiredTrimmedString(record, key, source, "invalid_sweep_", EXIT_CODE.CONFLICT, mode);
   const searchSpaceRaw = record["search_space"];
   if (searchSpaceRaw === null || typeof searchSpaceRaw !== "object" || Array.isArray(searchSpaceRaw)) {
     expectedFail(`${source} requires a declared search space object.`, "invalid_sweep_search_space", EXIT_CODE.CONFLICT);
@@ -232,7 +233,7 @@ export function parseSweepSpec(text: string, source = "Sweep specification"): Sw
     if (typeof id !== "string" || id.trim().length === 0 || config === null || typeof config !== "object" || Array.isArray(config)) {
       expectedFail(`${source} requires each arm to carry a non-empty id and a configuration object.`, "invalid_sweep_arms", EXIT_CODE.CONFLICT);
     }
-    arms.push({ id: id.trim(), config: config as JsonValue });
+    arms.push({ id: schemaIdentity(id, "item", mode), config: config as JsonValue });
   }
   return {
     search_space: searchSpace,

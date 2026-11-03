@@ -33,6 +33,7 @@
     "docs/durable-systemone-validation.md",
     "docs/lm-adapter.md",
     "dist/process.*",
+    "dist/owned-stop.*",
     "dist/process-bandit.*",
     "dist/scripts/script-launcher.*",
     "docs/process-trainer.md",
@@ -78,8 +79,12 @@
     "dist/policy-card.*",
     "dist/tracker-record.*",
     "docs/policy-cards.md",
+    "docs/decision-evidence.md",
     "docs/policy-card-write-audit.md",
     "docs/policy-card-evidence.json",
+    "dist/sequential-evaluation.*",
+    "docs/sequential-evaluation-evidence.json",
+    "dist/state-boundary.*",
     "docs/worst-cohort-evidence.json",
     "docs/json-record-bounds.md",
     "dist/training-influence.*",
@@ -127,6 +132,7 @@
       "test/continuation-faults.test.ts",
       "test/controller-faults.test.ts",
       "test/sdk-adoption.test.ts",
+      "test/sdk-lock-confinement.test.ts",
       "test/coverage-gate.test.ts",
       "test/durable-loop.test.ts",
       "test/decision-recovery.test.ts",
@@ -164,13 +170,24 @@
       "test/baseline.test.ts",
       "test/objective.test.ts",
       "test/evaluation-plan.test.ts",
+      "test/evaluation-compatibility.test.ts",
+      "test/decision-evidence.test.ts",
+      "test/evidence-publication.test.ts",
+      "test/durable-snapshots.test.ts",
+      "test/evaluation-integration.test.ts",
       "test/shadow.test.ts",
       "test/policy-card.test.ts",
+      "test/sequential-evaluation.test.ts",
+      "test/state-boundary.test.ts",
+      "test/controller-boundaries.test.ts",
       "test/worst-cohort.test.ts",
       "test/json-boundaries.test.ts",
+      "test/controller-compatibility.test.ts",
+      "test/process-compatibility.test.ts",
+      "test/mutation-preflight.test.ts",
+      "test/transaction-races.test.ts",
       "test/training-influence.test.ts",
-      "test/training-influence-maintenance.test.ts",
-      "test/evaluation-compatibility.test.ts"
+      "test/training-influence-maintenance.test.ts"
     ],
     "thresholds": {
       "statements": 100,
@@ -213,7 +230,8 @@
     "@babel/plugin-syntax-typescript": "8.0.3",
     "@toon-format/toon": "4.4.0",
     "@types/node": "26.6.6",
-    "@unbrained/pm-cli": "2026.10.28",
+    "@unbrained/pm-cli": "2026.11.2",
+    "@unbrained/pm-cli-legacy": "npm:@unbrained/pm-cli@2026.10.27",
     "eslint": "10.14.0",
     "jiti": "2.7.0",
     "jscpd": "5.4.2",
@@ -223,7 +241,7 @@
     "yaml": "2.9.1"
   },
   "peerDependencies": {
-    "@unbrained/pm-cli": ">=2026.10.25"
+    "@unbrained/pm-cli": ">=2026.11.2"
   },
   "pm": {
     "aliases": [
@@ -277,6 +295,7 @@
       "docs/shadow-policy.md",
       "docs/shadow-evidence.json",
       "docs/policy-cards.md",
+      "docs/decision-evidence.md",
       "docs/policy-card-write-audit.md",
       "docs/worst-cohort-evidence.json",
       "docs/json-record-bounds.md",
@@ -299,6 +318,7 @@
       "examples/evaluation-observations.json",
       "examples/shadow-policy.json",
       "examples/policy-card.json",
+      "examples/sequential-evaluation-plan.json",
       "examples/evaluation-plan-protected.json",
       "examples/training-influence.json"
     ]

@@ -15,10 +15,13 @@ const skipped = new WeakMap<object, Map<string, SkippedTrackerRecord>>();
 export function skippedTrackerRecords(client: object): readonly SkippedTrackerRecord[] { return [...(skipped.get(client)?.values() ?? [])].sort((a, b) => a.id.localeCompare(b.id)); }
 /** Bound nesting before parsing, ignoring brackets inside JSON strings. */
 function depthSafe(text: string): boolean {
-  let depth = 0; let quoted = false; let escaped = false;
-  for (const char of text) {
-    if (escaped) { escaped = false; continue; }
-    if (quoted && char === "\\") { escaped = true; continue; }
+  let depth = 0; let quoted = false;
+  // Ordinary string contents cannot change depth. Scan only JSON punctuation so
+  // large opaque labels do not execute a JavaScript branch for every character.
+  const punctuation = /["\\{}[\]]/g;
+  for (let match = punctuation.exec(text); match !== null; match = punctuation.exec(text)) {
+    const char = match[0];
+    if (quoted && char === "\\") { punctuation.lastIndex += 1; continue; }
     if (char === '"') quoted = !quoted;
     if (!quoted && (char === "{" || char === "[")) { depth += 1; if (depth > 64) return false; }
     if (!quoted && (char === "}" || char === "]")) depth -= 1;
@@ -58,8 +61,8 @@ export function parseBoundedJson(text: string): unknown {
   if (encodingProblem(text, MAX_JSON_BYTES) !== null) throw new SyntaxError("JSON exceeds decoding bounds");
   return JSON.parse(text) as unknown;
 }
-/** Decode only the named package envelope; legacy admission requires a caller-verified historical namespace. */
-export function decodeTrackerRecord(client: object | null, item: { readonly id?: string; readonly type?: unknown; readonly tags?: unknown; readonly body?: unknown }, contract: { readonly type: string; readonly tag?: string; readonly legacy?: boolean; readonly namespace?: (id: string) => boolean; readonly format?: string; readonly valid?: (value: Record<string, unknown>) => boolean }): Record<string, unknown> | null {
+/** Decode only the named package envelope; large Plan envelopes may use the existing 16 MiB parser bound. */
+export function decodeTrackerRecord(client: object | null, item: { readonly id?: string; readonly type?: unknown; readonly tags?: unknown; readonly body?: unknown }, contract: { readonly type: string; readonly tag?: string; readonly legacy?: boolean; readonly namespace?: (id: string) => boolean; readonly format?: string; readonly maxBytes?: 16_777_216; readonly valid?: (value: Record<string, unknown>) => boolean }): Record<string, unknown> | null {
   /** Retain one bounded reason per identity, independent of repeated resume reads. */
   function omit(reason: SkippedTrackerRecord["reason"]): null {
     if (client !== null) { const records = skipped.get(client) ?? new Map<string, SkippedTrackerRecord>(); records.set(String(item.id), { id: String(item.id), reason }); skipped.set(client, records); }
@@ -69,7 +72,7 @@ export function decodeTrackerRecord(client: object | null, item: { readonly id?:
   if (contract.namespace !== undefined && !contract.namespace(String(item.id))) return omit("foreign_identity");
   if (contract.tag !== undefined && (!Array.isArray(item.tags) || !item.tags.includes(contract.tag)) && contract.legacy !== true) return omit("foreign_tag");
   const text = String(item.body);
-  if (Buffer.byteLength(text) > MAX_TRACKER_RECORD_BYTES) return omit("oversized");
+  if (Buffer.byteLength(text) > (contract.maxBytes ?? MAX_TRACKER_RECORD_BYTES)) return omit("oversized");
   if (contract.format !== undefined && !text.includes(JSON.stringify(contract.format))) return omit("foreign_format");
   if (!depthSafe(text)) return omit("too_deep");
   let value: unknown;

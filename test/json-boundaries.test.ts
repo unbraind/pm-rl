@@ -13,12 +13,48 @@ import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import extension, { canonicalJson, generationProvenance, hashJson, readCompleteLoopItem, type JsonValue } from "../index.ts";
 import { parseEvaluationPlan, registerEvaluationPlan, readEvaluationPlan, evaluationComparison, evaluatePlan, type EvaluationPlan } from "../evaluation-plan.ts";
 import { parseShadowDeployment, registerShadowDeployment } from "../shadow.ts";
-import { assertJsonEncoding, encodeBoundedJson, parseBoundedJson, MAX_JSON_BYTES, MAX_TRACKER_RECORD_BYTES } from "../tracker-record.ts";
+import { assertJsonEncoding, encodeBoundedJson, parseBoundedJson, decodeTrackerRecord, skippedTrackerRecords, hasTrackerIdentity, MAX_JSON_BYTES, MAX_TRACKER_RECORD_BYTES } from "../tracker-record.ts";
 import { largePlan, reservation, wrapperOverflowPlan } from "./fixtures/json-boundary.ts";
 import { writeTrainerArtifact } from "../process-bandit.ts";
 
 const roots: string[] = [];
 after(() => { for (const root of roots) rmSync(root, { recursive: true, force: true }); });
+
+test("coverage: bounded tracker decoding records content-free omissions and clears recovered identities", async () => {
+  const { client } = await workspace();
+  const format = "pm-rl/coverage-record/1", id = "rl-owned";
+  const owned = { id, type: "Decision", tags: ["owned"], body: JSON.stringify({ format, id }) };
+  const contract = { type: "Decision", tag: "owned", format, namespace: (value: string) => value === id };
+  assert.deepEqual(skippedTrackerRecords(client), []);
+  assert.equal(hasTrackerIdentity(owned, format, value => value), true);
+  assert.equal(hasTrackerIdentity({ ...owned, body: "foreign" }, format, value => value), false);
+  assert.equal(hasTrackerIdentity(owned, "foreign", value => value), false);
+  assert.equal(hasTrackerIdentity({ ...owned, id: "rl-copy" }, format, value => value), false);
+  const cases = [
+    [{ ...owned, type: "Task" }, contract, "foreign_type"],
+    [{ ...owned, id: "rl-copy" }, contract, "foreign_identity"],
+    [{ ...owned, tags: [] }, contract, "foreign_tag"],
+    [{ ...owned, body: "x".repeat(MAX_TRACKER_RECORD_BYTES + 1) }, contract, "oversized"],
+    [{ ...owned, body: "foreign" }, contract, "foreign_format"],
+    [{ ...owned, body: "[".repeat(65) + "0" + "]".repeat(65) }, { type: "Decision" }, "too_deep"],
+    [{ ...owned, body: "{" }, { type: "Decision" }, "invalid_json"],
+    ...["null", "[]", "1"].map(body => [{ ...owned, body }, { type: "Decision" }, "invalid_shape"] as const),
+    [{ ...owned, body: JSON.stringify({ format: "foreign", note: format }) }, contract, "foreign_format"],
+    [owned, { ...contract, valid: () => false }, "invalid_shape"],
+    [owned, { ...contract, valid: () => { throw new Error("Private validator contents"); } }, "invalid_shape"],
+  ] as const;
+  for (const [item, rule, reason] of cases) {
+    assert.equal(decodeTrackerRecord(client, item, rule), null);
+    assert.deepEqual(skippedTrackerRecords(client).find(row => row.id === item.id), { id: item.id, reason });
+  }
+  assert.equal(JSON.stringify(skippedTrackerRecords(client)).includes("Private validator contents"), false);
+  assert.deepEqual(decodeTrackerRecord(client, owned, contract), { format, id });
+  assert.equal(skippedTrackerRecords(client).some(row => row.id === id), false);
+  assert.deepEqual(decodeTrackerRecord(null, { ...owned, tags: [] }, { ...contract, legacy: true }), { format, id });
+  assert.equal(decodeTrackerRecord(null, { ...owned, type: "Task" }, contract), null);
+  const large = { ...owned, body: JSON.stringify({ format, id, padding: "x".repeat(MAX_TRACKER_RECORD_BYTES) }) };
+  assert.ok(decodeTrackerRecord(client, large, { ...contract, maxBytes: MAX_JSON_BYTES }) !== null);
+});
 /** Match a content-free actionable size refusal rather than a later missing/drifted record. */
 function limit(error: unknown): boolean { return isPmCliExpectedError(error) && error.context.code === "json_record_limit" && /json_record_limit/.test(error.message) && /Reduce or split/.test(error.message); }
 
@@ -209,4 +245,16 @@ test("shadow lookup expansion is rejected before it can reserve an evaluation pl
   assert.throws(() => parseShadowDeployment(deployment), limit);
   await assert.rejects(registerShadowDeployment(w.client, deployment, {}), limit);
   assert.deepEqual(durable(w.pmRoot), before);
+});
+
+test("large valid JSON cannot overflow native V8 coverage counters", { timeout: 300000 }, () => {
+  const root = mkdtempSync(join(tmpdir(), "rl-json-counter-")); roots.push(root); const coverage = join(root, "coverage");
+  const result = spawnSync(process.execPath, [fileURLToPath(new URL("./fixtures/json-counter-stress.ts", import.meta.url))], { encoding: "utf8", timeout: 290000, env: { ...process.env, NODE_V8_COVERAGE: coverage } });
+  assert.equal(result.status, 0, result.stderr); assert.deepEqual(JSON.parse(result.stdout), { bytes: MAX_JSON_BYTES, encodings: 130 });
+  const records = readdirSync(coverage).filter(name => name.endsWith(".json")).flatMap(name => {
+    const report = JSON.parse(readFileSync(join(coverage, name), "utf8")) as { result: { url: string; functions: { functionName: string; ranges: { count: number }[] }[] }[] };
+    return report.result.filter(script => script.url === new URL("../tracker-record.ts", import.meta.url).href);
+  });
+  assert.ok(records.length > 0, "the actual tracker-record module must be measured");
+  for (const script of records) for (const fn of script.functions) for (const range of fn.ranges) assert.ok(range.count >= 0, `${fn.functionName}: negative native V8 count ${range.count}`);
 });

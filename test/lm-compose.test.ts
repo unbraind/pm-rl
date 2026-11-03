@@ -40,7 +40,8 @@ async function staged() {
   let output = "";
   const sink = new Writable({ write(chunk, _encoding, callback) { output += String(chunk); callback(); } });
   await lmTrainerMain([process.execPath, new URL("../process-lm-trainer.ts", import.meta.url).pathname], new URL("../process-lm-trainer.ts", import.meta.url).href,
-    Readable.from([JSON.stringify({ job: id, input })]), sink, directory);
+    Readable.from([JSON.stringify({ job: id.toUpperCase(), input })]), sink, directory);
+  assert.equal((JSON.parse(readFileSync(join(directory, "completion.json"), "utf8")) as ProcessCompletion).job, id);
   writeFileSync(join(directory, "runner.json"), JSON.stringify({ started_at: Date.now() - 5000 }));
   return { directory, input, id, output, receipt: JSON.parse(readFileSync(join(directory, "completion.json"), "utf8")) as ProcessCompletion<{ digest: string }> };
 }

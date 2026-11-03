@@ -1,4 +1,5 @@
-import { assertJsonEncoding, parseBoundedJson, type JsonEncodingRefusal } from "./tracker-record.ts";
+import { identifier, identifierClient } from "./state-boundary.ts";
+import { parseBoundedJson, assertJsonEncoding, type JsonEncodingRefusal } from "./tracker-record.ts";
 /** Bounded online observation of declarative policies, without candidate execution authority. */
 import type { GetResult, PmClient } from "@unbrained/pm-cli/sdk/core";
 import { createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
@@ -84,6 +85,12 @@ export function parseShadowDeployment(value: unknown): ShadowDeployment {
 }
 /** Stable input identity allows consent without retaining source tracker content. */
 export function shadowInputDigest(input: string): string { return hashJson(label(input)); }
+/** Derive observation coordinates once for declaration, recording and replay. */
+function observationId(deployment: string, member: string): string { return `${deployment}-${hashJson(member)}`; }
+/** Future decision inputs must not be sealed before their candidate exists. @internal */
+export function shadowEvidenceIds(plan: EvaluationPlan, id = `${plan.candidate}-evaluation-plan-shadow`): string[] {
+  return [`${id}-comparison`, ...plan.members.map(member => observationId(id, member.id))];
+}
 /** Attach an exact receipt location to structural parser refusals without disclosing record values. */
 function located<T>(receipt: string, field: string, parse: () => T): T {
   try { return parse(); }
@@ -102,11 +109,17 @@ async function sealed(client: PmClient, id: string): Promise<GetResult["item"] |
 }
 /** Decode only package JSON and suppress raw parser diagnostics. */
 function json(body: unknown, receipt: string): unknown { try { return parseBoundedJson(String(body)); } catch { return refuse("shadow_drift", receipt, "body"); } }
+/** Validate every dependent publication before an earlier write can allocate a Plan or result. */
+async function validateSeal(client: PmClient, id: string, value: JsonValue): Promise<boolean> {
+  const body = assertJsonEncoding(canonicalJson(value)); const digest = hashJson(value);
+  const old = await sealed(client, id);
+  if (old !== null && (old.body !== body || old.affected_version !== digest)) refuse("shadow_drift", id, "body");
+  return old !== null;
+}
 /** Content-addressed writes are retry-safe under the SDK's mutation lock. */
 async function seal(client: PmClient, id: string, value: JsonValue): Promise<void> {
   const body = assertJsonEncoding(canonicalJson(value)); const digest = hashJson(value);
-  const old = await sealed(client, id);
-  if (old !== null) { if (old.body !== body || old.affected_version !== digest) refuse("shadow_drift", id, "body"); return; }
+  if (await validateSeal(client, id, value)) return;
   try { await createVerifiedItem(client, { id, type: "Decision", title: "Bounded shadow observation receipt", body, affectedVersion: digest }); }
   catch (error) { const winner = await sealed(client, id); if (winner === null) throw error; if (winner.body !== body || winner.affected_version !== digest) refuse("shadow_drift", id, "body"); }
 }
@@ -117,7 +130,7 @@ async function consent(client: PmClient, deployment: ShadowDeployment): Promise<
 }
 /** Enumerate all observation slots through the SDK's certified inventory, including unexpected extra charges. */
 async function observationIds(client: PmClient, id: string): Promise<string[]> {
-  return (await client.listAllComplete({ includeBody: false })).items.map((item) => String(item.id))
+  return (await identifierClient(client).listAllComplete({ includeBody: false })).items.map((item) => String(item.id))
     .filter((key) => key.startsWith(`${id}-`) && key !== `${id}-comparison`).sort();
 }
 /** One manifest contract governs registration, reload, resume and actual charged calls. */
@@ -131,7 +144,7 @@ async function validateDeployment(client: PmClient, deployment: ShadowDeployment
     if (deployment.budget[arm] < members.length) refuse("shadow_budget", id, `budget.${arm}`);
     if (receipts.length > deployment.budget[arm]) refuse("shadow_budget", id, `charged.${arm}`);
   }
-  const allowed = new Set(members.map((member) => `${id}-${hashJson(member)}`));
+  const allowed = new Set(members.map((member) => observationId(id, member)));
   for (const receipt of receipts) if (!allowed.has(receipt)) refuse("shadow_consent", receipt, "id");
 }
 /** Register online observation before candidate collection through the existing evaluation plan reservation. */
@@ -139,6 +152,8 @@ export async function registerShadowDeployment(client: PmClient, value: unknown,
   const deployment = parseShadowDeployment(value); const plan = parseEvaluationPlan(input);
   const id = `${plan.candidate}-evaluation-plan-shadow`;
   await validateDeployment(client, deployment, plan, id, await observationIds(client, id));
+  const existing = await validateSeal(client, id, deployment as unknown as JsonValue);
+  if (!existing) [id, ...shadowEvidenceIds(plan, id)].forEach((dependent) => identifier(dependent));
   const digest = hashJson(deployment as unknown as JsonValue);
   const registered = await registerEvaluationPlan(client, { ...plan, shadow: digest });
   await seal(client, id, deployment as unknown as JsonValue);
@@ -182,7 +197,7 @@ function selectedRewards(active: string, activeReward: number, candidate: string
 function validateObservation(value: unknown, deployment: ShadowDeployment, plan: EvaluationPlan, receipt: string, policyInputs: ReadonlyMap<string, string>): ShadowObservation {
   const row = located(receipt, "fields", () => { const row = record(value); keys(row, ["id", "input_digest", "outcome_digest", "active_action", "candidate_action", "active_reward", "candidate_reward", "disagreement", "failure"]); return row; });
   if (typeof row.id !== "string" || !Object.hasOwn(deployment.inputs, row.id) || !plan.members.some((member) => member.id === row.id)) refuse("shadow_consent", receipt, "id");
-  if (receipt !== `${plan.candidate}-evaluation-plan-shadow-${hashJson(row.id)}`) refuse("shadow_drift", receipt, "id");
+  if (receipt !== observationId(`${plan.candidate}-evaluation-plan-shadow`, row.id)) refuse("shadow_drift", receipt, "id");
   if (row.input_digest !== deployment.inputs[row.id]) refuse("shadow_consent", receipt, "input_digest");
   const input = policyInputs.get(String(row.input_digest));
   if (input === undefined) refuse("shadow_drift", receipt, "active_action");
@@ -209,7 +224,7 @@ async function readObservation(client: PmClient, receipt: string, deployment: Sh
 export async function observeShadow(client: PmClient, candidate: string, value: unknown): Promise<ShadowObservation> {
   const { deployment, plan, id, policyInputs } = await deploymentFor(client, candidate);
   const row = record(value); keys(row, ["id", "input", "rewards"]);
-  const member = label(row.id); const input = label(row.input); const inputDigest = shadowInputDigest(input); const receipt = `${id}-${hashJson(member)}`;
+  const member = label(row.id); const input = label(row.input); const inputDigest = shadowInputDigest(input); const receipt = observationId(id, member);
   if (!Object.hasOwn(deployment.inputs, member) || deployment.inputs[member] !== inputDigest) refuse("shadow_consent", receipt, "input_digest");
   await policyBinding(client, plan.incumbent, deployment.active, id); await policyBinding(client, candidate, deployment.candidate, id);
   const rewards = record(row.rewards); const [lo, hi] = plan.reward_bounds;
@@ -233,7 +248,7 @@ async function shadowComparison(client: PmClient, candidate: string): Promise<{ 
   await policyBinding(client, plan.incumbent, deployment.active, id); await policyBinding(client, candidate, deployment.candidate, id);
   const observations: ShadowObservation[] = [];
   for (const member of plan.members) {
-    const receipt = `${id}-${hashJson(member.id)}`;
+    const receipt = observationId(id, member.id);
     const row = await readObservation(client, receipt, deployment, plan, policyInputs);
     if (row === null) refuse("shadow_incomplete", receipt, "id");
     observations.push(row);
@@ -250,6 +265,7 @@ async function shadowComparison(client: PmClient, candidate: string): Promise<{ 
 /** Seal one online comparison using the existing immutable paired-outcome recorder. */
 export async function compareShadow(client: PmClient, candidate: string): Promise<ShadowReport> {
   const { report, pairs } = await shadowComparison(client, candidate);
+  await validateSeal(client, report.receipt, report as unknown as JsonValue);
   if (report.outcome !== null) await recordPlanEvaluation(client, candidate, pairs);
   await seal(client, report.receipt, report as unknown as JsonValue);
   return report;

@@ -9,11 +9,12 @@
  */
 
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { ChildProcess, spawnSync } from "node:child_process";
+import { once } from "node:events";
 import { setTimeout as delay } from "node:timers/promises";
 import { writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { afterEach, test } from "node:test";
+import { afterEach, mock, test } from "node:test";
 import { pathToFileURL } from "node:url";
 
 import {
@@ -321,6 +322,46 @@ test("stream transport reports real spawn, exit, signal, consumer, and timeout f
     streamProcess(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { ...options, timeoutMs: 20 }, () => {}),
     /timed out after 20ms/,
   );
+});
+
+test("stream cleanup retries native throw/false failures and bounds permanent failure", async (t) => {
+  for (const mode of ["throw", "false", "persistent", "detach-failure", "unref-failure"] as const) await t.test(mode, async () => {
+    dir = makeTempDir(); const native = ChildProcess.prototype.kill; const unref = ChildProcess.prototype.unref;
+    let child: ChildProcess | undefined; let attempts = 0;
+    const killed = mock.method(ChildProcess.prototype, "kill", function (this: ChildProcess, signal?: NodeJS.Signals | number): boolean {
+      child = this; attempts += 1;
+      if (mode === "detach-failure") this.stdout!.destroy = () => { throw new Error("Cannot detach first stream"); };
+      if (mode === "unref-failure") this.unref = () => { unref.call(this); throw new Error("Unref failed"); };
+      if (mode === "persistent" || mode === "detach-failure" || mode === "unref-failure" || attempts <= 3) {
+        if (mode === "false") return false;
+        throw Object.assign(new Error("Transient native kill failure"), { code: "EACCES" });
+      }
+      return native.call(this, signal);
+    });
+    try {
+      await assert.rejects(streamProcess(process.execPath, ["-e", "process.stdout.write('ready');setInterval(()=>{},1000)"], { cwd: dir.root, timeoutMs: 1000, escalationMs: 1 }, () => { throw new Error("Requested refusal"); }), /Requested refusal/);
+      assert.ok(attempts >= 4 && attempts <= 7);
+      if (mode === "throw" || mode === "false") assert.throws(() => process.kill(child!.pid!, 0), { code: "ESRCH" });
+      else assert.equal(process.kill(child!.pid!, 0), true);
+    } finally {
+      killed.mock.restore();
+      if (mode === "detach-failure" && child !== undefined) delete (child.stdout as unknown as { destroy?: unknown }).destroy;
+      if (child !== undefined && child.exitCode === null && child.signalCode === null) { child.ref(); const closed = once(child, "close"); native.call(child, "SIGKILL"); await closed; }
+    }
+  });
+});
+
+test("stream refusal preserves the first error under reentrant native output during stop", async () => {
+  dir = makeTempDir(); const native = ChildProcess.prototype.kill; let injected = false; let consumed = 0; let child: ChildProcess | undefined;
+  const kill = mock.method(ChildProcess.prototype, "kill", function (this: ChildProcess, signal?: NodeJS.Signals | number): boolean {
+    child = this;
+    if (signal === undefined) { if (!injected) { injected = true; this.stdout!.emit("data", Buffer.from("reentrant output")); } return false; }
+    return native.call(this, signal);
+  });
+  try {
+    await assert.rejects(streamProcess(process.execPath, ["-e", "process.stdout.write('ready');setInterval(()=>{},1000)"], { cwd: dir.root, timeoutMs: 1000, escalationMs: 1 }, () => { consumed += 1; throw new Error(consumed === 1 ? "original refusal" : "duplicate refusal"); }), /original refusal/);
+    assert.equal(consumed, 2); assert.ok(injected); assert.throws(() => process.kill(child!.pid!, 0), { code: "ESRCH" });
+  } finally { kill.mock.restore(); if (child !== undefined && child.exitCode === null && child.signalCode === null) { child.ref(); const closed = once(child, "close"); native.call(child, "SIGKILL"); await closed; } }
 });
 
 test("stream transport reports a real broken stdin pipe", async () => {

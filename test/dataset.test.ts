@@ -1,8 +1,9 @@
 /** Real Git snapshots prove visibility refusal, prefix isolation, provenance and repository-disjoint splits. */
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync, renameSync, symlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
+import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { buildTrackerDataset, readTrackerDataset, readTrackerSplit, TRACKER_SPLITS, trackerFeature, trackerHistoryExample, type TrackerDataset, type TrackerExample } from "../dataset.ts";
 import { hashJson, type JsonValue } from "../index.ts";
 import { git, withTrackerSources } from "./fixtures/meta-workspace.ts";
@@ -130,5 +131,18 @@ test("empty public histories are recorded as omissions and inadequate prefix div
     assert.throws(() => buildTrackerDataset([empty, directories[0], directories[1]], join(root, "too-few")), /eligible_sources/);
     const identical = [source("one", true), source("two", true), source("three", true)];
     assert.throws(() => buildTrackerDataset(identical, join(root, "no-diversity")), /split_size/);
+  });
+});
+
+
+test("cubic: every dataset split refuses linked bytes and allows the original native dataset", async () => {
+  await withTrackerSources(async ({ root, directories }) => {
+    const directory = join(root, "dataset"); const manifest = buildTrackerDataset(directories, directory);
+    for (const split of TRACKER_SPLITS) {
+      const file = join(directory, `${split}.json`); const outside = join(root, `${split}.json`);
+      const original = readTrackerSplit(directory, manifest, split); renameSync(file, outside); symlinkSync(outside, file);
+      assert.throws(() => readTrackerSplit(directory, manifest, split), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "rl_state_path_invalid" && error.exitCode === 2);
+      assert.ok(original.length > 0);
+    }
   });
 });

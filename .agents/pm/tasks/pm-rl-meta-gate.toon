@@ -1,0 +1,40 @@
+id: pm-rl-meta-gate
+title: Reconcile inherited release-test expectations with native refusal contracts
+description: Three test/meta.test.ts failures reproduce on untouched cd91de9 with coverage enabled. The two-generation replay and pre-approved Decision cases expect an old disagrees message but now receive typed meta_reservation_drift. The programme case-folding case expects UPPER to reach a callback but receives meta_programme_id. Reconcile the intended compatibility and refusal contracts without weakening native peer conflict protection or valid historical reads. These failures are outside the seven PR 107 review fixes.
+type: Task
+status: in_progress
+priority: 2
+tags[1]: "gh:unbraind/pm-rl#107"
+created_at: "2026-10-30T17:28:28.277Z"
+updated_at: "2026-10-31T01:06:47.244Z"
+author: codex-agent
+parent: pm-rl-sequential
+comments[5]{created_at,author,text}:
+  "2026-10-30T17:40:47.675Z",codex-agent,"Additional original-head control: node --test --test-concurrency=1 --experimental-test-coverage --test-coverage-include=policy-card.ts --test-name-pattern=\"authoritative status read failures preserve\" test/policy-card.test.ts on untouched cd91de9 reports 3 tests, 1 pass, 2 failed nodes (the typed subtest and its parent). Native read failures pass, but the typed path returns backend_unavailable where the test expects provenance_read_retryable at line 1339. The current integration attempt has the same failing test. Preserve original backend errors and reconcile the intended public refusal contract; this case is outside the seven requested fixes."
+  "2026-10-31T00:21:02.325Z",codex-agent,"Gate follow-through after merging main: the two-generation replay, SDK programme-alias and pre-approved Decision probes now pass 3/3. Meta programme lookup first resolves the SDK canonical namespace and then recovers original birth spelling, preserving existing payload identity. Stale tests now require meta_reservation_drift rather than the older disagrees prose. The authoritative status-read family passes both native and typed backend cases (3 test nodes); its assertion retains backend_unavailable instead of expecting an unrelated provenance wrapper. No underlying peer conflict, budget or backend preservation assertion was removed."
+  "2026-10-31T00:38:29.406Z",codex-agent,"Integrated current main contracts at source head 7f547db: canonical namespace resolution now precedes legacy birth spelling recovery, so a new uppercase programme alias reaches the same normalized identity while persisted payload spellings remain readable. Focused meta selection passed 3/3; combined native read-error family passed both subcases, preserving the native or typed backend error without sealing refusal. Updated obsolete message assertions to typed meta_reservation_drift. Full release evidence is delegated to pushed-head CI."
+  "2026-10-31T01:01:30.131Z",codex-agent,"Prior-head CI job 123986155416 (run 41032747646) also showed canonical proposal corruption expecting the direct-get parse message. A new focused run reproduces it on 1bd7725: preservedProgrammeId correctly refuses earlier with the real complete-inventory SDK error because a native document is unreadable. Compare the unchanged native listAllComplete refusal at that boundary instead of the different direct-get message; preserve the foreign binding and damaged-file checks. This changes only the test expectation, not the refusal contract. Four native process-loop crash/race probes and owner identity probing are being checked separately; no full local matrix is running."
+  "2026-10-31T01:06:40.910Z",codex-agent,"Post-push prior-CI comparison found one remaining assertion mismatch, reproduced on 1bd7725 before correction. The damaged-proposal test now compares the exact native listAllComplete refusal at namespace recovery and asserts the corrupt document remains byte-unchanged; direct-get reports a different valid error. Corrected test passes 1/1 directly and 1/1 through pm test --run --only-last --progress in a snapshot workspace with PM context none. npm run check and npm run build:test both pass after the correction; zero clones across 58 sources. Only test expectations changed; shipped archive bytes remain unchanged. Prior run 41032747646 provides the failing-before evidence; the complete current-head release jobs are still pending."
+files[3]{path,scope}:
+  meta.ts,project
+  test/meta.test.ts,project
+  test/policy-card.test.ts,project
+tests[2]:
+  - command: "node --test --test-concurrency=1 --experimental-test-coverage --test-coverage-include=meta.ts --test-name-pattern=\"two real meta generations retain|programme identity cannot hide|one pre-approved Decision cannot\" test/meta.test.ts"
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-30T17:31:00.586Z"
+      source_kind: local_mutation
+      source_ref: feat/predeclared-sequential-evaluation
+  - command: "node --test --test-concurrency=1 --test-name-pattern=\"canonical proposal lookup\" test/meta.test.ts"
+    scope: project
+    timeout_seconds: 120
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-31T01:05:29.127Z"
+      source_kind: local_mutation
+      source_ref: feat/predeclared-sequential-evaluation
+body: ""

@@ -1,7 +1,7 @@
 /** Causal language model: numerical proofs, checkpoints, refusals and replay. */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -389,6 +389,24 @@ test("a write that crashes mid-artifact leaves no partial checkpoint, so the res
   }
 });
 
+test("checkpoint publication refuses a state directory swapped for a link during the write", async () => {
+  const root = mkdtempSync(join(tmpdir(), "pm-rl-lm-swap-"));
+  const config = parseLmLoopConfig(configValue());
+  const checkpoint = config.initial;
+  try {
+    // A peer replaces `runtime` with a link to a moved copy while the temporary file is written.
+    const swapping: typeof writeFile = async (file, data, options) => {
+      await writeFile(file, data, options);
+      renameSync(join(root, "runtime"), join(root, "moved-runtime"));
+      symlinkSync(join(root, "moved-runtime"), join(root, "runtime"), process.platform === "win32" ? "junction" : "dir");
+    };
+    await assert.rejects(persistLmCheckpoint(root, checkpoint, config, swapping), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "rl_state_path_invalid");
+    assert.equal(existsSync(join(root, "moved-runtime", ...lmCheckpointPath(checkpoint).split("/").slice(1))), false, "no checkpoint may be published through the link");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("immutable checkpoint artifacts refuse missing, corrupt and unwritable evidence", async () => {
   const root = mkdtempSync(join(tmpdir(), "pm-rl-lm-artifact-"));
   const config = parseLmLoopConfig(configValue());
@@ -567,4 +585,27 @@ test("durable LM fit and evaluation restore actual tensors without another updat
   const weights = envelope.weights as Record<string, JsonValue>;
   refuses(() => parseLmLoopConfig({ ...frozen, frozen_base: { ...envelope, weights: { ...weights, layers: [] } } }), "lm_invalid_checkpoint");
   refuses(() => parseLmLoopConfig({ ...frozen, frozen_base: { ...envelope, digest: "wrong" } }), "lm_invalid_checkpoint");
+});
+
+
+test("cubic: checkpoint boundary refusals differ from missing artifacts", async () => {
+  const root = mkdtempSync(join(tmpdir(), "rl-lm-boundary-"));
+  try {
+    const config = parseLmLoopConfig(configValue()); const checkpoint = lmCheckpoint(seededLmAdapter(config.shape, config.seed), config);
+    const outside = join(root, "outside"); const state = join(root, "state"); mkdirSync(outside); mkdirSync(state);
+    symlinkSync(outside, join(state, "runtime"), "dir");
+    await assert.rejects(verifyLmCheckpointArtifact(state, checkpoint, config), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "rl_state_path_invalid" && error.exitCode === 2);
+    rmSync(join(state, "runtime"));
+    await assert.rejects(verifyLmCheckpointArtifact(state, checkpoint, config), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "lm_checkpoint_artifact_missing" && error.exitCode === 4);
+    await persistLmCheckpoint(state, checkpoint, config); await verifyLmCheckpointArtifact(state, checkpoint, config);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("cubic coverage: live LM evaluation and its measured-wall replay produce the same report", () => {
+  const config = parseLmLoopConfig(configValue({ evaluation_samples: 16 }));
+  const step = { learningRate: config.learningRate, evaluationSamples: config.evaluationSamples };
+  const fit = trainLmStep(config, step, 1, config.initial, lmCollectBatch(config, 1, config.initial), 0);
+  const live = evaluateLmStep(config, step, fit, null);
+  assert.ok(Number.isFinite(live.wallMs) && live.wallMs >= fit.wallMs);
+  assert.deepEqual(evaluateLmStep(config, step, fit, live.wallMs), live);
 });

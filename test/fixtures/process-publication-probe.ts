@@ -38,7 +38,7 @@ for (const phase of ["running", "materialized"] as const) {
 }
 for (const state of ["planned", "running"] as const) {
   const input = { ...base, identity: { staging: state, original: base.identity } }; const command = referenceTrainerArgv(); const id = processJobId(input, command, adapter);
-  const approved = await client.create({ id: `packed-staging-${state}`, type: "Decision", title: "Bounded staging recovery", parent: "none", goal: "none", objective: "none", sprint: "none", release: "none", body: "```json\n" + JSON.stringify({ permitted_promotions: 1, resource_budget: resources }) + "\n```" });
+  const approved = await client.create({ id: `packed-staging-${state}`, type: "Decision", title: "Bounded staging recovery", unset: ["parent", "goal", "objective", "sprint", "release"], body: "```json\n" + JSON.stringify({ permitted_promotions: 1, resource_budget: resources }) + "\n```" });
   const coordinates = { pmRoot, author: "publication-packed" };
   const reserved = await reserveProcessJob(client, coordinates, id, input, approved.item.id, resources);
   if (state === "running") {

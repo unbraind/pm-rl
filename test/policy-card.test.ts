@@ -11,13 +11,14 @@ import type { HistoryResult } from "@unbrained/pm-cli/sdk/query";
 import { PmClient, type CloseResult } from "@unbrained/pm-cli/sdk/core";
 import { init, isPmCliExpectedError, createPmCliExpectedError, type CloseTaskResult, type PmClientCloseActionOptions } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import extension, { RL_ITEM_TYPES, generationProvenance, extractGenerationSpec, hashJson, canonicalJson, readCompleteLoopItem, runRlLoop, resumeRlLoop, loopLeaseLockId, withRlController, recordRefusedPolicyCard, mutateLoopItem, promoteGenerationCore, appendCommentOnce, type JsonValue, type RlCommandResult } from "../index.ts";
-import { discoverPolicyCards, exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordRecursivePolicyCards, recordPolicyCard, POLICY_CARD_MAX_BYTES, validatePolicyCardWrite, generationEvidence, verifyRetainedGenerationEvidence, type PolicyCard } from "../policy-card.ts";
+import extension, { RL_ITEM_TYPES, generationProvenance, extractGenerationSpec, hashJson, canonicalJson, readCompleteLoopItem, runRlLoop, resumeRlLoop, loopLeaseLockId, withRlController, recordRefusedPolicyCard, mutateLoopItem, promoteGenerationCore, appendCommentOnce, sealDecisionEvidence, withPromotionEvidence, DECISION_INPUT_FIELDS, type JsonValue, type RlCommandResult } from "../index.ts";
+import { discoverPolicyCards, exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordRecursivePolicyCards, recordPolicyCard, POLICY_CARD_MAX_BYTES, parsePolicyCardDecisionEvidence, validatePolicyCardWrite, generationEvidence, verifyRetainedGenerationEvidence, type PolicyCard } from "../policy-card.ts";
 import { encodeEvent, encodeEventSegments } from "../series.ts";
 import { prefixCheckpoint } from "../prefix.ts";
 import { parseScoreRecord, type GenerationSpec } from "../lineage.ts";
 import { skippedTrackerRecords, decodeTrackerRecord, parseBoundedJson } from "../tracker-record.ts";
 import { parseLoopConfig, loopPromotionScores, runLoopGeneration } from "../loop.ts";
+import { decisionFixture } from "./fixtures/decision-evidence.ts";
 import { banditCheckpoint } from "../bandit.ts";
 import { listProcessJobs, readProcessJob } from "../process.ts";
 
@@ -1343,7 +1344,7 @@ test("authoritative status read failures preserve the concurrent transition erro
     await assert.rejects(runRlLoop(w.client, w.coordinates, { ...w.request, onPhase(phase) { if (phase === "evaluate") armed = true; } }), (error: unknown) => {
       assert.ok(isPmCliExpectedError(error)); assert.equal(error.context.code, "loop_write_conflict");
       const context = error.context as typeof error.context & { authoritative_read_error: string };
-      assert.equal(context.authoritative_read_error, native ? "unavailable" : "provenance_read_retryable"); return true;
+      assert.equal(context.authoritative_read_error, native ? "unavailable" : "backend_unavailable"); return true;
     });
     const actual = extractGenerationSpec(String((await w.peer.get(w.generationId)).item.body), "Unchanged positive evaluation");
     assert.equal(actual.promoted, false); assert.equal((actual.policy_evaluation as Record<string, JsonValue>).decision, "promote");
@@ -1738,4 +1739,183 @@ test("reversed native history preserves earliest policy citations and promotion 
   const resumed = await resumeRlLoop(w.client, { pmRoot: w.pmRoot, author: "card-test" }, { id: "order", approval: "rl-approval" });
   assert.equal(resumed.promoted, 1); assert.equal(resumed.generations[0].promoted_by, first.generations[0].promoted_by);
   assert.notEqual(resumed.generations[0].promoted_by, "annotation-peer");
+});
+
+
+test("cubic: malformed full card manifests retain the card refusal contract", async () => {
+  const w = await workspace(); const id = await generation(w.client); const card = await exportPolicyCard(w.client, id);
+  for (const evidence of [{}, { format: "pm-rl/evaluation-evidence/2" }, { format: "pm-rl/evaluation-evidence/1", comparison: "bad", digest: "bad", inputs: [] }]) {
+    assert.throws(() => parsePolicyCardDecisionEvidence(evidence), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "card_invalid" && error.exitCode === 4);
+    await assert.rejects(replayPolicyCard(w.client, { ...card, decision_evidence: evidence }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "card_invalid" && error.exitCode === 4);
+  }
+  assert.deepEqual((await replayPolicyCard(w.client, card)).card, card);
+  const sealed = await decisionFixture(false, false);
+  try {
+    const complete = await exportPolicyCard(sealed.client, sealed.plan.candidate); assert.ok(complete.decision_evidence);
+    assert.deepEqual(parsePolicyCardDecisionEvidence(complete.decision_evidence), complete.decision_evidence);
+    assert.deepEqual((await replayPolicyCard(sealed.client, complete)).card, complete);
+    await recordPolicyCard(sealed.client, sealed.plan.candidate);
+    assert.ok((await discoverPolicyCards(sealed.client)).some(card => card.digest === complete.digest));
+    const { digest: _digest, ...body } = complete;
+    const missing = { ...body, evidence: body.evidence.filter(entry => entry.id !== "rl-review") };
+    await assert.rejects(replayPolicyCard(sealed.client, { ...missing, digest: hashJson(missing as unknown as JsonValue) }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "card_drift" && error.exitCode === 4);
+    const reference = { format: "pm-rl/evaluation-evidence-ref/1", comparison: complete.decision_evidence.comparison, digest: complete.decision_evidence.digest };
+    assert.deepEqual(parsePolicyCardDecisionEvidence(reference), reference);
+    for (const invalid of [{ ...reference, digest: "bad" }, { ...reference, comparison: "bad" }, { ...reference, extra: true }]) assert.throws(() => parsePolicyCardDecisionEvidence(invalid), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "card_invalid" && error.exitCode === 4);
+  } finally { rmSync(sealed.root, { recursive: true, force: true }); }
+});
+
+test("cubic coverage: a decision input edit between graph validation and citation refuses", async () => {
+  const w = await decisionFixture(false, false); const get = w.client.get.bind(w.client); let injected = false;
+  try {
+    const review = (await get("rl-review", { full: true })).item; const changed = JSON.stringify({ ...JSON.parse(String(review.body)), peer_annotation: true }); const peer = new PmClient({ cwd: w.root, pmRoot: w.pmRoot, author: "ordinary-peer", noExtensions: true });
+    /** Delegate real reads and schedule the ordinary writer only at the citation snapshot. */
+    w.client.get = (async (...args) => {
+      if (!injected && args[0] === "rl-review" && new Error().stack?.includes("at snapshot (")) { injected = true; await peer.update("rl-review", { body: changed }); }
+      return get(...args);
+    }) as PmClient["get"];
+    await assert.rejects(exportPolicyCard(w.client, w.plan.candidate), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_write_conflict" && error.exitCode === 4);
+    assert.ok(injected); assert.equal((await get("rl-review", { full: true })).item.body, changed);
+  } finally { Object.assign(w.client, { get }); rmSync(w.root, { recursive: true, force: true }); }
+});
+
+test("cubic coverage: a generation cannot cite itself as a collection dependency", async () => {
+  const w = await workspace();
+  await generation(w.client, spec({ collection_runs: ["rl-self"] }), "rl-self");
+  await assert.rejects(exportPolicyCard(w.client, "rl-self"), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "card_missing_provenance" && error.exitCode === 4);
+});
+
+test("cubic coverage: retained pre-decision cards do not replace a sealed terminal graph", async () => {
+  const w = await decisionFixture(true, false);
+  try {
+    const card = w.candidateCard;
+    await w.client.create({ id: `policy-card-${card.digest}`, type: "Decision", title: "Retained earlier candidate explanation", tags: "rl-policy-card", affectedVersion: card.digest, body: canonicalJson(card as unknown as JsonValue) });
+    await recordPolicyCard(w.client, w.plan.candidate);
+    await verifyRetainedGenerationEvidence(w.client, w.plan.candidate);
+    assert.equal((await exportPolicyCard(w.client, w.plan.candidate)).outcome, "promoted");
+  } finally { rmSync(w.root, { recursive: true, force: true }); }
+});
+
+test("cubic coverage: a native completed receipt with a different graph comparison is refused", async () => {
+  const w = await decisionFixture(false, true);
+  try {
+    const raw = JSON.parse(String((await w.client.get("rl-graph-step-decision", { full: true })).item.body));
+    await w.client.create({ id: "rl-foreign-comparison-step", type: "Decision", title: "Inconsistent completed receipt", body: JSON.stringify({ ...raw, key: "foreign-comparison-step", input: hashJson("other-comparison") }) });
+    await assert.rejects(exportPolicyCard(w.client, "rl-foreign-comparison-step"), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "card_drift" && error.exitCode === 4);
+  } finally { rmSync(w.root, { recursive: true, force: true }); }
+});
+
+test("cubic coverage: native decision graphs refuse citation-count and compact-byte overflow", async () => {
+  for (const [count, width] of [[32, 0], [22, 140]]) {
+    const w = await workspace(); const inputs = [];
+    for (let i = 0; i < count; i += 1) {
+      const created = await w.client.create({ id: `rl-source-${i}${"x".repeat(width)}`, title: "Certified source", body: "source" });
+      inputs.push((await readCompleteLoopItem(w.client, created.item.id, undefined, DECISION_INPUT_FIELDS)).item);
+    }
+    const graph = await sealDecisionEvidence(w.client, hashJson("bounded decision"), inputs); const result = { samples: 1 };
+    await w.client.create({ id: "rl-bounded-step", type: "Decision", title: "Bounded decision", body: JSON.stringify({ format: "pm-rl/loop-step/1", key: "bounded-step", state: "complete", input: graph.comparison, result, digest: hashJson(result), decision_evidence: graph }) });
+    await assert.rejects(exportPolicyCard(w.client, "rl-bounded-step"), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "card_limit" && error.exitCode === 4);
+  }
+});
+
+test("cubic coverage: sequential replay requires its exact full or compact decision root", async () => {
+  const w = await decisionFixture(false, false);
+  try {
+    const card = w.cards[0]; assert.ok(card.decision_evidence);
+    const { decision_evidence: graph, digest: _digest, ...body } = card;
+    await assert.rejects(replayPolicyCard(w.client, { ...body, digest: hashJson(body as unknown as JsonValue) }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "card_drift" && error.exitCode === 4);
+    for (const field of ["digest", "comparison"] as const) {
+      const changed = { ...body, decision_evidence: { format: "pm-rl/evaluation-evidence-ref/1", comparison: graph.comparison, digest: graph.digest, [field]: "0".repeat(64) } };
+      await assert.rejects(replayPolicyCard(w.client, { ...changed, digest: hashJson(changed as unknown as JsonValue) }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "card_drift" && error.exitCode === 4);
+    }
+  } finally { rmSync(w.root, { recursive: true, force: true }); }
+});
+
+test("cubic coverage: evaluator discovery preserves a real transport programming error", async () => {
+  const w = await decisionFixture(false, false); const get = w.client.get.bind(w.client); let reads = 0; let failure: unknown;
+  /** Schedule an actual native filesystem argument refusal only after the primary citation is read. */
+  w.client.get = (async (...args) => {
+    if (args[0] === w.plan.candidate && args[1]?.at === undefined && ++reads === 2) {
+      try { readFileSync({ invalid: true } as never); } catch (error) { failure = error; throw error; }
+    }
+    return get(...args);
+  }) as PmClient["get"];
+  try { await assert.rejects(exportPolicyCard(w.client, w.plan.candidate), (error: unknown) => error === failure && (error as NodeJS.ErrnoException).code === "ERR_INVALID_ARG_TYPE"); }
+  finally { Object.assign(w.client, { get }); rmSync(w.root, { recursive: true, force: true }); }
+});
+
+test("cubic coverage: live promotion evidence refuses candidate edits during evaluator discovery", async () => {
+  const w = await decisionFixture(false, false); const get = w.client.get.bind(w.client); let reads = 0;
+  const original = extractGenerationSpec(String((await get(w.plan.candidate, { full: true })).item.body), "Original candidate");
+  const changed = { ...original, training_config: { peer: true } }; const body = `\`\`\`json\n${JSON.stringify(changed)}\n\`\`\``;
+  const peer = new PmClient({ cwd: w.root, pmRoot: w.pmRoot, author: "ordinary-peer", noExtensions: true });
+  /** The SDK supplies both snapshots; an ordinary peer advances the second live revision. */
+  w.client.get = (async (...args) => {
+    if (args[0] === w.plan.candidate && args[1]?.at === undefined && ++reads === 3) await peer.update(w.plan.candidate, { body, affectedVersion: hashJson(generationProvenance(changed)) });
+    return get(...args);
+  }) as PmClient["get"];
+  try { await assert.rejects(withPromotionEvidence(w.client, () => exportPolicyCard(w.client, w.plan.candidate), true), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_write_conflict" && error.exitCode === 4); }
+  finally { Object.assign(w.client, { get }); }
+  try { assert.equal((await get(w.plan.candidate, { full: true })).item.body, body); }
+  finally { rmSync(w.root, { recursive: true, force: true }); }
+});
+
+test("cubic coverage: a candidate cannot shed a stale graph between citation and evaluator reads", async () => {
+  const w = await decisionFixture(false, false); const get = w.client.get.bind(w.client); let reads = 0; let injected = false;
+  try {
+    const original = extractGenerationSpec(String((await get(w.plan.candidate, { full: true })).item.body), "Current candidate");
+    const graph = w.cards[0].decision_evidence!; assert.notEqual(graph.format, "pm-rl/evaluation-evidence-ref/1");
+    const full = graph as NonNullable<GenerationSpec["evaluation_evidence"]>; const { digest: _digest, ...graphBody } = full;
+    const changedGraph = { ...graphBody, inputs: full.inputs.map((input, index) => index === 0 ? { ...input, digest: "0".repeat(64) } : input) };
+    const stale = { ...original, evaluation_evidence: { ...changedGraph, digest: hashJson(changedGraph as unknown as JsonValue) } };
+    await w.client.update(w.plan.candidate, { body: `\`\`\`json\n${JSON.stringify(stale)}\n\`\`\`` });
+    const peer = new PmClient({ cwd: w.root, pmRoot: w.pmRoot, author: "ordinary-peer", noExtensions: true });
+    /** Remove the unsealed stale claim through a real peer write after its primary snapshot was captured. */
+    w.client.get = (async (...args) => {
+      if (args[0] === w.plan.candidate && args[1]?.at === undefined && ++reads === 2) { injected = true; await peer.update(w.plan.candidate, { body: `\`\`\`json\n${JSON.stringify(original)}\n\`\`\`` }); }
+      return get(...args);
+    }) as PmClient["get"];
+    await assert.rejects(exportPolicyCard(w.client, w.plan.candidate), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "card_drift" && error.exitCode === 4);
+    assert.ok(injected);
+  } finally { Object.assign(w.client, { get }); rmSync(w.root, { recursive: true, force: true }); }
+});
+
+test("cubic coverage: malformed intervening native history keeps a typed card fallback identity", async () => {
+  const w = await decisionFixture(false, false);
+  try {
+    const body = String((await w.client.get(w.plan.candidate, { full: true })).item.body);
+    // Both events remain immutable: a malformed historical edit is followed by a valid new revision.
+    await w.client.update(w.plan.candidate, { body: "[invalid historical generation" });
+    await w.client.update(w.plan.candidate, { body });
+    const history = readFileSync(join(w.pmRoot, "history", `${w.plan.candidate}.jsonl`), "utf8");
+    await assert.rejects(exportPolicyCard(w.client, w.plan.candidate), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "card_drift" && error.context.item_id === w.plan.candidate && error.exitCode === 4);
+    assert.equal(readFileSync(join(w.pmRoot, "history", `${w.plan.candidate}.jsonl`), "utf8"), history);
+  } finally { rmSync(w.root, { recursive: true, force: true }); }
+});
+
+test("cubic coverage: a grafted graph cannot certify a changed legacy decision receipt", async () => {
+  const w = await workspace(); const input = (await w.client.create({ id: "rl-source", title: "Source", body: "signal" })).item.id;
+  const comparison = hashJson("legacy decision"); const first = { samples: 1 }; const second = { samples: 2 };
+  const raw = { format: "pm-rl/loop-step/1", key: "legacy-receipt", state: "complete", input: comparison, result: first, digest: hashJson(first) };
+  await w.client.create({ id: "rl-legacy-receipt", type: "Decision", title: "Legacy receipt", body: JSON.stringify(raw) });
+  const original = await exportPolicyCard(w.client, "rl-legacy-receipt");
+  const graph = await sealDecisionEvidence(w.client, comparison, [(await readCompleteLoopItem(w.client, input, undefined, DECISION_INPUT_FIELDS)).item]);
+  await w.client.update("rl-legacy-receipt", { body: JSON.stringify({ ...raw, result: second, digest: hashJson(second) }) });
+  assert.deepEqual((await replayPolicyCard(w.client, original)).card, original, "released graphless explanations remain historical");
+  const { digest: _digest, ...body } = original; const grafted = { ...body, decision_evidence: graph };
+  await assert.rejects(replayPolicyCard(w.client, { ...grafted, digest: hashJson(grafted as unknown as JsonValue) }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "card_drift" && error.exitCode === 4);
+});
+
+test("cubic coverage: legacy child cards replay the sealed parent graph and refuse changed upstream inputs", async () => {
+  const w = await decisionFixture(true, false);
+  try {
+    const parent = extractGenerationSpec(String(w.native.item.body), "Promoted parent");
+    const child: GenerationSpec = { ...parent, parent: w.plan.candidate, promoted: false, approval: null, proxy_score: null, held_out_score: null, gap: null, promotion_evidence: null, evaluation_plan: undefined, evaluation_evidence: undefined, policy_evaluation: undefined };
+    await w.client.create({ id: "rl-legacy-child", type: "Generation", title: "Legacy unplanned child", body: `\`\`\`json\n${JSON.stringify(child)}\n\`\`\``, affectedVersion: hashJson(generationProvenance(child)) });
+    const card = await exportPolicyCard(w.client, "rl-legacy-child");
+    assert.deepEqual((await replayPolicyCard(w.client, card)).card, card);
+    const review = JSON.parse(String((await w.client.get("rl-review", { full: true })).item.body));
+    await w.client.update("rl-review", { body: JSON.stringify({ ...review, peer_annotation: true }) });
+    await assert.rejects(replayPolicyCard(w.client, card), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "eval_plan_evidence" && error.exitCode === 4);
+  } finally { rmSync(w.root, { recursive: true, force: true }); }
 });

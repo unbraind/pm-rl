@@ -1,3 +1,4 @@
+import { identityPath } from "./fixtures/identity-path.ts";
 /** Real non-git trackers and adversarial cohorts for predeclared policy comparisons. */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -8,8 +9,8 @@ import { after, test } from "node:test";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { init, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import extension, { extractGenerationSpec, generationProvenance, hashJson, readCompleteLoopItem, type JsonValue, type RlCommandResult } from "../index.ts";
-import { evaluationComparison, evaluationPlanId, evaluatePlan, parseEvaluationPlan, registerEvaluationPlan, readEvaluationPlan, recordPlanEvaluation, enforceEvaluationPlan, type EvaluationPlan, type EvaluationObservation } from "../evaluation-plan.ts";
+import extension, { extractGenerationSpec, generationProvenance, hashJson, readCompleteLoopItem, recordRefusedPolicyCard, verifyDecisionEvidence, verifyCompletedDecisionReceipt, type JsonValue, type RlCommandResult } from "../index.ts";
+import { evaluationEvidence, evaluationComparison, evaluationPlanId, evaluatePlan, parseEvaluationPlan, registerEvaluationPlan, readEvaluationPlan, readEvaluationDecision, recordPlanEvaluation, enforceEvaluationPlan, evaluationInputDigest, decisionSnapshotDigest, parseEvaluationEvidence, type EvaluationPlan, type EvaluationObservation } from "../evaluation-plan.ts";
 import type { GenerationSpec, ScoreRecord } from "../lineage.ts";
 
 const roots: string[] = [];
@@ -62,10 +63,65 @@ test("transient creation-history read failures leave evaluation plans retryable"
   assert.equal((await readEvaluationPlan(w.client, "rl-candidate"))?.comparison, registered.comparison);
 });
 
+test("coverage: fixed evaluation bounds and source-time namespace changes remain typed refusals", async () => {
+  for (const replacement of ["absent", "sequential"] as const) {
+    const w = await workspace(); const primary = plan();
+    await registerEvaluationPlan(w.client, primary); await generation(w.client, primary.candidate, spec("rl-seed"));
+    await assert.rejects(recordPlanEvaluation(w.client, primary.candidate, null), refusal("eval_plan_stopping"));
+    await assert.rejects(recordPlanEvaluation(w.client, primary.candidate, Array.from({ length: 10_001 }, () => ({ id: "member", candidate: 1, incumbent: 0 }))), refusal("eval_plan_stopping"));
+    if (replacement === "sequential") {
+      const review = "rl-other-review";
+      const peerPlan = plan({ candidate: "rl-other-rl-candidate", stopping: { kind: "sequential", method: "hoeffding-alpha-spending/1", observations: primary.members.length, independent_units: primary.members.length, unit_order: primary.members.map(member => member.unit), looks: [primary.members.length], review } });
+      await w.client.create({ id: review, type: "Decision", title: "Peer statistical design", body: JSON.stringify({ format: "pm-rl/sequential-review/1", comparison: evaluationComparison(peerPlan) }) });
+      await registerEvaluationPlan(w.client, peerPlan);
+    }
+    const get = w.client.get.bind(w.client); let changed = false;
+    /** The SDK still performs every read; another real configuration write changes its next namespace. */
+    w.client.get = (async (...args) => {
+      const result = await get(...args);
+      if (!changed && args[0] === primary.candidate && args[1]?.at === undefined) {
+        changed = true; await w.client.config("project", "set", "id_prefix", "rl-other");
+      }
+      return result;
+    }) as PmClient["get"];
+    try { await assert.rejects(recordPlanEvaluation(w.client, primary.candidate, observations(primary)), refusal(replacement === "absent" ? "eval_plan_missing" : "eval_plan_stopping")); }
+    finally { Object.assign(w.client, { get }); }
+    assert.ok(changed); assert.equal((await w.client.config("project", "get", "id_prefix")).nested_setting!.value, "rl-other");
+    assert.equal(readFileSync(join(w.pmRoot, "plans", `${evaluationPlanId(primary.candidate)}.toon`), "utf8").includes(primary.population), true);
+  }
+});
+
+test("coverage: shared native upstream evidence verifies once and refuses extra retained inputs", async () => {
+  const w = await workspace(); let parent = "rl-seed", previous = spec();
+  for (let index = 1; index <= 3; index += 1) {
+    const candidate = `rl-linked-${index}`, current = spec(parent, [`rl-linked-run-${index}`]);
+    const declared = plan({ candidate, incumbent: parent, incumbent_version: hashJson(generationProvenance(previous)) });
+    await registerEvaluationPlan(w.client, declared); await generation(w.client, candidate, current);
+    await recordPlanEvaluation(w.client, candidate, observations(declared));
+    const graph = (await readEvaluationDecision(w.client, candidate)).evidence!;
+    await w.client.update(candidate, { body: "```json\n" + JSON.stringify({ ...current, evaluation_evidence: graph }) + "\n```" });
+    await verifyDecisionEvidence(w.client, graph);
+    parent = candidate; previous = { ...current, evaluation_evidence: graph };
+  }
+  const final = await readEvaluationDecision(w.client, parent);
+  assert.equal(final.report?.verdict.decision, "promote"); await verifyDecisionEvidence(w.client, final.evidence!);
+  const extra = await w.client.create({ id: "rl-extra-cited", title: "Unrelated retained input", body: "Real native record" });
+  const native = (await readCompleteLoopItem(w.client, extra.item.id, "1")).item, graph = final.evidence!;
+  const input = { id: native.id, digest: evaluationInputDigest(native, graph.comparison), ...(graph.format === "pm-rl/evaluation-evidence/2" ? { at: "1", snapshot_digest: decisionSnapshotDigest(native) } : {}) };
+  const { digest: _digest, ...manifest } = graph;
+  const body = { ...manifest, inputs: [...manifest.inputs, input].sort((a, b) => Buffer.compare(Buffer.from(a.id), Buffer.from(b.id))) };
+  const retained = parseEvaluationEvidence({ ...body, digest: hashJson(body as unknown as JsonValue) });
+  await w.client.update(parent, { body: "```json\n" + JSON.stringify({ ...previous, evaluation_evidence: retained }) + "\n```" });
+  const paths = [join(w.pmRoot, "generations", `${parent}.toon`), join(w.pmRoot, "history", `${parent}.jsonl`)];
+  const before = paths.map(path => readFileSync(path, "utf8"));
+  await assert.rejects(readEvaluationDecision(w.client, parent), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "eval_plan_drift" && error.exitCode === 4 && error.context.item_id === native.id);
+  assert.deepEqual(paths.map(path => readFileSync(path, "utf8")), before);
+});
+
 test("all plan fields and correlation assignments determine comparison identity", () => {
   const p = plan(); const identity = evaluationComparison(p);
   assert.equal(evaluationComparison({ ...p, members: [...p.members].reverse() }), identity);
-  assert.equal(evaluationPlanId(" rl-candidate "), evaluationPlanId("rl-candidate"));
+  assert.throws(() => evaluationPlanId(" rl-candidate ", "write"), (error) => isPmCliExpectedError(error) && error.context.code === "rl_identifier_invalid");
   const changes: Partial<EvaluationPlan>[] = [ { candidate: "next" }, { incumbent: "other" }, { incumbent_version: "changed" }, { population: "other" }, { selection: "sample" }, { correlation_unit: "session" }, { objective: "accuracy" }, { objective_version: "v2" }, { evaluation_context: "other" }, { direction: "minimize" }, { reward_bounds: [-1, 1] }, { criterion: { ...p.criterion, confidence: 0.99 } }, { criterion: { ...p.criterion, minSamples: 20 } }, { criterion: { ...p.criterion, effectThreshold: 0.1 } }, { members: p.members.map((m) => ({ ...m, unit: `new-${m.unit}` })) }, { members: [...p.members, { id: "extra", unit: "extra" }], stopping: { kind: "fixed", observations: 101, independent_units: 101 } } ];
   for (const change of changes) assert.notEqual(evaluationComparison({ ...p, ...change }), identity);
   assert.equal(parseEvaluationPlan({ ...p, population: "  Population  " }).population, "Population");
@@ -153,7 +209,9 @@ test("real SDK plan reservation, single evaluation and promotion checks work wit
   await assert.rejects(recordPlanEvaluation(w.client, "absent", []), refusal("eval_plan_missing"));
   await assert.rejects(registerEvaluationPlan(w.client, plan({ candidate: "rl-seed", incumbent: "absent" })), refusal("eval_plan_late"));
   await assert.rejects(registerEvaluationPlan(w.client, plan({ candidate: "rl-new", incumbent: "absent" })), refusal("eval_plan_missing"));
-  await assert.rejects(registerEvaluationPlan(w.client, plan({ candidate: "short-id" })), refusal("eval_plan_invalid"));
+  const alias = await registerEvaluationPlan(w.client, plan({ candidate: "short-id" }));
+  assert.equal(alias.plan.candidate, "rl-short-id");
+  assert.deepEqual(await readEvaluationPlan(w.client, "#SHORT-ID"), alias);
 });
 
 test("documented held-out scores copy the unrounded JSON mean and refuse rounded values", async () => {
@@ -358,7 +416,7 @@ test("CLI evaluation plan show normalizes short IDs before the candidate exists"
 });
 
 test("CLI plan commands and actual promotion enforce the reservation with git absent from PATH", async () => {
-  const w = await workspace(); const bin = join(w.root, "bin"); mkdirSync(bin); symlinkSync(process.execPath, join(bin, "node"));
+  const w = await workspace(); const bin = identityPath(w.root);
   const previousPath = process.env.PATH; const previousCeiling = process.env.GIT_CEILING_DIRECTORIES;
   process.env.PATH = bin; process.env.GIT_CEILING_DIRECTORIES = dirname(w.root);
   try {
@@ -402,7 +460,8 @@ test("unreadable stores, invalid incumbents and divergent concurrent writes fail
   await assert.rejects(readEvaluationPlan(w.client, "rl-broken")); rmSync(broken);
   await w.client.create({ id: "rl-task", type: "Task", title: "Wrong incumbent type" });
   await assert.rejects(registerEvaluationPlan(w.client, plan({ incumbent: "rl-task" })), refusal("eval_plan_missing"));
-  await assert.rejects(registerEvaluationPlan(w.client, plan({ incumbent: "seed" })), refusal("eval_plan_missing"));
+  const aliased = await registerEvaluationPlan(w.client, plan({ candidate: "rl-aliased-incumbent", incumbent: "seed" }));
+  assert.equal(aliased.plan.incumbent, "rl-seed");
   await w.client.create({ id: "rl-unversioned", type: "Generation", title: "Unversioned incumbent" });
   await assert.rejects(registerEvaluationPlan(w.client, plan({ incumbent: "rl-unversioned" })), refusal("eval_plan_missing"));
   await assert.rejects(registerEvaluationPlan(w.client, plan({ incumbent_version: "wrong" })), refusal("eval_plan_drift"));
@@ -420,6 +479,29 @@ test("unreadable stores, invalid incumbents and divergent concurrent writes fail
   raw.incumbent_version = "foreign";
   await w.client.update(registered.id, { body: JSON.stringify(raw) });
   await assert.rejects(readEvaluationPlan(w.client, "rl-candidate"), refusal("eval_plan_drift"));
+});
+
+test("plan registration refuses a configured SDK prefix changing after canonical resolution", async () => {
+  const w = await workspace(); const config = w.client.config.bind(w.client); let reads = 0;
+  w.client.config = async (...args: Parameters<typeof w.client.config>) => {
+    const result = await config(...args);
+    if (args[1] === "get" && args[2] === "id_prefix" && ++reads === 1) await config("project", "set", "id_prefix", "other");
+    return result;
+  };
+  try { await assert.rejects(registerEvaluationPlan(w.client, plan()), refusal("eval_plan_invalid")); }
+  finally { await config("project", "set", "id_prefix", "rl"); }
+});
+
+test("fixed cohort labels retain distinct case and unchanged sealed SDK comparisons", async () => {
+  const w = await workspace();
+  const declaration = plan({ candidate: "rl-case-cohort", members: [{ id: "Member", unit: "Unit" }, { id: "member", unit: "unit" }], criterion: { confidence: 0.95, minSamples: 1, effectThreshold: 0 }, stopping: { kind: "fixed", observations: 2, independent_units: 2 } });
+  const registered = await registerEvaluationPlan(w.client, declaration);
+  assert.equal(registered.comparison, evaluationComparison(declaration));
+  assert.deepEqual(registered.plan.members, declaration.members);
+  await generation(w.client, declaration.candidate, { ...spec("rl-seed"), evaluation_plan: registered.comparison });
+  const evaluated = await recordPlanEvaluation(w.client, declaration.candidate, observations(declaration));
+  assert.equal(evaluated.observations, 2); assert.equal(evaluated.independent_units, 2);
+  assert.equal((await readEvaluationPlan(w.client, declaration.candidate))!.comparison, registered.comparison);
 });
 
 test("native result peer writes reconcile success and refuse every incompatible winner after a local SDK failure", async () => {
@@ -453,6 +535,36 @@ test("native result peer writes reconcile success and refuse every incompatible 
   }
 });
 
+test("fixed evaluation shares rejection's canonical lease and never advances sealed terminal evidence", async () => {
+  const w = await workspace(); const p = plan(); await registerEvaluationPlan(w.client, p);
+  await w.client.schemaAddType("Environment", { folder: "environments", defaultStatus: "open" });
+  await w.client.create({ id: "rl-training-env", type: "Environment", title: "Training" });
+  await generation(w.client, p.candidate, spec("rl-seed"));
+  const peer = new PmClient({ cwd: w.root, pmRoot: w.pmRoot, author: "fixed-rejection-peer", noExtensions: true });
+  const get = w.client.get.bind(w.client); let injected = false; let candidateReads = 0;
+  const previousWait = process.env.PM_LOCK_WAIT_MS; process.env.PM_LOCK_WAIT_MS = "0";
+  w.client.get = (async (...args) => {
+    const result = await get(...args);
+    if (!injected && args[0] === p.candidate && args[1]?.at === undefined && ++candidateReads === 2) {
+      injected = true;
+      await assert.rejects(recordRefusedPolicyCard(peer, "CaNdIdAtE", "Competing stop"), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "lock_conflict");
+      await assert.rejects(peer.update(p.candidate, { title: "Competing SDK write" }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "lock_conflict");
+    }
+    return result;
+  }) as PmClient["get"];
+  try { assert.deepEqual(await recordPlanEvaluation(w.client, p.candidate, observations(p)), evaluatePlan(p, observations(p))); }
+  finally { Object.assign(w.client, { get }); if (previousWait === undefined) delete process.env.PM_LOCK_WAIT_MS; else process.env.PM_LOCK_WAIT_MS = previousWait; }
+  assert.ok(injected);
+  // A separate candidate is rejected before its first result. Its empty result slot
+  // must stay empty, and the sealed rejection must remain immediately readable.
+  const stopped = plan({ candidate: "rl-stopped" }); await registerEvaluationPlan(w.client, stopped);
+  await generation(w.client, stopped.candidate, spec("rl-seed", ["rl-stopped-collection"]));
+  assert.equal(await recordRefusedPolicyCard(peer, stopped.candidate, "Stop before evaluation"), "refused");
+  await assert.rejects(recordPlanEvaluation(w.client, stopped.candidate, observations(stopped)), refusal("eval_plan_stopping"));
+  assert.equal((await peer.listAllComplete({ includeBody: false })).items.some((item) => item.id === `${stopped.candidate}-evaluation-plan-result`), false);
+  assert.equal((await readEvaluationDecision(peer, stopped.candidate)).report, null);
+});
+
 test("generation comparison pins survive parsing and reject malformed or changed plan identities", async () => {
   for (const value of [null, "", "wrong", 7]) assert.throws(() => extractGenerationSpec(`\`\`\`json\n${JSON.stringify({ ...spec(), evaluation_plan: value })}\n\`\`\``, "Generation"), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "invalid_evaluation_plan");
   const w = await workspace(); await registerEvaluationPlan(w.client, plan());
@@ -483,4 +595,86 @@ test("generation JSON fence scan bounds 100k repeated unclosed openers", () => {
     console.log("100k linear scan passed");
   `;
   assert.match(execFileSync(process.execPath, ["--input-type=module", "-e", script], { encoding: "utf8", timeout: 20_000 }), /100k linear scan passed/);
+});
+
+
+test("hashed evidence uses UTF-8 byte order for mixed-form and Unicode native IDs", async () => {
+  const w = await workspace();
+  const ids = ["rl-z", "rl-é", "rl-a_1", "rl-a-1"];
+  const native = (await w.client.create({ id: "rl-source", type: "Decision", title: "Evidence ordering" })).item;
+  const items = ids.map(id => ({ ...native, id }));
+  const expected = ["rl-a-1", "rl-a_1", "rl-z", "rl-é"];
+  const evidence = evaluationEvidence("a".repeat(64), items);
+  assert.deepEqual(evidence.inputs.map(item => item.id), expected);
+  assert.equal(evaluationEvidence("a".repeat(64), [...items].reverse()).digest, evidence.digest);
+});
+
+test("fixed declaration and result publication refuse native create ABA without erasing peer history", async () => {
+  for (const domain of ["plan", "result"]) {
+    const w = await workspace(); const peer = new PmClient({ pmRoot: w.pmRoot, cwd: w.root, author: "ordinary-peer", noExtensions: true });
+    if (domain === "result") { await registerEvaluationPlan(w.client, plan()); await generation(w.client, "rl-candidate", spec("rl-seed")); }
+    const create = w.client.create.bind(w.client); let injected = false; let path = ""; let history = ""; let expected: readonly string[] = [];
+    w.client.create = (async (options) => {
+      const result = await create(options);
+      if (!injected) {
+        injected = true; const body = String((await readCompleteLoopItem(peer, result.item.id)).item.body);
+        await peer.update(result.item.id, { body: "Peer evidence" }); await peer.update(result.item.id, { body });
+        path = join(w.pmRoot, domain === "plan" ? "plans" : "decisions", `${result.item.id}.toon`); history = join(w.pmRoot, "history", `${result.item.id}.jsonl`);
+        expected = [readFileSync(path, "utf8"), readFileSync(history, "utf8")];
+      }
+      return result;
+    }) as PmClient["create"];
+    const publish = () => domain === "plan" ? registerEvaluationPlan(w.client, plan()) : recordPlanEvaluation(w.client, "rl-candidate", observations());
+    await assert.rejects(publish(), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_write_conflict");
+    assert.ok(injected); assert.deepEqual([readFileSync(path, "utf8"), readFileSync(history, "utf8")], expected);
+    await publish(); // A new invocation may adopt the now-stable, valid native record.
+    assert.deepEqual([readFileSync(path, "utf8"), readFileSync(history, "utf8")], expected);
+  }
+});
+
+
+test("block coverage: sparse native Run snapshots retain absent optional evidence", async () => {
+  const w = await workspace(); await w.client.create({ id: "rl-empty-run", type: "Run", title: "Sparse released Run" });
+  const complete = await readCompleteLoopItem(w.client, "rl-empty-run");
+  const projected = await readCompleteLoopItem(w.client, "rl-empty-run", undefined, "id,type,body,affected_version,created_at,environment,component");
+  assert.equal(projected.item.environment, undefined); assert.equal(projected.item.notes, undefined);
+  assert.equal(decisionSnapshotDigest(projected.item), decisionSnapshotDigest(complete.item));
+});
+
+test("block coverage: a prospective wrong native identity refuses before candidate publication", async () => {
+  const w = await workspace(); const registered = await registerEvaluationPlan(w.client, plan());
+  const other = await generation(w.client, "rl-other-prospective", { ...spec("rl-seed"), evaluation_plan: registered.comparison });
+  await assert.rejects(readEvaluationDecision(w.client, registered.plan.candidate, true, other), refusal("eval_plan_drift"));
+  assert.equal((await w.client.listAllComplete({ includeBody: false })).items.some(item => item.id === registered.plan.candidate), false);
+});
+
+test("block coverage: reordered retained inputs identify the canonical candidate on refusal", async () => {
+  const w = await workspace(); const registered = await registerEvaluationPlan(w.client, plan());
+  const current = { ...spec("rl-seed"), evaluation_plan: registered.comparison };
+  await generation(w.client, registered.plan.candidate, current);
+  const graph = (await readEvaluationDecision(w.client, registered.plan.candidate)).evidence!;
+  assert.ok(graph.inputs.length > 1);
+  const body = { format: graph.format, comparison: graph.comparison, inputs: [...graph.inputs].reverse() };
+  const reordered = parseEvaluationEvidence({ ...body, digest: hashJson(body as unknown as JsonValue) });
+  const text = `\`\`\`json\n${JSON.stringify({ ...current, evaluation_evidence: reordered })}\n\`\`\``;
+  await w.client.update(registered.plan.candidate, { body: text });
+  const history = readFileSync(join(w.pmRoot, "history", `${registered.plan.candidate}.jsonl`));
+  await assert.rejects(readEvaluationDecision(w.client, registered.plan.candidate), (error: unknown) => isPmCliExpectedError(error) && error.exitCode === 4 && error.context.code === "eval_plan_drift" && error.context.item_id === registered.plan.candidate);
+  assert.equal((await readCompleteLoopItem(w.client, registered.plan.candidate)).item.body, text);
+  assert.deepEqual(readFileSync(join(w.pmRoot, "history", `${registered.plan.candidate}.jsonl`)), history);
+});
+
+test("block coverage: versionless completed receipts and native read failures retain typed refusals", async () => {
+  const w = await workspace(); const id = "rl-legacy-completion";
+  const source = await w.client.create({ id: "rl-versionless-input", title: "Legacy decision source", body: "original" });
+  const graph = evaluationEvidence(hashJson("legacy comparison"), [source.item]);
+  const result = { samples: 1 }; const original = { format: "pm-rl/loop-step/1", input: hashJson("legacy request"), state: "complete", result, digest: hashJson(result), decision_evidence: graph };
+  await w.client.create({ id, type: "Decision", title: "Legacy completed receipt", body: JSON.stringify(original) });
+  const alteredBody = { format: graph.format, comparison: graph.comparison, inputs: graph.inputs.map(ref => ({ ...ref, digest: hashJson("different input") })) };
+  const altered = { ...original, decision_evidence: parseEvaluationEvidence({ ...alteredBody, digest: hashJson(alteredBody as unknown as JsonValue) }) };
+  await assert.rejects(verifyCompletedDecisionReceipt(w.client, id, altered), (error: unknown) => isPmCliExpectedError(error) && error.exitCode === 4 && error.context.code === "loop_step_drift" && String(error.context.required).includes(`${source.item.id}@unversioned`));
+  const file = join(w.pmRoot, "decisions", `${id}.toon`), malformed = "metadata: [\nmalformed native receipt\n";
+  writeFileSync(file, malformed);
+  await assert.rejects(verifyCompletedDecisionReceipt(w.client, id, original), (error: unknown) => isPmCliExpectedError(error) && error.exitCode === 1 && error.context.code === "item_document_invalid");
+  assert.equal(readFileSync(file, "utf8"), malformed);
 });

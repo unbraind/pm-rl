@@ -465,8 +465,8 @@ export function parseLcovTotals(lcovPath: string): LcovTotals {
  * block changes. For a 100% threshold, block coverage is equivalent to
  * statement coverage: all blocks entered iff all statements executed.
  *
- * Node writes one V8 coverage JSON file per process, even with
- * --test-concurrency=1, so the same source file appears in multiple files.
+ * Node writes one V8 coverage JSON file per isolated test worker, so the
+ * same source file appears in multiple reports.
  * Different processes can report different range boundaries for the same
  * logical block (V8 splits or merges ranges depending on optimisation level).
  * The merge keys on `(file, functionName, functionFirstStart, rangeStartOffset)`:
@@ -671,7 +671,7 @@ export function runGate(
       // happened to flush. Under a hard 100% threshold that is not slow-and-correct
       // versus fast-and-correct — it is a gate that fails releases at random, which
       // is worse than no gate because the failure teaches people to re-run it.
-      "--test-concurrency=1",
+      "--test-concurrency=2",
       "--experimental-test-coverage",
       // Scope the report to exactly the files the presence check requires. Passing
       // the enumerated paths rather than a directory glob keeps the two in step by

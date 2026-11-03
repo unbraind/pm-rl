@@ -62,6 +62,12 @@ test("higher aggregate mean refuses on any protected cohort, while legacy and pa
   assert.equal(evaluatePlan(p, tied).verdict.decision, "refuse");
 });
 
+test("protected cohorts cannot silently bypass their fixed-sample contract in a sequential design", () => {
+  const p = design();
+  const stopping = { kind: "sequential", method: "hoeffding-alpha-spending/1", observations: 100, independent_units: 100, unit_order: p.members.map((member) => member.unit), looks: [50, 100], review: "rl-review" };
+  assert.throws(() => parseEvaluationPlan({ ...p, stopping }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "eval_plan_stopping" && /fixed-sample/.test(error.message));
+});
+
 test("strict schema rejects sparse, oversized, ambiguous and extreme cohort inputs before storage", () => {
   const p = design(); const c = p.protected_cohorts![0]; const sparse: string[] = []; sparse.length = 1;
   const invalid: unknown[] = [null, [], new Array(1), Array(33).fill(c), [{ ...c, extra: 1 }], [{ ...c, id: "x".repeat(129) }], [c, c], [{ ...c, members: sparse }], [{ ...c, members: [] }], [{ ...c, members: Array(10001).fill("task-0") }], [{ ...c, members: ["absent"] }], [{ ...c, members: ["task-0", " task-0 "] }]];
