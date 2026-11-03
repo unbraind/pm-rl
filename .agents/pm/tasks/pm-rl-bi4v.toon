@@ -2,11 +2,13 @@ id: pm-rl-bi4v
 title: Keep the HTTP receipt crash drill within its unchanged timeout
 description: "The existing SIGKILL-at-every-HTTP-to-PM-boundary integration case exceeded its unchanged 300-second timeout during full instrumented release validation. Compare the same case against the main baseline, identify startup, I/O or ownership waits, and preserve every crash boundary and assertion while bringing execution inside the bound."
 type: Task
-status: open
+status: closed
 priority: 2
 tags[1]: "gh:unbraind/pm-rl#107"
 created_at: "2026-10-15T22:41:40.256Z"
-updated_at: "2026-11-03T03:39:33.542Z"
+updated_at: "2026-11-03T05:33:12.911Z"
+closed_at: "2026-11-03T05:32:47.291Z"
+completed_at: "2026-11-03T05:27:11.000Z"
 author: codex-agent
 acceptance_criteria: A baseline/candidate timing reproduction identifies the cause; the real eight-boundary drill and complete release gates pass with the existing 300-second timeout and unchanged coverage thresholds.
 parent: pm-rl-apvf
@@ -80,4 +82,5 @@ tests[5]:
       source_ref: feat/predeclared-sequential-evaluation
 docs[1]{path,scope}:
   docs/sdk-2026.11.2-compatibility.md,project
+close_reason: "Verified by the orchestrator: pm-rl#107 merged as 105233a from head 61934f5. On that exact head the full release gates passed with the unchanged 300-second timeout and unchanged coverage thresholds: test (22) 1h40m, test (26) 41m, Bun release (26) 1h11m (run https://github.com/unbraind/pm-rl/actions/runs/41574057945). Cause: ensurePersistentTypes reinstalled the schema on every call; 3c320c9 memoizes it per client, and test/loop.test.ts bounds schemaAddType calls at RL_ITEM_TYPES.length*2 (243 calls on revert, verified)."
 body: ""

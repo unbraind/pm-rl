@@ -4,6 +4,7 @@
 
 ### Added
 
+- Stop predeclared evaluations safely at sequential boundaries ([pm-rl-sequential](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-sequential.toon))
 - Measure evaluation sensitivity to declared training slices ([pm-rl-measured-influence](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-measured-influence.toon))
 - Refuse promotion when a protected task cohort regresses ([pm-rl-worstcohort](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-worstcohort.toon))
 - Explain learned policy suitability with portable replayable cards ([pm-rl-policycards](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-policycards.toon))
@@ -82,6 +83,10 @@
 
 ### Other
 
+- Keep the HTTP receipt crash drill within its unchanged timeout ([pm-rl-bi4v](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-bi4v.toon))
+- Reconcile inherited release-test expectations with native refusal contracts ([pm-rl-meta-gate](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-meta-gate.toon))
+- Reconcile the empty-author transaction contract with native SDK behavior ([pm-rl-empty-author](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-empty-author.toon))
+- Triage the three later review threads outside the seven-finding round ([pm-rl-review107later](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-review107later.toon))
 - Extract the published compatibility oracle from the sequential evaluation PR ([pm-rl-oracle](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-oracle.toon))
 - Release readiness behind PM_RELEASE_APPROVED ([pm-rl-release-gate](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-release-gate.toon))
 - Make the 2026.10.23 pm toolchain bump pass: SDK create fixtures spread an unsupported hash field ([pm-rl-tc1023](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-tc1023.toon))

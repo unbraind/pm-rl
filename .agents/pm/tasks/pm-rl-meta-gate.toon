@@ -2,11 +2,13 @@ id: pm-rl-meta-gate
 title: Reconcile inherited release-test expectations with native refusal contracts
 description: Three test/meta.test.ts failures reproduce on untouched cd91de9 with coverage enabled. The two-generation replay and pre-approved Decision cases expect an old disagrees message but now receive typed meta_reservation_drift. The programme case-folding case expects UPPER to reach a callback but receives meta_programme_id. Reconcile the intended compatibility and refusal contracts without weakening native peer conflict protection or valid historical reads. These failures are outside the seven PR 107 review fixes.
 type: Task
-status: in_progress
+status: closed
 priority: 2
 tags[1]: "gh:unbraind/pm-rl#107"
 created_at: "2026-10-30T17:28:28.277Z"
-updated_at: "2026-10-31T01:06:47.244Z"
+updated_at: "2026-11-03T05:33:18.233Z"
+closed_at: "2026-11-03T05:32:57.027Z"
+completed_at: "2026-11-03T05:27:11.000Z"
 author: codex-agent
 parent: pm-rl-sequential
 comments[5]{created_at,author,text}:
@@ -37,4 +39,5 @@ tests[2]:
       created_at: "2026-10-31T01:05:29.127Z"
       source_kind: local_mutation
       source_ref: feat/predeclared-sequential-evaluation
+close_reason: "Verified by the orchestrator: the three inherited meta.test.ts expectations now assert the typed native refusals (meta_reservation_drift, meta_programme_id, listAllComplete at namespace recovery) and changed only test expectations. pm-rl#107 merged as 105233a; the release gates with coverage passed on head 61934f5 (run https://github.com/unbraind/pm-rl/actions/runs/41574057945)."
 body: ""

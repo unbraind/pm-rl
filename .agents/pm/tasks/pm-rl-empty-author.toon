@@ -2,11 +2,13 @@ id: pm-rl-empty-author
 title: Reconcile the empty-author transaction contract with native SDK behavior
 description: "The release gate test for an invalid transaction author expects runRlLoop to reject an empty coordinates author. On untouched PR head cd91de9 it instead completes, causing Missing expected rejection. Reconcile the intended public validation contract with the pinned SDK; preserve infrastructure errors and avoid recording them as promotion refusals. This blocker is outside the seven requested PR 107 review fixes."
 type: Task
-status: in_progress
+status: closed
 priority: 2
 tags[1]: "gh:unbraind/pm-rl#107"
 created_at: "2026-10-30T17:10:11.700Z"
-updated_at: "2026-10-31T00:46:33.457Z"
+updated_at: "2026-11-03T05:33:16.127Z"
+closed_at: "2026-11-03T05:32:52.045Z"
+completed_at: "2026-11-03T05:27:11.000Z"
 author: codex-agent
 parent: pm-rl-sequential
 comments[3]{created_at,author,text}:
@@ -18,4 +20,5 @@ files[2]{path,scope}:
   test/loop.test.ts,project
 tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   "node --test --test-concurrency=1 --test-name-pattern=\"an invalid transaction identity propagates\" test/loop.test.ts",project,codex-agent,"2026-10-30T17:10:44.401Z",local_mutation,feat/predeclared-sequential-evaluation
+close_reason: "Verified by the orchestrator: runRlLoop rejects an empty transaction author before discovery or allocation (the codex-agent comments record the before/after list comparison and the cd91de9 failing control). pm-rl#107 merged as 105233a; the release gates passed on head 61934f5 (run https://github.com/unbraind/pm-rl/actions/runs/41574057945)."
 body: ""
