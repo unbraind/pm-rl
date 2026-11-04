@@ -222,6 +222,16 @@ test("full non-git controller refuses unsupported evidence, retains programs, re
   console.log(JSON.stringify({ controller_steps: steps.length, fits: report.budget.fits, process_jobs: 10, promotions: 0, non_git: true, compact_json_bytes: Buffer.byteLength(JSON.stringify(result)) }));
 });
 
+test("CLI recovery guards reject unusable identities for both flag spellings before effects", async () => {
+  const w = await workspace(); const directory = dataset(w.root);
+  const file = join(w.root, "program.json"); writeFileSync(file, JSON.stringify(proposerEvolutionConfiguration()));
+  const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
+  for (const flag of ["force_takeover", "forceTakeover"]) {
+    await assert.rejects(harness.runCommand({ pmRoot: w.pmRoot, command: "rl proposer run", args: ["../invalid"], options: { file, dataset: directory, approval: w.approval, [flag]: true } }), (error) => isPmCliExpectedError(error) && error.context.code === "rl_identifier_invalid");
+  }
+  assert.equal((await listProcessJobs(w.client)).length, 0);
+});
+
 test("proposal reservation and publication interleave ordinary peers at every transaction step boundary", { timeout: 180_000 }, async () => {
   const w = await workspace(); const peer = new PmClient({ pmRoot: w.pmRoot, cwd: w.root, author: "competing-agent", noExtensions: true }); let cases = 0;
   for (const phase of ["reserve", "advance"] as const) for (const boundary of ["prepared", "step_applied", "step_recorded", "committing", "committed"] as const) {
