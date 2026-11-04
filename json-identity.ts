@@ -22,4 +22,3 @@ export function canonicalJson(value: JsonValue): string {
 export function hashJson(value: JsonValue): string {
   return createHash("sha256").update(canonicalJson(value)).digest("hex");
 }
-
