@@ -48,6 +48,7 @@
 
 ### Fixed
 
+- Daily release fails lint on installed extension builds that the live suites write under .agents/pm/runtime ([pm-rl-d3be](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-d3be.toon))
 - Recover external decision receipts across the HTTP-to-PM commit window for idempotency-v1 endpoints ([pm-rl-9nlg](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-9nlg.toon))
 - Enforce the configured statement coverage threshold in the package gate ([pm-rl-xiks](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-xiks.toon))
 - Allow dependabot\[bot\] through the git identity audit ([pm-rl-niml](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-niml.toon))
