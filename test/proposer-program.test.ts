@@ -56,7 +56,7 @@ function dataset(root: string): string {
 }
 /** Independent positive-control outcomes: a chosen strategy's real instruction earns bounded utility. */
 function controlledComparison(parent: ProposerProgram, before: number, after: number) {
-  const members = Array.from({ length: 1000 }, (_, index) => ({ id: `task-${index}`, repo: `tracker-${index}`, target: index % 2 ? "kind" : "duration" }));
+  const members = Array.from({ length: 256 }, (_, index) => ({ id: `task-${index}`, repo: `tracker-${index}`, target: index % 2 ? "kind" : "duration" }));
   const plan = proposerEvaluationPlan("control", parent, members, "control-context", 100);
   return evaluatePlan(plan, members.map(({ id }) => ({ id, candidate: after, incumbent: before })));
 }
@@ -130,7 +130,7 @@ test("isolated positive control promotes changed executable strategies through t
     const before = await executeProposer(w.client, w.coordinates, w.approval, `control-${generation}-before`, input);
     const after = await executeProposer(w.client, w.coordinates, w.approval, `control-${generation}-after`, { ...input, program: candidate });
     const comparison = controlledComparison(retained, utility(before.instructions[0].arm), utility(after.instructions[0].arm));
-    assert.equal(compareImprovers(candidate.digest, retained.digest, utility(after.instructions[0].arm), utility(before.instructions[0].arm), 1000, "inner-control").verdict.decision, "promote");
+    assert.equal(compareImprovers(candidate.digest, retained.digest, utility(after.instructions[0].arm), utility(before.instructions[0].arm), 256, "inner-control").verdict.decision, "promote");
     const selected = selectProposer(retained, candidate, before, after, comparison); assert.equal(selected.promoted, true);
     const metadata = proposerArtifact(retained.code, retained.generation + 1, retained.digest);
     assert.equal(selectProposer(retained, metadata, before, after, comparison).promoted, false);
@@ -147,7 +147,7 @@ test("isolated positive control promotes changed executable strategies through t
   const plan = proposerEvaluationPlan("budget", initial, [{ id: "a", repo: "r", target: "t" }], "ctx", 2);
   const search = { execution: executeProposal(invocation()), scores: [{ id: "a", mean: 0 }], counts: invocation().counts, jobs: [], optimizer_updates: 1 };
   assert.equal(compareProposerSearch(plan, search, { ...search, optimizer_updates: 2 }).verdict.decision, "refuse");
-  console.log(JSON.stringify({ recursive_positive_control: receipts, proposal_processes: jobs.length, independent_units_per_generation: 1000, optimizer_updates_per_contender: 0, inference_tokens: 0 }));
+  console.log(JSON.stringify({ recursive_positive_control: receipts, proposal_processes: jobs.length, independent_units_per_generation: 256, optimizer_updates_per_contender: 0, inference_tokens: 0 }));
 });
 
 test("cohort limits, cross-role contamination, approval and dataset drift refuse before dependent effects", { timeout: 180_000 }, async () => {

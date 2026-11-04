@@ -1,5 +1,5 @@
 {
-  "artifact_sha256": "a7f5edab2544aa1e00c74bb1ab613839d8eedb5b20eabcf594d48a4936a62ab8",
+  "artifact_sha256": "08e45e6def2f5b35fc77f9dabc11cc4258d28a6adfa702c4a1509f0445c8511f",
   "host_version": "2026.11.4",
   "modes": [
     {
@@ -11,7 +11,7 @@
       "fit_count": 5,
       "compact_json_bytes": 536,
       "toon_bytes": 539,
-      "elapsed_ms": 96734
+      "elapsed_ms": 108966
     },
     {
       "host": "bun-global",
@@ -22,7 +22,7 @@
       "fit_count": 5,
       "compact_json_bytes": 536,
       "toon_bytes": 539,
-      "elapsed_ms": 40805
+      "elapsed_ms": 98135
     },
     {
       "host": "npx",
@@ -33,7 +33,7 @@
       "fit_count": 5,
       "compact_json_bytes": 536,
       "toon_bytes": 539,
-      "elapsed_ms": 37943
+      "elapsed_ms": 89063
     },
     {
       "host": "bunx",
@@ -44,7 +44,7 @@
       "fit_count": 5,
       "compact_json_bytes": 536,
       "toon_bytes": 539,
-      "elapsed_ms": 32793
+      "elapsed_ms": 79050
     },
     {
       "host": "project-local",
@@ -55,7 +55,7 @@
       "fit_count": 5,
       "compact_json_bytes": 536,
       "toon_bytes": 539,
-      "elapsed_ms": 58035
+      "elapsed_ms": 134225
     }
   ]
 }

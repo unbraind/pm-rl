@@ -111,7 +111,7 @@ by the pm SDK. The seeded model test includes 500 sequences, older-input replay,
 whitespace and CRLF, native relationships, custom statuses and ambient focus.
 
 The positive control promotes actual arm selection 0 → 2 → 4 in two recursive
-generations using four isolated processes and 1,000 independent synthetic task
+generations using four isolated processes and 256 independent synthetic task
 units per generation. It separately checks metadata-only refusal and audit
 restoration. This establishes the mechanism, not general learning efficacy.
 [Public validation](proposer-public-evidence.json) reads 123 items from a read-only
