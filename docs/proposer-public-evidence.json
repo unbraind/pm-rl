@@ -1,0 +1,47 @@
+{
+  "format": "pm-rl/proposer-public-validation/1",
+  "items": 123,
+  "terminal_items": 100,
+  "source_unchanged": true,
+  "source_digest": "1c9749d46d0f97617e436bf027716d674b21be03978e1a69badded894bddd056",
+  "non_git": true,
+  "baseline": [
+    {
+      "arm": 2,
+      "feature": "inherit",
+      "order": 1,
+      "curriculum": "seeded"
+    },
+    {
+      "arm": 3,
+      "feature": "inherit",
+      "order": 1,
+      "curriculum": "seeded"
+    }
+  ],
+  "candidate": [
+    {
+      "arm": 2,
+      "feature": "events",
+      "order": 3,
+      "curriculum": "balanced"
+    },
+    {
+      "arm": 0,
+      "feature": "events",
+      "order": 3,
+      "curriculum": "balanced"
+    }
+  ],
+  "behavior_changed": true,
+  "process_jobs": 2,
+  "replay_new_jobs": 0,
+  "optimizer_updates": 0,
+  "inference_tokens": 0,
+  "elapsed_ms": 12946,
+  "measured_compute_ms": 5,
+  "measured_wall_ms": 1133,
+  "measured_storage_bytes": 3068,
+  "promotions": 0,
+  "limitation": "Development-count execution and replay validation; no held-out quality claim."
+}

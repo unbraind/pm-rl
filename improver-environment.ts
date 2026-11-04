@@ -10,6 +10,7 @@ import type { HistoryPrefix } from "./prefix-data.ts";
 import { prefixTrainerArgv } from "./prefix-trainer.ts";
 import { executeProcessTrainer, processJobId, readProcessJob, transitionProcessJob, verifyProcessJobBudget, type ProcessAdapter, type ProcessCoordinates, type ProcessInput, type ProcessJob } from "./process.ts";
 import { decidePromotion, hoeffdingEpsilon, type PromotionDecision, type PromotionCriterion } from "./promotion.ts";
+import type { ProposalCode } from "./proposer-program.ts";
 
 /** Both levels use the existing unchanged confidence, sample and effect thresholds. */
 export const IMPROVER_CRITERION = { confidence: 0.95, minSamples: 10, effectThreshold: 0.01 } as const;
@@ -71,7 +72,17 @@ function improverCalibration(rows: readonly ImproverRow[], learner: ImproverLear
 /** Search receives task identities and aggregate outcomes, never a feature, label, or dataset path. */
 export interface ImproverEnvironment {
   tasks(role: typeof IMPROVER_ROLES[number]): readonly { readonly id: string; readonly repo: string; readonly target: ImproverTask["target"] }[];
-  fit(role: typeof IMPROVER_ROLES[number], index: number, config: LearnerConfig, job: string, incumbent: ImproverLearner | null, signal: AbortSignal): Promise<LearnerTrial>;
+  fit(role: typeof IMPROVER_ROLES[number], index: number, config: LearnerConfig, job: string, incumbent: ImproverLearner | null, signal: AbortSignal, curriculum?: ProposalCode["curriculum"]): Promise<LearnerTrial>;
+}
+
+/** Apply an executable curriculum only to training rows; equal update counts remain authoritative. */
+export function proposalCurriculum(rows: readonly ImproverRow[], curriculum: ProposalCode["curriculum"]): ImproverRow[] {
+  if (curriculum === "reverse") return [...rows].reverse();
+  if (curriculum === "balanced") {
+    const zeros = rows.filter((row) => row.label === 0); const ones = rows.filter((row) => row.label === 1);
+    return Array.from({ length: Math.max(zeros.length, ones.length) }, (_, index) => [zeros[index], ones[index]]).flat().filter((row) => row !== undefined);
+  }
+  return [...rows];
 }
 
 /** Apply a declared feature mask to already bounded history; no label or target field is accepted. */
@@ -131,11 +142,11 @@ export function openImproverEnvironment(client: PmClient, coordinates: ProcessCo
   };
   return {
     tasks: (role) => tasks(role).map((task) => ({ id: task.id, repo: task.repo, target: task.target })),
-    async fit(role, index, config, jobId, incumbent, signal) {
+    async fit(role, index, config, jobId, incumbent, signal, curriculum = "seeded") {
       const task = tasks(role)[index];
       const source = prefixCheckpoint(new Array<number>(config.prefix.hashing_width).fill(0), config.prefix);
       const baseline = incumbent ?? { config, checkpoint: source };
-      const ordered = [...task.train].sort((a, b) => hashJson({ id: a.id, seed }).localeCompare(hashJson({ id: b.id, seed })));
+      const ordered = proposalCurriculum([...task.train].sort((a, b) => hashJson({ id: a.id, seed }).localeCompare(hashJson({ id: b.id, seed }))), curriculum);
       const rows = Array.from({ length: updates }, (_, offset) => ({ prefix: improverFeatures(ordered[offset % ordered.length].prefix, config), label: ordered[offset % ordered.length].label }));
       const input: ProcessInput<PrefixCheckpoint> = { identity: { programme_id: jobId, dataset: manifest.digest, task: task.id, config: config as unknown as JsonValue }, source, training: [], observations: [],
         training_config: { learning_rate: config.learning_rate, steps: 1 }, lineage: { training: hashJson(task.train as unknown as JsonValue), held_out: hashJson(task.evaluation as unknown as JsonValue), collection: hashJson(rows as unknown as JsonValue) }, prefix: { rows, knobs: config.prefix } };

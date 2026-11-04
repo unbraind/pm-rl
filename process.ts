@@ -19,6 +19,8 @@ import { validatePrefixCompletion, type PrefixPayload } from "./prefix.ts";
 import { launchComposeTrainer, stopComposeTrainer } from "./compose.ts";
 import { encodeCheckpointArtifacts, readCheckpointArtifact, requireCheckpointStorage, type CheckpointArtifact } from "./checkpoint-artifacts.ts";
 import { retryOwnedStop, waitForOwnedClose } from "./owned-stop.ts";
+import { parseProposalInvocation, verifyProposalExecution, type ProposalInvocation } from "./proposer-program.ts";
+import { writeTrainerArtifact, trainerJobIdentity } from "./process-bandit.ts";
 
 /** Independently accounted resource dimensions; all values are nonnegative safe integers. */
 export const RESOURCE_KEYS = ["training_steps", "wall_ms", "storage_bytes", "compute_units", "tokens"] as const;
@@ -73,6 +75,8 @@ export interface ProcessInput<P extends { readonly digest: string } = BanditChec
   readonly lm?: LmProcessPayload;
   /** Bounded training-only history observables; absent from legacy adapters. */
   readonly prefix?: PrefixPayload;
+  /** Sealed proposal interpreter input; development counts are its only data capability. */
+  readonly proposal?: ProposalInvocation;
 }
 /** Required durable completion evidence; successful process exit alone is never sufficient. */
 export interface ProcessCompletion<P extends { readonly digest: string } = BanditCheckpoint> {
@@ -480,7 +484,11 @@ export function validateProcessCompletion<P extends TrainerPolicy>(directory: st
   } else if (input.prefix !== undefined) expectedFail("Prefix checkpoint requires an artifact reference.", "process_checkpoint_invalid");
   const digest = `sha256:${createHash("sha256").update(content).digest("hex")}`;
   if (digest !== value.digest) expectedFail("Checkpoint content digest or parameters are invalid.", "process_checkpoint_invalid");
-  if (input.lm !== undefined) validateLmProcessCheckpoint(content, value, input);
+  if (input.proposal !== undefined) {
+    verifyProposalExecution(parseBoundedJson(content.toString("utf8")), input.proposal);
+    verifyProposalExecution(value.policy, input.proposal);
+  }
+  else if (input.lm !== undefined) validateLmProcessCheckpoint(content, value, input);
   else if (input.prefix !== undefined) validatePrefixCompletion(content, { policy: parseBoundedJson(content.toString("utf8")) as P }, input);
   else {
     const policy = parseBoundedJson(content.toString("utf8")) as BanditCheckpoint;
@@ -560,7 +568,7 @@ export async function launchTrainer(directory: string, id: string, input: Traine
   const request = encodeBoundedJson({ job: id, input, ...(input.prefix === undefined ? {} : { artifactRoot: statePath(artifactRoot) }) });
   const startedAt = Date.now();
   const started = performance.now();
-  const child = spawn(argv[0], argv.slice(1), { cwd: directory, shell: false, stdio: ["pipe", "pipe", "pipe"] });
+  const child = spawn(argv[0], argv.slice(1), { cwd: directory, shell: false, stdio: ["pipe", "pipe", "pipe"], ...(input.proposal === undefined ? {} : { env: {} }) });
   let failure: unknown;
   let failed = false;
   let complete = false;
@@ -647,8 +655,18 @@ export async function launchTrainer(directory: string, id: string, input: Traine
       while ((newline = pending.indexOf("\n")) >= 0) {
         const line = pending.slice(0, newline); pending = pending.slice(newline + 1);
         callbackOperation("stdout.write", () => writeFileSync(callbackOperation("stdout.path", () => statePath(directory, "events.ndjson")), `${line}\n`, { flag: "a" }));
-        const event = parseBoundedJson(line) as { type: string; job: string; usage: Resources; receipt: ProcessCompletion };
+        const event = parseBoundedJson(line) as { type: string; job: string; usage: Resources; receipt: ProcessCompletion<TrainerPolicy> };
         if (complete || operationIdentifier(event.job) !== operationIdentifier(id) || !["progress", "complete"].includes(event.type)) expectedFail("Invalid trainer event sequence.", "process_channel_invalid");
+        if (input.proposal !== undefined && event.type === "complete") {
+          // The interpreter has no filesystem write capability. Only verified deterministic output crosses back.
+          if (Object.keys(event.receipt).sort().join() !== "policy,usage") expectedFail("Proposal output exceeded its sealed capability. Retain this refusal and start a fresh programme.", "proposer_capability");
+          const policy = verifyProposalExecution(event.receipt.policy, input.proposal);
+          const content = JSON.stringify(policy); const { job, format } = trainerJobIdentity(id);
+          event.receipt = { format, job, checkpoint: "checkpoint.json", digest: `sha256:${createHash("sha256").update(content).digest("hex")}`, policy,
+            source_policy: input.source.digest, training_config: input.training_config, lineage: input.lineage, usage: parseResources(event.receipt.usage) };
+          writeTrainerArtifact(statePath(directory, "checkpoint.json"), policy, 4096);
+          writeTrainerArtifact(statePath(directory, "completion.json"), event.receipt, 65_536);
+        }
         if (event.type === "complete") { complete = true; const finalUsage = parseResources(event.receipt.usage); for (const key of RESOURCE_KEYS) if (finalUsage[key] < measured[key]) expectedFail("Completion regressed measured use.", "process_limit_exceeded"); if (callbackOperation("stdout.staging", () => stagingBytes(directory, "stdout")) > allowance.storage_bytes || callbackOperation("stdout.stat", () => lstatSync(callbackOperation("stdout.completion-path", () => statePath(directory, "completion.json")))).size > 65_536) expectedFail("Completion channel exceeded its schema bound.", "process_channel_invalid"); const disk = parseBoundedJson(callbackOperation("stdout.read", () => readFileSync(callbackOperation("stdout.read-path", () => statePath(directory, "completion.json")), "utf8"))) as unknown; if (processDigest(event.receipt) !== processDigest(disk)) expectedFail("Stream completion differs from durable receipt.", "process_receipt_invalid"); }
         else {
           const usage = parseResources(event.usage);
@@ -714,6 +732,10 @@ function failedProcessCharge(directory: string, prior: Resources, state?: Proces
 
 /** Recover staged work or execute exactly one reserved phase; failures settle conservatively and retain evidence. */
 export async function executeProcessTrainer<P extends TrainerPolicy>(client: PmClient, coordinates: ProcessCoordinates, input: ProcessInput<P>, approval: string, adapter: ProcessAdapter, signal?: AbortSignal, argv: readonly string[] = referenceTrainerArgv()): Promise<ProcessJob<P>> {
+  if (input.proposal !== undefined) {
+    parseProposalInvocation(input.proposal);
+    if (input.prefix !== undefined || input.lm !== undefined || input.training.length !== 0 || input.observations.length !== 0 || input.training_config.steps !== 0 || adapter.kind !== "process-bandit") expectedFail("Proposal programs accept only development counts and zero optimizer steps. Remove other capabilities before retrying.", "proposer_capability");
+  }
   if (input.training_config.steps !== adapter.allowance.training_steps) expectedFail("Optimizer steps differ from the declared reservation.", "process_invalid_adapter");
   if (input.prefix !== undefined && (input.lm !== undefined || adapter.kind !== "process-bandit")) expectedFail("Prefix fits require the packaged process adapter.", "process_invalid_adapter");
   // Prefix fits publish checkpoint artifacts; refuse unsupported runtimes before the job is reserved.

@@ -1,0 +1,15 @@
+id: pm-rl-history-status-roles
+title: Use configured terminal status roles when projecting improver history
+description: "The existing projectImproverHistory implementation recognizes terminal events using literal closed, canceled and cancelled strings. Histories from trackers with custom terminal status registries can be omitted from the public improver dataset. The new proposer consumes sealed datasets and its public validation uses SDK roles; change the existing history builder separately with persisted-format compatibility coverage."
+type: Issue
+status: open
+priority: 2
+tags[2]: follow-up,status-registry
+created_at: "2026-11-04T21:26:37.249Z"
+updated_at: "2026-11-04T21:26:37.249Z"
+author: codex-agent
+acceptance_criteria: Resolve terminal roles through the source tracker SDK status registry; preserve supported historical dataset behavior; verify randomized custom registries and non-git runtime consumers.
+parent: pm-rl-apvf
+files[1]{path,scope}:
+  improver-data.ts,project
+body: ""

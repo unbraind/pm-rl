@@ -1,0 +1,61 @@
+{
+  "artifact_sha256": "a7f5edab2544aa1e00c74bb1ab613839d8eedb5b20eabcf594d48a4936a62ab8",
+  "host_version": "2026.11.4",
+  "modes": [
+    {
+      "host": "npm-global",
+      "actual_version": "2026.11.4",
+      "validated": true,
+      "completed": true,
+      "replayed": true,
+      "fit_count": 5,
+      "compact_json_bytes": 536,
+      "toon_bytes": 539,
+      "elapsed_ms": 96734
+    },
+    {
+      "host": "bun-global",
+      "actual_version": "2026.11.4",
+      "validated": true,
+      "completed": true,
+      "replayed": true,
+      "fit_count": 5,
+      "compact_json_bytes": 536,
+      "toon_bytes": 539,
+      "elapsed_ms": 40805
+    },
+    {
+      "host": "npx",
+      "actual_version": "2026.11.4",
+      "validated": true,
+      "completed": true,
+      "replayed": true,
+      "fit_count": 5,
+      "compact_json_bytes": 536,
+      "toon_bytes": 539,
+      "elapsed_ms": 37943
+    },
+    {
+      "host": "bunx",
+      "actual_version": "2026.11.4",
+      "validated": true,
+      "completed": true,
+      "replayed": true,
+      "fit_count": 5,
+      "compact_json_bytes": 536,
+      "toon_bytes": 539,
+      "elapsed_ms": 32793
+    },
+    {
+      "host": "project-local",
+      "actual_version": "2026.11.4",
+      "validated": true,
+      "completed": true,
+      "replayed": true,
+      "fit_count": 5,
+      "compact_json_bytes": 536,
+      "toon_bytes": 539,
+      "elapsed_ms": 58035
+    }
+  ]
+}
