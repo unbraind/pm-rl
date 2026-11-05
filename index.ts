@@ -5684,10 +5684,16 @@ export const RL_COMMANDS = [
   ], run: async (context) => {
     const cancellation = installCancellationSignals();
     try {
-      const report = await runProposerEvolution(clientFor(context), { pmRoot: context.pm_root, author: authorFor(context) }, { id: requiredArgument(context, "a proposer programme id"), config: parseProposerEvolutionConfig(readJsonFile(stringOption(context, "file")!, "Proposer declaration")), dataset: stringOption(context, "dataset")!, approval: stringOption(context, "approval")!, signal: cancellation.controller.signal, forceTakeover: (context.options["force_takeover"] ?? context.options["forceTakeover"]) === true });
-      return { action: "rl-proposer-run", details: { retained: report.retained.digest, rollback: report.rollback, budget: report.budget, audit: report.audit.verdict.decision, generations: report.generations.map((row) => ({ generation: row.generation, candidate: row.candidate.digest, retained: row.retained, promoted: row.promoted, behavior_changed: row.behavior_changed, verdict: row.comparison.verdict.decision })) } };
-    } catch (error) { if (error instanceof ProposerRefusal) fail(error.message, error.code); throw error; }
-    finally { removeCancellationSignals(cancellation.handlers); }
+      try {
+        const report = await runProposerEvolution(clientFor(context), { pmRoot: context.pm_root, author: authorFor(context) }, { id: requiredArgument(context, "a proposer programme id"), config: parseProposerEvolutionConfig(readJsonFile(stringOption(context, "file")!, "Proposer declaration")), dataset: stringOption(context, "dataset")!, approval: stringOption(context, "approval")!, signal: cancellation.controller.signal, forceTakeover: (context.options["force_takeover"] ?? context.options["forceTakeover"]) === true });
+        return { action: "rl-proposer-run", details: { retained: report.retained.digest, rollback: report.rollback, budget: report.budget, audit: report.audit.verdict.decision, generations: report.generations.map((row) => ({ generation: row.generation, candidate: row.candidate.digest, retained: row.retained, promoted: row.promoted, behavior_changed: row.behavior_changed, verdict: row.comparison.verdict.decision })) } };
+      } catch (error) {
+        if (error instanceof ProposerRefusal) {
+          fail(error.message, error.code);
+        }
+        throw error;
+      }
+    } finally { removeCancellationSignals(cancellation.handlers); }
   } }),
   defineCommand({ name: "rl influence run", description: "Measure budgeted training-slice associations and retain exact replayable checkpoints.", flags: [{ long: "--file", value_name: "path", value_type: "string", required: true, description: "Strict training influence experiment JSON with explicit budgets." }], run: async (context) => {
     const result = await recordTrainingInfluence(clientFor(context), readJsonFile(stringOption(context, "file")!, "Training influence"));

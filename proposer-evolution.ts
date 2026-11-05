@@ -4,12 +4,12 @@ import { hashJson, readCompleteLoopItem, withRlController, type JsonValue } from
 import { programmeRequest, canonicalIdentifier } from "./state-boundary.ts";
 import { expectedFail } from "./refuse.ts";
 import { parseProposerProgram, parseProposalInvocation, parseProposalInstruction, initialProposer, mutateProposer, ProposerRefusal, type ProposerProgram, type ProposalCounts, type ProposalExecution, type ProposalInvocation, type ProposalInstruction } from "./proposer-program.ts";
-import { executeProcessTrainer, readProcessJob, type ProcessInput, type ProcessCoordinates, type ProcessAdapter } from "./process.ts";
+import { executeProcessTrainer, readProcessJob, approvedResources, RESOURCE_KEYS, type ProcessInput, type ProcessCoordinates, type ProcessAdapter } from "./process.ts";
 import { proposerWorkerArgv } from "./proposer-worker.ts";
 import { initialImprover, type LearnerConfig } from "./improver.ts";
 import { recipeArtifact, INITIAL_RECIPE } from "./recipe.ts";
 import { readImproverDataset, readImproverTasks, IMPROVER_ROLES, type ImproverDataset } from "./improver-data.ts";
-import { openImproverEnvironment, IMPROVER_CRITERION } from "./improver-environment.ts";
+import { openImproverEnvironment, IMPROVER_CRITERION, IMPROVER_ADAPTER, IMPROVER_MAX_ATTEMPTS } from "./improver-environment.ts";
 import { parseEvaluationPlan, evaluatePlan, type EvaluationPlan, type EvaluationPlanReport } from "./evaluation-plan.ts";
 import { requireCheckpointStorage } from "./checkpoint-artifacts.ts";
 import { reserveSearchCapacity } from "./meta.ts";
@@ -119,6 +119,11 @@ export async function runProposerEvolution(client: PmClient, coordinates: Proces
   const binding = hashJson({ config: config as unknown as JsonValue, dataset: manifest.digest, approval: approval.item.body as string });
   const capacity = { training_samples: budget.max_optimizer_updates, proposal_calls: budget.proposal_processes, recipe_promotions: config.generations };
   await reserveSearchCapacity(client, coordinates, request, binding, capacity, fits + config.generations, false, true);
+  const approved = await approvedResources(client, request.approval);
+  for (const key of RESOURCE_KEYS) {
+    const total = fits * IMPROVER_MAX_ATTEMPTS * IMPROVER_ADAPTER.allowance[key] + budget.proposal_processes * PROPOSER_ALLOWANCE[key];
+    if (total > approved.budget[key]) expectedFail(`Approved ${key} budget cannot cover the worst-case proposer run. Obtain capacity before starting.`, "process_budget_exhausted");
+  }
   const signal = request.signal ?? AbortSignal.timeout(config.timeout_ms);
   const criterion = { ...IMPROVER_CRITERION, confidence: 1 - 0.05 / (fits + config.generations + 1) };
   const environment = openImproverEnvironment(client, coordinates, request.dataset, manifest, request.approval, config.updates, config.seed, criterion);

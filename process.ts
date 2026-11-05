@@ -248,7 +248,7 @@ function storedProcessJob<P extends TrainerPolicy>(job: ProcessJob<P>): ProcessJ
   return { ...job, completion: { ...job.completion, policy: { digest: job.completion.policy.digest } } };
 }
 /** Read the existing approved specification without creating or enlarging a Decision. */
-async function approvedResources(client: PmClient, approval: string): Promise<{ budget: Resources; digest: string; id: string }> {
+export async function approvedResources(client: PmClient, approval: string): Promise<{ budget: Resources; digest: string; id: string }> {
   const item = await readCompleteLoopItem(client, approval);
   const fence = /```json\n([\s\S]+?)\n```/u.exec(String(item.item.body));
   if (item.item.type !== "Decision" || fence === null) expectedFail("An existing approved resource Decision is required.", "process_budget_invalid");

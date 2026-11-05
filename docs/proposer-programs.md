@@ -17,6 +17,15 @@ approval contracts (`resource_budget`, `meta_budget`, and `permitted_promotions`
 The shared meta reservation ledger holds worst-case optimizer samples, proposal
 process calls, outer promotions and inner/outer promotion headroom before work;
 concurrent searches cannot each spend the same approved capacity.
+`permitted_promotions` must cover `fits + config.generations` in addition to
+capacity already consumed or reserved under that Decision, where
+`fits = config.candidates * (config.generations * (development.tasks + 2 * meta.tasks) + 2 * audit.tasks)`.
+The proposer run consumes this shared promotion headroom for its inner fits and
+outer generations. Its conservative reservation remains held after completion,
+refusal, interruption and replay; the search never refunds it.
+The `resource_budget` must also cover two process attempts per fit plus all
+`3 * config.generations + 2` proposal interpreters, in every resource dimension.
+An undersized declaration refuses before the controller lease or any jobs.
 Supply a frozen dataset from `rl improver build` with disjoint development, meta
 and audit trackers. The existing public-history builder requires committed public
 Git provenance. Executing a sealed dataset requires no Git repository or executable.

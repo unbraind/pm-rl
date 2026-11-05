@@ -17,7 +17,7 @@ import { evaluatePlan } from "../evaluation-plan.ts";
 import { reserveSearchCapacity } from "../meta.ts";
 import { IMPROVER_ROLES, type ImproverTask, type ImproverDataset } from "../improver-data.ts";
 import { compareImprovers, proposalCurriculum } from "../improver-environment.ts";
-import { listProcessJobs, executeProcessTrainer, launchTrainer, processJobId, processStaging, validateProcessCompletion, readProcessJob, reserveProcessJob, transitionProcessJob, processDigest, type ProcessInput } from "../process.ts";
+import { listProcessJobs, executeProcessTrainer, launchTrainer, processJobId, processStaging, validateProcessCompletion, readProcessJob, reserveProcessJob, transitionProcessJob, processDigest, RESOURCE_KEYS, type ProcessInput } from "../process.ts";
 import { processWorkspace } from "./fixtures/process-workspace.ts";
 
 const originalPath = process.env.PATH; const originalCeiling = process.env.GIT_CEILING_DIRECTORIES;
@@ -172,6 +172,38 @@ test("cohort limits, cross-role contamination, approval and dataset drift refuse
   assert.equal((await listProcessJobs(w.client)).length, 0);
 });
 
+test("worst-case process budget refuses every underfunded dimension before the controller lease", { timeout: 180_000 }, async () => {
+  const w = await workspace(); const directory = dataset(w.root);
+  const config = { ...proposerEvolutionConfiguration(), generations: 1, candidates: 1, updates: 64 };
+  // Independent oracle: five fits, each with two attempts, plus five interpreters.
+  // Process steps count fits, whereas meta training_samples count optimizer updates.
+  const required = { training_steps: 10, wall_ms: 450_000, storage_bytes: 122_880, compute_units: 450_000, tokens: 0 };
+  const original = String((await w.client.get(w.approval)).item.body);
+  for (const key of RESOURCE_KEYS.filter((key) => key !== "tokens")) {
+    const spec = JSON.parse(/```json\n([\s\S]+?)\n```/u.exec(original)![1]);
+    spec.resource_budget = { ...required, [key]: required[key] - 1 };
+    await w.client.update(w.approval, { body: `\`\`\`json\n${JSON.stringify(spec)}\n\`\`\`` });
+    const request = { id: `underfunded-${key}`, approval: w.approval, dataset: directory, config, onStep() { throw new Error("Underfunded run reached execution"); } };
+    // A real live lease proves refusal precedence even though a released lease leaves no item.
+    await withRlController(w.client, w.coordinates, { ...request, recoveryCommand: "inspect retained controller" }, new AbortController().signal, async () => {
+      const before = (await w.client.listAllComplete({ includeBody: true })).items;
+      let transitions = 0;
+      await assert.rejects(runProposerEvolution(w.client, { ...w.coordinates, onTransition() { transitions++; } }, request),
+        (error) => isPmCliExpectedError(error) && error.context.code === "process_budget_exhausted" && error.message.includes(key));
+      assert.deepEqual((await w.client.listAllComplete({ includeBody: true })).items, before, "refusal must not create a controller, reservation or job");
+      assert.equal(transitions, 0);
+      assert.equal((await listProcessJobs(w.client)).length, 0);
+    });
+  }
+});
+
+test("approval documentation declares the shared headroom formula and retained lifetime", () => {
+  const documentation = readFileSync(new URL("../docs/proposer-programs.md", import.meta.url), "utf8");
+  assert.match(documentation, /`permitted_promotions` must cover `fits \+ config\.generations`/);
+  assert.match(documentation, /fits = config\.candidates \* \(config\.generations \* \(development\.tasks \+ 2 \* meta\.tasks\) \+ 2 \* audit\.tasks\)/);
+  assert.match(documentation, /reservation remains held after completion,\nrefusal, interruption and replay; the search never refunds it/);
+});
+
 test("worker IO, feature transforms and curricula use the shipped schema and process protocol", { timeout: 180_000 }, async () => {
   const w = await workspace(); const request = invocation(); let output = "";
   const input: ProcessInput = { identity: {}, source: { digest: request.program.digest, weight: 0 }, training: [], observations: [], training_config: { learning_rate: 0, steps: 0 }, lineage: {}, proposal: request };
@@ -203,11 +235,19 @@ test("worker IO, feature transforms and curricula use the shipped schema and pro
 
 test("full non-git controller refuses unsupported evidence, retains programs, resumes and exposes compact CLI output", { timeout: 300_000 }, async () => {
   const w = await workspace(); const directory = dataset(w.root); const config = { ...proposerEvolutionConfiguration(), generations: 1, candidates: 1, updates: 1 };
+  const approval = String((await w.client.get(w.approval)).item.body);
+  const spec = JSON.parse(/```json\n([\s\S]+?)\n```/u.exec(approval)![1]);
+  spec.permitted_promotions = 6;
+  spec.resource_budget = { training_steps: 10, wall_ms: 450_000, storage_bytes: 122_880, compute_units: 450_000, tokens: 0 };
+  await w.client.update(w.approval, { body: `\`\`\`json\n${JSON.stringify(spec)}\n\`\`\`` });
   const steps: string[] = []; const request = { id: "evolve", approval: w.approval, dataset: directory, config, onStep(key: string) { steps.push(key); } };
   const report = await runProposerEvolution(w.client, w.coordinates, request);
   assert.equal(report.retained.digest, config.initial.digest); assert.equal(report.generations[0].promoted, false); assert.equal(report.audit.verdict.decision, "refuse"); assert.equal(report.budget.fits, 5);
   assert.deepEqual(await runProposerEvolution(w.client, w.coordinates, request), report);
   assert.equal((await listProcessJobs(w.client)).length, 10);
+  const reservation = JSON.parse(String((await w.client.get("evolve-reservation")).item.body));
+  assert.equal(reservation.promotion_headroom, report.budget.fits + config.generations);
+  await assert.rejects(reserveSearchCapacity(w.client, w.coordinates, { id: "competing-search", approval: w.approval }, "other", { training_samples: 0, proposal_calls: 0, recipe_promotions: 0 }, 1, false, true), /meta_promotion_budget_exhausted/);
   const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
   const file = join(w.root, "program.json"); writeFileSync(file, JSON.stringify(config));
   const result = await harness.runCommand({ pmRoot: w.pmRoot, command: "rl proposer run", args: ["evolve"], options: { file, dataset: directory, approval: w.approval }, global: { json: true } }).then((r) => r.result) as RlCommandResult;

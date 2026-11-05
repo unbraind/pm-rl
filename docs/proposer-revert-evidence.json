@@ -3,5 +3,31 @@
   "metadata_only_revert": 1,
   "assertion_detected": true,
   "restored": 0,
-  "independent_units_per_generation": 256
+  "independent_units_per_generation": 256,
+  "review_round": {
+    "tests": "node --test --test-concurrency=2 --test-name-pattern='worst-case process|approval documentation' test/proposer-program.test.ts",
+    "isolation": "disposable non-git source copy with real SDK trackers",
+    "cases": {
+      "baseline": {
+        "exit": 0,
+        "assertion_detected": false
+      },
+      "after-lease": {
+        "exit": 1,
+        "assertion_detected": true
+      },
+      "removed": {
+        "exit": 1,
+        "assertion_detected": true
+      },
+      "docs-reverted": {
+        "exit": 1,
+        "assertion_detected": true
+      },
+      "restored": {
+        "exit": 0,
+        "assertion_detected": false
+      }
+    }
+  }
 }
