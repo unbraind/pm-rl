@@ -295,6 +295,13 @@ export async function listProcessJobs(client: PmClient): Promise<ProcessJob<Trai
   return jobs;
 }
 
+/** Read every charge against an approval using the reservation path's SDK-normalized identity. */
+export async function processJobsForApproval(client: PmClient, approval: string): Promise<ProcessJob<TrainerPolicy>[]> {
+  const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
+  const id = normalizeItemId(approval, prefix);
+  return (await listProcessJobs(client)).filter((job) => normalizeItemId(job.approval, prefix) === id);
+}
+
 /**
  * Journal process writes while retaining committed state on interrupted publication.
  *
@@ -348,7 +355,7 @@ export async function reserveProcessJob(client: PmClient, coordinates: ProcessCo
     if (await inspectReservation() !== null) return;
     // Normalize like inspectReservation: an adopted reservation may store its approval in an SDK alias spelling,
     // and a raw comparison would leave its charge out of every later capacity check.
-    const charges = (await listProcessJobs(client)).filter((job) => normalizeItemId(job.approval, prefix) === approved.id).map((job) => job.charge);
+    const charges = (await processJobsForApproval(client, approved.id)).map((job) => job.charge);
     for (const key of RESOURCE_KEYS) {
       const total = charges.reduce((sum, charge) => sum + charge[key], allowance[key]);
       if (!Number.isSafeInteger(total) || total > approved.budget[key]) expectedFail(`Approved ${key} budget exhausted.`, "process_budget_exhausted");

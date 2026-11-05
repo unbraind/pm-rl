@@ -255,6 +255,81 @@ test("worst-case process budget refuses every underfunded dimension before the c
   }
 });
 
+test("pre-charged resumed proposer budgets accept the exact limit and refuse one unit over before the lease", { timeout: 180_000 }, async () => {
+  const w = await workspace(); const directory = dataset(w.root);
+  const config = { ...proposerEvolutionConfiguration(), generations: 1, candidates: 1, updates: 1 };
+  // Independent oracle: ten fit attempts plus five interpreters, and one unrelated unit per dimension.
+  const required = { training_steps: 10, wall_ms: 450_000, storage_bytes: 122_880, compute_units: 450_000, tokens: 0 };
+  const foreign = { training_steps: 1, wall_ms: 1, storage_bytes: 1, compute_units: 1, tokens: 1 };
+  const spec = JSON.parse(/```json\n([\s\S]+?)\n```/u.exec(String((await w.client.get(w.approval)).item.body))![1]);
+  spec.resource_budget = Object.fromEntries(RESOURCE_KEYS.map((key) => [key, required[key] + foreign[key]]));
+  await w.client.update(w.approval, { body: `\`\`\`json\n${JSON.stringify(spec)}\n\`\`\`` });
+  const distinct = await w.client.create({ id: "other-approval", type: "Decision", title: "Separate synthetic resource capacity", body: `\`\`\`json\n${JSON.stringify(spec)}\n\`\`\`` });
+  await reserveProcessJob(w.client, w.coordinates, `process-${"b".repeat(64)}`, proposerProcessInput("separate", invocation()), distinct.item.id, { training_steps: 1, wall_ms: 1, storage_bytes: 1, compute_units: 1, tokens: 1 });
+  const request = { id: "resumed-budget", approval: w.approval, dataset: directory, config, onStep() { throw new Error("exact-limit-preflight-passed"); } };
+  const input = proposerProcessInput("resumed-budget-g1-d", { ...invocation(), seed: config.seed });
+  await reserveProcessJob(w.client, w.coordinates, processJobId(input, proposerWorkerArgv("."), { kind: "process-bandit", allowance: PROPOSER_ALLOWANCE }), input, w.approval, PROPOSER_ALLOWANCE);
+  const unrelated = proposerProcessInput("resumed-budget-unrelated", invocation());
+  // Use the SDK alias spelling: preflight and the reservation path must charge the same physical approval.
+  const other = await reserveProcessJob(w.client, w.coordinates, `process-${"a".repeat(64)}`, unrelated, w.approval.replace(/^rl-/, ""), foreign);
+  const body = { ...other, approval: w.approval.replace(/^rl-/, "") };
+  await w.client.update(other.id, { body: JSON.stringify(body) });
+  await assert.rejects(runProposerEvolution(w.client, w.coordinates, request), /exact-limit-preflight-passed/);
+  // The durable programme already exists, so the second invocation is a resume with retained work.
+  await assert.rejects(runProposerEvolution(w.client, w.coordinates, request), /exact-limit-preflight-passed/);
+  for (const dimension of RESOURCE_KEYS) {
+    await w.client.update(other.id, { body: JSON.stringify({ ...body, charge: { ...foreign, [dimension]: foreign[dimension] + 1 }, allowance: { ...foreign, [dimension]: foreign[dimension] + 1 } }) });
+    await withRlController(w.client, w.coordinates, { ...request, recoveryCommand: "inspect retained controller" }, new AbortController().signal, async () => {
+      const before = (await w.client.listAllComplete({ includeBody: true })).items; let transitions = 0;
+      await assert.rejects(runProposerEvolution(w.client, { ...w.coordinates, onTransition() { transitions++; } }, request),
+        (error) => isPmCliExpectedError(error) && error.context.code === "process_budget_exhausted" && error.message.includes(dimension));
+      assert.equal(transitions, 0); assert.deepEqual((await w.client.listAllComplete({ includeBody: true })).items, before);
+    });
+  }
+});
+
+test("resumed process budget credits each fit attempt once and keeps mismatched or duplicate slots charged", { timeout: 180_000 }, async () => {
+  const w = await workspace(); const directory = dataset(w.root);
+  const manifest = JSON.parse(readFileSync(join(directory, "improver-dataset.json"), "utf8")) as ImproverDataset;
+  const config = { ...proposerEvolutionConfiguration(), generations: 1, candidates: 1, updates: 1 };
+  const fitAllowance = { training_steps: 1, wall_ms: 30_000, storage_bytes: 4096, compute_units: 30_000, tokens: 0 };
+  const required = { training_steps: 10, wall_ms: 450_000, storage_bytes: 122_880, compute_units: 450_000, tokens: 0 };
+  const spec = JSON.parse(/```json\n([\s\S]+?)\n```/u.exec(String((await w.client.get(w.approval)).item.body))![1]);
+  // A settled fit releases one training unit. Duplicate and mismatched slots must remain additional charges.
+  spec.resource_budget = { ...required, training_steps: required.training_steps - 1 };
+  await w.client.update(w.approval, { body: `\`\`\`json\n${JSON.stringify(spec)}\n\`\`\`` });
+  const programme = `fit-budget-j${hashJson("g1-d-t0-c0").slice(0, 12)}`;
+  const base = proposerProcessInput("unused", invocation());
+  for (const attempt of [0, 1]) {
+    const input = { ...base, identity: { proposal: { programme_id: programme, dataset: manifest.digest }, recovery_attempt: attempt } };
+    const job = await reserveProcessJob(w.client, w.coordinates, `process-${String(attempt + 1).repeat(64)}`, input, w.approval, fitAllowance);
+    if (attempt === 0) await w.client.update(job.id, { body: JSON.stringify({ ...job, settled: true, charge: { ...fitAllowance, training_steps: 0 } }) });
+  }
+  const request = { id: "fit-budget", approval: w.approval, dataset: directory, config, onStep() { throw new Error("fit-budget-preflight-passed"); } };
+  await assert.rejects(runProposerEvolution(w.client, w.coordinates, request), /fit-budget-preflight-passed/);
+  // A second physical job with the same slot cannot refund another planned attempt.
+  const duplicate = { ...base, identity: { proposal: { programme_id: programme, dataset: manifest.digest }, recovery_attempt: 1 } };
+  const job = await reserveProcessJob(w.client, w.coordinates, `process-${"3".repeat(64)}`, duplicate, w.approval, fitAllowance);
+  await assert.rejects(runProposerEvolution(w.client, w.coordinates, request), (error) => isPmCliExpectedError(error) && error.context.code === "process_budget_exhausted");
+  for (const binding of [{ programme_id: "fit-budget-g1-d" }, {}, null, { proposal: { programme_id: programme, dataset: "another-dataset" }, recovery_attempt: 0 }]) {
+    await w.client.update(job.id, { body: JSON.stringify({ ...job, binding }) });
+    await assert.rejects(runProposerEvolution(w.client, w.coordinates, request), (error) => isPmCliExpectedError(error) && error.context.code === "process_budget_exhausted");
+  }
+  const huge = { ...fitAllowance, training_steps: Number.MAX_SAFE_INTEGER };
+  await w.client.update(job.id, { body: JSON.stringify({ ...job, binding: null, allowance: huge, charge: huge }) });
+  await assert.rejects(runProposerEvolution(w.client, w.coordinates, request), (error) => isPmCliExpectedError(error) && error.context.code === "process_budget_exhausted");
+});
+
+test("worker read-permission documentation matches the sealed launcher grants", () => {
+  const documentation = readFileSync(new URL("../docs/proposer-programs.md", import.meta.url), "utf8");
+  assert.match(documentation, /`package\.json` and `\.\.\/package\.json` manifests relative to the worker module/);
+  assert.match(documentation, /job staging directory \(the child working directory\)/);
+  const grants = proposerWorkerArgv(".").filter((arg) => arg.startsWith("--allow-fs-read="));
+  assert.equal(grants.length, 7); assert.equal(grants.at(-1), "--allow-fs-read=.");
+  assert.equal(grants[4], `--allow-fs-read=${join(import.meta.dirname, "../package.json")}`);
+  assert.equal(grants[5], `--allow-fs-read=${join(import.meta.dirname, "../../package.json")}`);
+});
+
 test("approval documentation declares the shared headroom formula and retained lifetime", () => {
   const documentation = readFileSync(new URL("../docs/proposer-programs.md", import.meta.url), "utf8");
   assert.match(documentation, /`permitted_promotions` must cover `fits \+ config\.generations`/);

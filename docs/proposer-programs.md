@@ -25,6 +25,9 @@ outer generations. Its conservative reservation remains held after completion,
 refusal, interruption and replay; the search never refunds it.
 The `resource_budget` must also cover two process attempts per fit plus all
 `3 * config.generations + 2` proposal interpreters, in every resource dimension.
+Preflight includes existing charges for the same Decision and the remaining
+worst-case allowance. On resume, each retained programme slot replaces its planned
+allowance with its recorded charge exactly once; unrelated jobs remain charged.
 An undersized declaration refuses before the controller lease or any jobs.
 Supply a frozen dataset from `rl improver build` with disjoint development, meta
 and audit trackers. The existing public-history builder requires committed public
@@ -89,7 +92,9 @@ Every proposal interpreter runs in a separate Node process under the existing
 process reservation and recovery APIs. It inherits no environment credentials,
 receives only development counts and a safe identity, and has no filesystem
 write, child-process or evaluation-data capability. Its read permission includes only
-the packaged interpreter, worker, canonical identity and launcher files; it does
+the packaged interpreter, worker, canonical identity and launcher files, the
+`package.json` and `../package.json` manifests relative to the worker module,
+and the job staging directory (the child working directory); it does
 not load the host SDK or dependencies. The grammar contains no IO instruction. The
 worker has a 96 MiB V8 heap limit, 30-second wall allowance and bounded output.
 The parent independently replays the interpreter, then writes and fsyncs the

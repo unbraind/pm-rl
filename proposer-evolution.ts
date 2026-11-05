@@ -5,7 +5,7 @@ import { hashJson, readCompleteLoopItem, withRlController, type JsonValue } from
 import { programmeRequest, canonicalIdentifier } from "./state-boundary.ts";
 import { expectedFail } from "./refuse.ts";
 import { parseProposerProgram, parseProposalInvocation, parseProposalInstruction, initialProposer, mutateProposer, ProposerRefusal, type ProposerProgram, type ProposalCounts, type ProposalExecution, type ProposalInvocation, type ProposalInstruction } from "./proposer-program.ts";
-import { executeProcessTrainer, verifyCompletedProcessJob, readProcessJob, approvedResources, RESOURCE_KEYS, type ProcessInput, type ProcessCoordinates, type ProcessAdapter } from "./process.ts";
+import { executeProcessTrainer, verifyCompletedProcessJob, readProcessJob, approvedResources, processJobsForApproval, RESOURCE_KEYS, type ProcessInput, type ProcessCoordinates, type ProcessAdapter, type Resources } from "./process.ts";
 import { proposerWorkerArgv } from "./proposer-worker.ts";
 import { initialImprover, type LearnerConfig } from "./improver.ts";
 import { recipeArtifact, INITIAL_RECIPE } from "./recipe.ts";
@@ -130,6 +130,37 @@ function evolutionDataset(directory: string): ImproverDataset {
   }
   return manifest;
 }
+/** The execution and preflight paths share deterministic learner slot identities. */
+function proposerFitIdentity(id: string, key: string, index: number, slot: number): string {
+  return `${id}-j${hashJson(`${key}-t${index}-c${slot}`).slice(0, 12)}`;
+}
+/** Replace retained slots' planned allowances with their actual charges, leaving unrelated jobs fully charged. */
+async function proposerProcessBudget(client: PmClient, approval: string, id: string, config: ProposerEvolutionConfig, manifest: ImproverDataset, worst: Resources): Promise<Resources> {
+  const slots = new Map<string, Resources>();
+  const searches: { key: string; role: typeof IMPROVER_ROLES[number] }[] = [...Array.from({ length: config.generations }, (_, index) => [
+    { key: `g${index + 1}-d`, role: "development" as const },
+    { key: `g${index + 1}-b`, role: "meta" as const },
+    { key: `g${index + 1}-a`, role: "meta" as const },
+  ]).flat(), { key: "audit-b", role: "audit" }, { key: "audit-a", role: "audit" }];
+  for (const { key, role } of searches) {
+    slots.set(`${id}-${key}`, PROPOSER_ALLOWANCE);
+    for (let index = 0; index < manifest.splits[role].tasks; index++) for (let slot = 0; slot < config.candidates; slot++) {
+      const identity = proposerFitIdentity(id, key, index, slot);
+      for (let attempt = 0; attempt < IMPROVER_MAX_ATTEMPTS; attempt++) slots.set(`${identity}:${attempt}`, IMPROVER_ADAPTER.allowance);
+    }
+  }
+  const totals = Object.fromEntries(RESOURCE_KEYS.map((key) => [key, BigInt(worst[key])])) as Record<typeof RESOURCE_KEYS[number], bigint>;
+  for (const job of await processJobsForApproval(client, approval)) {
+    const binding = Object(job.binding) as { programme_id?: string; proposal?: { programme_id?: string; dataset?: string }; recovery_attempt?: number };
+    const slot = binding.proposal?.dataset === manifest.digest ? `${binding.proposal.programme_id}:${binding.recovery_attempt}` : binding.programme_id;
+    const allowance = slot === undefined ? undefined : slots.get(slot);
+    const retained = allowance !== undefined && RESOURCE_KEYS.every((key) => job.allowance[key] === allowance[key]);
+    for (const key of RESOURCE_KEYS) totals[key] += BigInt(job.charge[key]) - BigInt(retained ? allowance[key] : 0);
+    // Each declared slot receives credit at most once, even if another retained job claims the same binding.
+    if (retained) slots.delete(slot!);
+  }
+  return Object.fromEntries(RESOURCE_KEYS.map((key) => [key, Number(totals[key])])) as unknown as Resources;
+}
 /** Run equal-cost contenders with append-only receipts, SDK revision fencing and a final audit rollback. */
 export async function runProposerEvolution(client: PmClient, coordinates: ProcessCoordinates, raw: ProposerEvolutionRequest): Promise<ProposerEvolutionReport> {
   const config = parseProposerEvolutionConfig(raw.config); requireCheckpointStorage();
@@ -142,9 +173,10 @@ export async function runProposerEvolution(client: PmClient, coordinates: Proces
   const capacity = { training_samples: budget.max_optimizer_updates, proposal_calls: budget.proposal_processes, recipe_promotions: config.generations };
   await proposerApprovalRead(() => reserveSearchCapacity(client, coordinates, request, binding, capacity, fits + config.generations, false, true));
   const approved = await proposerApprovalRead(() => approvedResources(client, request.approval));
+  const worst = Object.fromEntries(RESOURCE_KEYS.map((key) => [key, fits * IMPROVER_MAX_ATTEMPTS * IMPROVER_ADAPTER.allowance[key] + budget.proposal_processes * PROPOSER_ALLOWANCE[key]])) as unknown as Resources;
+  const total = await proposerApprovalRead(() => proposerProcessBudget(client, approved.id, request.id, config, manifest, worst));
   for (const key of RESOURCE_KEYS) {
-    const total = fits * IMPROVER_MAX_ATTEMPTS * IMPROVER_ADAPTER.allowance[key] + budget.proposal_processes * PROPOSER_ALLOWANCE[key];
-    if (total > approved.budget[key]) expectedFail(`Approved ${key} budget cannot cover the worst-case proposer run. Obtain capacity before starting.`, "process_budget_exhausted");
+    if (!Number.isSafeInteger(total[key]) || total[key] > approved.budget[key]) expectedFail(`Approved ${key} budget cannot cover the worst-case proposer run. Obtain capacity before starting.`, "process_budget_exhausted");
   }
   const signal = request.signal ?? AbortSignal.timeout(config.timeout_ms);
   const criterion = { ...IMPROVER_CRITERION, confidence: 1 - 0.05 / (fits + config.generations + 1) };
@@ -178,8 +210,8 @@ export async function runProposerEvolution(client: PmClient, coordinates: Proces
         const learners: (Awaited<ReturnType<typeof environment.fit>>["retained"] | null)[] = [null]; let mean = 0;
         for (const [slot, instruction] of execution.instructions.entries()) {
           const learnerConfig = proposalLearner(instruction); const name = `${key}-t${index}-c${slot}`; const learner = learners.at(-1)!;
-          const trial = await step(name, { config: learnerConfig, curriculum: instruction.curriculum, prior: learner }, () => environment.fit(role, index, learnerConfig, `${request.id}-j${hashJson(name).slice(0, 12)}`, learner, deadline, instruction.curriculum), async (cached) => {
-            await environment.fit(role, index, learnerConfig, `${request.id}-j${hashJson(name).slice(0, 12)}`, learner, deadline, instruction.curriculum, cached);
+          const trial = await step(name, { config: learnerConfig, curriculum: instruction.curriculum, prior: learner }, () => environment.fit(role, index, learnerConfig, proposerFitIdentity(request.id, key, index, slot), learner, deadline, instruction.curriculum), async (cached) => {
+            await environment.fit(role, index, learnerConfig, proposerFitIdentity(request.id, key, index, slot), learner, deadline, instruction.curriculum, cached);
           });
           learners.push(trial.retained); mean = trial.retained_mean; jobs.push(trial.job);
           const job = await readProcessJob(client, trial.job);

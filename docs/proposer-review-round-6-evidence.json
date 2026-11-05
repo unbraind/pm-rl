@@ -1,0 +1,135 @@
+{
+  "format": "pm-rl/proposer-review-round-6/1",
+  "reviewed_head": "dfb91ed38722af35292037dc48e11e87266e6398",
+  "threads": [
+    {
+      "id": "PRRT_kwDOTqJmqs60Orvg",
+      "path": "proposer-evolution.ts",
+      "valid": true,
+      "fix": "Reuse normalized process approval accounting; add retained charges to remaining worst-case slot allowances before the controller lease. Credit proposal and fit recovery slots once; preserve unrelated, duplicate and mismatched charges. Use exact intermediate arithmetic."
+    },
+    {
+      "id": "PRRT_kwDOTqJmqs60OrvU",
+      "path": "docs/proposer-programs.md",
+      "valid": true,
+      "fix": "Document both package manifests and the job staging directory, matching the seven read grants and staging-directory child cwd. The sealed grammar contains no IO instruction."
+    }
+  ],
+  "review_inventory": {
+    "unresolved_threads": 2,
+    "all_comments_read": true,
+    "thread_or_comment_pagination_remaining": false,
+    "latest_review_outside_diff_findings": 0
+  },
+  "self_review": "Checked the whole PR diff for omitted approval charges, replay double charging, recovery accounting, unsafe resource arithmetic and inaccurate descriptions of sealed capabilities or launcher read grants. Shared learner slot identities preserve existing process identities. No additional affected instance found.",
+  "revert_proofs": {
+    "isolation": "Disposable non-git source copy; rebuilt generated artifacts for each mutation; restored in finally; package worktree implementation never mutated.",
+    "fixed": {
+      "tests": 3,
+      "pass": 3,
+      "fail": 0,
+      "exit_code": 0
+    },
+    "revert_runProposerEvolution_only": {
+      "tests": 2,
+      "pass": 0,
+      "fail": 2,
+      "exit_code": 1,
+      "failure": "ERR_ASSERTION"
+    },
+    "revert_documentation_only": {
+      "tests": 1,
+      "pass": 0,
+      "fail": 1,
+      "exit_code": 1,
+      "failure": "ERR_ASSERTION"
+    },
+    "restored": {
+      "tests": 3,
+      "pass": 3,
+      "fail": 0,
+      "exit_code": 0
+    },
+    "cancelled_or_skipped": 0,
+    "budget_command": "npm run build && node --test --test-concurrency=2 --test-name-pattern='pre-charged resumed|resumed process budget' test/proposer-program.test.ts",
+    "documentation_command": "npm run build && node --test --test-concurrency=2 --test-name-pattern='worker read-permission' test/proposer-program.test.ts"
+  },
+  "gates": [
+    {
+      "command": "npm run build && node --test --test-concurrency=2 test/proposer-program.test.ts",
+      "status": "passed",
+      "tests": 35,
+      "pass_count": 35,
+      "duration_ms": 216250.144235
+    },
+    {
+      "command": "npm run build && node --test --test-concurrency=2 test/process.test.ts",
+      "status": "passed",
+      "tests": 30,
+      "pass": 30
+    },
+    {
+      "command": "bun run build && node --test --test-concurrency=2 --test-name-pattern='pre-charged resumed|resumed process budget|worker read-permission|worst-case process|approval documentation' test/proposer-program.test.ts",
+      "status": "passed",
+      "tests": 5,
+      "pass": 5,
+      "scope": "Bun script launcher with Node test runtime"
+    },
+    {
+      "command": "node --test --test-concurrency=2 test/release-approval.test.ts test/release-calendar.test.ts",
+      "status": "passed",
+      "tests": 31,
+      "pass": 31
+    },
+    {
+      "command": "npm run typecheck && npm run build:test && npm run lint && npm run duplicates && npm run docstring && npm run verify:release-publish-attestation && npm run audit:identities",
+      "status": "passed",
+      "duplicates": 0,
+      "documented_sources": 62,
+      "documented_declarations": 539
+    },
+    {
+      "command": "npm run audit:prod",
+      "status": "passed",
+      "vulnerabilities": 0
+    },
+    {
+      "command": "NPM_CONFIG_USERCONFIG=/dev/null npm pack --dry-run --ignore-scripts",
+      "status": "passed"
+    },
+    {
+      "command": "node_modules/.bin/pm health --strict-exit --require-merge-drivers",
+      "status": "passed_in_isolated_tracked_file_copy",
+      "checks": 10,
+      "note": "Fresh Git repository and HOME, disabled global/system Git configuration, installed merge drivers. Final repeat retains nonblocking telemetry-queue and existing legacy provenance advisories. Working-checkout health refuses existing ignored-addon host-version skew; history and integrity checks pass."
+    },
+    {
+      "command": "npm run changelog:full && npm run changelog:check",
+      "status": "passed"
+    }
+  ],
+  "tracker": {
+    "item": "pm-rl-proposer-program",
+    "author": "codex-agent",
+    "status": "in_progress",
+    "claim": "released",
+    "linked_snapshot_regressions": {
+      "pass": 5,
+      "tests": 5
+    },
+    "linked_snapshot_process": {
+      "pass": 30,
+      "tests": 30
+    }
+  },
+  "artifact": "Build regenerated dist; dist is ignored and no dist files are tracked.",
+  "limits": {
+    "full_release_gates": "Deferred to final-head npm Node 22/26 and Bun Node 26 CI by owner instruction for this slow repository. No local full-suite or coverage certification claimed. Thresholds, dependencies and existing deadlines unchanged.",
+    "ci_checks": "https://github.com/unbraind/pm-rl/pull/145/checks",
+    "local_test_timeouts": 0,
+    "thread_replies": 0,
+    "thread_resolutions": 0,
+    "merges": 0,
+    "releases": 0
+  }
+}
