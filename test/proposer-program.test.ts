@@ -18,7 +18,8 @@ import { evaluatePlan } from "../evaluation-plan.ts";
 import { reserveSearchCapacity } from "../meta.ts";
 import { IMPROVER_ROLES, type ImproverTask, type ImproverDataset } from "../improver-data.ts";
 import { compareImprovers, proposalCurriculum } from "../improver-environment.ts";
-import { listProcessJobs, executeProcessTrainer, launchTrainer, processJobId, processStaging, validateProcessCompletion, readProcessJob, reserveProcessJob, transitionProcessJob, processDigest, RESOURCE_KEYS, verifiedProcessPolicy, type ProcessCompletion, type ProcessInput } from "../process.ts";
+import { listProcessJobs, executeProcessTrainer, launchTrainer, processJobId, processStaging, validateProcessCompletion, readProcessJob, verifyCompletedProcessJob, reserveProcessJob, transitionProcessJob, processDigest, RESOURCE_KEYS, verifiedProcessPolicy, type ProcessCompletion, type ProcessInput } from "../process.ts";
+import { runRecursiveImprover, improverConfiguration } from "../recursive-improver.ts";
 import { processWorkspace } from "./fixtures/process-workspace.ts";
 
 const originalPath = process.env.PATH; const originalCeiling = process.env.GIT_CEILING_DIRECTORIES;
@@ -396,4 +397,92 @@ test("proposal reservation and publication interleave ordinary peers at every tr
     assert.equal(injected, true); assert.equal((await readCompleteLoopItem(peer, key)).item.body, retained);
   }
   console.log(JSON.stringify({ interleaving_cases: cases, boundaries_per_path: 5, paths: ["reservation", "publication", "search-capacity"], ordinary_sdk_peer: true, non_git: true }));
+});
+
+
+test("controller crash/resume revalidates every retained proposal evidence field before dependent work", { timeout: 600_000 }, async (t) => {
+  for (const field of ["checkpoint", "checkpoint-digest", "receipt-json", "receipt-policy", "receipt-lineage", "receipt-usage", "runner", "durable-digest", "durable-charge"] as const) await t.test(field, async () => {
+    const w = await workspace(); const directory = dataset(w.root);
+    const request = { id: "replay", approval: w.approval, dataset: directory, config: { ...proposerEvolutionConfiguration(), generations: 1, candidates: 1, updates: 1 } };
+    await assert.rejects(runProposerEvolution(w.client, w.coordinates, { ...request, onStep(key) { if (key === "g1-d-propose") throw new Error("simulated interruption"); } }), /simulated interruption/);
+    const [job] = await listProcessJobs(w.client); assert.ok(job.completion);
+    const staging = processStaging(w.pmRoot, job.id, true); const checkpoint = join(staging, "checkpoint.json"); const receipt = join(staging, "completion.json");
+    const saved = JSON.parse(readFileSync(receipt, "utf8")) as ProcessCompletion;
+    if (field === "checkpoint") writeFileSync(checkpoint, "damaged checkpoint");
+    if (field === "checkpoint-digest") {
+      const damaged = JSON.stringify({ ...saved.policy, digest: "sha256:" + "0".repeat(64) });
+      writeFileSync(checkpoint, damaged); writeFileSync(receipt, JSON.stringify({ ...saved, digest: `sha256:${createHash("sha256").update(damaged).digest("hex")}` }));
+    }
+    if (field === "receipt-json") writeFileSync(receipt, "{");
+    if (field === "receipt-policy") writeFileSync(receipt, JSON.stringify({ ...saved, policy: { ...saved.policy, digest: "stale" } }));
+    if (field === "receipt-lineage") writeFileSync(receipt, JSON.stringify({ ...saved, lineage: {} }));
+    if (field === "receipt-usage") writeFileSync(receipt, JSON.stringify({ ...saved, usage: { ...saved.usage, tokens: 1 } }));
+    if (field === "runner") writeFileSync(join(staging, "runner.json"), JSON.stringify({ started_at: 0 }));
+    if (field.startsWith("durable-")) {
+      const item = await readCompleteLoopItem(w.client, job.id); const record = JSON.parse(String(item.item.body));
+      if (field === "durable-digest") record.completion.digest = "sha256:" + "0".repeat(64);
+      else record.charge.compute_units += 1;
+      await w.client.update(item.item.id, { body: JSON.stringify(record) });
+    }
+    const steps: string[] = [];
+    await assert.rejects(runProposerEvolution(w.client, w.coordinates, { ...request, onStep(key) { steps.push(key); if (key === "g1-d-propose") throw new Error("unverified proposal replay passed"); } }), (error) => isPmCliExpectedError(error));
+    assert.ok(!steps.includes("g1-d-t0-c0"), "damaged evidence must refuse before a dependent fit");
+    assert.equal((await w.client.listAllComplete({ includeBody: true })).items.filter((item) => item.tags?.includes("rl-process-job")).length, 1, "replay must never reserve replacement work");
+  });
+});
+
+test("both RSI controllers revalidate learner checkpoints on crash/resume and allow unchanged evidence", { timeout: 600_000 }, async (t) => {
+  for (const controller of ["proposer", "improver"] as const) for (const damaged of [true, false]) await t.test(`${controller}-${damaged ? "damaged" : "unchanged"}`, async () => {
+    const w = await workspace(); const directory = dataset(w.root); const id = "resume";
+    const run = (onStep?: (key: string) => void) => controller === "proposer"
+      ? runProposerEvolution(w.client, w.coordinates, { id, approval: w.approval, dataset: directory, config: { ...proposerEvolutionConfiguration(), generations: 1, candidates: 1, updates: 1 }, onStep })
+      : runRecursiveImprover(w.client, w.coordinates, { id, approval: w.approval, dataset: directory, config: { ...improverConfiguration(), generations: 1, candidates: 1, updates: 1 }, onStep });
+    await assert.rejects(run((key) => { if (key === "g1-d-t0-c0") throw new Error("simulated interruption"); }), /simulated interruption/);
+    const jobs = await listProcessJobs(w.client); const fit = jobs.find((job) => job.completion?.artifact !== undefined)!; assert.ok(fit);
+    if (damaged) {
+      writeFileSync(join(processStaging(w.pmRoot, fit.id, true), "checkpoint.json"), "damaged checkpoint");
+      await assert.rejects(run((key) => { if (key === "g1-d-t0-c0") throw new Error("unverified fit replay passed"); }), (error) => isPmCliExpectedError(error));
+      assert.equal((await listProcessJobs(w.client)).length, jobs.length);
+    } else {
+      const next = controller === "proposer" ? "g1-mutation" : "g1-update";
+      await assert.rejects(run((key) => { if (key === next) throw new Error("unchanged evidence verified"); }), /unchanged evidence verified/);
+      assert.deepEqual(await listProcessJobs(w.client), jobs, "unchanged replay preserves every job and charge");
+    }
+  });
+});
+
+test("read-only process replay refuses missing or incomplete jobs without launching replacements", { timeout: 180_000 }, async () => {
+  const w = await workspace(); const input = proposerProcessInput("read-only", invocation()); const argv = proposerWorkerArgv("."); const adapter = { kind: "process-bandit" as const, allowance: PROPOSER_ALLOWANCE };
+  const verify = () => verifyCompletedProcessJob(w.client, w.pmRoot, input, w.approval, adapter, argv);
+  await assert.rejects(verify(), (error) => isPmCliExpectedError(error) && error.context.code === "process_job_drift");
+  assert.equal((await listProcessJobs(w.client)).length, 0);
+  await reserveProcessJob(w.client, w.coordinates, processJobId(input, argv, adapter), input, w.approval, PROPOSER_ALLOWANCE);
+  await assert.rejects(verify(), (error) => isPmCliExpectedError(error) && error.context.code === "process_job_drift");
+  assert.equal((await listProcessJobs(w.client))[0].state, "planned");
+  await executeProposer(w.client, w.coordinates, w.approval, "read-only", invocation());
+  const job = (await listProcessJobs(w.client))[0]; const item = await w.client.get(job.id); const original = String(item.item.body);
+  try {
+    await w.client.update(item.item.id, { body: JSON.stringify({ ...job, state: "planned" }) });
+    await assert.rejects(verify(), (error) => isPmCliExpectedError(error) && error.context.code === "process_job_drift");
+    await w.client.update(item.item.id, { body: JSON.stringify({ ...job, settled: false, allowance: job.charge }) });
+    await assert.rejects(verifyCompletedProcessJob(w.client, w.pmRoot, input, w.approval, { ...adapter, allowance: job.charge }, argv),
+      (error) => isPmCliExpectedError(error) && error.context.code === "process_job_drift");
+  } finally { await w.client.update(item.item.id, { body: original }); }
+});
+
+
+test("controller refuses a sealed cached proposal that disagrees with the verified execution", { timeout: 180_000 }, async () => {
+  const w = await workspace(); const directory = dataset(w.root); const config = { ...proposerEvolutionConfiguration(), generations: 1, candidates: 1, updates: 1 };
+  const request = { id: "cached", approval: w.approval, dataset: directory, config };
+  await assert.rejects(runProposerEvolution(w.client, w.coordinates, { ...request, onStep(key) { if (key === "programme") throw new Error("simulated interruption"); } }), /simulated interruption/);
+  const manifest = JSON.parse(readFileSync(join(directory, "improver-dataset.json"), "utf8")) as ImproverDataset;
+  const binding = hashJson({ config: config as unknown as JsonValue, dataset: manifest.digest, approval: String((await w.client.get(w.approval)).item.body) });
+  const input = { ...invocation(config.initial), seed: config.seed };
+  await withRlController(w.client, w.coordinates, { ...request, recoveryCommand: "resume" }, AbortSignal.timeout(60_000), (step) => step("g1-d-propose", { binding, input: input as unknown as JsonValue }, async () => {
+    const execution = await executeProposer(w.client, w.coordinates, w.approval, "cached-g1-d", input);
+    return { ...execution, digest: "stale" } as unknown as JsonValue;
+  }));
+  await assert.rejects(runProposerEvolution(w.client, w.coordinates, { ...request, onStep(key) { if (key === "g1-d-propose") throw new Error("unverified cached proposal replay passed"); } }),
+    (error) => isPmCliExpectedError(error) && error.context.code === "process_job_drift" && /Cached proposal/.test(error.message));
+  assert.equal((await listProcessJobs(w.client)).length, 1);
 });

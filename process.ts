@@ -330,11 +330,7 @@ export async function reserveProcessJob(client: PmClient, coordinates: ProcessCo
     if (discovered !== null) {
       const snapshot = await readProcessSnapshot(client, id, coordinates.pmRoot);
       const existing = snapshot.job;
-      if (normalizeItemId(existing.id, prefix) !== normalizeItemId(id, prefix) || existing.input !== processDigest(input)
-        || processDigest(existing.binding) !== processDigest(input.identity)
-        || normalizeItemId(existing.approval, prefix) !== approved.id
-        || RESOURCE_KEYS.some(key => parseResources(existing.allowance)[key] !== allowance[key])) expectedFail("Reservation replay inputs changed.", "process_job_drift", EXIT_CODE.CONFLICT);
-      if (existing.budget_digest !== approved.digest) expectedFail("Approved budget identity changed.", "process_budget_drift", EXIT_CODE.CONFLICT);
+      verifyProcessReservation(existing, id, input, allowance, approved, prefix);
       await certifyAppliedRevision(client, snapshot.native.item.id, snapshot.revision);
       reserved = existing;
       return existing;
@@ -371,6 +367,37 @@ export async function reserveProcessJob(client: PmClient, coordinates: ProcessCo
   };
   await withValidatedMutation(client, id, validateReservation, () => commitRetainingProcessState({ ...coordinates, transactionId: `${id}-reserve`, steps: [step] }));
   return reserved!;
+}
+/** Use the reservation write path's normalized immutable comparisons for read-only controller replay. */
+function verifyProcessReservation(job: ProcessJob<TrainerPolicy>, id: string, input: TrainerInput, allowance: Resources, approved: Awaited<ReturnType<typeof approvedResources>>, prefix: string): void {
+  if (normalizeItemId(job.id, prefix) !== normalizeItemId(id, prefix) || job.input !== processDigest(input)
+    || processDigest(job.binding) !== processDigest(input.identity)
+    || normalizeItemId(job.approval, prefix) !== normalizeItemId(approved.id, prefix)
+    || RESOURCE_KEYS.some(key => parseResources(job.allowance)[key] !== allowance[key])) expectedFail("Reservation replay inputs changed.", "process_job_drift", EXIT_CODE.CONFLICT);
+  if (job.budget_digest !== approved.digest) expectedFail("Approved budget identity changed.", "process_budget_drift", EXIT_CODE.CONFLICT);
+}
+/** Read an expected job without reserving, launching, recovering or changing any retained evidence. */
+export async function readVerifiedProcessJob(client: PmClient, root: string, input: TrainerInput, approval: string, adapter: ProcessAdapter, argv: readonly string[]): Promise<ProcessJob<TrainerPolicy>> {
+  const id = processJobId(input, argv, adapter);
+  if (await readProcessJob(client, id) === null) expectedFail("Completed controller step requires its original process job. Restore retained evidence before resuming.", "process_job_drift");
+  const snapshot = await readProcessSnapshot(client, id, root);
+  const approved = await approvedResources(client, approval);
+  const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
+  verifyProcessReservation(snapshot.job, id, input, adapter.allowance, approved, prefix);
+  await certifyAppliedRevision(client, snapshot.native.item.id, snapshot.revision);
+  return snapshot.job;
+}
+/** Verify both durable accounting and staged completion before a cached controller result can be consumed. */
+export async function verifyCompletedProcessJob<P extends TrainerPolicy>(client: PmClient, root: string, input: ProcessInput<P>, approval: string, adapter: ProcessAdapter, argv: readonly string[]): Promise<ProcessJob<P>> {
+  try {
+    const job = await readVerifiedProcessJob(client, root, input, approval, adapter, argv);
+    const policy = verifiedProcessPolicy(job, root, input);
+    if (policy === null || !job.settled || !["materialized", "evaluated", "promoted"].includes(job.state)) expectedFail("Completed controller step has no settled process completion. Restore retained evidence before resuming.", "process_job_drift");
+    return { ...job, completion: { ...job.completion!, policy } };
+  } catch (error) {
+    if (isPmCliExpectedError(error)) throw error;
+    expectedFail("Retained process evidence could not be read or verified. Restore original checkpoint and completion files before resuming.", "process_checkpoint_invalid");
+  }
 }
 /** Construct zero usage or the released allowance of a proven unlaunched job. */
 function zeroResources(): Resources { return { training_steps: 0, wall_ms: 0, storage_bytes: 0, compute_units: 0, tokens: 0 }; }

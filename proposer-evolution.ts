@@ -5,7 +5,7 @@ import { hashJson, readCompleteLoopItem, withRlController, type JsonValue } from
 import { programmeRequest, canonicalIdentifier } from "./state-boundary.ts";
 import { expectedFail } from "./refuse.ts";
 import { parseProposerProgram, parseProposalInvocation, parseProposalInstruction, initialProposer, mutateProposer, ProposerRefusal, type ProposerProgram, type ProposalCounts, type ProposalExecution, type ProposalInvocation, type ProposalInstruction } from "./proposer-program.ts";
-import { executeProcessTrainer, readProcessJob, approvedResources, RESOURCE_KEYS, type ProcessInput, type ProcessCoordinates, type ProcessAdapter } from "./process.ts";
+import { executeProcessTrainer, verifyCompletedProcessJob, readProcessJob, approvedResources, RESOURCE_KEYS, type ProcessInput, type ProcessCoordinates, type ProcessAdapter } from "./process.ts";
 import { proposerWorkerArgv } from "./proposer-worker.ts";
 import { initialImprover, type LearnerConfig } from "./improver.ts";
 import { recipeArtifact, INITIAL_RECIPE } from "./recipe.ts";
@@ -151,7 +151,7 @@ export async function runProposerEvolution(client: PmClient, coordinates: Proces
   const environment = openImproverEnvironment(client, coordinates, request.dataset, manifest, request.approval, config.updates, config.seed, criterion);
   return withRlController(client, coordinates, { ...request, recoveryCommand: `pm rl proposer run ${request.id} --file <config.json> --dataset <dataset> --approval ${request.approval} --force-takeover` }, signal, async (durable) => {
     /** Every resumed phase rechecks current approval and sealed data, while the core revalidates all recorded SDK revisions. */
-    const step = async <T>(key: string, input: unknown, operation: () => Promise<T>): Promise<T> => {
+    const step = async <T>(key: string, input: unknown, operation: () => Promise<T>, verify?: (value: T) => Promise<void>): Promise<T> => {
       /** Revalidation inside the durable callback joins approval/reservation reads to its sealed SDK evidence graph. */
       const validate = async (): Promise<void> => {
         if ((await proposerApprovalRead(() => readCompleteLoopItem(client, request.approval))).item.body !== approval.item.body || proposerDatasetRead(() => readImproverDataset(request.dataset)).digest !== manifest.digest) expectedFail("Approval or dataset changed. Restore the original declaration or use a new programme identity.", "proposer_drift");
@@ -159,6 +159,7 @@ export async function runProposerEvolution(client: PmClient, coordinates: Proces
       };
       await validate();
       const result = await durable(key, { binding, input: input as JsonValue }, async () => { await validate(); deadline.throwIfAborted(); const value = await operation(); await validate(); return value as unknown as JsonValue; });
+      await verify?.(result as unknown as T);
       await request.onStep?.(key); return result as unknown as T;
     };
     let deadline = signal;
@@ -168,13 +169,18 @@ export async function runProposerEvolution(client: PmClient, coordinates: Proces
     /** Each search receives identical proposal slots and optimizer updates, starting from the same constant learner. */
     const search = async (role: typeof IMPROVER_ROLES[number], program: ProposerProgram, key: string): Promise<ProposerSearch> => {
       const invocation: ProposalInvocation = { program, counts, role: "development", seed: config.seed, count: config.candidates };
-      const execution = await step(`${key}-propose`, invocation, () => executeProposer(client, coordinates, request.approval, `${request.id}-${key}`, invocation, deadline));
+      const execution = await step(`${key}-propose`, invocation, () => executeProposer(client, coordinates, request.approval, `${request.id}-${key}`, invocation, deadline), async (cached) => {
+        const job = await verifyCompletedProcessJob(client, coordinates.pmRoot, proposerProcessInput(`${request.id}-${key}`, invocation), request.approval, { kind: "process-bandit", allowance: PROPOSER_ALLOWANCE }, proposerWorkerArgv("."));
+        if (hashJson(cached as unknown as JsonValue) !== hashJson(job.completion!.policy as unknown as JsonValue)) expectedFail("Cached proposal differs from its verified process completion. Restore original controller and process evidence before resuming.", "process_job_drift");
+      });
       const scores: { id: string; mean: number }[] = []; const jobs: string[] = []; const observations = counts.map((row) => ({ ...row })); let optimizerUpdates = 0;
       for (const [index, task] of proposerDatasetRead(() => environment.tasks(role)).entries()) {
         const learners: (Awaited<ReturnType<typeof environment.fit>>["retained"] | null)[] = [null]; let mean = 0;
         for (const [slot, instruction] of execution.instructions.entries()) {
           const learnerConfig = proposalLearner(instruction); const name = `${key}-t${index}-c${slot}`; const learner = learners.at(-1)!;
-          const trial = await step(name, { config: learnerConfig, curriculum: instruction.curriculum, prior: learner }, () => environment.fit(role, index, learnerConfig, `${request.id}-j${hashJson(name).slice(0, 12)}`, learner, deadline, instruction.curriculum));
+          const trial = await step(name, { config: learnerConfig, curriculum: instruction.curriculum, prior: learner }, () => environment.fit(role, index, learnerConfig, `${request.id}-j${hashJson(name).slice(0, 12)}`, learner, deadline, instruction.curriculum), async (cached) => {
+            await environment.fit(role, index, learnerConfig, `${request.id}-j${hashJson(name).slice(0, 12)}`, learner, deadline, instruction.curriculum, cached);
+          });
           learners.push(trial.retained); mean = trial.retained_mean; jobs.push(trial.job);
           const job = await readProcessJob(client, trial.job);
           optimizerUpdates += proposerFitUpdates(job, config.updates);

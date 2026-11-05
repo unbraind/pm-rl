@@ -100,9 +100,10 @@ export async function runRecursiveImprover(client: PmClient, coordinates: Proces
     recoveryCommand: `pm rl improver run ${request.id} --file <programme.json> --dataset <dataset-directory> --approval ${request.approval} --force-takeover` }, signal, async (durable) => {
     let deadline: AbortSignal = signal;
     /** Bind every phase to immutable inputs and check the original approval and deadline before unfinished work. */
-    const step = async <T>(key: string, input: JsonValue, execute: () => Promise<T>): Promise<T> => {
+    const step = async <T>(key: string, input: JsonValue, execute: () => Promise<T>, verify?: (value: T) => Promise<void>): Promise<T> => {
       assert.equal(String((await readCompleteLoopItem(client, request.approval)).item.body), approvalBody, "improver_approval_drift");
       const value = await durable(key, { binding, input }, async () => { deadline.throwIfAborted(); return await execute() as unknown as JsonValue; });
+      await verify?.(value as unknown as T);
       await request.onStep?.(key);
       return value as unknown as T;
     };
@@ -120,6 +121,8 @@ export async function runRecursiveImprover(client: PmClient, coordinates: Proces
           const key = `${tag}-t${index}-c${candidate}`;
           const trial: LearnerTrial = await step(key, { policy: policy.digest, config: learner as unknown as JsonValue, incumbent: incumbent?.checkpoint.digest ?? null }, async () => {
             return environment.fit(role, index, learner, `${request.id}-j${hashJson(key).slice(0, 12)}`, incumbent, deadline);
+          }, async (cached) => {
+            await environment.fit(role, index, learner, `${request.id}-j${hashJson(key).slice(0, 12)}`, incumbent, deadline, "seeded", cached);
           });
           incumbents.push(trial.retained); last = trial;
           trials.push({ task: task.id, outcome: { id: key, role, policy: policy.digest, config: learner, promoted: trial.promoted, gain: trial.gain }, trial });

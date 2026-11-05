@@ -76,6 +76,15 @@ Every artifact binds its code, generation and parent to a SHA-256 identity.
 Changing ancestry alone cannot pass; both executable code and emitted instructions
 must differ, and both statistical levels must still accept measured improvement.
 
+Controller resume revalidates each completed proposal against the expected job,
+approval, reservation, checkpoint bytes, completion receipt and measured resource
+charge before consuming cached instructions. A cached result must equal the
+verified execution. Learner fits in both RSI controllers use the same evaluator
+on fresh execution and replay, checking retained checkpoint, scores, promotion
+state and recovery-attempt charges. Damaged or stale evidence produces a typed
+refusal before dependent work; replay never replaces a missing completed job or
+launches a recovery attempt. Unchanged evidence resumes without new charges.
+
 Every proposal interpreter runs in a separate Node process under the existing
 process reservation and recovery APIs. It inherits no environment credentials,
 receives only development counts and a safe identity, and has no filesystem
