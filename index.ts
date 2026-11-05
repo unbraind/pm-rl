@@ -1,3 +1,9 @@
+import { canonicalJson, hashJson, type JsonValue } from "./json-identity.ts";
+export { canonicalJson, hashJson } from "./json-identity.ts";
+export { initialProposer, proposerArtifact, parseProposerProgram, executeProposal, mutateProposer, ProposerRefusal, type ProposerProgram, type ProposalCode, type ProposalExpression, type ProposalInvocation, type ProposalExecution } from "./proposer-program.ts";
+export { runProposerEvolution, executeProposer, proposerEvolutionConfiguration, parseProposerEvolutionConfig, type ProposerEvolutionConfig, type ProposerEvolutionRequest, type ProposerEvolutionReport } from "./proposer-evolution.ts";
+import { runProposerEvolution, parseProposerEvolutionConfig } from "./proposer-evolution.ts";
+import { ProposerRefusal } from "./proposer-program.ts";
 import { canonicalIdentifier, canonicalNamespaceIdentifier, preservedProgrammeId, programmeStepName, programmeRequest, acquireStateLock, statePath, identifier, checkedStateFile, identifierClient, commitStateTransaction, schemaIdentity, operationIdentifier, DECISION_INPUT_FIELDS, type ValidationMode } from "./state-boundary.ts";
 /** Select released-schema reads or explicit validation of a new declaration. */
 export type { ValidationMode } from "./state-boundary.ts";
@@ -409,7 +415,7 @@ const EVAL_BENCHMARK_SOURCE = "pm-rl:eval:benchmark";
 const EPISODE_ENVIRONMENT_SOURCE = "pm-rl:episode:environment";
 
 /** JSON values accepted in environment and run configuration files. */
-export type JsonValue = null | boolean | number | string | JsonValue[] | { readonly [key: string]: JsonValue };
+export type { JsonValue } from "./json-identity.ts";
 
 /** Minimal environment contract whose complete source remains in the item body. */
 export interface EnvironmentSpec {
@@ -683,22 +689,6 @@ function requireJsonStrings(record: Record<string, JsonValue>, keys: readonly st
   }
 }
 
-/**
- * Serialize JSON with recursively byte-ordered object keys.
- *
- * A content identity must be independent of property insertion order. Arrays
- * remain ordered because task and reward sequences can be semantically ordered.
- */
-export function canonicalJson(value: JsonValue): string {
-  if (Array.isArray(value)) return `[${value.map((entry) => canonicalJson(entry)).join(",")}]`;
-  if (value !== null && typeof value === "object") {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key]!)}`).join(",")}}`;
-  }
-  if (value === null) return "null";
-  if (typeof value === "string") return JSON.stringify(value);
-  return String(value);
-}
-
 /** Parse and validate an environment specification. */
 export function parseEnvironmentSpec(text: string, source = "Environment file"): EnvironmentSpec {
   const record = parseJsonObject(text, source, "invalid_environment_json");
@@ -756,11 +746,6 @@ export function parseEvalResultSpec(text: string, source = "EvalResult", mode: V
     environment_spec_hash: (record.environment_spec_hash as string).trim(),
     reward_spec_hash: (record.reward_spec_hash as string).trim(),
   };
-}
-
-/** SHA-256 identity of a JSON value's canonical encoding. */
-export function hashJson(value: JsonValue): string {
-  return createHash("sha256").update(canonicalJson(value)).digest("hex");
 }
 
 /** Turn a human label into a bounded pm id segment. */
@@ -890,8 +875,10 @@ export function orderedHistoryEntries(history: HistoryResult, code: string): Non
  * @returns Native creation receipt after validating the freshly observed item.
  * @internal
  */
-export async function createVerifiedItem(client: PmClient, options: Parameters<PmClient["create"]>[0], code = "record_write_drift"): Promise<Awaited<ReturnType<PmClient["create"]>>> {
-  const created = await identifierClient(client).create(options);
+export async function createVerifiedItem(client: PmClient, options: NonNullable<Parameters<PmClient["create"]>[0]>, code = "record_write_drift"): Promise<Awaited<ReturnType<PmClient["create"]>>> {
+  const scopeFields = ["parent", "goal", "objective", "sprint", "release", "assignee", "reviewer", "blockedBy"] as const;
+  const unset = [...(options.unset ?? []), ...scopeFields.filter((field) => options[field] === undefined).map((field) => field === "blockedBy" ? "blocked_by" : field)];
+  const created = await identifierClient(client).create({ ...options, inheritFocus: false, dep: options.dep ?? [], unset });
   const fields = ["id", "type", "created_at", "body", "tags", "affected_version", "fixed_version", "component", "environment", "parent", "goal", "objective", "sprint", "release", "assignee", "reviewer", "blocked_by", "dependencies"] as const;
   const birth = await readCompleteLoopItem(client, created.item.id, "1", fields.join(","));
   const current = await readCompleteLoopItem(client, created.item.id, undefined, fields.join(","));
@@ -5683,6 +5670,31 @@ async function showTransferGap(context: CommandHandlerContext): Promise<RlComman
 
 /** Commands authored separately so activation and tests share one exact contract. */
 export const RL_COMMANDS = [
+  defineCommand({ name: "rl proposer validate", description: "Validate a bounded executable proposer declaration before effects.", flags: [{ long: "--file", value_name: "path", value_type: "string", required: true, description: "Strict proposer evolution JSON." }], run: async (context) => {
+    try {
+      const config = parseProposerEvolutionConfig(readJsonFile(stringOption(context, "file")!, "Proposer declaration"));
+      return { action: "rl-proposer-validate", details: { valid: true, program: config.initial.digest, generations: config.generations, candidates: config.candidates, updates: config.updates } };
+    } catch (error) { if (error instanceof ProposerRefusal) fail(error.message, error.code); throw error; }
+  } }),
+  defineCommand({ name: "rl proposer run", description: "Evolve bounded proposal programs under predeclared gates and equal resource budgets.", arguments: [{ name: "id", required: true, description: "Stable evolution programme identity." }], flags: [
+    { long: "--file", value_name: "path", value_type: "string", required: true, description: "Strict proposer evolution JSON." },
+    { long: "--dataset", value_name: "directory", value_type: "string", required: true, description: "Sealed disjoint improver dataset." },
+    { long: "--approval", value_name: "decision", value_type: "string", required: true, description: "Existing resource Decision." },
+    { long: "--force-takeover", description: "Audit recovery of an ambiguous controller holder." },
+  ], run: async (context) => {
+    const cancellation = installCancellationSignals();
+    try {
+      try {
+        const report = await runProposerEvolution(clientFor(context), { pmRoot: context.pm_root, author: authorFor(context) }, { id: requiredArgument(context, "a proposer programme id"), config: parseProposerEvolutionConfig(readJsonFile(stringOption(context, "file")!, "Proposer declaration")), dataset: stringOption(context, "dataset")!, approval: stringOption(context, "approval")!, signal: cancellation.controller.signal, forceTakeover: (context.options["force_takeover"] ?? context.options["forceTakeover"]) === true });
+        return { action: "rl-proposer-run", details: { retained: report.retained.digest, rollback: report.rollback, budget: report.budget, audit: report.audit.verdict.decision, generations: report.generations.map((row) => ({ generation: row.generation, candidate: row.candidate.digest, retained: row.retained, promoted: row.promoted, behavior_changed: row.behavior_changed, verdict: row.comparison.verdict.decision })) } };
+      } catch (error) {
+        if (error instanceof ProposerRefusal) {
+          fail(error.message, error.code);
+        }
+        throw error;
+      }
+    } finally { removeCancellationSignals(cancellation.handlers); }
+  } }),
   defineCommand({ name: "rl influence run", description: "Measure budgeted training-slice associations and retain exact replayable checkpoints.", flags: [{ long: "--file", value_name: "path", value_type: "string", required: true, description: "Strict training influence experiment JSON with explicit budgets." }], run: async (context) => {
     const result = await recordTrainingInfluence(clientFor(context), readJsonFile(stringOption(context, "file")!, "Training influence"));
     return { action: "rl-influence-run", details: { id: result.id, created: result.created, ...summarizeTrainingInfluence(result.report) } };

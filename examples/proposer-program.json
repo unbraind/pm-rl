@@ -1,0 +1,22 @@
+{
+  "initial": {
+    "format": "pm-rl/proposer-program/1",
+    "generation": 1,
+    "parent": null,
+    "code": {
+      "score": {
+        "op": "zero"
+      },
+      "select": "cycle",
+      "feature": "inherit",
+      "order": 1,
+      "curriculum": "seeded"
+    },
+    "digest": "sha256:2aa15b268fb38d3ed9726fa01e17c50930bdf856d03bbee54f4cdbf5a3abe94f"
+  },
+  "generations": 2,
+  "candidates": 2,
+  "updates": 64,
+  "seed": 42,
+  "timeout_ms": 1140000
+}

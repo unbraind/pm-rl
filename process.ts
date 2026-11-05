@@ -19,6 +19,8 @@ import { validatePrefixCompletion, type PrefixPayload } from "./prefix.ts";
 import { launchComposeTrainer, stopComposeTrainer } from "./compose.ts";
 import { encodeCheckpointArtifacts, readCheckpointArtifact, requireCheckpointStorage, type CheckpointArtifact } from "./checkpoint-artifacts.ts";
 import { retryOwnedStop, waitForOwnedClose } from "./owned-stop.ts";
+import { parseProposalInvocation, verifyProposalExecution, type ProposalInvocation } from "./proposer-program.ts";
+import { writeTrainerArtifact, trainerJobIdentity } from "./process-bandit.ts";
 
 /** Independently accounted resource dimensions; all values are nonnegative safe integers. */
 export const RESOURCE_KEYS = ["training_steps", "wall_ms", "storage_bytes", "compute_units", "tokens"] as const;
@@ -73,6 +75,8 @@ export interface ProcessInput<P extends { readonly digest: string } = BanditChec
   readonly lm?: LmProcessPayload;
   /** Bounded training-only history observables; absent from legacy adapters. */
   readonly prefix?: PrefixPayload;
+  /** Sealed proposal interpreter input; development counts are its only data capability. */
+  readonly proposal?: ProposalInvocation;
 }
 /** Required durable completion evidence; successful process exit alone is never sufficient. */
 export interface ProcessCompletion<P extends { readonly digest: string } = BanditCheckpoint> {
@@ -244,7 +248,7 @@ function storedProcessJob<P extends TrainerPolicy>(job: ProcessJob<P>): ProcessJ
   return { ...job, completion: { ...job.completion, policy: { digest: job.completion.policy.digest } } };
 }
 /** Read the existing approved specification without creating or enlarging a Decision. */
-async function approvedResources(client: PmClient, approval: string): Promise<{ budget: Resources; digest: string; id: string }> {
+export async function approvedResources(client: PmClient, approval: string): Promise<{ budget: Resources; digest: string; id: string }> {
   const item = await readCompleteLoopItem(client, approval);
   const fence = /```json\n([\s\S]+?)\n```/u.exec(String(item.item.body));
   if (item.item.type !== "Decision" || fence === null) expectedFail("An existing approved resource Decision is required.", "process_budget_invalid");
@@ -291,6 +295,13 @@ export async function listProcessJobs(client: PmClient): Promise<ProcessJob<Trai
   return jobs;
 }
 
+/** Read every charge against an approval using the reservation path's SDK-normalized identity. */
+export async function processJobsForApproval(client: PmClient, approval: string): Promise<ProcessJob<TrainerPolicy>[]> {
+  const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
+  const id = normalizeItemId(approval, prefix);
+  return (await listProcessJobs(client)).filter((job) => normalizeItemId(job.approval, prefix) === id);
+}
+
 /**
  * Journal process writes while retaining committed state on interrupted publication.
  *
@@ -326,11 +337,7 @@ export async function reserveProcessJob(client: PmClient, coordinates: ProcessCo
     if (discovered !== null) {
       const snapshot = await readProcessSnapshot(client, id, coordinates.pmRoot);
       const existing = snapshot.job;
-      if (normalizeItemId(existing.id, prefix) !== normalizeItemId(id, prefix) || existing.input !== processDigest(input)
-        || processDigest(existing.binding) !== processDigest(input.identity)
-        || normalizeItemId(existing.approval, prefix) !== approved.id
-        || RESOURCE_KEYS.some(key => parseResources(existing.allowance)[key] !== allowance[key])) expectedFail("Reservation replay inputs changed.", "process_job_drift", EXIT_CODE.CONFLICT);
-      if (existing.budget_digest !== approved.digest) expectedFail("Approved budget identity changed.", "process_budget_drift", EXIT_CODE.CONFLICT);
+      verifyProcessReservation(existing, id, input, allowance, approved, prefix);
       await certifyAppliedRevision(client, snapshot.native.item.id, snapshot.revision);
       reserved = existing;
       return existing;
@@ -348,7 +355,7 @@ export async function reserveProcessJob(client: PmClient, coordinates: ProcessCo
     if (await inspectReservation() !== null) return;
     // Normalize like inspectReservation: an adopted reservation may store its approval in an SDK alias spelling,
     // and a raw comparison would leave its charge out of every later capacity check.
-    const charges = (await listProcessJobs(client)).filter((job) => normalizeItemId(job.approval, prefix) === approved.id).map((job) => job.charge);
+    const charges = (await processJobsForApproval(client, approved.id)).map((job) => job.charge);
     for (const key of RESOURCE_KEYS) {
       const total = charges.reduce((sum, charge) => sum + charge[key], allowance[key]);
       if (!Number.isSafeInteger(total) || total > approved.budget[key]) expectedFail(`Approved ${key} budget exhausted.`, "process_budget_exhausted");
@@ -367,6 +374,37 @@ export async function reserveProcessJob(client: PmClient, coordinates: ProcessCo
   };
   await withValidatedMutation(client, id, validateReservation, () => commitRetainingProcessState({ ...coordinates, transactionId: `${id}-reserve`, steps: [step] }));
   return reserved!;
+}
+/** Use the reservation write path's normalized immutable comparisons for read-only controller replay. */
+function verifyProcessReservation(job: ProcessJob<TrainerPolicy>, id: string, input: TrainerInput, allowance: Resources, approved: Awaited<ReturnType<typeof approvedResources>>, prefix: string): void {
+  if (normalizeItemId(job.id, prefix) !== normalizeItemId(id, prefix) || job.input !== processDigest(input)
+    || processDigest(job.binding) !== processDigest(input.identity)
+    || normalizeItemId(job.approval, prefix) !== normalizeItemId(approved.id, prefix)
+    || RESOURCE_KEYS.some(key => parseResources(job.allowance)[key] !== allowance[key])) expectedFail("Reservation replay inputs changed.", "process_job_drift", EXIT_CODE.CONFLICT);
+  if (job.budget_digest !== approved.digest) expectedFail("Approved budget identity changed.", "process_budget_drift", EXIT_CODE.CONFLICT);
+}
+/** Read an expected job without reserving, launching, recovering or changing any retained evidence. */
+export async function readVerifiedProcessJob(client: PmClient, root: string, input: TrainerInput, approval: string, adapter: ProcessAdapter, argv: readonly string[]): Promise<ProcessJob<TrainerPolicy>> {
+  const id = processJobId(input, argv, adapter);
+  if (await readProcessJob(client, id) === null) expectedFail("Completed controller step requires its original process job. Restore retained evidence before resuming.", "process_job_drift");
+  const snapshot = await readProcessSnapshot(client, id, root);
+  const approved = await approvedResources(client, approval);
+  const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
+  verifyProcessReservation(snapshot.job, id, input, adapter.allowance, approved, prefix);
+  await certifyAppliedRevision(client, snapshot.native.item.id, snapshot.revision);
+  return snapshot.job;
+}
+/** Verify both durable accounting and staged completion before a cached controller result can be consumed. */
+export async function verifyCompletedProcessJob<P extends TrainerPolicy>(client: PmClient, root: string, input: ProcessInput<P>, approval: string, adapter: ProcessAdapter, argv: readonly string[]): Promise<ProcessJob<P>> {
+  try {
+    const job = await readVerifiedProcessJob(client, root, input, approval, adapter, argv);
+    const policy = verifiedProcessPolicy(job, root, input);
+    if (policy === null || !job.settled || !["materialized", "evaluated", "promoted"].includes(job.state)) expectedFail("Completed controller step has no settled process completion. Restore retained evidence before resuming.", "process_job_drift");
+    return { ...job, completion: { ...job.completion!, policy } };
+  } catch (error) {
+    if (isPmCliExpectedError(error)) throw error;
+    expectedFail("Retained process evidence could not be read or verified. Restore original checkpoint and completion files before resuming.", "process_checkpoint_invalid");
+  }
 }
 /** Construct zero usage or the released allowance of a proven unlaunched job. */
 function zeroResources(): Resources { return { training_steps: 0, wall_ms: 0, storage_bytes: 0, compute_units: 0, tokens: 0 }; }
@@ -460,6 +498,14 @@ function recordedWallTime(file: string, started: number, declared: number, measu
 }
 /** Validate the staged completion against immutable input, readable bytes and every resource dimension. */
 export function validateProcessCompletion<P extends TrainerPolicy>(directory: string, id: string, input: ProcessInput<P>, allowance: Resources, artifactRoot = directory, recordedWallMs?: number): ProcessCompletion<P> {
+  try { return readProcessCompletion(directory, id, input, allowance, artifactRoot, recordedWallMs); }
+  catch (error) {
+    if (input.proposal === undefined || isPmCliExpectedError(error)) throw error;
+    expectedFail("Proposal checkpoint or receipt could not be read or replayed from its development counts. Restore the original retained files and staging access, or use a fresh programme.", "process_checkpoint_invalid");
+  }
+}
+/** Read and replay completion evidence; the public boundary classifies proposal verification and filesystem failures. */
+function readProcessCompletion<P extends TrainerPolicy>(directory: string, id: string, input: ProcessInput<P>, allowance: Resources, artifactRoot: string, recordedWallMs?: number): ProcessCompletion<P> {
   id = operationIdentifier(id);
   if (recordedWallMs !== undefined) parseResources({ ...zeroResources(), wall_ms: recordedWallMs });
   if (!existsSync(statePath(directory, "completion.json"))) expectedFail("Trainer supplied no completion receipt.", "process_receipt_required");
@@ -480,7 +526,11 @@ export function validateProcessCompletion<P extends TrainerPolicy>(directory: st
   } else if (input.prefix !== undefined) expectedFail("Prefix checkpoint requires an artifact reference.", "process_checkpoint_invalid");
   const digest = `sha256:${createHash("sha256").update(content).digest("hex")}`;
   if (digest !== value.digest) expectedFail("Checkpoint content digest or parameters are invalid.", "process_checkpoint_invalid");
-  if (input.lm !== undefined) validateLmProcessCheckpoint(content, value, input);
+  if (input.proposal !== undefined) {
+    verifyProposalExecution(parseBoundedJson(content.toString("utf8")), input.proposal);
+    verifyProposalExecution(value.policy, input.proposal);
+  }
+  else if (input.lm !== undefined) validateLmProcessCheckpoint(content, value, input);
   else if (input.prefix !== undefined) validatePrefixCompletion(content, { policy: parseBoundedJson(content.toString("utf8")) as P }, input);
   else {
     const policy = parseBoundedJson(content.toString("utf8")) as BanditCheckpoint;
@@ -560,7 +610,7 @@ export async function launchTrainer(directory: string, id: string, input: Traine
   const request = encodeBoundedJson({ job: id, input, ...(input.prefix === undefined ? {} : { artifactRoot: statePath(artifactRoot) }) });
   const startedAt = Date.now();
   const started = performance.now();
-  const child = spawn(argv[0], argv.slice(1), { cwd: directory, shell: false, stdio: ["pipe", "pipe", "pipe"] });
+  const child = spawn(argv[0], argv.slice(1), { cwd: directory, shell: false, stdio: ["pipe", "pipe", "pipe"], ...(input.proposal === undefined ? {} : { env: {} }) });
   let failure: unknown;
   let failed = false;
   let complete = false;
@@ -647,8 +697,18 @@ export async function launchTrainer(directory: string, id: string, input: Traine
       while ((newline = pending.indexOf("\n")) >= 0) {
         const line = pending.slice(0, newline); pending = pending.slice(newline + 1);
         callbackOperation("stdout.write", () => writeFileSync(callbackOperation("stdout.path", () => statePath(directory, "events.ndjson")), `${line}\n`, { flag: "a" }));
-        const event = parseBoundedJson(line) as { type: string; job: string; usage: Resources; receipt: ProcessCompletion };
+        const event = parseBoundedJson(line) as { type: string; job: string; usage: Resources; receipt: ProcessCompletion<TrainerPolicy> };
         if (complete || operationIdentifier(event.job) !== operationIdentifier(id) || !["progress", "complete"].includes(event.type)) expectedFail("Invalid trainer event sequence.", "process_channel_invalid");
+        if (input.proposal !== undefined && event.type === "complete") {
+          // The interpreter has no filesystem write capability. Only verified deterministic output crosses back.
+          if (Object.keys(event.receipt).sort().join() !== "policy,usage") expectedFail("Proposal output exceeded its sealed capability. Retain this refusal and start a fresh programme.", "proposer_capability");
+          const policy = verifyProposalExecution(event.receipt.policy, input.proposal);
+          const content = JSON.stringify(policy); const { job, format } = trainerJobIdentity(id);
+          event.receipt = { format, job, checkpoint: "checkpoint.json", digest: `sha256:${createHash("sha256").update(content).digest("hex")}`, policy,
+            source_policy: input.source.digest, training_config: input.training_config, lineage: input.lineage, usage: parseResources(event.receipt.usage) };
+          writeTrainerArtifact(statePath(directory, "checkpoint.json"), policy, 4096);
+          writeTrainerArtifact(statePath(directory, "completion.json"), event.receipt, 65_536);
+        }
         if (event.type === "complete") { complete = true; const finalUsage = parseResources(event.receipt.usage); for (const key of RESOURCE_KEYS) if (finalUsage[key] < measured[key]) expectedFail("Completion regressed measured use.", "process_limit_exceeded"); if (callbackOperation("stdout.staging", () => stagingBytes(directory, "stdout")) > allowance.storage_bytes || callbackOperation("stdout.stat", () => lstatSync(callbackOperation("stdout.completion-path", () => statePath(directory, "completion.json")))).size > 65_536) expectedFail("Completion channel exceeded its schema bound.", "process_channel_invalid"); const disk = parseBoundedJson(callbackOperation("stdout.read", () => readFileSync(callbackOperation("stdout.read-path", () => statePath(directory, "completion.json")), "utf8"))) as unknown; if (processDigest(event.receipt) !== processDigest(disk)) expectedFail("Stream completion differs from durable receipt.", "process_receipt_invalid"); }
         else {
           const usage = parseResources(event.usage);
@@ -714,6 +774,10 @@ function failedProcessCharge(directory: string, prior: Resources, state?: Proces
 
 /** Recover staged work or execute exactly one reserved phase; failures settle conservatively and retain evidence. */
 export async function executeProcessTrainer<P extends TrainerPolicy>(client: PmClient, coordinates: ProcessCoordinates, input: ProcessInput<P>, approval: string, adapter: ProcessAdapter, signal?: AbortSignal, argv: readonly string[] = referenceTrainerArgv()): Promise<ProcessJob<P>> {
+  if (input.proposal !== undefined) {
+    parseProposalInvocation(input.proposal);
+    if (input.prefix !== undefined || input.lm !== undefined || input.training.length !== 0 || input.observations.length !== 0 || input.training_config.steps !== 0 || adapter.kind !== "process-bandit") expectedFail("Proposal programs accept only development counts and zero optimizer steps. Remove other capabilities before retrying.", "proposer_capability");
+  }
   if (input.training_config.steps !== adapter.allowance.training_steps) expectedFail("Optimizer steps differ from the declared reservation.", "process_invalid_adapter");
   if (input.prefix !== undefined && (input.lm !== undefined || adapter.kind !== "process-bandit")) expectedFail("Prefix fits require the packaged process adapter.", "process_invalid_adapter");
   // Prefix fits publish checkpoint artifacts; refuse unsupported runtimes before the job is reserved.

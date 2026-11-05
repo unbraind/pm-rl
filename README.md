@@ -1096,3 +1096,18 @@ GitHub OIDC releases keep provenance enabled.
 ## Measured training-slice influence
 
 Run `pm rl influence run --file examples/training-influence.json` for explicitly budgeted omission/reweighting fits with exact seeded checkpoints. `pm rl influence show <report> --json` returns a compact packet of per-evaluation associations, explicit omissions and no ranking. `pm rl influence propose <report> --file next-programme.json --output evidenced-programme.json` carries certified measured evidence into the next recursive proposal; normal evaluation and promotion gates still apply. See the [SDK, bounds, remedies and concurrency contract](docs/training-influence.md).
+
+## Bounded proposal programs
+
+`pm rl proposer validate --file examples/proposer-program.json` validates a sealed
+proposal algorithm before effects. `pm rl proposer run <id> --file <config.json>
+--dataset <sealed-improver-data> --approval <decision>` evolves exact-count
+scoring expressions, feature construction and curricula in isolated processes.
+Equal optimizer/inference budgets, predeclared inner/outer gates and protected
+cohorts govern promotion; a failed final audit restores the prior program while
+retaining evidence. TOON and JSON output contains compact decisions and identities.
+See [the SDK, grammar, limits and example](docs/proposer-programs.md).
+
+Without git: validation, execution and replay work in plain trackers with sealed
+datasets. Only the existing public-history dataset builder requires committed Git
+provenance. No git executable is required by the proposer path.

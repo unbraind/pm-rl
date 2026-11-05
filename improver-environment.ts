@@ -2,14 +2,17 @@
 import assert from "node:assert/strict";
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
+import { canonicalNamespaceIdentifier, identifierClient } from "./state-boundary.ts";
+import { expectedFail } from "./refuse.ts";
 import { hashJson, type JsonValue } from "./index.ts";
 import { readImproverTasks, type ImproverDataset, type ImproverTask, type ImproverRow, type IMPROVER_ROLES } from "./improver-data.ts";
 import type { LearnerConfig } from "./improver.ts";
 import { binaryCalibration, prefixCheckpoint, prefixPrediction, prefixProbability, type BinaryCalibration, type PrefixCheckpoint } from "./prefix.ts";
 import type { HistoryPrefix } from "./prefix-data.ts";
 import { prefixTrainerArgv } from "./prefix-trainer.ts";
-import { executeProcessTrainer, processJobId, readProcessJob, transitionProcessJob, verifyProcessJobBudget, type ProcessAdapter, type ProcessCoordinates, type ProcessInput, type ProcessJob } from "./process.ts";
+import { executeProcessTrainer, readVerifiedProcessJob, verifyCompletedProcessJob, processJobId, readProcessJob, transitionProcessJob, verifyProcessJobBudget, type ProcessAdapter, type ProcessCoordinates, type ProcessInput, type ProcessJob } from "./process.ts";
 import { decidePromotion, hoeffdingEpsilon, type PromotionDecision, type PromotionCriterion } from "./promotion.ts";
+import type { ProposalCode } from "./proposer-program.ts";
 
 /** Both levels use the existing unchanged confidence, sample and effect thresholds. */
 export const IMPROVER_CRITERION = { confidence: 0.95, minSamples: 10, effectThreshold: 0.01 } as const;
@@ -71,7 +74,17 @@ function improverCalibration(rows: readonly ImproverRow[], learner: ImproverLear
 /** Search receives task identities and aggregate outcomes, never a feature, label, or dataset path. */
 export interface ImproverEnvironment {
   tasks(role: typeof IMPROVER_ROLES[number]): readonly { readonly id: string; readonly repo: string; readonly target: ImproverTask["target"] }[];
-  fit(role: typeof IMPROVER_ROLES[number], index: number, config: LearnerConfig, job: string, incumbent: ImproverLearner | null, signal: AbortSignal): Promise<LearnerTrial>;
+  fit(role: typeof IMPROVER_ROLES[number], index: number, config: LearnerConfig, job: string, incumbent: ImproverLearner | null, signal: AbortSignal, curriculum?: ProposalCode["curriculum"], replay?: LearnerTrial): Promise<LearnerTrial>;
+}
+
+/** Apply an executable curriculum only to training rows; equal update counts remain authoritative. */
+export function proposalCurriculum(rows: readonly ImproverRow[], curriculum: ProposalCode["curriculum"]): ImproverRow[] {
+  if (curriculum === "reverse") return [...rows].reverse();
+  if (curriculum === "balanced") {
+    const zeros = rows.filter((row) => row.label === 0); const ones = rows.filter((row) => row.label === 1);
+    return Array.from({ length: Math.max(zeros.length, ones.length) }, (_, index) => [zeros[index], ones[index]]).flat().filter((row) => row !== undefined);
+  }
+  return [...rows];
 }
 
 /** Apply a declared feature mask to already bounded history; no label or target field is accepted. */
@@ -121,6 +134,20 @@ export async function executeImproverFit(client: PmClient, coordinates: ProcessC
   }
 }
 
+/** Revalidate the exact successful attempt and any retained failed recovery charge without launching work. */
+export async function verifyImproverFit(client: PmClient, coordinates: ProcessCoordinates, input: ProcessInput<PrefixCheckpoint>, approval: string, jobId: string): Promise<ProcessJob<PrefixCheckpoint>> {
+  const argv = prefixTrainerArgv(); const adapter = improverAdapter(input);
+  const first = improverProcessAttempt(input, 0); const second = improverProcessAttempt(input, 1);
+  const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
+  const normalized = canonicalNamespaceIdentifier(jobId, prefix);
+  const recovered = normalized === canonicalNamespaceIdentifier(processJobId(second, argv, adapter), prefix);
+  if (!recovered && normalized !== canonicalNamespaceIdentifier(processJobId(first, argv, adapter), prefix)) expectedFail("Cached fit job differs from the expected training identity. Restore original fit evidence before resuming.", "process_job_drift");
+  if (recovered) {
+    const failed = await readVerifiedProcessJob(client, coordinates.pmRoot, first, approval, adapter, argv);
+    if (failed.state !== "failed" || !failed.settled) expectedFail("Recovered fit lost its failed attempt and held charge. Restore original recovery evidence before resuming.", "process_job_drift");
+  }
+  return verifyCompletedProcessJob(client, coordinates.pmRoot, recovered ? second : first, approval, adapter, argv);
+}
 /** Keep task data lazy: the audit role is never read until all improver promotions are durable. */
 export function openImproverEnvironment(client: PmClient, coordinates: ProcessCoordinates, directory: string, manifest: ImproverDataset, approval: string, updates: number, seed: number, criterion: PromotionCriterion): ImproverEnvironment {
   const cache = new Map<string, ImproverTask[]>();
@@ -131,15 +158,15 @@ export function openImproverEnvironment(client: PmClient, coordinates: ProcessCo
   };
   return {
     tasks: (role) => tasks(role).map((task) => ({ id: task.id, repo: task.repo, target: task.target })),
-    async fit(role, index, config, jobId, incumbent, signal) {
+    async fit(role, index, config, jobId, incumbent, signal, curriculum = "seeded", replay) {
       const task = tasks(role)[index];
       const source = prefixCheckpoint(new Array<number>(config.prefix.hashing_width).fill(0), config.prefix);
       const baseline = incumbent ?? { config, checkpoint: source };
-      const ordered = [...task.train].sort((a, b) => hashJson({ id: a.id, seed }).localeCompare(hashJson({ id: b.id, seed })));
+      const ordered = proposalCurriculum([...task.train].sort((a, b) => hashJson({ id: a.id, seed }).localeCompare(hashJson({ id: b.id, seed }))), curriculum);
       const rows = Array.from({ length: updates }, (_, offset) => ({ prefix: improverFeatures(ordered[offset % ordered.length].prefix, config), label: ordered[offset % ordered.length].label }));
       const input: ProcessInput<PrefixCheckpoint> = { identity: { programme_id: jobId, dataset: manifest.digest, task: task.id, config: config as unknown as JsonValue }, source, training: [], observations: [],
         training_config: { learning_rate: config.learning_rate, steps: 1 }, lineage: { training: hashJson(task.train as unknown as JsonValue), held_out: hashJson(task.evaluation as unknown as JsonValue), collection: hashJson(rows as unknown as JsonValue) }, prefix: { rows, knobs: config.prefix } };
-      const job = await executeImproverFit(client, coordinates, input, approval, signal);
+      const job = replay === undefined ? await executeImproverFit(client, coordinates, input, approval, signal) : await verifyImproverFit(client, coordinates, input, approval, replay.job);
       assert.ok(job.completion !== null, "improver_fit_incomplete");
       const candidate = { config, checkpoint: job.completion.policy };
       const mean = improverAccuracy(task.evaluation, candidate);
@@ -149,13 +176,15 @@ export function openImproverEnvironment(client: PmClient, coordinates: ProcessCo
       const gap = diagnostics.train_accuracy - mean;
       const promoted = comparison.verdict.decision === "promote" && gap <= 0.3;
       const retained = promoted ? candidate : baseline;
-      const evaluated = job.state === "materialized" ? await transitionProcessJob(client, coordinates, job, "evaluated", promoted ? "inner_gate_accepted" : gap > 0.3 ? "gap_rejected" : comparison.verdict.reason) : job;
-      if (promoted && evaluated.state === "evaluated") await transitionProcessJob(client, coordinates, evaluated, "promoted", "inner_gate_accepted");
+      const evaluated = replay === undefined && job.state === "materialized" ? await transitionProcessJob(client, coordinates, job, "evaluated", promoted ? "inner_gate_accepted" : gap > 0.3 ? "gap_rejected" : comparison.verdict.reason) : job;
+      if (replay === undefined && promoted && evaluated.state === "evaluated") await transitionProcessJob(client, coordinates, evaluated, "promoted", "inner_gate_accepted");
       // The sealed reader requires exactly balanced fit labels; resolve its majority tie to class one.
       const majority = 1;
-      return { job: job.id, candidate, retained, mean, retained_mean: improverAccuracy(task.evaluation, retained), baseline: baselineMean,
+      const trial = { job: job.id, candidate, retained, mean, retained_mean: improverAccuracy(task.evaluation, retained), baseline: baselineMean,
         majority: task.evaluation.filter((row) => row.label === majority).length / task.evaluation.length,
         samples: task.evaluation.length, promoted, ...comparison, gap, diagnostics, retained_calibration: improverCalibration(task.evaluation, retained) };
+      if (replay !== undefined && (job.state !== (promoted ? "promoted" : "evaluated") || hashJson(trial as unknown as JsonValue) !== hashJson({ ...replay, job: job.id } as unknown as JsonValue))) expectedFail("Cached fit differs from verified checkpoint, evaluation or promotion evidence. Restore original fit receipts before resuming.", "process_job_drift");
+      return trial;
     },
   };
 }

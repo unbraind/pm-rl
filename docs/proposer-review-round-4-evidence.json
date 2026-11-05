@@ -1,0 +1,412 @@
+{
+  "format": "pm-rl/proposer-review-round-4/1",
+  "reviewed_head": "6bfd4846e7b78a9081585f22df7047dc6f31526d",
+  "review_threads": [
+    {
+      "id": "PRRT_kwDOTqJmqs60Eygj",
+      "path": "json-identity.ts",
+      "finding": "Correct canonical key-order documentation",
+      "verdict": "valid",
+      "fix": "Document existing recursive UTF-16 code-unit sorting and pin nested encoding plus SHA-256 identity; leave serializer unchanged"
+    },
+    {
+      "id": "PRRT_kwDOTqJmqs60Eygt",
+      "path": "test/proposer-program.test.ts",
+      "finding": "Reduce 500-sequence SDK model runtime",
+      "verdict": "valid",
+      "fix": "Generate the identical seeded input/update corpus first; use eight independent real trackers, one per model identity and its 62/63 sequences; reuse one real controller lease per identity; overlap at most two independent groups in one process with complete cleanup"
+    }
+  ],
+  "review_pagination": {
+    "all_threads_fetched": true,
+    "all_unresolved_comments_fetched": true,
+    "has_next_thread_page": false,
+    "has_next_comment_page": false,
+    "outside_diff_range_findings": 0
+  },
+  "preserved_model_checks": {
+    "sequences": 500,
+    "program_operations": 2000,
+    "sdk_state_replays": 500,
+    "native_read_assertions": 1000,
+    "native_mutations": 20,
+    "identities": 8,
+    "timeout_ms": 600000,
+    "real_non_git_tracker": true,
+    "ambient_focus": true,
+    "all_original_assertions_retained": true,
+    "seed_draw_order_preserved": true,
+    "max_concurrent_identity_groups": 2,
+    "native_trackers": 8,
+    "drift_refusals": 445,
+    "custom_statuses_per_tracker": 8
+  },
+  "runtime_regression": "An independent session hook rejects the ninth actual controller acquisition. The behavioral revert restores the prior per-replay controller acquisition pattern inside replaySeededModel only; every model assertion stays in place.",
+  "canonical_order_corpus": [
+    "numeric-like keys",
+    "ASCII case",
+    "accented key",
+    "supplementary character before BMP private-use character",
+    "nested objects",
+    "arrays"
+  ],
+  "revert_proofs": [
+    {
+      "case": "fixed-order-control",
+      "exit": 0,
+      "assertion_failure": false,
+      "tests": 1,
+      "pass": 1,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "command": "node --test --test-concurrency=1 --test-name-pattern='canonical JSON documents' test/proposer-program.test.ts"
+    },
+    {
+      "case": "revert-order-documentation",
+      "exit": 1,
+      "assertion_failure": true,
+      "tests": 1,
+      "pass": 0,
+      "fail": 1,
+      "cancelled": 0,
+      "skipped": 0,
+      "command": "node --test --test-concurrency=1 --test-name-pattern='canonical JSON documents' test/proposer-program.test.ts"
+    },
+    {
+      "case": "locale-order-mutation",
+      "exit": 1,
+      "assertion_failure": true,
+      "tests": 1,
+      "pass": 0,
+      "fail": 1,
+      "cancelled": 0,
+      "skipped": 0,
+      "command": "node --test --test-concurrency=1 --test-name-pattern='canonical JSON documents' test/proposer-program.test.ts"
+    },
+    {
+      "case": "utf8-order-mutation",
+      "exit": 1,
+      "assertion_failure": true,
+      "tests": 1,
+      "pass": 0,
+      "fail": 1,
+      "cancelled": 0,
+      "skipped": 0,
+      "command": "node --test --test-concurrency=1 --test-name-pattern='canonical JSON documents' test/proposer-program.test.ts"
+    },
+    {
+      "case": "restored-order-control",
+      "exit": 0,
+      "assertion_failure": false,
+      "tests": 1,
+      "pass": 1,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "command": "node --test --test-concurrency=1 --test-name-pattern='canonical JSON documents' test/proposer-program.test.ts"
+    },
+    {
+      "case": "revert-controller-scheduling",
+      "exit": 1,
+      "assertion_failure": true,
+      "guard_failed": true,
+      "wall_seconds": 20.992,
+      "tests": 1,
+      "pass": 0,
+      "fail": 1,
+      "cancelled": 0,
+      "skipped": 0,
+      "command": "node --test --test-concurrency=1 --test-name-pattern='500 seeded' test/proposer-program.test.ts"
+    }
+  ],
+  "before": {
+    "command": "node --test --test-concurrency=1 --test-name-pattern='500 seeded' test/proposer-program.test.ts",
+    "runtime": "Node 24.19.0",
+    "wall_seconds": 604.36,
+    "test_seconds": 600.009992484,
+    "tests": 1,
+    "passed": 0,
+    "failed": 0,
+    "cancelled": 1,
+    "result": "Timed out at the existing 600-second test limit; no completed baseline timing or passing baseline claim"
+  },
+  "self_review": {
+    "scope": "Whole PR diff: source, tests, fixtures and documentation; same ordering-contract and repeated-controller-work classes",
+    "additional_instances": 0,
+    "preserved_restart_coverage": [
+      "full proposer controller replay",
+      "both RSI controllers with changed and unchanged evidence",
+      "retained process receipts and recovery attempts"
+    ]
+  },
+  "artifact": {
+    "dist_tracked": false,
+    "rebuild_required": true,
+    "rebuilt": true
+  },
+  "gate_thresholds": {
+    "statements": 100,
+    "lines": 100,
+    "branches": 100,
+    "functions": 100
+  },
+  "interrupted_measurement": {
+    "result": "Provider interruption ended the preliminary lease-grouping-only measurement without a final result; excluded from timing comparison",
+    "passed_subtests": 1,
+    "completed_model_test": false
+  },
+  "sdk_scope": "Normal native SDK per-action lifecycle. Broad wrapper scopes were rejected after diagnostics and are absent from the final implementation.",
+  "serial_grouped_attempt": {
+    "command": "node --test --test-concurrency=1 --test-name-pattern='500 seeded|canonical JSON documents' test/proposer-program.test.ts",
+    "wall_seconds": 606.34,
+    "test_seconds": 600.010252031,
+    "tests": 2,
+    "passed": 1,
+    "failed": 0,
+    "cancelled": 1,
+    "result": "Timed out under shared load; serial lease/workspace reuse alone did not establish a completed timing improvement"
+  },
+  "paired_interrupted_attempt": {
+    "result": "Provider interruption stopped the bounded paired attempt before a final model result; excluded from timing comparison"
+  },
+  "discarded_cwd_scope_attempt": {
+    "command": "node --test --test-concurrency=1 --test-name-pattern='500 seeded|canonical JSON documents' test/proposer-program.test.ts",
+    "runtime": "Node 24.19.0",
+    "exit": 1,
+    "wall_seconds": 607.061,
+    "tests": 2,
+    "pass": 1,
+    "fail": 0,
+    "cancelled": 1,
+    "skipped": 0,
+    "model_seconds": 600.01743288,
+    "result": "Discarded explicit-cwd test scope: outer SDK write gate can conflict with nested controller read scopes; corrected by retaining only explicit tracker path"
+  },
+  "diagnostic_scope_comparison": {
+    "purpose": "Eight-sequence disposable control-flow diagnostic only; not full acceptance evidence",
+    "ordinary_seconds": 38.457,
+    "path_only_scope_seconds": 38.003,
+    "conclusion": "No useful scope-only speedup; retain normal SDK lifecycle"
+  },
+  "after": {
+    "command": "node --test --test-concurrency=1 --test-name-pattern='500 seeded|canonical JSON documents' test/proposer-program.test.ts",
+    "runtime": "Node 24.19.0",
+    "exit": 0,
+    "wall_seconds": 364.76,
+    "tests": 2,
+    "pass": 2,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 0,
+    "model_seconds": 362.159370373,
+    "model_counts": {
+      "sequences": 500,
+      "randomized_operations": 2000,
+      "sdk_state_replays": 500,
+      "native_read_assertions": 1000,
+      "native_mutations": 20,
+      "drift_refusals": 445,
+      "controller_sessions": 8,
+      "native_trackers": 8,
+      "ambient_focus": true
+    }
+  },
+  "runtime_comparison": "Same Node 24.19.0 and unchanged 600-second parent limit: baseline cancelled at 600.009992484 seconds (604.36 seconds total); final model passed at 362.159370373 seconds (364.76 seconds total including both focused tests). Baseline is an incomplete lower bound, not a completed benchmark.",
+  "restored_runtime_control": {
+    "command": "node --test --test-concurrency=1 --test-name-pattern='500 seeded' test/proposer-program.test.ts",
+    "runtime": "Node 26.13.0",
+    "exit": 0,
+    "wall_seconds": 271.415,
+    "scope": "Restored disposable non-git source copy after the behavioral revert",
+    "tests": 1,
+    "pass": 1,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 0,
+    "model_counts": {
+      "sequences": 500,
+      "randomized_operations": 2000,
+      "sdk_state_replays": 500,
+      "native_read_assertions": 1000,
+      "native_mutations": 20,
+      "drift_refusals": 445,
+      "controller_sessions": 8,
+      "native_trackers": 8,
+      "ambient_focus": true
+    }
+  },
+  "local_npm_gate": {
+    "command": "npm run release:check",
+    "runtime": "Node 26.13.0",
+    "completed": false,
+    "exit": null,
+    "wall_seconds": 3525.984,
+    "release_policy_counts": {
+      "tests": 31,
+      "pass": 31,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0
+    },
+    "docstrings": {
+      "files": 62,
+      "declarations": 538
+    },
+    "completed_stages": [
+      "release policy",
+      "typecheck",
+      "build",
+      "lint",
+      "zero duplication",
+      "docstrings",
+      "publish attestation"
+    ],
+    "suite_counts": null,
+    "coverage_complete": false,
+    "reported_cases": [
+      {
+        "path": "test/controller-boundaries.test.ts",
+        "case": "bounded final failure",
+        "result": "failed; full details unavailable before handoff"
+      },
+      {
+        "path": "test/decision-recovery.test.ts",
+        "case": "SIGKILL at every HTTP-to-PM receipt boundary replays one decision per query",
+        "result": "cancelled at unchanged 300000 ms test limit"
+      }
+    ],
+    "termination": "Intentional local-to-CI handoff after reported failures; partial local counts are not a full passing gate"
+  },
+  "local_isolated_retries": {
+    "command": "node --test --test-concurrency=1 --test-name-pattern='owned child cleanup retries|SIGKILL at every HTTP-to-PM receipt boundary' test/controller-boundaries.test.ts test/decision-recovery.test.ts",
+    "runtime": "Node 26.13.0",
+    "exit": 0,
+    "wall_seconds": 131.165,
+    "tests": 4,
+    "pass": 4,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 0
+  },
+  "baseline_ci_control": {
+    "head": "6bfd4846e7b78a9081585f22df7047dc6f31526d",
+    "url": "https://github.com/unbraind/pm-rl/actions/runs/42029003169",
+    "npm_node_22": "success",
+    "npm_node_26": "success",
+    "bun_node_26": "success",
+    "scope": "Previously reviewed head only; not final-head certification"
+  },
+  "final_ci": {
+    "status": "Required fresh matrix after publication",
+    "checks": "https://github.com/unbraind/pm-rl/pull/145/checks",
+    "thresholds_unchanged": true
+  },
+  "local_bun_gate": {
+    "command": "bun run release:check",
+    "runtime": "Node 26.13.0; Bun 1.3.5",
+    "completed": false,
+    "exit": null,
+    "wall_seconds": 632.933,
+    "release_policy_counts": {
+      "tests": 31,
+      "pass": 31,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0
+    },
+    "docstrings": {
+      "files": 62,
+      "declarations": 538
+    },
+    "completed_stages": [
+      "release policy",
+      "typecheck",
+      "build",
+      "lint",
+      "zero duplication",
+      "docstrings",
+      "publish attestation"
+    ],
+    "suite_counts": null,
+    "coverage_complete": false,
+    "termination": "Stopped before merging the new origin/main dependency update; full release matrix moves to fresh final-head CI"
+  },
+  "local_health": {
+    "strict_exit": 1,
+    "gate_failing": "Untracked pm-github addon requires host 2026.11.4 while the repo pins 2026.11.2",
+    "advisory": "Legacy provenance values remain unchanged; no history repair",
+    "history_drift": "ok",
+    "integrity": "ok",
+    "scope": "Local ignored addon state; baseline clean CI passed; final fresh CI remains required"
+  },
+  "pm_linked_final": {
+    "command": "node_modules/.bin/pm test pm-rl-proposer-program --run --match canonical.JSON.documents --progress",
+    "tests": 1,
+    "pass": 1,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 0,
+    "context": "none",
+    "workspace": "snapshot"
+  },
+  "post_merge_checks": [
+    {
+      "command": "node --test --test-concurrency=2 test/release-approval.test.ts test/release-calendar.test.ts",
+      "exit": 0,
+      "wall_seconds": 1.146
+    },
+    {
+      "command": "npm run check",
+      "exit": 0,
+      "wall_seconds": 18.013
+    },
+    {
+      "command": "npm run build:test",
+      "exit": 0,
+      "wall_seconds": 3.754
+    },
+    {
+      "command": "npm run docstring",
+      "exit": 0,
+      "wall_seconds": 1.433
+    },
+    {
+      "command": "npm run verify:release-publish-attestation",
+      "exit": 0,
+      "wall_seconds": 0.83
+    },
+    {
+      "command": "npm run audit:identities",
+      "exit": 0,
+      "wall_seconds": 1.247
+    },
+    {
+      "command": "npm run audit:prod",
+      "exit": 0,
+      "wall_seconds": 0.871
+    },
+    {
+      "command": "npm run pack:dry-run",
+      "exit": 0,
+      "wall_seconds": 4.535
+    },
+    {
+      "command": "npm run changelog:check",
+      "exit": 0,
+      "wall_seconds": 2.904
+    }
+  ],
+  "merged_main": {
+    "head": "ce47f52f054ed40de41da52dbd56a576695e374f",
+    "change": "Babel dev-tool update only; pm SDK pin unchanged",
+    "dependencies_reinstalled": true
+  },
+  "source_candidate_head": "9b8d1562da6379f562b57e8cf319811f2018bf4b",
+  "ci_submission": {
+    "url": "https://github.com/unbraind/pm-rl/actions/runs/42066125836",
+    "codeql": "https://github.com/unbraind/pm-rl/actions/runs/42066125583",
+    "scope": "Source candidate; final claim/evidence receipt push requires its own fresh checks",
+    "final_checks": "https://github.com/unbraind/pm-rl/pull/145/checks"
+  }
+}

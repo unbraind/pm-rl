@@ -1,0 +1,191 @@
+{
+  "format": "pm-rl/proposer-replay-review/1",
+  "reviewed_head": "159276c21fc192633ec033978cc0fdfea8659a79",
+  "thread": "PRRT_kwDOTqJmqs60Ci3B",
+  "outside_diff_range_findings": 0,
+  "scenario": "Interrupt a real non-git controller after a durable proposal or learner-fit step; change retained process evidence before resuming.",
+  "design": [
+    "Share normalized reservation comparisons between write and read-only verification paths.",
+    "Verify expected proposal job, approval, staged checkpoint, completion and accounting on fresh execution and replay, and compare cached output.",
+    "Recompute learner evidence through the same evaluator for both RSI controllers; verify successful and failed recovery attempts without launching replacement work."
+  ],
+  "proposal_tamper_fields": [
+    "checkpoint bytes",
+    "checkpoint digest with self-consistent outer digest",
+    "malformed receipt JSON",
+    "receipt policy",
+    "receipt lineage",
+    "receipt usage",
+    "runner metadata",
+    "durable completion digest",
+    "durable budget charge"
+  ],
+  "focused": {
+    "command": "node --test --test-concurrency=2 --test-name-pattern=\"controller crash/resume|both RSI controllers|read-only process replay|sealed cached proposal|reserved fits preserve|SIGKILL before exec\" test/proposer-program.test.ts test/improver.test.ts",
+    "tests": 19,
+    "passed": 19,
+    "failed": 0,
+    "cancelled": 0,
+    "skipped": 0,
+    "runtime": "Node 24.19.0"
+  },
+  "pm_linked": {
+    "command": "node --test --test-concurrency=2 --test-name-pattern=read-only test/proposer-program.test.ts",
+    "passed": 1,
+    "failed": 0,
+    "context": "none",
+    "workspace": "snapshot"
+  },
+  "self_review": {
+    "additional_fixed_paths": [
+      "proposer evolution learner fits",
+      "recursive improver learner fits",
+      "failed recovery-attempt evidence"
+    ],
+    "existing_verified_paths": [
+      "core bandit generation replay revalidates process policy and budget",
+      "core LM generation replay revalidates process job, budget and checkpoint artifacts",
+      "pure RSI phase receipts retain immutable-input and SDK evidence checks"
+    ]
+  },
+  "artifact": {
+    "dist_tracked": false,
+    "rebuilt": true
+  },
+  "gate_thresholds": {
+    "statements": 100,
+    "lines": 100,
+    "branches": 100,
+    "functions": 100
+  },
+  "revert_proofs": [
+    {
+      "case": "baseline-replay",
+      "exit": 0,
+      "command": "node --test --test-concurrency=1 --test-name-pattern='controller crash/resume|both RSI controllers|sealed cached proposal' --test-skip-pattern='checkpoint-digest|receipt-|runner|durable-|proposer-unchanged|improver-unchanged' test/proposer-program.test.ts",
+      "counts": {
+        "tests": 6,
+        "pass": 6,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0
+      },
+      "evidence": "passing regression controls"
+    },
+    {
+      "case": "revert-proposer-replay",
+      "exit": 1,
+      "command": "node --test --test-concurrency=1 --test-name-pattern='controller crash/resume|sealed cached proposal' --test-skip-pattern='checkpoint-digest|receipt-|runner|durable-|proposer-unchanged|improver-unchanged' test/proposer-program.test.ts",
+      "counts": {
+        "tests": 3,
+        "pass": 0,
+        "fail": 3,
+        "cancelled": 0,
+        "skipped": 0
+      },
+      "evidence": "ERR_ASSERTION"
+    },
+    {
+      "case": "revert-improver-replay",
+      "exit": 1,
+      "command": "node --test --test-concurrency=1 --test-name-pattern='both RSI controllers' --test-skip-pattern='proposer-damaged|proposer-unchanged|improver-unchanged' test/proposer-program.test.ts",
+      "counts": {
+        "tests": 2,
+        "pass": 0,
+        "fail": 2,
+        "cancelled": 0,
+        "skipped": 0
+      },
+      "evidence": "ERR_ASSERTION"
+    },
+    {
+      "case": "revert-fit-verification",
+      "exit": 1,
+      "command": "node --test --test-concurrency=1 --test-name-pattern='both RSI controllers' --test-skip-pattern='proposer-unchanged|improver-unchanged' test/proposer-program.test.ts",
+      "counts": {
+        "tests": 3,
+        "pass": 0,
+        "fail": 3,
+        "cancelled": 0,
+        "skipped": 0
+      },
+      "evidence": "ERR_ASSERTION"
+    },
+    {
+      "case": "restored-replay",
+      "exit": 0,
+      "command": "node --test --test-concurrency=1 --test-name-pattern='controller crash/resume|both RSI controllers|sealed cached proposal' --test-skip-pattern='checkpoint-digest|receipt-|runner|durable-|proposer-unchanged|improver-unchanged' test/proposer-program.test.ts",
+      "counts": {
+        "tests": 6,
+        "pass": 6,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0
+      },
+      "evidence": "passing regression controls"
+    }
+  ],
+  "runtime_code_commit": "fc4af76e4c8cc747eb5635702b94c99ea002cbd2",
+  "release_gates": {
+    "thresholds_changed": false,
+    "npm": {
+      "command": "npm run release:check",
+      "runtime": "Node 26.13.0",
+      "release_policy": {
+        "passed": 31,
+        "failed": 0,
+        "cancelled": 0,
+        "skipped": 0
+      },
+      "complete": false,
+      "outer_exit": 124,
+      "outer_budget_minutes": 20,
+      "timeout": {
+        "file": "test/baseline.test.ts",
+        "case": "refused vector retries converge at every collect train evaluate refusal and terminal boundary on one plain tracker",
+        "existing_timeout_ms": 600000
+      },
+      "successful_retry": false
+    },
+    "bun": {
+      "command": "bun run release:check",
+      "runtime": "Node 26.13.0 / Bun 1.3.5",
+      "release_policy": {
+        "passed": 31,
+        "failed": 0,
+        "cancelled": 0,
+        "skipped": 0
+      },
+      "complete": false,
+      "stopped": "Owned local gate stopped for the bounded CI handoff; coverage was still running.",
+      "reported_failure_entries": 0
+    },
+    "coverage_totals_available": false,
+    "ci": {
+      "runtime_code_run": "https://github.com/unbraind/pm-rl/actions/runs/42025105305",
+      "head": "fc4af76e4c8cc747eb5635702b94c99ea002cbd2",
+      "status": "queued at final tracker handoff",
+      "jobs": [
+        "npm Node 22",
+        "npm Node 26",
+        "Bun Node 26"
+      ],
+      "final_head": "Final tracker-only push receives fresh CI; the final PR report links that run without additional tracker writes."
+    },
+    "local_checks_passed": [
+      "typecheck",
+      "build",
+      "test compilation",
+      "lint",
+      "zero duplication",
+      "docstrings: 62 files, 538 declarations",
+      "publish attestation",
+      "Git identity audit",
+      "package dry run",
+      "changelog regeneration and check"
+    ],
+    "strict_local_health": "Blocked by an ignored pm-github extension requiring host 2026.11.4 while the repository pins 2026.11.2; legacy provenance is advisory. No history was repaired.",
+    "timing_follow_up": "pm-rl-local-gate-timing",
+    "owned_gate_processes_remaining": 0
+  }
+}

@@ -11,7 +11,7 @@ import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import extension, { hashJson, readCompleteLoopItem, type JsonValue, type RlCommandResult } from "../index.ts";
 import { initialImprover, improverArtifact, parseImprover, proposeLearners, updateImprover, type ProposalOutcome } from "../improver.ts";
 import { buildImproverDataset, chronologicalTask, historyBeforePrediction, projectImproverHistory, readImproverDataset, readImproverTasks, IMPROVER_ROLES, type ImproverDataset, type ImproverTask, type ImproverProjection } from "../improver-data.ts";
-import { compareImprovers, diagnoseImproverLearner, executeImproverFit, improverProcessAttempt, improverAccuracy, improverFeatures, openImproverEnvironment, IMPROVER_CRITERION, IMPROVER_ADAPTER } from "../improver-environment.ts";
+import { compareImprovers, diagnoseImproverLearner, executeImproverFit, verifyImproverFit, improverProcessAttempt, improverAccuracy, improverFeatures, openImproverEnvironment, IMPROVER_CRITERION, IMPROVER_ADAPTER } from "../improver-environment.ts";
 import { improverBudget, improverConfiguration, parseImproverConfig, runRecursiveImprover, selectImprover, summarizeImproverScores, type ImproverConfig, type ImproverScore, type ImproverSearch } from "../recursive-improver.ts";
 import { replayPolicyCard, type PolicyCard } from "../policy-card.ts";
 import { prefixCheckpoint, type PrefixCheckpoint } from "../prefix.ts";
@@ -259,6 +259,16 @@ test("reserved fits preserve candidate evidence on inner rejection and support r
   assert.equal(constant.calibration.brier, 0.25); assert.equal(constant.calibration.ece, 0);
   assert.deepEqual(constant.calibration, constant.training_frequency_calibration);
   assert.deepEqual(await env.fit('development', 0, config, 'positive-fit', null, AbortSignal.timeout(60_000)), accepted);
+  assert.deepEqual(await env.fit('development', 0, config, 'positive-fit', null, AbortSignal.timeout(60_000), "seeded", accepted), accepted);
+  assert.deepEqual(await env.fit('development', 0, config, 'positive-fit', null, AbortSignal.timeout(60_000), "seeded", { ...accepted, job: `rl-${accepted.job}` }), accepted);
+  await assert.rejects(env.fit('development', 0, config, 'positive-fit', null, AbortSignal.timeout(60_000), "seeded", { ...accepted, mean: 0 }), (error) => isPmCliExpectedError(error) && error.context.code === "process_job_drift");
+  await assert.rejects(env.fit('development', 0, config, 'positive-fit', null, AbortSignal.timeout(60_000), "seeded", { ...accepted, job: "foreign-fit" }), (error) => isPmCliExpectedError(error) && error.context.code === "process_job_drift");
+  const promotedJob = (await w.client.get(accepted.job)).item;
+  try {
+    await w.client.update(promotedJob.id, { body: JSON.stringify({ ...JSON.parse(String(promotedJob.body)), state: "evaluated" }) });
+    await assert.rejects(env.fit('development', 0, config, 'positive-fit', null, AbortSignal.timeout(60_000), "seeded", accepted),
+      (error) => isPmCliExpectedError(error) && error.context.code === "process_job_drift");
+  } finally { await w.client.update(promotedJob.id, { body: promotedJob.body }); }
   const held = await env.fit('development', 0, config, 'incumbent-fit', accepted.retained, AbortSignal.timeout(60_000));
   assert.equal(held.promoted, false); assert.equal(held.retained_mean, accepted.retained_mean);
   manifest = reseal(w.dataset, manifest, 'development', [{ ...original, train: training, evaluation: evaluation.map((row) => ({ ...row, label: row.label === 0 ? 1 : 0 })) }]);
@@ -297,6 +307,13 @@ test("SIGKILL before exec recovers missing and partial receipts once inside the 
       const jobs = await listProcessJobs(w.client); assert.equal(jobs.length, before + 1);
       assert.ok(jobs.find((job) => job.id === originalId)!.settled); assert.equal(jobs.find((job) => job.id === originalId)!.state, 'failed');
       assert.deepEqual(await executeImproverFit(w.client, w.coordinates, input, w.approval, AbortSignal.timeout(60_000)), recovered);
+      assert.deepEqual(await verifyImproverFit(w.client, w.coordinates, input, w.approval, recovered.id), recovered);
+      const first = (await w.client.get(originalId)).item; const record = JSON.parse(String(first.body));
+      await w.client.update(first.id, { body: JSON.stringify({ ...record, state: "planned" }) });
+      await assert.rejects(verifyImproverFit(w.client, w.coordinates, input, w.approval, recovered.id), (error) => isPmCliExpectedError(error) && error.context.code === "process_job_drift");
+      await w.client.update(first.id, { body: JSON.stringify({ ...record, settled: false, charge: record.allowance }) });
+      await assert.rejects(verifyImproverFit(w.client, w.coordinates, input, w.approval, recovered.id), (error) => isPmCliExpectedError(error) && error.context.code === "process_job_drift");
+      await w.client.update(first.id, { body: first.body });
       assert.equal((await listProcessJobs(w.client)).length, jobs.length);
     }
   }

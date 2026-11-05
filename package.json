@@ -89,7 +89,13 @@
     "docs/json-record-bounds.md",
     "dist/training-influence.*",
     "docs/training-influence.md",
-    "docs/training-influence-evidence.json"
+    "docs/training-influence-evidence.json",
+    "dist/json-identity.*",
+    "dist/proposer-program.*",
+    "dist/proposer-worker.*",
+    "dist/proposer-evolution.*",
+    "docs/proposer-programs.md",
+    "docs/proposer-public-evidence.json"
   ],
   "engines": {
     "node": ">=22.18.0"
@@ -187,7 +193,8 @@
       "test/mutation-preflight.test.ts",
       "test/transaction-races.test.ts",
       "test/training-influence.test.ts",
-      "test/training-influence-maintenance.test.ts"
+      "test/training-influence-maintenance.test.ts",
+      "test/proposer-program.test.ts"
     ],
     "thresholds": {
       "statements": 100,
@@ -300,7 +307,9 @@
       "docs/worst-cohort-evidence.json",
       "docs/json-record-bounds.md",
       "docs/training-influence.md",
-      "docs/training-influence-evidence.json"
+      "docs/training-influence-evidence.json",
+      "docs/proposer-programs.md",
+      "docs/proposer-public-evidence.json"
     ],
     "examples": [
       "README.md",
@@ -320,7 +329,8 @@
       "examples/policy-card.json",
       "examples/sequential-evaluation-plan.json",
       "examples/evaluation-plan-protected.json",
-      "examples/training-influence.json"
+      "examples/training-influence.json",
+      "examples/proposer-program.json"
     ]
   },
   "publishConfig": {

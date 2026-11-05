@@ -177,6 +177,12 @@ export async function reserveMeta(client: PmClient, coordinates: ProcessCoordina
   const charge = { training_samples: (1 + config.meta_generations * config.candidates) * RECIPE_BOUNDS.steps[1] * RECIPE_BOUNDS.batch[1],
     proposal_calls: request.proposer === "decision-model" ? 2 * config.meta_generations : 0, recipe_promotions: config.meta_generations };
   const promotionHeadroom = (1 + config.meta_generations * config.candidates) * RECIPE_BOUNDS.steps[1];
+  return reserveSearchCapacity(client, coordinates, request, binding, charge, promotionHeadroom, retained, preflight);
+}
+
+/** Share the existing revision-fenced search reservation ledger across recipe and executable-program search. @internal */
+export async function reserveSearchCapacity(client: PmClient, coordinates: ProcessCoordinates, request: Pick<MetaRequest, "id" | "approval">, binding: string, charge: Readonly<Record<"training_samples" | "proposal_calls" | "recipe_promotions", number>>, promotionHeadroom: number, retained = false, preflight = false): Promise<void> {
+  for (const value of [...Object.values(charge), promotionHeadroom]) if (!Number.isSafeInteger(value) || value < 0) expectedFail("Search capacity must be nonnegative safe integer counts. Correct the declaration before retrying.", "meta_budget_bound");
   const key = `${request.id}-reservation`;
   /** Read and verify an existing allocation even when the programme or SDK transaction receipt is already complete. */
   const inspect = async (): Promise<{ state: "pending" | "applied" }> => {
