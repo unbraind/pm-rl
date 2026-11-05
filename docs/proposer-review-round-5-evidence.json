@@ -1,0 +1,458 @@
+{
+  "scenario": "PR 145 round 5: build every linked test against current source before execution",
+  "review_thread": "PRRT_kwDOTqJmqs60Ma2X",
+  "original_head": "398c4332d5e51b68372aa570a35124b07e390a2e",
+  "source_changes": false,
+  "shell_behavior_regression": {
+    "method": "Execute each exact linked shell command in a disposable directory with controlled npm and node executables recording ordered events. The oracle requires build:run build before test. A failing build exits 47 and must prevent node from starting. Remove only the added build prerequisite for each behavioral revert; restore and repeat.",
+    "fixed_pass": 12,
+    "reverted_assertion_failures": 12,
+    "restored_pass": 12,
+    "failed_build_short_circuit_pass": 12,
+    "cases": [
+      {
+        "item": "pm-rl-proposer-program",
+        "command": "node --test --test-concurrency=1 --test-name-pattern='strict program' test/proposer-program.test.ts",
+        "fixed": "pass",
+        "reverted": "AssertionError: test starts without successful current-source build",
+        "restored": "pass",
+        "failed_build": "pass"
+      },
+      {
+        "item": "pm-rl-proposer-program",
+        "command": "node --test --test-concurrency=2 --test-name-pattern='worst-case process|approval documentation' test/proposer-program.test.ts",
+        "fixed": "pass",
+        "reverted": "AssertionError: test starts without successful current-source build",
+        "restored": "pass",
+        "failed_build": "pass"
+      },
+      {
+        "item": "pm-rl-proposer-program",
+        "command": "nice -n 10 node --test --test-concurrency=2 --test-name-pattern=\"retained proposal checkpoint|proposal staging setup|proposer dataset verification\" test/proposer-program.test.ts",
+        "fixed": "pass",
+        "reverted": "AssertionError: test starts without successful current-source build",
+        "restored": "pass",
+        "failed_build": "pass"
+      },
+      {
+        "item": "pm-rl-proposer-program",
+        "command": "nice -n 10 node --test --test-concurrency=2 --test-name-pattern=\"proposer approval verification\" test/proposer-program.test.ts",
+        "fixed": "pass",
+        "reverted": "AssertionError: test starts without successful current-source build",
+        "restored": "pass",
+        "failed_build": "pass"
+      },
+      {
+        "item": "pm-rl-proposer-program",
+        "command": "node --test --test-concurrency=2 --test-name-pattern=read-only test/proposer-program.test.ts",
+        "fixed": "pass",
+        "reverted": "AssertionError: test starts without successful current-source build",
+        "restored": "pass",
+        "failed_build": "pass"
+      },
+      {
+        "item": "pm-rl-proposer-program",
+        "command": "node --test --test-concurrency=2 --test-name-pattern=\"controller crash/resume|both RSI controllers|read-only process replay|sealed cached proposal|reserved fits preserve|SIGKILL before exec\" test/proposer-program.test.ts test/improver.test.ts",
+        "fixed": "pass",
+        "reverted": "AssertionError: test starts without successful current-source build",
+        "restored": "pass",
+        "failed_build": "pass"
+      },
+      {
+        "item": "pm-rl-proposer-program",
+        "command": "node --test --test-concurrency=1 --test-name-pattern=canonical.JSON.documents test/proposer-program.test.ts",
+        "fixed": "pass",
+        "reverted": "AssertionError: test starts without successful current-source build",
+        "restored": "pass",
+        "failed_build": "pass"
+      },
+      {
+        "item": "pm-rl-local-gate-timing",
+        "command": "nice -n 10 node --test --test-concurrency=1 --test-reporter=spec '--test-name-pattern=packed CLI trains two external generations' test/process-cli.test.ts",
+        "fixed": "pass",
+        "reverted": "AssertionError: test starts without successful current-source build",
+        "restored": "pass",
+        "failed_build": "pass"
+      },
+      {
+        "item": "pm-rl-local-gate-timing",
+        "command": "nice -n 10 node --test --test-concurrency=1 --test-reporter=spec '--test-name-pattern=canonical card property: 512 seeded' test/policy-card.test.ts",
+        "fixed": "pass",
+        "reverted": "AssertionError: test starts without successful current-source build",
+        "restored": "pass",
+        "failed_build": "pass"
+      },
+      {
+        "item": "pm-rl-local-gate-timing",
+        "command": "nice -n 10 node --test --test-concurrency=1 --test-reporter=spec '--test-name-pattern=recoverable card transactions finish every EIO' test/policy-card.test.ts",
+        "fixed": "pass",
+        "reverted": "AssertionError: test starts without successful current-source build",
+        "restored": "pass",
+        "failed_build": "pass"
+      },
+      {
+        "item": "pm-rl-local-gate-timing",
+        "command": "node --test --test-concurrency=1 --test-name-pattern=500.seeded test/proposer-program.test.ts",
+        "fixed": "pass",
+        "reverted": "AssertionError: test starts without successful current-source build",
+        "restored": "pass",
+        "failed_build": "pass"
+      },
+      {
+        "item": "pm-rl-local-gate-timing",
+        "command": "node --test --test-concurrency=1 --test-name-pattern=\"owned child cleanup retries|SIGKILL at every HTTP-to-PM receipt boundary\" test/controller-boundaries.test.ts test/decision-recovery.test.ts",
+        "fixed": "pass",
+        "reverted": "AssertionError: test starts without successful current-source build",
+        "restored": "pass",
+        "failed_build": "pass"
+      }
+    ]
+  },
+  "real_missing_dist_regression": {
+    "original_command": "node --test --test-concurrency=1 test/bandit.test.ts",
+    "fixed_command": "npm run build && node --test --test-concurrency=1 test/bandit.test.ts",
+    "reverted_exit": 1,
+    "reverted_error": "ERR_MODULE_NOT_FOUND",
+    "fixed_exit": 0,
+    "fixed_seconds": 12.293,
+    "counts": {
+      "tests": 14,
+      "passed": 14,
+      "failed": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "todo": 0
+    }
+  },
+  "reproduce_real_regression": [
+    "scratch=$(mktemp -d)",
+    "git archive HEAD | tar -x -C \"$scratch\"",
+    "ln -s \"$PWD/node_modules\" \"$scratch/node_modules\"",
+    "(cd \"$scratch\" && node --test --test-concurrency=1 test/bandit.test.ts) # expect exit 1: ERR_MODULE_NOT_FOUND",
+    "(cd \"$scratch\" && npm run build && node --test --test-concurrency=1 test/bandit.test.ts) # expect 14/14 pass"
+  ],
+  "self_review": {
+    "items_audited": [
+      "pm-rl-local-gate-timing",
+      "pm-rl-proposer-program",
+      "pm-rl-history-status-roles"
+    ],
+    "commands_replaced": 12,
+    "new_linked_missing_dist_smoke_tests": 1,
+    "no_linked_tests": "pm-rl-history-status-roles",
+    "historical_receipts": "Prior recorded execution commands are immutable receipts, not current linked test instructions.",
+    "outside_diff_findings": 0,
+    "remote_main": "Already an ancestor of the starting head; no merge needed.",
+    "committed_dist_files": 0,
+    "full_release_validation": "Owner explicitly delegates pm-rl full npm/Bun release checks to CI because local full gates exceed about 60 minutes. No full local gate or coverage completion is claimed."
+  },
+  "gates": {
+    "release_policy": {
+      "command": "node --test --test-concurrency=2 test/release-approval.test.ts test/release-calendar.test.ts",
+      "tests": 31,
+      "passed": 31,
+      "failed": 0,
+      "cancelled": 0,
+      "skipped": 0
+    },
+    "static_passed": [
+      "npm run typecheck",
+      "npm run build:test",
+      "npm run lint",
+      "npm run duplicates",
+      "npm run docstring",
+      "npm run verify:release-publish-attestation",
+      "npm run audit:identities",
+      "npm run audit:prod",
+      "npm run pack:dry-run",
+      "npm run changelog:full",
+      "npm run changelog:check"
+    ],
+    "docstrings": {
+      "files": 62,
+      "declarations": 538
+    },
+    "duplicates": 0,
+    "worktree_health": {
+      "command": "pm health --strict-exit --require-merge-drivers",
+      "exit": 1,
+      "failure": "Pre-existing globally installed pm-github requires host 2026.11.4 but the repository pins host 2026.11.2."
+    },
+    "tracked_copy_health": {
+      "command": "pm health --full --no-refresh --strict-exit --require-merge-drivers",
+      "isolation": "Disposable tracked-file copy, isolated HOME, pinned pm, merge drivers installed",
+      "exit": 0,
+      "advisory": "Legacy claude-code single-digit provenance role; history retained without repair.",
+      "checks_passed": 10,
+      "checks_total": 10
+    },
+    "main_history_prefix": "All three PR-touched history files preserve the origin/main byte prefix.",
+    "pr_commit_email": "1153461+unbraind@users.noreply.github.com",
+    "production_vulnerabilities": 0,
+    "bun_targeted": {
+      "command": "bun run build && node --test --test-concurrency=1 test/bandit.test.ts",
+      "tests": 14,
+      "passed": 14,
+      "failed": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "todo": 0,
+      "exit": 0
+    },
+    "starting_head_history_prefix": "All three PR-touched history files also preserve the 398c433 starting-head byte prefix; this round only appends records."
+  },
+  "linked_runs": [
+    {
+      "item": "pm-rl-proposer-program",
+      "pm_command": "pm test pm-rl-proposer-program --run --progress --json",
+      "ok": true,
+      "commands": 7,
+      "reported_counts": {
+        "tests": 28,
+        "pass": 28,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0,
+        "todo": 0
+      },
+      "results": [
+        {
+          "command": "npm run build && node --test --test-concurrency=1 --test-name-pattern='strict program' test/proposer-program.test.ts",
+          "status": "passed",
+          "exit_code": 0,
+          "counts": {
+            "tests": 1,
+            "pass": 1,
+            "fail": 0,
+            "cancelled": 0,
+            "skipped": 0,
+            "todo": 0
+          },
+          "test_duration_ms": 6769.701034
+        },
+        {
+          "command": "npm run build && node --test --test-concurrency=2 --test-name-pattern='worst-case process|approval documentation' test/proposer-program.test.ts",
+          "status": "passed",
+          "exit_code": 0,
+          "counts": {
+            "tests": 2,
+            "pass": 2,
+            "fail": 0,
+            "cancelled": 0,
+            "skipped": 0,
+            "todo": 0
+          },
+          "test_duration_ms": 20863.93109
+        },
+        {
+          "command": "npm run build && nice -n 10 node --test --test-concurrency=2 --test-name-pattern=\"retained proposal checkpoint|proposal staging setup|proposer dataset verification\" test/proposer-program.test.ts",
+          "status": "passed",
+          "exit_code": 0,
+          "counts": {
+            "tests": 3,
+            "pass": 3,
+            "fail": 0,
+            "cancelled": 0,
+            "skipped": 0,
+            "todo": 0
+          },
+          "test_duration_ms": 43728.365984
+        },
+        {
+          "command": "npm run build && nice -n 10 node --test --test-concurrency=2 --test-name-pattern=\"proposer approval verification\" test/proposer-program.test.ts",
+          "status": "passed",
+          "exit_code": 0,
+          "counts": {
+            "tests": 1,
+            "pass": 1,
+            "fail": 0,
+            "cancelled": 0,
+            "skipped": 0,
+            "todo": 0
+          },
+          "test_duration_ms": 14711.461668
+        },
+        {
+          "command": "npm run build && node --test --test-concurrency=2 --test-name-pattern=read-only test/proposer-program.test.ts",
+          "status": "passed",
+          "exit_code": 0,
+          "counts": {
+            "tests": 1,
+            "pass": 1,
+            "fail": 0,
+            "cancelled": 0,
+            "skipped": 0,
+            "todo": 0
+          },
+          "test_duration_ms": 7313.867325
+        },
+        {
+          "command": "npm run build && node --test --test-concurrency=2 --test-name-pattern=\"controller crash/resume|both RSI controllers|read-only process replay|sealed cached proposal|reserved fits preserve|SIGKILL before exec\" test/proposer-program.test.ts test/improver.test.ts",
+          "status": "passed",
+          "exit_code": 0,
+          "counts": {
+            "tests": 19,
+            "pass": 19,
+            "fail": 0,
+            "cancelled": 0,
+            "skipped": 0,
+            "todo": 0
+          },
+          "test_duration_ms": 266146.719919
+        },
+        {
+          "command": "npm run build && node --test --test-concurrency=1 --test-name-pattern=canonical.JSON.documents test/proposer-program.test.ts",
+          "status": "passed",
+          "exit_code": 0,
+          "counts": {
+            "tests": 1,
+            "pass": 1,
+            "fail": 0,
+            "cancelled": 0,
+            "skipped": 0,
+            "todo": 0
+          },
+          "test_duration_ms": 1851.23376
+        }
+      ]
+    },
+    {
+      "item": "pm-rl-local-gate-timing",
+      "pm_command": "pm test pm-rl-local-gate-timing --run --progress --json",
+      "ok": false,
+      "commands": 6,
+      "reported_counts": {
+        "tests": 166,
+        "pass": 165,
+        "fail": 1,
+        "cancelled": 0,
+        "skipped": 0,
+        "todo": 0
+      },
+      "results": [
+        {
+          "command": "npm run build && nice -n 10 node --test --test-concurrency=1 --test-reporter=spec '--test-name-pattern=packed CLI trains two external generations' test/process-cli.test.ts",
+          "status": "failed",
+          "exit_code": 1,
+          "counts": {
+            "tests": 1,
+            "pass": 0,
+            "fail": 1,
+            "cancelled": 0,
+            "skipped": 0,
+            "todo": 0
+          },
+          "test_duration_ms": 36199.373286,
+          "failure_codes": [
+            "ETIMEDOUT"
+          ]
+        },
+        {
+          "command": "npm run build && nice -n 10 node --test --test-concurrency=1 --test-reporter=spec '--test-name-pattern=canonical card property: 512 seeded' test/policy-card.test.ts",
+          "status": "passed",
+          "exit_code": 0,
+          "counts": {
+            "tests": 1,
+            "pass": 1,
+            "fail": 0,
+            "cancelled": 0,
+            "skipped": 0,
+            "todo": 0
+          },
+          "test_duration_ms": 523468.742903
+        },
+        {
+          "command": "npm run build && nice -n 10 node --test --test-concurrency=1 --test-reporter=spec '--test-name-pattern=recoverable card transactions finish every EIO' test/policy-card.test.ts",
+          "status": "passed",
+          "exit_code": 0,
+          "counts": {
+            "tests": 145,
+            "pass": 145,
+            "fail": 0,
+            "cancelled": 0,
+            "skipped": 0,
+            "todo": 0
+          },
+          "test_duration_ms": 424265.971634
+        },
+        {
+          "command": "npm run build && node --test --test-concurrency=1 --test-name-pattern=500.seeded test/proposer-program.test.ts",
+          "status": "passed",
+          "exit_code": 0,
+          "counts": {
+            "tests": 1,
+            "pass": 1,
+            "fail": 0,
+            "cancelled": 0,
+            "skipped": 0,
+            "todo": 0
+          },
+          "test_duration_ms": 79908.732079
+        },
+        {
+          "command": "npm run build && node --test --test-concurrency=1 --test-name-pattern=\"owned child cleanup retries|SIGKILL at every HTTP-to-PM receipt boundary\" test/controller-boundaries.test.ts test/decision-recovery.test.ts",
+          "status": "passed",
+          "exit_code": 0,
+          "counts": {
+            "tests": 4,
+            "pass": 4,
+            "fail": 0,
+            "cancelled": 0,
+            "skipped": 0,
+            "todo": 0
+          },
+          "test_duration_ms": 142379.212983
+        },
+        {
+          "command": "npm run build && node --test --test-concurrency=1 test/bandit.test.ts",
+          "status": "passed",
+          "exit_code": 0,
+          "counts": {
+            "tests": 14,
+            "pass": 14,
+            "fail": 0,
+            "cancelled": 0,
+            "skipped": 0,
+            "todo": 0
+          },
+          "test_duration_ms": 1087.232388
+        }
+      ]
+    }
+  ],
+  "cli_retry": {
+    "exit": 0,
+    "command": "npm run build && nice -n 10 node --test --test-concurrency=1 --test-reporter=spec '--test-name-pattern=packed CLI trains two external generations' test/process-cli.test.ts",
+    "isolation": "fresh HOME and disabled global/system Git configuration; unchanged test and CLI deadlines",
+    "counts": {
+      "tests": 1,
+      "pass": 1,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "todo": 0
+    },
+    "loop_ms": 10923.591210999999,
+    "test_duration_ms": 27900.014151
+  },
+  "validation_result": "All 13 linked commands have passing execution evidence. The six-command timing run reports 165/166 pass with one existing subprocess ETIMEDOUT; the exact failed command passes its isolated retry at unchanged deadlines. The seven-command proposer run reports 28/28 pass. Full npm/Bun release checks remain for final-head CI, without a local full-suite or coverage claim.",
+  "ci_handoff": {
+    "checks": "https://github.com/unbraind/pm-rl/pull/145/checks",
+    "required_full_gates": [
+      "npm release:check on Node 22",
+      "npm release:check on Node 26",
+      "Bun release:check on Node 26"
+    ],
+    "status": "Fresh exact-head checks start after the final tracker/evidence commit is pushed. No pending check is called green."
+  },
+  "tracker_handoff": {
+    "items": [
+      "pm-rl-local-gate-timing",
+      "pm-rl-proposer-program"
+    ],
+    "status": "Both remain in_progress; codex-agent claims released.",
+    "closed_items": 0,
+    "thread_replies": 0,
+    "thread_resolutions": 0
+  }
+}
