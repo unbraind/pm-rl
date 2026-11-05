@@ -213,7 +213,29 @@
     }
   },
   "runtime_comparison": "Same Node 24.19.0 and unchanged 600-second parent limit: baseline cancelled at 600.009992484 seconds (604.36 seconds total); final model passed at 362.159370373 seconds (364.76 seconds total including both focused tests). Baseline is an incomplete lower bound, not a completed benchmark.",
-  "restored_runtime_control": "The final helper is restored in the disposable copy; subsequent full release gates execute the unchanged fixed model test.",
+  "restored_runtime_control": {
+    "command": "node --test --test-concurrency=1 --test-name-pattern='500 seeded' test/proposer-program.test.ts",
+    "runtime": "Node 26.13.0",
+    "exit": 0,
+    "wall_seconds": 271.415,
+    "scope": "Restored disposable non-git source copy after the behavioral revert",
+    "tests": 1,
+    "pass": 1,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 0,
+    "model_counts": {
+      "sequences": 500,
+      "randomized_operations": 2000,
+      "sdk_state_replays": 500,
+      "native_read_assertions": 1000,
+      "native_mutations": 20,
+      "drift_refusals": 445,
+      "controller_sessions": 8,
+      "native_trackers": 8,
+      "ambient_focus": true
+    }
+  },
   "local_npm_gate": {
     "command": "npm run release:check",
     "runtime": "Node 26.13.0",
@@ -317,5 +339,74 @@
     "history_drift": "ok",
     "integrity": "ok",
     "scope": "Local ignored addon state; baseline clean CI passed; final fresh CI remains required"
+  },
+  "pm_linked_final": {
+    "command": "node_modules/.bin/pm test pm-rl-proposer-program --run --match canonical.JSON.documents --progress",
+    "tests": 1,
+    "pass": 1,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 0,
+    "context": "none",
+    "workspace": "snapshot"
+  },
+  "post_merge_checks": [
+    {
+      "command": "node --test --test-concurrency=2 test/release-approval.test.ts test/release-calendar.test.ts",
+      "exit": 0,
+      "wall_seconds": 1.146
+    },
+    {
+      "command": "npm run check",
+      "exit": 0,
+      "wall_seconds": 18.013
+    },
+    {
+      "command": "npm run build:test",
+      "exit": 0,
+      "wall_seconds": 3.754
+    },
+    {
+      "command": "npm run docstring",
+      "exit": 0,
+      "wall_seconds": 1.433
+    },
+    {
+      "command": "npm run verify:release-publish-attestation",
+      "exit": 0,
+      "wall_seconds": 0.83
+    },
+    {
+      "command": "npm run audit:identities",
+      "exit": 0,
+      "wall_seconds": 1.247
+    },
+    {
+      "command": "npm run audit:prod",
+      "exit": 0,
+      "wall_seconds": 0.871
+    },
+    {
+      "command": "npm run pack:dry-run",
+      "exit": 0,
+      "wall_seconds": 4.535
+    },
+    {
+      "command": "npm run changelog:check",
+      "exit": 0,
+      "wall_seconds": 2.904
+    }
+  ],
+  "merged_main": {
+    "head": "ce47f52f054ed40de41da52dbd56a576695e374f",
+    "change": "Babel dev-tool update only; pm SDK pin unchanged",
+    "dependencies_reinstalled": true
+  },
+  "source_candidate_head": "9b8d1562da6379f562b57e8cf319811f2018bf4b",
+  "ci_submission": {
+    "url": "https://github.com/unbraind/pm-rl/actions/runs/42066125836",
+    "codeql": "https://github.com/unbraind/pm-rl/actions/runs/42066125583",
+    "scope": "Source candidate; final claim/evidence receipt push requires its own fresh checks",
+    "final_checks": "https://github.com/unbraind/pm-rl/pull/145/checks"
   }
 }
