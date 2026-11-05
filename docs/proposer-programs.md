@@ -110,7 +110,13 @@ decisions, audit outcome and logical budget. Full typed reports and durable
 step/process receipts retain the detailed evidence. `ProposerRefusal` carries
 `proposer_invalid` and a remedy; runtime refusals include `proposer_capability`,
 `proposer_contamination`, `proposer_cohort_limit`, `proposer_budget`,
-`proposer_approval` and `proposer_drift`. Existing process and controller refusal
+`proposer_approval`, `proposer_drift` and `proposer_dataset_invalid`. Damaged or
+unreadable retained proposal checkpoints and receipts refuse with
+`process_checkpoint_invalid` and instructions to restore the original files and
+staging access. Process setup failures retain settled job evidence and give a
+`process_callback_failed` remedy. Malformed approval or retained-capacity
+evidence gives a typed `proposer_approval` refusal with instructions to inspect
+and restore the original Decision and capacity receipts. Existing process and controller refusal
 codes retain their supported recovery instructions. Foreign records are skipped
 by existing process discovery; an occupied requested identity refuses reuse.
 

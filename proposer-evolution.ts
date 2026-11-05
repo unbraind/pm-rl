@@ -1,5 +1,6 @@
 /** Bounded algorithm evolution layered on authoritative process, recipe, evaluation and controller APIs. */
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
+import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { hashJson, readCompleteLoopItem, withRlController, type JsonValue } from "./index.ts";
 import { programmeRequest, canonicalIdentifier } from "./state-boundary.ts";
 import { expectedFail } from "./refuse.ts";
@@ -50,8 +51,13 @@ export function proposerProcessInput(identity: string, value: ProposalInvocation
 export async function executeProposer(client: PmClient, coordinates: ProcessCoordinates, approval: string, identity: string, value: ProposalInvocation, signal?: AbortSignal): Promise<ProposalExecution> {
   const input = proposerProcessInput(identity, value);
   const adapter: ProcessAdapter = { kind: "process-bandit", allowance: PROPOSER_ALLOWANCE };
-  const job = await executeProcessTrainer(client, coordinates, input, approval, adapter, signal, proposerWorkerArgv("."));
-  return job.completion!.policy;
+  try {
+    const job = await executeProcessTrainer(client, coordinates, input, approval, adapter, signal, proposerWorkerArgv("."));
+    return job.completion!.policy;
+  } catch (error) {
+    if (isPmCliExpectedError(error)) throw error;
+    expectedFail("Proposal process storage or execution is unavailable. Restore tracker and staging access, inspect retained job receipts, then resume recoverable work or use a fresh programme for terminal jobs.", "process_callback_failed");
+  }
 }
 /** Convert typed instructions through the existing recipe validator, preserving every optimizer bound. */
 export function proposalLearner(instruction: ProposalInstruction): LearnerConfig {
@@ -94,11 +100,27 @@ export function proposerFitUpdates(job: Awaited<ReturnType<typeof readProcessJob
   if (attempt !== 0 && attempt !== 1) expectedFail("Fit recovery accounting is invalid. Inspect the retained process receipts before retrying.", "proposer_budget");
   return (attempt + 1) * updates;
 }
+/** Classify sealed dataset verification and IO failures without replacing existing typed refusals. */
+function proposerDatasetRead<T>(read: () => T): T {
+  try { return read(); }
+  catch (error) {
+    if (isPmCliExpectedError(error)) throw error;
+    expectedFail("Proposer dataset could not be read or verified. Restore the original sealed dataset and read access, or use a fresh programme identity.", "proposer_dataset_invalid");
+  }
+}
+/** Translate approval and retained-capacity verification failures while preserving typed SDK conflicts. */
+async function proposerApprovalRead<T>(read: () => Promise<T>): Promise<T> {
+  try { return await read(); }
+  catch (error) {
+    if (isPmCliExpectedError(error)) throw error;
+    expectedFail("Proposer approval or retained capacity could not be read or verified. Inspect retained reservations and restore the original approved Decision and capacity receipts, or obtain a valid Decision for a fresh programme.", "proposer_approval");
+  }
+}
 /** Preflight all compartments once to establish bounds and disjoint tracker/item identities before effects. */
 function evolutionDataset(directory: string): ImproverDataset {
-  const manifest = readImproverDataset(directory); const seen = new Map<string, string>();
+  const manifest = proposerDatasetRead(() => readImproverDataset(directory)); const seen = new Map<string, string>();
   for (const role of IMPROVER_ROLES) {
-    const tasks = readImproverTasks(directory, manifest, role);
+    const tasks = proposerDatasetRead(() => readImproverTasks(directory, manifest, role));
     if (tasks.length > 256) expectedFail("At most 256 tasks per compartment are supported. Seal a smaller disjoint corpus before retrying.", "proposer_cohort_limit");
     for (const task of tasks) for (const row of [...task.train, ...task.evaluation]) {
       const prior = seen.get(row.id);
@@ -112,14 +134,14 @@ function evolutionDataset(directory: string): ImproverDataset {
 export async function runProposerEvolution(client: PmClient, coordinates: ProcessCoordinates, raw: ProposerEvolutionRequest): Promise<ProposerEvolutionReport> {
   const config = parseProposerEvolutionConfig(raw.config); requireCheckpointStorage();
   const request = await programmeRequest(client, raw); const manifest = evolutionDataset(request.dataset);
-  const approval = await readCompleteLoopItem(client, request.approval);
+  const approval = await proposerApprovalRead(() => readCompleteLoopItem(client, request.approval));
   if (approval.item.type !== "Decision") expectedFail("Approve the complete resource budget in a Decision before starting.", "proposer_approval");
   const fits = config.candidates * (config.generations * (manifest.splits.development.tasks + 2 * manifest.splits.meta.tasks) + 2 * manifest.splits.audit.tasks);
   const budget = { fits, optimizer_updates: fits * config.updates, max_optimizer_updates: fits * config.updates * 2, inference_tokens: 0 as const, proposal_processes: config.generations * 3 + 2 };
   const binding = hashJson({ config: config as unknown as JsonValue, dataset: manifest.digest, approval: approval.item.body as string });
   const capacity = { training_samples: budget.max_optimizer_updates, proposal_calls: budget.proposal_processes, recipe_promotions: config.generations };
-  await reserveSearchCapacity(client, coordinates, request, binding, capacity, fits + config.generations, false, true);
-  const approved = await approvedResources(client, request.approval);
+  await proposerApprovalRead(() => reserveSearchCapacity(client, coordinates, request, binding, capacity, fits + config.generations, false, true));
+  const approved = await proposerApprovalRead(() => approvedResources(client, request.approval));
   for (const key of RESOURCE_KEYS) {
     const total = fits * IMPROVER_MAX_ATTEMPTS * IMPROVER_ADAPTER.allowance[key] + budget.proposal_processes * PROPOSER_ALLOWANCE[key];
     if (total > approved.budget[key]) expectedFail(`Approved ${key} budget cannot cover the worst-case proposer run. Obtain capacity before starting.`, "process_budget_exhausted");
@@ -132,15 +154,15 @@ export async function runProposerEvolution(client: PmClient, coordinates: Proces
     const step = async <T>(key: string, input: unknown, operation: () => Promise<T>): Promise<T> => {
       /** Revalidation inside the durable callback joins approval/reservation reads to its sealed SDK evidence graph. */
       const validate = async (): Promise<void> => {
-        if ((await readCompleteLoopItem(client, request.approval)).item.body !== approval.item.body || readImproverDataset(request.dataset).digest !== manifest.digest) expectedFail("Approval or dataset changed. Restore the original declaration or use a new programme identity.", "proposer_drift");
-        if (key !== "programme") await reserveSearchCapacity(client, coordinates, request, binding, capacity, fits + config.generations, true);
+        if ((await proposerApprovalRead(() => readCompleteLoopItem(client, request.approval))).item.body !== approval.item.body || proposerDatasetRead(() => readImproverDataset(request.dataset)).digest !== manifest.digest) expectedFail("Approval or dataset changed. Restore the original declaration or use a new programme identity.", "proposer_drift");
+        if (key !== "programme") await proposerApprovalRead(() => reserveSearchCapacity(client, coordinates, request, binding, capacity, fits + config.generations, true));
       };
       await validate();
       const result = await durable(key, { binding, input: input as JsonValue }, async () => { await validate(); deadline.throwIfAborted(); const value = await operation(); await validate(); return value as unknown as JsonValue; });
       await request.onStep?.(key); return result as unknown as T;
     };
     let deadline = signal;
-    const declared = await step("programme", budget, async () => { await reserveSearchCapacity(client, coordinates, request, binding, capacity, fits + config.generations); return { expires: Date.now() + config.timeout_ms, budget }; });
+    const declared = await step("programme", budget, async () => { await proposerApprovalRead(() => reserveSearchCapacity(client, coordinates, request, binding, capacity, fits + config.generations)); return { expires: Date.now() + config.timeout_ms, budget }; });
     deadline = AbortSignal.any([signal, AbortSignal.timeout(Math.max(0, declared.expires - Date.now()))]);
     let counts: ProposalCounts[] = Array.from({ length: 8 }, (_, arm) => ({ arm, wins: 0, trials: 0 }));
     /** Each search receives identical proposal slots and optimizer updates, starting from the same constant learner. */
@@ -148,7 +170,7 @@ export async function runProposerEvolution(client: PmClient, coordinates: Proces
       const invocation: ProposalInvocation = { program, counts, role: "development", seed: config.seed, count: config.candidates };
       const execution = await step(`${key}-propose`, invocation, () => executeProposer(client, coordinates, request.approval, `${request.id}-${key}`, invocation, deadline));
       const scores: { id: string; mean: number }[] = []; const jobs: string[] = []; const observations = counts.map((row) => ({ ...row })); let optimizerUpdates = 0;
-      for (const [index, task] of environment.tasks(role).entries()) {
+      for (const [index, task] of proposerDatasetRead(() => environment.tasks(role)).entries()) {
         const learners: (Awaited<ReturnType<typeof environment.fit>>["retained"] | null)[] = [null]; let mean = 0;
         for (const [slot, instruction] of execution.instructions.entries()) {
           const learnerConfig = proposalLearner(instruction); const name = `${key}-t${index}-c${slot}`; const learner = learners.at(-1)!;
@@ -166,7 +188,7 @@ export async function runProposerEvolution(client: PmClient, coordinates: Proces
     for (let generation = 1; generation <= config.generations; generation += 1) {
       const retained = lineage[1];
       const key = `g${generation}`;
-      const plan = await step(`${key}-plan`, retained.digest, async () => proposerEvaluationPlan(`${request.id}-${key}`, retained, environment.tasks("meta"), manifest.splits.meta.digest, fits + config.generations + 1));
+      const plan = await step(`${key}-plan`, retained.digest, async () => proposerEvaluationPlan(`${request.id}-${key}`, retained, proposerDatasetRead(() => environment.tasks("meta")), manifest.splits.meta.digest, fits + config.generations + 1));
       const development = await search("development", retained, `${key}-d`); counts = [...development.counts];
       const candidate = await step(`${key}-mutation`, { retained, counts }, async () => mutateProposer({ program: retained, counts, role: "development", seed: config.seed, count: config.candidates }));
       const before = await search("meta", retained, `${key}-b`); const after = await search("meta", candidate, `${key}-a`);
@@ -177,7 +199,7 @@ export async function runProposerEvolution(client: PmClient, coordinates: Proces
       generations.push(row);
     }
     const [parent, retained] = lineage;
-    const plan = await step("audit-plan", { retained, parent }, async () => proposerEvaluationPlan(`${request.id}-audit`, parent, environment.tasks("audit"), manifest.splits.audit.digest, fits + config.generations + 1));
+    const plan = await step("audit-plan", { retained, parent }, async () => proposerEvaluationPlan(`${request.id}-audit`, parent, proposerDatasetRead(() => environment.tasks("audit")), manifest.splits.audit.digest, fits + config.generations + 1));
     const before = await search("audit", parent, "audit-b"); const after = await search("audit", retained, "audit-a");
     const audit = compareProposerSearch(plan, before, after);
     return step("complete", { retained: retained.digest, audit }, async () => ({ format: "pm-rl/proposer-evolution/1", initial: config.initial.digest, ...auditProposer(lineage, audit), generations, audit, budget } as ProposerEvolutionReport));

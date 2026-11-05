@@ -464,6 +464,14 @@ function recordedWallTime(file: string, started: number, declared: number, measu
 }
 /** Validate the staged completion against immutable input, readable bytes and every resource dimension. */
 export function validateProcessCompletion<P extends TrainerPolicy>(directory: string, id: string, input: ProcessInput<P>, allowance: Resources, artifactRoot = directory, recordedWallMs?: number): ProcessCompletion<P> {
+  try { return readProcessCompletion(directory, id, input, allowance, artifactRoot, recordedWallMs); }
+  catch (error) {
+    if (input.proposal === undefined || isPmCliExpectedError(error)) throw error;
+    expectedFail("Proposal checkpoint or receipt could not be read or replayed from its development counts. Restore the original retained files and staging access, or use a fresh programme.", "process_checkpoint_invalid");
+  }
+}
+/** Read and replay completion evidence; the public boundary classifies proposal verification and filesystem failures. */
+function readProcessCompletion<P extends TrainerPolicy>(directory: string, id: string, input: ProcessInput<P>, allowance: Resources, artifactRoot: string, recordedWallMs?: number): ProcessCompletion<P> {
   id = operationIdentifier(id);
   if (recordedWallMs !== undefined) parseResources({ ...zeroResources(), wall_ms: recordedWallMs });
   if (!existsSync(statePath(directory, "completion.json"))) expectedFail("Trainer supplied no completion receipt.", "process_receipt_required");

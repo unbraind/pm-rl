@@ -1,11 +1,12 @@
 /** Behavioral controls use real SDK trackers, child processes and independent exact-count oracles. */
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { test, before, after } from "node:test";
 import { Readable, Writable } from "node:stream";
 import { spawnSync, execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync, mkdtempSync, symlinkSync, rmSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync, mkdtempSync, symlinkSync, rmSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
@@ -17,7 +18,7 @@ import { evaluatePlan } from "../evaluation-plan.ts";
 import { reserveSearchCapacity } from "../meta.ts";
 import { IMPROVER_ROLES, type ImproverTask, type ImproverDataset } from "../improver-data.ts";
 import { compareImprovers, proposalCurriculum } from "../improver-environment.ts";
-import { listProcessJobs, executeProcessTrainer, launchTrainer, processJobId, processStaging, validateProcessCompletion, readProcessJob, reserveProcessJob, transitionProcessJob, processDigest, RESOURCE_KEYS, type ProcessInput } from "../process.ts";
+import { listProcessJobs, executeProcessTrainer, launchTrainer, processJobId, processStaging, validateProcessCompletion, readProcessJob, reserveProcessJob, transitionProcessJob, processDigest, RESOURCE_KEYS, verifiedProcessPolicy, type ProcessCompletion, type ProcessInput } from "../process.ts";
 import { processWorkspace } from "./fixtures/process-workspace.ts";
 
 const originalPath = process.env.PATH; const originalCeiling = process.env.GIT_CEILING_DIRECTORIES;
@@ -202,6 +203,97 @@ test("approval documentation declares the shared headroom formula and retained l
   assert.match(documentation, /`permitted_promotions` must cover `fits \+ config\.generations`/);
   assert.match(documentation, /fits = config\.candidates \* \(config\.generations \* \(development\.tasks \+ 2 \* meta\.tasks\) \+ 2 \* audit\.tasks\)/);
   assert.match(documentation, /reservation remains held after completion,\nrefusal, interruption and replay; the search never refunds it/);
+});
+
+test("retained proposal checkpoint and receipt failures are actionable typed process refusals", { timeout: 180_000 }, async () => {
+  const w = await workspace(); const request = invocation(); const input = proposerProcessInput("receipt-replay", request);
+  await executeProposer(w.client, w.coordinates, w.approval, "receipt-replay", request);
+  const job = (await listProcessJobs(w.client))[0]; const directory = processStaging(w.pmRoot, job.id, true);
+  const checkpoint = join(directory, "checkpoint.json"); const receipt = join(directory, "completion.json"); const runner = join(directory, "runner.json");
+  const originalCheckpoint = readFileSync(checkpoint); const originalReceipt = readFileSync(receipt); const originalRunner = readFileSync(runner);
+  const refusal = (error: unknown) => isPmCliExpectedError(error) && error.context.code === "process_checkpoint_invalid" && /Restore the original retained files/.test(error.message);
+  const completionTime = (JSON.parse(originalRunner.toString()).started_at + job.completion!.usage.wall_ms) / 1000;
+  const restore = () => { writeFileSync(checkpoint, originalCheckpoint); writeFileSync(receipt, originalReceipt); writeFileSync(runner, originalRunner); utimesSync(receipt, completionTime, completionTime); };
+  try {
+    // Keep the outer byte digest valid so only deterministic proposal replay can reject the altered checkpoint.
+    const damaged = JSON.stringify({ ...executeProposal(request), digest: "sha256:" + "0".repeat(64) });
+    const saved = JSON.parse(originalReceipt.toString()) as ProcessCompletion;
+    writeFileSync(checkpoint, damaged);
+    writeFileSync(receipt, JSON.stringify({ ...saved, digest: `sha256:${createHash("sha256").update(damaged).digest("hex")}` }));
+    assert.throws(() => verifiedProcessPolicy(job, w.pmRoot, input), refusal);
+    restore();
+    writeFileSync(receipt, JSON.stringify({ ...saved, policy: { ...saved.policy, digest: "sha256:" + "0".repeat(64) } }));
+    await assert.rejects(executeProposer(w.client, w.coordinates, w.approval, "receipt-replay", request), refusal);
+    restore();
+    for (const file of [checkpoint, runner]) {
+      rmSync(file); assert.throws(() => verifiedProcessPolicy(job, w.pmRoot, input), refusal); restore();
+    }
+    writeFileSync(receipt, "{"); assert.throws(() => verifiedProcessPolicy(job, w.pmRoot, input), refusal); restore();
+    // Existing typed failures keep their classification, including a missing completion and byte corruption.
+    rmSync(receipt);
+    assert.throws(() => verifiedProcessPolicy(job, w.pmRoot, input), (error) => isPmCliExpectedError(error) && error.context.code === "process_receipt_required"); restore();
+    writeFileSync(checkpoint, "{}");
+    assert.throws(() => verifiedProcessPolicy(job, w.pmRoot, input), (error) => isPmCliExpectedError(error) && error.context.code === "process_checkpoint_invalid" && /content digest/.test(error.message));
+  } finally { restore(); }
+  assert.deepEqual(validateProcessCompletion(directory, job.id, input, job.allowance, w.pmRoot).policy, executeProposal(request));
+  assert.deepEqual(await executeProposer(w.client, w.coordinates, w.approval, "receipt-replay", request), executeProposal(request));
+  assert.equal((await listProcessJobs(w.client)).length, 1, "receipt failures must not launch another proposal job");
+});
+
+test("proposal staging setup IO failures retain settled evidence and give a typed remedy", async () => {
+  const w = await workspace(); const request = invocation(); const input = proposerProcessInput("blocked-staging", request);
+  const id = processJobId(input, proposerWorkerArgv("."), { kind: "process-bandit", allowance: PROPOSER_ALLOWANCE });
+  const directory = processStaging(w.pmRoot, id); mkdirSync(dirname(directory), { recursive: true }); writeFileSync(directory, "blocked staging");
+  await assert.rejects(executeProposer(w.client, w.coordinates, w.approval, "blocked-staging", request),
+    (error) => isPmCliExpectedError(error) && error.context.code === "process_callback_failed" && /Restore tracker and staging access/.test(error.message));
+  const job = await readProcessJob(w.client, id); assert.equal(job!.state, "failed"); assert.equal(job!.settled, true);
+  assert.equal(readFileSync(directory, "utf8"), "blocked staging");
+});
+
+test("proposer dataset verification and IO failures give typed recovery instructions before dependent work", { timeout: 180_000 }, async () => {
+  const w = await workspace(); const directory = dataset(w.root); const manifest = join(directory, "improver-dataset.json"); const tasks = join(directory, "meta.json");
+  const originalManifest = readFileSync(manifest); const originalTasks = readFileSync(tasks);
+  const request = { id: "dataset-io", approval: w.approval, dataset: directory, config: { ...proposerEvolutionConfiguration(), generations: 1, candidates: 1, updates: 1 } };
+  const refusal = (error: unknown) => isPmCliExpectedError(error) && error.context.code === "proposer_dataset_invalid" && /Restore the original sealed dataset/.test(error.message);
+  const before = (await w.client.listAllComplete({ includeBody: true })).items;
+  for (const file of [manifest, tasks]) {
+    const original = readFileSync(file);
+    try {
+      rmSync(file); await assert.rejects(runProposerEvolution(w.client, w.coordinates, request), refusal);
+      writeFileSync(file, "{}"); await assert.rejects(runProposerEvolution(w.client, w.coordinates, request), refusal);
+    } finally { writeFileSync(file, original); }
+    assert.deepEqual((await w.client.listAllComplete({ includeBody: true })).items, before);
+  }
+  try {
+    rmSync(manifest); symlinkSync(tasks, manifest);
+    await assert.rejects(runProposerEvolution(w.client, w.coordinates, request), (error) => isPmCliExpectedError(error) && error.context.code === "rl_state_path_invalid");
+  } finally { rmSync(manifest); writeFileSync(manifest, originalManifest); }
+  for (const file of [manifest, tasks]) {
+    try {
+      await assert.rejects(runProposerEvolution(w.client, w.coordinates, { ...request, id: file === manifest ? "manifest-recheck" : "tasks-recheck", onStep(key) { if (key === "programme") rmSync(file); } }), refusal);
+    } finally { writeFileSync(manifest, originalManifest); writeFileSync(tasks, originalTasks); }
+  }
+  assert.equal((await listProcessJobs(w.client)).length, 0);
+});
+
+test("proposer approval verification failures are typed before reservation or process effects", { timeout: 180_000 }, async () => {
+  const w = await workspace(); const directory = dataset(w.root);
+  const original = String((await w.client.get(w.approval)).item.body);
+  const spec = JSON.parse(/```json\n([\s\S]+?)\n```/u.exec(original)![1]) as Record<string, unknown>;
+  const request = { id: "approval-invalid", approval: w.approval, dataset: directory, config: { ...proposerEvolutionConfiguration(), generations: 1, candidates: 1, updates: 1 } };
+  for (const body of ["not an approval", "```json\n{\n```", "```json\n{}\n```", "```json\n" + JSON.stringify({ ...spec, meta_budget: { training_samples: -1, proposal_calls: 1, recipe_promotions: 1 } }) + "\n```" ]) {
+    await w.client.update(w.approval, { body });
+    const before = (await w.client.listAllComplete({ includeBody: true })).items;
+    await assert.rejects(runProposerEvolution(w.client, w.coordinates, request),
+      (error) => isPmCliExpectedError(error) && error.context.code === "proposer_approval" && /restore the original approved Decision/.test(error.message));
+    assert.deepEqual((await w.client.listAllComplete({ includeBody: true })).items, before);
+  }
+  await w.client.update(w.approval, { body: original });
+  // Existing typed capacity refusals still pass through the same wrapper unchanged.
+  await w.client.update(w.approval, { body: original.replace('"permitted_promotions":10000', '"permitted_promotions":0') });
+  await assert.rejects(runProposerEvolution(w.client, w.coordinates, request),
+    (error) => isPmCliExpectedError(error) && error.context.code === "meta_promotion_budget_exhausted");
+  assert.equal((await listProcessJobs(w.client)).length, 0);
 });
 
 test("worker IO, feature transforms and curricula use the shipped schema and process protocol", { timeout: 180_000 }, async () => {

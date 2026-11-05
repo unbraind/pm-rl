@@ -29,5 +29,36 @@
         "assertion_detected": false
       }
     }
+  },
+  "review_round_2": {
+    "thread": "PRRT_kwDOTqJmqs6z5c5D",
+    "tests": "nice -n 10 node --test --test-concurrency=2 --test-name-pattern='retained proposal checkpoint|proposal staging setup|proposer dataset verification|proposer approval verification' test/proposer-program.test.ts",
+    "isolation": "disposable non-git source copy with real SDK trackers; only changed function boundaries reverted; source tests import TypeScript directly",
+    "cases": {
+      "baseline": {
+        "exit": 0,
+        "assertion_detected": false
+      },
+      "checkpoint-boundary-reverted": {
+        "exit": 1,
+        "assertion_detected": true
+      },
+      "process-boundary-reverted": {
+        "exit": 1,
+        "assertion_detected": true
+      },
+      "dataset-boundary-reverted": {
+        "exit": 1,
+        "assertion_detected": true
+      },
+      "approval-boundary-reverted": {
+        "exit": 1,
+        "assertion_detected": true
+      },
+      "restored": {
+        "exit": 0,
+        "assertion_detected": false
+      }
+    }
   }
 }
