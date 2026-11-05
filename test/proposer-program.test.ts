@@ -10,7 +10,7 @@ import { dirname, join } from "node:path";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import extension, { hashJson, readCompleteLoopItem, withRlController, type JsonValue, type RlCommandResult } from "../index.ts";
+import extension, { canonicalJson, hashJson, readCompleteLoopItem, withRlController, type JsonValue, type RlCommandResult } from "../index.ts";
 import { initialProposer, proposerArtifact, parseProposerProgram, parseProposalInvocation, parseProposalCode, executeProposal, verifyProposalExecution, mutateProposer, ProposerRefusal, type ProposalInvocation, type ProposalExpression, type ProposerProgram } from "../proposer-program.ts";
 import { executeProposer, proposerProcessInput, proposerEvolutionConfiguration, parseProposerEvolutionConfig, proposalLearner, proposerEvaluationPlan, selectProposer, runProposerEvolution, advanceProposer, auditProposer, compareProposerSearch, proposerFitUpdates, PROPOSER_ALLOWANCE } from "../proposer-evolution.ts";
 import { proposerWorkerArgv, proposerWorkerMain, runProposerWorker } from "../proposer-worker.ts";
@@ -82,15 +82,56 @@ test("strict program schema permits canonical producer outputs and refuses undec
   assert.equal(parseProposerEvolutionConfig({ ...config, seed: 0 }).seed, 0);
 });
 
-test("500 seeded sequences round-trip programs, replay old inputs and compare native SDK read-back against the reference model", { timeout: 600_000 }, async () => {
-  const w = await workspace(); let seed = 0x41c0ffee;
-  const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed; };
-  const focus = await w.client.create({ id: "ambient", type: "Task", title: "Ambient focus", unset: ["parent", "sprint", "release", "assignee"] }); await w.client.focus(focus.item.id);
-  const model = new Map<string, { program: ProposerProgram; native: Awaited<ReturnType<typeof readCompleteLoopItem>>["item"] }>();
+test("canonical JSON documents and pins recursive UTF-16 code-unit key ordering", () => {
+  const keys = { "\ue000": 1, "\u{10000}": 2, "ä": 3, z: 4, a: 5, Z: 6, "2": 7, "10": 8 };
+  const expected = '{"10":8,"2":7,"Z":6,"a":5,"z":4,"ä":3,"𐀀":2,"":1}';
+  const value = { nested: [keys, { z: keys, a: [2, 1] }] };
+  const encoded = `{"nested":[${expected},{"a":[2,1],"z":${expected}}]}`;
+  assert.equal(canonicalJson(value), encoded);
+  assert.equal(hashJson(value), createHash("sha256").update(encoded).digest("hex"));
+  assert.match(readFileSync(new URL("../json-identity.ts", import.meta.url), "utf8"), /Serialize JSON with recursively sorted object keys in UTF-16 code-unit order\./);
+});
+
+/** Give each independent model identity a small real tracker, reused by all of its seeded sequences. */
+async function seededModelWorkspace() {
+  const w = await workspace();
+  const focus = await w.client.create({ id: "ambient", type: "Task", title: "Ambient focus", unset: ["parent", "sprint", "release", "assignee"] });
+  await w.client.focus(focus.item.id);
   for (let index = 0; index < 8; index++) await w.client.schemaAddStatus(`custom-${index}`, { role: [index % 2 ? "active" : "blocked"] });
+  return { ...w, focus: focus.item.id };
+}
+
+/** Keep every sequence's native replay/read assertions while amortizing controller identity and lease setup. */
+async function replaySeededModel(w: Awaited<ReturnType<typeof seededModelWorkspace>>, signal: AbortSignal, onSession: () => void, visit: (tracker: Awaited<ReturnType<typeof seededModelWorkspace>>, sequence: number, identity: string, replay: (artifact: ProposerProgram) => Promise<JsonValue>) => Promise<void>): Promise<number> {
+  let sessions = 0;
+  /** Keep at most two independent native tracker groups in flight in this test process. */
+  const runGroup = async (group: number): Promise<void> => {
+    const identity = `model-${group}`;
+    const tracker = group === 0 ? w : await seededModelWorkspace();
+    assert.equal(tracker.focus, w.focus);
+    sessions++; onSession();
+    await withRlController(tracker.client, tracker.coordinates, { id: identity, approval: tracker.approval, recoveryCommand: "resume" }, signal, async (step) => {
+      const replay = (artifact: ProposerProgram) => step("programme", artifact as unknown as JsonValue, async () => artifact as unknown as JsonValue);
+      for (let sequence = group; sequence < 500; sequence += 8) await visit(tracker, sequence, identity, replay);
+      console.log(JSON.stringify({ model_group: group, sequences: group < 4 ? 63 : 62 }));
+    });
+  };
+  for (let group = 0; group < 8; group += 2) {
+    const results = await Promise.allSettled([runGroup(group), runGroup(group + 1)]);
+    for (const result of results) if (result.status === "rejected") throw result.reason;
+  }
+  return sessions;
+}
+
+test("500 seeded sequences round-trip programs, replay old inputs and compare native SDK read-back against the reference model", { timeout: 600_000 }, async (t) => {
+  const w = await seededModelWorkspace(); let seed = 0x41c0ffee;
+  const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed; };
+  const model = new Map<string, { program: ProposerProgram; native: Awaited<ReturnType<typeof readCompleteLoopItem>>["item"] }>();
+  const sequences: { selected: ProposerProgram; update?: Parameters<PmClient["update"]>[1] }[] = []; let operations = 0;
   for (let sequence = 0; sequence < 500; sequence++) {
     const initial = initialProposer(); const snapshots: ProposerProgram[] = [initial];
     for (let operation = 0; operation < 4; operation++) {
+      operations++;
       const old = snapshots[random() % snapshots.length];
       const code = { ...old.code, score: ({ op: ["rate", "novelty", "zero"][random() % 3] } as ProposalExpression), select: random() % 2 ? "rank" as const : "cycle" as const };
       const next = proposerArtifact(code, old.generation + 1, old.digest); snapshots.push(next);
@@ -102,25 +143,40 @@ test("500 seeded sequences round-trip programs, replay old inputs and compare na
         assert.equal(out.instructions[0].arm, ordered[0].arm);
       }
     }
-    const selected = snapshots[random() % snapshots.length]; const identity = `model-${sequence % 8}`;
-    const replay = async (artifact: ProposerProgram) => withRlController(w.client, w.coordinates, { id: identity, approval: w.approval, recoveryCommand: "resume" }, AbortSignal.timeout(60_000), async (step) => step("programme", artifact as unknown as JsonValue, async () => artifact as unknown as JsonValue));
+    const selected = snapshots[random() % snapshots.length];
+    // Draw native updates in the original seed order before grouping the SDK visits.
+    const update = sequence % 25 === 0 ? { title: ` Sequence ${sequence}\r\nannotation `, description: ` description ${random()} `, tags: `seed-${random()%4}`, status: `custom-${random()%8}`, parent: w.focus, goal: `goal-${random()%3}`, objective: `objective-${random()%3}`, sprint: `sprint-${random()%3}`, release: `release-${random()%3}`, assignee: "synthetic-agent", reviewer: "synthetic-reviewer" } : undefined;
+    sequences.push({ selected, update });
+  }
+  const visited = new Set<number>(); const trackers = new Set<string>(); let replays = 0; let nativeReads = 0; let mutations = 0; let driftRefusals = 0; let controllerSessions = 0;
+  const sessions = await replaySeededModel(w, t.signal, () => {
+    controllerSessions++; assert.ok(controllerSessions <= 8, "SDK replay must reuse one real controller session per identity group");
+  }, async (tracker, sequence, identity, replay) => {
+    trackers.add(tracker.pmRoot);
+    assert.equal(visited.has(sequence), false); visited.add(sequence);
+    const { selected, update } = sequences[sequence];
     if (!model.has(identity)) {
-      await replay(selected); const read = await readCompleteLoopItem(w.client, `${identity}-step-programme`);
+      await replay(selected); const read = await readCompleteLoopItem(tracker.client, `${identity}-step-programme`);
       assert.equal(read.item.parent, undefined); assert.deepEqual(JSON.parse(String(read.item.body)).result, selected);
       model.set(identity, { program: selected, native: structuredClone(read.item) });
     }
     const reference = model.get(identity)!;
     // Model applies external native mutations through the SDK's own normalizer, then package replay must preserve them.
-    if (sequence % 25 === 0) {
-      await w.client.update(reference.native.id, { title: ` Sequence ${sequence}\r\nannotation `, description: ` description ${random()} `, tags: `seed-${random()%4}`, status: `custom-${random()%8}`, parent: focus.item.id, goal: `goal-${random()%3}`, objective: `objective-${random()%3}`, sprint: `sprint-${random()%3}`, release: `release-${random()%3}`, assignee: "synthetic-agent", reviewer: "synthetic-reviewer" });
-      await w.client.update(reference.native.id, { dep: [`id=${focus.item.id},kind=related`] });
-      reference.native = structuredClone((await readCompleteLoopItem(w.client, reference.native.id)).item);
+    if (update !== undefined) {
+      mutations++;
+      await tracker.client.update(reference.native.id, update);
+      await tracker.client.update(reference.native.id, { dep: [`id=${tracker.focus},kind=related`] });
+      reference.native = structuredClone((await readCompleteLoopItem(tracker.client, reference.native.id)).item);
     }
-    await replay(reference.program); assert.deepEqual((await readCompleteLoopItem(w.client, reference.native.id)).item, reference.native);
-    if (selected.digest !== reference.program.digest) await assert.rejects(replay(selected), /disagrees|drift/);
-    assert.deepEqual((await readCompleteLoopItem(w.client, reference.native.id)).item, reference.native);
-  }
-  console.log(JSON.stringify({ sequences: 500, randomized_operations: 2000, sdk_state_replays: 500, ambient_focus: true }));
+    await replay(reference.program); replays++; assert.deepEqual((await readCompleteLoopItem(tracker.client, reference.native.id)).item, reference.native); nativeReads++;
+    if (selected.digest !== reference.program.digest) { await assert.rejects(replay(selected), /disagrees|drift/); driftRefusals++; }
+    assert.deepEqual((await readCompleteLoopItem(tracker.client, reference.native.id)).item, reference.native); nativeReads++;
+    if (sequence < 8 || sequence % 50 === 0) console.log(JSON.stringify({ model_sequence: sequence }));
+  });
+  assert.equal(operations, 2000); assert.equal(visited.size, 500); assert.equal(replays, 500); assert.equal(nativeReads, 1000); assert.equal(mutations, 20);
+  assert.equal(trackers.size, 8);
+  assert.equal(sessions, 8, "SDK replay must reuse one real controller session per identity group");
+  console.log(JSON.stringify({ sequences: visited.size, randomized_operations: operations, sdk_state_replays: replays, native_read_assertions: nativeReads, native_mutations: mutations, drift_refusals: driftRefusals, controller_sessions: sessions, native_trackers: trackers.size, ambient_focus: true }));
 });
 
 test("isolated positive control promotes changed executable strategies through two recursive generations", { timeout: 180_000 }, async () => {

@@ -134,6 +134,15 @@ No tracker import/export/sync format is introduced. Program JSON round trips use
 the same strict producer/parser, and durable tracker state remains entirely owned
 by the pm SDK. The seeded model test includes 500 sequences, older-input replay,
 whitespace and CRLF, native relationships, custom statuses and ambient focus.
+All 500 sequences retain native SDK replay and both read-back assertions. The
+test draws inputs in the original seed order, then groups visits by the eight
+controller identities to reuse each lease and one small real tracker per
+identity group (62 or 63 sequences each). At most two independent identity
+groups run concurrently in the same test process, using the normal SDK
+per-action lifecycle and live tracker reads. Its 600-second limit is unchanged;
+it asserts 2,000 program operations, 500 native replays, 1,000 read-back checks,
+20 native mutations, eight real native trackers and eight controller sessions. Separate controller-resume
+regressions retain interruption and lease-reacquisition coverage.
 
 The positive control promotes actual arm selection 0 → 2 → 4 in two recursive
 generations using four isolated processes and 256 independent synthetic task

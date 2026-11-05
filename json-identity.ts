@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 /** JSON values accepted by the existing content-addressing contract. */
 export type JsonValue = null | boolean | number | string | JsonValue[] | { readonly [key: string]: JsonValue };
 /**
- * Serialize JSON with recursively byte-ordered object keys.
+ * Serialize JSON with recursively sorted object keys in UTF-16 code-unit order.
  *
  * A content identity must be independent of property insertion order. Arrays
  * remain ordered because task and reward sequences can be semantically ordered.
