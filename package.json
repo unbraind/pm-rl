@@ -232,7 +232,7 @@
   },
   "homepage": "https://pm-cli.unbrained.dev/packages/pm-rl",
   "devDependencies": {
-    "@babel/core": "8.0.10",
+    "@babel/core": "8.1.0",
     "@babel/eslint-parser": "8.0.7",
     "@babel/plugin-syntax-typescript": "8.0.3",
     "@toon-format/toon": "4.4.0",
