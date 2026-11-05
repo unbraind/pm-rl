@@ -1,0 +1,23 @@
+id: pm-rl-local-gate-timing
+title: Stabilize local process and card acceptance timings at unchanged bounds
+description: "Investigate repeatable local acceptance latency without changing authored limits or coverage scope. In the PR 145 review run, test/process-cli.test.ts reproduced spawnSync ETIMEDOUT alone under its existing command limit, and the canonical 512-case card property in test/policy-card.test.ts reproduced its existing 600000 ms timeout alone. Runs used Node 24, nice, one named test at a time, a fresh home directory and no global/system Git configuration. The same exact fix head 55013729c1e27371e6bd505939b60db151023e19 passed full npm Node 22/26 and Bun Node 26 release gates: 31 policy plus 1489 suite tests per gate, 62 sources, all four coverage dimensions 100 percent. CI evidence: https://github.com/unbraind/pm-rl/actions/runs/41986077627 . The packed LM timing case is already owned by pm-rl-7c7m and is not duplicated here. The HTTP drill and callback matrix passed alone. Preserve every existing test, CLI deadline and coverage threshold while investigating runner/runtime/IO differences. Review refusal fixes remain tracked by pm-rl-proposer-program."
+type: Task
+status: open
+priority: 3
+tags[3]: acceptance,follow-up,timing
+created_at: "2026-11-05T09:52:10.732Z"
+updated_at: "2026-11-05T10:11:24.981Z"
+author: codex-agent
+parent: pm-rl-apvf
+comments[1]{created_at,author,text}:
+  "2026-11-05T10:11:24.980Z",codex-agent,"Final standalone results are recorded in docs/proposer-revert-evidence.json: packed process CLI reproduces ETIMEDOUT at its unchanged 20000 ms command limit; the canonical 512-card property and recoverable card transaction matrix each reproduce their unchanged 600000 ms parent limit. The transaction retry reports 133 tests: 124 pass, 7 failed-to-start after the parent finished, 2 cancellations, zero skip/todo. The packed LM command also reproduces ETIMEDOUT at 25000 ms and remains owned by pm-rl-7c7m. HTTP retry passed 1/1; callback log recovered 123/123 passes with recorder exit status unavailable after the provider interruption. Linked the already-executed process/card reproduction commands without rerunning them. Complete source-fix CI remains green across npm Node 22/26 and Bun Node 26 at original scope and thresholds."
+files[2]{path,scope}:
+  test/policy-card.test.ts,project
+  test/process-cli.test.ts,project
+tests[3]{command,scope,timeout_seconds,pm_context_mode,workspace_context_mode,provenance{author,created_at,source_kind,source_ref}}:
+  nice -n 10 node --test --test-concurrency=1 --test-reporter=spec '--test-name-pattern=packed CLI trains two external generations' test/process-cli.test.ts,project,300,none,snapshot,codex-agent,"2026-11-05T10:11:18.989Z",local_mutation,feat/proposer-program-evolution
+  "nice -n 10 node --test --test-concurrency=1 --test-reporter=spec '--test-name-pattern=canonical card property: 512 seeded' test/policy-card.test.ts",project,750,none,snapshot,codex-agent,"2026-11-05T10:11:20.210Z",local_mutation,feat/proposer-program-evolution
+  nice -n 10 node --test --test-concurrency=1 --test-reporter=spec '--test-name-pattern=recoverable card transactions finish every EIO' test/policy-card.test.ts,project,750,none,snapshot,codex-agent,"2026-11-05T10:11:22.240Z",local_mutation,feat/proposer-program-evolution
+docs[1]{path,scope}:
+  docs/proposer-revert-evidence.json,project
+body: ""

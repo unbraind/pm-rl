@@ -60,5 +60,260 @@
         "assertion_detected": false
       }
     }
+  },
+  "validation_round_2": {
+    "runtime_code_head": "55013729c1e27371e6bd505939b60db151023e19",
+    "ci_run": "https://github.com/unbraind/pm-rl/actions/runs/41986077627",
+    "complete_release_gates": [
+      {
+        "command": "npm run release:check",
+        "location": "CI",
+        "node_major": 22,
+        "policy_tests": {
+          "tests": 31,
+          "suites": 0,
+          "pass": 31,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0,
+          "duration_ms": 262.541015
+        },
+        "full_suite": {
+          "tests": 1489,
+          "suites": 0,
+          "pass": 1489,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0,
+          "duration_ms": 4260072.103566
+        },
+        "required_source_files": 62,
+        "coverage_percent": {
+          "statements": 100,
+          "lines": 100,
+          "branches": 100,
+          "functions": 100
+        },
+        "changelog_check_passed": true
+      },
+      {
+        "command": "npm run release:check",
+        "location": "CI",
+        "node_major": 26,
+        "policy_tests": {
+          "tests": 31,
+          "suites": 0,
+          "pass": 31,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0,
+          "duration_ms": 160.091827
+        },
+        "full_suite": {
+          "tests": 1489,
+          "suites": 0,
+          "pass": 1489,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0,
+          "duration_ms": 2486228.260523
+        },
+        "required_source_files": 62,
+        "coverage_percent": {
+          "statements": 100,
+          "lines": 100,
+          "branches": 100,
+          "functions": 100
+        },
+        "changelog_check_passed": true
+      },
+      {
+        "command": "bun run release:check",
+        "location": "CI",
+        "node_major": 26,
+        "policy_tests": {
+          "tests": 31,
+          "suites": 0,
+          "pass": 31,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0,
+          "duration_ms": 370.747534
+        },
+        "full_suite": {
+          "tests": 1489,
+          "suites": 0,
+          "pass": 1489,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0,
+          "duration_ms": 3937831.691845
+        },
+        "required_source_files": 62,
+        "coverage_percent": {
+          "statements": 100,
+          "lines": 100,
+          "branches": 100,
+          "functions": 100
+        },
+        "changelog_check_passed": true
+      }
+    ],
+    "thresholds_unchanged": true,
+    "local_npm_attempt": {
+      "command": "nice -n 10 npm run release:check",
+      "node_version": "24.19.0",
+      "elapsed_seconds": 14308,
+      "exit": -15,
+      "completed": false,
+      "full_suite_summary": null,
+      "result": "Interrupted unsuccessful local attempt after timing failures and successful complete CI gates; not a local gate pass.",
+      "proposer_tests": {
+        "pass": 14,
+        "total": 14
+      },
+      "model_retry": {
+        "sequences": 500,
+        "pass": true,
+        "elapsed_ms": 510202.630928,
+        "unchanged_limit_ms": 600000
+      }
+    },
+    "isolated_retries": [
+      {
+        "case": "packed_lm",
+        "command": "nice -n 10 node --test --test-concurrency=1 --test-reporter=spec '--test-name-pattern=packed pm CLI performs three real LM generations' test/lm-cli.test.ts",
+        "exit": 1,
+        "elapsed_seconds": 42.215,
+        "counts": {
+          "tests": 1,
+          "pass": 0,
+          "fail": 1,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        },
+        "process_guard_seconds": 300,
+        "process_guard_fired": false,
+        "parent_test_timeout_observed": false,
+        "failure_kind": "ETIMEDOUT",
+        "cli_timeout_ms": 25000,
+        "acceptance_wall_bound_ms": 20000
+      },
+      {
+        "case": "packed_process",
+        "command": "nice -n 10 node --test --test-concurrency=1 --test-reporter=spec '--test-name-pattern=packed CLI trains two external generations' test/process-cli.test.ts",
+        "exit": 1,
+        "elapsed_seconds": 40.4,
+        "counts": {
+          "tests": 1,
+          "pass": 0,
+          "fail": 1,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        },
+        "process_guard_seconds": 300,
+        "process_guard_fired": false,
+        "parent_test_timeout_observed": false,
+        "failure_kind": "ETIMEDOUT",
+        "cli_timeout_ms": 20000
+      },
+      {
+        "case": "http_receipt",
+        "command": "nice -n 10 node --test --test-concurrency=1 --test-reporter=spec '--test-name-pattern=SIGKILL at every HTTP-to-PM receipt boundary' test/decision-recovery.test.ts",
+        "exit": 0,
+        "elapsed_seconds": 274.481,
+        "counts": {
+          "tests": 1,
+          "pass": 1,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        },
+        "process_guard_seconds": 350,
+        "process_guard_fired": false,
+        "parent_test_timeout_observed": false
+      },
+      {
+        "case": "callback_matrix",
+        "command": "nice -n 10 node --test --test-concurrency=1 --test-reporter=spec '--test-name-pattern=callback fault matrix reaps real children' test/controller-boundaries.test.ts",
+        "exit": null,
+        "elapsed_seconds": null,
+        "reported_duration_ms": 380114.168138,
+        "counts": {
+          "tests": 123,
+          "pass": 123,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        },
+        "process_guard_seconds": 650,
+        "process_guard_fired": null,
+        "recovered_completed_log": true,
+        "note": "Complete passing log recovered after provider interruption; recorder exit status unavailable.",
+        "parent_test_timeout_observed": false
+      },
+      {
+        "case": "card_property",
+        "command": "nice -n 10 node --test --test-concurrency=1 --test-reporter=spec '--test-name-pattern=canonical card property: 512 seeded' test/policy-card.test.ts",
+        "exit": 1,
+        "elapsed_seconds": 602.088,
+        "counts": {
+          "tests": 1,
+          "pass": 0,
+          "fail": 0,
+          "cancelled": 1,
+          "skipped": 0,
+          "todo": 0
+        },
+        "process_guard_seconds": 650,
+        "process_guard_fired": false,
+        "parent_test_timeout_observed": true
+      },
+      {
+        "case": "card_transactions",
+        "command": "nice -n 10 node --test --test-concurrency=1 --test-reporter=spec '--test-name-pattern=recoverable card transactions finish every EIO' test/policy-card.test.ts",
+        "exit": 1,
+        "elapsed_seconds": 604.01,
+        "counts": {
+          "tests": 133,
+          "pass": 124,
+          "fail": 7,
+          "cancelled": 2,
+          "skipped": 0,
+          "todo": 0
+        },
+        "process_guard_seconds": 650,
+        "process_guard_fired": false,
+        "parent_test_timeout_observed": true,
+        "secondary_failure_reason": "Seven subtests could not start because their parent had already timed out and finished; two cancellations include the parent and active subcase."
+      }
+    ],
+    "revert_proofs": {
+      "baseline_pass": 4,
+      "restored_pass": 4,
+      "individually_reverted_boundaries_failed": 4
+    },
+    "linked_new_regressions": {
+      "pass": 4,
+      "commands": 2
+    },
+    "dist": {
+      "rebuilt": true,
+      "committed": false
+    },
+    "follow_up_items": [
+      "pm-rl-local-gate-timing",
+      "pm-rl-7c7m"
+    ]
   }
 }

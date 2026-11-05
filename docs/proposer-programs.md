@@ -110,15 +110,16 @@ decisions, audit outcome and logical budget. Full typed reports and durable
 step/process receipts retain the detailed evidence. `ProposerRefusal` carries
 `proposer_invalid` and a remedy; runtime refusals include `proposer_capability`,
 `proposer_contamination`, `proposer_cohort_limit`, `proposer_budget`,
-`proposer_approval`, `proposer_drift` and `proposer_dataset_invalid`. Damaged or
-unreadable retained proposal checkpoints and receipts refuse with
-`process_checkpoint_invalid` and instructions to restore the original files and
-staging access. Process setup failures retain settled job evidence and give a
-`process_callback_failed` remedy. Malformed approval or retained-capacity
-evidence gives a typed `proposer_approval` refusal with instructions to inspect
-and restore the original Decision and capacity receipts. Existing process and controller refusal
-codes retain their supported recovery instructions. Foreign records are skipped
-by existing process discovery; an occupied requested identity refuses reuse.
+`proposer_approval`, `proposer_drift` and `proposer_dataset_invalid`. Untyped
+replay, JSON and read failures while verifying retained proposal completions
+become `process_checkpoint_invalid`, with instructions to restore the original
+files and staging access. Untyped staging setup failures retain settled job
+evidence and give a `process_callback_failed` remedy. Untyped approval or
+retained-capacity verification failures become `proposer_approval`, with
+instructions to inspect and restore the original Decision and capacity receipts.
+Existing typed process and controller refusals retain their codes and recovery
+instructions, including `process_receipt_required` for a missing completion.
+Foreign records are skipped by existing process discovery; an occupied requested identity refuses reuse.
 
 No tracker import/export/sync format is introduced. Program JSON round trips use
 the same strict producer/parser, and durable tracker state remains entirely owned
