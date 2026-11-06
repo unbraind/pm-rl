@@ -1100,7 +1100,7 @@ Run `pm rl influence run --file examples/training-influence.json` for explicitly
 ## Bounded proposal programs
 
 `pm rl proposer validate --file examples/proposer-program.json` validates a sealed
-proposal algorithm before effects. `pm --pm-root <scratch-tracker> rl proposer run <id> --file <config.json>
+proposal algorithm before effects. `pm --pm-path <scratch-tracker> rl proposer run <id> --file <config.json>
 --dataset <sealed-improver-data> --approval <decision>` evolves exact-count
 scoring expressions, feature construction and curricula in isolated processes.
 Equal optimizer/inference budgets, predeclared inner/outer gates and protected
@@ -1126,9 +1126,9 @@ inner, outer, protected-cohort and resource gates remain necessary.
 ```sh
 scratch=$(mktemp -d)
 # Initialize/install pm-rl and record the resource approval in this scratch tracker.
-pm --pm-root "$scratch/.agents/pm" rl proposer run transfer-study --file examples/proposer-program.json \
+pm --pm-path "$scratch/.agents/pm" rl proposer run transfer-study --file examples/proposer-program.json \
   --dataset sealed-public-corpus --approval resource-decision --json
-pm --pm-root "$scratch/.agents/pm" rl proposer transfer replay EVALUATION_SHA256 --json
+pm --pm-path "$scratch/.agents/pm" rl proposer transfer replay EVALUATION_SHA256 --json
 ```
 
 Live runs write their native records into an explicit scratch tracker, outside

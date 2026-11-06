@@ -19,10 +19,10 @@ const receipt = readDiagnosticReceipt(join(root, "docs/proposer-transfer-receipt
 const corpus = process.argv[2] === undefined ? rebuildDiagnosticCorpus(receipt, scratch) : loadTransferCorpus(process.argv[2]);
 const evaluations = await restoreDiagnosticReceipt(target, receipt, corpus);
 const cli = join(root, "node_modules/@unbrained/pm-cli/dist/cli.js");
-const invocation = { cwd: project, env: { ...environment, PM_PATH: initialized.path, PM_AUTHOR: "codex-sol" }, encoding: "utf8" as const, timeout: 120_000 };
-execFileSync(process.execPath, [cli, "package", "install", join(scratch, packed[0].filename), "--project", "--json"], invocation);
+const invocation = { cwd: project, env: { ...environment, PM_AUTHOR: "codex-sol" }, encoding: "utf8" as const, timeout: 120_000 };
+execFileSync(process.execPath, [cli, "--pm-path", initialized.path, "package", "install", join(scratch, packed[0].filename), "--project", "--json"], invocation);
 for (const digest of evaluations) {
-  const result = JSON.parse(execFileSync(process.execPath, [cli, "rl", "proposer", "transfer", "replay", digest, "--json"], invocation)) as { details: unknown };
+  const result = JSON.parse(execFileSync(process.execPath, [cli, "--pm-path", initialized.path, "rl", "proposer", "transfer", "replay", digest, "--json"], invocation)) as { details: unknown };
   assert.deepEqual(result.details, receipt.evaluations.find((row) => row.digest === digest)!.report);
   console.log(JSON.stringify({ digest, packed_cli_replay: true, task_count: 2, development_tracker_required: false }));
 }

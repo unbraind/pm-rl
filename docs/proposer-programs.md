@@ -10,7 +10,7 @@ capability grammar, never JavaScript, shell, a plugin or another trainer.
 pm rl proposer validate --file examples/proposer-program.json --json
 scratch=$(mktemp -d)
 # Initialize/install the package and create resource approval in this scratch tracker.
-pm --pm-root "$scratch/.agents/pm" rl proposer run experiment --file examples/proposer-program.json \
+pm --pm-path "$scratch/.agents/pm" rl proposer run experiment --file examples/proposer-program.json \
   --dataset sealed-improver-data --approval resource-decision --json
 ```
 

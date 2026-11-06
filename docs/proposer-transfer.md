@@ -132,7 +132,7 @@ a conflicting address. Corpus and split hashes are rechecked during replay.
 Preflight checks every producer size before creating the first task record.
 
 ```sh
-pm --pm-root "$scratch/.agents/pm" rl proposer transfer replay EVALUATION_SHA256 --json
+pm --pm-path "$scratch/.agents/pm" rl proposer transfer replay EVALUATION_SHA256 --json
 ```
 
 For an existing scratch tracker, this command reads PM context only. Neither a moving fleet checkout nor an
@@ -216,10 +216,12 @@ scratch=$(mktemp -d)
 nice -n 19 node test/fixtures/transfer-replay.ts \
   --receipt docs/proposer-transfer-receipt.json --pm-root "$scratch/.agents/pm"
 # Optional: append --fleet "$PUBLIC_FLEET" to use read-only local clone sources.
-pm --pm-root "$scratch/.agents/pm" rl proposer transfer replay \
+pm --pm-path "$scratch/.agents/pm" rl proposer transfer replay \
   e1a8859a3556759119bea432da23257573c26c665a0c9f7c242e6032a9b4bd19 --json
 ```
 
+The replay helper names its required tracker option `--pm-root`; the native pm
+CLI names the corresponding global option `--pm-path`.
 The script fetches only the receipt's pinned public commits into scratch and
 rechecks public visibility, MIT licensing and commit reachability before
 projection. It refuses an implicit tracker target or any target within a Git
@@ -230,7 +232,7 @@ back into the development tracker. For a fresh study, initialize/install the
 package and record resource approval **in that scratch tracker**, then use:
 
 ```sh
-pm --pm-root "$scratch/.agents/pm" rl proposer run transfer-study \
+pm --pm-path "$scratch/.agents/pm" rl proposer run transfer-study \
   --file examples/proposer-program.json --dataset sealed-public-corpus \
   --approval resource-decision --json
 ```

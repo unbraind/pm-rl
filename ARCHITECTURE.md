@@ -229,7 +229,7 @@ For one generation plus audit the bound requires 3,062 independent trackers per
 task. The available frozen public fleet provides 31 source pins and 46 tasks,
 so it cannot establish powered efficacy. A bounded diagnostic uses three trackers
 per role. Its human-facing result is `pm-rl-rsipower-bounded-result`; replay uses
-`pm --pm-root "$scratch/.agents/pm" rl proposer transfer replay <evaluation-digest> --json`.
+`pm --pm-path "$scratch/.agents/pm" rl proposer transfer replay <evaluation-digest> --json`.
 Run artefacts remain in an explicit non-Git scratch tracker.
 `docs/proposer-transfer-receipt.json` pins public sources, paired observations,
 splits, root/shards and plan; the replay fixture reconstructs and checks the
