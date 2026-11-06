@@ -135,7 +135,7 @@ Preflight checks every producer size before creating the first task record.
 pm --pm-path "$scratch/.agents/pm" rl proposer transfer replay EVALUATION_SHA256 --json
 ```
 
-For an existing scratch tracker, this command reads PM context only. Neither a moving fleet checkout nor an
+For an existing scratch tracker with pm-rl installed, this command reads PM context only. Neither a moving fleet checkout nor an
 external JSON evidence file is an input. The regression deletes dataset files
 before replay. Old chronological dataset envelopes remain accepted; the new gate
 applies to new proposer execution and does not rewrite older history or reports.
@@ -216,6 +216,10 @@ scratch=$(mktemp -d)
 nice -n 19 node test/fixtures/transfer-replay.ts \
   --receipt docs/proposer-transfer-receipt.json --pm-root "$scratch/.agents/pm"
 # Optional: append --fleet "$PUBLIC_FLEET" to use read-only local clone sources.
+# SDK replay above is complete; install the local package for native CLI replay:
+npm run build
+archive=$(NPM_CONFIG_USERCONFIG=/dev/null npm pack --ignore-scripts --silent --pack-destination "$scratch")
+pm --pm-path "$scratch/.agents/pm" package install "$scratch/$archive" --project
 pm --pm-path "$scratch/.agents/pm" rl proposer transfer replay \
   e1a8859a3556759119bea432da23257573c26c665a0c9f7c242e6032a9b4bd19 --json
 ```
