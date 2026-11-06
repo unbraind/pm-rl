@@ -24,8 +24,8 @@ interface BirthWitness {
 }
 /** Read only the original witness, rejecting removed, duplicated or rewritten live witnesses. */
 async function witnessedBirth(client: PmClient, id: string): Promise<{ item: GetResult["item"]; current: GetResult["item"]; witness: BirthWitness }> {
-  const item = (await readCompleteLoopItem(client, id, "1", "id,type,body,affected_version,created_at,component,environment,notes")).item;
-  const current = (await readCompleteLoopItem(client, id, undefined, "id,type,body,affected_version,created_at,component,environment,notes")).item;
+  const item = (await readCompleteLoopItem(client, id, "1", "id,type,body,affected_version,fixed_version,created_at,component,environment,notes")).item;
+  const current = (await readCompleteLoopItem(client, id, undefined, "id,type,body,affected_version,fixed_version,created_at,component,environment,notes")).item;
   const notes = (row: GetResult["item"]): string[] => evaluationBirthIdentity(row).lifecycle ?? [];
   const birth = notes(item);
   if (birth.length !== 1 || JSON.stringify(notes(current)) !== JSON.stringify(birth)) refuse("eval_plan_evidence", id);
@@ -65,7 +65,7 @@ export async function createCausalEvaluationArtifact(client: PmClient, plan: Eva
   if (existing !== null) {
     await validateCausalEvaluationOrder(client, plan, [...predecessors, target]);
     const birth = await witnessedBirth(client, options.id);
-    if (birth.witness.request !== request || (["id", "type", "body", "affected_version", "component", "environment", "created_at"] as const).some(field => birth.item[field] !== birth.current[field])) refuse("eval_plan_drift", options.id);
+    if (birth.witness.request !== request || (["id", "type", "body", "affected_version", "fixed_version", "component", "environment", "created_at"] as const).some(field => birth.item[field] !== birth.current[field])) refuse("eval_plan_drift", options.id);
     return { item: existing as Awaited<ReturnType<PmClient["create"]>>["item"], changed_fields: [], warnings: [] };
   }
   const witness: BirthWitness = { comparison: evaluationComparison(plan), stage: target.stage, nonce: randomUUID(), request, predecessors: references(entries, target.stage) };

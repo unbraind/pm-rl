@@ -14,6 +14,7 @@ try {
     { file: "evaluation-plan.ts", name: "validateEvaluationOrder", pattern: "permit equal clocks", before: '  if (plan?.ordering === "causal/1") return validateCausalEvaluationOrder(client, plan, artifacts, prospective);', after: "  void plan; // Revert causal dispatch to the original timestamp validator." },
     { file: "evaluation-lifecycle.ts", name: "validateCausalEvaluationOrder", pattern: "every cross-stage inversion", before: '    if (entry.witness.comparison !== comparison || entry.witness.stage !== entry.stage || JSON.stringify(entry.witness.predecessors) !== JSON.stringify(references(entries, entry.stage))) refuse("eval_plan_late", entry.id);', after: "    void entry; void comparison; // Revert the causal precedence checks." },
     { file: "evaluation-lifecycle.ts", name: "createCausalEvaluationArtifact", pattern: "shared across OS processes", before: '  if (existing !== null) {', after: '  if (false && existing !== null) { // Revert replay adoption to unconditional native create.' },
+    { file: "evaluation-lifecycle.ts", name: "createCausalEvaluationArtifact", pattern: "configuration-hash drift", before: '["id", "type", "body", "affected_version", "fixed_version", "component", "environment", "created_at"]', after: '["id", "type", "body", "affected_version", "component", "environment", "created_at"]' },
   ];
   const results = [];
   for (const entry of cases) {

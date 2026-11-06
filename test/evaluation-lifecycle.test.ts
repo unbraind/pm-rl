@@ -78,6 +78,17 @@ function worker(file: string, step: string, clock: string, hold = false) {
 /** Match stable typed refusals without depending on the wording of SDK diagnostics. */
 function refused(code: string) { return (error: unknown): boolean => isPmCliExpectedError(error) && error.context.code === code; }
 
+test("causal collection retries reject configuration-hash drift", async () => {
+  const w = await causalWorkspace();
+  try {
+    for (const step of ["review", "plan", "run"]) await causalStep(w, step);
+    await w.client.update(w.request.id, { fixedVersion: "different-configuration" });
+    const before = trackerHistory(w.pmRoot);
+    await assert.rejects(startRunCore(w.client, w.request), refused("eval_plan_drift"));
+    assert.deepEqual(trackerHistory(w.pmRoot), before);
+  } finally { process.chdir(testCwd); rmSync(w.root, { recursive: true, force: true }); }
+});
+
 test("causal artifacts reject every cross-stage inversion and malformed or retrospectively added witnesses", async () => {
   const w = await causalWorkspace();
   try {
