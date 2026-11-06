@@ -1,0 +1,734 @@
+{
+  "format": "pm-rl/proposer-diagnostic-receipt/1",
+  "provenance": {
+    "kind": "historical-paired-measurement-replay",
+    "measurement_commit": "def7413",
+    "historical_native_root": "89aa1ae2c8eef8ab784d83f6d4bd8bff2638ed7259af5f2a50fbfff7b7893c2e",
+    "plan_note": "The version-two plan re-expresses the historical fixed design during replay; it is not a new prospective study or a new fit."
+  },
+  "full_manifest": {
+    "format": "pm-rl/improver-dataset/1",
+    "seed": 42,
+    "sources": [
+      {
+        "repo": "unbraind/pm-brand",
+        "commit": "aec809cdf57a1abb62532005abb0b1885e1720e3",
+        "role": "development"
+      },
+      {
+        "repo": "unbraind/pm-csv",
+        "commit": "43eb095062f0f25aa25302af6b39a94972c63c31",
+        "role": "development"
+      },
+      {
+        "repo": "unbraind/pm-beads",
+        "commit": "f692241f4c2e7a50f70934d4b017ad3ff485d7d5",
+        "role": "development"
+      },
+      {
+        "repo": "unbraind/pm-gantt-chart",
+        "commit": "3a7dedc16883c8d31a0627277b1b45e973a3c652",
+        "role": "development"
+      },
+      {
+        "repo": "unbraind/pm-rust",
+        "commit": "a4e9e18ea2aec4aab08a662252c5f664ea95d720",
+        "role": "development"
+      },
+      {
+        "repo": "unbraind/pm-changelog",
+        "commit": "5990495f971225318e7b2cab7f3ef6faef61c8ca",
+        "role": "development"
+      },
+      {
+        "repo": "unbraind/pm-todos",
+        "commit": "14b545e8212088d0962e8315ea6d2054272295a8",
+        "role": "development"
+      },
+      {
+        "repo": "unbraind/pm-jira",
+        "commit": "c620edd63ec36857956ef69ecb923a751c39226c",
+        "role": "development"
+      },
+      {
+        "repo": "unbraind/pm-presets",
+        "commit": "ad929b576e88d869305e969ac8d05ff8f0b63ff0",
+        "role": "development"
+      },
+      {
+        "repo": "unbraind/pm-slack",
+        "commit": "edc837f2a283adc023a282769dc9e3d808604cf8",
+        "role": "development"
+      },
+      {
+        "repo": "unbraind/pm-swarm",
+        "commit": "669600439e580bca7335869d4bc8de8bafae8d80",
+        "role": "development"
+      },
+      {
+        "repo": "unbraind/pm-ts-starter",
+        "commit": "d843eab56cd4255bd1f7dfae8639960325aa09a9",
+        "role": "development"
+      },
+      {
+        "repo": "unbraind/pm-ops",
+        "commit": "c282fa9d8297d431dc6366081bad59efb668b2be",
+        "role": "meta"
+      },
+      {
+        "repo": "unbraind/pm-graph",
+        "commit": "6b19bc2b111f285cf79bb2c96e9fe4f8ddbd6ef5",
+        "role": "meta"
+      },
+      {
+        "repo": "unbraind/pm-context",
+        "commit": "800b5af548ec1e7f765c4a441316c147eca2a8f7",
+        "role": "meta"
+      },
+      {
+        "repo": "unbraind/pm-memory",
+        "commit": "e5a55dc352fed05cb86d649c78ba7f43eaa10495",
+        "role": "meta"
+      },
+      {
+        "repo": "unbraind/pm-evidence",
+        "commit": "1435931270505fb81cbafa84141269a43285dfc6",
+        "role": "meta"
+      },
+      {
+        "repo": "unbraind/pm-slack-standup",
+        "commit": "789149e30cf9ce532cbea481d2d85edf84a5ffe0",
+        "role": "meta"
+      },
+      {
+        "repo": "unbraind/pm-rl",
+        "commit": "962ac059ab8f6f8382dc93b1bc814cdc84b46fa8",
+        "role": "meta"
+      },
+      {
+        "repo": "unbraind/pm-ado",
+        "commit": "cd9435e9ca3a83e898af8ee99ee4e17a5dc6f758",
+        "role": "meta"
+      },
+      {
+        "repo": "unbraind/pm-lint",
+        "commit": "14edfa7ab829f70a814c83bae6b43bd6b980a38b",
+        "role": "meta"
+      },
+      {
+        "repo": "unbraind/pm-http",
+        "commit": "1dc6a4d7c8252d61eeb59478051ca040b9bfd13a",
+        "role": "meta"
+      },
+      {
+        "repo": "unbraind/pm-brief",
+        "commit": "a4f119790afdff49640529bf548f287cc60ec145",
+        "role": "meta"
+      },
+      {
+        "repo": "unbraind/pm-review",
+        "commit": "c1d3e7ad042cfda51a0e05266b9865d667b4f846",
+        "role": "meta"
+      },
+      {
+        "repo": "unbraind/pm-hypothesis",
+        "commit": "8f7e0642beba62c6627547bf278265032845bc5d",
+        "role": "audit"
+      },
+      {
+        "repo": "unbraind/pm-starter",
+        "commit": "59fd7b56eb25cd5feb3b37f803c41560c98d1c09",
+        "role": "audit"
+      },
+      {
+        "repo": "unbraind/pm-linear",
+        "commit": "c86c66927d36d4625395f69076e85bf7d7f2dd51",
+        "role": "audit"
+      },
+      {
+        "repo": "unbraind/pm-jev",
+        "commit": "7e34379ee2bc37dc2b6930cc3ed7cd04270941b7",
+        "role": "audit"
+      },
+      {
+        "repo": "unbraind/pm-vcs",
+        "commit": "131dc3a6ff15ab3d127611f041b5385e5d54257e",
+        "role": "audit"
+      },
+      {
+        "repo": "unbraind/pm-rlm",
+        "commit": "b1fe01e2271abbbea9f8be554d4e4b135063cd7a",
+        "role": "audit"
+      },
+      {
+        "repo": "unbraind/pm-github",
+        "commit": "459677e1dce6d0461ccfb66c8c3fc7bc383c7fb6",
+        "role": "audit"
+      }
+    ],
+    "splits": {
+      "development": {
+        "digest": "36e0a11945f591e479a310b91e00bbca2953f380ed60e7705dccc13a25e3d9af",
+        "tasks": 19
+      },
+      "meta": {
+        "digest": "8784bc02f2e6f42eaf908ab5b24c30856a4039447b108377fb7481a61a4e28b8",
+        "tasks": 16
+      },
+      "audit": {
+        "digest": "0cc4e012c7adf43e4b1894986127f848b3b974fe177576c7709d881b5f3f74a1",
+        "tasks": 11
+      }
+    },
+    "omitted": [
+      {
+        "repo": "unbraind/pm-ado",
+        "target": "time-to-close"
+      },
+      {
+        "repo": "unbraind/pm-brand",
+        "target": "time-to-close"
+      },
+      {
+        "repo": "unbraind/pm-brand",
+        "target": "issue-type"
+      },
+      {
+        "repo": "unbraind/pm-evidence",
+        "target": "time-to-close"
+      },
+      {
+        "repo": "unbraind/pm-evidence",
+        "target": "issue-type"
+      },
+      {
+        "repo": "unbraind/pm-http",
+        "target": "time-to-close"
+      },
+      {
+        "repo": "unbraind/pm-http",
+        "target": "issue-type"
+      },
+      {
+        "repo": "unbraind/pm-hypothesis",
+        "target": "time-to-close"
+      },
+      {
+        "repo": "unbraind/pm-hypothesis",
+        "target": "issue-type"
+      },
+      {
+        "repo": "unbraind/pm-jev",
+        "target": "time-to-close"
+      },
+      {
+        "repo": "unbraind/pm-lint",
+        "target": "issue-type"
+      },
+      {
+        "repo": "unbraind/pm-memory",
+        "target": "time-to-close"
+      },
+      {
+        "repo": "unbraind/pm-memory",
+        "target": "issue-type"
+      },
+      {
+        "repo": "unbraind/pm-rust",
+        "target": "time-to-close"
+      },
+      {
+        "repo": "unbraind/pm-swarm",
+        "target": "time-to-close"
+      },
+      {
+        "repo": "unbraind/pm-swarm",
+        "target": "issue-type"
+      }
+    ],
+    "digest": "7156cf8c85b9941e12e42632c08f27419af69b7b3ee8824545c35def3fee9d49"
+  },
+  "manifest": {
+    "format": "pm-rl/improver-dataset/1",
+    "seed": 42,
+    "sources": [
+      {
+        "repo": "unbraind/pm-brand",
+        "commit": "aec809cdf57a1abb62532005abb0b1885e1720e3",
+        "role": "development"
+      },
+      {
+        "repo": "unbraind/pm-csv",
+        "commit": "43eb095062f0f25aa25302af6b39a94972c63c31",
+        "role": "development"
+      },
+      {
+        "repo": "unbraind/pm-beads",
+        "commit": "f692241f4c2e7a50f70934d4b017ad3ff485d7d5",
+        "role": "development"
+      },
+      {
+        "repo": "unbraind/pm-gantt-chart",
+        "commit": "3a7dedc16883c8d31a0627277b1b45e973a3c652",
+        "role": "development"
+      },
+      {
+        "repo": "unbraind/pm-rust",
+        "commit": "a4e9e18ea2aec4aab08a662252c5f664ea95d720",
+        "role": "development"
+      },
+      {
+        "repo": "unbraind/pm-changelog",
+        "commit": "5990495f971225318e7b2cab7f3ef6faef61c8ca",
+        "role": "development"
+      },
+      {
+        "repo": "unbraind/pm-todos",
+        "commit": "14b545e8212088d0962e8315ea6d2054272295a8",
+        "role": "development"
+      },
+      {
+        "repo": "unbraind/pm-jira",
+        "commit": "c620edd63ec36857956ef69ecb923a751c39226c",
+        "role": "development"
+      },
+      {
+        "repo": "unbraind/pm-presets",
+        "commit": "ad929b576e88d869305e969ac8d05ff8f0b63ff0",
+        "role": "development"
+      },
+      {
+        "repo": "unbraind/pm-slack",
+        "commit": "edc837f2a283adc023a282769dc9e3d808604cf8",
+        "role": "development"
+      },
+      {
+        "repo": "unbraind/pm-swarm",
+        "commit": "669600439e580bca7335869d4bc8de8bafae8d80",
+        "role": "development"
+      },
+      {
+        "repo": "unbraind/pm-ts-starter",
+        "commit": "d843eab56cd4255bd1f7dfae8639960325aa09a9",
+        "role": "development"
+      },
+      {
+        "repo": "unbraind/pm-ops",
+        "commit": "c282fa9d8297d431dc6366081bad59efb668b2be",
+        "role": "meta"
+      },
+      {
+        "repo": "unbraind/pm-graph",
+        "commit": "6b19bc2b111f285cf79bb2c96e9fe4f8ddbd6ef5",
+        "role": "meta"
+      },
+      {
+        "repo": "unbraind/pm-context",
+        "commit": "800b5af548ec1e7f765c4a441316c147eca2a8f7",
+        "role": "meta"
+      },
+      {
+        "repo": "unbraind/pm-memory",
+        "commit": "e5a55dc352fed05cb86d649c78ba7f43eaa10495",
+        "role": "meta"
+      },
+      {
+        "repo": "unbraind/pm-evidence",
+        "commit": "1435931270505fb81cbafa84141269a43285dfc6",
+        "role": "meta"
+      },
+      {
+        "repo": "unbraind/pm-slack-standup",
+        "commit": "789149e30cf9ce532cbea481d2d85edf84a5ffe0",
+        "role": "meta"
+      },
+      {
+        "repo": "unbraind/pm-rl",
+        "commit": "962ac059ab8f6f8382dc93b1bc814cdc84b46fa8",
+        "role": "meta"
+      },
+      {
+        "repo": "unbraind/pm-ado",
+        "commit": "cd9435e9ca3a83e898af8ee99ee4e17a5dc6f758",
+        "role": "meta"
+      },
+      {
+        "repo": "unbraind/pm-lint",
+        "commit": "14edfa7ab829f70a814c83bae6b43bd6b980a38b",
+        "role": "meta"
+      },
+      {
+        "repo": "unbraind/pm-http",
+        "commit": "1dc6a4d7c8252d61eeb59478051ca040b9bfd13a",
+        "role": "meta"
+      },
+      {
+        "repo": "unbraind/pm-brief",
+        "commit": "a4f119790afdff49640529bf548f287cc60ec145",
+        "role": "meta"
+      },
+      {
+        "repo": "unbraind/pm-review",
+        "commit": "c1d3e7ad042cfda51a0e05266b9865d667b4f846",
+        "role": "meta"
+      },
+      {
+        "repo": "unbraind/pm-hypothesis",
+        "commit": "8f7e0642beba62c6627547bf278265032845bc5d",
+        "role": "audit"
+      },
+      {
+        "repo": "unbraind/pm-starter",
+        "commit": "59fd7b56eb25cd5feb3b37f803c41560c98d1c09",
+        "role": "audit"
+      },
+      {
+        "repo": "unbraind/pm-linear",
+        "commit": "c86c66927d36d4625395f69076e85bf7d7f2dd51",
+        "role": "audit"
+      },
+      {
+        "repo": "unbraind/pm-jev",
+        "commit": "7e34379ee2bc37dc2b6930cc3ed7cd04270941b7",
+        "role": "audit"
+      },
+      {
+        "repo": "unbraind/pm-vcs",
+        "commit": "131dc3a6ff15ab3d127611f041b5385e5d54257e",
+        "role": "audit"
+      },
+      {
+        "repo": "unbraind/pm-rlm",
+        "commit": "b1fe01e2271abbbea9f8be554d4e4b135063cd7a",
+        "role": "audit"
+      },
+      {
+        "repo": "unbraind/pm-github",
+        "commit": "459677e1dce6d0461ccfb66c8c3fc7bc383c7fb6",
+        "role": "audit"
+      }
+    ],
+    "splits": {
+      "development": {
+        "tasks": 6,
+        "digest": "daa125970a440e1feb988f8f4cdb726d044ddd37e0371fe876573192818b2072"
+      },
+      "meta": {
+        "tasks": 6,
+        "digest": "f031516f9813a22bcaba8d443a433b330aaf0954957dab5dfbc68163f95cd73c"
+      },
+      "audit": {
+        "tasks": 6,
+        "digest": "49bf06c2075ec18f97e5e824fd909dcebc6bb05836ee174ea97870ce98175109"
+      }
+    },
+    "omitted": [
+      {
+        "repo": "unbraind/pm-ado",
+        "target": "time-to-close"
+      },
+      {
+        "repo": "unbraind/pm-brand",
+        "target": "time-to-close"
+      },
+      {
+        "repo": "unbraind/pm-brand",
+        "target": "issue-type"
+      },
+      {
+        "repo": "unbraind/pm-evidence",
+        "target": "time-to-close"
+      },
+      {
+        "repo": "unbraind/pm-evidence",
+        "target": "issue-type"
+      },
+      {
+        "repo": "unbraind/pm-http",
+        "target": "time-to-close"
+      },
+      {
+        "repo": "unbraind/pm-http",
+        "target": "issue-type"
+      },
+      {
+        "repo": "unbraind/pm-hypothesis",
+        "target": "time-to-close"
+      },
+      {
+        "repo": "unbraind/pm-hypothesis",
+        "target": "issue-type"
+      },
+      {
+        "repo": "unbraind/pm-jev",
+        "target": "time-to-close"
+      },
+      {
+        "repo": "unbraind/pm-lint",
+        "target": "issue-type"
+      },
+      {
+        "repo": "unbraind/pm-memory",
+        "target": "time-to-close"
+      },
+      {
+        "repo": "unbraind/pm-memory",
+        "target": "issue-type"
+      },
+      {
+        "repo": "unbraind/pm-rust",
+        "target": "time-to-close"
+      },
+      {
+        "repo": "unbraind/pm-swarm",
+        "target": "time-to-close"
+      },
+      {
+        "repo": "unbraind/pm-swarm",
+        "target": "issue-type"
+      }
+    ],
+    "digest": "feaee19e299df80d7e0764b64ed9d686975b5f606a4afe381c1b094c09386b67"
+  },
+  "task_ids": {
+    "development": [
+      "077aeccf39a4919b",
+      "18b7dce82c443ccc",
+      "4f605e6aa8e0879b",
+      "c71b91ca1fca06d3",
+      "f31a282d0d3ed0ec",
+      "fcddeeef6b347eb4"
+    ],
+    "meta": [
+      "49307aca2ab13ef4",
+      "4ed2ed77fbccd1ee",
+      "5cb63ebc3bd4b6cd",
+      "8262c45d887ccc26",
+      "b629352bd95cb4b7",
+      "ea11991a79d0f86d"
+    ],
+    "audit": [
+      "3f5e96f2a57b9d73",
+      "47447a51e0309341",
+      "4a183b5dfc5f2f66",
+      "a0176c26569da14c",
+      "a2e2ea6d90888647",
+      "c7379a217d1255ef"
+    ]
+  },
+  "archive": {
+    "root": "3f8832a61fe653ce1582fde506c9d1e64daab218c6f42ef96bc080e1b3acc3fe",
+    "shards": [
+      "8f4c67404800c76460e4f44fc36ad79bdf058297cbca3dc22d93dbd1a15b11d2",
+      "dd72915c50fe45af80c66175d87161bb46b5fd234d90cb689e7a5aeaf46fb0e1",
+      "23e875d70e93294228ef2b0c6d77924520244382a8dc7319d993ff80084b852d",
+      "dd8893fe59f02b83d267934e8e095587c68473db49a7a9734489fc61e3a1da4a",
+      "f9732718263709cc14141b03845ae96a80496eaa979aa490c64eba4a0c400b4a",
+      "380cb9f2207b1081a349ea77af556cf45aeefaffdb08a45b53f6b7908fdecc3d",
+      "549c938b1b89354bed766833307e24dfbcaa5b56f558405ba5b84aa118babac0",
+      "e3eaba92b5cff4245e4d2dd19e8126066414df66a195641bf7eab37715108009",
+      "e81f0159f849e3f69dd3ace74761c95d653741fcd0aeac0fc762d616a5bea7b4",
+      "46af87bf03bb75d45452bec4c80ea3a7bdefb5ef3b722984a5c348285afeb7f1"
+    ],
+    "plan": "917536ce1cdff1eb5d2384ca8e3fc288da700e000d9260a620b55a065769c268"
+  },
+  "design": {
+    "effect": 0.1,
+    "margin": 0.01,
+    "alpha": 0.05,
+    "power": 0.8,
+    "targets": [
+      "issue-type",
+      "time-to-close"
+    ],
+    "looks": 2
+  },
+  "evaluations": [
+    {
+      "historical_digest": "f5962dbe9114770b1e8e426beb980f626c1d02978c8792aefc79ff0678e3d759",
+      "digest": "7c0fb1027ca4851b7afc4f656236dcaa2f4bb405b56e7d2cc3a5980f18e6f7c3",
+      "role": "meta",
+      "look": 1,
+      "pairs": [
+        {
+          "id": "49307aca2ab13ef4",
+          "candidate": 0.5,
+          "incumbent": 0.5
+        },
+        {
+          "id": "4ed2ed77fbccd1ee",
+          "candidate": 0.5,
+          "incumbent": 0.5
+        },
+        {
+          "id": "5cb63ebc3bd4b6cd",
+          "candidate": 0.5,
+          "incumbent": 0.5
+        },
+        {
+          "id": "8262c45d887ccc26",
+          "candidate": 0.5,
+          "incumbent": 0.5
+        },
+        {
+          "id": "b629352bd95cb4b7",
+          "candidate": 0.5,
+          "incumbent": 0.5
+        },
+        {
+          "id": "ea11991a79d0f86d",
+          "candidate": 0.5,
+          "incumbent": 0.5
+        }
+      ],
+      "report": {
+        "format": "pm-rl/proposer-transfer-report/2",
+        "corpus": "feaee19e299df80d7e0764b64ed9d686975b5f606a4afe381c1b094c09386b67",
+        "role": "meta",
+        "comparisons": 2,
+        "look": 1,
+        "design": {
+          "effect": 0.1,
+          "margin": 0.01,
+          "alpha": 0.05,
+          "power": 0.8,
+          "targets": [
+            "issue-type",
+            "time-to-close"
+          ],
+          "looks": 2
+        },
+        "tasks": [
+          {
+            "target": "issue-type",
+            "effect": 0,
+            "interval": [
+              -1,
+              1
+            ],
+            "minimum_trackers": 3062,
+            "trackers": 3,
+            "power_lower_bound": 0,
+            "powered": false,
+            "radius": 1.8394154533861795
+          },
+          {
+            "target": "time-to-close",
+            "effect": 0,
+            "interval": [
+              -1,
+              1
+            ],
+            "minimum_trackers": 3062,
+            "trackers": 3,
+            "power_lower_bound": 0,
+            "powered": false,
+            "radius": 1.8394154533861795
+          }
+        ],
+        "passed": false,
+        "reason": "transfer_underpowered"
+      }
+    },
+    {
+      "historical_digest": "7f767f0ef02f4c822df577a2a5a31d99e05db4fdd272150294ffb74df8f6eb7b",
+      "digest": "e1a8859a3556759119bea432da23257573c26c665a0c9f7c242e6032a9b4bd19",
+      "role": "audit",
+      "look": 1,
+      "pairs": [
+        {
+          "id": "3f5e96f2a57b9d73",
+          "candidate": 0.5,
+          "incumbent": 0.5
+        },
+        {
+          "id": "47447a51e0309341",
+          "candidate": 0.5,
+          "incumbent": 0.5
+        },
+        {
+          "id": "4a183b5dfc5f2f66",
+          "candidate": 0.5,
+          "incumbent": 0.5
+        },
+        {
+          "id": "a0176c26569da14c",
+          "candidate": 0.5,
+          "incumbent": 0.5
+        },
+        {
+          "id": "a2e2ea6d90888647",
+          "candidate": 0.5,
+          "incumbent": 0.5
+        },
+        {
+          "id": "c7379a217d1255ef",
+          "candidate": 0.5,
+          "incumbent": 0.5
+        }
+      ],
+      "report": {
+        "format": "pm-rl/proposer-transfer-report/2",
+        "corpus": "feaee19e299df80d7e0764b64ed9d686975b5f606a4afe381c1b094c09386b67",
+        "role": "audit",
+        "comparisons": 2,
+        "look": 1,
+        "design": {
+          "effect": 0.1,
+          "margin": 0.01,
+          "alpha": 0.05,
+          "power": 0.8,
+          "targets": [
+            "issue-type",
+            "time-to-close"
+          ],
+          "looks": 2
+        },
+        "tasks": [
+          {
+            "target": "issue-type",
+            "effect": 0,
+            "interval": [
+              -1,
+              1
+            ],
+            "minimum_trackers": 3062,
+            "trackers": 3,
+            "power_lower_bound": 0,
+            "powered": false,
+            "radius": 1.8394154533861795
+          },
+          {
+            "target": "time-to-close",
+            "effect": 0,
+            "interval": [
+              -1,
+              1
+            ],
+            "minimum_trackers": 3062,
+            "trackers": 3,
+            "power_lower_bound": 0,
+            "powered": false,
+            "radius": 1.8394154533861795
+          }
+        ],
+        "passed": false,
+        "reason": "transfer_underpowered"
+      }
+    }
+  ],
+  "run": {
+    "generations": 1,
+    "controller_ms": 567448,
+    "elapsed_ms": 576235,
+    "fits": 30,
+    "optimizer_updates": 1920,
+    "proposal_processes": 5,
+    "inference_tokens": 0,
+    "promotions": 0,
+    "retained": "sha256:2aa15b268fb38d3ed9726fa01e17c50930bdf856d03bbee54f4cdbf5a3abe94f",
+    "decision": "retain_original_transfer_underpowered"
+  },
+  "replay_command": "scratch=$(mktemp -d)\nnice -n 19 node test/fixtures/transfer-replay.ts --receipt docs/proposer-transfer-receipt.json --pm-root \"$scratch/.agents/pm\"",
+  "digest": "0938683f33cdb0b2355c12650fca4674f4cd137d25748f86a036142be142814e"
+}

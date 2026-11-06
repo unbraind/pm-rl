@@ -1100,7 +1100,7 @@ Run `pm rl influence run --file examples/training-influence.json` for explicitly
 ## Bounded proposal programs
 
 `pm rl proposer validate --file examples/proposer-program.json` validates a sealed
-proposal algorithm before effects. `pm rl proposer run <id> --file <config.json>
+proposal algorithm before effects. `pm --pm-root <scratch-tracker> rl proposer run <id> --file <config.json>
 --dataset <sealed-improver-data> --approval <decision>` evolves exact-count
 scoring expressions, feature construction and curricula in isolated processes.
 Equal optimizer/inference budgets, predeclared inner/outer gates and protected
@@ -1124,13 +1124,18 @@ final audit. Each adaptive generation receives fresh meta trackers. The existing
 inner, outer, protected-cohort and resource gates remain necessary.
 
 ```sh
-pm rl proposer run transfer-study --file examples/proposer-program.json \
+scratch=$(mktemp -d)
+# Initialize/install pm-rl and record the resource approval in this scratch tracker.
+pm --pm-root "$scratch/.agents/pm" rl proposer run transfer-study --file examples/proposer-program.json \
   --dataset sealed-public-corpus --approval resource-decision --json
-pm rl proposer transfer replay EVALUATION_SHA256 --json
-pm get pm-rl-rsipower-bounded-result --json
+pm --pm-root "$scratch/.agents/pm" rl proposer transfer replay EVALUATION_SHA256 --json
 ```
 
-Replay needs only native PM Decisions: a small root pins ordered, bounded
+Live runs write their native records into an explicit scratch tracker, outside
+the package checkout. The [real diagnostic receipt](docs/proposer-transfer-receipt.json)
+rebuilds those records from pinned public sources; see the
+[replay command](docs/proposer-transfer.md#real-public-diagnostic).
+Replay within the scratch tracker needs only native PM Decisions: a small root pins ordered, bounded
 content-addressed shards for the manifest and projected chronological tasks;
 exact split digests, a prospective plan, paired observations and the evaluation are stored
 through SDK fields and append-only history. It requires neither dataset side files

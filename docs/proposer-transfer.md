@@ -132,10 +132,10 @@ a conflicting address. Corpus and split hashes are rechecked during replay.
 Preflight checks every producer size before creating the first task record.
 
 ```sh
-pm rl proposer transfer replay EVALUATION_SHA256 --json
+pm --pm-root "$scratch/.agents/pm" rl proposer transfer replay EVALUATION_SHA256 --json
 ```
 
-This command reads PM context only. Neither a moving fleet checkout nor an
+For an existing scratch tracker, this command reads PM context only. Neither a moving fleet checkout nor an
 external JSON evidence file is an input. The regression deletes dataset files
 before replay. Old chronological dataset envelopes remain accepted; the new gate
 applies to new proposer execution and does not rewrite older history or reports.
@@ -153,8 +153,7 @@ It contains 31 eligible source pins and 46 chronological tasks (19 development,
 An unverifiable source was excluded without opening its tracker.
 
 The broad diagnostic stopped for resource reasons after 19 development fits and
-one meta-baseline fit, before a complete candidate comparison. Its native
-receipts and reservations remain in the package tracker. No result from it was
+one meta-baseline fit, before a complete candidate comparison. Its interrupted receipts are excluded from the development tracker; the completed diagnostic below is preserved by a compact replay receipt. No result from it was
 used to choose another threshold, feature, task or tracker.
 
 A second diagnostic predeclared three eligible trackers with both tasks per role,
@@ -171,11 +170,15 @@ budget. The bounded dataset digest is
 | Meta | pm-context, pm-ops, pm-graph |
 | Audit | pm-linear, pm-vcs, pm-starter |
 
-The native `pm-rl-rsipower-bounded-result` Decision contains the complete result;
-its linked evaluation addresses replay from the package tracker. Projected corpus
-and measured transfer evidence are copied into that tracker through the same SDK
-archive/evaluation functions, checked for exact report equality. Process staging
-and local diagnostic logs remain untracked.
+The human-facing `pm-rl-rsipower-bounded-result` Decision retains the historical
+summary. Run records belong in a scratch tracker, outside any Git worktree.
+[The compact receipt](proposer-transfer-receipt.json) retains both measured paired
+score sets, source commit pins, the full and bounded split identities, and the
+expected native root, ordered shard, plan and evaluation digests. Rebuilding from
+the public pins and replaying through the SDK requires no development-tracker run
+records. It verifies all digests and reports with zero new fits. The version-two
+plan re-expresses the historical fixed design during replay; it is not a new
+prospective study. Process staging and local diagnostic logs remain untracked.
 
 The completed controller took 567.448 seconds; verification and native evidence
 publication brought elapsed time to **576.235 seconds**. It executed 30 fits,
@@ -197,15 +200,39 @@ and protected-cohort gates independently refuse too. These intervals cover large
 improvement and harm. An empirical zero is not evidence that transfer is absent.
 The guarantee of 80% power is unmet, and no gate was tuned to achieve promotion.
 
-Native corpus address:
-`89aa1ae2c8eef8ab784d83f6d4bd8bff2638ed7259af5f2a50fbfff7b7893c2e`.
-Meta evaluation:
-`f5962dbe9114770b1e8e426beb980f626c1d02978c8792aefc79ff0678e3d759`.
-Audit evaluation:
-`7f767f0ef02f4c822df577a2a5a31d99e05db4fdd272150294ffb74df8f6eb7b`.
+The compact receipt pins version-two root
+`3f8832a61fe653ce1582fde506c9d1e64daab218c6f42ef96bc080e1b3acc3fe`, ten
+ordered shard digests, and plan
+`917536ce1cdff1eb5d2384ca8e3fc288da700e000d9260a620b55a065769c268`.
+The scratch replay reproduced the full corpus digest, every bounded split and
+both reports: effects 0.00, simultaneous CIs [-1.00, 1.00], three trackers per
+task, power lower bound 0.00, required trackers 3,062 and refusal unchanged.
+It creates 14 native Decisions in the scratch tracker, with no new training.
+
+From a package checkout with dependencies installed:
 
 ```sh
-pm rl proposer transfer replay 7f767f0ef02f4c822df577a2a5a31d99e05db4fdd272150294ffb74df8f6eb7b --json
+scratch=$(mktemp -d)
+nice -n 19 node test/fixtures/transfer-replay.ts \
+  --receipt docs/proposer-transfer-receipt.json --pm-root "$scratch/.agents/pm"
+# Optional: append --fleet "$PUBLIC_FLEET" to use read-only local clone sources.
+pm --pm-root "$scratch/.agents/pm" rl proposer transfer replay \
+  e1a8859a3556759119bea432da23257573c26c665a0c9f7c242e6032a9b4bd19 --json
+```
+
+The script fetches only the receipt's pinned public commits into scratch and
+rechecks public visibility, MIT licensing and commit reachability before
+projection. It refuses an implicit tracker target or any target within a Git
+worktree, including symlink aliases. An optional local fleet directory is read
+only; all clone, projection and tracker writes remain in scratch. The live-run
+helper likewise requires an explicit `--pm-root` and never copies run records
+back into the development tracker. For a fresh study, initialize/install the
+package and record resource approval **in that scratch tracker**, then use:
+
+```sh
+pm --pm-root "$scratch/.agents/pm" rl proposer run transfer-study \
+  --file examples/proposer-program.json --dataset sealed-public-corpus \
+  --approval resource-decision --json
 ```
 
 # Regression evidence

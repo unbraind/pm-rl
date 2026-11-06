@@ -8,7 +8,9 @@ capability grammar, never JavaScript, shell, a plugin or another trainer.
 
 ```sh
 pm rl proposer validate --file examples/proposer-program.json --json
-pm rl proposer run experiment --file examples/proposer-program.json \
+scratch=$(mktemp -d)
+# Initialize/install the package and create resource approval in this scratch tracker.
+pm --pm-root "$scratch/.agents/pm" rl proposer run experiment --file examples/proposer-program.json \
   --dataset sealed-improver-data --approval resource-decision --json
 ```
 
@@ -55,7 +57,7 @@ const alternate = proposerArtifact({
   order: 3,
   curriculum: "balanced",
 });
-// client is the host-injected PmClient. Coordinates identify its existing tracker.
+// client and coordinates identify the explicitly initialized scratch tracker.
 const report = await runProposerEvolution(client, coordinates, {
   id: "experiment", approval: "resource-decision", dataset: "sealed-improver-data",
   config: { ...proposerEvolutionConfiguration(), initial: alternate },

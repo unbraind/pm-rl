@@ -97,7 +97,8 @@
     "docs/proposer-programs.md",
     "docs/proposer-public-evidence.json",
     "dist/proposer-transfer.*",
-    "docs/proposer-transfer.md"
+    "docs/proposer-transfer.md",
+    "docs/proposer-transfer-receipt.json"
   ],
   "engines": {
     "node": ">=22.18.0"
@@ -198,7 +199,8 @@
       "test/training-influence-maintenance.test.ts",
       "test/proposer-program.test.ts",
       "test/proposer-transfer.test.ts",
-      "test/transfer-archive.test.ts"
+      "test/transfer-archive.test.ts",
+      "test/transfer-receipt.test.ts"
     ],
     "thresholds": {
       "statements": 100,
@@ -314,7 +316,8 @@
       "docs/training-influence-evidence.json",
       "docs/proposer-programs.md",
       "docs/proposer-public-evidence.json",
-      "docs/proposer-transfer.md"
+      "docs/proposer-transfer.md",
+    "docs/proposer-transfer-receipt.json"
     ],
     "examples": [
       "README.md",

@@ -11,6 +11,7 @@ const old = execFileSync("git", ["show", "d808b64:proposer-transfer.ts"], { cwd:
 const archiveStart = old.indexOf("export async function archiveTransferCorpus");
 const archiveEnd = old.indexOf("/** Reconstruct frozen projections", archiveStart);
 const cases = [
+  { file: "test/fixtures/transfer-replay.ts", pattern: "diagnostic replay requires", test: "transfer-receipt", transform: (s: string) => s.replace(/export function requireDiagnosticScratch[\s\S]*?(?=\/\*\* Authenticate)/, "export function requireDiagnosticScratch(pmRoot: string): string { return resolve(pmRoot); }\n"), expected: /AssertionError|Missing expected rejection/ },
   { file: "proposer-evolution.ts", pattern: "underpowered real non-git", test: "proposer-transfer", transform: (s: string) => s.slice(0, s.indexOf("export function requireProposerTransfer")) + "export function requireProposerTransfer(comparison: EvaluationPlanReport, transfer: TransferReport): EvaluationPlanReport { return comparison; }\n", expected: /AssertionError/ },
   ...["training tracker in held-out", "split digest mismatch"].map((pattern) => ({ file: "proposer-transfer.ts", pattern, test: "proposer-transfer", transform: (s: string) => s.replace(/export function verifyTransferCorpus[\s\S]*?(?=\/\*\* Open and verify)/, "export function verifyTransferCorpus(corpus: TransferCorpus, expected = corpus.manifest.digest): void {}\n"), expected: /AssertionError|Missing expected rejection/ })),
   { file: "proposer-transfer.ts", pattern: "minimum powered corpus", test: "transfer-archive", transform: (s: string) => s.replace(/export async function archiveTransferCorpus[\s\S]*?(?=\/\*\* Reconstruct frozen projections)/, old.slice(archiveStart, archiveEnd)), expected: /json_record_limit/ },
@@ -18,7 +19,7 @@ const cases = [
   { file: "proposer-transfer.ts", pattern: "native replay refuses missing", test: "transfer-archive", transform: (s: string) => s.replace('if (String((value as Record<string, JsonValue>)["format"]).endsWith("/2")) assertJsonEncoding(String(current.body), MAX_TRACKER_RECORD_BYTES);', ''), expected: /AssertionError|Missing expected rejection/ },
   { file: "proposer-transfer.ts", pattern: "explicit prospective designs", test: "transfer-archive", transform: (s: string) => s.replace('const { alpha, power, effect, margin, targets, looks } = parseTransferDesign(declaration);', 'const { alpha, power, effect, margin, targets, looks } = parseTransferDesign({ ...TRANSFER_DESIGN, looks: declaration.looks });'), expected: /AssertionError/ },
 ];
-for (const probe of cases) {
+for (const probe of cases.filter((probe) => process.argv[2] === undefined || probe.pattern === process.argv[2])) {
   const path = join(scratch, probe.file); const original = readFileSync(path, "utf8"); const changed = probe.transform(original); assert.notEqual(changed, original);
   try {
     writeFileSync(path, changed);
