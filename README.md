@@ -1115,8 +1115,10 @@ provenance. No git executable is required by the proposer path.
 ## Power-qualified proposer transfer
 
 Every new `rl proposer run` also requires a passed tracker-transfer evaluation.
-The fixed design declares a 0.10 alternative effect, a 0.01 promotion margin,
-family alpha 0.05 and per-task target power 0.80. Paired differences use equal-weight
+Operators declare the transfer MDE (`effect`), family `alpha` and desired
+per-task `power` in the configuration before scoring. A native evaluation plan
+seals those choices and the generation-derived number of looks. The original
+study used effect 0.10, margin 0.01, alpha 0.05 and power 0.80. Paired differences use equal-weight
 tracker means; Bonferroni covers both tasks and all planned generations plus the
 final audit. Each adaptive generation receives fresh meta trackers. The existing
 inner, outer, protected-cohort and resource gates remain necessary.
@@ -1128,8 +1130,9 @@ pm rl proposer transfer replay EVALUATION_SHA256 --json
 pm get pm-rl-rsipower-bounded-result --json
 ```
 
-Replay needs only native PM Decisions: the corpus manifest, projected chronological
-tasks, exact split digests, paired observations and derived evaluation are stored
+Replay needs only native PM Decisions: a small root pins ordered, bounded
+content-addressed shards for the manifest and projected chronological tasks;
+exact split digests, a prospective plan, paired observations and the evaluation are stored
 through SDK fields and append-only history. It requires neither dataset side files
 nor source checkouts. `affected_version` is the content address and `component`
 is `proposer-transfer`. Creation-time words remain numeric hashes; raw source

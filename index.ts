@@ -4,7 +4,7 @@ export { initialProposer, proposerArtifact, parseProposerProgram, executeProposa
 export { runProposerEvolution, executeProposer, proposerEvolutionConfiguration, parseProposerEvolutionConfig, type ProposerEvolutionConfig, type ProposerEvolutionRequest, type ProposerEvolutionReport } from "./proposer-evolution.ts";
 import { runProposerEvolution, parseProposerEvolutionConfig } from "./proposer-evolution.ts";
 import { replayTransferEvaluation } from "./proposer-transfer.ts";
-export { TRANSFER_DESIGN, transferPower, evaluateTransfer, loadTransferCorpus, verifyTransferCorpus, archiveTransferCorpus, replayTransferCorpus, recordTransferEvaluation, replayTransferEvaluation, type TransferCorpus, type TransferReport, type TransferPair, type TransferPower } from "./proposer-transfer.ts";
+export { TRANSFER_DESIGN, parseTransferDesign, planTransferArchive, recordTransferPlan, readTransferPlan, type TransferDesign, type TransferPlan, type TransferArchive, transferPower, evaluateTransfer, loadTransferCorpus, verifyTransferCorpus, archiveTransferCorpus, replayTransferCorpus, recordTransferEvaluation, replayTransferEvaluation, type TransferCorpus, type TransferReport, type TransferPair, type TransferPower } from "./proposer-transfer.ts";
 import { ProposerRefusal } from "./proposer-program.ts";
 import { canonicalIdentifier, canonicalNamespaceIdentifier, preservedProgrammeId, programmeStepName, programmeRequest, acquireStateLock, statePath, identifier, checkedStateFile, identifierClient, commitStateTransaction, schemaIdentity, operationIdentifier, DECISION_INPUT_FIELDS, type ValidationMode } from "./state-boundary.ts";
 /** Select released-schema reads or explicit validation of a new declaration. */

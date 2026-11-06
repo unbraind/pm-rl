@@ -1,39 +1,31 @@
 /** Native SDK trackers exercise power, leakage and digest refusals without a simulated host. */
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { writeFileSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
+import type { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import extension, { hashJson, type JsonValue, type RlCommandResult } from "../index.ts";
 import { IMPROVER_ROLES, type ImproverTask } from "../improver-data.ts";
-import { archiveTransferCorpus, evaluateTransfer, loadTransferCorpus, recordTransferEvaluation, replayTransferCorpus, replayTransferEvaluation, transferMembers, transferPower, verifyTransferCorpus, TRANSFER_DESIGN, type TransferCorpus } from "../proposer-transfer.ts";
+import { archiveTransferCorpus, evaluateTransfer, loadTransferCorpus, recordTransferEvaluation, replayTransferCorpus, replayTransferEvaluation, transferMembers, transferPower, verifyTransferCorpus, TRANSFER_DESIGN, recordTransferPlan, readTransferPlan, type TransferDesign, type TransferCorpus } from "../proposer-transfer.ts";
 import { proposerEvolutionConfiguration, runProposerEvolution, requireProposerTransfer, proposerEvaluationPlan } from "../proposer-evolution.ts";
 import { initialProposer } from "../proposer-program.ts";
 import { evaluatePlan } from "../evaluation-plan.ts";
+import { listProcessJobs } from "../process.ts";
 import { processWorkspace } from "./fixtures/process-workspace.ts";
 
-/** Eight real-format chronological rows carry no raw text, authors or machine coordinates. */
-function task(role: string, index: number, target: ImproverTask["target"]): ImproverTask {
-  const rows = Array.from({ length: 8 }, (_, n) => ({ id: `${role}-${index}-${n}`, prediction_at: n, available_at: n, label: n % 2 as 0 | 1, prefix: { events: ["create"], fields: [], words: [n % 2], authors: 1, elapsed_ms: 0 } }));
-  return { id: `${role}-${index}-${target}`, repo: `public-fixture/${role}-${index}`, commit: "a".repeat(40), target, cutoff: 4, threshold_ms: target === "issue-type" ? null : 10, train: rows.slice(0, 4), evaluation: rows.slice(4) };
-}
-/** Use the released dataset envelope so old persisted input remains a supported positive control. */
-function corpus(count = 1): TransferCorpus {
-  const tasks = Object.fromEntries(IMPROVER_ROLES.map((role) => [role, Array.from({ length: count }, (_, index) => TRANSFER_DESIGN.targets.map((target) => task(role, index, target))).flat()])) as unknown as TransferCorpus["tasks"];
-  const record = { format: "pm-rl/improver-dataset/1" as const, seed: 42, sources: IMPROVER_ROLES.flatMap((role) => Array.from({ length: count }, (_, index) => ({ repo: `public-fixture/${role}-${index}`, commit: "a".repeat(40), role }))), splits: Object.fromEntries(IMPROVER_ROLES.map((role) => [role, { tasks: tasks[role].length, digest: hashJson(tasks[role] as unknown as JsonValue) }])) as TransferCorpus["manifest"]["splits"], omitted: [] };
-  return { tasks, manifest: { ...record, digest: hashJson(record as unknown as JsonValue) } };
-}
-/** Rehash deliberate invalid fixtures so structural protection, rather than a stale outer hash, must detect them. */
-function seal(value: TransferCorpus): TransferCorpus {
-  const { digest: _, ...old } = value.manifest;
-  const record = { ...old, splits: Object.fromEntries(IMPROVER_ROLES.map((role) => [role, { tasks: value.tasks[role].length, digest: hashJson(value.tasks[role] as unknown as JsonValue) }])) as TransferCorpus["manifest"]["splits"] };
-  return { ...value, manifest: { ...record, digest: hashJson(record as unknown as JsonValue) } };
-}
-/** Persist only synthetic projected input files needed to enter the existing full controller path. */
-function dataset(root: string, value: TransferCorpus): string {
-  const directory = join(root, "dataset"); mkdirSync(directory);
-  for (const role of IMPROVER_ROLES) writeFileSync(join(directory, `${role}.json`), JSON.stringify(value.tasks[role]));
-  writeFileSync(join(directory, "improver-dataset.json"), JSON.stringify(value.manifest)); return directory;
+import { transferCorpus as corpus, sealTransferCorpus as seal, writeTransferDataset as dataset } from "./fixtures/transfer-corpus.ts";
+/** Declare the historical study explicitly in new prospective plans. */
+function declaration(looks = 2): TransferDesign { return { ...TRANSFER_DESIGN, looks }; }
+/** Construct released version-one native records solely as a compatibility fixture. */
+async function legacyArchive(client: PmClient, value: TransferCorpus): Promise<string> {
+  const refs = [];
+  for (const role of IMPROVER_ROLES) for (const task of value.tasks[role]) {
+    const packet = { format: "pm-rl/proposer-transfer-task/1", role, task }; const digest = hashJson(packet as unknown as JsonValue);
+    await client.create({ id: `transfer-${digest}`, type: "Decision", title: "Legacy synthetic task", body: JSON.stringify(packet), affectedVersion: digest, component: "proposer-transfer" }); refs.push({ role, digest });
+  }
+  const record = { format: "pm-rl/proposer-transfer-corpus/1", manifest: value.manifest, tasks: refs }; const digest = hashJson(record as unknown as JsonValue);
+  await client.create({ id: `transfer-${digest}`, type: "Decision", title: "Legacy synthetic corpus", body: JSON.stringify(record), affectedVersion: digest, component: "proposer-transfer" }); return digest;
 }
 
 test("underpowered real non-git controller refuses transfer and replays native evidence without dataset files", { timeout: 300_000 }, async () => {
@@ -41,13 +33,16 @@ test("underpowered real non-git controller refuses transfer and replays native e
   await w.client.update(w.approval, { body: '```json\n'+JSON.stringify({ permitted_promotions: 100, meta_budget: { training_samples: 100000, proposal_calls: 100, recipe_promotions: 100 }, resource_budget: { training_steps: 1000, wall_ms: 100_000_000, compute_units: 100_000_000, storage_bytes: 100_000_000, tokens: 0 } })+'\n```' });
   const value = corpus(); const directory = dataset(w.root, value);
   assert.deepEqual(loadTransferCorpus(directory), value);
-  const request = { id: "power", approval: w.approval, dataset: directory, config: { ...proposerEvolutionConfiguration(), generations: 1, candidates: 1, updates: 1 } };
+  const stages: string[] = [];
+  const request = { async onStep(key: string) { stages.push(key); if (key === "transfer-plan") assert.equal((await listProcessJobs(w.client)).length, 0); }, id: "power", approval: w.approval, dataset: directory, config: { ...proposerEvolutionConfiguration(), generations: 1, candidates: 1, updates: 1 } };
   const nativeCorpus = await archiveTransferCorpus(w.client, value);
-  const underpowered = await recordTransferEvaluation(w.client, nativeCorpus, "meta", value.tasks.meta.map(({ id }) => ({ id, candidate: 1, incumbent: 0 })), 2);
+  const underpowered = await recordTransferEvaluation(w.client, nativeCorpus, "meta", value.tasks.meta.map(({ id }) => ({ id, candidate: 1, incumbent: 0 })), await recordTransferPlan(w.client, value.manifest.digest, declaration()));
   const control = evaluatePlan(proposerEvaluationPlan("control", initialProposer(), Array.from({ length: 256 }, (_, n) => ({ id: String(n), repo: String(n), target: "test" })), "ctx", 2), Array.from({ length: 256 }, (_, n) => ({ id: String(n), candidate: 1, incumbent: 0 })));
   assert.equal(control.verdict.decision, "promote");
   assert.equal(requireProposerTransfer(control, underpowered.report).verdict.decision, "refuse");
   const report = await runProposerEvolution(w.client, w.coordinates, request);
+  assert.ok(stages.indexOf("transfer-plan") < stages.indexOf("g1-d-propose"));
+  assert.deepEqual((await readTransferPlan(w.client, hashJson({ format: "pm-rl/proposer-transfer-plan/2", corpus: value.manifest.digest, design: declaration() } as unknown as JsonValue))).design, declaration());
   assert.equal(report.generations.length, 1); assert.equal(report.generations[0].promoted, false);
   assert.equal(report.generations[0].comparison.verdict.decision, "refuse");
   assert.equal(report.generations[0].transfer?.report.reason, "transfer_underpowered");
@@ -74,8 +69,8 @@ test("training tracker in held-out set is refused before native writes, includin
 });
 
 test("split digest mismatch on native replay is refused while the original released snapshot is allowed", async () => {
-  const w = await processWorkspace(); const value = corpus(); const digest = await archiveTransferCorpus(w.client, value);
-  assert.equal(await archiveTransferCorpus(w.client, value), digest); assert.deepEqual(await replayTransferCorpus(w.client, digest), value);
+  const w = await processWorkspace(); const value = corpus(); const digest = await legacyArchive(w.client, value);
+  const current = await archiveTransferCorpus(w.client, value); assert.deepEqual(await replayTransferCorpus(w.client, current), value); assert.deepEqual(await replayTransferCorpus(w.client, digest), value);
   const invalid = { ...value, tasks: { ...value.tasks, meta: value.tasks.meta.map((row) => ({ ...row, cutoff: 5 })) } };
   const stored = (await w.client.get(`transfer-${digest}`)).item;
   const body = JSON.parse(String(stored.body)) as { tasks: { digest: string }[] };
@@ -94,14 +89,14 @@ test("split digest mismatch on native replay is refused while the original relea
 
 test("power bound, paired intervals and corrected decisions match independent analytic checks", async () => {
   const w = await processWorkspace(); const value = corpus(); const digest = await archiveTransferCorpus(w.client, value);
-  const result = await recordTransferEvaluation(w.client, digest, "meta", value.tasks.meta.map(({ id }) => ({ id, candidate: 1, incumbent: 0 })), 2);
+  const result = await recordTransferEvaluation(w.client, digest, "meta", value.tasks.meta.map(({ id }) => ({ id, candidate: 1, incumbent: 0 })), await recordTransferPlan(w.client, value.manifest.digest, declaration()));
   assert.equal(result.report.passed, false); assert.equal(result.report.tasks[0].effect, 1);
   assert.equal(result.report.tasks[0].minimum_trackers, 3062);
   const n = result.report.tasks[0].minimum_trackers;
-  assert.equal(transferPower(n, 2).powered, true); assert.ok(transferPower(n, 2).power_lower_bound >= 0.8);
-  assert.ok(transferPower(n - 1, 2).power_lower_bound < 0.8);
-  assert.ok(transferPower(n, 3).minimum_trackers > n);
-  assert.deepEqual(transferPower(0, 2), { ...transferPower(0, 2), power_lower_bound: 0, radius: 2 });
+  assert.equal(transferPower(n, declaration(2)).powered, true); assert.ok(transferPower(n, declaration(2)).power_lower_bound >= 0.8);
+  assert.ok(transferPower(n - 1, declaration(2)).power_lower_bound < 0.8);
+  assert.ok(transferPower(n, declaration(3)).minimum_trackers > n);
+  assert.deepEqual(transferPower(0, declaration(2)), { ...transferPower(0, declaration(2)), power_lower_bound: 0, radius: 2 });
   assert.deepEqual(await replayTransferEvaluation(w.client, result.digest), result.report);
   const comparison = evaluatePlan(proposerEvaluationPlan("pass", initialProposer(), Array.from({ length: 256 }, (_, index) => ({ id: String(index), repo: String(index), target: "test" })), "ctx", 2), Array.from({ length: 256 }, (_, index) => ({ id: String(index), candidate: 1, incumbent: 0 })));
   assert.equal(comparison.verdict.decision, "promote");
@@ -116,11 +111,11 @@ test("meta tracker shards are fresh for adaptive generations and missing targets
   assert.equal(first.some((task) => second.some((other) => other.repo === task.repo)), false);
   assert.equal(first.length + second.length, value.tasks.meta.length);
   assert.deepEqual(transferMembers(value, "audit", 3), value.tasks.audit);
-  assert.equal(evaluateTransfer(value, "meta", first.map(({ id }) => ({ id, candidate: 0, incumbent: 1 })), 3).tasks[0].effect, -1);
+  assert.equal(evaluateTransfer(value, "meta", first.map(({ id }) => ({ id, candidate: 0, incumbent: 1 })), declaration(3)).tasks[0].effect, -1);
   const missing = seal({ ...value, tasks: { ...value.tasks, meta: value.tasks.meta.filter((task) => task.target === "issue-type") } });
-  const report = evaluateTransfer(missing, "meta", missing.tasks.meta.map(({ id }) => ({ id, candidate: 0.5, incumbent: 0.5 })), 1);
+  const report = evaluateTransfer(missing, "meta", missing.tasks.meta.map(({ id }) => ({ id, candidate: 0.5, incumbent: 0.5 })), declaration(1));
   assert.equal(report.tasks[1].trackers, 0); assert.deepEqual(report.tasks[1].interval, [-1, 1]); assert.equal(report.passed, false);
-  for (const [n, comparisons] of [[-1, 2], [1.1, 2], [NaN, 2], [1, 0], [1, 6]]) assert.throws(() => transferPower(n, comparisons), /transfer_counts/);
+  for (const [n, comparisons] of [[-1, 2], [1.1, 2], [NaN, 2], [1, 0], [1, 65]]) assert.throws(() => transferPower(n, declaration(comparisons)), /transfer_counts|transfer_design/);
   for (const look of [0, 4, NaN]) assert.throws(() => transferMembers(value, "meta", 3, look), /transfer_look/);
 });
 
@@ -133,26 +128,37 @@ test("invalid corpus seals, private sources and malformed paired evidence refuse
     await assert.rejects(archiveTransferCorpus(w.client, invalid), /transfer_private_source/);
   }
   const pairs = valid.tasks.meta.map(({ id }) => ({ id, candidate: 0.5, incumbent: 0.5 }));
-  for (const invalid of [[], [pairs[0], pairs[0]], [{ ...pairs[0], id: "foreign" }, pairs[1]], [{ ...pairs[0], candidate: NaN }, pairs[1]], [{ ...pairs[0], incumbent: -1 }, pairs[1]]]) assert.throws(() => evaluateTransfer(valid, "meta", invalid, 2), /transfer_pairs|transfer_score/);
+  for (const invalid of [[], [pairs[0], pairs[0]], [{ ...pairs[0], id: "foreign" }, pairs[1]], [{ ...pairs[0], candidate: NaN }, pairs[1]], [{ ...pairs[0], incumbent: -1 }, pairs[1]]]) assert.throws(() => evaluateTransfer(valid, "meta", invalid, declaration(2)), /transfer_pairs|transfer_score/);
   await assert.rejects(replayTransferCorpus(w.client, "bad"), /transfer_digest/);
 });
 
  test("a powered synthetic paired control passes while a powered null still refuses", () => {
-  const value = corpus(transferPower(0, 2).minimum_trackers);
-  const improvement = evaluateTransfer(value, "meta", value.tasks.meta.map(({ id }) => ({ id, candidate: 1, incumbent: 0 })), 2);
+  const value = corpus(transferPower(0, declaration(2)).minimum_trackers);
+  const improvement = evaluateTransfer(value, "meta", value.tasks.meta.map(({ id }) => ({ id, candidate: 1, incumbent: 0 })), declaration(2));
   assert.equal(improvement.passed, true); assert.equal(improvement.reason, "transfer_passed");
-  const nullEffect = evaluateTransfer(value, "meta", value.tasks.meta.map(({ id }) => ({ id, candidate: 0.5, incumbent: 0.5 })), 2);
+  const nullEffect = evaluateTransfer(value, "meta", value.tasks.meta.map(({ id }) => ({ id, candidate: 0.5, incumbent: 0.5 })), declaration(2));
   assert.equal(nullEffect.passed, false); assert.equal(nullEffect.reason, "transfer_no_improvement");
 });
 
  test("native record IO failures propagate without overwriting unavailable evidence", async () => {
   const w = await processWorkspace(); const value = corpus(); const digest = await archiveTransferCorpus(w.client, value);
-  const record = JSON.parse(String((await w.client.get(`transfer-${digest}`)).item.body)) as { tasks: { digest: string }[] };
-  const id = (await w.client.get(`transfer-${record.tasks[0].digest}`)).item.id;
+  const record = JSON.parse(String((await w.client.get(`transfer-${digest}`)).item.body)) as { shards: string[] };
+  const id = (await w.client.get(`transfer-${record.shards[0]}`)).item.id;
   const file = join(w.pmRoot, "decisions", `${id}.toon`); const original = readFileSync(file);
   try {
     writeFileSync(file, "not a valid tracker item");
     await assert.rejects(archiveTransferCorpus(w.client, value));
   } finally { writeFileSync(file, original); }
   assert.deepEqual(await replayTransferCorpus(w.client, digest), value);
+});
+
+test("released version one evaluation receipts preserve their historical design on replay", async () => {
+  const w = await processWorkspace(); const value = corpus(); const address = await legacyArchive(w.client, value);
+  const pairs = value.tasks.meta.map(({ id }) => ({ id, candidate: 0.5, incumbent: 0.5 }));
+  const computed = evaluateTransfer(value, "meta", pairs, declaration());
+  const report = { ...computed, format: "pm-rl/proposer-transfer-report/1", design: TRANSFER_DESIGN };
+  const record = { format: "pm-rl/proposer-transfer-evaluation/1", corpus: address, role: "meta", comparisons: 2, look: 1, pairs, report };
+  const digest = hashJson(record as unknown as JsonValue);
+  await w.client.create({ id: `transfer-${digest}`, type: "Decision", title: "Released synthetic evaluation", body: JSON.stringify(record), affectedVersion: digest, component: "proposer-transfer" });
+  assert.deepEqual(await replayTransferEvaluation(w.client, digest), report);
 });

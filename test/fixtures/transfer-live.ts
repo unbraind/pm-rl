@@ -5,7 +5,7 @@ import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { init } from "@unbrained/pm-cli/sdk/runtime";
 import { hashJson, type JsonValue } from "../../json-identity.ts";
-import { archiveTransferCorpus, loadTransferCorpus, recordTransferEvaluation, replayTransferEvaluation, transferPower, type TransferPair } from "../../proposer-transfer.ts";
+import { archiveTransferCorpus, loadTransferCorpus, recordTransferEvaluation, recordTransferPlan, readTransferPlan, replayTransferEvaluation, transferPower, TRANSFER_DESIGN, type TransferPair } from "../../proposer-transfer.ts";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { buildImproverDataset, IMPROVER_ROLES } from "../../improver-data.ts";
 import { proposerEvolutionConfiguration, runProposerEvolution } from "../../proposer-evolution.ts";
@@ -31,7 +31,7 @@ if (mode === "build") {
   const copies = copyImproverSources(fleet, join(output, "sources"), pins);
   const manifest = buildImproverDataset(copies, join(output, "dataset"), 42);
   writeFileSync(join(output, "pins.json"), JSON.stringify({ pins, excluded }));
-  console.log(JSON.stringify({ sources: manifest.sources, omitted: manifest.omitted, splits: manifest.splits, digest: manifest.digest, design: transferPower(0, 2) }));
+  console.log(JSON.stringify({ sources: manifest.sources, omitted: manifest.omitted, splits: manifest.splits, digest: manifest.digest, design: transferPower(0, { ...TRANSFER_DESIGN, looks: 2 }) }));
 } else {
   const root = process.cwd(); const targetRoot = join(root, ".agents/pm");
   const target = new PmClient({ cwd: root, pmRoot: targetRoot, noExtensions: true, author: "codex-sol" });
@@ -59,8 +59,10 @@ if (mode === "build") {
   const address = await archiveTransferCorpus(target, loadTransferCorpus(directory));
   const persisted = [];
   for (const receipt of [...report.generations.map((row) => row.transfer), report.transfer]) {
-    const envelope = JSON.parse(String((await client.get(`transfer-${receipt.digest}`)).item.body)) as { pairs: TransferPair[]; role: "meta" | "audit"; comparisons: number };
-    const copied = await recordTransferEvaluation(target, address, envelope.role, envelope.pairs, envelope.comparisons);
+    const envelope = JSON.parse(String((await client.get(`transfer-${receipt.digest}`)).item.body)) as { pairs: TransferPair[]; role: "meta" | "audit"; plan: string };
+    const plan = await readTransferPlan(client, envelope.plan);
+    const declared = await recordTransferPlan(target, plan.corpus, plan.design);
+    const copied = await recordTransferEvaluation(target, address, envelope.role, envelope.pairs, declared);
     assert.deepEqual(copied.report, receipt.report); persisted.push(copied.digest);
   }
   const result = { elapsed_ms: Math.ceil(performance.now() - started), report, corpus: address, evaluations: persisted };

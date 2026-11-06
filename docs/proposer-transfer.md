@@ -18,7 +18,7 @@ observed score selects a tracker.
 
 For each task, candidate and incumbent accuracy lie in [0,1]. Average paired
 differences within a tracker first, then weight trackers equally. A paired tracker
-difference D lies in [-1,1]. For n independent tracker units and m = 2(G+1)
+difference D lies in [-1,1]. For n independent tracker units and m = 2L
 predeclared task/look comparisons, the simultaneous two-sided Hoeffding interval is:
 
 ```text
@@ -27,16 +27,16 @@ CI = [max(-1, mean(D)-r), min(1, mean(D)+r)]
 ```
 
 Promotion requires the lower endpoint to reach the unchanged 0.01 margin for
-both tasks, in addition to all previous gates. The prospective alternative is
-0.10, alpha is 0.05, and desired per-task power is 0.80. At that alternative the lower power
-guarantee is zero if s = 0.10 - 0.01 - r is nonpositive, otherwise
+both tasks, in addition to all previous gates. The prospective alternative (MDE), family alpha, desired per-task power and look
+count are explicit fields in the native transfer plan. For MDE delta, the lower
+power guarantee is zero if s = delta - margin - r is nonpositive, otherwise
 `1 - exp(-n*s*s/2)`. Solving for the minimum integer n gives:
 
 ```text
-ceil(2 (sqrt(log(2m/alpha)) + sqrt(log(1/(1-power))))^2 / (0.10-0.01)^2)
+ceil(2 (sqrt(log(2m/alpha)) + sqrt(log(1/(1-power))))^2 / (MDE-margin)^2)
 ```
 
-With one generation and an audit, this is 3,062 trackers **per task and per look**.
+For the original study declaration (MDE 0.10, alpha 0.05, power 0.80, two looks), this is 3,062 trackers **per task and per look**.
 The calculation uses the declared alternative, never an observed effect or fitted
 variance. Zero rows or a missing target remain underpowered. Confidence intervals
 are wide rather than silently borrowing item counts or training examples.
@@ -49,6 +49,60 @@ between fleet projects. The follow-up corpus task requires a justified broader
 sampling frame. The existing public Git builder also caps source count at 64;
 its current domain cannot supply this power requirement.
 
+# Choosing and sealing a prospective design
+
+New proposer configurations must contain an explicit `transfer` declaration:
+
+```json
+{
+  "generations": 1,
+  "transfer": { "effect": 0.10, "alpha": 0.05, "power": 0.80 }
+}
+```
+
+This fragment accompanies the other bounded fields in
+`examples/proposer-program.json`. `effect` is the minimum detectable population
+gain (MDE), not the observed gain or the promotion margin. The controller derives
+the total looks from the predeclared generation count plus one final audit and
+seals the full design, including that count, margin and task identities, in a
+native `pm-rl/proposer-transfer-plan/2` Decision before proposal/scoring work.
+Every new evaluation cites that plan's content address. Resume binds the same
+configuration and plan; changing choices requires a new study. Configuration
+validation can still inspect older files, but new execution requires an explicit
+`transfer` declaration. Older evaluation receipts keep their historical parameters
+and remain replayable; they are never reinterpreted using a new default.
+
+Choose the smallest improvement that would justify deployment using the task's
+actual costs and benefits **before** looking at held-out contender scores. Then
+choose the family error budget, desired power and total planned looks. Use
+`transferPower(availableTrackers, declaredDesign)` to check feasibility. A larger
+MDE is easier to detect but promises nothing about smaller useful gains; it is
+not a remedy for an unfavorable observed result. If the required population is
+unavailable, collect more independently justified trackers, run an explicitly
+underpowered diagnostic, or predeclare a separately justified statistical method.
+Never revise a plan after seeing its evaluation outcomes to manufacture power.
+
+For alpha 0.05, per-task power 0.80, margin 0.01, two tasks and two looks:
+
+| Prospective MDE (accuracy units) | Required trackers per task per look |
+| --- | ---: |
+| 0.05 (5 percentage points) | 15,501 |
+| 0.10 | 3,062 |
+| 0.20 | 688 |
+| 0.30 | 295 |
+| 0.50 | 104 |
+| 0.80 | 40 |
+
+The MDE must also fit the objective: a baseline accuracy of 0.50 leaves at most
+0.50 possible gain. The 0.80 row illustrates the bound and is not a realistic
+setting for that baseline.
+
+These conservative bounded-difference requirements can exceed a real fleet even
+for a large MDE. Three trackers cannot support this design for any feasible
+bounded accuracy gain. Higher confidence, higher target power or more looks
+require more evidence. Existing task-count, time, resource and independent
+promotion gates also apply; this table does not guarantee overall loop promotion.
+
 # Corpus and replay contract
 
 The builder verifies PUBLIC visibility, MIT licensing and published commit pins
@@ -58,9 +112,18 @@ Only copied committed histories are read. Chronological train/evaluation boundar
 label availability, task balance and the released dataset identity contract are
 validated on initial input and before each durable operation.
 
-Each task is a bounded SDK-created Decision. Another Decision binds the original
-manifest to all task digests; the evaluation Decision binds that address to exact
-paired scores, design, generation look and report. All use registered native
+Version-two archives group source metadata, omissions and projected tasks into
+content-addressed native shard Decisions. A small root pins the manifest header,
+ordered shard digests and total entry count. Each shard hashes its sequence index
+as well as its contents. The planner and writer share the same complete byte
+preflight; an oversized entry refuses before the first corpus mutation. The root
+is published after its shards. Replay checks every native digest and birth state,
+shard position and count, then reconstructs and verifies the complete source and
+split hashes. Missing, extra, duplicated, reordered and altered shards refuse.
+Version-one roots and evaluation receipts remain readable.
+
+The evaluation Decision binds the corpus root and sealed plan to exact paired
+scores, the generation look and report. All use registered native
 `affected_version` and `component` fields and native birth history. Existing
 addresses must match their native birth and content hash; writes never overwrite
 a conflicting address. Corpus and split hashes are rechecked during replay.
@@ -155,3 +218,14 @@ a powered null still refuses. That control is explicitly synthetic.
 the transfer gate or only the corpus verifier, and requires the three named native
 regressions to fail with assertion errors (exit 1). Every mutation is restored in
 `finally`. No SDK mocks, missing imports or build failures count as revert proof.
+
+# Powered archive capacity regression (issue 149)
+
+The minimum-size real SDK regression uses 3,062 synthetic tracker references per
+task in both meta and audit, plus valid development data: 12,248 held-out tasks.
+It archives and replays 73 native shards. The root is **5,412 bytes**; the largest
+record is **264,191 bytes**, below the unchanged **1,048,576-byte** cap. A favorable
+synthetic paired comparison then passes and replays through its explicit native
+plan. This is a storage/statistics positive control, not real transfer efficacy.
+No new real-data run is needed to repair the storage format; the historical
+underpowered measurements above are unchanged.

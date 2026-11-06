@@ -15,12 +15,12 @@ import { openImproverEnvironment, IMPROVER_CRITERION, IMPROVER_ADAPTER, IMPROVER
 import { parseEvaluationPlan, evaluatePlan, type EvaluationPlan, type EvaluationPlanReport } from "./evaluation-plan.ts";
 import { requireCheckpointStorage } from "./checkpoint-artifacts.ts";
 import { reserveSearchCapacity } from "./meta.ts";
-import { TRANSFER_DESIGN, loadTransferCorpus, verifyTransferCorpus, transferMembers, archiveTransferCorpus, replayTransferCorpus, recordTransferEvaluation, replayTransferEvaluation, type TransferReport } from "./proposer-transfer.ts";
+import { TRANSFER_DESIGN, loadTransferCorpus, verifyTransferCorpus, transferMembers, archiveTransferCorpus, replayTransferCorpus, recordTransferEvaluation, replayTransferEvaluation, parseTransferDesign, recordTransferPlan, readTransferPlan, type TransferReport } from "./proposer-transfer.ts";
 
 /** Same bounded allowance for every proposal interpreter; logical optimizer and inference use are both zero. */
 export const PROPOSER_ALLOWANCE = { training_steps: 0, wall_ms: 30_000, storage_bytes: 16_384, compute_units: 30_000, tokens: 0 } as const;
 /** Search limits are immutable, including statistical budgets and post-promotion audit costs. */
-export interface ProposerEvolutionConfig { readonly initial: ProposerProgram; readonly generations: number; readonly candidates: number; readonly updates: number; readonly seed: number; readonly timeout_ms: number }
+export interface ProposerEvolutionConfig { readonly initial: ProposerProgram; readonly generations: number; readonly candidates: number; readonly updates: number; readonly seed: number; readonly timeout_ms: number; readonly transfer?: { readonly effect: number; readonly alpha: number; readonly power: number } }
 /** Aggregate search evidence excludes raw task rows; full process receipts remain independently readable. */
 export interface ProposerSearch { readonly execution: ProposalExecution; readonly scores: readonly { id: string; mean: number }[]; readonly counts: readonly ProposalCounts[]; readonly jobs: readonly string[]; readonly optimizer_updates: number }
 /** Every rejected or restored artifact remains in append-only controller receipts. */
@@ -31,14 +31,18 @@ export interface ProposerEvolutionReport { readonly format: "pm-rl/proposer-evol
 export interface ProposerEvolutionRequest { readonly id: string; readonly config: ProposerEvolutionConfig; readonly dataset: string; readonly approval: string; readonly signal?: AbortSignal; readonly forceTakeover?: boolean; readonly onStep?: (key: string) => void | Promise<void> }
 
 /** A modest declaration keeps actual training bounded to two recursive generations. */
-export function proposerEvolutionConfiguration(): ProposerEvolutionConfig { return { initial: initialProposer(), generations: 2, candidates: 2, updates: 64, seed: 42, timeout_ms: 1_140_000 }; }
+export function proposerEvolutionConfiguration(): ProposerEvolutionConfig { return { initial: initialProposer(), generations: 2, candidates: 2, updates: 64, seed: 42, timeout_ms: 1_140_000, transfer: { effect: 0.10, alpha: 0.05, power: 0.80 } }; }
 /** Validate the complete configuration before any controller lease or resource reservation. */
 export function parseProposerEvolutionConfig(value: unknown): ProposerEvolutionConfig {
   if (value === null || typeof value !== "object" || Array.isArray(value)) throw new ProposerRefusal();
   const row = value as ProposerEvolutionConfig;
-  if (Object.keys(row).sort().join() !== "candidates,generations,initial,seed,timeout_ms,updates") throw new ProposerRefusal();
+  if (!["candidates,generations,initial,seed,timeout_ms,updates", "candidates,generations,initial,seed,timeout_ms,transfer,updates"].includes(Object.keys(row).sort().join())) throw new ProposerRefusal();
   for (const [key, maximum] of [["generations", 4], ["candidates", 8], ["updates", 512], ["seed", 0xffff_ffff], ["timeout_ms", 1_200_000]] as const) {
     if (!Number.isSafeInteger(row[key]) || row[key] < (key === "seed" ? 0 : 1) || row[key] > maximum) throw new ProposerRefusal();
+  }
+  if (row.transfer !== undefined) {
+    assert.equal(Object.keys(row.transfer).sort().join(), "alpha,effect,power", "transfer_design");
+    parseTransferDesign({ ...row.transfer, margin: IMPROVER_CRITERION.effectThreshold, looks: row.generations + 1, targets: TRANSFER_DESIGN.targets });
   }
   const initial = parseProposerProgram(row.initial);
   if (initial.generation + row.generations > 100) throw new ProposerRefusal();
@@ -166,6 +170,8 @@ async function proposerProcessBudget(client: PmClient, approval: string, id: str
 /** Run equal-cost contenders with append-only receipts, SDK revision fencing and a final audit rollback. */
 export async function runProposerEvolution(client: PmClient, coordinates: ProcessCoordinates, raw: ProposerEvolutionRequest): Promise<ProposerEvolutionReport> {
   const config = parseProposerEvolutionConfig(raw.config); requireCheckpointStorage();
+  assert.ok(config.transfer !== undefined, "transfer_plan_required");
+  const design = parseTransferDesign({ ...config.transfer, margin: IMPROVER_CRITERION.effectThreshold, looks: config.generations + 1, targets: TRANSFER_DESIGN.targets });
   const request = await programmeRequest(client, raw); const manifest = evolutionDataset(request.dataset);
   const transferCorpus = proposerDatasetRead(() => loadTransferCorpus(request.dataset));
   const approval = await proposerApprovalRead(() => readCompleteLoopItem(client, request.approval));
@@ -200,7 +206,11 @@ export async function runProposerEvolution(client: PmClient, coordinates: Proces
     let deadline = signal;
     const declared = await step("programme", budget, async () => { await proposerApprovalRead(() => reserveSearchCapacity(client, coordinates, request, binding, capacity, fits + config.generations)); return { expires: Date.now() + config.timeout_ms, budget }; });
     deadline = AbortSignal.any([signal, AbortSignal.timeout(Math.max(0, declared.expires - Date.now()))]);
-    const corpusReceipt = await step("transfer-corpus", { corpus: manifest.digest, design: TRANSFER_DESIGN, comparisons: config.generations + 1 }, async () => ({ digest: await archiveTransferCorpus(client, transferCorpus), design: TRANSFER_DESIGN, comparisons: config.generations + 1 }), async (receipt) => {
+    const planReceipt = await step("transfer-plan", { corpus: manifest.digest, design }, async () => ({ digest: await recordTransferPlan(client, manifest.digest, design) }), async (receipt) => {
+      const plan = await readTransferPlan(client, receipt.digest);
+      assert.equal(hashJson(plan as unknown as JsonValue), hashJson({ format: "pm-rl/proposer-transfer-plan/2", corpus: manifest.digest, design } as unknown as JsonValue), "transfer_plan_drift");
+    });
+    const corpusReceipt = await step("transfer-corpus", { corpus: manifest.digest, plan: planReceipt.digest }, async () => ({ digest: await archiveTransferCorpus(client, transferCorpus) }), async (receipt) => {
       const restored = await replayTransferCorpus(client, receipt.digest);
       verifyTransferCorpus(restored, manifest.digest);
     });
@@ -209,7 +219,7 @@ export async function runProposerEvolution(client: PmClient, coordinates: Proces
     const transfer = async (role: "meta" | "audit", before: ProposerSearch, after: ProposerSearch, key: string, look = 1) => {
       const incumbent = new Map(before.scores.map((score) => [score.id, score.mean]));
       const pairs = after.scores.map((score) => ({ id: score.id, candidate: score.mean, incumbent: incumbent.get(score.id)! }));
-      return step(key, { corpusAddress, pairs, comparisons: config.generations + 1, look }, () => recordTransferEvaluation(client, corpusAddress, role, pairs, config.generations + 1, look), async (receipt) => {
+      return step(key, { corpusAddress, pairs, plan: planReceipt.digest, look }, () => recordTransferEvaluation(client, corpusAddress, role, pairs, planReceipt.digest, look), async (receipt) => {
         const report = await replayTransferEvaluation(client, receipt.digest);
         assert.equal(hashJson(report as unknown as JsonValue), hashJson(receipt.report as unknown as JsonValue), "transfer_report_drift");
       });

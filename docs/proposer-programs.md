@@ -32,6 +32,9 @@ An undersized declaration refuses before the controller lease or any jobs.
 Supply a frozen dataset from `rl improver build` with disjoint development, meta
 and audit trackers. The existing public-history builder requires committed public
 Git provenance. Executing a sealed dataset requires no Git repository or executable.
+New runs require explicit `transfer.effect`, `transfer.alpha` and `transfer.power`;
+a native plan seals them and `generations + 1` looks before scoring. See
+[the transfer design and sizing table](proposer-transfer.md).
 The example bounds two generations, two proposals per task, and 64 optimizer
 updates per fit; the configuration is sealed on first execution. Retrying the
 same programme resumes verified receipts. Changing its declaration requires a

@@ -209,8 +209,8 @@ central premise is false and the failure must be loud.
 ## 8. Prospective proposer-transfer qualification
 
 `runProposerEvolution` seals a transfer declaration and corpus context before
-fitting. `proposer-transfer.ts` archives projected chronological tasks and exact
-split membership as native SDK Decisions (`affected_version` content address,
+fitting. `proposer-transfer.ts` archives projected chronological tasks, source metadata and exact
+split membership as ordered bounded native SDK shards plus a small root (`affected_version` content address,
 `component=proposer-transfer`), then records paired observations and the derived
 report in another immutable Decision. Native birth history and hashes are checked
 on replay; a changed split or a tracker crossing compartments refuses. No separate
@@ -219,8 +219,9 @@ metric or corpus evidence store is introduced.
 Each adaptive generation gets fresh meta trackers, and the final audit uses a
 third compartment. Equal-weight paired tracker differences have simultaneous
 bounded confidence intervals with Bonferroni correction over two tasks and every
-planned generation/audit. A prospective 0.10 effect, 0.01 margin, alpha 0.05 and
-80% per-task target power determine a minimum sample size before results. Underpowered
+planned generation/audit. An explicit prospective plan records operator MDE, alpha and target power,
+with the generation-derived look count before results; the original study
+declared effect 0.10, margin 0.01, alpha 0.05 and per-task power 0.80. Underpowered
 input can produce diagnostic evidence but cannot promote. This additional gate
 preserves the existing inner, outer, cohort, resource and rollback gates.
 
@@ -238,3 +239,8 @@ seconds (576.235 seconds including verified publication). Thirty fits consumed
 per task and power lower bound 0.00. Transfer and existing sample gates refused;
 the prior proposer remained retained. This proves fail-closed execution and
 native replay, not statistically powered transfer efficacy.
+
+The issue-149 minimum powered archive regression covers 12,248 held-out task
+references with 73 native shards, a 5,412-byte root and maximum record size
+264,191 bytes. Replay validates ordered shard identities and complete corpus
+digests; the one-MiB limit is unchanged. Version-one evidence remains readable.

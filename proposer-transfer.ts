@@ -7,8 +7,20 @@ import { hashJson, type JsonValue } from "./json-identity.ts";
 import { IMPROVER_ROLES, readImproverDataset, readImproverTasks, validateImproverTasks, type ImproverDataset, type ImproverTask } from "./improver-data.ts";
 import { encodeBoundedJson, parseBoundedJson, MAX_TRACKER_RECORD_BYTES } from "./tracker-record.ts";
 
-/** Frozen design assumptions; a proposer cannot change the effect, error budget or desired power. */
+/** Historical version-one receipt design; new plans carry explicit operator declarations. */
 export const TRANSFER_DESIGN = { effect: 0.10, margin: 0.01, alpha: 0.05, power: 0.80, targets: ["issue-type", "time-to-close"] } as const;
+/** Prospective operator choices, sealed before any contender is scored. */
+export interface TransferDesign { readonly effect: number; readonly margin: number; readonly alpha: number; readonly power: number; readonly looks: number; readonly targets: typeof TRANSFER_DESIGN.targets }
+/** Validate the full declaration with no outcome-derived or implicit statistical parameters. */
+export function parseTransferDesign(value: unknown): TransferDesign {
+  assert.ok(value !== null && typeof value === "object" && !Array.isArray(value), "transfer_design");
+  const row = value as TransferDesign;
+  assert.equal(Object.keys(row).sort().join(), "alpha,effect,looks,margin,power,targets", "transfer_design");
+  assert.ok([row.effect, row.margin, row.alpha, row.power].every(Number.isFinite) && row.margin >= 0.01 && row.effect > row.margin && row.effect <= 1 && row.alpha > 0 && row.alpha < 1 && row.power > 0 && row.power < 1, "transfer_design");
+  assert.ok(Number.isSafeInteger(row.looks) && row.looks >= 1 && row.looks <= 64, "transfer_design");
+  assert.deepEqual(row.targets, TRANSFER_DESIGN.targets, "transfer_design");
+  return { ...row, targets: [...row.targets] };
+}
 /** Projected examples are sealed along with their original manifest, not reconstructed from moving source heads. */
 export interface TransferCorpus { readonly manifest: ImproverDataset; readonly tasks: Readonly<Record<typeof IMPROVER_ROLES[number], readonly ImproverTask[]>> }
 /** Paired outcomes refer to exactly the declared task identities. */
@@ -18,11 +30,24 @@ export interface TransferPower { readonly minimum_trackers: number; readonly tra
 /** Simultaneous intervals and power use equal-weight independent tracker means within each target. */
 export interface TransferTaskReport extends TransferPower { readonly target: string; readonly effect: number; readonly interval: readonly [number, number] }
 /** A refusal remains useful evidence and survives replay through its native PM digest. */
-export interface TransferReport { readonly format: "pm-rl/proposer-transfer-report/1"; readonly corpus: string; readonly role: "meta" | "audit"; readonly comparisons: number; readonly look: number; readonly design: typeof TRANSFER_DESIGN; readonly tasks: readonly TransferTaskReport[]; readonly passed: boolean; readonly reason: "transfer_underpowered" | "transfer_no_improvement" | "transfer_passed" }
+export interface TransferReport { readonly format: "pm-rl/proposer-transfer-report/1" | "pm-rl/proposer-transfer-report/2"; readonly corpus: string; readonly role: "meta" | "audit"; readonly comparisons: number; readonly look: number; readonly design: typeof TRANSFER_DESIGN | TransferDesign; readonly tasks: readonly TransferTaskReport[]; readonly passed: boolean; readonly reason: "transfer_underpowered" | "transfer_no_improvement" | "transfer_passed" }
 /** Native manifest references bounded task records by their exact content digests. */
 interface CorpusRecord { readonly format: "pm-rl/proposer-transfer-corpus/1"; readonly manifest: ImproverDataset; readonly tasks: readonly { readonly role: typeof IMPROVER_ROLES[number]; readonly digest: string }[] }
 /** The replay envelope retains pairs as evaluator context, without a metric side file. */
 interface EvaluationRecord { readonly format: "pm-rl/proposer-transfer-evaluation/1"; readonly corpus: string; readonly role: "meta" | "audit"; readonly comparisons: number; readonly look: number; readonly pairs: readonly TransferPair[]; readonly report: TransferReport }
+
+/** A shard retains typed data rather than opaque external files or oversized root arrays. */
+type ArchiveEntry = { readonly kind: "source"; readonly source: ImproverDataset["sources"][number] } | { readonly kind: "omission"; readonly omission: ImproverDataset["omitted"][number] } | { readonly kind: "task"; readonly role: typeof IMPROVER_ROLES[number]; readonly task: ImproverTask };
+/** The position is itself hashed, so even semantically equivalent shard reordering refuses. */
+interface CorpusShard { readonly format: "pm-rl/proposer-transfer-shard/2"; readonly index: number; readonly entries: readonly ArchiveEntry[] }
+/** Large source lists and task references live in shards; the root only pins their order and counts. */
+interface CorpusRoot { readonly format: "pm-rl/proposer-transfer-corpus/2"; readonly manifest: Omit<ImproverDataset, "sources" | "omitted">; readonly shards: readonly string[]; readonly entry_count: number }
+/** Both planning and publication use these exact byte-checked envelopes. */
+export interface TransferArchive { readonly root: CorpusRoot; readonly shards: readonly CorpusShard[] }
+/** A plan binds explicit power choices to the corpus before paired observations exist. */
+export interface TransferPlan { readonly format: "pm-rl/proposer-transfer-plan/2"; readonly corpus: string; readonly design: TransferDesign }
+/** Version two evaluations cite a native plan instead of silently inheriting library constants. */
+interface PlannedEvaluation { readonly format: "pm-rl/proposer-transfer-evaluation/2"; readonly corpus: string; readonly plan: string; readonly role: "meta" | "audit"; readonly look: number; readonly pairs: readonly TransferPair[]; readonly report: TransferReport }
 
 /** Canonical source comparison prevents case or Unicode aliases from crossing tracker compartments. */
 function tracker(value: string): string { return value.normalize("NFKC").trim().toLowerCase(); }
@@ -65,11 +90,12 @@ export function loadTransferCorpus(directory: string): TransferCorpus {
   const corpus = { manifest, tasks }; verifyTransferCorpus(corpus); return corpus;
 }
 /** Hoeffding on paired differences in [-1,1], Bonferroni across both tasks and all declared looks. */
-export function transferPower(trackers: number, comparisons: number): TransferPower {
-  assert.ok(Number.isSafeInteger(trackers) && trackers >= 0 && Number.isSafeInteger(comparisons) && comparisons >= 1 && comparisons <= 5, "transfer_counts");
-  const { alpha, power, effect, margin, targets } = TRANSFER_DESIGN;
-  const log = Math.log(2 * targets.length * comparisons / alpha);
+export function transferPower(trackers: number, declaration: TransferDesign): TransferPower {
+  const { alpha, power, effect, margin, targets, looks } = parseTransferDesign(declaration);
+  assert.ok(Number.isSafeInteger(trackers) && trackers >= 0, "transfer_counts");
+  const log = Math.log(2 * targets.length * looks / alpha);
   const minimum_trackers = Math.ceil(2 * (Math.sqrt(log) + Math.sqrt(Math.log(1 / (1 - power)))) ** 2 / (effect - margin) ** 2);
+  assert.ok(Number.isSafeInteger(minimum_trackers), "transfer_design_capacity");
   const radius = trackers === 0 ? 2 : Math.sqrt(2 * log / trackers);
   const slack = effect - margin - radius;
   const power_lower_bound = slack <= 0 ? 0 : 1 - Math.exp(-trackers * slack * slack / 2);
@@ -77,7 +103,7 @@ export function transferPower(trackers: number, comparisons: number): TransferPo
 }
 /** Give each adaptive generation fresh meta trackers, frozen by source identity before any score is read. */
 export function transferMembers(corpus: TransferCorpus, role: "meta" | "audit", comparisons: number, look = 1): readonly ImproverTask[] {
-  transferPower(0, comparisons);
+  assert.ok(Number.isSafeInteger(comparisons) && comparisons >= 1 && comparisons <= 64, "transfer_counts");
   assert.ok(Number.isSafeInteger(look) && look >= 1 && look <= Math.max(1, comparisons - 1), "transfer_look");
   if (role === "audit") return corpus.tasks.audit;
   const trackers = [...new Set(corpus.tasks.meta.map((task) => tracker(task.repo)))].sort((a, b) => hashJson({ tracker: a, seed: corpus.manifest.seed }).localeCompare(hashJson({ tracker: b, seed: corpus.manifest.seed })));
@@ -85,13 +111,14 @@ export function transferMembers(corpus: TransferCorpus, role: "meta" | "audit", 
   return corpus.tasks.meta.filter((task) => selected.has(tracker(task.repo)));
 }
 /** Refuse undeclared, missing, duplicate or out-of-range pairs, then evaluate the same frozen design on replay. */
-export function evaluateTransfer(corpus: TransferCorpus, role: "meta" | "audit", pairs: readonly TransferPair[], comparisons: number, look = 1): TransferReport {
+export function evaluateTransfer(corpus: TransferCorpus, role: "meta" | "audit", pairs: readonly TransferPair[], declaration: TransferDesign, look = 1): TransferReport {
+  const design = parseTransferDesign(declaration); const comparisons = design.looks;
   verifyTransferCorpus(corpus);
   assert.ok(role === "meta" || role === "audit", "transfer_role");
   const tasks = transferMembers(corpus, role, comparisons, look); const scores = new Map(pairs.map((pair) => [pair.id, pair]));
   assert.ok(scores.size === pairs.length && tasks.length === pairs.length && tasks.every((task) => scores.has(task.id)), "transfer_pairs");
   assert.ok(pairs.every((pair) => [pair.candidate, pair.incumbent].every((value) => Number.isFinite(value) && value >= 0 && value <= 1)), "transfer_score");
-  const reports = TRANSFER_DESIGN.targets.map((target): TransferTaskReport => {
+  const reports = design.targets.map((target): TransferTaskReport => {
     const groups = new Map<string, number[]>();
     for (const task of tasks.filter((task) => task.target === target)) {
       const score = scores.get(task.id)!; const name = tracker(task.repo); const values = groups.get(name) ?? [];
@@ -99,12 +126,12 @@ export function evaluateTransfer(corpus: TransferCorpus, role: "meta" | "audit",
     }
     const values = [...groups.values()].map((group) => group.reduce((sum, value) => sum + value, 0) / group.length);
     const effect = values.length === 0 ? 0 : values.reduce((sum, value) => sum + value, 0) / values.length;
-    const power = transferPower(values.length, comparisons);
+    const power = transferPower(values.length, design);
     return { target, effect, interval: [Math.max(-1, effect - power.radius), Math.min(1, effect + power.radius)], ...power };
   });
   const powered = reports.every((report) => report.powered);
-  const passed = powered && reports.every((report) => report.interval[0] >= TRANSFER_DESIGN.margin);
-  return { format: "pm-rl/proposer-transfer-report/1", corpus: corpus.manifest.digest, role, comparisons, look, design: TRANSFER_DESIGN, tasks: reports, passed, reason: !powered ? "transfer_underpowered" : passed ? "transfer_passed" : "transfer_no_improvement" };
+  const passed = powered && reports.every((report) => report.interval[0] >= design.margin);
+  return { format: "pm-rl/proposer-transfer-report/2", corpus: corpus.manifest.digest, role, comparisons, look, design, tasks: reports, passed, reason: !powered ? "transfer_underpowered" : passed ? "transfer_passed" : "transfer_no_improvement" };
 }
 /** Content addresses have no filesystem coordinates and remain valid without Git. */
 function recordId(digest: string): string { assert.match(digest, /^[a-f0-9]{64}$/, "transfer_digest"); return `transfer-${digest}`; }
@@ -127,39 +154,101 @@ async function writeRecord(client: PmClient, value: unknown): Promise<string> {
   }
   await readRecord(client, digest); return digest;
 }
-/** Seal each projected task as a bounded native Decision, with a digest-addressed manifest linking all roles. */
-export async function archiveTransferCorpus(client: PmClient, corpus: TransferCorpus): Promise<string> {
+/** Pack source metadata and each task role separately, with bounded envelopes and canonical order. */
+export function planTransferArchive(corpus: TransferCorpus): TransferArchive {
   verifyTransferCorpus(corpus);
-  const packets = IMPROVER_ROLES.flatMap((role) => corpus.tasks[role].map((task) => ({ format: "pm-rl/proposer-transfer-task/1", role, task })));
-  const record: CorpusRecord = { format: "pm-rl/proposer-transfer-corpus/1", manifest: corpus.manifest, tasks: packets.map((packet) => ({ role: packet.role, digest: hashJson(packet as unknown as JsonValue) })) };
-  // All producer bounds are checked before the first SDK mutation.
-  for (const value of [...packets, record]) encodeBoundedJson(value, MAX_TRACKER_RECORD_BYTES);
-  for (const packet of packets) await writeRecord(client, packet);
-  return writeRecord(client, record);
-}
-/** Reconstruct frozen projections from PM alone; no source checkout, dataset file or Git is needed. */
-export async function replayTransferCorpus(client: PmClient, digest: string): Promise<TransferCorpus> {
-  const record = await readRecord(client, digest) as unknown as CorpusRecord;
-  assert.equal(record.format, "pm-rl/proposer-transfer-corpus/1", "transfer_record_format");
-  const tasks: Record<typeof IMPROVER_ROLES[number], ImproverTask[]> = { development: [], meta: [], audit: [] };
-  for (const reference of record.tasks) {
-    const packet = await readRecord(client, reference.digest) as unknown as { format: string; role: typeof IMPROVER_ROLES[number]; task: ImproverTask };
-    assert.ok(packet.format === "pm-rl/proposer-transfer-task/1" && packet.role === reference.role && IMPROVER_ROLES.includes(packet.role), "transfer_record_format");
-    tasks[packet.role].push(packet.task);
+  const groups: ArchiveEntry[][] = [corpus.manifest.sources.map((source) => ({ kind: "source", source })), corpus.manifest.omitted.map((omission) => ({ kind: "omission", omission })), ...IMPROVER_ROLES.map((role) => corpus.tasks[role].map((task): ArchiveEntry => ({ kind: "task", role, task })))];
+  const shards: CorpusShard[] = []; let entries: ArchiveEntry[] = []; let bytes = 0;
+  /** Finalize the same bounded packet later written by the SDK, including wrapper overhead. */
+  const flush = (): void => {
+    if (entries.length === 0) return;
+    const shard: CorpusShard = { format: "pm-rl/proposer-transfer-shard/2", index: shards.length, entries };
+    encodeBoundedJson(shard, MAX_TRACKER_RECORD_BYTES); shards.push(shard); entries = []; bytes = 0;
+  };
+  for (const group of groups) {
+    for (const entry of group) {
+      const size = Buffer.byteLength(encodeBoundedJson(entry, MAX_TRACKER_RECORD_BYTES));
+      if (entries.length > 0 && bytes + size > 262_144) flush();
+      entries.push(entry); bytes += size;
+    }
+    flush();
   }
-  const corpus = { manifest: record.manifest, tasks }; verifyTransferCorpus(corpus); return corpus;
+  const { sources: _sources, omitted: _omitted, ...manifest } = corpus.manifest;
+  const root: CorpusRoot = { format: "pm-rl/proposer-transfer-corpus/2", manifest, shards: shards.map((shard) => hashJson(shard as unknown as JsonValue)), entry_count: groups.reduce((sum, group) => sum + group.length, 0) };
+  encodeBoundedJson(root, MAX_TRACKER_RECORD_BYTES);
+  return { root, shards };
+}
+/** Publish a small root only after all content-addressed shards have passed the shared byte preflight. */
+export async function archiveTransferCorpus(client: PmClient, corpus: TransferCorpus): Promise<string> {
+  const plan = planTransferArchive(corpus);
+  for (const shard of plan.shards) await writeRecord(client, shard);
+  return writeRecord(client, plan.root);
+}
+/** Reconstruct frozen projections from PM alone, retaining compatibility with version-one roots. */
+export async function replayTransferCorpus(client: PmClient, digest: string): Promise<TransferCorpus> {
+  const record = await readRecord(client, digest) as unknown as CorpusRecord | CorpusRoot;
+  const tasks: Record<typeof IMPROVER_ROLES[number], ImproverTask[]> = { development: [], meta: [], audit: [] };
+  if (record.format === "pm-rl/proposer-transfer-corpus/1") {
+    for (const reference of record.tasks) {
+      const packet = await readRecord(client, reference.digest) as unknown as { format: string; role: typeof IMPROVER_ROLES[number]; task: ImproverTask };
+      assert.ok(packet.format === "pm-rl/proposer-transfer-task/1" && packet.role === reference.role && IMPROVER_ROLES.includes(packet.role), "transfer_record_format");
+      tasks[packet.role].push(packet.task);
+    }
+    const corpus = { manifest: record.manifest, tasks }; verifyTransferCorpus(corpus); return corpus;
+  }
+  assert.equal(record.format, "pm-rl/proposer-transfer-corpus/2", "transfer_record_format");
+  assert.ok(record.shards.length > 0 && new Set(record.shards).size === record.shards.length, "transfer_shard_order");
+  const sources: ImproverDataset["sources"][number][] = []; const omitted: ImproverDataset["omitted"][number][] = []; let count = 0;
+  for (const [index, address] of record.shards.entries()) {
+    const shard = await readRecord(client, address) as unknown as CorpusShard;
+    assert.equal(shard.format, "pm-rl/proposer-transfer-shard/2", "transfer_record_format");
+    assert.equal(shard.index, index, "transfer_shard_order");
+    assert.ok(shard.entries.length > 0, "transfer_shard_empty");
+    for (const entry of shard.entries) {
+      count++;
+      if (entry.kind === "source") sources.push(entry.source);
+      else if (entry.kind === "omission") omitted.push(entry.omission);
+      else {
+        assert.ok(entry.kind === "task" && IMPROVER_ROLES.includes(entry.role), "transfer_record_format");
+        tasks[entry.role].push(entry.task);
+      }
+    }
+  }
+  assert.equal(count, record.entry_count, "transfer_shard_count");
+  const corpus = { manifest: { ...record.manifest, sources, omitted }, tasks }; verifyTransferCorpus(corpus); return corpus;
+}
+/** Seal the prospective design in native history; evaluators must cite this address. */
+export async function recordTransferPlan(client: PmClient, corpus: string, declaration: TransferDesign): Promise<string> {
+  recordId(corpus); const design = parseTransferDesign(declaration); transferPower(0, design);
+  return writeRecord(client, { format: "pm-rl/proposer-transfer-plan/2", corpus, design });
+}
+/** Read the birth-checked statistical contract independently of mutable operator files. */
+export async function readTransferPlan(client: PmClient, digest: string): Promise<TransferPlan> {
+  const record = await readRecord(client, digest) as unknown as TransferPlan;
+  assert.equal(record.format, "pm-rl/proposer-transfer-plan/2", "transfer_record_format");
+  recordId(record.corpus); parseTransferDesign(record.design); return record;
 }
 /** Store the complete paired measurement and derived report in append-only SDK history before selection. */
-export async function recordTransferEvaluation(client: PmClient, digest: string, role: "meta" | "audit", pairs: readonly TransferPair[], comparisons: number, look = 1): Promise<{ digest: string; report: TransferReport }> {
-  const corpus = await replayTransferCorpus(client, digest); const report = evaluateTransfer(corpus, role, pairs, comparisons, look);
-  const record: EvaluationRecord = { format: "pm-rl/proposer-transfer-evaluation/1", corpus: digest, role, comparisons, look, pairs, report };
+export async function recordTransferEvaluation(client: PmClient, digest: string, role: "meta" | "audit", pairs: readonly TransferPair[], planDigest: string, look = 1): Promise<{ digest: string; report: TransferReport }> {
+  const plan = await readTransferPlan(client, planDigest); const corpus = await replayTransferCorpus(client, digest);
+  assert.equal(plan.corpus, corpus.manifest.digest, "transfer_plan_corpus");
+  const report = evaluateTransfer(corpus, role, pairs, plan.design, look);
+  const record: PlannedEvaluation = { format: "pm-rl/proposer-transfer-evaluation/2", corpus: digest, plan: planDigest, role, look, pairs, report };
   return { digest: await writeRecord(client, record), report };
 }
-/** Replay a measured decision from one address and compare the recomputed report with the native receipt. */
+/** Replay old receipts with their historical design and new receipts with their exact sealed plan. */
 export async function replayTransferEvaluation(client: PmClient, digest: string): Promise<TransferReport> {
-  const record = await readRecord(client, digest) as unknown as EvaluationRecord;
-  assert.equal(record.format, "pm-rl/proposer-transfer-evaluation/1", "transfer_record_format");
+  const record = await readRecord(client, digest) as unknown as EvaluationRecord | PlannedEvaluation;
   const corpus = await replayTransferCorpus(client, record.corpus);
-  const report = evaluateTransfer(corpus, record.role, record.pairs, record.comparisons, record.look);
+  let report: TransferReport;
+  if (record.format === "pm-rl/proposer-transfer-evaluation/1") {
+    const computed = evaluateTransfer(corpus, record.role, record.pairs, { ...TRANSFER_DESIGN, looks: record.comparisons }, record.look);
+    report = { ...computed, format: "pm-rl/proposer-transfer-report/1", design: TRANSFER_DESIGN };
+  } else {
+    assert.equal(record.format, "pm-rl/proposer-transfer-evaluation/2", "transfer_record_format");
+    const plan = await readTransferPlan(client, record.plan);
+    assert.equal(plan.corpus, corpus.manifest.digest, "transfer_plan_corpus");
+    report = evaluateTransfer(corpus, record.role, record.pairs, plan.design, record.look);
+  }
   assert.equal(hashJson(report as unknown as JsonValue), hashJson(record.report as unknown as JsonValue), "transfer_report_drift"); return report;
 }

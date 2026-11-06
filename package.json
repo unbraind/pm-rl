@@ -197,7 +197,8 @@
       "test/training-influence.test.ts",
       "test/training-influence-maintenance.test.ts",
       "test/proposer-program.test.ts",
-      "test/proposer-transfer.test.ts"
+      "test/proposer-transfer.test.ts",
+      "test/transfer-archive.test.ts"
     ],
     "thresholds": {
       "statements": 100,
