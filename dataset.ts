@@ -80,12 +80,21 @@ export interface TrackerBuildOptions {
   readonly pins?: readonly { readonly repo: string; readonly commit: string; readonly role: "train" | "meta-validation" | "final-test" }[];
 }
 
+/** Shared normalized exclusions for public tracker sources, including repository identities and physical locations. */
+export const EXCLUDED_TRACKER_NAMES = Object.freeze(["pm-cli", "pm-hosted-data", "pm-web", "pm-gpt", "pm-observer", "pm-web-hosted"] as const);
+/** Apply the same case, whitespace and Unicode normalization at every source-entry boundary. */
+export function excludedTrackerName(value: string): boolean { return (EXCLUDED_TRACKER_NAMES as readonly string[]).includes(value.normalize("NFKC").trim().toLowerCase()); }
+
 /** Resolve public-source coordinates only after rejecting raw and physical private path aliases.
  * @internal
  */
 export function checkedTrackerSourcePath(directory: string): string {
   /** Normalize every component identically at the caller and resolved boundary. */
-  const forbidden = (value: string): boolean => value.split(/[\\/]/).some((part) => ["pm-hosted-data", "pm-web", "pm-gpt", "pm-observer", "pm-web-hosted"].includes(part.normalize("NFKC").toLowerCase()));
+  const forbidden = (value: string): boolean => {
+    const parts = value.split(/[\\/]/).filter(Boolean).map((part) => part.normalize("NFKC").trim().toLowerCase());
+    // A fleet container may be named pm-cli; the tracker repository itself may not.
+    return parts.some((part, index) => excludedTrackerName(part) && (part !== "pm-cli" || index >= parts.length - 3));
+  };
   assert.ok(!forbidden(directory), "dataset_forbidden_source");
   const path = realpathSync(directory);
   assert.ok(!forbidden(path), "dataset_forbidden_source");
@@ -104,7 +113,7 @@ export function buildTrackerDataset(directories: readonly string[], output: stri
     const match = /^(?:https:\/\/github\.com\/|git@github\.com:)([\w-]+\/pm-[\w-]+?)(?:\.git)?$/.exec(remote);
     assert.ok(match !== null, "dataset_github_source");
     const repo = match[1];
-    assert.ok(!["pm-web", "pm-gpt", "pm-cli", "pm-observer", "pm-web-hosted"].includes(repo.split("/")[1].toLowerCase()), "dataset_excluded_repo");
+    assert.ok(!excludedTrackerName(repo.split("/")[1]), "dataset_excluded_repo");
     const metadata = parseBoundedJson(sourceCommand("gh", ["repo", "view", repo, "--json", "visibility,licenseInfo,nameWithOwner"], root)) as { visibility: string; licenseInfo: { key: string } | null; nameWithOwner: string };
     assert.ok(metadata.visibility === "PUBLIC" && metadata.licenseInfo?.key === "mit" && metadata.nameWithOwner.toLowerCase() === repo.toLowerCase(), "dataset_public_mit_required");
     const pin = options.pins?.find((source) => source.repo === repo);

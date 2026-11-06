@@ -10,6 +10,7 @@ import { buildImproverDataset, IMPROVER_ROLES, readImproverTasks, type ImproverD
 import { archiveTransferCorpus, evaluateTransfer, parseTransferDesign, planTransferArchive, recordTransferEvaluation, recordTransferPlan, replayTransferEvaluation, verifyTransferCorpus, type TransferCorpus, type TransferDesign, type TransferPair, type TransferReport } from "../../proposer-transfer.ts";
 import { copyImproverSources } from "../../scripts/live-improver.ts";
 import { isMainInvocation } from "../../scripts/script-launcher.ts";
+import { excludedTrackerName } from "../../dataset.ts";
 
 /** Digests pin native reconstruction while scores remain the original historical measurements. */
 export interface DiagnosticReceipt {
@@ -47,7 +48,7 @@ export function readDiagnosticReceipt(file: string): DiagnosticReceipt {
   parseTransferDesign(value.design);
   for (const source of value.full_manifest.sources) {
     assert.match(source.repo, /^[\w-]+\/pm-[\w-]+$/); assert.match(source.commit, /^[a-f0-9]{40}$/);
-    assert.ok(!["pm-cli", "pm-observer", "pm-web-hosted", "pm-web", "pm-gpt"].includes(source.repo.split("/")[1].toLowerCase()), "diagnostic_private_source");
+    assert.ok(!excludedTrackerName(source.repo.split("/")[1]), "diagnostic_private_source");
   }
   return value;
 }

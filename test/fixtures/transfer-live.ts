@@ -10,7 +10,7 @@ import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { buildImproverDataset, IMPROVER_ROLES } from "../../improver-data.ts";
 import { proposerEvolutionConfiguration, runProposerEvolution } from "../../proposer-evolution.ts";
 import { copyImproverSources } from "../../scripts/live-improver.ts";
-import { checkedTrackerSourcePath } from "../../dataset.ts";
+import { checkedTrackerSourcePath, excludedTrackerName } from "../../dataset.ts";
 
 
 import { requireDiagnosticScratch } from "./transfer-replay.ts";
@@ -43,7 +43,7 @@ export async function transferLiveMain(argv: readonly string[]): Promise<void> {
     const pins: { repo: string; commit: string }[] = []; const excluded: string[] = [];
     for (const name of readdirSync(fleet).sort()) {
       // Deny by directory name before opening any source, even its Git configuration.
-      if (!/^pm-[\w-]+$/.test(name) || ["pm-cli", "pm-observer", "pm-web-hosted", "pm-web", "pm-gpt"].includes(name)) continue;
+      if (!/^pm-[\w-]+$/.test(name) || excludedTrackerName(name)) continue;
       checkedTrackerSourcePath(join(fleet, name, ".agents/pm"));
       const repo = `unbraind/${name}`;
       let metadata: { visibility: string; licenseInfo: { key: string } | null };

@@ -18,6 +18,12 @@ export function copyRevertWorkspace(root: string, scratch: string): void {
 export async function runTransferReverts(root: string, selection?: string): Promise<void> {
   await withTransferScratch("transfer-revert-", async (scratch) => {
     const cases = [
+      { file: "dataset.ts", pattern: "shared source exclusions", test: "transfer-review-policy", transform: (s: string) => s.replace('"pm-hosted-data", ', ''), expected: /AssertionError/ },
+      { file: "dataset.ts", pattern: "shared source exclusions", test: "transfer-review-policy", transform: (s: string) => s.replace('(part !== "pm-cli" || index >= parts.length - 3)', 'true'), expected: /AssertionError/ },
+      { file: "index.ts", pattern: "transfer replay CLI refuses", test: "transfer-review-policy", transform: (s: string) => s.replace('    if (!/^[a-f0-9]{64}$/.test(digest)) fail("Use a 64-character lowercase SHA-256 transfer evaluation digest.", "transfer_digest");', ''), expected: /AssertionError/ },
+      { file: "proposer-evolution.ts", pattern: "missing prospective transfer plan", test: "transfer-review-policy", transform: (s: string) => s.replace('if (config.transfer === undefined) expectedFail("transfer_plan_required: Declare transfer.effect, transfer.alpha and transfer.power in a new programme before starting a run.", "transfer_plan_required");', 'assert.ok(config.transfer !== undefined, "transfer_plan_required");'), expected: /AssertionError/ },
+      { file: "proposer-transfer.ts", pattern: "prospective transfer designs cannot relax", test: "transfer-review-policy", transform: (s: string) => s.replace('row.alpha <= TRANSFER_DESIGN.alpha', 'row.alpha < 1').replace('row.power >= TRANSFER_DESIGN.power', 'row.power > 0'), expected: /AssertionError/ },
+
       { file: "test/fixtures/transfer-reverts.ts", pattern: "behavioral revert runner works", test: "transfer-review", transform: (s: string) => s.replace(/^\s*assert\.ok\(selected\.length > 0, "transfer_revert_selection"\);$/m, ''), expected: /AssertionError/ },
       { file: "dataset.ts", pattern: "resolved private tracker aliases", test: "transfer-review", transform: (s: string) => s.replace('assert.ok(!forbidden(path), "dataset_forbidden_source");', 'assert.ok(true, "dataset_forbidden_source");'), expected: /AssertionError/ },
       { file: "proposer-evolution.ts", pattern: "malformed transfer declarations", test: "transfer-review", transform: (s: string) => s.replace(/  if \(row.transfer !== undefined\) \{[\s\S]*?\n  \}\n  const initial/, '  if (row.transfer !== undefined) {\n    assert.equal(Object.keys(row.transfer).sort().join(), "alpha,effect,power", "transfer_design");\n    parseTransferDesign({ ...row.transfer, margin: IMPROVER_CRITERION.effectThreshold, looks: row.generations + 1, targets: TRANSFER_DESIGN.targets });\n  }\n  const initial'), expected: /AssertionError/ },
@@ -34,7 +40,8 @@ export async function runTransferReverts(root: string, selection?: string): Prom
       { file: "proposer-transfer.ts", pattern: "native replay refuses missing", test: "transfer-archive", transform: (s: string) => s.replace('if (String((value as Record<string, JsonValue>)["format"]).endsWith("/2")) assertJsonEncoding(String(current.body), MAX_TRACKER_RECORD_BYTES);', ''), expected: /AssertionError|Missing expected rejection/ },
       { file: "proposer-transfer.ts", pattern: "explicit prospective designs", test: "transfer-archive", transform: (s: string) => s.replace('const { alpha, power, effect, margin, targets, looks } = parseTransferDesign(declaration);', 'const { alpha, power, effect, margin, targets, looks } = parseTransferDesign({ ...TRANSFER_DESIGN, looks: declaration.looks });'), expected: /AssertionError/ },
     ];
-    const selected = cases.filter((probe) => selection === undefined || (selection === "review-round-one" ? probe.test === "transfer-review" : probe.pattern === selection));
+    const profiles: Readonly<Record<string, string>> = { "review-round-one": "transfer-review", "owned-review-round-one": "transfer-review-policy" };
+    const selected = cases.filter((probe) => selection === undefined || (Object.hasOwn(profiles, selection) ? probe.test === profiles[selection] : probe.pattern === selection));
     assert.ok(selected.length > 0, "transfer_revert_selection");
     copyRevertWorkspace(root, scratch);
     for (const probe of selected) {

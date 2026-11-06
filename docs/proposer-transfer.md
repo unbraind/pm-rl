@@ -74,7 +74,9 @@ and remain replayable; they are never reinterpreted using a new default.
 
 Choose the smallest improvement that would justify deployment using the task's
 actual costs and benefits **before** looking at held-out contender scores. Then
-choose the family error budget, desired power and total planned looks. Use
+choose the family error budget, desired power and total planned looks.
+Declarations may tighten the historical policy: alpha must be at most 0.05 and
+target power at least 0.80 (and below 1). They cannot weaken either threshold. Use
 `transferPower(availableTrackers, declaredDesign)` to check feasibility. A larger
 MDE is easier to detect but promises nothing about smaller useful gains; it is
 not a remedy for an unfavorable observed result. If the required population is

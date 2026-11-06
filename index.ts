@@ -5672,7 +5672,11 @@ async function showTransferGap(context: CommandHandlerContext): Promise<RlComman
 
 /** Commands authored separately so activation and tests share one exact contract. */
 export const RL_COMMANDS = [
-  defineCommand({ name: "rl proposer transfer replay", description: "Recompute paired tracker transfer evidence from native PM records alone.", arguments: [{ name: "digest", required: true, description: "SHA-256 transfer evaluation address." }], run: async (context) => ({ action: "rl-proposer-transfer-replay", details: await replayTransferEvaluation(clientFor(context), requiredArgument(context, "a transfer evaluation digest")) }) }),
+  defineCommand({ name: "rl proposer transfer replay", description: "Recompute paired tracker transfer evidence from native PM records alone.", arguments: [{ name: "digest", required: true, description: "SHA-256 transfer evaluation address." }], run: async (context) => {
+    const digest = requiredArgument(context, "a transfer evaluation digest");
+    if (!/^[a-f0-9]{64}$/.test(digest)) fail("Use a 64-character lowercase SHA-256 transfer evaluation digest.", "transfer_digest");
+    return { action: "rl-proposer-transfer-replay", details: await replayTransferEvaluation(clientFor(context), digest) };
+  } }),
   defineCommand({ name: "rl proposer validate", description: "Validate a bounded executable proposer declaration before effects.", flags: [{ long: "--file", value_name: "path", value_type: "string", required: true, description: "Strict proposer evolution JSON." }], run: async (context) => {
     try {
       const config = parseProposerEvolutionConfig(readJsonFile(stringOption(context, "file")!, "Proposer declaration"));

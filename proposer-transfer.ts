@@ -6,9 +6,10 @@ import { createVerifiedItem, readCompleteLoopItem } from "./index.ts";
 import { hashJson, type JsonValue } from "./json-identity.ts";
 import { IMPROVER_ROLES, readImproverDataset, readImproverTasks, validateImproverTasks, type ImproverDataset, type ImproverTask } from "./improver-data.ts";
 import { assertJsonEncoding, encodeBoundedJson, parseBoundedJson, MAX_TRACKER_RECORD_BYTES } from "./tracker-record.ts";
+import { excludedTrackerName } from "./dataset.ts";
 
 /** Historical version-one receipt design; new plans carry explicit operator declarations. */
-export const TRANSFER_DESIGN = { effect: 0.10, margin: 0.01, alpha: 0.05, power: 0.80, targets: ["issue-type", "time-to-close"] } as const;
+export const TRANSFER_DESIGN = Object.freeze({ effect: 0.10, margin: 0.01, alpha: 0.05, power: 0.80, targets: Object.freeze(["issue-type", "time-to-close"] as const) } as const);
 /** Prospective operator choices, sealed before any contender is scored. */
 export interface TransferDesign { readonly effect: number; readonly margin: number; readonly alpha: number; readonly power: number; readonly looks: number; readonly targets: typeof TRANSFER_DESIGN.targets }
 /** Validate the full declaration with no outcome-derived or implicit statistical parameters. */
@@ -16,7 +17,7 @@ export function parseTransferDesign(value: unknown): TransferDesign {
   assert.ok(value !== null && typeof value === "object" && !Array.isArray(value), "transfer_design");
   const row = value as TransferDesign;
   assert.equal(Object.keys(row).sort().join(), "alpha,effect,looks,margin,power,targets", "transfer_design");
-  assert.ok([row.effect, row.margin, row.alpha, row.power].every(Number.isFinite) && row.margin >= 0.01 && row.effect > row.margin && row.effect <= 1 && row.alpha > 0 && row.alpha < 1 && row.power > 0 && row.power < 1, "transfer_design");
+  assert.ok([row.effect, row.margin, row.alpha, row.power].every(Number.isFinite) && row.margin >= 0.01 && row.effect > row.margin && row.effect <= 1 && row.alpha > 0 && row.alpha <= TRANSFER_DESIGN.alpha && row.power >= TRANSFER_DESIGN.power && row.power < 1, "transfer_design");
   assert.ok(Number.isSafeInteger(row.looks) && row.looks >= 1 && row.looks <= 64, "transfer_design");
   assert.deepEqual(row.targets, TRANSFER_DESIGN.targets, "transfer_design");
   return { ...row, targets: [...row.targets] };
@@ -61,7 +62,7 @@ export function verifyTransferCorpus(corpus: TransferCorpus, expected = corpus.m
   for (const source of manifest.sources) {
     const name = tracker(source.repo);
     assert.ok(!seen.has(name), "transfer_tracker_leak"); seen.set(name, source);
-    assert.ok(!["pm-observer", "pm-web-hosted", "pm-web", "pm-gpt", "pm-cli"].includes(name.split("/").at(-1)!), "transfer_private_source");
+    assert.ok(!excludedTrackerName(name.split("/").at(-1)!), "transfer_private_source");
     assert.ok(IMPROVER_ROLES.includes(source.role) && /^[a-f0-9]{40}$/.test(source.commit), "transfer_source");
   }
   for (const role of IMPROVER_ROLES) {

@@ -192,7 +192,7 @@ async function proposerProcessBudget(client: PmClient, approval: string, id: str
 /** Run equal-cost contenders with append-only receipts, SDK revision fencing and a final audit rollback. */
 export async function runProposerEvolution(client: PmClient, coordinates: ProcessCoordinates, raw: ProposerEvolutionRequest): Promise<ProposerEvolutionReport> {
   const config = parseProposerEvolutionConfig(raw.config); requireCheckpointStorage();
-  assert.ok(config.transfer !== undefined, "transfer_plan_required");
+  if (config.transfer === undefined) expectedFail("transfer_plan_required: Declare transfer.effect, transfer.alpha and transfer.power in a new programme before starting a run.", "transfer_plan_required");
   const design = parseTransferDesign({ ...config.transfer, margin: IMPROVER_CRITERION.effectThreshold, looks: config.generations + 1, targets: TRANSFER_DESIGN.targets });
   const request = await programmeRequest(client, raw); const manifest = evolutionDataset(request.dataset);
   const currentCorpus = proposerCorpusReader(request.dataset); const transferCorpus = currentCorpus();
