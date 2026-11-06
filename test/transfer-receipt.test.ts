@@ -49,6 +49,10 @@ test("compact receipt restores native transfer evidence without development trac
 test("committed diagnostic receipt records historical scores and explicit scratch replay", () => {
   const receipt = readDiagnosticReceipt(resolve(import.meta.dirname, "../docs/proposer-transfer-receipt.json"));
   assert.equal(receipt.evaluations.length, 2);
+  assert.ok(receipt.evaluations.every((row) => /^[a-f0-9]{64}$/.test(row.historical_digest ?? "")));
+  assert.equal(receipt.provenance?.kind, "historical-paired-measurement-replay");
+  assert.equal(receipt.run?.decision, "retain_original_transfer_underpowered");
+  assert.match(receipt.replay_command ?? "", /--pm-root/);
   for (const row of receipt.evaluations) {
     assert.equal(row.report.reason, "transfer_underpowered");
     assert.ok(row.report.tasks.every((task) => task.effect === 0 && task.trackers === 3 && task.power_lower_bound === 0));

@@ -110,7 +110,10 @@ before projecting copies. Private and hosted tracker directories are denied
 before access; private remote names are also denied before metadata/history reads.
 Only copied committed histories are read. Chronological train/evaluation boundaries,
 label availability, task balance and the released dataset identity contract are
-validated on initial input and before each durable operation.
+validated on initial input and before each durable operation. A run reuses its
+verified projections while the manifest and all three role files retain their
+device, inode, size, nanosecond mtime and ctime. Any change triggers full corpus
+verification; approval reads remain fresh at every durable validation.
 
 Version-two archives group source metadata, omissions and projected tasks into
 content-addressed native shard Decisions. A small root pins the manifest header,
@@ -266,5 +269,12 @@ No new real-data run is needed to repair the storage format; the historical
 underpowered measurements above are unchanged.
 
 The behavioral revert runner also removes only the version-two read-side byte
-check and requires the oversized native-shard replay assertion to fail. All
-seven reversions restore their disposable source in `finally`.
+check and requires the oversized native-shard replay assertion to fail. Every probe restores its disposable source in `finally`.
+
+`node test/fixtures/transfer-reverts.ts review-round-one` exercises seven
+review regressions: resolved private aliases, typed declaration refusal, stable
+corpus caching, complete three-tracker cohorts, unconditional scratch cleanup,
+Git-independent reversion and rejection of empty probe selectors. The released
+single-record writer is a TypeScript fixture, so no historical Git object is
+required. Disposable CLI and revert workspaces are removed on success or failure;
+operator-owned live evidence stays in its explicitly selected scratch tracker.

@@ -1,9 +1,10 @@
 /** Bounded algorithm evolution layered on authoritative process, recipe, evaluation and controller APIs. */
 import assert from "node:assert/strict";
+import { statSync } from "node:fs";
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { hashJson, readCompleteLoopItem, withRlController, type JsonValue } from "./index.ts";
-import { programmeRequest, canonicalIdentifier } from "./state-boundary.ts";
+import { programmeRequest, canonicalIdentifier, statePath } from "./state-boundary.ts";
 import { expectedFail } from "./refuse.ts";
 import { parseProposerProgram, parseProposalInvocation, parseProposalInstruction, initialProposer, mutateProposer, ProposerRefusal, type ProposerProgram, type ProposalCounts, type ProposalExecution, type ProposalInvocation, type ProposalInstruction } from "./proposer-program.ts";
 import { executeProcessTrainer, verifyCompletedProcessJob, readProcessJob, approvedResources, processJobsForApproval, RESOURCE_KEYS, type ProcessInput, type ProcessCoordinates, type ProcessAdapter, type Resources } from "./process.ts";
@@ -15,7 +16,7 @@ import { openImproverEnvironment, IMPROVER_CRITERION, IMPROVER_ADAPTER, IMPROVER
 import { parseEvaluationPlan, evaluatePlan, type EvaluationPlan, type EvaluationPlanReport } from "./evaluation-plan.ts";
 import { requireCheckpointStorage } from "./checkpoint-artifacts.ts";
 import { reserveSearchCapacity } from "./meta.ts";
-import { TRANSFER_DESIGN, loadTransferCorpus, verifyTransferCorpus, transferMembers, archiveTransferCorpus, replayTransferCorpus, recordTransferEvaluation, replayTransferEvaluation, parseTransferDesign, recordTransferPlan, readTransferPlan, type TransferReport } from "./proposer-transfer.ts";
+import { TRANSFER_DESIGN, loadTransferCorpus, verifyTransferCorpus, transferMembers, archiveTransferCorpus, replayTransferCorpus, recordTransferEvaluation, replayTransferEvaluation, parseTransferDesign, recordTransferPlan, readTransferPlan, type TransferReport, type TransferCorpus } from "./proposer-transfer.ts";
 
 /** Same bounded allowance for every proposal interpreter; logical optimizer and inference use are both zero. */
 export const PROPOSER_ALLOWANCE = { training_steps: 0, wall_ms: 30_000, storage_bytes: 16_384, compute_units: 30_000, tokens: 0 } as const;
@@ -41,8 +42,11 @@ export function parseProposerEvolutionConfig(value: unknown): ProposerEvolutionC
     if (!Number.isSafeInteger(row[key]) || row[key] < (key === "seed" ? 0 : 1) || row[key] > maximum) throw new ProposerRefusal();
   }
   if (row.transfer !== undefined) {
-    assert.equal(Object.keys(row.transfer).sort().join(), "alpha,effect,power", "transfer_design");
-    parseTransferDesign({ ...row.transfer, margin: IMPROVER_CRITERION.effectThreshold, looks: row.generations + 1, targets: TRANSFER_DESIGN.targets });
+    if (row.transfer === null || typeof row.transfer !== "object" || Array.isArray(row.transfer)) throw new ProposerRefusal();
+    try {
+      assert.equal(Object.keys(row.transfer).sort().join(), "alpha,effect,power", "transfer_design");
+      parseTransferDesign({ ...row.transfer, margin: IMPROVER_CRITERION.effectThreshold, looks: row.generations + 1, targets: TRANSFER_DESIGN.targets });
+    } catch { throw new ProposerRefusal(); }
   }
   const initial = parseProposerProgram(row.initial);
   if (initial.generation + row.generations > 100) throw new ProposerRefusal();
@@ -114,6 +118,24 @@ function proposerDatasetRead<T>(read: () => T): T {
     expectedFail("Proposer dataset could not be read or verified. Restore the original sealed dataset and read access, or use a fresh programme identity.", "proposer_dataset_invalid");
   }
 }
+/** Reuse verified projections while all four file identities remain stable; any change rechecks the full corpus.
+ * @internal
+ */
+export function proposerCorpusReader(directory: string): () => TransferCorpus {
+  let cached: { signature: string; corpus: TransferCorpus } | undefined;
+  /** Nanosecond ctime also detects same-size edits whose caller restores the prior mtime. */
+  const signature = (): string => ["improver-dataset.json", ...IMPROVER_ROLES.map((role) => `${role}.json`)].map((name) => {
+    const info = statSync(statePath(directory, name), { bigint: true });
+    return `${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`;
+  }).join("|");
+  return () => proposerDatasetRead(() => {
+    const before = signature();
+    if (cached?.signature === before) return cached.corpus;
+    const corpus = loadTransferCorpus(directory);
+    assert.equal(signature(), before, "proposer_dataset_changed_during_read");
+    cached = { signature: before, corpus }; return corpus;
+  });
+}
 /** Translate approval and retained-capacity verification failures while preserving typed SDK conflicts. */
 async function proposerApprovalRead<T>(read: () => Promise<T>): Promise<T> {
   try { return await read(); }
@@ -173,7 +195,7 @@ export async function runProposerEvolution(client: PmClient, coordinates: Proces
   assert.ok(config.transfer !== undefined, "transfer_plan_required");
   const design = parseTransferDesign({ ...config.transfer, margin: IMPROVER_CRITERION.effectThreshold, looks: config.generations + 1, targets: TRANSFER_DESIGN.targets });
   const request = await programmeRequest(client, raw); const manifest = evolutionDataset(request.dataset);
-  const transferCorpus = proposerDatasetRead(() => loadTransferCorpus(request.dataset));
+  const currentCorpus = proposerCorpusReader(request.dataset); const transferCorpus = currentCorpus();
   const approval = await proposerApprovalRead(() => readCompleteLoopItem(client, request.approval));
   if (approval.item.type !== "Decision") expectedFail("Approve the complete resource budget in a Decision before starting.", "proposer_approval");
   const fits = config.candidates * (config.generations * (manifest.splits.development.tasks + 2 * manifest.splits.meta.tasks) + 2 * manifest.splits.audit.tasks);
@@ -195,7 +217,7 @@ export async function runProposerEvolution(client: PmClient, coordinates: Proces
     const step = async <T>(key: string, input: unknown, operation: () => Promise<T>, verify?: (value: T) => Promise<void>): Promise<T> => {
       /** Revalidation inside the durable callback joins approval/reservation reads to its sealed SDK evidence graph. */
       const validate = async (): Promise<void> => {
-        if ((await proposerApprovalRead(() => readCompleteLoopItem(client, request.approval))).item.body !== approval.item.body || proposerDatasetRead(() => loadTransferCorpus(request.dataset)).manifest.digest !== manifest.digest) expectedFail("Approval or dataset changed. Restore the original declaration or use a new programme identity.", "proposer_drift");
+        if ((await proposerApprovalRead(() => readCompleteLoopItem(client, request.approval))).item.body !== approval.item.body || currentCorpus().manifest.digest !== manifest.digest) expectedFail("Approval or dataset changed. Restore the original declaration or use a new programme identity.", "proposer_drift");
         if (key !== "programme") await proposerApprovalRead(() => reserveSearchCapacity(client, coordinates, request, binding, capacity, fits + config.generations, true));
       };
       await validate();

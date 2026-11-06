@@ -1100,9 +1100,14 @@ Run `pm rl influence run --file examples/training-influence.json` for explicitly
 ## Bounded proposal programs
 
 `pm rl proposer validate --file examples/proposer-program.json` validates a sealed
-proposal algorithm before effects. `pm --pm-path <scratch-tracker> rl proposer run <id> --file <config.json>
---dataset <sealed-improver-data> --approval <decision>` evolves exact-count
-scoring expressions, feature construction and curricula in isolated processes.
+proposal algorithm before effects. Run the bounded evolution in an explicitly initialized scratch tracker:
+
+```sh
+pm --pm-path <scratch-tracker> rl proposer run <id> --file <config.json> \
+  --dataset <sealed-improver-data> --approval <decision>
+```
+
+This evolves exact-count scoring expressions, feature construction and curricula in isolated processes.
 Equal optimizer/inference budgets, predeclared inner/outer gates and protected
 cohorts govern promotion; a failed final audit restores the prior program while
 retaining evidence. TOON and JSON output contains compact decisions and identities.
@@ -1138,7 +1143,7 @@ rebuilds those records from pinned public sources; see the
 Replay within the scratch tracker needs only native PM Decisions: a small root pins ordered, bounded
 content-addressed shards for the manifest and projected chronological tasks;
 exact split digests, a prospective plan, paired observations and the evaluation are stored
-through SDK fields and append-only history. It requires neither dataset side files
+through SDK fields and append-only history. It requires neither dataset files
 nor source checkouts. `affected_version` is the content address and `component`
 is `proposer-transfer`. Creation-time words remain numeric hashes; raw source
 comments, titles, authors and paths are excluded.

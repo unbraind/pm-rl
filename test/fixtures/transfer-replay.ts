@@ -15,12 +15,15 @@ import { isMainInvocation } from "../../scripts/script-launcher.ts";
 export interface DiagnosticReceipt {
   readonly format: "pm-rl/proposer-diagnostic-receipt/1";
   readonly digest: string;
+  readonly provenance?: { readonly kind: "historical-paired-measurement-replay"; readonly measurement_commit: string; readonly historical_native_root: string; readonly plan_note: string };
+  readonly run?: { readonly generations: number; readonly controller_ms: number; readonly elapsed_ms: number; readonly fits: number; readonly optimizer_updates: number; readonly proposal_processes: number; readonly inference_tokens: number; readonly promotions: number; readonly retained: string; readonly decision: string };
+  readonly replay_command?: string;
   readonly full_manifest: ImproverDataset;
   readonly manifest: ImproverDataset;
   readonly task_ids: Readonly<Record<typeof IMPROVER_ROLES[number], readonly string[]>>;
   readonly archive: { readonly root: string; readonly shards: readonly string[]; readonly plan: string };
   readonly design: TransferDesign;
-  readonly evaluations: readonly { readonly digest: string; readonly role: "meta" | "audit"; readonly look: number; readonly pairs: readonly TransferPair[]; readonly report: TransferReport }[];
+  readonly evaluations: readonly { readonly historical_digest?: string; readonly digest: string; readonly role: "meta" | "audit"; readonly look: number; readonly pairs: readonly TransferPair[]; readonly report: TransferReport }[];
 }
 
 /** Resolve existing ancestors so symlinks cannot redirect a scratch output into a Git worktree. */

@@ -80,14 +80,24 @@ export interface TrackerBuildOptions {
   readonly pins?: readonly { readonly repo: string; readonly commit: string; readonly role: "train" | "meta-validation" | "final-test" }[];
 }
 
+/** Resolve public-source coordinates only after rejecting raw and physical private path aliases.
+ * @internal
+ */
+export function checkedTrackerSourcePath(directory: string): string {
+  /** Normalize every component identically at the caller and resolved boundary. */
+  const forbidden = (value: string): boolean => value.split(/[\\/]/).some((part) => ["pm-hosted-data", "pm-web", "pm-gpt", "pm-observer", "pm-web-hosted"].includes(part.normalize("NFKC").toLowerCase()));
+  assert.ok(!forbidden(directory), "dataset_forbidden_source");
+  const path = realpathSync(directory);
+  assert.ok(!forbidden(path), "dataset_forbidden_source");
+  return path;
+}
+
 /** Build only from committed public MIT tracker histories; explicitly deny hosted and excluded repositories. */
 export function buildTrackerDataset(directories: readonly string[], output: string, seed = 42, options: TrackerBuildOptions = {}): TrackerDataset {
   assert.ok(directories.length >= 3 && directories.length <= 64 && Number.isInteger(seed) && seed >= 0 && seed <= 0xffff_ffff, "dataset_bounds");
   assert.ok(options.task === undefined || ["terminal-disposition", "history-prefix"].includes(options.task), "dataset_task");
   const inspected = directories.map((directory) => {
-    assert.ok(!directory.split(/[\\/]/).some((part) => ["pm-observer", "pm-web-hosted"].includes(part.normalize("NFKC").toLowerCase())), "dataset_forbidden_source");
-    const path = realpathSync(directory);
-    assert.ok(!path.split("/").some((part) => ["pm-hosted-data", "pm-web", "pm-gpt"].includes(part)), "dataset_forbidden_source");
+    const path = checkedTrackerSourcePath(directory);
     const root = dirname(dirname(path));
     assert.equal(path, statePath(root, ".agents", "pm"), "dataset_tracker_directory");
     const remote = sourceCommand("git", ["remote", "get-url", "origin"], root);

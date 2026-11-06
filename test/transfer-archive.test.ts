@@ -90,5 +90,5 @@ test("legacy configurations remain inspectable but new execution requires a pros
   const w = await processWorkspace(); const before = (await w.client.listAllComplete({ includeBody: true })).items;
   await assert.rejects(runProposerEvolution(w.client, w.coordinates, { id: "unplanned", approval: w.approval, dataset: "unread-dataset", config: legacy }), /transfer_plan_required/);
   assert.deepEqual((await w.client.listAllComplete({ includeBody: true })).items, before);
-  for (const transfer of [{ effect: 0.1, alpha: 0.05, power: 0.8, extra: true }, { effect: 0.1, alpha: 0, power: 0.8 }]) assert.throws(() => parseProposerEvolutionConfig({ ...legacy, transfer }), /transfer_design/);
+  for (const transfer of [{ effect: 0.1, alpha: 0.05, power: 0.8, extra: true }, { effect: 0.1, alpha: 0, power: 0.8 }]) assert.throws(() => parseProposerEvolutionConfig({ ...legacy, transfer }), /proposer_invalid/);
 });
