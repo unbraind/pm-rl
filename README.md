@@ -1119,7 +1119,9 @@ provenance. No git executable is required by the proposer path.
 
 ## Power-qualified proposer transfer
 
-Every new `rl proposer run` also requires a passed tracker-transfer evaluation.
+Promotion of a proposer requires a passed tracker-transfer evaluation.
+A new `rl proposer run` requires a prospective transfer declaration; an underpowered
+run may complete while retaining the prior proposer.
 Operators declare the transfer MDE (`effect`), family `alpha` and desired
 per-task `power` in the configuration before scoring. A native evaluation plan
 seals those choices and the generation-derived number of looks. The original

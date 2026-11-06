@@ -178,17 +178,19 @@ export function readImproverDataset(directory: string): ImproverDataset {
 /** Verify role, identity, chronology, label availability and item isolation before exposing rows to the evaluator. */
 export function readImproverTasks(directory: string, manifest: ImproverDataset, role: typeof IMPROVER_ROLES[number]): ImproverTask[] {
   const root = parseBoundedJson(readFileSync(statePath(directory, `${role}.json`), "utf8")) as ImproverTask[] | { format: string; role: string; digest: string; count: number; shards: string[] };
+  assert.ok(root !== null && typeof root === "object", "improver_role_identity");
   const tasks: ImproverTask[] = [];
-  if (Array.isArray(root)) tasks.push(...root);
+  if (Array.isArray(root)) { for (const task of root) tasks.push(task); }
   else {
     assert.ok(root.format === "pm-rl/improver-role/2" && root.role === role && root.digest === manifest.splits[role].digest && root.count === manifest.splits[role].tasks, "improver_role_identity");
     assert.ok(Array.isArray(root.shards) && root.shards.length > 0 && root.shards.length <= root.count && new Set(root.shards).size === root.shards.length, "improver_role_shards");
     for (const [index, digest] of root.shards.entries()) {
       assert.match(digest, /^[a-f0-9]{64}$/, "improver_role_digest");
       const shard = parseBoundedJson(readFileSync(statePath(directory, `${role}-${digest}.json`), "utf8")) as { format: string; role: string; index: number; tasks: ImproverTask[] };
+      assert.ok(shard !== null && typeof shard === "object" && !Array.isArray(shard), "improver_role_shard");
       assert.equal(hashJson(shard as unknown as JsonValue), digest, "improver_role_digest");
       assert.ok(shard.format === "pm-rl/improver-role-shard/1" && shard.role === role && shard.index === index && Array.isArray(shard.tasks) && shard.tasks.length > 0, "improver_role_shard");
-      tasks.push(...shard.tasks);
+      for (const task of shard.tasks) tasks.push(task);
     }
     assert.equal(tasks.length, root.count, "improver_role_count");
   }

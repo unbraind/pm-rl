@@ -1,7 +1,7 @@
 /** Tracker-disjoint, power-qualified paired transfer evidence stored entirely in native PM records. */
 import assert from "node:assert/strict";
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
-import { EXIT_CODE, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
+import { EXIT_CODE, isPmCliExpectedError, createPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { createVerifiedItem, readCompleteLoopItem } from "./index.ts";
 import { hashJson, type JsonValue } from "./json-identity.ts";
 import { IMPROVER_ROLES, readImproverDataset, readImproverTasks, validateImproverTasks, type ImproverDataset, type ImproverTask } from "./improver-data.ts";
@@ -56,10 +56,39 @@ type ShardedEvaluation = Omit<PlannedEvaluation, "format" | "pairs"> & { readonl
 
 /** Canonical source comparison prevents case or Unicode aliases from crossing tracker compartments. */
 function tracker(value: string): string { return value.normalize("NFKC").trim().toLowerCase(); }
+/** Native JSON must expose a record before a replay reads any of its properties. */
+function transferObject(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === "object" && !Array.isArray(value); }
+/** Malformed persisted context is an actionable SDK refusal, with no payload or machine coordinates in the message. */
+function transferShape(condition: unknown, code: string): asserts condition {
+  if (!condition) throw createPmCliExpectedError(`Malformed sealed transfer context (${code}). Restore the original native records or use a fresh evaluation identity.`, { exitCode: EXIT_CODE.USAGE, context: { code } });
+}
+/** Match the existing task-count contract before mapping or spreading decoded paired observations. */
+function transferPairsShape(pairs: unknown): asserts pairs is readonly TransferPair[] {
+  transferShape(Array.isArray(pairs) && pairs.length <= 10_000 && pairs.every((pair: unknown) => transferObject(pair) && typeof pair.id === "string"), "transfer_pairs");
+}
+/** Share structural checks between input verification and native reconstruction, before semantic validation. */
+function transferCorpusShape(corpus: TransferCorpus): void {
+  transferShape(transferObject(corpus) && transferObject(corpus.manifest) && transferObject(corpus.tasks), "transfer_corpus_shape");
+  const manifest = corpus.manifest;
+  transferShape(typeof manifest.digest === "string" && typeof manifest.format === "string" && Number.isSafeInteger(manifest.seed) && Array.isArray(manifest.sources) && Array.isArray(manifest.omitted) && transferObject(manifest.splits), "transfer_corpus_shape");
+  transferShape(manifest.sources.every((source) => transferObject(source) && typeof source.repo === "string" && typeof source.commit === "string" && typeof source.role === "string") && manifest.omitted.every((row) => transferObject(row) && typeof row.repo === "string" && typeof row.target === "string"), "transfer_corpus_shape");
+  for (const role of IMPROVER_ROLES) {
+    transferShape(transferObject(manifest.splits[role]) && typeof manifest.splits[role].digest === "string" && Number.isSafeInteger(manifest.splits[role].tasks) && Array.isArray(corpus.tasks[role]), "transfer_corpus_shape");
+    for (const task of corpus.tasks[role]) {
+      transferShape(transferObject(task) && [task.id, task.repo, task.commit, task.target].every((value) => typeof value === "string") && typeof task.cutoff === "number" && Array.isArray(task.train) && Array.isArray(task.evaluation), "transfer_corpus_shape");
+      for (const row of [...task.train, ...task.evaluation]) {
+        transferShape(transferObject(row) && typeof row.id === "string" && transferObject(row.prefix), "transfer_corpus_shape");
+        const prefix = row.prefix;
+        transferShape(Array.isArray(prefix.events) && Array.isArray(prefix.fields) && Array.isArray(prefix.words) && [...prefix.events, ...prefix.fields].every((value) => typeof value === "string"), "transfer_corpus_shape");
+      }
+    }
+  }
+}
 /** Check corpus identity and isolation before creating any native record or consuming any score. */
-export function verifyTransferCorpus(corpus: TransferCorpus, expected = corpus.manifest.digest): void {
+export function verifyTransferCorpus(corpus: TransferCorpus, expected?: string): void {
+  transferCorpusShape(corpus);
   const { digest, ...manifest } = corpus.manifest;
-  assert.equal(digest, expected, "transfer_corpus_digest");
+  assert.equal(digest, expected === undefined ? digest : expected, "transfer_corpus_digest");
   assert.equal(hashJson(manifest as unknown as JsonValue), digest, "transfer_corpus_digest");
   assert.equal(manifest.format, "pm-rl/improver-dataset/1", "transfer_corpus_format");
   const seen = new Map<string, ImproverDataset["sources"][number]>(); const items = new Map<string, string>();
@@ -120,6 +149,7 @@ export function evaluateTransfer(corpus: TransferCorpus, role: "meta" | "audit",
   const design = parseTransferDesign(declaration); const comparisons = design.looks;
   verifyTransferCorpus(corpus);
   assert.ok(role === "meta" || role === "audit", "transfer_role");
+  transferPairsShape(pairs);
   const tasks = transferMembers(corpus, role, comparisons, look); const scores = new Map(pairs.map((pair) => [pair.id, pair]));
   assert.ok(scores.size === pairs.length && tasks.length === pairs.length && tasks.every((task) => scores.has(task.id)), "transfer_pairs");
   assert.ok(pairs.every((pair) => [pair.candidate, pair.incumbent].every((value) => Number.isFinite(value) && value >= 0 && value <= 1)), "transfer_score");
@@ -147,6 +177,7 @@ async function readRecord(client: PmClient, digest: string): Promise<JsonValue> 
   const birth = (await readCompleteLoopItem(client, id, "1")).item;
   assert.ok(current.type === "Decision" && current.affected_version === digest && current.component === "proposer-transfer" && current.body === birth.body && current.affected_version === birth.affected_version && current.type === birth.type && current.component === birth.component, "transfer_record_drift");
   const value = parseBoundedJson(String(current.body));
+  transferShape(transferObject(value) && typeof value.format === "string", "transfer_record_format");
   if (/\/[23]$/.test(String((value as Record<string, JsonValue>)["format"]))) assertJsonEncoding(String(current.body), MAX_TRACKER_RECORD_BYTES);
   assert.equal(hashJson(value as JsonValue), digest, "transfer_record_digest"); return value as JsonValue;
 }
@@ -195,32 +226,36 @@ export async function replayTransferCorpus(client: PmClient, digest: string): Pr
   const record = await readRecord(client, digest) as unknown as CorpusRecord | CorpusRoot;
   const tasks: Record<typeof IMPROVER_ROLES[number], ImproverTask[]> = { development: [], meta: [], audit: [] };
   if (record.format === "pm-rl/proposer-transfer-corpus/1") {
-    for (const reference of record.tasks) {
+    transferShape(Array.isArray(record.tasks), "transfer_record_format");
+    for (const reference of record.tasks as CorpusRecord["tasks"]) {
+      transferShape(transferObject(reference) && IMPROVER_ROLES.includes(reference.role) && typeof reference.digest === "string" && /^[a-f0-9]{64}$/.test(reference.digest), "transfer_record_format");
       const packet = await readRecord(client, reference.digest) as unknown as { format: string; role: typeof IMPROVER_ROLES[number]; task: ImproverTask };
-      assert.ok(packet.format === "pm-rl/proposer-transfer-task/1" && packet.role === reference.role && IMPROVER_ROLES.includes(packet.role), "transfer_record_format");
+      transferShape(packet.format === "pm-rl/proposer-transfer-task/1" && packet.role === reference.role && IMPROVER_ROLES.includes(packet.role), "transfer_record_format");
       tasks[packet.role].push(packet.task);
     }
     const corpus = { manifest: record.manifest, tasks }; verifyTransferCorpus(corpus); return corpus;
   }
-  assert.equal(record.format, "pm-rl/proposer-transfer-corpus/2", "transfer_record_format");
-  assert.ok(record.shards.length > 0 && new Set(record.shards).size === record.shards.length, "transfer_shard_order");
+  transferShape(record.format === "pm-rl/proposer-transfer-corpus/2", "transfer_record_format");
+  transferShape(Number.isSafeInteger(record.entry_count) && record.entry_count > 0, "transfer_shard_count");
+  transferShape(Array.isArray(record.shards) && record.shards.length > 0 && new Set(record.shards).size === record.shards.length && record.shards.every((address) => typeof address === "string" && /^[a-f0-9]{64}$/.test(address)), "transfer_shard_order");
   const sources: ImproverDataset["sources"][number][] = []; const omitted: ImproverDataset["omitted"][number][] = []; let count = 0;
   for (const [index, address] of record.shards.entries()) {
     const shard = await readRecord(client, address) as unknown as CorpusShard;
-    assert.equal(shard.format, "pm-rl/proposer-transfer-shard/2", "transfer_record_format");
-    assert.equal(shard.index, index, "transfer_shard_order");
-    assert.ok(shard.entries.length > 0, "transfer_shard_empty");
-    for (const entry of shard.entries) {
+    transferShape(shard.format === "pm-rl/proposer-transfer-shard/2", "transfer_record_format");
+    transferShape(Number.isSafeInteger(shard.index) && shard.index === index, "transfer_shard_order");
+    transferShape(Array.isArray(shard.entries) && shard.entries.length > 0, "transfer_shard_empty");
+    for (const entry of shard.entries as readonly ArchiveEntry[]) {
+      transferShape(transferObject(entry) && ["source", "omission", "task"].includes(entry.kind), "transfer_shard_entry");
       count++;
       if (entry.kind === "source") sources.push(entry.source);
       else if (entry.kind === "omission") omitted.push(entry.omission);
       else {
-        assert.ok(entry.kind === "task" && IMPROVER_ROLES.includes(entry.role), "transfer_record_format");
+        transferShape(entry.kind === "task" && IMPROVER_ROLES.includes(entry.role), "transfer_record_format");
         tasks[entry.role].push(entry.task);
       }
     }
   }
-  assert.equal(count, record.entry_count, "transfer_shard_count");
+  transferShape(count === record.entry_count, "transfer_shard_count");
   const corpus = { manifest: { ...record.manifest, sources, omitted }, tasks }; verifyTransferCorpus(corpus); return corpus;
 }
 /** Seal the prospective design in native history; evaluators must cite this address. */
@@ -231,8 +266,9 @@ export async function recordTransferPlan(client: PmClient, corpus: string, decla
 /** Read the birth-checked statistical contract independently of mutable operator files. */
 export async function readTransferPlan(client: PmClient, digest: string): Promise<TransferPlan> {
   const record = await readRecord(client, digest) as unknown as TransferPlan;
-  assert.equal(record.format, "pm-rl/proposer-transfer-plan/2", "transfer_record_format");
-  recordId(record.corpus); parseTransferDesign(record.design); return record;
+  transferShape(record.format === "pm-rl/proposer-transfer-plan/2", "transfer_record_format");
+  transferShape(typeof record.corpus === "string" && /^[a-f0-9]{64}$/.test(record.corpus), "transfer_plan_corpus");
+  parseTransferDesign(record.design); return record;
 }
 /** Store the complete paired measurement and derived report in append-only SDK history before selection. */
 export async function recordTransferEvaluation(client: PmClient, digest: string, role: "meta" | "audit", pairs: readonly TransferPair[], planDigest: string, look = 1): Promise<{ digest: string; report: TransferReport }> {
@@ -262,6 +298,7 @@ export async function recordTransferEvaluation(client: PmClient, digest: string,
 /** Replay old receipts with their historical design and new receipts with their exact sealed plan. */
 export async function replayTransferEvaluation(client: PmClient, digest: string): Promise<TransferReport> {
   const record = await readRecord(client, digest) as unknown as EvaluationRecord | PlannedEvaluation | ShardedEvaluation;
+  transferShape(["pm-rl/proposer-transfer-evaluation/1", "pm-rl/proposer-transfer-evaluation/2", "pm-rl/proposer-transfer-evaluation/3"].includes(record.format) && typeof record.corpus === "string" && /^[a-f0-9]{64}$/.test(record.corpus), "transfer_record_format");
   const corpus = await replayTransferCorpus(client, record.corpus);
   let report: TransferReport;
   if (record.format === "pm-rl/proposer-transfer-evaluation/1") {
@@ -269,18 +306,21 @@ export async function replayTransferEvaluation(client: PmClient, digest: string)
     report = { ...computed, format: "pm-rl/proposer-transfer-report/1", design: TRANSFER_DESIGN };
   } else {
     assert.ok(record.format === "pm-rl/proposer-transfer-evaluation/2" || record.format === "pm-rl/proposer-transfer-evaluation/3", "transfer_record_format");
+    transferShape(typeof record.plan === "string" && /^[a-f0-9]{64}$/.test(record.plan), "transfer_plan_corpus");
     const plan = await readTransferPlan(client, record.plan);
     assert.equal(plan.corpus, corpus.manifest.digest, "transfer_plan_corpus");
     const pairs: TransferPair[] = [];
-    if (record.format === "pm-rl/proposer-transfer-evaluation/2") pairs.push(...record.pairs);
+    if (record.format === "pm-rl/proposer-transfer-evaluation/2") { transferPairsShape(record.pairs); pairs.push(...record.pairs); }
     else {
-      assert.ok(Array.isArray(record.shards) && record.shards.length > 0 && record.shards.length <= record.pair_count && new Set(record.shards).size === record.shards.length, "transfer_pair_shards");
+      transferShape(Number.isSafeInteger(record.pair_count) && record.pair_count > 0 && record.pair_count <= 10_000 && Array.isArray(record.shards) && record.shards.length > 0 && record.shards.length <= record.pair_count && new Set(record.shards).size === record.shards.length && record.shards.every((address) => typeof address === "string" && /^[a-f0-9]{64}$/.test(address)), "transfer_pair_shards");
       for (const [index, address] of record.shards.entries()) {
         const shard = await readRecord(client, address) as unknown as PairShard;
-        assert.ok(shard.format === "pm-rl/proposer-transfer-pairs/2" && shard.index === index && Array.isArray(shard.pairs) && shard.pairs.length > 0, "transfer_pair_shard");
+        transferShape(shard.format === "pm-rl/proposer-transfer-pairs/2" && shard.index === index && Array.isArray(shard.pairs) && shard.pairs.length > 0, "transfer_pair_shard");
+        transferPairsShape(shard.pairs);
+        transferShape(pairs.length + shard.pairs.length <= record.pair_count, "transfer_pair_count");
         pairs.push(...shard.pairs);
       }
-      assert.equal(pairs.length, record.pair_count, "transfer_pair_count");
+      transferShape(pairs.length === record.pair_count, "transfer_pair_count");
     }
     report = evaluateTransfer(corpus, record.role, pairs, plan.design, record.look);
   }

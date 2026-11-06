@@ -203,7 +203,8 @@
       "test/transfer-receipt.test.ts",
       "test/transfer-review.test.ts",
       "test/transfer-review-policy.test.ts",
-      "test/transfer-review-capacity.test.ts"
+      "test/transfer-review-capacity.test.ts",
+      "test/transfer-review-native.test.ts"
     ],
     "thresholds": {
       "statements": 100,
