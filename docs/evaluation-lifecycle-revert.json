@@ -3,6 +3,18 @@
   "isolated_copy": true,
   "tests": [
     {
+      "function": "registerGenerationSnapshot",
+      "test": "causal candidate retries",
+      "reverted": {
+        "pass": 0,
+        "fail": 1
+      },
+      "restored": {
+        "pass": 1,
+        "fail": 0
+      }
+    },
+    {
       "function": "validateEvaluationOrder",
       "test": "permit equal clocks",
       "reverted": {
@@ -39,8 +51,32 @@
       }
     },
     {
-      "function": "createCausalEvaluationArtifact",
+      "function": "verifyCausalEvaluationRetry",
       "test": "configuration-hash drift",
+      "reverted": {
+        "pass": 0,
+        "fail": 1
+      },
+      "restored": {
+        "pass": 1,
+        "fail": 0
+      }
+    },
+    {
+      "function": "parseEvaluationPlan",
+      "test": "causal schema refuses",
+      "reverted": {
+        "pass": 0,
+        "fail": 1
+      },
+      "restored": {
+        "pass": 1,
+        "fail": 0
+      }
+    },
+    {
+      "function": "createCausalEvaluationArtifact",
+      "test": "CLI approval",
       "reverted": {
         "pass": 0,
         "fail": 1

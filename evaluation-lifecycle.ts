@@ -1,7 +1,7 @@
 /** Causal evaluation birth witnesses, persisted atomically with their native SDK artifacts. */
 import { randomUUID } from "node:crypto";
 import type { GetResult, PmClient } from "@unbrained/pm-cli/sdk/core";
-import { createVerifiedItem, hashJson, readCompleteLoopItem, type JsonValue } from "./index.ts";
+import { createVerifiedItem, extractGenerationSpec, generationProvenance, hashJson, readCompleteLoopItem, type JsonValue } from "./index.ts";
 import { evaluationComparison, evaluationPlanId, evaluationOutcomeIds, optionalItem, refuse, resolveEvaluationPlan, verifyCreatedRecord, type EvaluationPlan } from "./evaluation-plan.ts";
 import { withEvaluationLease, type SequentialStopping } from "./sequential-evaluation.ts";
 import { encodeBoundedJson, parseBoundedJson } from "./tracker-record.ts";
@@ -52,6 +52,13 @@ export async function validateCausalEvaluationOrder(client: PmClient, plan: Eval
     if (entry.witness.comparison !== comparison || entry.witness.stage !== entry.stage || JSON.stringify(entry.witness.predecessors) !== JSON.stringify(references(entries, entry.stage))) refuse("eval_plan_late", entry.id);
   }
 }
+/** Verify an existing birth without creating it; Generation bodies compare provenance and policy cards verify promotion. @internal */
+export async function verifyCausalEvaluationRetry(client: PmClient, plan: EvaluationPlan, options: Parameters<PmClient["create"]>[0] & { id: string }, artifacts: readonly EvaluationArtifact[]): Promise<void> {
+  await validateCausalEvaluationOrder(client, plan, artifacts);
+  const birth = await witnessedBirth(client, options.id);
+  const bodyIdentity = (item: GetResult["item"]): string => item.type === "Generation" ? hashJson(generationProvenance(extractGenerationSpec(String(item.body), "Causal candidate retry"))) : String(item.body);
+  if (birth.witness.request !== hashJson(options as unknown as JsonValue) || (["id", "type", "affected_version", "fixed_version", "component", "environment", "created_at"] as const).some(field => birth.item[field] !== birth.current[field]) || bodyIdentity(birth.item) !== bodyIdentity(birth.current)) refuse("eval_plan_drift", options.id);
+}
 /** Create a witnessed artifact in one SDK mutation; an uncertain acknowledgement retries the same birth. @internal */
 export async function createCausalEvaluationArtifact(client: PmClient, plan: EvaluationPlan, options: Parameters<PmClient["create"]>[0] & { id: string }, artifacts: readonly EvaluationArtifact[]): Promise<Awaited<ReturnType<PmClient["create"]>>> {
   const target = artifacts.find((entry) => entry.id === options.id);
@@ -63,9 +70,7 @@ export async function createCausalEvaluationArtifact(client: PmClient, plan: Eva
   const request = hashJson(options as unknown as JsonValue);
   const existing = await optionalItem(client, options.id);
   if (existing !== null) {
-    await validateCausalEvaluationOrder(client, plan, [...predecessors, target]);
-    const birth = await witnessedBirth(client, options.id);
-    if (birth.witness.request !== request || (["id", "type", "body", "affected_version", "fixed_version", "component", "environment", "created_at"] as const).some(field => birth.item[field] !== birth.current[field])) refuse("eval_plan_drift", options.id);
+    await verifyCausalEvaluationRetry(client, plan, options, [...predecessors, target]);
     return { item: existing as Awaited<ReturnType<PmClient["create"]>>["item"], changed_fields: [], warnings: [] };
   }
   const witness: BirthWitness = { comparison: evaluationComparison(plan), stage: target.stage, nonce: randomUUID(), request, predecessors: references(entries, target.stage) };

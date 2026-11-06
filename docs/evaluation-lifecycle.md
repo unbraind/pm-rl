@@ -62,6 +62,9 @@ and artifact together, so there is no secondary ordering journal to repair.
 Identical retries reuse that birth, including after an unacknowledged committed
 write. A new Run after candidate creation is refused; a retry of an already
 admitted Run remains valid. Annotations and metric appends remain allowed.
+Existing candidate registration and preflight verify the same birth envelope,
+including the checkpoint field. Generation bodies compare their immutable
+provenance, and policy-card checks retain the promotion-bookkeeping validation.
 Causal witnesses also participate in decision/evidence digests. Promotion and
 already-promoted retries revalidate the same chain alongside provenance,
 contamination, exact scores, terminal state and approval capacity.

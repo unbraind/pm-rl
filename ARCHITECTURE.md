@@ -223,6 +223,9 @@ ordering database. Candidate/Plan leases serialize collection admission, and the
 existing source revision fences guard candidate and promotion writes. Killed
 application acknowledgements replay the original births. Missing or retroactive
 witnesses refuse; native annotations and metric appends remain available.
+Existing-candidate registration and preflight share birth-envelope verification
+before policy-card publication. Retries refuse checkpoint metadata drift; Generation
+bodies compare provenance so promotion bookkeeping can retain its existing card checks.
 
 Legacy sequential and fixed plans retain their original serialization and ordering
 contract. A fresh candidate and review are required to migrate. The public-copy

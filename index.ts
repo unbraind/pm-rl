@@ -235,7 +235,7 @@ import { registerShadowDeployment, observeShadow, compareShadow } from "./shadow
 import { recordSequentialEvaluation, readSequentialEvaluation, withEvaluationLease, type SequentialStopping } from "./sequential-evaluation.ts";
 /** Typed persisted input graphs returned by the evaluation SDK. */
 export type { EvaluationEvidence } from "./lineage.ts";
-import { approveEvaluationPlan, createCausalEvaluationArtifact } from "./evaluation-lifecycle.ts";
+import { approveEvaluationPlan, createCausalEvaluationArtifact, verifyCausalEvaluationRetry } from "./evaluation-lifecycle.ts";
 import { registerEvaluationPlan, evaluationPlanId, evaluationLifecycleArtifacts, evaluationOutcomeIds, optionalItem, refuse as refuseEvaluation, readEvaluationPlan, recordPlanEvaluation, enforceEvaluationPlan, enforceEvaluationDecision, readEvaluationDecision, evaluationEvidence, parseEvaluationEvidence, evaluationInputDigest, decisionSnapshotDigest } from "./evaluation-plan.ts";
 import { buildIntakeLoopCorpus, buildTrackerLoopCorpus } from "./corpus.ts";
 import { decodeCheckpointArtifacts, encodeCheckpointArtifacts, collectCheckpointArtifacts, inspectCheckpointArtifact } from "./checkpoint-artifacts.ts";
@@ -2712,11 +2712,16 @@ async function registerGenerationSnapshot(client: PmClient, request: GenerationR
       if (request.policy !== "") identifier(request.policy, "artifact");
       await validatePolicyCardWrite(client, createOptions);
   };
+  /** Share birth verification between preflight and existing-candidate publication. */
+  const validateExistingCausal = async (): Promise<void> => {
+    if (reservation?.plan.ordering === "causal/1") await verifyCausalEvaluationRetry(client, reservation.plan, createOptions, evaluationLifecycleArtifacts(reservation, collectionRuns, 0));
+  };
   if (request.preflight) {
     const existing = await readCompleteLoopItem(client, requestedId).catch((error: unknown) => isItemNotFound(error) ? null : Promise.reject(error));
     if (existing === null) await validateNew();
     else {
       if (!matches(existing.item)) fail(`Generation id ${requestedId} already exists with different provenance.`, "generation_identity_collision", EXIT_CODE.CONFLICT);
+      await validateExistingCausal();
       await exportPolicyCard(client, requestedId);
     }
     return { action: "rl-generation-register", id: requestedId, created: false, details: { preflight: true } };
@@ -2724,7 +2729,7 @@ async function registerGenerationSnapshot(client: PmClient, request: GenerationR
   const result = await createOrReadIdentical(client, createOptions, "generation_identity_collision", matches, validateNew,
     async (item) => { await recordPolicyCard(client, item.id); },
   );
-  if (!result.created) await recordPolicyCard(client, String(result.item.id));
+  if (!result.created) { await validateExistingCausal(); await recordPolicyCard(client, String(result.item.id)); }
   return {
     action: "rl-generation-register",
     id: result.item.id,

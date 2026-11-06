@@ -648,6 +648,8 @@ collection with `pm rl run start ... --evaluation-candidate <candidate>` before
 registering that candidate. Existing advance, resume and promotion paths verify
 immutable causal birth witnesses instead of comparing wall clocks. The typed SDK
 exports `approveEvaluationPlan` and `startRunCore` with `RunStartRequest`.
+Candidate registration retries and preflight also verify the original checkpoint
+envelope while accepting validated promotion bookkeeping.
 Existing plans retain their original ordering and hashes; use a fresh candidate
 to migrate. Fixed-sample behavior is unchanged.
 

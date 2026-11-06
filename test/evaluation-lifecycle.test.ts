@@ -89,6 +89,19 @@ test("causal collection retries reject configuration-hash drift", async () => {
   } finally { process.chdir(testCwd); rmSync(w.root, { recursive: true, force: true }); }
 });
 
+test("causal candidate retries and preflight reject checkpoint drift without writing", async () => {
+  const w = await causalWorkspace();
+  try {
+    for (const step of ["review", "plan", "run", "candidate"]) await causalStep(w, step);
+    await w.client.update(w.plan.candidate, { fixedVersion: "different-checkpoint" });
+    const before = trackerHistory(w.pmRoot);
+    for (const preflight of [true, false]) await assert.rejects(registerGenerationCore(w.client, { ...w.generation, preflight }), refused("eval_plan_drift"));
+    assert.deepEqual(trackerHistory(w.pmRoot), before);
+    await w.client.update(w.plan.candidate, { fixedVersion: w.generation.baseCheckpoint });
+    assert.equal((await registerGenerationCore(w.client, w.generation)).created, false);
+  } finally { process.chdir(testCwd); rmSync(w.root, { recursive: true, force: true }); }
+});
+
 test("causal artifacts reject every cross-stage inversion and malformed or retrospectively added witnesses", async () => {
   const w = await causalWorkspace();
   try {
@@ -186,6 +199,8 @@ test("CLI approval collection and promotion use the causal SDK validator and pre
     const score = { objective: w.plan.objective, objective_version: w.plan.objective_version, evaluation_context: w.plan.evaluation_context, direction: w.plan.direction, seed_set: w.comparison, scale: 1, value: report.candidate_mean };
     await w.client.create({ id: "rl-budget", type: "Decision", title: "Promotion allowance", body: '```json\n{"permitted_promotions":1}\n```' });
     await promoteGenerationCore(w.client, { pmRoot: w.pmRoot, author: "lifecycle-test" }, w.plan.candidate, "rl-budget", { ...score, evaluation_context: "proxy" }, score, "Causal evaluation");
+    assert.equal((await registerGenerationCore(w.client, { ...w.generation, preflight: true })).created, false);
+    assert.equal((await registerGenerationCore(w.client, w.generation)).created, false);
     await w.client.notes("rl-review", { add: 'pm-rl/evaluation-birth/1 {}' });
     await assert.rejects(promoteGenerationCore(w.client, { pmRoot: w.pmRoot, author: "lifecycle-test" }, w.plan.candidate, "rl-budget", { ...score, evaluation_context: "proxy" }, score, "Retry"), refused("card_drift"));
     // The historical format still registers and collects through its original API.
