@@ -2,22 +2,40 @@ id: pm-rl-lifecycle
 title: Migrate evaluation lifecycle APIs to a clock-independent ordering contract
 description: "Follow-up to pm-rl-sequential. Migrate the evaluation lifecycle to review approved -> Plan sealed -> all collection Runs -> candidate -> ordered checkpoints/looks -> promotion, with a clock-independent proof of artifact ordering. The accepted chronology guards and creation-order regression proofs in PR107 complete the current sequential-evaluation scope; this migration is separate work."
 type: Feature
-status: open
+status: in_progress
 priority: 2
 tags[2]: api,evaluation-lifecycle
 created_at: "2026-10-27T05:03:56.149Z"
-updated_at: "2026-11-01T07:35:32.117Z"
+updated_at: "2026-11-06T21:00:45.911Z"
 author: codex-agent
 acceptance_criteria: "Migrate the typed SDK and CLI to one lifecycle contract: review approved -> Plan sealed -> all collection Runs -> candidate -> ordered checkpoints/looks -> promotion; document the migration and preserve fixed-sample behavior.; Prove lifecycle ordering independently of wall-clock timestamps, including clock skew, equal timestamps and rollback; every promotion and approval path calls the same validator and adversarial artifact-pair permutations refuse every out-of-order transition."
-comments[2]{created_at,author,text}:
+comments[7]{created_at,author,text}:
   "2026-10-27T05:56:09.951Z",codex-agent,"Round 3 correction to the previous scope split: PR 107 now requires complete chronology coverage for all existing artifacts, including every collection Run before the candidate and every cumulative look. That correctness fix stays in pm-rl-sequential. This Feature still exclusively tracks the public lifecycle API migration and clock-independent ordering proof; it does not block that fix or expand its API."
   "2026-10-31T15:36:42.952Z",codex-agent,"PRRT_kwDOTqJmqs6yR9cm: corrected description and acceptance_criteria with pm update to review approved -> Plan sealed -> all collection Runs -> candidate -> ordered checkpoints/looks -> promotion. Verified against reviewSequentialPlan, evaluationLifecycleArtifacts and README. Clock-independent ordering and fixed-sample compatibility requirements remain. This corrects planning text only; the future API migration remains open."
-files[4]{path,scope}:
+  "2026-11-06T20:18:52.587Z",codex-astra,"Orientation complete. The item has no parent; read its originating sequential feature and the package architecture and README. The current lifecycle uses creation timestamps and timestamp-sorted SDK mutation events, so event-list positions are not an independent ordering proof. Investigating a versioned durable causal receipt while preserving existing fixed-plan serialization and readers."
+  "2026-11-06T20:26:14.871Z",codex-astra,"Implementation uses explicit ordering=causal/1 on new sequential plans. SDK-created birth witnesses bind the exact comparison, stage, random nonce and certified predecessor births in the same native create as the artifact. Existing plans retain their original timestamp contract and hashes. Added an attributable design-approval API/command and collection admission through run start; candidate, look and promotion readers share causal validation. Testing equal clocks, skew, rollback, cross-process contention and killed-writer replay without SDK mocks."
+  "2026-11-06T20:39:09.673Z",codex-astra,"The first real-SDK skew/equal-clock and native process replay probes passed. The expanded suite exposed bounded lock contention, so process consumers now exercise bounded retry of the documented lock_conflict outcome. Causal validation now drains SDK reads before returning a refusal. Public main replay used 64 records in one repository unit, clocks decreasing from 2032 to 2028, unchanged authoritative source digest, descriptive mean 0.734375 versus 0.5 and exhausted/refused statistics. Legacy behavior remains unchanged; no policy-improvement claim."
+  "2026-11-06T20:48:41.928Z",codex-astra,"The clock-order function-only revert fails the real SDK skew regression; restoring it passes. Public creation witnesses are also included in decision seals, so a changed retained witness refuses promotion retry through the established card_drift wrapper. The native SDK snapshot test runner supports pm_context=none only with an isolated or snapshot workspace; using snapshot for the linked gate. No SDK mocks or dependency changes."
+  "2026-11-06T21:00:17.252Z",codex-astra,"Verification complete: the linked real-SDK snapshot gate passes 5/5 tests with 100% lines, branches and functions for evaluation-lifecycle.ts. Three isolated function-only reverts each fail one regression and each restoration passes: timestamp dispatch, causal precedence and existing-birth reuse. Five legacy checks pass, including 500 published-schema cases, released native fixtures, 460200 chronology permutations, full history pagination and fixed results. Typecheck, build, test compilation, lint, 539 declaration docstrings and zero duplication pass. Public source evidence and revert receipts are linked. Full npm/Bun release gates remain assigned to PR CI at unchanged thresholds; no SDK bug established. The complete opt-in lifecycle migration is implemented, with legacy plans preserved and the native-history trust boundary documented."
+files[10]{path,scope}:
+  evaluation-lifecycle.ts,project
   evaluation-plan.ts,project
   index.ts,project
   sequential-evaluation.ts,project
+  test/evaluation-lifecycle.acceptance.ts,project
+  test/evaluation-lifecycle.revert.ts,project
+  test/evaluation-lifecycle.test.ts,project
+  test/fixtures/causal-evaluation.ts,project
+  test/fixtures/causal-worker.ts,project
   test/sequential-evaluation.test.ts,project
-docs[2]{path,scope}:
+tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  node --test --test-concurrency=2 --experimental-test-coverage --test-coverage-include=**/evaluation-lifecycle.ts --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100 test/evaluation-lifecycle.test.ts,project,900,codex-astra,"2026-11-06T20:48:39.001Z",local_mutation,clock-independent-evaluation-lifecycle
+docs[7]{path,scope}:
+  ARCHITECTURE.md,project
+  docs/evaluation-lifecycle-evidence.json,project
+  docs/evaluation-lifecycle-revert.json,project
+  docs/evaluation-lifecycle.md,project
+  examples/evaluation-plan-causal.json,project
   examples/sequential-evaluation-plan.json,project
   README.md,project
 body: "Origin: [pm-rl-sequential](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-sequential.toon). The orchestrator accepted validateEvaluationOrder, its 17 creation-order cases and function-only revert proofs as sufficient for [PR107](https://github.com/unbraind/pm-rl/pull/107). This Feature owns the separate lifecycle API migration and clock-independent ordering proof; it does not block PR107."

@@ -1,0 +1,42 @@
+{
+  "format": "pm-rl/evaluation-lifecycle-revert/1",
+  "isolated_copy": true,
+  "tests": [
+    {
+      "function": "validateEvaluationOrder",
+      "test": "permit equal clocks",
+      "reverted": {
+        "pass": 0,
+        "fail": 1
+      },
+      "restored": {
+        "pass": 1,
+        "fail": 0
+      }
+    },
+    {
+      "function": "validateCausalEvaluationOrder",
+      "test": "every cross-stage inversion",
+      "reverted": {
+        "pass": 0,
+        "fail": 1
+      },
+      "restored": {
+        "pass": 1,
+        "fail": 0
+      }
+    },
+    {
+      "function": "createCausalEvaluationArtifact",
+      "test": "shared across OS processes",
+      "reverted": {
+        "pass": 0,
+        "fail": 1
+      },
+      "restored": {
+        "pass": 1,
+        "fail": 0
+      }
+    }
+  ]
+}

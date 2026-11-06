@@ -3,6 +3,7 @@ import { evaluateSequentialBoundary, parseSequentialStopping, readSequentialEval
 import { encodeBoundedJson, parseBoundedJson, type JsonEncodingRefusal } from "./tracker-record.ts";
 /** Predeclared paired policy comparisons with fixed cohorts and equal-weight correlation units. */
 import type { GetResult, PmClient } from "@unbrained/pm-cli/sdk/core";
+import { createCausalEvaluationArtifact, evaluationBirthIdentity, validateCausalEvaluationOrder } from "./evaluation-lifecycle.ts";
 import { listMutationEvents } from "@unbrained/pm-cli/sdk";
 import { dirname } from "node:path";
 import { createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError, readSettings } from "@unbrained/pm-cli/sdk/runtime";
@@ -40,6 +41,8 @@ export interface EvaluationMember { readonly id: string; readonly unit: string }
 /** All statistical and cohort choices are frozen before the candidate and its collection runs exist. */
 export interface EvaluationPlan {
   readonly format: "pm-rl/evaluation-plan/1";
+  /** Opt-in birth-witness ordering for new sequential designs; omitted plans retain legacy ordering. */
+  readonly ordering?: "causal/1";
   /** Content identity of the consented online observation manifest, when deployed in shadow. */
   readonly shadow?: string;
   /** Optional predeclared empirical protections; available on fixed-sample plans. */
@@ -115,12 +118,12 @@ export function parseEvaluationEvidence(value: unknown): EvaluationEvidence {
 export function evaluationInputDigest(item: GetResult["item"], comparison?: string): string {
   const spec = item.type === "Generation" ? extractGenerationSpec(String(item.body), "Evaluation input") : null;
   const generation = spec === null ? String(item.body) : { provenance: generationProvenance(spec), ...(spec.evaluation_evidence !== undefined && spec.evaluation_evidence.comparison !== comparison ? { upstream_evidence: spec.evaluation_evidence } : {}) };
-  return hashJson({ id: item.id, type: String(item.type), body: generation as unknown as JsonValue, version: String(item.affected_version), created_at: String(item.created_at),
+  return hashJson({ id: item.id, type: String(item.type), body: generation as unknown as JsonValue, version: String(item.affected_version), created_at: String(item.created_at), ...evaluationBirthIdentity(item),
     ...(item.type === "Run" ? { environment: item.environment ?? null, policy: item.component ?? null, metrics: readSeries((item.notes ?? []).map((note) => note.text)).events as unknown as JsonValue } : {}) });
 }
 /** Fingerprint an immutable SDK snapshot without projecting mutable records under a later comparison. */
 export function decisionSnapshotDigest(item: Pick<GetResult["item"], "id" | "type" | "body" | "affected_version" | "created_at" | "component" | "environment" | "notes">): string {
-  return hashJson({ id: item.id, type: String(item.type), body: String(item.body), version: String(item.affected_version), created_at: String(item.created_at),
+  return hashJson({ id: item.id, type: String(item.type), body: String(item.body), version: String(item.affected_version), created_at: String(item.created_at), ...evaluationBirthIdentity(item),
     ...(item.type === "Run" ? { environment: item.environment ?? null, policy: item.component ?? null, metrics: readSeries((item.notes ?? []).map((note) => note.text)).events as unknown as JsonValue } : {}) });
 }
 /** Seal precisely the records read by this execution, including history-only collection sources. */
@@ -158,9 +161,10 @@ function protectedCohorts(value: unknown, members: readonly EvaluationMember[], 
 }
 /** Validate the complete design once, including dense bounded cohorts and a declared stopping protocol. */
 export function parseEvaluationPlan(value: unknown, mode: ValidationMode = "read"): EvaluationPlan {
+  const orderingKeys = value !== null && typeof value === "object" && Object.hasOwn(value, "ordering") ? ["ordering"] : [];
   const shadowKeys = value !== null && typeof value === "object" && Object.hasOwn(value, "shadow") ? ["shadow"] : [];
   const cohortKeys = value !== null && typeof value === "object" && Object.hasOwn(value, "protected_cohorts") ? ["protected_cohorts"] : [];
-  const p = object(value, [...shadowKeys, ...cohortKeys, "format", "candidate", "incumbent", "incumbent_version", "population", "selection", "correlation_unit", "members", "objective", "objective_version", "evaluation_context", "direction", "reward_bounds", "criterion", "stopping"]);
+  const p = object(value, [...orderingKeys, ...shadowKeys, ...cohortKeys, "format", "candidate", "incumbent", "incumbent_version", "population", "selection", "correlation_unit", "members", "objective", "objective_version", "evaluation_context", "direction", "reward_bounds", "criterion", "stopping"]);
   if (p.format !== "pm-rl/evaluation-plan/1" || (p.direction !== "maximize" && p.direction !== "minimize")) refuse("eval_plan_invalid");
   const candidate = label(p.candidate, "item", mode); const incumbent = label(p.incumbent, "item", mode);
   if (candidate === incumbent) refuse("eval_plan_invalid");
@@ -169,6 +173,7 @@ export function parseEvaluationPlan(value: unknown, mode: ValidationMode = "read
   const units = new Set(members.map((m) => m.unit));
   if (new Set(members.map((m) => m.id)).size !== members.length) refuse("eval_plan_invalid");
   const sequential = p.stopping !== null && typeof p.stopping === "object" && "kind" in p.stopping && p.stopping.kind === "sequential";
+  if (orderingKeys.length > 0 && (p.ordering !== "causal/1" || !sequential)) refuse("eval_plan_invalid");
   if (sequential && shadowKeys.length > 0) refuse("eval_plan_invalid");
   if (sequential && cohortKeys.length > 0) throw createPmCliExpectedError("Protected cohort guards require a fixed-sample plan. Register a fresh fixed plan for these cohorts, or a separate reviewed sequential plan without protected cohorts.", { exitCode: EXIT_CODE.CONFLICT, context: { code: "eval_plan_stopping", required: "Use fixed-sample protected cohorts or a separately reviewed sequential protocol with a fresh candidate." } });
   const stopping = sequential ? parseSequentialStopping(p.stopping, members) : object(p.stopping, ["kind", "observations", "independent_units"]);
@@ -177,10 +182,14 @@ export function parseEvaluationPlan(value: unknown, mode: ValidationMode = "read
   if (typeof c.confidence !== "number" || !Number.isFinite(c.confidence) || c.confidence <= 0 || c.confidence >= 1 || typeof c.minSamples !== "number" || !Number.isSafeInteger(c.minSamples) || c.minSamples < 1 || typeof c.effectThreshold !== "number" || !Number.isFinite(c.effectThreshold) || c.effectThreshold < 0) refuse("eval_plan_invalid");
   const b = p.reward_bounds;
   if (!Array.isArray(b) || b.length !== 2 || Array.from(b).some((v) => typeof v !== "number" || !Number.isFinite(v)) || b[0] >= b[1] || !Number.isFinite(b[1] - b[0])) refuse("eval_plan_invalid");
-  const normalized: EvaluationPlan = { ...(shadowKeys.length === 0 ? {} : { shadow: label(p.shadow) }), ...(cohortKeys.length === 0 ? {} : { protected_cohorts: protectedCohorts(p.protected_cohorts, members, b as [number, number]) }), format: "pm-rl/evaluation-plan/1", candidate, incumbent, incumbent_version: label(p.incumbent_version), population: label(p.population), selection: label(p.selection), correlation_unit: label(p.correlation_unit), members,
+  const normalized: EvaluationPlan = { ...(orderingKeys.length === 0 ? {} : { ordering: "causal/1" as const }), ...(shadowKeys.length === 0 ? {} : { shadow: label(p.shadow) }), ...(cohortKeys.length === 0 ? {} : { protected_cohorts: protectedCohorts(p.protected_cohorts, members, b as [number, number]) }), format: "pm-rl/evaluation-plan/1", candidate, incumbent, incumbent_version: label(p.incumbent_version), population: label(p.population), selection: label(p.selection), correlation_unit: label(p.correlation_unit), members,
     objective: label(p.objective), objective_version: label(p.objective_version), evaluation_context: label(p.evaluation_context, "context", mode), direction: p.direction as EvaluationPlan["direction"],
     reward_bounds: [b[0] as number, b[1] as number], criterion: { confidence: c.confidence, minSamples: c.minSamples, effectThreshold: c.effectThreshold },
     stopping: sequential ? stopping as SequentialStopping : { kind: "fixed", observations: members.length, independent_units: units.size } };
+  if (normalized.ordering === "causal/1") {
+    const identities = [candidate, incumbent, (normalized.stopping as SequentialStopping).review, evaluationPlanId(candidate), ...evaluationOutcomeIds(normalized)];
+    if (new Set(identities).size !== identities.length) refuse("eval_plan_invalid");
+  }
   if (sequential && Buffer.byteLength(JSON.stringify(normalized)) > 1_048_576) refuse("eval_plan_invalid");
   evaluationPlanBody(normalized);
   return normalized;
@@ -245,7 +254,7 @@ export function validateEvaluationTimeline(entries: readonly { stage: number; va
   }
 }
 /** One validator expands sequential dependencies itself, so callers cannot omit source Runs. @internal */
-export async function validateEvaluationOrder(client: PmClient, input: readonly { id: string; stage: number }[] | { registered: RegisteredEvaluationPlan; looks: number }, pageSize = 1000, prospective?: GetResult["item"]): Promise<void> {
+export async function validateEvaluationOrder(client: PmClient, input: readonly { id: string; stage: number }[] | { registered: RegisteredEvaluationPlan; looks: number }, pageSize = 1000, prospective?: GetResult["item"], causalPlan?: EvaluationPlan): Promise<void> {
   let artifacts: readonly { id: string; stage: number }[];
   if ("registered" in input) {
     const candidate = prospective === undefined ? await readCompleteLoopItem(client, input.registered.plan.candidate) : { item: prospective };
@@ -253,6 +262,8 @@ export async function validateEvaluationOrder(client: PmClient, input: readonly 
     const spec = canonicalizeGenerationSpec(extractGenerationSpec(String(candidate.item.body), "Sequential collection provenance"), prefix);
     artifacts = evaluationLifecycleArtifacts(input.registered, spec.collection_runs, input.looks);
   } else artifacts = input;
+  const plan = "registered" in input ? input.registered.plan : causalPlan;
+  if (plan?.ordering === "causal/1") return validateCausalEvaluationOrder(client, plan, artifacts, prospective);
   const entries = await Promise.all(artifacts.map(async ({ id, stage }) => ({ id: operationIdentifier(id), stage, item: prospective?.id === id ? prospective : await createdItem(client, id) })));
   const config = await identifierClient(client).config("project", "get", "id_prefix");
   const events: Awaited<ReturnType<typeof listMutationEvents>>["events"] = [];
@@ -283,7 +294,7 @@ export async function readEvaluationPlan(client: PmClient, candidate: string): P
   const comparison = evaluationComparison(plan);
   if (item.type !== "Plan" || item.id !== id || plan.candidate !== candidate || plan.incumbent_version !== incumbentVersion || item.affected_version !== hashJson({ comparison, incumbent_version: incumbentVersion })) refuse("eval_plan_drift");
   await verifyCreatedRecord(client, item);
-  if (plan.stopping.kind === "sequential") await reviewSequentialPlan(client, plan, String(item.created_at));
+  if (plan.stopping.kind === "sequential") await reviewSequentialPlan(client, plan, true);
   return { id, comparison, plan, incumbent_version: incumbentVersion, created_at: String(item.created_at) };
 }
 /** Resolve native plan references through the SDK before computing the comparison a Decision reviews. */
@@ -314,8 +325,10 @@ async function registerParsedPlan(client: PmClient, plan: EvaluationPlan, input:
   if (hashJson(generationProvenance(extractGenerationSpec(String(incumbent.body), "Incumbent generation"))) !== version) refuse("eval_plan_drift");
   const id = evaluationPlanId(plan.candidate);
   try {
-    await createVerifiedItem(client, { id, title: "Predeclared paired policy evaluation", type: "Plan", body: evaluationPlanBody(plan),
-      unset: ["parent", "sprint", "release", "blocked-by"], clearDeps: true, affectedVersion: hashJson({ comparison, incumbent_version: version }), message: "Predeclare fixed cohort evaluation plan" });
+    const options = { id, title: "Predeclared paired policy evaluation", type: "Plan", body: evaluationPlanBody(plan),
+      unset: ["parent", "sprint", "release", "blocked-by"], clearDeps: true, affectedVersion: hashJson({ comparison, incumbent_version: version }), message: "Predeclare fixed cohort evaluation plan" };
+    if (plan.ordering === "causal/1") await createCausalEvaluationArtifact(client, plan, options, [{ id: (plan.stopping as SequentialStopping).review, stage: 0 }, { id, stage: 1 }]);
+    else await createVerifiedItem(client, options);
   } catch (error) {
     const winner = await readEvaluationPlan(client, plan.candidate);
     if (winner === null || winner.comparison !== comparison || winner.incumbent_version !== version) throw error;
