@@ -1,5 +1,5 @@
 import { statePath } from "./state-boundary.ts";
-import { parseBoundedJson, encodeBoundedJson } from "./tracker-record.ts";
+import { parseBoundedJson, encodeBoundedJson, MAX_JSON_BYTES } from "./tracker-record.ts";
 /** Frozen chronological tasks derived only from verified public committed tracker snapshots. */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -135,12 +135,36 @@ export function buildImproverDataset(directories: readonly string[], output: str
   }
   const record = { format: "pm-rl/improver-dataset/1" as const, seed, sources, splits: identities, omitted };
   const manifest = { ...record, digest: hashJson(record as unknown as JsonValue) };
-  const files = IMPROVER_ROLES.map((role) => ({ name: `${role}.json`, text: encodeBoundedJson(splits[role]) }));
+  const files = IMPROVER_ROLES.flatMap((role) => planImproverRoleFiles(role, splits[role]));
   const manifestText = encodeBoundedJson(manifest, undefined, 2);
   mkdirSync(statePath(output), { recursive: true });
   for (const file of files) writeFileSync(statePath(output, file.name), file.text, { flag: "wx" });
   writeFileSync(statePath(output, "improver-dataset.json"), manifestText, { flag: "wx" });
   return manifest;
+}
+
+/** Plan bounded content-addressed role files without changing the original task-array split identity.
+ * @internal
+ */
+export function planImproverRoleFiles(role: typeof IMPROVER_ROLES[number], tasks: readonly ImproverTask[]): readonly { readonly name: string; readonly text: string }[] {
+  const text = JSON.stringify(tasks);
+  if (Buffer.byteLength(text) <= MAX_JSON_BYTES) return [{ name: `${role}.json`, text: encodeBoundedJson(tasks) }];
+  const files: { name: string; text: string }[] = []; const shards: string[] = [];
+  let pending: ImproverTask[] = []; let bytes = 0;
+  /** Byte-check the complete shard envelope before any caller writes the dataset. */
+  const flush = (): void => {
+    const shard = { format: "pm-rl/improver-role-shard/1", role, index: shards.length, tasks: pending };
+    const encoded = encodeBoundedJson(shard); const digest = hashJson(shard as unknown as JsonValue);
+    files.push({ name: `${role}-${digest}.json`, text: encoded }); shards.push(digest); pending = []; bytes = 0;
+  };
+  for (const task of tasks) {
+    const size = Buffer.byteLength(encodeBoundedJson(task));
+    if (pending.length > 0 && bytes + size > 8_388_608) flush();
+    pending.push(task); bytes += size;
+  }
+  flush();
+  files.push({ name: `${role}.json`, text: encodeBoundedJson({ format: "pm-rl/improver-role/2", role, digest: hashJson(tasks as unknown as JsonValue), count: tasks.length, shards }) });
+  return files;
 }
 
 /** A manifest read does not open task examples from any role. */
@@ -153,7 +177,21 @@ export function readImproverDataset(directory: string): ImproverDataset {
 
 /** Verify role, identity, chronology, label availability and item isolation before exposing rows to the evaluator. */
 export function readImproverTasks(directory: string, manifest: ImproverDataset, role: typeof IMPROVER_ROLES[number]): ImproverTask[] {
-  const tasks = parseBoundedJson(readFileSync(statePath(directory, `${role}.json`), "utf8")) as ImproverTask[];
+  const root = parseBoundedJson(readFileSync(statePath(directory, `${role}.json`), "utf8")) as ImproverTask[] | { format: string; role: string; digest: string; count: number; shards: string[] };
+  const tasks: ImproverTask[] = [];
+  if (Array.isArray(root)) tasks.push(...root);
+  else {
+    assert.ok(root.format === "pm-rl/improver-role/2" && root.role === role && root.digest === manifest.splits[role].digest && root.count === manifest.splits[role].tasks, "improver_role_identity");
+    assert.ok(Array.isArray(root.shards) && root.shards.length > 0 && root.shards.length <= root.count && new Set(root.shards).size === root.shards.length, "improver_role_shards");
+    for (const [index, digest] of root.shards.entries()) {
+      assert.match(digest, /^[a-f0-9]{64}$/, "improver_role_digest");
+      const shard = parseBoundedJson(readFileSync(statePath(directory, `${role}-${digest}.json`), "utf8")) as { format: string; role: string; index: number; tasks: ImproverTask[] };
+      assert.equal(hashJson(shard as unknown as JsonValue), digest, "improver_role_digest");
+      assert.ok(shard.format === "pm-rl/improver-role-shard/1" && shard.role === role && shard.index === index && Array.isArray(shard.tasks) && shard.tasks.length > 0, "improver_role_shard");
+      tasks.push(...shard.tasks);
+    }
+    assert.equal(tasks.length, root.count, "improver_role_count");
+  }
   validateImproverTasks(tasks, manifest, role);
   return tasks;
 }

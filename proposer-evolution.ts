@@ -1,6 +1,6 @@
 /** Bounded algorithm evolution layered on authoritative process, recipe, evaluation and controller APIs. */
 import assert from "node:assert/strict";
-import { statSync } from "node:fs";
+import { readdirSync, statSync } from "node:fs";
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { hashJson, readCompleteLoopItem, withRlController, type JsonValue } from "./index.ts";
@@ -118,13 +118,13 @@ function proposerDatasetRead<T>(read: () => T): T {
     expectedFail("Proposer dataset could not be read or verified. Restore the original sealed dataset and read access, or use a fresh programme identity.", "proposer_dataset_invalid");
   }
 }
-/** Reuse verified projections while all four file identities remain stable; any change rechecks the full corpus.
+/** Reuse verified projections while manifest, role and shard identities remain stable; any change rechecks the full corpus.
  * @internal
  */
 export function proposerCorpusReader(directory: string): () => TransferCorpus {
   let cached: { signature: string; corpus: TransferCorpus } | undefined;
   /** Nanosecond ctime also detects same-size edits whose caller restores the prior mtime. */
-  const signature = (): string => ["improver-dataset.json", ...IMPROVER_ROLES.map((role) => `${role}.json`)].map((name) => {
+  const signature = (): string => ["improver-dataset.json", ...IMPROVER_ROLES.map((role) => `${role}.json`), ...readdirSync(directory).filter((name) => /^(development|meta|audit)-[a-f0-9]{64}\.json$/.test(name)).sort()].map((name) => {
     const info = statSync(statePath(directory, name), { bigint: true });
     return `${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`;
   }).join("|");
@@ -196,6 +196,9 @@ export async function runProposerEvolution(client: PmClient, coordinates: Proces
   const design = parseTransferDesign({ ...config.transfer, margin: IMPROVER_CRITERION.effectThreshold, looks: config.generations + 1, targets: TRANSFER_DESIGN.targets });
   const request = await programmeRequest(client, raw); const manifest = evolutionDataset(request.dataset);
   const currentCorpus = proposerCorpusReader(request.dataset); const transferCorpus = currentCorpus();
+  for (let look = 1; look <= config.generations; look += 1) {
+    if (transferMembers(transferCorpus, "meta", config.generations + 1, look).length === 0) expectedFail(`transfer_underpowered: Meta look ${look} has no tracker. Seal a corpus with at least ${config.generations} meta trackers before starting.`, "transfer_underpowered");
+  }
   const approval = await proposerApprovalRead(() => readCompleteLoopItem(client, request.approval));
   if (approval.item.type !== "Decision") expectedFail("Approve the complete resource budget in a Decision before starting.", "proposer_approval");
   const fits = config.candidates * (config.generations * (manifest.splits.development.tasks + 2 * manifest.splits.meta.tasks) + 2 * manifest.splits.audit.tasks);

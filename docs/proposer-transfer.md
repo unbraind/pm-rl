@@ -36,7 +36,7 @@ power guarantee is zero if s = delta - margin - r is nonpositive, otherwise
 ceil(2 (sqrt(log(2m/alpha)) + sqrt(log(1/(1-power))))^2 / (MDE-margin)^2)
 ```
 
-For the original study declaration (MDE 0.10, alpha 0.05, power 0.80, two looks), this is 3,062 trackers **per task and per look**.
+For the original study declaration (MDE 0.10, alpha 0.05, power 0.80, two looks), this is 3,062 independent trackers per task at each look. Every meta generation uses a disjoint tracker set, and audit uses a separate set.
 The calculation uses the declared alternative, never an observed effect or fitted
 variance. Zero rows or a missing target remain underpowered. Confidence intervals
 are wide rather than silently borrowing item counts or training examples.
@@ -113,7 +113,7 @@ before access; private remote names are also denied before metadata/history read
 Only copied committed histories are read. Chronological train/evaluation boundaries,
 label availability, task balance and the released dataset identity contract are
 validated on initial input and before each durable operation. A run reuses its
-verified projections while the manifest and all three role files retain their
+verified projections while the manifest, role files and all referenced role shards retain their
 device, inode, size, nanosecond mtime and ctime. Any change triggers full corpus
 verification; approval reads remain fresh at every durable validation.
 
@@ -280,3 +280,7 @@ Git-independent reversion and rejection of empty probe selectors. The released
 single-record writer is a TypeScript fixture, so no historical Git object is
 required. Disposable CLI and revert workspaces are removed on success or failure;
 operator-owned live evidence stays in its explicitly selected scratch tracker.
+
+Large role projections use a bounded role index and content-addressed, ordered task-array shards. Each JSON file retains the 16 MiB reader limit, and the manifest and split digest still identify the original ordered task array. Small released role arrays remain unchanged and readable. Cache signatures include shard file identities, so changing or removing a shard forces verification. Empty planned meta looks refuse with `transfer_underpowered` before controller writes or fits.
+
+Paired measurements that exceed one native record use indexed native pair shards and a small version-three evaluation root. Every root and shard retains the one-MiB bound, registered SDK fields and birth-history verification; replay checks the ordered digest list and total pair count before recomputing the same report. Small version-two evaluations and historical version-one evaluations remain readable with their original digests. No alpha, power, MDE or look count is changed to accommodate storage.

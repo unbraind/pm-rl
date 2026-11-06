@@ -1150,7 +1150,7 @@ comments, titles, authors and paths are excluded.
 
 The public acceptance froze 31 public MIT source pins, yielding 19 development,
 16 meta and 11 audit tasks. Its conservative power calculation requires **3,062
-independent trackers per task**, far beyond this fleet. A resource-bounded diagnostic
+independent trackers per task at each look**, far beyond this fleet. A resource-bounded diagnostic
 uses three trackers with both tasks per compartment, selected by repository hash
 and seed before scores, without changing any gate. Meta: pm-context, pm-ops,
 pm-graph. Audit: pm-linear, pm-vcs, pm-starter. Development: pm-beads,

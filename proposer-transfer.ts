@@ -49,6 +49,10 @@ export interface TransferArchive { readonly root: CorpusRoot; readonly shards: r
 export interface TransferPlan { readonly format: "pm-rl/proposer-transfer-plan/2"; readonly corpus: string; readonly design: TransferDesign }
 /** Version two evaluations cite a native plan instead of silently inheriting library constants. */
 interface PlannedEvaluation { readonly format: "pm-rl/proposer-transfer-evaluation/2"; readonly corpus: string; readonly plan: string; readonly role: "meta" | "audit"; readonly look: number; readonly pairs: readonly TransferPair[]; readonly report: TransferReport }
+/** Large paired observations use indexed native shards pinned by a small evaluation root. */
+interface PairShard { readonly format: "pm-rl/proposer-transfer-pairs/2"; readonly index: number; readonly pairs: readonly TransferPair[] }
+/** Keep the exact same statistical report while removing the single-record pair capacity limit. */
+type ShardedEvaluation = Omit<PlannedEvaluation, "format" | "pairs"> & { readonly format: "pm-rl/proposer-transfer-evaluation/3"; readonly pair_count: number; readonly shards: readonly string[] };
 
 /** Canonical source comparison prevents case or Unicode aliases from crossing tracker compartments. */
 function tracker(value: string): string { return value.normalize("NFKC").trim().toLowerCase(); }
@@ -143,7 +147,7 @@ async function readRecord(client: PmClient, digest: string): Promise<JsonValue> 
   const birth = (await readCompleteLoopItem(client, id, "1")).item;
   assert.ok(current.type === "Decision" && current.affected_version === digest && current.component === "proposer-transfer" && current.body === birth.body && current.affected_version === birth.affected_version && current.type === birth.type && current.component === birth.component, "transfer_record_drift");
   const value = parseBoundedJson(String(current.body));
-  if (String((value as Record<string, JsonValue>)["format"]).endsWith("/2")) assertJsonEncoding(String(current.body), MAX_TRACKER_RECORD_BYTES);
+  if (/\/[23]$/.test(String((value as Record<string, JsonValue>)["format"]))) assertJsonEncoding(String(current.body), MAX_TRACKER_RECORD_BYTES);
   assert.equal(hashJson(value as JsonValue), digest, "transfer_record_digest"); return value as JsonValue;
 }
 /** Idempotently append through the SDK; a conflicting existing address refuses instead of overwriting. */
@@ -236,21 +240,49 @@ export async function recordTransferEvaluation(client: PmClient, digest: string,
   assert.equal(plan.corpus, corpus.manifest.digest, "transfer_plan_corpus");
   const report = evaluateTransfer(corpus, role, pairs, plan.design, look);
   const record: PlannedEvaluation = { format: "pm-rl/proposer-transfer-evaluation/2", corpus: digest, plan: planDigest, role, look, pairs, report };
-  return { digest: await writeRecord(client, record), report };
+  if (Buffer.byteLength(JSON.stringify(record)) <= MAX_TRACKER_RECORD_BYTES) return { digest: await writeRecord(client, record), report };
+  const shards: PairShard[] = []; let pending: TransferPair[] = []; let bytes = 0;
+  /** Preflight every complete packet before publishing the first paired observation. */
+  const flush = (): void => {
+    const shard: PairShard = { format: "pm-rl/proposer-transfer-pairs/2", index: shards.length, pairs: pending };
+    encodeBoundedJson(shard, MAX_TRACKER_RECORD_BYTES); shards.push(shard); pending = []; bytes = 0;
+  };
+  for (const pair of pairs) {
+    const size = Buffer.byteLength(encodeBoundedJson(pair, MAX_TRACKER_RECORD_BYTES));
+    if (pending.length > 0 && bytes + size > 262_144) flush();
+    pending.push(pair); bytes += size;
+  }
+  flush();
+  const { pairs: _pairs, format: _format, ...envelope } = record;
+  const root: ShardedEvaluation = { ...envelope, format: "pm-rl/proposer-transfer-evaluation/3", pair_count: pairs.length, shards: shards.map((shard) => hashJson(shard as unknown as JsonValue)) };
+  encodeBoundedJson(root, MAX_TRACKER_RECORD_BYTES);
+  for (const shard of shards) await writeRecord(client, shard);
+  return { digest: await writeRecord(client, root), report };
 }
 /** Replay old receipts with their historical design and new receipts with their exact sealed plan. */
 export async function replayTransferEvaluation(client: PmClient, digest: string): Promise<TransferReport> {
-  const record = await readRecord(client, digest) as unknown as EvaluationRecord | PlannedEvaluation;
+  const record = await readRecord(client, digest) as unknown as EvaluationRecord | PlannedEvaluation | ShardedEvaluation;
   const corpus = await replayTransferCorpus(client, record.corpus);
   let report: TransferReport;
   if (record.format === "pm-rl/proposer-transfer-evaluation/1") {
     const computed = evaluateTransfer(corpus, record.role, record.pairs, { ...TRANSFER_DESIGN, looks: record.comparisons }, record.look);
     report = { ...computed, format: "pm-rl/proposer-transfer-report/1", design: TRANSFER_DESIGN };
   } else {
-    assert.equal(record.format, "pm-rl/proposer-transfer-evaluation/2", "transfer_record_format");
+    assert.ok(record.format === "pm-rl/proposer-transfer-evaluation/2" || record.format === "pm-rl/proposer-transfer-evaluation/3", "transfer_record_format");
     const plan = await readTransferPlan(client, record.plan);
     assert.equal(plan.corpus, corpus.manifest.digest, "transfer_plan_corpus");
-    report = evaluateTransfer(corpus, record.role, record.pairs, plan.design, record.look);
+    const pairs: TransferPair[] = [];
+    if (record.format === "pm-rl/proposer-transfer-evaluation/2") pairs.push(...record.pairs);
+    else {
+      assert.ok(Array.isArray(record.shards) && record.shards.length > 0 && record.shards.length <= record.pair_count && new Set(record.shards).size === record.shards.length, "transfer_pair_shards");
+      for (const [index, address] of record.shards.entries()) {
+        const shard = await readRecord(client, address) as unknown as PairShard;
+        assert.ok(shard.format === "pm-rl/proposer-transfer-pairs/2" && shard.index === index && Array.isArray(shard.pairs) && shard.pairs.length > 0, "transfer_pair_shard");
+        pairs.push(...shard.pairs);
+      }
+      assert.equal(pairs.length, record.pair_count, "transfer_pair_count");
+    }
+    report = evaluateTransfer(corpus, record.role, pairs, plan.design, record.look);
   }
   assert.equal(hashJson(report as unknown as JsonValue), hashJson(record.report as unknown as JsonValue), "transfer_report_drift"); return report;
 }

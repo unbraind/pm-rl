@@ -225,8 +225,7 @@ declared effect 0.10, margin 0.01, alpha 0.05 and per-task power 0.80. Underpowe
 input can produce diagnostic evidence but cannot promote. This additional gate
 preserves the existing inner, outer, cohort, resource and rollback gates.
 
-For one generation plus audit the bound requires 3,062 independent trackers per
-task. The available frozen public fleet provides 31 source pins and 46 tasks,
+For one generation plus audit the bound requires 3,062 independent trackers per task at each look. The available frozen public fleet provides 31 source pins and 46 tasks,
 so it cannot establish powered efficacy. A bounded diagnostic uses three trackers
 per role. Its human-facing result is `pm-rl-rsipower-bounded-result`; replay uses
 `pm --pm-path "$scratch/.agents/pm" rl proposer transfer replay <evaluation-digest> --json`.
@@ -248,3 +247,5 @@ The issue-149 minimum powered archive regression covers 12,248 held-out task
 references with 73 native shards, a 5,412-byte root and maximum record size
 264,191 bytes. Replay validates ordered shard identities and complete corpus
 digests; the one-MiB limit is unchanged. Version-one evidence remains readable.
+
+Powered dataset role projections can span bounded, content-addressed task shards without changing the manifest or ordered split digest. The verified corpus cache watches each shard identity. Oversized paired observations likewise use native pair shards with an ordered version-three evaluation root; small historical formats remain readable. Empty configured meta looks refuse before controller creation or fitting.

@@ -2,7 +2,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { hashJson, type JsonValue } from "../../json-identity.ts";
-import { IMPROVER_ROLES, type ImproverTask } from "../../improver-data.ts";
+import { IMPROVER_ROLES, planImproverRoleFiles, type ImproverTask } from "../../improver-data.ts";
 import { TRANSFER_DESIGN, type TransferCorpus } from "../../proposer-transfer.ts";
 /** Eight real-format chronological rows carry no raw text, authors or machine coordinates. */
 export function transferTask(role: string, index: number, target: ImproverTask["target"]): ImproverTask {
@@ -24,7 +24,7 @@ export function sealTransferCorpus(value: TransferCorpus): TransferCorpus {
 /** Persist only synthetic projected input files needed to enter the existing full controller path. */
 export function writeTransferDataset(root: string, value: TransferCorpus): string {
   const directory = join(root, "dataset"); mkdirSync(directory);
-  for (const role of IMPROVER_ROLES) writeFileSync(join(directory, `${role}.json`), JSON.stringify(value.tasks[role]));
+  for (const role of IMPROVER_ROLES) for (const file of planImproverRoleFiles(role, value.tasks[role])) writeFileSync(join(directory, file.name), file.text);
   writeFileSync(join(directory, "improver-dataset.json"), JSON.stringify(value.manifest)); return directory;
 }
 
