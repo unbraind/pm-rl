@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { init } from "@unbrained/pm-cli/sdk/runtime";
 import { hashJson, type JsonValue } from "../../json-identity.ts";
@@ -135,6 +135,7 @@ export async function replayDiagnosticMain(argv: readonly string[]): Promise<voi
   }
   assert.ok(options.has("--pm-root"), "diagnostic_explicit_pm_root_required");
   const pmRoot = requireDiagnosticScratch(options.get("--pm-root")!);
+  assert.ok(basename(pmRoot) === "pm" && basename(dirname(pmRoot)) === ".agents", "diagnostic_scratch_layout");
   const receipt = readDiagnosticReceipt(options.get("--receipt") ?? "docs/proposer-transfer-receipt.json");
   const project = dirname(dirname(pmRoot)); mkdirSync(project, { recursive: true });
   const corpus = rebuildDiagnosticCorpus(receipt, project, options.get("--fleet"));

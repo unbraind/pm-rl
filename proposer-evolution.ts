@@ -16,7 +16,7 @@ import { openImproverEnvironment, IMPROVER_CRITERION, IMPROVER_ADAPTER, IMPROVER
 import { parseEvaluationPlan, evaluatePlan, type EvaluationPlan, type EvaluationPlanReport } from "./evaluation-plan.ts";
 import { requireCheckpointStorage } from "./checkpoint-artifacts.ts";
 import { reserveSearchCapacity } from "./meta.ts";
-import { TRANSFER_DESIGN, loadTransferCorpus, verifyTransferCorpus, transferMembers, archiveTransferCorpus, replayTransferCorpus, recordTransferEvaluation, replayTransferEvaluation, parseTransferDesign, recordTransferPlan, readTransferPlan, type TransferReport, type TransferCorpus } from "./proposer-transfer.ts";
+import { TRANSFER_DESIGN, loadTransferCorpus, verifyTransferCorpus, transferMembers, transferPower, archiveTransferCorpus, replayTransferCorpus, recordTransferEvaluation, replayTransferEvaluation, parseTransferDesign, recordTransferPlan, readTransferPlan, type TransferReport, type TransferCorpus } from "./proposer-transfer.ts";
 
 /** Same bounded allowance for every proposal interpreter; logical optimizer and inference use are both zero. */
 export const PROPOSER_ALLOWANCE = { training_steps: 0, wall_ms: 30_000, storage_bytes: 16_384, compute_units: 30_000, tokens: 0 } as const;
@@ -45,7 +45,7 @@ export function parseProposerEvolutionConfig(value: unknown): ProposerEvolutionC
     if (row.transfer === null || typeof row.transfer !== "object" || Array.isArray(row.transfer)) throw new ProposerRefusal();
     try {
       assert.equal(Object.keys(row.transfer).sort().join(), "alpha,effect,power", "transfer_design");
-      parseTransferDesign({ ...row.transfer, margin: IMPROVER_CRITERION.effectThreshold, looks: row.generations + 1, targets: TRANSFER_DESIGN.targets });
+      transferPower(0, parseTransferDesign({ ...row.transfer, margin: IMPROVER_CRITERION.effectThreshold, looks: row.generations + 1, targets: TRANSFER_DESIGN.targets }));
     } catch { throw new ProposerRefusal(); }
   }
   const initial = parseProposerProgram(row.initial);
@@ -302,5 +302,5 @@ export async function runProposerEvolution(client: PmClient, coordinates: Proces
 
 /** Transfer qualification is an additional necessary condition; it never relaxes the original gate. */
 export function requireProposerTransfer(comparison: EvaluationPlanReport, transfer: TransferReport): EvaluationPlanReport {
-  return transfer.passed ? comparison : { ...comparison, verdict: { decision: "refuse", code: transfer.reason, reason: "The predeclared tracker transfer comparison failed its power or improvement requirement." }, remedy: "Retain the prior proposer; collect a new independently powered public tracker corpus without tuning the gate." };
+  return transfer.passed || comparison.verdict.decision === "refuse" ? comparison : { ...comparison, verdict: { decision: "refuse", code: transfer.reason, reason: "The predeclared tracker transfer comparison failed its power or improvement requirement." }, remedy: "Retain the prior proposer; collect a new independently powered public tracker corpus without tuning the gate." };
 }

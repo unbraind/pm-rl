@@ -1,6 +1,6 @@
 /** Current-head review regressions exercise public-source policy and typed CLI errors through real SDK trackers. */
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, realpathSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { EXIT_CODE, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
@@ -44,7 +44,7 @@ test("shared source exclusions reject every forbidden repository while permittin
       git(repository, ["-c", "user.name=Public Fixture", "-c", "user.email=public@example.test", "commit", "-qm", "Chronological public source control"]);
       const name = directory.split("/").at(-3)!;
       renameSync(repository, join(fleet, name));
-      assert.equal(checkedTrackerSourcePath(join(fleet, name, ".agents/pm")), join(fleet, name, ".agents/pm"));
+      assert.equal(checkedTrackerSourcePath(join(fleet, name, ".agents/pm")), realpathSync(join(fleet, name, ".agents/pm")));
     }
     for (const name of ["pm-cli", "pm-hosted-data", "pm-web", "pm-gpt", "pm-observer", "pm-web-hosted"]) mkdirSync(join(fleet, name));
     const output = join(root, "projection");

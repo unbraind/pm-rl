@@ -14,13 +14,13 @@ export const TRANSFER_DESIGN = Object.freeze({ effect: 0.10, margin: 0.01, alpha
 export interface TransferDesign { readonly effect: number; readonly margin: number; readonly alpha: number; readonly power: number; readonly looks: number; readonly targets: typeof TRANSFER_DESIGN.targets }
 /** Validate the full declaration with no outcome-derived or implicit statistical parameters. */
 export function parseTransferDesign(value: unknown): TransferDesign {
-  assert.ok(value !== null && typeof value === "object" && !Array.isArray(value), "transfer_design");
-  const row = value as TransferDesign;
-  assert.equal(Object.keys(row).sort().join(), "alpha,effect,looks,margin,power,targets", "transfer_design");
-  assert.ok([row.effect, row.margin, row.alpha, row.power].every(Number.isFinite) && row.margin >= 0.01 && row.effect > row.margin && row.effect <= 1 && row.alpha > 0 && row.alpha <= TRANSFER_DESIGN.alpha && row.power >= TRANSFER_DESIGN.power && row.power < 1, "transfer_design");
-  assert.ok(Number.isSafeInteger(row.looks) && row.looks >= 1 && row.looks <= 64, "transfer_design");
-  assert.deepEqual(row.targets, TRANSFER_DESIGN.targets, "transfer_design");
-  return { ...row, targets: [...row.targets] };
+  transferShape(transferObject(value), "transfer_design");
+  const row = value as unknown as TransferDesign;
+  transferShape(Object.keys(row).sort().join() === "alpha,effect,looks,margin,power,targets", "transfer_design");
+  transferShape([row.effect, row.margin, row.alpha, row.power].every(Number.isFinite) && row.margin >= 0.01 && row.effect > row.margin && row.effect <= 1 && row.alpha > 0 && row.alpha <= TRANSFER_DESIGN.alpha && row.power >= TRANSFER_DESIGN.power && row.power < 1, "transfer_design");
+  transferShape(Number.isSafeInteger(row.looks) && row.looks >= 1 && row.looks <= 64, "transfer_design");
+  transferShape(Array.isArray(row.targets) && row.targets.length === TRANSFER_DESIGN.targets.length && (row.targets as readonly unknown[]).every((target, index) => target === TRANSFER_DESIGN.targets[index]), "transfer_design");
+  return { ...row, targets: [...TRANSFER_DESIGN.targets] };
 }
 /** Projected examples are sealed along with their original manifest, not reconstructed from moving source heads. */
 export interface TransferCorpus { readonly manifest: ImproverDataset; readonly tasks: Readonly<Record<typeof IMPROVER_ROLES[number], readonly ImproverTask[]>> }
@@ -126,10 +126,10 @@ export function loadTransferCorpus(directory: string): TransferCorpus {
 /** Hoeffding on paired differences in [-1,1], Bonferroni across both tasks and all declared looks. */
 export function transferPower(trackers: number, declaration: TransferDesign): TransferPower {
   const { alpha, power, effect, margin, targets, looks } = parseTransferDesign(declaration);
-  assert.ok(Number.isSafeInteger(trackers) && trackers >= 0, "transfer_counts");
+  transferShape(Number.isSafeInteger(trackers) && trackers >= 0, "transfer_counts");
   const log = Math.log(2 * targets.length * looks / alpha);
   const minimum_trackers = Math.ceil(2 * (Math.sqrt(log) + Math.sqrt(Math.log(1 / (1 - power)))) ** 2 / (effect - margin) ** 2);
-  assert.ok(Number.isSafeInteger(minimum_trackers), "transfer_design_capacity");
+  transferShape(Number.isSafeInteger(minimum_trackers), "transfer_design_capacity");
   const radius = trackers === 0 ? 2 : Math.sqrt(2 * log / trackers);
   const slack = effect - margin - radius;
   const power_lower_bound = slack <= 0 ? 0 : 1 - Math.exp(-trackers * slack * slack / 2);
@@ -137,8 +137,8 @@ export function transferPower(trackers: number, declaration: TransferDesign): Tr
 }
 /** Give each adaptive generation fresh meta trackers, frozen by source identity before any score is read. */
 export function transferMembers(corpus: TransferCorpus, role: "meta" | "audit", comparisons: number, look = 1): readonly ImproverTask[] {
-  assert.ok(Number.isSafeInteger(comparisons) && comparisons >= 1 && comparisons <= 64, "transfer_counts");
-  assert.ok(Number.isSafeInteger(look) && look >= 1 && look <= Math.max(1, comparisons - 1), "transfer_look");
+  transferShape(Number.isSafeInteger(comparisons) && comparisons >= 1 && comparisons <= 64, "transfer_counts");
+  transferShape(Number.isSafeInteger(look) && look >= 1 && look <= Math.max(1, comparisons - 1), "transfer_look");
   if (role === "audit") return corpus.tasks.audit;
   const trackers = [...new Set(corpus.tasks.meta.map((task) => tracker(task.repo)))].sort((a, b) => hashJson({ tracker: a, seed: corpus.manifest.seed }).localeCompare(hashJson({ tracker: b, seed: corpus.manifest.seed })));
   const selected = new Set(trackers.filter((_name, index) => index % Math.max(1, comparisons - 1) === look - 1));
@@ -148,11 +148,11 @@ export function transferMembers(corpus: TransferCorpus, role: "meta" | "audit", 
 export function evaluateTransfer(corpus: TransferCorpus, role: "meta" | "audit", pairs: readonly TransferPair[], declaration: TransferDesign, look = 1): TransferReport {
   const design = parseTransferDesign(declaration); const comparisons = design.looks;
   verifyTransferCorpus(corpus);
-  assert.ok(role === "meta" || role === "audit", "transfer_role");
+  transferShape(role === "meta" || role === "audit", "transfer_role");
   transferPairsShape(pairs);
   const tasks = transferMembers(corpus, role, comparisons, look); const scores = new Map(pairs.map((pair) => [pair.id, pair]));
-  assert.ok(scores.size === pairs.length && tasks.length === pairs.length && tasks.every((task) => scores.has(task.id)), "transfer_pairs");
-  assert.ok(pairs.every((pair) => [pair.candidate, pair.incumbent].every((value) => Number.isFinite(value) && value >= 0 && value <= 1)), "transfer_score");
+  transferShape(scores.size === pairs.length && tasks.length === pairs.length && tasks.every((task) => scores.has(task.id)), "transfer_pairs");
+  transferShape(pairs.every((pair) => [pair.candidate, pair.incumbent].every((value) => Number.isFinite(value) && value >= 0 && value <= 1)), "transfer_score");
   const reports = design.targets.map((target): TransferTaskReport => {
     const groups = new Map<string, number[]>();
     for (const task of tasks.filter((task) => task.target === target)) {
@@ -268,12 +268,12 @@ export async function readTransferPlan(client: PmClient, digest: string): Promis
   const record = await readRecord(client, digest) as unknown as TransferPlan;
   transferShape(record.format === "pm-rl/proposer-transfer-plan/2", "transfer_record_format");
   transferShape(typeof record.corpus === "string" && /^[a-f0-9]{64}$/.test(record.corpus), "transfer_plan_corpus");
-  parseTransferDesign(record.design); return record;
+  transferPower(0, parseTransferDesign(record.design)); return record;
 }
 /** Store the complete paired measurement and derived report in append-only SDK history before selection. */
 export async function recordTransferEvaluation(client: PmClient, digest: string, role: "meta" | "audit", pairs: readonly TransferPair[], planDigest: string, look = 1): Promise<{ digest: string; report: TransferReport }> {
   const plan = await readTransferPlan(client, planDigest); const corpus = await replayTransferCorpus(client, digest);
-  assert.equal(plan.corpus, corpus.manifest.digest, "transfer_plan_corpus");
+  transferShape(plan.corpus === corpus.manifest.digest, "transfer_plan_corpus");
   const report = evaluateTransfer(corpus, role, pairs, plan.design, look);
   const record: PlannedEvaluation = { format: "pm-rl/proposer-transfer-evaluation/2", corpus: digest, plan: planDigest, role, look, pairs, report };
   if (Buffer.byteLength(JSON.stringify(record)) <= MAX_TRACKER_RECORD_BYTES) return { digest: await writeRecord(client, record), report };
@@ -299,16 +299,19 @@ export async function recordTransferEvaluation(client: PmClient, digest: string,
 export async function replayTransferEvaluation(client: PmClient, digest: string): Promise<TransferReport> {
   const record = await readRecord(client, digest) as unknown as EvaluationRecord | PlannedEvaluation | ShardedEvaluation;
   transferShape(["pm-rl/proposer-transfer-evaluation/1", "pm-rl/proposer-transfer-evaluation/2", "pm-rl/proposer-transfer-evaluation/3"].includes(record.format) && typeof record.corpus === "string" && /^[a-f0-9]{64}$/.test(record.corpus), "transfer_record_format");
+  transferShape(record.role === "meta" || record.role === "audit", "transfer_role");
+  transferShape(Number.isSafeInteger(record.look) && record.look >= 1 && record.look <= 64, "transfer_look");
+  transferShape(transferObject(record.report), "transfer_report_drift");
   const corpus = await replayTransferCorpus(client, record.corpus);
   let report: TransferReport;
   if (record.format === "pm-rl/proposer-transfer-evaluation/1") {
+    transferShape(Number.isSafeInteger(record.comparisons) && record.comparisons >= 1 && record.comparisons <= 64, "transfer_counts");
     const computed = evaluateTransfer(corpus, record.role, record.pairs, { ...TRANSFER_DESIGN, looks: record.comparisons }, record.look);
     report = { ...computed, format: "pm-rl/proposer-transfer-report/1", design: TRANSFER_DESIGN };
   } else {
-    assert.ok(record.format === "pm-rl/proposer-transfer-evaluation/2" || record.format === "pm-rl/proposer-transfer-evaluation/3", "transfer_record_format");
     transferShape(typeof record.plan === "string" && /^[a-f0-9]{64}$/.test(record.plan), "transfer_plan_corpus");
     const plan = await readTransferPlan(client, record.plan);
-    assert.equal(plan.corpus, corpus.manifest.digest, "transfer_plan_corpus");
+    transferShape(plan.corpus === corpus.manifest.digest, "transfer_plan_corpus");
     const pairs: TransferPair[] = [];
     if (record.format === "pm-rl/proposer-transfer-evaluation/2") { transferPairsShape(record.pairs); pairs.push(...record.pairs); }
     else {
@@ -324,5 +327,5 @@ export async function replayTransferEvaluation(client: PmClient, digest: string)
     }
     report = evaluateTransfer(corpus, record.role, pairs, plan.design, record.look);
   }
-  assert.equal(hashJson(report as unknown as JsonValue), hashJson(record.report as unknown as JsonValue), "transfer_report_drift"); return report;
+  transferShape(hashJson(report as unknown as JsonValue) === hashJson(record.report as unknown as JsonValue), "transfer_report_drift"); return report;
 }

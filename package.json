@@ -204,7 +204,8 @@
       "test/transfer-review.test.ts",
       "test/transfer-review-policy.test.ts",
       "test/transfer-review-capacity.test.ts",
-      "test/transfer-review-native.test.ts"
+      "test/transfer-review-native.test.ts",
+      "test/transfer-review-final.test.ts"
     ],
     "thresholds": {
       "statements": 100,
