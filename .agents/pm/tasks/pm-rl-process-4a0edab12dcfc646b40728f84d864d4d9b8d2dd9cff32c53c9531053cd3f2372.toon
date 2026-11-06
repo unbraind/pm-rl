@@ -1,0 +1,11 @@
+id: pm-rl-process-4a0edab12dcfc646b40728f84d864d4d9b8d2dd9cff32c53c9531053cd3f2372
+title: Process trainer 1053cd3f2372
+description: ""
+type: Task
+status: open
+priority: 2
+tags[1]: rl-process-job
+created_at: "2026-11-06T04:48:29.536Z"
+updated_at: "2026-11-06T04:49:20.377Z"
+author: codex-sol
+body: "{\"format\":\"pm-rl/process-job/1\",\"id\":\"process-4a0edab12dcfc646b40728f84d864d4d9b8d2dd9cff32c53c9531053cd3f2372\",\"input\":\"sha256:288c8a8ea4167ccd0ac66f6c3c9b15a28b04db40d450762c8035616d03fd6cf3\",\"binding\":{\"proposal\":{\"programme_id\":\"rsipower-live-j9ce3de31db69\",\"dataset\":\"7156cf8c85b9941e12e42632c08f27419af69b7b3ee8824545c35def3fee9d49\",\"task\":\"09df108a7661ae99\",\"config\":{\"features\":\"events\",\"learning_rate\":0.05,\"prefix\":{\"hashing_width\":32,\"ngram_order\":1,\"regularisation\":0.001}}},\"recovery_attempt\":0},\"approval\":\"pm-rl-rsipower-approval\",\"budget_digest\":\"sha256:af859ad9836e7b7285d6f0bca9731e0b12080130c4df9e3f4d123eb3faf1a5af\",\"state\":\"cancelled\",\"allowance\":{\"training_steps\":1,\"wall_ms\":30000,\"storage_bytes\":4096,\"compute_units\":30000,\"tokens\":0},\"charge\":{\"training_steps\":1,\"wall_ms\":30000,\"storage_bytes\":4096,\"compute_units\":30000,\"tokens\":0},\"settled\":true,\"completion\":null,\"outcome\":\"bounded_diagnostic_stopped\"}"

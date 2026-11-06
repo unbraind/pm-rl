@@ -1111,3 +1111,44 @@ See [the SDK, grammar, limits and example](docs/proposer-programs.md).
 Without git: validation, execution and replay work in plain trackers with sealed
 datasets. Only the existing public-history dataset builder requires committed Git
 provenance. No git executable is required by the proposer path.
+
+## Power-qualified proposer transfer
+
+Every new `rl proposer run` also requires a passed tracker-transfer evaluation.
+The fixed design declares a 0.10 alternative effect, a 0.01 promotion margin,
+family alpha 0.05 and per-task target power 0.80. Paired differences use equal-weight
+tracker means; Bonferroni covers both tasks and all planned generations plus the
+final audit. Each adaptive generation receives fresh meta trackers. The existing
+inner, outer, protected-cohort and resource gates remain necessary.
+
+```sh
+pm rl proposer run transfer-study --file examples/proposer-program.json \
+  --dataset sealed-public-corpus --approval resource-decision --json
+pm rl proposer transfer replay EVALUATION_SHA256 --json
+pm get pm-rl-rsipower-bounded-result --json
+```
+
+Replay needs only native PM Decisions: the corpus manifest, projected chronological
+tasks, exact split digests, paired observations and derived evaluation are stored
+through SDK fields and append-only history. It requires neither dataset side files
+nor source checkouts. `affected_version` is the content address and `component`
+is `proposer-transfer`. Creation-time words remain numeric hashes; raw source
+comments, titles, authors and paths are excluded.
+
+The public acceptance froze 31 public MIT source pins, yielding 19 development,
+16 meta and 11 audit tasks. Its conservative power calculation requires **3,062
+independent trackers per task**, far beyond this fleet. A resource-bounded diagnostic
+uses three trackers with both tasks per compartment, selected by repository hash
+and seed before scores, without changing any gate. Meta: pm-context, pm-ops,
+pm-graph. Audit: pm-linear, pm-vcs, pm-starter. Development: pm-beads,
+pm-gantt-chart, pm-csv. The native result item records the real measurements.
+This is an underpowered diagnostic, **not a powered demonstration of no transfer**.
+See [the statistical design and evidence](docs/proposer-transfer.md).
+
+The completed diagnostic ran one generation in 576.235 seconds: 30 fits, 1,920
+optimizer updates, zero inference tokens, zero promotions. Both tasks had paired
+effect 0.00 with simultaneous CI [-1.00, 1.00] on meta and audit, with three
+trackers per task and a prospective power lower bound of 0.00. The decision was
+`transfer_underpowered`; the original proposer remained retained. The audit
+therefore compares the retained baseline with itself. These data establish
+neither improvement nor absence of transfer.

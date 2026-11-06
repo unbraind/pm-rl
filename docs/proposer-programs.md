@@ -69,7 +69,7 @@ seeded order, reverse order or training-label interleaving. Unknown keys, sparse
 arrays, nonfinite values and out-of-domain counts refuse before effects. Exactly
 eight recipe-arm counts are accepted, each with at most one million trials.
 There are at most eight proposals, four recursive generations, 512 updates per
-fit and 256 tasks in each dataset compartment.
+fit and 10,000 tasks in each dataset compartment.
 
 Mutation consumes only actual development promotion counts. With complete arm
 coverage it ranks empirical rates; with incomplete coverage it adds novelty.

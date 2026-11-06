@@ -95,7 +95,9 @@
     "dist/proposer-worker.*",
     "dist/proposer-evolution.*",
     "docs/proposer-programs.md",
-    "docs/proposer-public-evidence.json"
+    "docs/proposer-public-evidence.json",
+    "dist/proposer-transfer.*",
+    "docs/proposer-transfer.md"
   ],
   "engines": {
     "node": ">=22.18.0"
@@ -194,7 +196,8 @@
       "test/transaction-races.test.ts",
       "test/training-influence.test.ts",
       "test/training-influence-maintenance.test.ts",
-      "test/proposer-program.test.ts"
+      "test/proposer-program.test.ts",
+      "test/proposer-transfer.test.ts"
     ],
     "thresholds": {
       "statements": 100,
@@ -309,7 +312,8 @@
       "docs/training-influence.md",
       "docs/training-influence-evidence.json",
       "docs/proposer-programs.md",
-      "docs/proposer-public-evidence.json"
+      "docs/proposer-public-evidence.json",
+      "docs/proposer-transfer.md"
     ],
     "examples": [
       "README.md",

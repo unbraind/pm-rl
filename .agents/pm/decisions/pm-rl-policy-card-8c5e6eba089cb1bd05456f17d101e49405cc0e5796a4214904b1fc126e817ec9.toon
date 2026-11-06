@@ -1,0 +1,14 @@
+id: pm-rl-policy-card-8c5e6eba089cb1bd05456f17d101e49405cc0e5796a4214904b1fc126e817ec9
+title: Portable policy explanation
+description: ""
+type: Decision
+status: open
+priority: 2
+tags[1]: rl-policy-card
+created_at: "2026-11-06T04:46:07.372Z"
+updated_at: "2026-11-06T04:46:07.372Z"
+author: codex-sol
+affected_version: 8c5e6eba089cb1bd05456f17d101e49405cc0e5796a4214904b1fc126e817ec9
+dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
+  pm-rl-rsipower-live-step-g1-d-t14-c0,related,"2026-11-06T04:46:07.372Z",codex-sol,"cli:create:dep",detected
+body: "{\"allowed_actions\":[\"inspect\",\"evaluate\"],\"digest\":\"8c5e6eba089cb1bd05456f17d101e49405cc0e5796a4214904b1fc126e817ec9\",\"evaluation\":{\"decision\":\"refuse\",\"gain\":0,\"samples\":44},\"evidence\":[{\"at\":\"1\",\"digest\":\"f5495165643fc39c198b3fb20f986a8535865b506207939e81950e199783d62c\",\"id\":\"pm-rl-rsipower-live-step-g1-d-t14-c0\"}],\"format\":\"pm-rl/policy-card/1\",\"known_regressions\":[\"promotion_refused\"],\"outcome\":\"refused\",\"policy_digest\":\"6ee8d3ad55eeec31b30c022181fda1ddbfa824cf9c1e6fb6fc18b19d55d66a1f\",\"proposal_digest\":\"ad37aca593a02dc2beea7d90270eb98aba2631088268b6efc3a2f1624b0f1daf\",\"resource_limits\":{\"samples\":44},\"selection\":null,\"subject\":\"pm-rl-rsipower-live-step-g1-d-t14-c0\",\"training_scope\":{\"collection_runs\":0,\"digest\":\"5fea58a051ce93cfe08935cc4282741d43e5f9949c045d6f28c125c803f205ae\",\"environment\":\"74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b\",\"reward\":\"74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b\"}}"

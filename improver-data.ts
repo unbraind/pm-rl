@@ -154,10 +154,17 @@ export function readImproverDataset(directory: string): ImproverDataset {
 /** Verify role, identity, chronology, label availability and item isolation before exposing rows to the evaluator. */
 export function readImproverTasks(directory: string, manifest: ImproverDataset, role: typeof IMPROVER_ROLES[number]): ImproverTask[] {
   const tasks = parseBoundedJson(readFileSync(statePath(directory, `${role}.json`), "utf8")) as ImproverTask[];
+  validateImproverTasks(tasks, manifest, role);
+  return tasks;
+}
+
+/** Validate the released chronological task contract for both dataset files and native corpus replay. */
+export function validateImproverTasks(tasks: readonly ImproverTask[], manifest: ImproverDataset, role: typeof IMPROVER_ROLES[number]): void {
   assert.ok(tasks.length > 0 && tasks.length === manifest.splits[role].tasks && hashJson(tasks as unknown as JsonValue) === manifest.splits[role].digest, "improver_split_identity");
   assert.equal(new Set(tasks.map((task) => task.id)).size, tasks.length, "improver_task_duplicate");
+  const sources = new Map(manifest.sources.filter((source) => source.role === role).map((source) => [source.repo, source.commit]));
   for (const task of tasks) {
-    assert.ok(manifest.sources.some((source) => source.repo === task.repo && source.commit === task.commit && source.role === role), "improver_role_leakage");
+    assert.ok(sources.get(task.repo) === task.commit, "improver_role_leakage");
     assert.ok(["time-to-close", "issue-type"].includes(task.target) && (task.target === "issue-type" ? task.threshold_ms === null : Number.isFinite(task.threshold_ms)), "improver_task_target");
     assert.ok(task.train.length >= 4 && task.evaluation.length >= 4 && task.train.length + task.evaluation.length <= 10_000, "improver_task_size");
     assert.equal(new Set([...task.train, ...task.evaluation].map((row) => row.id)).size, task.train.length + task.evaluation.length, "improver_item_overlap");
@@ -167,5 +174,4 @@ export function readImproverTasks(directory: string, manifest: ImproverDataset, 
     }
     assert.ok([task.train, task.evaluation].every((rows) => rows.filter((row) => row.label === 0).length * 2 === rows.length), "improver_balance");
   }
-  return tasks;
 }

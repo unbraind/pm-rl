@@ -1,4 +1,5 @@
 /** Bounded algorithm evolution layered on authoritative process, recipe, evaluation and controller APIs. */
+import assert from "node:assert/strict";
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { hashJson, readCompleteLoopItem, withRlController, type JsonValue } from "./index.ts";
@@ -14,6 +15,7 @@ import { openImproverEnvironment, IMPROVER_CRITERION, IMPROVER_ADAPTER, IMPROVER
 import { parseEvaluationPlan, evaluatePlan, type EvaluationPlan, type EvaluationPlanReport } from "./evaluation-plan.ts";
 import { requireCheckpointStorage } from "./checkpoint-artifacts.ts";
 import { reserveSearchCapacity } from "./meta.ts";
+import { TRANSFER_DESIGN, loadTransferCorpus, verifyTransferCorpus, transferMembers, archiveTransferCorpus, replayTransferCorpus, recordTransferEvaluation, replayTransferEvaluation, type TransferReport } from "./proposer-transfer.ts";
 
 /** Same bounded allowance for every proposal interpreter; logical optimizer and inference use are both zero. */
 export const PROPOSER_ALLOWANCE = { training_steps: 0, wall_ms: 30_000, storage_bytes: 16_384, compute_units: 30_000, tokens: 0 } as const;
@@ -22,9 +24,9 @@ export interface ProposerEvolutionConfig { readonly initial: ProposerProgram; re
 /** Aggregate search evidence excludes raw task rows; full process receipts remain independently readable. */
 export interface ProposerSearch { readonly execution: ProposalExecution; readonly scores: readonly { id: string; mean: number }[]; readonly counts: readonly ProposalCounts[]; readonly jobs: readonly string[]; readonly optimizer_updates: number }
 /** Every rejected or restored artifact remains in append-only controller receipts. */
-export interface ProposerGeneration { readonly generation: number; readonly before: string; readonly candidate: ProposerProgram; readonly retained: string; readonly promoted: boolean; readonly behavior_changed: boolean; readonly comparison: EvaluationPlanReport }
+export interface ProposerGeneration { readonly generation: number; readonly before: string; readonly candidate: ProposerProgram; readonly retained: string; readonly promoted: boolean; readonly behavior_changed: boolean; readonly comparison: EvaluationPlanReport; readonly transfer: { readonly digest: string; readonly report: TransferReport } }
 /** Agent-sized result, with stable identities pointing to durable programme and process evidence. */
-export interface ProposerEvolutionReport { readonly format: "pm-rl/proposer-evolution/1"; readonly initial: string; readonly retained: ProposerProgram; readonly generations: readonly ProposerGeneration[]; readonly rollback: boolean; readonly audit: EvaluationPlanReport; readonly budget: { readonly fits: number; readonly optimizer_updates: number; readonly max_optimizer_updates: number; readonly inference_tokens: 0; readonly proposal_processes: number } }
+export interface ProposerEvolutionReport { readonly format: "pm-rl/proposer-evolution/1"; readonly initial: string; readonly retained: ProposerProgram; readonly generations: readonly ProposerGeneration[]; readonly rollback: boolean; readonly audit: EvaluationPlanReport; readonly transfer: { readonly digest: string; readonly report: TransferReport }; readonly budget: { readonly fits: number; readonly optimizer_updates: number; readonly max_optimizer_updates: number; readonly inference_tokens: 0; readonly proposal_processes: number } }
 /** Explicit operator coordinates and optional interruption probe; no executable callback enters a candidate. */
 export interface ProposerEvolutionRequest { readonly id: string; readonly config: ProposerEvolutionConfig; readonly dataset: string; readonly approval: string; readonly signal?: AbortSignal; readonly forceTakeover?: boolean; readonly onStep?: (key: string) => void | Promise<void> }
 
@@ -121,7 +123,7 @@ function evolutionDataset(directory: string): ImproverDataset {
   const manifest = proposerDatasetRead(() => readImproverDataset(directory)); const seen = new Map<string, string>();
   for (const role of IMPROVER_ROLES) {
     const tasks = proposerDatasetRead(() => readImproverTasks(directory, manifest, role));
-    if (tasks.length > 256) expectedFail("At most 256 tasks per compartment are supported. Seal a smaller disjoint corpus before retrying.", "proposer_cohort_limit");
+    if (tasks.length > 10_000) expectedFail("At most 10000 tasks per compartment are supported. Seal a smaller disjoint corpus before retrying.", "proposer_cohort_limit");
     for (const task of tasks) for (const row of [...task.train, ...task.evaluation]) {
       const prior = seen.get(row.id);
       if (prior !== undefined && prior !== role) expectedFail("An item occurs across compartments. Rebuild disjoint development, meta and audit datasets.", "proposer_contamination");
@@ -165,6 +167,7 @@ async function proposerProcessBudget(client: PmClient, approval: string, id: str
 export async function runProposerEvolution(client: PmClient, coordinates: ProcessCoordinates, raw: ProposerEvolutionRequest): Promise<ProposerEvolutionReport> {
   const config = parseProposerEvolutionConfig(raw.config); requireCheckpointStorage();
   const request = await programmeRequest(client, raw); const manifest = evolutionDataset(request.dataset);
+  const transferCorpus = proposerDatasetRead(() => loadTransferCorpus(request.dataset));
   const approval = await proposerApprovalRead(() => readCompleteLoopItem(client, request.approval));
   if (approval.item.type !== "Decision") expectedFail("Approve the complete resource budget in a Decision before starting.", "proposer_approval");
   const fits = config.candidates * (config.generations * (manifest.splits.development.tasks + 2 * manifest.splits.meta.tasks) + 2 * manifest.splits.audit.tasks);
@@ -186,7 +189,7 @@ export async function runProposerEvolution(client: PmClient, coordinates: Proces
     const step = async <T>(key: string, input: unknown, operation: () => Promise<T>, verify?: (value: T) => Promise<void>): Promise<T> => {
       /** Revalidation inside the durable callback joins approval/reservation reads to its sealed SDK evidence graph. */
       const validate = async (): Promise<void> => {
-        if ((await proposerApprovalRead(() => readCompleteLoopItem(client, request.approval))).item.body !== approval.item.body || proposerDatasetRead(() => readImproverDataset(request.dataset)).digest !== manifest.digest) expectedFail("Approval or dataset changed. Restore the original declaration or use a new programme identity.", "proposer_drift");
+        if ((await proposerApprovalRead(() => readCompleteLoopItem(client, request.approval))).item.body !== approval.item.body || proposerDatasetRead(() => loadTransferCorpus(request.dataset)).manifest.digest !== manifest.digest) expectedFail("Approval or dataset changed. Restore the original declaration or use a new programme identity.", "proposer_drift");
         if (key !== "programme") await proposerApprovalRead(() => reserveSearchCapacity(client, coordinates, request, binding, capacity, fits + config.generations, true));
       };
       await validate();
@@ -197,16 +200,32 @@ export async function runProposerEvolution(client: PmClient, coordinates: Proces
     let deadline = signal;
     const declared = await step("programme", budget, async () => { await proposerApprovalRead(() => reserveSearchCapacity(client, coordinates, request, binding, capacity, fits + config.generations)); return { expires: Date.now() + config.timeout_ms, budget }; });
     deadline = AbortSignal.any([signal, AbortSignal.timeout(Math.max(0, declared.expires - Date.now()))]);
+    const corpusReceipt = await step("transfer-corpus", { corpus: manifest.digest, design: TRANSFER_DESIGN, comparisons: config.generations + 1 }, async () => ({ digest: await archiveTransferCorpus(client, transferCorpus), design: TRANSFER_DESIGN, comparisons: config.generations + 1 }), async (receipt) => {
+      const restored = await replayTransferCorpus(client, receipt.digest);
+      verifyTransferCorpus(restored, manifest.digest);
+    });
+    const corpusAddress = corpusReceipt.digest;
+    /** Both fresh selection and replay consume the same digest-addressed native transfer evidence. */
+    const transfer = async (role: "meta" | "audit", before: ProposerSearch, after: ProposerSearch, key: string, look = 1) => {
+      const incumbent = new Map(before.scores.map((score) => [score.id, score.mean]));
+      const pairs = after.scores.map((score) => ({ id: score.id, candidate: score.mean, incumbent: incumbent.get(score.id)! }));
+      return step(key, { corpusAddress, pairs, comparisons: config.generations + 1, look }, () => recordTransferEvaluation(client, corpusAddress, role, pairs, config.generations + 1, look), async (receipt) => {
+        const report = await replayTransferEvaluation(client, receipt.digest);
+        assert.equal(hashJson(report as unknown as JsonValue), hashJson(receipt.report as unknown as JsonValue), "transfer_report_drift");
+      });
+    };
     let counts: ProposalCounts[] = Array.from({ length: 8 }, (_, arm) => ({ arm, wins: 0, trials: 0 }));
     /** Each search receives identical proposal slots and optimizer updates, starting from the same constant learner. */
-    const search = async (role: typeof IMPROVER_ROLES[number], program: ProposerProgram, key: string): Promise<ProposerSearch> => {
+    const search = async (role: typeof IMPROVER_ROLES[number], program: ProposerProgram, key: string, look = 1): Promise<ProposerSearch> => {
       const invocation: ProposalInvocation = { program, counts, role: "development", seed: config.seed, count: config.candidates };
       const execution = await step(`${key}-propose`, invocation, () => executeProposer(client, coordinates, request.approval, `${request.id}-${key}`, invocation, deadline), async (cached) => {
         const job = await verifyCompletedProcessJob(client, coordinates.pmRoot, proposerProcessInput(`${request.id}-${key}`, invocation), request.approval, { kind: "process-bandit", allowance: PROPOSER_ALLOWANCE }, proposerWorkerArgv("."));
         if (hashJson(cached as unknown as JsonValue) !== hashJson(job.completion!.policy as unknown as JsonValue)) expectedFail("Cached proposal differs from its verified process completion. Restore original controller and process evidence before resuming.", "process_job_drift");
       });
       const scores: { id: string; mean: number }[] = []; const jobs: string[] = []; const observations = counts.map((row) => ({ ...row })); let optimizerUpdates = 0;
-      for (const [index, task] of proposerDatasetRead(() => environment.tasks(role)).entries()) {
+      const selected = role === "development" ? null : new Set(transferMembers(transferCorpus, role, config.generations + 1, look).map((task) => task.id));
+      const tasks = proposerDatasetRead(() => environment.tasks(role)).map((task, index) => ({ task, index })).filter(({ task }) => selected === null || selected.has(task.id));
+      for (const { index, task } of tasks) {
         const learners: (Awaited<ReturnType<typeof environment.fit>>["retained"] | null)[] = [null]; let mean = 0;
         for (const [slot, instruction] of execution.instructions.entries()) {
           const learnerConfig = proposalLearner(instruction); const name = `${key}-t${index}-c${slot}`; const learner = learners.at(-1)!;
@@ -226,20 +245,27 @@ export async function runProposerEvolution(client: PmClient, coordinates: Proces
     for (let generation = 1; generation <= config.generations; generation += 1) {
       const retained = lineage[1];
       const key = `g${generation}`;
-      const plan = await step(`${key}-plan`, retained.digest, async () => proposerEvaluationPlan(`${request.id}-${key}`, retained, proposerDatasetRead(() => environment.tasks("meta")), manifest.splits.meta.digest, fits + config.generations + 1));
+      const plan = await step(`${key}-plan`, retained.digest, async () => proposerEvaluationPlan(`${request.id}-${key}`, retained, transferMembers(transferCorpus, "meta", config.generations + 1, generation), manifest.splits.meta.digest, fits + config.generations + 1));
       const development = await search("development", retained, `${key}-d`); counts = [...development.counts];
       const candidate = await step(`${key}-mutation`, { retained, counts }, async () => mutateProposer({ program: retained, counts, role: "development", seed: config.seed, count: config.candidates }));
-      const before = await search("meta", retained, `${key}-b`); const after = await search("meta", candidate, `${key}-a`);
-      const comparison = compareProposerSearch(plan, before, after);
+      const before = await search("meta", retained, `${key}-b`, generation); const after = await search("meta", candidate, `${key}-a`, generation);
+      const measured = await transfer("meta", before, after, `${key}-transfer`, generation);
+      const comparison = requireProposerTransfer(compareProposerSearch(plan, before, after), measured.report);
       const selection = selectProposer(retained, candidate, before.execution, after.execution, comparison);
-      const row = await step(`${key}-selection`, { candidate, comparison, before: before.execution, after: after.execution }, async () => ({ generation, before: retained.digest, candidate, retained: selection.retained.digest, promoted: selection.promoted, behavior_changed: selection.behavior_changed, comparison }));
+      const row = await step(`${key}-selection`, { candidate, comparison, before: before.execution, after: after.execution }, async () => ({ generation, before: retained.digest, candidate, retained: selection.retained.digest, promoted: selection.promoted, behavior_changed: selection.behavior_changed, comparison, transfer: measured }));
       lineage = advanceProposer(lineage, selection.retained);
       generations.push(row);
     }
     const [parent, retained] = lineage;
     const plan = await step("audit-plan", { retained, parent }, async () => proposerEvaluationPlan(`${request.id}-audit`, parent, proposerDatasetRead(() => environment.tasks("audit")), manifest.splits.audit.digest, fits + config.generations + 1));
     const before = await search("audit", parent, "audit-b"); const after = await search("audit", retained, "audit-a");
-    const audit = compareProposerSearch(plan, before, after);
-    return step("complete", { retained: retained.digest, audit }, async () => ({ format: "pm-rl/proposer-evolution/1", initial: config.initial.digest, ...auditProposer(lineage, audit), generations, audit, budget } as ProposerEvolutionReport));
+    const measured = await transfer("audit", before, after, "audit-transfer");
+    const audit = requireProposerTransfer(compareProposerSearch(plan, before, after), measured.report);
+    return step("complete", { retained: retained.digest, audit }, async () => ({ format: "pm-rl/proposer-evolution/1", initial: config.initial.digest, ...auditProposer(lineage, audit), generations, audit, transfer: measured, budget } as ProposerEvolutionReport));
   });
+}
+
+/** Transfer qualification is an additional necessary condition; it never relaxes the original gate. */
+export function requireProposerTransfer(comparison: EvaluationPlanReport, transfer: TransferReport): EvaluationPlanReport {
+  return transfer.passed ? comparison : { ...comparison, verdict: { decision: "refuse", code: transfer.reason, reason: "The predeclared tracker transfer comparison failed its power or improvement requirement." }, remedy: "Retain the prior proposer; collect a new independently powered public tracker corpus without tuning the gate." };
 }

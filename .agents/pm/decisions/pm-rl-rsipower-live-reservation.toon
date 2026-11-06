@@ -1,0 +1,11 @@
+id: pm-rl-rsipower-live-reservation
+title: Reserved bounded recipe search
+description: ""
+type: Decision
+status: open
+priority: 2
+tags[1]: rl-meta-reservation
+created_at: "2026-11-06T04:40:39.828Z"
+updated_at: "2026-11-06T04:40:39.828Z"
+author: codex-sol
+body: "{\"format\":\"pm-rl/meta-reservation/1\",\"id\":\"rsipower-live-reservation\",\"binding\":\"45db99a87ef6ecef208d2e07ffe7f0c068da822b648e2d0382f0f158c0831feb\",\"approval\":\"pm-rl-rsipower-approval\",\"charge\":{\"training_samples\":9344,\"proposal_calls\":5,\"recipe_promotions\":1},\"promotion_headroom\":74}"

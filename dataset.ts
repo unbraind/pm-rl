@@ -85,6 +85,7 @@ export function buildTrackerDataset(directories: readonly string[], output: stri
   assert.ok(directories.length >= 3 && directories.length <= 64 && Number.isInteger(seed) && seed >= 0 && seed <= 0xffff_ffff, "dataset_bounds");
   assert.ok(options.task === undefined || ["terminal-disposition", "history-prefix"].includes(options.task), "dataset_task");
   const inspected = directories.map((directory) => {
+    assert.ok(!directory.split(/[\\/]/).some((part) => ["pm-observer", "pm-web-hosted"].includes(part.normalize("NFKC").toLowerCase())), "dataset_forbidden_source");
     const path = realpathSync(directory);
     assert.ok(!path.split("/").some((part) => ["pm-hosted-data", "pm-web", "pm-gpt"].includes(part)), "dataset_forbidden_source");
     const root = dirname(dirname(path));
@@ -93,7 +94,7 @@ export function buildTrackerDataset(directories: readonly string[], output: stri
     const match = /^(?:https:\/\/github\.com\/|git@github\.com:)([\w-]+\/pm-[\w-]+?)(?:\.git)?$/.exec(remote);
     assert.ok(match !== null, "dataset_github_source");
     const repo = match[1];
-    assert.ok(!["pm-web", "pm-gpt", "pm-cli"].includes(repo.split("/")[1].toLowerCase()), "dataset_excluded_repo");
+    assert.ok(!["pm-web", "pm-gpt", "pm-cli", "pm-observer", "pm-web-hosted"].includes(repo.split("/")[1].toLowerCase()), "dataset_excluded_repo");
     const metadata = parseBoundedJson(sourceCommand("gh", ["repo", "view", repo, "--json", "visibility,licenseInfo,nameWithOwner"], root)) as { visibility: string; licenseInfo: { key: string } | null; nameWithOwner: string };
     assert.ok(metadata.visibility === "PUBLIC" && metadata.licenseInfo?.key === "mit" && metadata.nameWithOwner.toLowerCase() === repo.toLowerCase(), "dataset_public_mit_required");
     const pin = options.pins?.find((source) => source.repo === repo);

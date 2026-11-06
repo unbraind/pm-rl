@@ -1,0 +1,11 @@
+id: pm-rl-rsipower-live-step-g1-b-propose
+title: Loop step g1-b-propose for rsipower-live
+description: ""
+type: Decision
+status: open
+priority: 2
+tags[1]: rl-loop-step
+created_at: "2026-11-06T04:48:15.007Z"
+updated_at: "2026-11-06T04:48:15.007Z"
+author: codex-sol
+body: "{\"format\":\"pm-rl/loop-step/1\",\"key\":\"rsipower-live-step-g1-b-propose\",\"input\":\"1404b0d4e3a2db6cf4ba2fb5397c4d3f0b0f463a699bb5a0debc6e6bbfa9b870\",\"state\":\"complete\",\"result\":{\"instructions\":[{\"arm\":2,\"feature\":\"inherit\",\"order\":1,\"curriculum\":\"seeded\"}],\"digest\":\"sha256:fc165c3e173d35f18d2c10e52725b0f9ce06533b87f08263bc3018cf86e21328\"},\"digest\":\"2f56c9be69b06048423b5d277128285c85f2f888dbb74a707809fd80708cf0c1\"}"

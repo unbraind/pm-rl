@@ -1,0 +1,11 @@
+id: pm-rl-rsipower-live-step-transfer-corpus
+title: Loop step transfer-corpus for rsipower-live
+description: ""
+type: Decision
+status: open
+priority: 2
+tags[1]: rl-loop-step
+created_at: "2026-11-06T04:41:03.301Z"
+updated_at: "2026-11-06T04:41:03.301Z"
+author: codex-sol
+body: "{\"format\":\"pm-rl/loop-step/1\",\"key\":\"rsipower-live-step-transfer-corpus\",\"input\":\"466f208fc93683bf5192656d8fef807da2fad833b74b9bb00883298f703782ad\",\"state\":\"complete\",\"result\":{\"digest\":\"91a5b6519ed829ac9146f9d1514a80694406c0f647209928b93601aee6c236c7\",\"design\":{\"effect\":0.1,\"margin\":0.01,\"alpha\":0.05,\"power\":0.8,\"targets\":[\"issue-type\",\"time-to-close\"]},\"comparisons\":2},\"digest\":\"851e2663e5dfea4d1c2bdba11c4866ccc7f11d0da54b50ecdf70fcc11372159c\"}"

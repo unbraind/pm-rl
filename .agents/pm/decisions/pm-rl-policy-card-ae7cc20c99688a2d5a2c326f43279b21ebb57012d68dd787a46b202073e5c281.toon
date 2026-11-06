@@ -1,0 +1,14 @@
+id: pm-rl-policy-card-ae7cc20c99688a2d5a2c326f43279b21ebb57012d68dd787a46b202073e5c281
+title: Portable policy explanation
+description: ""
+type: Decision
+status: open
+priority: 2
+tags[1]: rl-policy-card
+created_at: "2026-11-06T04:41:03.969Z"
+updated_at: "2026-11-06T04:41:03.969Z"
+author: codex-sol
+affected_version: ae7cc20c99688a2d5a2c326f43279b21ebb57012d68dd787a46b202073e5c281
+dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
+  pm-rl-rsipower-live-step-transfer-corpus,related,"2026-11-06T04:41:03.969Z",codex-sol,"cli:create:dep",detected
+body: "{\"allowed_actions\":[\"inspect\",\"evaluate\"],\"digest\":\"ae7cc20c99688a2d5a2c326f43279b21ebb57012d68dd787a46b202073e5c281\",\"evaluation\":{},\"evidence\":[{\"at\":\"1\",\"digest\":\"87ea6c2a194b602ee7feedcc646c602f66a6881e69dbca2456871516eb19d3a2\",\"id\":\"pm-rl-rsipower-live-step-transfer-corpus\"}],\"format\":\"pm-rl/policy-card/1\",\"known_regressions\":[\"evaluation_incomplete\"],\"outcome\":\"recorded\",\"policy_digest\":null,\"proposal_digest\":\"851e2663e5dfea4d1c2bdba11c4866ccc7f11d0da54b50ecdf70fcc11372159c\",\"resource_limits\":{},\"selection\":null,\"subject\":\"pm-rl-rsipower-live-step-transfer-corpus\",\"training_scope\":{\"collection_runs\":0,\"digest\":\"5a52d6eec31b43a034fa09e580d857850cbb27d3e25cb6476078c6c88106ab07\",\"environment\":\"74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b\",\"reward\":\"74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b\"}}"

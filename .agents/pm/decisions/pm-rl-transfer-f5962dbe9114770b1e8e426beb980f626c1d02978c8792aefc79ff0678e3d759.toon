@@ -1,0 +1,13 @@
+id: pm-rl-transfer-f5962dbe9114770b1e8e426beb980f626c1d02978c8792aefc79ff0678e3d759
+title: Sealed proposer transfer context
+description: ""
+type: Decision
+status: open
+priority: 2
+tags: []
+created_at: "2026-11-06T04:58:56.746Z"
+updated_at: "2026-11-06T04:58:56.746Z"
+author: codex-sol
+affected_version: f5962dbe9114770b1e8e426beb980f626c1d02978c8792aefc79ff0678e3d759
+component: proposer-transfer
+body: "{\"format\":\"pm-rl/proposer-transfer-evaluation/1\",\"corpus\":\"89aa1ae2c8eef8ab784d83f6d4bd8bff2638ed7259af5f2a50fbfff7b7893c2e\",\"role\":\"meta\",\"comparisons\":2,\"look\":1,\"pairs\":[{\"id\":\"49307aca2ab13ef4\",\"candidate\":0.5,\"incumbent\":0.5},{\"id\":\"4ed2ed77fbccd1ee\",\"candidate\":0.5,\"incumbent\":0.5},{\"id\":\"5cb63ebc3bd4b6cd\",\"candidate\":0.5,\"incumbent\":0.5},{\"id\":\"8262c45d887ccc26\",\"candidate\":0.5,\"incumbent\":0.5},{\"id\":\"b629352bd95cb4b7\",\"candidate\":0.5,\"incumbent\":0.5},{\"id\":\"ea11991a79d0f86d\",\"candidate\":0.5,\"incumbent\":0.5}],\"report\":{\"format\":\"pm-rl/proposer-transfer-report/1\",\"corpus\":\"feaee19e299df80d7e0764b64ed9d686975b5f606a4afe381c1b094c09386b67\",\"role\":\"meta\",\"comparisons\":2,\"look\":1,\"design\":{\"effect\":0.1,\"margin\":0.01,\"alpha\":0.05,\"power\":0.8,\"targets\":[\"issue-type\",\"time-to-close\"]},\"tasks\":[{\"target\":\"issue-type\",\"effect\":0,\"interval\":[-1,1],\"minimum_trackers\":3062,\"trackers\":3,\"power_lower_bound\":0,\"powered\":false,\"radius\":1.8394154533861795},{\"target\":\"time-to-close\",\"effect\":0,\"interval\":[-1,1],\"minimum_trackers\":3062,\"trackers\":3,\"power_lower_bound\":0,\"powered\":false,\"radius\":1.8394154533861795}],\"passed\":false,\"reason\":\"transfer_underpowered\"}}"

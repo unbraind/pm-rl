@@ -205,3 +205,36 @@ The concurrency claim in §1.1 is tested against **real git branches** with a re
 simulated. The storage claim is likewise measured across repeated real SDK mutations and the
 actual history file, not estimated from encoded payloads. If either test fails, the package's
 central premise is false and the failure must be loud.
+
+## 8. Prospective proposer-transfer qualification
+
+`runProposerEvolution` seals a transfer declaration and corpus context before
+fitting. `proposer-transfer.ts` archives projected chronological tasks and exact
+split membership as native SDK Decisions (`affected_version` content address,
+`component=proposer-transfer`), then records paired observations and the derived
+report in another immutable Decision. Native birth history and hashes are checked
+on replay; a changed split or a tracker crossing compartments refuses. No separate
+metric or corpus evidence store is introduced.
+
+Each adaptive generation gets fresh meta trackers, and the final audit uses a
+third compartment. Equal-weight paired tracker differences have simultaneous
+bounded confidence intervals with Bonferroni correction over two tasks and every
+planned generation/audit. A prospective 0.10 effect, 0.01 margin, alpha 0.05 and
+80% per-task target power determine a minimum sample size before results. Underpowered
+input can produce diagnostic evidence but cannot promote. This additional gate
+preserves the existing inner, outer, cohort, resource and rollback gates.
+
+For one generation plus audit the bound requires 3,062 independent trackers per
+task. The available frozen public fleet provides 31 source pins and 46 tasks,
+so it cannot establish powered efficacy. A bounded diagnostic uses three trackers
+per role. Its native result is `pm-rl-rsipower-bounded-result`; replay uses
+`pm rl proposer transfer replay <evaluation-digest> --json`. See
+[the derivation, real measurements and limitations](docs/proposer-transfer.md).
+
+The bounded real controller completed one generation and final audit in 567.448
+seconds (576.235 seconds including verified publication). Thirty fits consumed
+1,920 optimizer updates and zero inference tokens. Meta and audit effects were
+0.00 for both tasks, with simultaneous intervals [-1.00, 1.00], three trackers
+per task and power lower bound 0.00. Transfer and existing sample gates refused;
+the prior proposer remained retained. This proves fail-closed execution and
+native replay, not statistically powered transfer efficacy.

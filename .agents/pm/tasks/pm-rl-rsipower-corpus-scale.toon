@@ -1,0 +1,12 @@
+id: pm-rl-rsipower-corpus-scale
+title: Acquire enough independent public tracker cohorts for predeclared transfer power
+description: "The frozen 0.10 effect, 0.01 margin, alpha 0.05 and 80 percent distribution-free design needs 3062 independent trackers per task for one generation plus audit. The public fleet and the current 64-source Git builder cannot supply that size. Broaden verified public provenance and independently justify cross-tracker correlation units before making a powered efficacy claim; retain the existing gate and never choose thresholds from observed results."
+type: Task
+status: open
+priority: 2
+tags[3]: follow-up,power,transfer
+created_at: "2026-11-06T04:54:48.062Z"
+updated_at: "2026-11-06T04:54:48.062Z"
+author: codex-sol
+parent: pm-rl-rsipower
+body: ""
