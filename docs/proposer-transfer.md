@@ -36,7 +36,8 @@ power guarantee is zero if s = delta - margin - r is nonpositive, otherwise
 ceil(2 (sqrt(log(2m/alpha)) + sqrt(log(1/(1-power))))^2 / (MDE-margin)^2)
 ```
 
-For the original study declaration (MDE 0.10, alpha 0.05, power 0.80, two looks), this is 3,062 independent trackers per task at each look. Every meta generation uses a disjoint tracker set, and audit uses a separate set.
+For the original study declaration (MDE 0.10, alpha 0.05, power 0.80, two looks), this is 3,062 independent trackers per task at each look for two looks (one generation plus audit).
+The shipped two-generation configuration declares three looks and requires 3,218 independent trackers per task at each look. See the look-count table below. Every meta generation uses a disjoint tracker set, and audit uses a separate set.
 The calculation uses the declared alternative, never an observed effect or fitted
 variance. Zero rows or a missing target remain underpowered. Confidence intervals
 are wide rather than silently borrowing item counts or training examples.
@@ -83,6 +84,19 @@ not a remedy for an unfavorable observed result. If the required population is
 unavailable, collect more independently justified trackers, run an explicitly
 underpowered diagnostic, or predeclare a separately justified statistical method.
 Never revise a plan after seeing its evaluation outcomes to manufacture power.
+
+For MDE 0.10, alpha 0.05, per-task power 0.80, margin 0.01 and two tasks, the declared generation count changes the requirement:
+
+| Generations | Total looks (generations plus audit) | Required trackers per task at each look |
+| ---: | ---: | ---: |
+| 1 (original diagnostic) | 2 | 3,062 |
+| 2 (shipped configuration) | 3 | 3,218 |
+| 3 | 4 | 3,327 |
+| 4 | 5 | 3,411 |
+
+Every meta look uses its own tracker set; audit is separate. These counts are not a combined sample across looks.
+
+At the shipped MDE, two meta looks would need 12,872 meta tasks (3,218 trackers × two targets × two meta looks), above the existing 10,000-task compartment cap. That configuration can produce an underpowered diagnostic under current bounds. A powered study must also fit the compartment cap, using a scientifically justified prospective design or a separately validated capacity expansion. The corpus-scale follow-up tracks this limit; neither the cap nor the statistical gate is relaxed here.
 
 For alpha 0.05, per-task power 0.80, margin 0.01, two tasks and two looks:
 

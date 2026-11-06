@@ -225,7 +225,9 @@ declared effect 0.10, margin 0.01, alpha 0.05 and per-task power 0.80. Underpowe
 input can produce diagnostic evidence but cannot promote. This additional gate
 preserves the existing inner, outer, cohort, resource and rollback gates.
 
-For one generation plus audit the bound requires 3,062 independent trackers per task at each look. The available frozen public fleet provides 31 source pins and 46 tasks,
+The bound requires 3,062 independent trackers per task at each look for two looks (one generation plus audit).
+The shipped two-generation configuration declares three looks and requires 3,218 independent trackers per task at each look.
+See the [look-count table](docs/proposer-transfer.md#choosing-and-sealing-a-prospective-design). The available frozen public fleet provides 31 source pins and 46 tasks,
 so it cannot establish powered efficacy. A bounded diagnostic uses three trackers
 per role. Its human-facing result is `pm-rl-rsipower-bounded-result`; replay uses
 `pm --pm-path "$scratch/.agents/pm" rl proposer transfer replay <evaluation-digest> --json`.

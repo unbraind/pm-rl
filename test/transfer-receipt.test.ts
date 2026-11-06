@@ -1,6 +1,6 @@
 /** Diagnostic receipts rebuild real native evidence without polluting a development tracker. */
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
 import { hashJson, type JsonValue } from "../json-identity.ts";
@@ -8,6 +8,36 @@ import { archiveTransferCorpus, recordTransferPlan, recordTransferEvaluation, re
 import { readDiagnosticReceipt, requireDiagnosticScratch, restoreDiagnosticReceipt, replayDiagnosticMain, type DiagnosticReceipt } from "./fixtures/transfer-replay.ts";
 import { processWorkspace } from "./fixtures/process-workspace.ts";
 import { transferCorpus, sealTransferCorpus } from "./fixtures/transfer-corpus.ts";
+
+test("malformed decoded diagnostic receipts refuse with shape evidence before source or tracker effects", async () => {
+  const w = await processWorkspace(); const original = readDiagnosticReceipt(resolve(import.meta.dirname, "../docs/proposer-transfer-receipt.json"));
+  const { digest: _digest, ...record } = original;
+  const source = original.full_manifest.sources[0]; const evaluation = original.evaluations[0];
+  const malformed: unknown[] = [null, [], 1, "receipt", {}, ...[
+    { full_manifest: undefined }, { full_manifest: null }, { full_manifest: { ...record.full_manifest, sources: null } },
+    { full_manifest: { ...record.full_manifest, sources: [null] } }, { full_manifest: { ...record.full_manifest, sources: [{ ...source, repo: 1 }] } },
+    { full_manifest: { ...record.full_manifest, omitted: null } }, { full_manifest: { ...record.full_manifest, splits: null } },
+    { manifest: null }, { task_ids: null }, { task_ids: { ...record.task_ids, meta: null } },
+    { archive: undefined }, { archive: null }, { archive: { ...record.archive, shards: null } },
+    { archive: { ...record.archive, plan: null } }, { archive: { ...record.archive, shards: [null] } },
+    { evaluations: undefined }, { evaluations: null }, { evaluations: [null] }, { evaluations: [{ ...evaluation, pairs: null }] },
+    { evaluations: [{ ...evaluation, pairs: [null] }] }, { evaluations: [{ ...evaluation, report: null }] },
+    { evaluations: [{ ...evaluation, role: { toString: null, valueOf: null } }] },
+  ].map((patch) => ({ ...record, ...patch }))];
+  const file = join(w.root, "malformed-receipt.json"); const output = join(w.root, "unopened");
+  const before = (await w.client.listAllComplete({ includeBody: true })).items;
+  for (const value of malformed) {
+    const normalized = JSON.parse(JSON.stringify(value)) as JsonValue;
+    const sealed = normalized !== null && typeof normalized === "object" && !Array.isArray(normalized) ? { ...normalized, digest: hashJson(normalized) } : normalized;
+    writeFileSync(file, JSON.stringify(sealed));
+    /** A malformed shape must never leak a raw TypeError from a later property access. */
+    const shapeFailure = (error: unknown): boolean => error instanceof assert.AssertionError && error.message.includes("diagnostic_receipt_shape");
+    assert.throws(() => readDiagnosticReceipt(file), shapeFailure);
+    await assert.rejects(replayDiagnosticMain(["--receipt", file, "--pm-root", join(output, ".agents/pm")]), shapeFailure);
+    assert.equal(existsSync(output), false);
+  }
+  assert.deepEqual((await w.client.listAllComplete({ includeBody: true })).items, before);
+});
 
 test("diagnostic replay requires explicit non-Git scratch roots before effects including symlinks", async () => {
   const w = await processWorkspace();

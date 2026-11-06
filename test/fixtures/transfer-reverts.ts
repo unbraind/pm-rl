@@ -18,6 +18,8 @@ export function copyRevertWorkspace(root: string, scratch: string): void {
 export async function runTransferReverts(root: string, selection?: string): Promise<void> {
   await withTransferScratch("transfer-revert-", async (scratch) => {
     const cases = [
+      ...["README.md", "ARCHITECTURE.md", "docs/proposer-transfer.md"].map((file) => ({ file, pattern: "look-count declarations", test: "transfer-review-capacity", transform: (s: string) => s.replace('for two looks (one generation plus audit)', 'for the study'), expected: /AssertionError/ })),
+      { file: "test/fixtures/transfer-replay.ts", pattern: "malformed decoded diagnostic receipts", test: "transfer-receipt", transform: (s: string) => s.replace('  diagnosticReceiptShape(value);', ''), expected: /AssertionError/ },
       { file: "improver-data.ts", pattern: "powered role projections", test: "transfer-review-capacity", transform: (s: string) => s.replace('  const text = JSON.stringify(tasks);', '  return [{ name: `${role}.json`, text: encodeBoundedJson(tasks) }];\n  const text = JSON.stringify(tasks);'), expected: /json_record_limit/ },
       { file: "proposer-evolution.ts", pattern: "powered role projections", test: "transfer-review-capacity", transform: (s: string) => s.replace('...readdirSync(directory).filter((name) => /^(development|meta|audit)-[a-f0-9]{64}\\.json$/.test(name)).sort()', '...[]'), expected: /AssertionError/ },
       { file: "proposer-transfer.ts", pattern: "powered paired evaluations", test: "transfer-review-capacity", transform: (s: string) => s.replace('if (Buffer.byteLength(JSON.stringify(record)) <= MAX_TRACKER_RECORD_BYTES)', 'if (true)'), expected: /json_record_limit/ },
@@ -45,8 +47,8 @@ export async function runTransferReverts(root: string, selection?: string): Prom
       { file: "proposer-transfer.ts", pattern: "native replay refuses missing", test: "transfer-archive", transform: (s: string) => s.replace(/^  if \(.+\) assertJsonEncoding\(String\(current.body\), MAX_TRACKER_RECORD_BYTES\);$/m, ''), expected: /AssertionError|Missing expected rejection/ },
       { file: "proposer-transfer.ts", pattern: "explicit prospective designs", test: "transfer-archive", transform: (s: string) => s.replace('const { alpha, power, effect, margin, targets, looks } = parseTransferDesign(declaration);', 'const { alpha, power, effect, margin, targets, looks } = parseTransferDesign({ ...TRANSFER_DESIGN, looks: declaration.looks });'), expected: /AssertionError/ },
     ];
-    const profiles: Readonly<Record<string, string>> = { "review-round-one": "transfer-review", "owned-review-round-one": "transfer-review-policy", "owned-review-round-two": "transfer-review-capacity" };
-    const selected = cases.filter((probe) => selection === undefined || (Object.hasOwn(profiles, selection) ? probe.test === profiles[selection] : probe.pattern === selection));
+    const profiles: Readonly<Record<string, readonly string[]>> = { "review-round-one": ["transfer-review"], "owned-review-round-one": ["transfer-review-policy"], "owned-review-round-two": ["powered role projections", "powered paired evaluations", "empty planned meta looks", "power documentation consistently"].map((pattern) => `transfer-review-capacity:${pattern}`), "owned-review-round-three": ["transfer-review-capacity:look-count declarations", "transfer-receipt:malformed decoded diagnostic receipts"] };
+    const selected = cases.filter((probe) => selection === undefined || (Object.hasOwn(profiles, selection) ? profiles[selection].some((key) => key === probe.test || key === `${probe.test}:${probe.pattern}`) : probe.pattern === selection));
     assert.ok(selected.length > 0, "transfer_revert_selection");
     copyRevertWorkspace(root, scratch);
     for (const probe of selected) {

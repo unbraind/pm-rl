@@ -96,10 +96,14 @@ test("empty planned meta looks refuse before native controller writes or any fit
   assert.equal(entered, false); assert.deepEqual((await w.client.listAllComplete({ includeBody: true })).items, before);
 });
 
-test("power documentation consistently requires independent trackers per task at each look", () => {
+test("power documentation consistently states look-count declarations for the study and shipped configuration", () => {
   const required = transferPower(0, { ...TRANSFER_DESIGN, looks: 2 }).minimum_trackers.toLocaleString("en-US");
   for (const file of ["README.md", "ARCHITECTURE.md", "docs/proposer-transfer.md"]) {
     const text = readFileSync(new URL(`../${file}`, import.meta.url), "utf8").replace(/\s+/g, " ").replaceAll("**", "");
-    assert.ok(text.includes(`${required} independent trackers per task at each look`), file);
+    assert.ok(text.includes(`${required} independent trackers per task at each look for two looks (one generation plus audit)`), file);
+    const config = proposerEvolutionConfiguration(); const looks = config.generations + 1; assert.ok(config.transfer !== undefined);
+    const shipped = transferPower(0, { ...TRANSFER_DESIGN, ...config.transfer, looks }).minimum_trackers.toLocaleString("en-US");
+    assert.ok(text.includes(`three looks and requires ${shipped} independent trackers per task at each look`), file);
+    assert.ok(text.includes("look-count table"), file);
   }
 });

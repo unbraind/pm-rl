@@ -11,6 +11,7 @@ import { archiveTransferCorpus, evaluateTransfer, parseTransferDesign, planTrans
 import { copyImproverSources } from "../../scripts/live-improver.ts";
 import { isMainInvocation } from "../../scripts/script-launcher.ts";
 import { excludedTrackerName } from "../../dataset.ts";
+import { parseBoundedJson } from "../../tracker-record.ts";
 
 /** Digests pin native reconstruction while scores remain the original historical measurements. */
 export interface DiagnosticReceipt {
@@ -39,9 +40,30 @@ export function requireDiagnosticScratch(pmRoot: string): string {
   assert.ok(isAbsolute(physical)); return physical;
 }
 
+/** A decoded record must be an object before any property access or nested iteration. */
+function receiptObject(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === "object" && !Array.isArray(value); }
+/** Check only structural prerequisites here; content digests and statistical validation remain authoritative. */
+function receiptManifest(value: unknown): boolean {
+  if (!receiptObject(value) || !Array.isArray(value.sources) || !Array.isArray(value.omitted) || !receiptObject(value.splits)) return false;
+  const splits = value.splits;
+  return typeof value.digest === "string" && Number.isSafeInteger(value.seed) && value.sources.every((source: unknown) => receiptObject(source) && typeof source.repo === "string" && typeof source.commit === "string" && typeof source.role === "string" && IMPROVER_ROLES.includes(source.role as typeof IMPROVER_ROLES[number]))
+    && value.omitted.every((row: unknown) => receiptObject(row) && typeof row.repo === "string" && typeof row.target === "string")
+    && IMPROVER_ROLES.every((role) => receiptObject(splits[role]) && typeof splits[role].digest === "string" && Number.isSafeInteger(splits[role].tasks));
+}
+/** Refuse malformed user-supplied receipt structures before replay opens sources or writes scratch context. */
+function diagnosticReceiptShape(value: unknown): asserts value is DiagnosticReceipt {
+  assert.ok(receiptObject(value), "diagnostic_receipt_shape");
+  assert.ok(typeof value.digest === "string" && receiptManifest(value.full_manifest) && receiptManifest(value.manifest) && receiptObject(value.design) && receiptObject(value.task_ids) && receiptObject(value.archive) && Array.isArray(value.evaluations), "diagnostic_receipt_shape");
+  const archive = value.archive; const ids = value.task_ids;
+  assert.ok(receiptObject(archive) && typeof archive.root === "string" && typeof archive.plan === "string" && Array.isArray(archive.shards) && archive.shards.every((digest: unknown) => typeof digest === "string"), "diagnostic_receipt_shape");
+  assert.ok(receiptObject(ids) && IMPROVER_ROLES.every((role) => Array.isArray(ids[role]) && ids[role].every((id: unknown) => typeof id === "string")), "diagnostic_receipt_shape");
+  assert.ok(value.evaluations.every((row: unknown) => receiptObject(row) && typeof row.digest === "string" && typeof row.role === "string" && ["meta", "audit"].includes(row.role) && Number.isSafeInteger(row.look) && Array.isArray(row.pairs) && row.pairs.every((pair: unknown) => receiptObject(pair) && typeof pair.id === "string" && typeof pair.candidate === "number" && typeof pair.incumbent === "number") && receiptObject(row.report)), "diagnostic_receipt_shape");
+}
+
 /** Authenticate every receipt field before using its public source declarations or scores. */
 export function readDiagnosticReceipt(file: string): DiagnosticReceipt {
-  const value = JSON.parse(readFileSync(file, "utf8")) as DiagnosticReceipt;
+  const value: unknown = parseBoundedJson(readFileSync(file, "utf8"));
+  diagnosticReceiptShape(value);
   const { digest, ...record } = value;
   assert.equal(value.format, "pm-rl/proposer-diagnostic-receipt/1");
   assert.equal(hashJson(record as unknown as JsonValue), digest, "diagnostic_receipt_digest");
