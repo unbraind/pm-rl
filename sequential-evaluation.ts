@@ -1,3 +1,4 @@
+import { createCausalEvaluationArtifact } from "./evaluation-lifecycle.ts";
 import { canonicalizeIdentifier } from "./lineage.ts";
 import { identifier, identifierClient, operationIdentifier } from "./state-boundary.ts";
 /** Reviewed finite-look sequential tests and immutable, resumable evidence checkpoints. */
@@ -5,7 +6,7 @@ import { dirname } from "node:path";
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { readSettings } from "@unbrained/pm-cli/sdk/runtime";
 import { withWriteHistoryFence, createVerifiedItem, hashJson, withProcessJobFence, extractGenerationSpec, readCompleteLoopItem, captureDecisionInputs, type JsonValue } from "./index.ts";
-import { evaluatePlan, evaluationComparison, normalizedObservations, optionalItem, readEvaluationPlan, refuse, verifiedCandidate, verifyCreatedRecord, validateEvaluationOrder, evaluationPlanId, evaluationOutcomeIds, type EvaluationMember, type EvaluationPlan, type EvaluationPlanReport, type RegisteredEvaluationPlan, evaluationEvidence } from "./evaluation-plan.ts";
+import { evaluatePlan, evaluationComparison, normalizedObservations, optionalItem, readEvaluationPlan, refuse, verifiedCandidate, verifyCreatedRecord, validateEvaluationOrder, evaluationLifecycleArtifacts, evaluationPlanId, evaluationOutcomeIds, type EvaluationMember, type EvaluationPlan, type EvaluationPlanReport, type RegisteredEvaluationPlan, evaluationEvidence } from "./evaluation-plan.ts";
 import type { PromotionDecision } from "./promotion.ts";
 import { parseBoundedJson, decodeTrackerRecord, skippedTrackerRecords, encodeBoundedJson, MAX_TRACKER_RECORD_BYTES, type SkippedTrackerRecord } from "./tracker-record.ts";
 
@@ -73,7 +74,7 @@ export function evaluateSequentialBoundary(plan: EvaluationPlan, n: number, cand
   return { sequential, verdict };
 }
 /** Require an attributable review of this complete design, rather than a free-form approval label. */
-export async function reviewSequentialPlan(client: PmClient, plan: EvaluationPlan, declaredAt?: string): Promise<void> {
+export async function reviewSequentialPlan(client: PmClient, plan: EvaluationPlan, sealed = false): Promise<void> {
   if (plan.stopping.kind !== "sequential") refuse("eval_plan_stopping");
   const review = await optionalItem(client, plan.stopping.review);
   if (review === null || review.type !== "Decision" || review.id !== plan.stopping.review) refuse("eval_plan_evidence");
@@ -83,7 +84,7 @@ export async function reviewSequentialPlan(client: PmClient, plan: EvaluationPla
   await verifyCreatedRecord(client, review);
   // A valid seal establishes identity, not temporal precedence. In particular, SDK
   // creation of a correctly hashed Plan must not bypass the pre-collection review.
-  if (declaredAt !== undefined) await validateEvaluationOrder(client, [{ id: review.id, stage: 0 }, { id: evaluationPlanId(plan.candidate), stage: 1 }]);
+  if (sealed) await validateEvaluationOrder(client, [{ id: review.id, stage: 0 }, { id: evaluationPlanId(plan.candidate), stage: 1 }], 1000, undefined, plan);
 }
 /** Serialize protocol writers with the SDK token-owned lease and lock ordinary SDK provenance writers too. */
 export async function withEvaluationLease<T>(client: PmClient, candidate: string, dependencies: readonly string[], execute: () => Promise<T>): Promise<T> {
@@ -184,7 +185,11 @@ async function appendSequentialLook(client: PmClient, candidate: string, rows: r
   const id = evaluationOutcomeIds(current.plan, current.id)[index]; const body = encodeBoundedJson(raw, MAX_TRACKER_RECORD_BYTES); const version = hashJson(raw as unknown as JsonValue);
   // The SDK create owns the target slot's native lease. Every other slot,
   // including absent future slots, remains leased through this publication.
-  try { await createVerifiedItem(client, { id, type: "Decision", title: "Sealed sequential evaluation checkpoint", body, unset: ["parent", "sprint", "release", "blocked-by"], clearDeps: true, affectedVersion: version, tags: TAG, message: "Seal the next predeclared sequential look" }); }
+  try {
+    const options = { id, type: "Decision", title: "Sealed sequential evaluation checkpoint", body, unset: ["parent", "sprint", "release", "blocked-by"], clearDeps: true, affectedVersion: version, tags: TAG, message: "Seal the next predeclared sequential look" };
+    if (current.plan.ordering === "causal/1") await createCausalEvaluationArtifact(client, current.plan, options, evaluationLifecycleArtifacts(current, spec.collection_runs, index + 1));
+    else await createVerifiedItem(client, options);
+  }
   catch (error) { if (await optionalItem(client, id) === null) throw error; }
   const saved = await checkpointChain(client, current, rule);
   if (saved.skipped.length > 0) return { status: "skipped", plan: current.id, skipped: saved.skipped, remedy: "Leave foreign evidence intact and register a fresh candidate." };

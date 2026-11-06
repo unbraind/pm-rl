@@ -169,6 +169,7 @@ export { exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordRecursivePol
 export { parseTrainingInfluence, measureTrainingInfluence, replayTrainingInfluence, summarizeTrainingInfluence, recordTrainingInfluence, readTrainingInfluence, attachTrainingInfluence, verifyTrainingInfluenceProposal, type TrainingInfluenceRequest, type TrainingInfluenceReport, type TrainingInfluenceEvidence, type TrainingInfluenceRefusal, type TrainingSlice, type InfluenceEvaluation, type InfluenceFit, type InfluenceComparison } from "./training-influence.ts";
 export { parseShadowDeployment, shadowInputDigest, registerShadowDeployment, observeShadow, compareShadow, type ShadowPolicy, type ShadowDeployment, type ShadowInput, type ShadowObservation, type ShadowReport, type ShadowRefusal } from "./shadow.ts";
 export { recordSequentialEvaluation, readSequentialEvaluation, type SequentialStopping, type SequentialBoundary, type SequentialEvaluationResult, type SequentialEvaluationSkip } from "./sequential-evaluation.ts";
+export { approveEvaluationPlan, type EvaluationArtifact } from "./evaluation-lifecycle.ts";
 export { parseEvaluationPlan, resolveEvaluationPlan, evaluationPlanId, evaluationComparison, registerEvaluationPlan, readEvaluationPlan, readEvaluationDecision, parseEvaluationEvidence, evaluatePlan, recordPlanEvaluation, enforceEvaluationPlan, type EvaluationPlan, type EvaluationMember, type EvaluationObservation, type EvaluationPlanReport, type RegisteredEvaluationPlan, type EvaluationPlanRefusal, type ProtectedCohort, type CohortReport, type CohortRefusal } from "./evaluation-plan.ts";
 
 export { decidePromotion, hoeffdingEpsilon, parsePromotionCriterion, parsePromotionEvidence, type PromotionCriterion, type PromotionDecision, type PromotionEvidence, type PromotionGateInput } from "./promotion.ts";
@@ -231,10 +232,11 @@ import { parseJsonRecord, rethrowOperationalRead, rethrowProvenanceRead } from "
 import { exportPolicyCard, replayPolicyCard, adoptPolicyCard, recordRecursivePolicyCards, recordPolicyCard, validatePromotedPolicyCard, validatePolicyCardWrite, validateRefusedPolicyCard, discoverPolicyCards, verifyRetainedGenerationEvidence } from "./policy-card.ts";
 import { recordTrainingInfluence, readTrainingInfluence, summarizeTrainingInfluence, attachTrainingInfluence, verifyTrainingInfluenceProposal } from "./training-influence.ts";
 import { registerShadowDeployment, observeShadow, compareShadow } from "./shadow.ts";
-import { recordSequentialEvaluation, readSequentialEvaluation, withEvaluationLease } from "./sequential-evaluation.ts";
+import { recordSequentialEvaluation, readSequentialEvaluation, withEvaluationLease, type SequentialStopping } from "./sequential-evaluation.ts";
 /** Typed persisted input graphs returned by the evaluation SDK. */
 export type { EvaluationEvidence } from "./lineage.ts";
-import { registerEvaluationPlan, readEvaluationPlan, recordPlanEvaluation, enforceEvaluationPlan, enforceEvaluationDecision, readEvaluationDecision, evaluationEvidence, parseEvaluationEvidence, evaluationInputDigest, decisionSnapshotDigest } from "./evaluation-plan.ts";
+import { approveEvaluationPlan, createCausalEvaluationArtifact, verifyCausalEvaluationRetry } from "./evaluation-lifecycle.ts";
+import { registerEvaluationPlan, evaluationPlanId, evaluationLifecycleArtifacts, evaluationOutcomeIds, optionalItem, refuse as refuseEvaluation, readEvaluationPlan, recordPlanEvaluation, enforceEvaluationPlan, enforceEvaluationDecision, readEvaluationDecision, evaluationEvidence, parseEvaluationEvidence, evaluationInputDigest, decisionSnapshotDigest } from "./evaluation-plan.ts";
 import { buildIntakeLoopCorpus, buildTrackerLoopCorpus } from "./corpus.ts";
 import { decodeCheckpointArtifacts, encodeCheckpointArtifacts, collectCheckpointArtifacts, inspectCheckpointArtifact } from "./checkpoint-artifacts.ts";
 
@@ -1191,6 +1193,13 @@ async function ensurePersistentTypes(client: PmClient): Promise<void> {
 async function createRlItem(client: PmClient, options: NonNullable<Parameters<PmClient["create"]>[0]>, code = "record_write_drift"): ReturnType<PmClient["create"]> {
   operationIdentifier(options.id);
   await ensurePersistentTypes(client);
+  if (options.type === "Generation") {
+    const registered = await readEvaluationPlan(client, String(options.id));
+    if (registered?.plan.ordering === "causal/1") {
+      const spec = extractGenerationSpec(String(options.body), "Causal candidate");
+      return createCausalEvaluationArtifact(client, registered.plan, { ...options, id: registered.plan.candidate }, evaluationLifecycleArtifacts(registered, spec.collection_runs, 0));
+    }
+  }
   return createVerifiedItem(client, options, code);
 }
 
@@ -1355,11 +1364,13 @@ async function startRun(context: CommandHandlerContext): Promise<RlCommandResult
   const receiptPath = stringOption(context, "receipt_file", false);
   const receipt: ReceiptSpec | null = receiptPath === undefined ? null : parseReceipt(readTextFile(receiptPath, "Determinism receipt"), `Determinism receipt ${receiptPath}`);
   const client = clientFor(context);
-  return startRunCore(client, { id: requestedId, environmentId, algorithm, config, receipt });
+  return startRunCore(client, { id: requestedId, environmentId, algorithm, config, receipt, evaluationCandidate: stringOption(context, "evaluation_candidate", false) });
 }
 
 /** The resolved inputs of one attributable run, shared by the command and the recursive loop. */
-interface RunStartRequest {
+export interface RunStartRequest {
+  /** Bind this new collection to an already sealed causal evaluation Plan. */
+  readonly evaluationCandidate?: string;
   /** Requested run item id. */
   readonly id: string;
   /** Environment item id the run trains under. */
@@ -1385,7 +1396,12 @@ interface RunStartRequest {
  * @param request - The resolved run inputs.
  * @returns The command result naming the created run and its identities.
  */
-async function startRunCore(client: PmClient, request: RunStartRequest): Promise<RlCommandResult> {
+export async function startRunCore(client: PmClient, request: RunStartRequest): Promise<RlCommandResult> {
+  if (request.evaluationCandidate !== undefined) {
+    operationIdentifier(request.evaluationCandidate, "item", "write"); operationIdentifier(request.id, "item", "write");
+    const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
+    request = { ...request, id: canonicalizeIdentifier(request.id, prefix), evaluationCandidate: canonicalizeIdentifier(request.evaluationCandidate, prefix) };
+  }
   const verifiedEnvironment = await verifyEnvironmentIdentity(client, request.environmentId, "runs");
   // A receipt that names an environment other than the one this run records
   // would be born already unverifiable; refuse it at the write, not at verify.
@@ -1415,11 +1431,37 @@ async function startRunCore(client: PmClient, request: RunStartRequest): Promise
     fixedVersion: configHash,
     message: "Start attributable RL run",
   };
-  const result = await createOrReadIdentical(client, createOptions, "run_identity_collision", (item) =>
+  const result = request.evaluationCandidate === undefined ? await createOrReadIdentical(client, createOptions, "run_identity_collision", (item) =>
     item.affected_version === specHash && item.fixed_version === configHash && item.component === request.algorithm
     && normalizeRunEnvironment(item.environment) === verifiedEnvironment.id && item.body === createOptions.body,
-  );
+  ) : await createEvaluationCollection(client, request.evaluationCandidate, createOptions);
   return { action: "rl-run-start", id: result.item.id, created: result.created, details: { environment_id: verifiedEnvironment.id, spec_hash: specHash, config_hash: configHash } };
+}
+
+/** Serialize collection admission with the candidate reservation; retries never acquire a new birth. */
+async function createEvaluationCollection(client: PmClient, candidate: string, options: Parameters<PmClient["create"]>[0] & { id: string }): Promise<{ item: GetResult["item"]; created: boolean }> {
+  operationIdentifier(candidate, "item", "write");
+  const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
+  candidate = canonicalizeIdentifier(candidate, prefix);
+  options = { ...options, id: canonicalizeIdentifier(options.id, prefix) };
+  return withEvaluationLease(client, candidate, [candidate, evaluationPlanId(candidate)], async () => {
+    const registered = await readEvaluationPlan(client, candidate);
+    if (registered === null) refuseEvaluation("eval_plan_missing");
+    if (registered.plan.ordering !== "causal/1") refuseEvaluation("eval_plan_stopping");
+    const review = (registered.plan.stopping as SequentialStopping).review;
+    return withEvaluationLease(client, `${candidate}-collection-sources`, [review, registered.plan.incumbent], async () => {
+      // Discovery contributes identities only; the reviewed Plan is read again under its source leases.
+      const current = (await readEvaluationPlan(client, candidate))!;
+      const existing = await optionalItem(client, options.id);
+      if (existing === null) {
+        for (const id of [candidate, ...evaluationOutcomeIds(current.plan)]) if (await optionalItem(client, id) !== null || await optionalItem(client, id, "1") !== null) refuseEvaluation("eval_plan_late", id);
+      }
+      await ensurePersistentTypes(client);
+      const artifacts = evaluationLifecycleArtifacts(current, [options.id], 0).filter((entry) => entry.stage < 3);
+      const result = await createCausalEvaluationArtifact(client, current.plan, options, artifacts);
+      return { item: result.item, created: existing === null };
+    });
+  });
 }
 
 /**
@@ -2670,11 +2712,16 @@ async function registerGenerationSnapshot(client: PmClient, request: GenerationR
       if (request.policy !== "") identifier(request.policy, "artifact");
       await validatePolicyCardWrite(client, createOptions);
   };
+  /** Share birth verification between preflight and existing-candidate publication. */
+  const validateExistingCausal = async (): Promise<void> => {
+    if (reservation?.plan.ordering === "causal/1") await verifyCausalEvaluationRetry(client, reservation.plan, createOptions, evaluationLifecycleArtifacts(reservation, collectionRuns, 0));
+  };
   if (request.preflight) {
     const existing = await readCompleteLoopItem(client, requestedId).catch((error: unknown) => isItemNotFound(error) ? null : Promise.reject(error));
     if (existing === null) await validateNew();
     else {
       if (!matches(existing.item)) fail(`Generation id ${requestedId} already exists with different provenance.`, "generation_identity_collision", EXIT_CODE.CONFLICT);
+      await validateExistingCausal();
       await exportPolicyCard(client, requestedId);
     }
     return { action: "rl-generation-register", id: requestedId, created: false, details: { preflight: true } };
@@ -2682,7 +2729,7 @@ async function registerGenerationSnapshot(client: PmClient, request: GenerationR
   const result = await createOrReadIdentical(client, createOptions, "generation_identity_collision", matches, validateNew,
     async (item) => { await recordPolicyCard(client, item.id); },
   );
-  if (!result.created) await recordPolicyCard(client, String(result.item.id));
+  if (!result.created) { await validateExistingCausal(); await recordPolicyCard(client, String(result.item.id)); }
   return {
     action: "rl-generation-register",
     id: result.item.id,
@@ -5774,6 +5821,12 @@ export const RL_COMMANDS = [
     const report = await compareShadow(client, String(item.item.id));
     return { action: "rl-shadow-compare", id: report.receipt, details: { ...report } };
   } }),
+  defineCommand({ name: "rl eval plan approve", description: "Record review of an exact causal sequential design before its Plan is sealed.", flags: [
+    { long: "--file", value_name: "path", value_type: "string", required: true, description: "Causal sequential evaluation plan JSON." },
+  ], run: async (context) => {
+    const approved = await approveEvaluationPlan(clientFor(context), readJsonFile(stringOption(context, "file")!, "Evaluation design"));
+    return { action: "rl-eval-plan-approve", id: approved.id, details: { comparison: approved.comparison } };
+  } }),
   defineCommand({ name: "rl eval plan register", description: "Predeclare a fixed cohort and correlation units before candidate collection.", flags: [
     { long: "--file", value_name: "path", value_type: "string", required: true, description: "Evaluation plan JSON." },
   ], run: async (context) => {
@@ -5785,7 +5838,7 @@ export const RL_COMMANDS = [
     const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
     const registered = await readEvaluationPlan(client, canonicalizeIdentifier(requiredArgument(context, "a candidate id"), prefix));
     if (registered === null) fail("No predeclared plan. Register one before creating a fresh candidate.", "eval_plan_missing", EXIT_CODE.CONFLICT);
-    return { action: "rl-eval-plan-show", id: registered.id, details: { comparison: registered.comparison, candidate: registered.plan.candidate, incumbent: registered.plan.incumbent, stopping: registered.plan.stopping, protected_cohorts: registered.plan.protected_cohorts?.length ?? 0 } };
+    return { action: "rl-eval-plan-show", id: registered.id, details: { ...(registered.plan.ordering === undefined ? {} : { ordering: registered.plan.ordering }), comparison: registered.comparison, candidate: registered.plan.candidate, incumbent: registered.plan.incumbent, stopping: registered.plan.stopping, protected_cohorts: registered.plan.protected_cohorts?.length ?? 0 } };
   } }),
   defineCommand({ name: "rl eval plan advance", description: "Seal or resume the next reviewed sequential boundary from cumulative paired observations.", arguments: [{ name: "candidate", required: true, description: "Reserved candidate generation id." }], flags: [
     { long: "--file", value_name: "path", value_type: "string", required: true, description: "Cumulative paired observation array JSON." },
@@ -5819,6 +5872,7 @@ export const RL_COMMANDS = [
   defineCommand({ name: "rl run start", description: "Start an attributable run linked to one exact environment version.", arguments: [{ name: "id", required: true, description: "Run item id." }], flags: [
     { long: "--environment", value_name: "id", value_type: "string", required: true, description: "Environment item id." },
     { long: "--algorithm", value_name: "name", value_type: "string", required: true, description: "Training algorithm." },
+    { long: "--evaluation-candidate", value_name: "id", value_type: "string", description: "Reserved causal sequential candidate whose Plan precedes this collection." },
     { long: "--config-file", value_name: "path", value_type: "string", description: "Optional JSON configuration." },
     { long: "--receipt-file", value_name: "path", value_type: "string", description: "Optional determinism receipt JSON to record at start so `rl run verify` can re-derive it later." },
   ], run: startRun }),
