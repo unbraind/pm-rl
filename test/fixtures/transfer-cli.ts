@@ -1,12 +1,14 @@
 /** Reproduce the real native measurement through one locally packed artifact and the pinned CLI host. */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { init } from "@unbrained/pm-cli/sdk/runtime";
 import { archiveTransferCorpus, replayTransferCorpus, recordTransferEvaluation, recordTransferPlan, replayTransferEvaluation, TRANSFER_DESIGN, type TransferReport, type TransferPair } from "../../proposer-transfer.ts";
-const root = process.cwd(); const scratch = mkdtempSync(join(root, ".agents/pm/runtime/transfer-cli-"));
+const root = process.cwd(); const scratch = mkdtempSync(join(tmpdir(), "transfer-cli-"));
+const attributes = readFileSync(join(root, ".gitattributes"), "utf8");
 const environment = { PATH: process.env.PATH, HOME: scratch, NPM_CONFIG_USERCONFIG: "/dev/null", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
 const packed = JSON.parse(execFileSync("npm", ["pack", "--ignore-scripts", "--json", "--pack-destination", scratch], { cwd: root, env: environment, encoding: "utf8" })) as { filename: string }[];
 const project = join(scratch, "project"); mkdirSync(project);
@@ -28,3 +30,5 @@ for (const digest of ["f5962dbe9114770b1e8e426beb980f626c1d02978c8792aefc79ff067
   assert.deepEqual(result.details, copied.report);
   console.log(JSON.stringify({ digest, packed_cli_replay: true, task_count: 2, source_checkout_required: false }));
 }
+
+assert.equal(readFileSync(join(root, ".gitattributes"), "utf8"), attributes);

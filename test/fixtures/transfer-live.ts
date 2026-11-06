@@ -1,7 +1,8 @@
 /** Explicit opt-in public acceptance; all copied inputs and process staging remain ignored locally. */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { init } from "@unbrained/pm-cli/sdk/runtime";
 import { hashJson, type JsonValue } from "../../json-identity.ts";
@@ -46,7 +47,7 @@ if (mode === "build") {
   const directory = join(output, "bounded-dataset"); mkdirSync(directory, { recursive: true });
   writeFileSync(join(directory, "improver-dataset.json"), JSON.stringify(manifest));
   for (const role of IMPROVER_ROLES) writeFileSync(join(directory, `${role}.json`), JSON.stringify(selected[role]));
-  const project = join(output, "controller"); mkdirSync(project, { recursive: true });
+  const project = mkdtempSync(join(tmpdir(), "transfer-controller-"));
   const initialized = await init("transfer", { defaults: true, agentGuidance: "skip", author: "codex-sol" }, { cwd: project, pmRoot: join(project, ".agents/pm") });
   const pmRoot = initialized.path;
   const client = new PmClient({ cwd: project, pmRoot, noExtensions: true, author: "codex-sol" });
