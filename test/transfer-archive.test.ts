@@ -43,6 +43,8 @@ test("native replay refuses missing extra reordered duplicated and altered shard
     const forged = await native(w.client, { ...plan.root, shards });
     await assert.rejects(replayTransferCorpus(w.client, forged));
   }
+  const oversized = await native(w.client, { ...plan.shards[0], padding: "x".repeat(MAX_TRACKER_RECORD_BYTES) });
+  await assert.rejects(replayTransferCorpus(w.client, await native(w.client, { ...plan.root, shards: [oversized, ...plan.root.shards.slice(1)] })), /json_record_limit/);
   const altered = await native(w.client, { ...plan.shards[0], entries: [] });
   await assert.rejects(replayTransferCorpus(w.client, await native(w.client, { ...plan.root, shards: [altered, ...plan.root.shards.slice(1)] })), /transfer_shard_empty/);
   const changed = await native(w.client, { ...plan.shards[1], entries: plan.shards[1].entries.map((entry) => entry.kind === "task" ? { ...entry, task: { ...entry.task, cutoff: 5 } } : entry) });

@@ -5,7 +5,7 @@ import { EXIT_CODE, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { createVerifiedItem, readCompleteLoopItem } from "./index.ts";
 import { hashJson, type JsonValue } from "./json-identity.ts";
 import { IMPROVER_ROLES, readImproverDataset, readImproverTasks, validateImproverTasks, type ImproverDataset, type ImproverTask } from "./improver-data.ts";
-import { encodeBoundedJson, parseBoundedJson, MAX_TRACKER_RECORD_BYTES } from "./tracker-record.ts";
+import { assertJsonEncoding, encodeBoundedJson, parseBoundedJson, MAX_TRACKER_RECORD_BYTES } from "./tracker-record.ts";
 
 /** Historical version-one receipt design; new plans carry explicit operator declarations. */
 export const TRANSFER_DESIGN = { effect: 0.10, margin: 0.01, alpha: 0.05, power: 0.80, targets: ["issue-type", "time-to-close"] } as const;
@@ -142,6 +142,7 @@ async function readRecord(client: PmClient, digest: string): Promise<JsonValue> 
   const birth = (await readCompleteLoopItem(client, id, "1")).item;
   assert.ok(current.type === "Decision" && current.affected_version === digest && current.component === "proposer-transfer" && current.body === birth.body && current.affected_version === birth.affected_version && current.type === birth.type && current.component === birth.component, "transfer_record_drift");
   const value = parseBoundedJson(String(current.body));
+  if (String((value as Record<string, JsonValue>)["format"]).endsWith("/2")) assertJsonEncoding(String(current.body), MAX_TRACKER_RECORD_BYTES);
   assert.equal(hashJson(value as JsonValue), digest, "transfer_record_digest"); return value as JsonValue;
 }
 /** Idempotently append through the SDK; a conflicting existing address refuses instead of overwriting. */

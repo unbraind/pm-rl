@@ -119,7 +119,9 @@ as well as its contents. The planner and writer share the same complete byte
 preflight; an oversized entry refuses before the first corpus mutation. The root
 is published after its shards. Replay checks every native digest and birth state,
 shard position and count, then reconstructs and verifies the complete source and
-split hashes. Missing, extra, duplicated, reordered and altered shards refuse.
+split hashes. Missing, extra, duplicated, reordered, altered and oversized version-two shards
+refuse. New-format reads enforce the same byte cap as writes; legacy version-one
+read behavior is preserved.
 Version-one roots and evaluation receipts remain readable.
 
 The evaluation Decision binds the corpus root and sealed plan to exact paired
@@ -229,3 +231,7 @@ synthetic paired comparison then passes and replays through its explicit native
 plan. This is a storage/statistics positive control, not real transfer efficacy.
 No new real-data run is needed to repair the storage format; the historical
 underpowered measurements above are unchanged.
+
+The behavioral revert runner also removes only the version-two read-side byte
+check and requires the oversized native-shard replay assertion to fail. All
+seven reversions restore their disposable source in `finally`.
