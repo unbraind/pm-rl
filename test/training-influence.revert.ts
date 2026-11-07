@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { refuseChangedReceipt, worktreeState } from "./fixtures/revert-receipt.ts";
+import { refuseChangedReceipt, worktreeState, revertProbeContext } from "./fixtures/revert-receipt.ts";
 
 const root = mkdtempSync(join(tmpdir(), "rl-influence-revert-")); const repository = resolve(".");
 const receipt = "docs/training-influence-revert.json"; refuseChangedReceipt(repository, receipt); const reviewed = worktreeState(repository, receipt);
@@ -19,17 +19,17 @@ try {
   const oldBehavior = original.replace("const selected = new Set(slice.members);", "const selected = new Set<string>();");
   assert.notEqual(oldBehavior, original); writeFileSync(source, oldBehavior);
   const mutant = spawnSync(process.execPath, ["--test", "--test-name-pattern=fixed learner and seed", "test/training-influence.test.ts"], { cwd: root, encoding: "utf8", timeout: 120000, env: { ...process.env, NODE_V8_COVERAGE: undefined } });
-  assert.equal(mutant.status, 1, mutant.stderr); assert.match(mutant.stdout, /fail 1/); assert.match(mutant.stdout, /AssertionError/);
+  assert.equal(mutant.status, 1, revertProbeContext("training-influence.revert.ts:mutant", mutant)); assert.match(mutant.stdout, /fail 1/); assert.match(mutant.stdout, /AssertionError/);
   writeFileSync(source, original);
   const restored = spawnSync(process.execPath, ["--test", "--test-name-pattern=fixed learner and seed", "test/training-influence.test.ts"], { cwd: root, encoding: "utf8", timeout: 120000, env: { ...process.env, NODE_V8_COVERAGE: undefined } });
-  assert.equal(restored.status, 0, restored.stdout + restored.stderr); assert.match(restored.stdout, /pass 1/);
+  assert.equal(restored.status, 0, revertProbeContext("training-influence.revert.ts:measureTrainingInfluence:restored", restored)); assert.match(restored.stdout, /pass 1/);
   writeFileSync(source, original.replace("latest.version ?? latest.index", "latest.index"));
   const versionArgs = ["--test", "--test-name-pattern=compacted disposable", "test/training-influence.test.ts"];
   const versionMutant = spawnSync(process.execPath, versionArgs, { cwd: root, encoding: "utf8", timeout: 120000, env: { ...process.env, NODE_V8_COVERAGE: undefined } });
-  assert.equal(versionMutant.status, 1, versionMutant.stdout + versionMutant.stderr); assert.match(versionMutant.stdout, /AssertionError/);
+  assert.equal(versionMutant.status, 1, revertProbeContext("training-influence.revert.ts:versionMutant", versionMutant)); assert.match(versionMutant.stdout, /AssertionError/);
   writeFileSync(source, original);
   const versionRestored = spawnSync(process.execPath, versionArgs, { cwd: root, encoding: "utf8", timeout: 120000, env: { ...process.env, NODE_V8_COVERAGE: undefined } });
-  assert.equal(versionRestored.status, 0, versionRestored.stdout + versionRestored.stderr);
+  assert.equal(versionRestored.status, 0, revertProbeContext("training-influence.revert.ts:versionRestored", versionRestored));
   const indexSource = join(root, "index.ts"); const originalIndex = readFileSync(indexSource, "utf8");
   const policySource = join(root, "policy-card.ts"); const originalPolicy = readFileSync(policySource, "utf8");
   const checks: { source: string; original: string; removed: string; pattern: string; function: string; file?: string }[] = [
@@ -49,10 +49,10 @@ try {
     const args = ["--test", `--test-name-pattern=${check.pattern}`, check.file ?? "test/training-influence.test.ts"];
     writeFileSync(check.source, check.removed);
     const broken = spawnSync(process.execPath, args, { cwd: root, encoding: "utf8", timeout: 120000, env: { ...process.env, NODE_V8_COVERAGE: undefined } });
-    assert.equal(broken.status, 1, broken.stdout + broken.stderr); assert.match(broken.stdout, /AssertionError/);
+    assert.equal(broken.status, 1, revertProbeContext(`training-influence.revert.ts:${check.function}:broken`, broken)); assert.match(broken.stdout, /AssertionError/);
     writeFileSync(check.source, check.original);
     const fixed = spawnSync(process.execPath, args, { cwd: root, encoding: "utf8", timeout: 120000, env: { ...process.env, NODE_V8_COVERAGE: undefined } });
-    assert.equal(fixed.status, 0, `${check.function}: ${fixed.error?.message ?? ""} ${fixed.signal ?? ""}\n${fixed.stdout}\n${fixed.stderr}`); assert.match(fixed.stdout, /pass 1/);
+    assert.equal(fixed.status, 0, revertProbeContext(`training-influence.revert.ts:${check.function}:fixed`, fixed)); assert.match(fixed.stdout, /pass 1/);
     envelope.push({ function: check.function, mutant: { passed: 0, failed: 1 }, restored: { passed: 1, failed: 0 } });
   }
   writeFileSync(receipt, JSON.stringify({ format: "pm-rl/training-influence-revert/1", function: "measureTrainingInfluence", behavior_removed: "Declared slice membership no longer changes training composition", mutant: { passed: 0, failed: 1 }, restored: { passed: 1, failed: 0 }, durable_versions: { function: "readTrainingInfluence", mutant: { passed: 0, failed: 1 }, restored: { passed: 1, failed: 0 } }, native_envelopes: envelope, reviewed_worktree_unchanged: worktreeState(repository, receipt) === reviewed, command: "node --test --test-name-pattern='fixed learner and seed' test/training-influence.test.ts" }, null, 2) + "\n");

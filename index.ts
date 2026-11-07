@@ -3,6 +3,8 @@ export { canonicalJson, hashJson } from "./json-identity.ts";
 export { initialProposer, proposerArtifact, parseProposerProgram, executeProposal, mutateProposer, ProposerRefusal, type ProposerProgram, type ProposalCode, type ProposalExpression, type ProposalInvocation, type ProposalExecution } from "./proposer-program.ts";
 export { runProposerEvolution, executeProposer, proposerEvolutionConfiguration, parseProposerEvolutionConfig, type ProposerEvolutionConfig, type ProposerEvolutionRequest, type ProposerEvolutionReport } from "./proposer-evolution.ts";
 import { runProposerEvolution, parseProposerEvolutionConfig } from "./proposer-evolution.ts";
+import { replayTransferEvaluation } from "./proposer-transfer.ts";
+export { TRANSFER_DESIGN, parseTransferDesign, planTransferArchive, recordTransferPlan, readTransferPlan, type TransferDesign, type TransferPlan, type TransferArchive, transferPower, evaluateTransfer, loadTransferCorpus, verifyTransferCorpus, archiveTransferCorpus, replayTransferCorpus, recordTransferEvaluation, replayTransferEvaluation, type TransferCorpus, type TransferReport, type TransferPair, type TransferPower } from "./proposer-transfer.ts";
 import { ProposerRefusal } from "./proposer-program.ts";
 import { canonicalIdentifier, canonicalNamespaceIdentifier, preservedProgrammeId, programmeStepName, programmeRequest, acquireStateLock, statePath, identifier, checkedStateFile, identifierClient, commitStateTransaction, schemaIdentity, operationIdentifier, DECISION_INPUT_FIELDS, type ValidationMode } from "./state-boundary.ts";
 /** Select released-schema reads or explicit validation of a new declaration. */
@@ -5670,6 +5672,11 @@ async function showTransferGap(context: CommandHandlerContext): Promise<RlComman
 
 /** Commands authored separately so activation and tests share one exact contract. */
 export const RL_COMMANDS = [
+  defineCommand({ name: "rl proposer transfer replay", description: "Recompute paired tracker transfer evidence from native PM records alone.", arguments: [{ name: "digest", required: true, description: "SHA-256 transfer evaluation address." }], run: async (context) => {
+    const digest = requiredArgument(context, "a transfer evaluation digest");
+    if (!/^[a-f0-9]{64}$/.test(digest)) fail("Use a 64-character lowercase SHA-256 transfer evaluation digest.", "transfer_digest");
+    return { action: "rl-proposer-transfer-replay", details: await replayTransferEvaluation(clientFor(context), digest) };
+  } }),
   defineCommand({ name: "rl proposer validate", description: "Validate a bounded executable proposer declaration before effects.", flags: [{ long: "--file", value_name: "path", value_type: "string", required: true, description: "Strict proposer evolution JSON." }], run: async (context) => {
     try {
       const config = parseProposerEvolutionConfig(readJsonFile(stringOption(context, "file")!, "Proposer declaration"));
@@ -5686,7 +5693,7 @@ export const RL_COMMANDS = [
     try {
       try {
         const report = await runProposerEvolution(clientFor(context), { pmRoot: context.pm_root, author: authorFor(context) }, { id: requiredArgument(context, "a proposer programme id"), config: parseProposerEvolutionConfig(readJsonFile(stringOption(context, "file")!, "Proposer declaration")), dataset: stringOption(context, "dataset")!, approval: stringOption(context, "approval")!, signal: cancellation.controller.signal, forceTakeover: (context.options["force_takeover"] ?? context.options["forceTakeover"]) === true });
-        return { action: "rl-proposer-run", details: { retained: report.retained.digest, rollback: report.rollback, budget: report.budget, audit: report.audit.verdict.decision, generations: report.generations.map((row) => ({ generation: row.generation, candidate: row.candidate.digest, retained: row.retained, promoted: row.promoted, behavior_changed: row.behavior_changed, verdict: row.comparison.verdict.decision })) } };
+        return { action: "rl-proposer-run", details: { retained: report.retained.digest, rollback: report.rollback, budget: report.budget, audit: report.audit.verdict.decision, transfer: report.transfer.digest, generations: report.generations.map((row) => ({ generation: row.generation, candidate: row.candidate.digest, retained: row.retained, promoted: row.promoted, behavior_changed: row.behavior_changed, verdict: row.comparison.verdict.decision, transfer: row.transfer.digest })) } };
       } catch (error) {
         if (error instanceof ProposerRefusal) {
           fail(error.message, error.code);

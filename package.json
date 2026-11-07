@@ -95,7 +95,10 @@
     "dist/proposer-worker.*",
     "dist/proposer-evolution.*",
     "docs/proposer-programs.md",
-    "docs/proposer-public-evidence.json"
+    "docs/proposer-public-evidence.json",
+    "dist/proposer-transfer.*",
+    "docs/proposer-transfer.md",
+    "docs/proposer-transfer-receipt.json"
   ],
   "engines": {
     "node": ">=22.18.0"
@@ -194,7 +197,18 @@
       "test/transaction-races.test.ts",
       "test/training-influence.test.ts",
       "test/training-influence-maintenance.test.ts",
-      "test/proposer-program.test.ts"
+      "test/proposer-program.test.ts",
+      "test/proposer-transfer.test.ts",
+      "test/transfer-archive.test.ts",
+      "test/transfer-receipt.test.ts",
+      "test/transfer-review.test.ts",
+      "test/transfer-review-policy.test.ts",
+      "test/transfer-review-capacity.test.ts",
+      "test/transfer-review-native.test.ts",
+      "test/transfer-review-final.test.ts",
+      "test/transfer-review-storage.test.ts",
+      "test/transfer-refusal.test.ts",
+      "test/transfer-review-round2.test.ts"
     ],
     "thresholds": {
       "statements": 100,
@@ -309,7 +323,9 @@
       "docs/training-influence.md",
       "docs/training-influence-evidence.json",
       "docs/proposer-programs.md",
-      "docs/proposer-public-evidence.json"
+      "docs/proposer-public-evidence.json",
+      "docs/proposer-transfer.md",
+      "docs/proposer-transfer-receipt.json"
     ],
     "examples": [
       "README.md",

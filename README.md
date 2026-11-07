@@ -1100,9 +1100,14 @@ Run `pm rl influence run --file examples/training-influence.json` for explicitly
 ## Bounded proposal programs
 
 `pm rl proposer validate --file examples/proposer-program.json` validates a sealed
-proposal algorithm before effects. `pm rl proposer run <id> --file <config.json>
---dataset <sealed-improver-data> --approval <decision>` evolves exact-count
-scoring expressions, feature construction and curricula in isolated processes.
+proposal algorithm before effects. Run the bounded evolution in an explicitly initialized scratch tracker:
+
+```sh
+pm --pm-path <scratch-tracker> rl proposer run <id> --file <config.json> \
+  --dataset <sealed-improver-data> --approval <decision>
+```
+
+This evolves exact-count scoring expressions, feature construction and curricula in isolated processes.
 Equal optimizer/inference budgets, predeclared inner/outer gates and protected
 cohorts govern promotion; a failed final audit restores the prior program while
 retaining evidence. TOON and JSON output contains compact decisions and identities.
@@ -1111,3 +1116,56 @@ See [the SDK, grammar, limits and example](docs/proposer-programs.md).
 Without git: validation, execution and replay work in plain trackers with sealed
 datasets. Only the existing public-history dataset builder requires committed Git
 provenance. No git executable is required by the proposer path.
+
+## Power-qualified proposer transfer
+
+Promotion of a proposer requires a passed tracker-transfer evaluation.
+A new `rl proposer run` requires a prospective transfer declaration; an underpowered
+run may complete while retaining the prior proposer.
+Operators declare the transfer MDE (`effect`), family `alpha` and desired
+per-task `power` in the configuration before scoring. A native evaluation plan
+seals those choices and the generation-derived number of looks. The original
+study used effect 0.10, margin 0.01, alpha 0.05 and power 0.80. Paired differences use equal-weight
+tracker means; Bonferroni covers both tasks and all planned generations plus the
+final audit. Each adaptive generation receives fresh meta trackers. The existing
+inner, outer, protected-cohort and resource gates remain necessary.
+
+```sh
+scratch=$(mktemp -d)
+# Initialize/install pm-rl and record the resource approval in this scratch tracker.
+pm --pm-path "$scratch/.agents/pm" rl proposer run transfer-study --file examples/proposer-program.json \
+  --dataset sealed-public-corpus --approval resource-decision --json
+pm --pm-path "$scratch/.agents/pm" rl proposer transfer replay EVALUATION_SHA256 --json
+```
+
+Live runs write their native records into an explicit scratch tracker, outside
+the package checkout. The [real diagnostic receipt](docs/proposer-transfer-receipt.json)
+rebuilds those records from pinned public sources; see the
+[replay command](docs/proposer-transfer.md#real-public-diagnostic).
+Replay within the scratch tracker needs only native PM Decisions: a small root pins ordered, bounded
+content-addressed shards for the manifest and projected chronological tasks;
+exact split digests, a prospective plan, paired observations and the evaluation are stored
+through SDK fields and append-only history. It requires neither dataset files
+nor source checkouts. `affected_version` is the content address and `component`
+is `proposer-transfer`. Creation-time words remain numeric hashes; raw source
+comments, titles, authors and paths are excluded.
+
+The public acceptance froze 31 public MIT source pins, yielding 19 development,
+16 meta and 11 audit tasks. Its conservative power calculation requires **3,062
+independent trackers per task at each look** for two looks (one generation plus audit).
+The shipped two-generation configuration declares three looks and requires **3,218 independent trackers per task at each look**.
+See the [look-count table](docs/proposer-transfer.md#choosing-and-sealing-a-prospective-design). Both sizes are far beyond this fleet. A resource-bounded diagnostic
+uses three trackers with both tasks per compartment, selected by repository hash
+and seed before scores, without changing any gate. Meta: pm-context, pm-ops,
+pm-graph. Audit: pm-linear, pm-vcs, pm-starter. Development: pm-beads,
+pm-gantt-chart, pm-csv. The native result item records the real measurements.
+This is an underpowered diagnostic, **not a powered demonstration of no transfer**.
+See [the statistical design and evidence](docs/proposer-transfer.md).
+
+The completed diagnostic ran one generation in 576.235 seconds: 30 fits, 1,920
+optimizer updates, zero inference tokens, zero promotions. Both tasks had paired
+effect 0.00 with simultaneous CI [-1.00, 1.00] on meta and audit, with three
+trackers per task and a prospective power lower bound of 0.00. The decision was
+`transfer_underpowered`; the original proposer remained retained. The audit
+therefore compares the retained baseline with itself. These data establish
+neither improvement nor absence of transfer.

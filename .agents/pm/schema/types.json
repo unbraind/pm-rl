@@ -1,3 +1,90 @@
 {
-  "definitions": []
+  "definitions": [
+    {
+      "name": "Benchmark",
+      "folder": "benchmarks",
+      "aliases": [
+        "rl-bench",
+        "rl-benchmark"
+      ],
+      "description": "An immutable, content-addressed evaluation suite with explicit contamination edges.",
+      "default_status": "open"
+    },
+    {
+      "name": "Environment",
+      "folder": "environments",
+      "aliases": [
+        "rl-env",
+        "rl-environment"
+      ],
+      "description": "An immutable, content-addressed RL environment and reward specification.",
+      "default_status": "open"
+    },
+    {
+      "name": "EvalResult",
+      "folder": "eval-results",
+      "aliases": [
+        "rl-eval",
+        "rl-eval-result"
+      ],
+      "description": "One immutable checkpoint verdict linked to its source run and exact benchmark version.",
+      "default_status": "closed"
+    },
+    {
+      "name": "GateEpisode",
+      "folder": "gate-episodes",
+      "aliases": [
+        "rl-episode",
+        "rl-gate-episode"
+      ],
+      "description": "One judged candidate against the fleet's mandatory gates: a content-addressed candidate tree, its gate results and extracted verdict, linked to its pull request.",
+      "default_status": "closed"
+    },
+    {
+      "name": "Generation",
+      "folder": "generations",
+      "aliases": [
+        "rl-gen",
+        "rl-generation"
+      ],
+      "description": "One policy generation in a recursive self-improvement lineage, gated by an approved promotion budget.",
+      "default_status": "open"
+    },
+    {
+      "name": "MergeOutcome",
+      "folder": "merge-outcomes",
+      "aliases": [
+        "rl-merge-outcome"
+      ],
+      "description": "The real-side result of one pull request: whether it actually merged.",
+      "default_status": "closed"
+    },
+    {
+      "name": "Run",
+      "folder": "runs",
+      "aliases": [
+        "rl-run"
+      ],
+      "description": "One RL run whose metric series is appended to pm history through repeatable notes.",
+      "default_status": "in_progress"
+    },
+    {
+      "name": "Sweep",
+      "folder": "sweeps",
+      "aliases": [
+        "rl-sweep"
+      ],
+      "description": "A declared search space and selection rule whose arms are independent child Run items.",
+      "default_status": "open"
+    },
+    {
+      "name": "Transfer",
+      "folder": "transfers",
+      "aliases": [
+        "rl-transfer"
+      ],
+      "description": "One measured per-metric sim-to-real gap for one checkpoint, linking both environment versions.",
+      "default_status": "open"
+    }
+  ]
 }
