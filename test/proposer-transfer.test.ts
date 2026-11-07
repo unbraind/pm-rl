@@ -34,7 +34,7 @@ test("underpowered real non-git controller refuses transfer and replays native e
   const value = corpus(); const directory = dataset(w.root, value);
   assert.deepEqual(loadTransferCorpus(directory), value);
   const stages: string[] = [];
-  const request = { async onStep(key: string) { stages.push(key); if (key === "transfer-plan") assert.equal((await listProcessJobs(w.client)).length, 0); }, id: "power", approval: w.approval, dataset: directory, config: { ...proposerEvolutionConfiguration(), generations: 1, candidates: 1, updates: 1 } };
+  const request = { async onStep(key: string) { stages.push(key); if (key === "transfer-plan") assert.equal((await listProcessJobs(w.client)).length, 0); if (key === "g1-plan" || key === "audit-plan") { const record = JSON.parse(String((await w.client.get(`power-step-${key}`)).item.body)) as { result: { format: string } }; assert.equal(record.result.format, "pm-rl/proposer-evaluation-plan-reference/1"); } }, id: "power", approval: w.approval, dataset: directory, config: { ...proposerEvolutionConfiguration(), generations: 1, candidates: 1, updates: 1 } };
   const nativeCorpus = await archiveTransferCorpus(w.client, value);
   const underpowered = await recordTransferEvaluation(w.client, nativeCorpus, "meta", value.tasks.meta.map(({ id }) => ({ id, candidate: 1, incumbent: 0 })), await recordTransferPlan(w.client, value.manifest.digest, declaration()));
   const control = evaluatePlan(proposerEvaluationPlan("control", initialProposer(), Array.from({ length: 256 }, (_, n) => ({ id: String(n), repo: String(n), target: "test" })), "ctx", 2), Array.from({ length: 256 }, (_, n) => ({ id: String(n), candidate: 1, incumbent: 0 })));

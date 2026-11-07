@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readdirSync, statSync } from "node:fs";
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
-import { hashJson, readCompleteLoopItem, withRlController, type JsonValue } from "./index.ts";
+import { hashJson, readCompleteLoopItem, withRlController, type JsonValue, type RlDurableStep } from "./index.ts";
 import { programmeRequest, canonicalIdentifier, statePath } from "./state-boundary.ts";
 import { expectedFail } from "./refuse.ts";
 import { parseProposerProgram, parseProposalInvocation, parseProposalInstruction, initialProposer, mutateProposer, ProposerRefusal, type ProposerProgram, type ProposalCounts, type ProposalExecution, type ProposalInvocation, type ProposalInstruction } from "./proposer-program.ts";
@@ -81,6 +81,16 @@ export function proposerEvaluationPlan(id: string, incumbent: ProposerProgram, m
   return parseEvaluationPlan({ format: "pm-rl/evaluation-plan/1", candidate: `${id}-candidate`, incumbent: `${id}-retained`, incumbent_version: incumbent.digest, population: context, selection: "all-declared-tasks", correlation_unit: "tracker", members: members.map((row) => ({ id: row.id, unit: row.repo })), objective: "promoted_tracker_score", objective_version: "1", evaluation_context: context, direction: "maximize", reward_bounds: [0, 1],
     criterion: { ...IMPROVER_CRITERION, confidence: 1 - 0.05 / comparisons }, stopping: { kind: "fixed", observations: members.length, independent_units: new Set(members.map((row) => row.repo)).size },
     protected_cohorts: [...new Set(members.map((row) => row.target))].map((target) => ({ id: target, members: members.filter((row) => row.target === target).map((row) => row.id), min_units: 10, max_regression: 0 })) });
+}
+/** Persist only a reference to the frozen corpus and exact reconstructed plan; accept historical inline plans on resume.
+ * @internal
+ */
+export async function persistProposerEvaluationPlan(step: RlDurableStep, key: string, input: JsonValue, plan: EvaluationPlan, corpus: string): Promise<EvaluationPlan> {
+  const comparison = hashJson(plan as unknown as JsonValue);
+  const reference = { format: "pm-rl/proposer-evaluation-plan-reference/1", corpus, comparison };
+  const stored = await step(key, input, async () => reference);
+  if (hashJson(stored) !== hashJson(reference) && hashJson(stored) !== comparison) expectedFail("Stored proposer evaluation plan differs from its frozen corpus or declaration. Restore the original evidence before resuming.", "proposer_drift");
+  return plan;
 }
 /** A metadata-only artifact cannot promote, even if a caller supplies favorable statistical evidence. */
 export function selectProposer(parent: ProposerProgram, candidate: ProposerProgram, before: ProposalExecution, after: ProposalExecution, comparison: EvaluationPlanReport): { retained: ProposerProgram; promoted: boolean; behavior_changed: boolean } {
@@ -202,6 +212,9 @@ export async function runProposerEvolution(client: PmClient, coordinates: Proces
   const approval = await proposerApprovalRead(() => readCompleteLoopItem(client, request.approval));
   if (approval.item.type !== "Decision") expectedFail("Approve the complete resource budget in a Decision before starting.", "proposer_approval");
   const fits = config.candidates * (config.generations * (manifest.splits.development.tasks + 2 * manifest.splits.meta.tasks) + 2 * manifest.splits.audit.tasks);
+  // Validate the same plan schema before reservation; later retained digests have the same bounded shape.
+  for (let look = 1; look <= config.generations; look += 1) proposerEvaluationPlan(`${request.id}-g${look}`, config.initial, transferMembers(transferCorpus, "meta", config.generations + 1, look), manifest.splits.meta.digest, fits + config.generations + 1);
+  proposerEvaluationPlan(`${request.id}-audit`, config.initial, transferCorpus.tasks.audit, manifest.splits.audit.digest, fits + config.generations + 1);
   const budget = { fits, optimizer_updates: fits * config.updates, max_optimizer_updates: fits * config.updates * 2, inference_tokens: 0 as const, proposal_processes: config.generations * 3 + 2 };
   const binding = hashJson({ config: config as unknown as JsonValue, dataset: manifest.digest, approval: approval.item.body as string });
   const capacity = { training_samples: budget.max_optimizer_updates, proposal_calls: budget.proposal_processes, recipe_promotions: config.generations };
@@ -280,7 +293,7 @@ export async function runProposerEvolution(client: PmClient, coordinates: Proces
     for (let generation = 1; generation <= config.generations; generation += 1) {
       const retained = lineage[1];
       const key = `g${generation}`;
-      const plan = await step(`${key}-plan`, retained.digest, async () => proposerEvaluationPlan(`${request.id}-${key}`, retained, transferMembers(transferCorpus, "meta", config.generations + 1, generation), manifest.splits.meta.digest, fits + config.generations + 1));
+      const plan = await persistProposerEvaluationPlan(step, `${key}-plan`, retained.digest, proposerEvaluationPlan(`${request.id}-${key}`, retained, transferMembers(transferCorpus, "meta", config.generations + 1, generation), manifest.splits.meta.digest, fits + config.generations + 1), corpusAddress);
       const development = await search("development", retained, `${key}-d`); counts = [...development.counts];
       const candidate = await step(`${key}-mutation`, { retained, counts }, async () => mutateProposer({ program: retained, counts, role: "development", seed: config.seed, count: config.candidates }));
       const before = await search("meta", retained, `${key}-b`, generation); const after = await search("meta", candidate, `${key}-a`, generation);
@@ -292,7 +305,7 @@ export async function runProposerEvolution(client: PmClient, coordinates: Proces
       generations.push(row);
     }
     const [parent, retained] = lineage;
-    const plan = await step("audit-plan", { retained, parent }, async () => proposerEvaluationPlan(`${request.id}-audit`, parent, proposerDatasetRead(() => environment.tasks("audit")), manifest.splits.audit.digest, fits + config.generations + 1));
+    const plan = await persistProposerEvaluationPlan(step, "audit-plan", { retained, parent } as unknown as JsonValue, proposerEvaluationPlan(`${request.id}-audit`, parent, proposerDatasetRead(() => environment.tasks("audit")), manifest.splits.audit.digest, fits + config.generations + 1), corpusAddress);
     const before = await search("audit", parent, "audit-b"); const after = await search("audit", retained, "audit-a");
     const measured = await transfer("audit", before, after, "audit-transfer");
     const audit = requireProposerTransfer(compareProposerSearch(plan, before, after), measured.report);

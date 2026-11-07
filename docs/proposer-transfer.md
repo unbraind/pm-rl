@@ -246,8 +246,9 @@ pm --pm-path "$scratch/.agents/pm" rl proposer transfer replay \
 The replay helper names its required tracker option `--pm-root`; the native pm
 CLI names the corresponding global option `--pm-path`.
 The script fetches only the receipt's pinned public commits into scratch and
-rechecks public visibility, MIT licensing and commit reachability before
-projection. It refuses an implicit tracker target or any target within a Git
+rechecks public visibility, MIT licensing and commit reachability for every
+source before the first clone, fetch or checkout, including local fleet copies.
+It refuses an implicit tracker target or any target within a Git
 worktree, including symlink aliases. An optional local fleet directory is read
 only; all clone, projection and tracker writes remain in scratch. The live-run
 helper likewise requires an explicit `--pm-root` and never copies run records
@@ -302,3 +303,15 @@ Paired measurements that exceed one native record use indexed native pair shards
 Native replay checks decoded object and array shapes before property access. These guards return SDK usage refusals such as `transfer_record_format`, `transfer_shard_order`, `transfer_shard_entry`, `transfer_corpus_shape` and `transfer_pairs`, with guidance to restore the original sealed context. Paired observations are checked against the existing 10,000-task limit before collection; role-array copies avoid argument-count overflow. Birth-state verification, byte limits, statistical criteria and historical receipt identities remain unchanged.
 
 Configuration preflight also checks that the declared power requirement is a safe integer before reserving resources. An MDE arbitrarily close to the promotion margin can exceed that numeric domain and is refused before data access. Stored plans, roles, look coordinates, legacy comparison counts and reports return typed refusals when malformed; replay never supplies a missing look. An existing comparison refusal keeps its original code and remedy when transfer also fails, with transfer evidence retained separately. The replay helper accepts only the documented `<scratch>/.agents/pm` layout, so rebuilding corpus files cannot select a project above the requested scratch directory. Tests check every MDE table row against its stated power calculation and exercise public-source controls under a symlinked temporary directory.
+
+Generation and audit controller steps store a small corpus-addressed plan reference
+and the exact comparison digest instead of duplicating all member identifiers and
+protected-cohort lists in a one-MiB receipt. The same plan validator preflights
+every generation and audit before resource reservation. Each run reconstructs the plan from
+its verified frozen corpus, retained proposer and unchanged declaration, and checks
+the reference before evaluating contenders. Existing inline plan receipts remain
+readable and are checked against the same reconstructed plan. The 9,840-member
+regression exercises real controller writes, resume without receipt-history writes,
+legacy reads and changed plan/corpus refusals. `node test/fixtures/transfer-reverts.ts
+review-storage` verifies the storage, integrity and both source-copy guards through
+isolated behavioural reversions.

@@ -101,6 +101,16 @@ export function checkedTrackerSourcePath(directory: string): string {
   return path;
 }
 
+/** Verify live public visibility, MIT licensing and the exact commit before copying or reading source content. */
+export function verifyPublicTrackerSource(repo: string, commit: string, cwd: string): void {
+  assert.match(repo, /^[\w-]+\/pm-[\w-]+$/, "dataset_github_source");
+  assert.ok(!excludedTrackerName(repo.split("/")[1]), "dataset_excluded_repo");
+  assert.match(commit, /^[a-f0-9]{40}$/, "dataset_commit");
+  const metadata = parseBoundedJson(sourceCommand("gh", ["repo", "view", repo, "--json", "visibility,licenseInfo,nameWithOwner"], cwd)) as { visibility: string; licenseInfo: { key: string } | null; nameWithOwner: string } | null;
+  assert.ok(metadata?.visibility === "PUBLIC" && metadata.licenseInfo?.key === "mit" && typeof metadata.nameWithOwner === "string" && metadata.nameWithOwner.toLowerCase() === repo.toLowerCase(), "dataset_public_mit_required");
+  assert.equal(sourceCommand("gh", ["api", `repos/${repo}/commits/${commit}`, "--jq", ".sha"], cwd), commit, "dataset_public_commit_required");
+}
+
 /** Build only from committed public MIT tracker histories; explicitly deny hosted and excluded repositories. */
 export function buildTrackerDataset(directories: readonly string[], output: string, seed = 42, options: TrackerBuildOptions = {}): TrackerDataset {
   assert.ok(directories.length >= 3 && directories.length <= 64 && Number.isInteger(seed) && seed >= 0 && seed <= 0xffff_ffff, "dataset_bounds");
@@ -114,13 +124,10 @@ export function buildTrackerDataset(directories: readonly string[], output: stri
     assert.ok(match !== null, "dataset_github_source");
     const repo = match[1];
     assert.ok(!excludedTrackerName(repo.split("/")[1]), "dataset_excluded_repo");
-    const metadata = parseBoundedJson(sourceCommand("gh", ["repo", "view", repo, "--json", "visibility,licenseInfo,nameWithOwner"], root)) as { visibility: string; licenseInfo: { key: string } | null; nameWithOwner: string };
-    assert.ok(metadata.visibility === "PUBLIC" && metadata.licenseInfo?.key === "mit" && metadata.nameWithOwner.toLowerCase() === repo.toLowerCase(), "dataset_public_mit_required");
     const pin = options.pins?.find((source) => source.repo === repo);
     assert.ok(options.pins === undefined || pin !== undefined, "dataset_pin_missing");
     const commit = pin?.commit ?? sourceCommand("git", ["rev-parse", "HEAD"], root);
-    assert.match(commit, /^[a-f0-9]{40}$/, "dataset_commit");
-    assert.equal(sourceCommand("gh", ["api", `repos/${repo}/commits/${commit}`, "--jq", ".sha"], root), commit, "dataset_public_commit_required");
+    verifyPublicTrackerSource(repo, commit, root);
     const paths = sourceCommand("git", ["ls-tree", "-r", "--name-only", commit, "--", ".agents/pm/history"], root).split("\n");
     assert.ok(paths.length <= 10_000, "dataset_history_limit");
     const examples: TrackerExample[] = [];

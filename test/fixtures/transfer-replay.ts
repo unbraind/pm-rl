@@ -10,7 +10,7 @@ import { buildImproverDataset, IMPROVER_ROLES, readImproverTasks, type ImproverD
 import { archiveTransferCorpus, evaluateTransfer, parseTransferDesign, planTransferArchive, recordTransferEvaluation, recordTransferPlan, replayTransferEvaluation, verifyTransferCorpus, type TransferCorpus, type TransferDesign, type TransferPair, type TransferReport } from "../../proposer-transfer.ts";
 import { copyImproverSources } from "../../scripts/live-improver.ts";
 import { isMainInvocation } from "../../scripts/script-launcher.ts";
-import { excludedTrackerName } from "../../dataset.ts";
+import { excludedTrackerName, verifyPublicTrackerSource } from "../../dataset.ts";
 import { parseBoundedJson } from "../../tracker-record.ts";
 
 /** Digests pin native reconstruction while scores remain the original historical measurements. */
@@ -82,6 +82,7 @@ export function rebuildDiagnosticCorpus(receipt: DiagnosticReceipt, scratch: str
   let directories: string[];
   if (fleet !== undefined) directories = copyImproverSources(fleet, copies, sources);
   else {
+    for (const source of sources) verifyPublicTrackerSource(source.repo, source.commit, process.cwd());
     mkdirSync(copies, { recursive: true });
     directories = sources.map((source) => {
       const copy = join(copies, source.repo.split("/")[1]);
@@ -137,7 +138,7 @@ export async function replayDiagnosticMain(argv: readonly string[]): Promise<voi
   const pmRoot = requireDiagnosticScratch(options.get("--pm-root")!);
   assert.ok(basename(pmRoot) === "pm" && basename(dirname(pmRoot)) === ".agents", "diagnostic_scratch_layout");
   const receipt = readDiagnosticReceipt(options.get("--receipt") ?? "docs/proposer-transfer-receipt.json");
-  const project = dirname(dirname(pmRoot)); mkdirSync(project, { recursive: true });
+  const project = dirname(dirname(pmRoot));
   const corpus = rebuildDiagnosticCorpus(receipt, project, options.get("--fleet"));
   const initialized = await init("diagnostic", { defaults: true, agentGuidance: "skip", author: "codex-sol" }, { cwd: project, pmRoot });
   const client = new PmClient({ cwd: project, pmRoot: initialized.path, noExtensions: true, author: "codex-sol" });

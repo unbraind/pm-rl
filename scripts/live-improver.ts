@@ -7,7 +7,7 @@ import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { init } from "@unbrained/pm-cli/sdk/runtime";
 import { hashJson, type JsonValue } from "../index.ts";
 import { buildImproverDataset } from "../improver-data.ts";
-import { checkedTrackerSourcePath, type TrackerBuildOptions } from "../dataset.ts";
+import { checkedTrackerSourcePath, verifyPublicTrackerSource, type TrackerBuildOptions } from "../dataset.ts";
 import { IMPROVER_ADAPTER } from "../improver-environment.ts";
 import { improverBudget, improverConfiguration, summarizeImproverScores, type ImproverConfig, type ImproverReport, type ImproverSearch } from "../recursive-improver.ts";
 import { listProcessJobs } from "../process.ts";
@@ -20,6 +20,7 @@ export function copyImproverSources(fleet: string, scratch: string, pins: readon
     assert.match(pin.repo, /^[\w-]+\/pm-[\w-]+$/); assert.match(pin.commit, /^[a-f0-9]{40}$/);
     return checkedTrackerSourcePath(join(fleet, pin.repo.split("/")[1], ".agents/pm"));
   });
+  for (const pin of pins) verifyPublicTrackerSource(pin.repo, pin.commit, fleet);
   mkdirSync(scratch, { recursive: true });
   return pins.map((pin, index) => {
     const name = pin.repo.split("/")[1]; const copy = join(scratch, name);
