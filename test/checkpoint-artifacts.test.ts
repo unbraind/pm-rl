@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import childProcess, { fork } from "node:child_process";
-import { once } from "node:events";
+import { on, once } from "node:events";
 import fs, { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { dirname, join, relative } from "node:path";
@@ -18,12 +18,14 @@ import { executeImproverFit, improverAdapter, type LearnerTrial } from "../impro
 import { runRecursiveImprover } from "../recursive-improver.ts";
 import { listProcessJobs, processStaging, readProcessJob, stagingBytes, validateProcessCompletion, type ProcessInput } from "../process.ts";
 import { checkpointWorkspace } from "./fixtures/checkpoint-workspace.ts";
+import type { CheckpointContention } from "./fixtures/checkpoint-promoter.ts";
 import { buildTrackerDataset } from "../dataset.ts";
 import { withTrackerSources } from "./fixtures/meta-workspace.ts";
 import { checkpointBenchmarkMain, measureCheckpointLoads } from "../scripts/checkpoint-benchmark.ts";
 import { liveMetaConfiguration } from "../scripts/live-meta.ts";
 import { isMainInvocation } from "../scripts/script-launcher.ts";
 import { prefixTrainerMain } from "../prefix-trainer.ts";
+import { acquireStateLock } from "../state-boundary.ts";
 import { referenceTrainerMain } from "../process-bandit.ts";
 import { lmTrainerMain } from "../process-lm-trainer.ts";
 
@@ -539,31 +541,75 @@ test("checkpoint benchmark measures both capacities and verified load paths on a
   });
 });
 
-test("two processes promote into one plain tracker without losing roots or corrupting shared artifacts", { timeout: 900_000 }, async () => {
+/** Exercise the same two real promoters with an optional healthy owner delaying workspace admission. */
+async function concurrentCheckpointPromotions(signal: AbortSignal, holdMs = 0): Promise<void> {
   const w = await checkpointWorkspace();
   const file = join(w.root, "request.json"); const config = w.config.initial.arms[1].config;
-  writeFileSync(file, JSON.stringify({ root: w.root, pmRoot: w.pmRoot, dataset: w.dataset, manifest: w.manifest, approval: w.approval, config }));
+  writeFileSync(file, JSON.stringify({ root: w.root, pmRoot: w.pmRoot, dataset: w.dataset, manifest: w.manifest, approval: w.approval, config,
+    contention: holdMs === 0 ? undefined : { minimum_ms: holdMs, delay_ms: 8_000 } }));
   const bin = checkpointToolBin(w.root);
-  const children = ["writer-one", "writer-two"].map((job) => fork(new URL("./fixtures/checkpoint-promoter.ts", import.meta.url), [file, job], { env: { ...process.env, PATH: bin, GIT_CEILING_DIRECTORIES: dirname(w.root), PM_LOCK_WAIT_MS: "30000" }, stdio: ["ignore", "pipe", "pipe", "ipc"] }));
+  // Reserve bounded admission time for instrumented owners while retaining the existing fit and outer deadlines.
+  const children = ["writer-one", "writer-two"].map((job) => fork(new URL("./fixtures/checkpoint-promoter.ts", import.meta.url), [file, job], { env: { ...process.env, PATH: bin, GIT_CEILING_DIRECTORIES: dirname(w.root), PM_LOCK_WAIT_MS: "120000" }, stdio: ["ignore", "pipe", "pipe", "ipc"] }));
+  let release: (() => Promise<void>) | undefined;
+  let held: Promise<void> | undefined;
+  const exits = children.map((child) => once(child, "exit"));
+  const errors: string[] = []; for (const child of children) child.stderr!.on("data", (data: Buffer) => errors.push(String(data)));
+  /** Filter protocol phases without treating contention telemetry as a ready or promotion receipt. */
+  const messages = (accepts: (message: Record<string, unknown>) => boolean) => children.map(async (child) => {
+    for await (const [value] of on(child, "message", { signal, close: ["exit"] })) {
+      if (value !== null && typeof value === "object" && accepts(value as Record<string, unknown>)) return value as Record<string, unknown>;
+    }
+    throw new Error(`Promoter exited before receipt: ${errors.join("\n")}`);
+  });
   try {
-    const ready = children.map((child) => once(child, "message"));
-    const exits = children.map((child) => once(child, "exit"));
-    const errors: string[] = []; for (const child of children) child.stderr!.on("data", (data: Buffer) => errors.push(String(data)));
-    await Promise.all(ready);
-    const results = children.map((child) => once(child, "message"));
+    await Promise.all(messages((value) => value.ready === true));
+    if (holdMs > 0) {
+      release = await acquireStateLock(w.pmRoot, "sdk-workspace-transaction", 3600, "checkpoint-live-holder", false, false, 0);
+      const lock = join(w.pmRoot, "locks", "sdk-workspace-transaction.lock");
+      const owner = readFileSync(lock, "utf8");
+      held = Promise.race(messages((value) => value.blocked !== undefined)).then(async (value) => {
+        const blocked = value.blocked as CheckpointContention;
+        assert.ok(blocked.blocked_ms >= holdMs && blocked.blocked_ms > 30_000 && blocked.attempts > 1, "observe repeated native acquisition failures beyond the old wait before releasing");
+        assert.equal(blocked.acquired_ms, null, "the witnessed child must still be blocked");
+        assert.equal(readFileSync(lock, "utf8"), owner, "retain the live owner's exact lease until release");
+        await release!();
+      });
+    }
+    const results = Promise.all(messages((value) => value.trial !== undefined));
     for (const child of children) child.send({ go: true });
-    await collectCheckpointArtifacts(w.pmRoot);
-    const completed = await Promise.race([Promise.all(results), Promise.all(exits).then((codes) => { throw new Error(`Promoters exited before receipts: ${JSON.stringify(codes)} ${errors.join("\n")}`); })]);
-    const trials = completed.map(([result]) => (result as { trial: LearnerTrial }).trial);
+    const [completed] = await Promise.all([results, held, collectCheckpointArtifacts(w.pmRoot)]);
+    if (holdMs > 0) assert.ok(completed.some((value) => {
+      const contention = value.contention as CheckpointContention;
+      return contention.acquired_ms !== null && contention.acquired_ms >= holdMs && contention.acquired_ms > 30_000;
+    }), "a successful real acquisition must have waited beyond the old thirty-second limit");
+    const trials = completed.map((result) => (result as { trial: LearnerTrial }).trial);
     assert.ok(trials.every((trial) => trial.promoted));
     assert.deepEqual(trials[0].candidate.checkpoint, trials[1].candidate.checkpoint);
     assert.deepEqual((await Promise.all(exits)).map(([code]) => code), [0, 0], errors.join("\n"));
     const jobs = await listProcessJobs(w.client); assert.equal(jobs.length, 2); assert.ok(jobs.every((job) => job.state === "promoted"));
+    const identities = jobs.map((job) => job.binding as { proposal: { programme_id: string }; recovery_attempt: number });
+    assert.deepEqual(identities.map((binding) => binding.proposal.programme_id).sort(), ["writer-one", "writer-two"]);
+    assert.ok(identities.every((binding) => binding.recovery_attempt === 0), "contention must not allocate a recovery identity");
+    assert.equal(jobs.reduce((total, job) => total + job.charge.training_steps, 0), 2, "charge each original fit exactly once");
     for (const job of jobs) assert.deepEqual(readCheckpointArtifact(w.pmRoot, job.completion!.artifact!), trials[0].candidate.checkpoint);
     const roots = readCheckpointLedger(w.pmRoot);
     for (const job of jobs) assert.ok(roots.some((entry) => entry.key === `job:${job.id}:promoted`));
     assert.equal((await collectCheckpointArtifacts(w.pmRoot)).retained, 1);
-  } finally { for (const child of children) if (child.exitCode === null) child.kill("SIGKILL"); }
+  } finally {
+    try { await release?.(); }
+    finally {
+      for (const child of children) if (child.exitCode === null) child.kill("SIGKILL");
+      await Promise.all(exits);
+    }
+  }
+}
+
+test("two processes promote into one plain tracker without losing roots or corrupting shared artifacts", { timeout: 900_000 }, async (t) => {
+  await concurrentCheckpointPromotions(t.signal);
+});
+
+test("checkpoint promoters outwait a healthy workspace owner held beyond thirty seconds", { timeout: 900_000 }, async (t) => {
+  await concurrentCheckpointPromotions(t.signal, 35_000);
 });
 
 
