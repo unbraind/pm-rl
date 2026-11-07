@@ -6,10 +6,10 @@ status: in_progress
 priority: 2
 tags[2]: "gh:unbraind/pm-rl#148","gh:unbraind/pm-rl#149"
 created_at: "2026-10-19T12:52:29.061Z"
-updated_at: "2026-11-07T00:31:46.181Z"
+updated_at: "2026-11-07T07:12:08.305Z"
 author: codex-agent
 parent: pm-rl-apvf
-comments[59]{created_at,author,text}:
+comments[63]{created_at,author,text}:
   "2026-11-06T04:31:07.159Z",codex-sol,"Plan: freeze public commit-pinned tracker-disjoint development/meta/audit sources; declare a 0.10 transfer effect, 0.01 promotion margin, alpha 0.05 and target power 0.80 before measuring. Use bounded paired tracker means with task and generation Bonferroni correction. Preserve existing promotion gates and refuse underpowered evidence. Seal replayable corpus/split/evaluation context in SDK-owned items and native history; run one CPU-niced bounded real generation, report all refusals honestly."
   "2026-11-06T04:40:26.177Z",codex-sol,"Corpus frozen before scoring: 31 public MIT source pins, 19 development tasks, 16 meta tasks and 11 audit tasks; corpus digest 7156cf8c85b9941e12e42632c08f27419af69b7b3ee8824545c35def3fee9d49. One unverifiable directory excluded; private/hosted sources never opened. Conservative declared power requires 3062 held-out trackers per task; the available fleet cannot meet this. Proceeding with one bounded diagnostic generation, not claiming powered no-transfer evidence."
   "2026-11-06T04:49:32.441Z",codex-sol,"Runtime adjustment before a complete held-out comparison: stopped the broad diagnostic after 19 development fits and one meta-baseline fit, preserving receipts, reservations and any cancellation transition. A second predeclared diagnostic selects the first three trackers with both tasks in each compartment by SHA-256 repository identity and seed 42, with no score-based selection. One generation, one proposal, 64 updates, 10-minute deadline in an isolated non-git SDK tracker. Native corpus, paired observations and replayable decisions are copied through SDK APIs into this tracker; no evidence side files are published."
@@ -69,17 +69,23 @@ comments[59]{created_at,author,text}:
   "2026-11-07T00:21:59.306Z",codex-agent,"Self-review covered the full PR storage, replay, source-entry, controller, CLI and documentation diff. Added a shared-plan preflight before reservation: the same proposerEvaluationPlan validator now checks all generation and audit cohorts up front, preventing malformed member identifiers from failing after fits. Its real-tracker regression passes for both meta and audit, and removing only that preflight produces an assertion failure (fifth behavioural revert proof). The new final focused suite passes 4 tests individually; broader targeted transfer and six controller/resource regressions are running. Strict health with isolated identity and no global extensions passes with one inherited provenance advisory; the regular local health detects unrelated global pm-github host-version skew. Pinned merge drivers were refreshed, without changing dependency pins, global packages or history. The repo tracks no dist files; build output was regenerated locally."
   "2026-11-07T00:31:42.823Z",codex-agent,"Final regression evidence: node --test --test-concurrency=2 test/dataset.test.ts test/proposer-transfer.test.ts test/transfer-archive.test.ts test/transfer-receipt.test.ts test/transfer-review.test.ts test/transfer-review-policy.test.ts test/transfer-review-capacity.test.ts test/transfer-review-native.test.ts test/transfer-review-final.test.ts test/transfer-review-storage.test.ts passed 57/57, zero failures/cancellations/skips (460.8 seconds). node --test --test-concurrency=2 --test-name-pattern=\"cohort limits|worst-case process budget|pre-charged resumed|resumed process budget|proposer dataset verification|proposer approval verification\" test/proposer-program.test.ts passed 6/6. In a disposable checkout with isolated identity, node --test --test-concurrency=2 --test-name-pattern=public.command.builds test/improver.test.ts passed 1/1 (83.6 seconds), exercising real source clones, packed installation and ten fits while preserving original checkouts. Total distinct targeted checks: 64. The exploratory broad proposer-program run including its unrelated 500-sequence SDK model was stopped and replaced with these focused controller checks; it is not counted as passing evidence. The final required tests had no timeouts or retries. PM-linked node --test --test-concurrency=2 test/transfer-review-storage.test.ts passed 4/4 via pm test --run --only-last --progress with snapshot and pm-context none; result tracking stays disabled, so no run artefacts were written into this tracker."
   "2026-11-07T00:31:44.386Z",codex-agent,"Final revert proof: node test/fixtures/transfer-reverts.ts review-storage passed 5/5 expected behavioural failures in disposable copies, restoring source in finally. Reverting preflight fails the before-reservation assertion for an invalid generation/audit member under a sufficient valid approval; restoring inline plan persistence fails json_record_limit on the 9840-member real controller write; removing reference identity verification fails changed-plan/corpus assertions; removing either remote or fleet preflight fails the before-Git/before-scratch assertions. Fixed tests were rerun after restoration. Additional gates pass: npm run build, npm run typecheck, npm run build:test, npm run lint; npm run duplicates (0 clones), npm run docstring (564 declarations), npm run verify:release-publish-attestation (1 attested invocation), npm run audit:identities (5 approved identities), npm run audit:prod (0 vulnerabilities), npm run pack:dry-run (266 files), and node --test --test-concurrency=2 test/release-approval.test.ts test/release-calendar.test.ts (31/31). A fresh isolated checkout needed build before build:test because existing tests import generated dist; the corrected build order passed. Full local npm/Bun release gates are deliberately omitted under the package runtime exception; current baseline CI already exceeded 60 minutes. Fresh pushed-head full CI and reviewer confidence remain unverified. No invalid review finding, threshold change, SDK gap or PM CLI defect was found. Finishing all tracker writes before final changelog, strict isolated health and identity checks; both review threads remain unresolved and no review reply/request, merge or release is authorized."
-files[23]{path,scope}:
+  "2026-11-07T06:57:27.960Z",codex-agent,"Auto re-review round 1: clean worktree and remote head cc6396f verified; branch includes current main. Reusing this PR item for unresolved thread PRRT_kwDOTqJmqs60w8Bu. General rule: refusals must identify whether the caller must correct a declaration or restore persisted evidence; operator input must not receive native-corruption recovery advice. Auditing all transfer validators and SDK/CLI/output/packed-consumer entry points, preserving existing codes, thresholds and historical replay. Prior completed fixes and acceptance evidence are retained."
+  "2026-11-07T07:07:18.613Z",codex-agent,"Class audit result: all transferShape call sites, transfer parser/power/member/evaluation/archive/plan/replay callers, proposer validation/run handlers, error renderers and all package restoration messages were inspected. Misclassified operator errors existed for designs, numeric capacity, counts, coordinates, roles, corpus structure, pair structure/completeness, scores and mismatched plan/corpus references. These now use static field-specific correction guidance with unchanged error codes and usage exits. Native reads translate only these known producer-owned input codes back to restoration guidance; foreign SDK and filesystem errors retain identity. Evolution configuration and ProposerRefusal now retain the transfer-specific remedy through both CLI commands. Other package restoration messages describe actual sealed provenance, missing artifacts, retained process receipts or filesystem recovery; training-influence and state-root validators already include correction advice and require no change. Source and packed non-git Node/Bun consumers passed the new six-test suite; the shared adversarial corpus has 48 malformed designs and all nine input refusal classes. No private sources or run artefacts enter this tracker."
+  "2026-11-07T07:09:01.246Z",codex-agent,"Behavioral revert proof recorded for auto round 1: node test/fixtures/transfer-reverts.ts review-refusals passed 4/4 expected assertion failures in disposable copies. Reverting the shared input formatter fails the adversarial design corpus plus the all-input-class matrix; dropping the evolution transfer remedy fails SDK and both CLI-mode assertions; reverting ProposerRefusal remedy handling also fails those assertions; bypassing native-context classification fails native restoration assertions across designs, corpus records and receipt versions. Every source restores in finally, and the fixed source tests rerun. Existing revert probes whose guard spelling changed were updated without weakening assertions: native plan designs passes 2/2 failure probes and malformed native evaluation pairs passes 3/3 failure probes. Prior head cc6396f full Node 22/26/Bun CI and reviewer confidence now pass at https://github.com/unbraind/pm-rl/actions/runs/42318916632; Node 26 required 72m53s, so the original pm-rl local full-release runtime exception still applies. This code change requires fresh full CI after push; no threshold or dependency pin changed."
+  "2026-11-07T07:12:07.224Z",codex-agent,"Auto round 1 final validation: node --test --test-concurrency=2 test/transfer-refusal.test.ts test/transfer-review-native.test.ts test/transfer-review-final.test.ts test/transfer-review-policy.test.ts test/transfer-review-storage.test.ts test/transfer-review.test.ts passed 33/33. node --test --test-concurrency=2 --test-name-pattern=\"strict program schema|cohort limits|worst-case process budget|pre-charged resumed|resumed process budget|proposer dataset verification|proposer approval verification|isolated positive control\" test/proposer-program.test.ts passed 8/8. node --test --test-concurrency=2 --test-name-pattern=\"power bound|meta tracker shards|invalid corpus seals|native record IO|released version one\" test/proposer-transfer.test.ts passed 5/5. Total this round: 46 distinct affected regressions. node --test --test-concurrency=2 test/release-approval.test.ts test/release-calendar.test.ts passed 31/31. PM-linked node --test --test-concurrency=2 test/transfer-refusal.test.ts passed 6/6 through pm test --run --only-last --progress in snapshot/none context, with run recording disabled. The packed test uses one npm artifact in real non-git Node and Bun consumers: 146 public SDK checks per runtime plus validate/run refusals in JSON and TOON (eight actual CLI invocations). Four new behavioural reversions and five adjusted existing probes pass. No final timeouts, skipped tests or lowered thresholds. Production/test typecheck, build, lint, zero duplication, 566 documented declarations, publish attestation, five approved Git identities, zero production vulnerabilities and 266-file dry-run packing all pass. An initial new native fixture tried to create the same digest shard twice; it was corrected to reuse that immutable shard, and final tests pass. Full npm/Bun release checks remain CI-owned under the original runtime exception; strict isolated tracker health and regenerated changelog are the final local checks after this comment and claim release. The finding is valid and fixed across its class; no SDK or PM CLI gap, no thread reply/resolution, no merge or release."
+files[26]{path,scope}:
   dataset.ts,project
   improver-data.ts,project
   index.ts,project
   proposer-evolution.ts,project
+  proposer-program.ts,project
   proposer-transfer.ts,project
   scripts/live-improver.ts,project
   test/fixtures/transfer-cli.ts,project
   test/fixtures/transfer-corpus.ts,project
   test/fixtures/transfer-legacy.ts,project
   test/fixtures/transfer-live.ts,project
+  test/fixtures/transfer-refusal-consumer.ts,project
   test/fixtures/transfer-replay.ts,project
   test/fixtures/transfer-reverts.ts,project
   test/fixtures/transfer-scratch.ts,project
@@ -87,13 +93,14 @@ files[23]{path,scope}:
   test/proposer-transfer.test.ts,project
   test/transfer-archive.test.ts,project
   test/transfer-receipt.test.ts,project
+  test/transfer-refusal.test.ts,project
   test/transfer-review-capacity.test.ts,project
   test/transfer-review-final.test.ts,project
   test/transfer-review-native.test.ts,project
   test/transfer-review-policy.test.ts,project
   test/transfer-review-storage.test.ts,project
   test/transfer-review.test.ts,project
-tests[12]:
+tests[13]:
   - command: "node --test --test-concurrency=2 --test-name-pattern=training.tracker\\|split.digest\\|power.bound test/proposer-transfer.test.ts"
     scope: project
     provenance:
@@ -179,6 +186,16 @@ tests[12]:
     provenance:
       author: codex-agent
       created_at: "2026-11-07T00:14:25.395Z"
+      source_kind: local_mutation
+      source_ref: rsi-proposer-transfer-evaluation
+  - command: node --test --test-concurrency=2 test/transfer-refusal.test.ts
+    scope: project
+    timeout_seconds: 240
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-07T07:09:03.284Z"
       source_kind: local_mutation
       source_ref: rsi-proposer-transfer-evaluation
 docs[4]{path,scope}:

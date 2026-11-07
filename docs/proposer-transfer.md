@@ -315,3 +315,12 @@ regression exercises real controller writes, resume without receipt-history writ
 legacy reads and changed plan/corpus refusals. `node test/fixtures/transfer-reverts.ts
 review-storage` verifies the storage, integrity and both source-copy guards through
 isolated behavioural reversions.
+
+Transfer input refusals name the declaration fields or observation arguments to
+correct. This applies to design/capacity, counts, look and role coordinates,
+corpus structure, paired observations and plan/corpus references. SDK entry points and CLI
+validate/run paths return correction text with unchanged refusal codes in JSON and TOON;
+proposer configuration refusals carry the transfer remedy. Native replay instead
+keeps restoration guidance for malformed sealed context, including historical
+receipt versions. Diagnostics contain producer-authored guidance without supplied
+values, and unrelated SDK or filesystem errors retain their original identity.

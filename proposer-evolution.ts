@@ -16,7 +16,7 @@ import { openImproverEnvironment, IMPROVER_CRITERION, IMPROVER_ADAPTER, IMPROVER
 import { parseEvaluationPlan, evaluatePlan, type EvaluationPlan, type EvaluationPlanReport } from "./evaluation-plan.ts";
 import { requireCheckpointStorage } from "./checkpoint-artifacts.ts";
 import { reserveSearchCapacity } from "./meta.ts";
-import { TRANSFER_DESIGN, loadTransferCorpus, verifyTransferCorpus, transferMembers, transferPower, archiveTransferCorpus, replayTransferCorpus, recordTransferEvaluation, replayTransferEvaluation, parseTransferDesign, recordTransferPlan, readTransferPlan, type TransferReport, type TransferCorpus } from "./proposer-transfer.ts";
+import { TRANSFER_DECLARATION_REMEDY, TRANSFER_DESIGN, loadTransferCorpus, verifyTransferCorpus, transferMembers, transferPower, archiveTransferCorpus, replayTransferCorpus, recordTransferEvaluation, replayTransferEvaluation, parseTransferDesign, recordTransferPlan, readTransferPlan, type TransferReport, type TransferCorpus } from "./proposer-transfer.ts";
 
 /** Same bounded allowance for every proposal interpreter; logical optimizer and inference use are both zero. */
 export const PROPOSER_ALLOWANCE = { training_steps: 0, wall_ms: 30_000, storage_bytes: 16_384, compute_units: 30_000, tokens: 0 } as const;
@@ -42,11 +42,11 @@ export function parseProposerEvolutionConfig(value: unknown): ProposerEvolutionC
     if (!Number.isSafeInteger(row[key]) || row[key] < (key === "seed" ? 0 : 1) || row[key] > maximum) throw new ProposerRefusal();
   }
   if (row.transfer !== undefined) {
-    if (row.transfer === null || typeof row.transfer !== "object" || Array.isArray(row.transfer)) throw new ProposerRefusal();
     try {
+      assert.ok(row.transfer !== null && typeof row.transfer === "object" && !Array.isArray(row.transfer), "transfer_design");
       assert.equal(Object.keys(row.transfer).sort().join(), "alpha,effect,power", "transfer_design");
       transferPower(0, parseTransferDesign({ ...row.transfer, margin: IMPROVER_CRITERION.effectThreshold, looks: row.generations + 1, targets: TRANSFER_DESIGN.targets }));
-    } catch { throw new ProposerRefusal(); }
+    } catch { throw new ProposerRefusal("transfer_design: " + TRANSFER_DECLARATION_REMEDY); }
   }
   const initial = parseProposerProgram(row.initial);
   if (initial.generation + row.generations > 100) throw new ProposerRefusal();
