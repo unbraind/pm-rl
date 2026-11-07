@@ -324,3 +324,12 @@ proposer configuration refusals carry the transfer remedy. Native replay instead
 keeps restoration guidance for malformed sealed context, including historical
 receipt versions. Diagnostics contain producer-authored guidance without supplied
 values, and unrelated SDK or filesystem errors retain their original identity.
+
+Live and replay entry points share a guard for the physical `<scratch>/.agents/pm`
+layout before deriving a project or writing output. Source-path position checks
+assume the fixed `<repo>/.agents/pm` suffix; source-copy callers construct that
+suffix and dataset construction separately verifies layout and remote identity.
+Disposable revert failures retain probe identity, spawn outcome and bounded output
+after cleanup. Cleanup retries bounded transient directory races and preserves both
+operation and cleanup failures. Packed Node checks are mandatory; a missing Bun
+executable is reported separately, while nonzero exits and permission errors fail.

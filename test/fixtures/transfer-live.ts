@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { init } from "@unbrained/pm-cli/sdk/runtime";
 import { hashJson, type JsonValue } from "../../json-identity.ts";
 import { loadTransferCorpus, replayTransferEvaluation, transferPower, TRANSFER_DESIGN, verifyTransferCorpus, type TransferCorpus } from "../../proposer-transfer.ts";
@@ -64,7 +64,7 @@ export async function transferLiveMain(argv: readonly string[]): Promise<void> {
     const directory = join(output, "bounded-dataset"); mkdirSync(directory, { recursive: true });
     writeFileSync(join(directory, "improver-dataset.json"), JSON.stringify(manifest));
     for (const role of IMPROVER_ROLES) writeFileSync(join(directory, `${role}.json`), JSON.stringify(selected[role]));
-    const project = resolve(requestedPmRoot, "../.."); mkdirSync(project, { recursive: true });
+    const project = dirname(dirname(requestedPmRoot)); mkdirSync(project, { recursive: true });
     const initialized = await init("transfer", { defaults: true, agentGuidance: "skip", author: "codex-sol" }, { cwd: project, pmRoot: requestedPmRoot });
     const pmRoot = initialized.path;
     const client = new PmClient({ cwd: project, pmRoot, noExtensions: true, author: "codex-sol" });

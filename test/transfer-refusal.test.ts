@@ -100,7 +100,7 @@ test("native transfer classification preserves foreign typed refusals and real f
   });
 });
 
-test("packed npm and Bun consumers preserve transfer correction codes in SDK JSON and TOON", { timeout: 180_000 }, async () => {
+test("packed npm and Bun consumers preserve transfer correction codes in SDK JSON and TOON", { timeout: 180_000 }, async (t) => {
   await withTransferScratch("transfer-refusal-pack-", async (scratch) => {
     const root = resolve(import.meta.dirname, ".."); const environment = { PATH: process.env.PATH, HOME: scratch, NPM_CONFIG_USERCONFIG: "/dev/null", npm_config_userconfig: "/dev/null", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
     const packed = JSON.parse(execFileSync("npm", ["pack", "--ignore-scripts", "--json", "--pack-destination", scratch], { cwd: root, env: environment, encoding: "utf8", timeout: 60_000 })) as { filename: string }[];
@@ -110,7 +110,9 @@ test("packed npm and Bun consumers preserve transfer correction codes in SDK JSO
     const cli = join(root, "node_modules/@unbrained/pm-cli/dist/cli.js");
     for (const runtime of [process.execPath, "bun"]) {
       const project = join(scratch, runtime === "bun" ? "bun" : "npm"); mkdirSync(project);
-      const sdk = spawnSync(runtime, [join(scratch, "consumer.ts")], { cwd: project, env: environment, encoding: "utf8", timeout: 60_000 }); assert.equal(sdk.status, 0, sdk.stdout + sdk.stderr); assert.deepEqual(JSON.parse(sdk.stdout), { sdk_refusal_checks: malformedTransferDesigns().length * 3 + 2, non_git: true, valid_plan_replayed: true });
+      const sdk = spawnSync(runtime, [join(scratch, "consumer.ts")], { cwd: project, env: environment, encoding: "utf8", timeout: 60_000 });
+      if (runtime === "bun" && (sdk.error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") { t.diagnostic("Bun unavailable (ENOENT); packed Node checks remain mandatory."); continue; }
+      assert.ifError(sdk.error); assert.equal(sdk.status, 0, sdk.stdout + sdk.stderr); assert.deepEqual(JSON.parse(sdk.stdout), { sdk_refusal_checks: malformedTransferDesigns().length * 3 + 2, non_git: true, valid_plan_replayed: true });
       const pmRoot = join(project, ".agents/pm");
       execFileSync(process.execPath, [cli, "--pm-path", pmRoot, "package", "install", join(scratch, packed[0].filename), "--project", "--json"], { cwd: project, env: environment, stdio: "pipe", timeout: 60_000 });
       const config = proposerEvolutionConfiguration(); const file = join(project, "invalid.json"); writeFileSync(file, JSON.stringify({ ...config, transfer: { ...config.transfer, alpha: 1 } }));
@@ -119,6 +121,7 @@ test("packed npm and Bun consumers preserve transfer correction codes in SDK JSO
         const result = spawnSync(runtime, args, { cwd: project, env: environment, encoding: "utf8", timeout: 30_000 });
         assert.equal(result.status, 2, result.stdout + result.stderr); assert.match(result.stdout + result.stderr, /transfer_design.*Correct/); assert.doesNotMatch(result.stdout + result.stderr, /Restore the original native records/);
       }
+      t.diagnostic(`Packed runtime ${runtime === "bun" ? "bun" : "node"}: SDK=${malformedTransferDesigns().length * 3 + 2} CLI=4 verified.`);
     }
   });
 });

@@ -4,7 +4,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { refuseChangedReceipt, worktreeState } from "./fixtures/revert-receipt.ts";
+import { refuseChangedReceipt, worktreeState, revertProbeContext } from "./fixtures/revert-receipt.ts";
 
 /** Extract one full top-level implementation, retaining its export and async modifiers. */
 function implementation(source: string, name: string): string {
@@ -34,9 +34,9 @@ try {
     assert.notEqual(check.mutant, check.source, check.name);
     const run = () => spawnSync(process.execPath, ["--test", "--test-concurrency=1", `--test-name-pattern=${check.pattern}`, "test/training-influence-maintenance.test.ts"], { cwd: root, encoding: "utf8", timeout: 600_000, env: { ...process.env, NODE_V8_COVERAGE: undefined } });
     writeFileSync(join(root, check.file), check.mutant);
-    const broken = run(); assert.equal(broken.status, 1, broken.stdout + broken.stderr); assert.match(broken.stdout + broken.stderr, /AssertionError|history_version_pruned/);
+    const broken = run(); assert.equal(broken.status, 1, revertProbeContext(`training-influence-maintenance-revert.ts:${check.name}:broken`, broken)); assert.match(broken.stdout + broken.stderr, /AssertionError|history_version_pruned/);
     writeFileSync(join(root, check.file), check.source);
-    const restored = run(); assert.equal(restored.status, 0, restored.stdout + restored.stderr); assert.match(restored.stdout, /pass 1/);
+    const restored = run(); assert.equal(restored.status, 0, revertProbeContext(`training-influence-maintenance-revert.ts:${check.name}:restored`, restored)); assert.match(restored.stdout, /pass 1/);
     results.push({ function: check.name, reverted: { pass: 0, fail: 1 }, restored: { pass: 1, fail: 0 } });
     process.stdout.write(`${check.name}: revert fails; restoration passes\n`);
   }

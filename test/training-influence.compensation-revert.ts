@@ -4,7 +4,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { copyFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { refuseChangedReceipt, worktreeState } from "./fixtures/revert-receipt.ts";
+import { refuseChangedReceipt, worktreeState, revertProbeContext } from "./fixtures/revert-receipt.ts";
 
 const repository = resolve(".");
 const receipt = "docs/training-influence-compensation-revert.json"; refuseChangedReceipt(repository, receipt); const reviewed = worktreeState(repository, receipt);
@@ -40,11 +40,11 @@ try {
     const run = () => spawnSync(process.execPath, args, { cwd: root, encoding: "utf8", timeout: 240_000, env: { ...process.env, NODE_V8_COVERAGE: undefined } });
     writeFileSync(join(root, file), mutant);
     const broken = run();
-    assert.equal(broken.status, 1, broken.stdout + broken.stderr);
+    assert.equal(broken.status, 1, revertProbeContext(`training-influence.compensation-revert.ts:${name}:broken`, broken));
     assert.match(broken.stdout + broken.stderr, /AssertionError/);
     writeFileSync(join(root, file), fixed);
     const restored = run();
-    assert.equal(restored.status, 0, restored.stdout + restored.stderr);
+    assert.equal(restored.status, 0, revertProbeContext(`training-influence.compensation-revert.ts:${name}:restored`, restored));
     assert.match(restored.stdout, /pass 1/);
     results.push({ function: name, reverted: { pass: 0, fail: 1 }, restored: { pass: 1, fail: 0 } });
     process.stdout.write(`${name}: revert fails; restoration passes\n`);

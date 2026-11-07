@@ -2,9 +2,10 @@
 import assert from "node:assert/strict";
 import { cpSync, existsSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { LEGACY_TRANSFER_ARCHIVE } from "./transfer-legacy.ts";
 import { withTransferScratch } from "./transfer-scratch.ts";
+import { revertProbeContext } from "./revert-receipt.ts";
 import { isMainInvocation } from "../../scripts/script-launcher.ts";
 
 /** Copy runnable source and its installed graph without requiring a Git object database. */
@@ -14,10 +15,26 @@ export function copyRevertWorkspace(root: string, scratch: string): void {
   symlinkSync(resolve(root, "node_modules"), join(scratch, "node_modules"), "dir");
 }
 
+/** Keep bounded probe diagnostics in the thrown failure, after the disposable workspace has been removed. */
+export function assertTransferProbe(identity: string, result: SpawnSyncReturns<string>, expected: RegExp): void {
+  const output = (result.stdout ?? "") + (result.stderr ?? "");
+  const context = revertProbeContext(identity, result);
+  assert.equal(result.status, 1, context);
+  assert.match(output, expected, context);
+  assert.doesNotMatch(output, /ERR_MODULE_NOT_FOUND|SyntaxError/, context);
+}
+
 /** Each probe restores its source before the disposable workspace is unconditionally removed. */
 export async function runTransferReverts(root: string, selection?: string): Promise<void> {
   await withTransferScratch("transfer-revert-", async (scratch) => {
     const cases = [
+      { file: "test/fixtures/revert-receipt.ts", pattern: "failed probe diagnostics", test: "transfer-review-round2", transform: (s: string) => s.replace(/export function revertProbeContext[\s\S]*/, 'export function revertProbeContext(identity: string, result: SpawnSyncReturns<string>): string { return (result.stdout ?? "") + (result.stderr ?? ""); }\n'), expected: /AssertionError/ },
+      { file: "dataset.ts", pattern: "pm-cli position controls", test: "transfer-review-round2", transform: (s: string) => s.replace(/^    \/\/ Callers supply.*\n    \/\/ copyImproverSources.*\n/m, ''), expected: /AssertionError/ },
+      { file: "test/fixtures/transfer-replay.ts", pattern: "every diagnostic entry", test: "transfer-review-round2", transform: (s: string) => s.replace('  assert.ok(basename(physical) === "pm" && basename(dirname(physical)) === ".agents", "diagnostic_scratch_layout");', ''), expected: /AssertionError/ },
+      { file: "test/fixtures/transfer-reverts.ts", pattern: "failed probe diagnostics", test: "transfer-review-round2", transform: (s: string) => s.replace(/export function assertTransferProbe[\s\S]*?(?=\/\*\* Each probe)/, 'export function assertTransferProbe(identity: string, result: SpawnSyncReturns<string>, expected: RegExp): void { const output = result.stdout + result.stderr; assert.equal(result.status, 1); assert.match(output, expected); assert.doesNotMatch(output, /ERR_MODULE_NOT_FOUND|SyntaxError/); }\n'), expected: /AssertionError/ },
+      { file: "test/transfer-receipt.test.ts", pattern: "receipt scratch assertions", test: "transfer-review-round2", transform: (s: string) => s.replace('assert.equal(requireDiagnosticScratch(w.pmRoot), realpathSync(w.pmRoot));', 'assert.equal(requireDiagnosticScratch(w.pmRoot), w.pmRoot);'), expected: /AssertionError/ },
+      { file: "test/transfer-refusal.test.ts", pattern: "Node packed checks remain mandatory", test: "transfer-review-round2", transform: (s: string) => s.replace(/^      if \(runtime === "bun" && .*Bun unavailable.*\n/m, ''), expected: /AssertionError/ },
+      { file: "test/fixtures/transfer-scratch.ts", pattern: "scratch cleanup retries", test: "transfer-review-round2", transform: (s: string) => s.replace(/export async function withTransferScratch[\s\S]*/, 'export async function withTransferScratch<T>(prefix: string, operation: (scratch: string) => Promise<T>): Promise<T> { const scratch = mkdtempSync(join(tmpdir(), prefix)); try { return await operation(scratch); } finally { rmSync(scratch, { recursive: true, force: true }); } }\n'), expected: /AssertionError/ },
       { file: "proposer-transfer.ts", pattern: "transfer declaration adversarial corpus|transfer input correction", test: "transfer-refusal", transform: (s: string) => s.replace(/function transferInputShape[\s\S]*?(?=\/\*\* A stored value)/, 'function transferInputShape(condition: unknown, code: string): asserts condition { transferShape(condition, code); }\n'), expected: /AssertionError/ },
       { file: "proposer-evolution.ts", pattern: "evolution transfer corrections", test: "transfer-refusal", transform: (s: string) => s.replace('new ProposerRefusal("transfer_design: " + TRANSFER_DECLARATION_REMEDY)', 'new ProposerRefusal()'), expected: /AssertionError/ },
       { file: "proposer-program.ts", pattern: "evolution transfer corrections", test: "transfer-refusal", transform: (s: string) => s.replace('super(`proposer_invalid: ${remedy}`); this.remedy = remedy;', 'super("proposer_invalid: Supply a sealed bounded proposer program and development-only counts; retain prior evidence."); this.remedy = "Supply a sealed bounded proposer program and development-only counts; retain prior evidence.";'), expected: /AssertionError/ },
@@ -33,7 +50,7 @@ export async function runTransferReverts(root: string, selection?: string): Prom
       { file: "proposer-transfer.ts", pattern: "native plan designs", test: "transfer-review-final", transform: (s: string) => s.replace('transferPower(0, parseTransferDesign(record.design)); return record;', 'parseTransferDesign(record.design); return record;'), expected: /AssertionError/ },
       { file: "proposer-transfer.ts", pattern: "native evaluation coordinates", test: "transfer-review-final", transform: (s: string) => s.replace('  transferShape(Number.isSafeInteger(record.look) && record.look >= 1 && record.look <= 64, "transfer_look");', ''), expected: /AssertionError/ },
       { file: "proposer-transfer.ts", pattern: "native evaluation coordinates", test: "transfer-review-final", transform: (s: string) => s.replace('  transferShape(hashJson(report as unknown as JsonValue) === hashJson(record.report as unknown as JsonValue), "transfer_report_drift"); return report;', '  assert.equal(hashJson(report as unknown as JsonValue), hashJson(record.report as unknown as JsonValue), "transfer_report_drift"); return report;'), expected: /AssertionError/ },
-      { file: "test/fixtures/transfer-replay.ts", pattern: "diagnostic replay rejects alternate", test: "transfer-review-final", transform: (s: string) => s.replace('  assert.ok(basename(pmRoot) === "pm" && basename(dirname(pmRoot)) === ".agents", "diagnostic_scratch_layout");', ''), expected: /AssertionError/ },
+      { file: "test/fixtures/transfer-replay.ts", pattern: "diagnostic replay rejects alternate", test: "transfer-review-final", transform: (s: string) => s.replace('  assert.ok(basename(physical) === "pm" && basename(dirname(physical)) === ".agents", "diagnostic_scratch_layout");', ''), expected: /AssertionError/ },
       { file: "docs/proposer-transfer.md", pattern: "MDE documentation table", test: "transfer-review-final", transform: (s: string) => s.replace('| 0.20 | 688 |', '| 0.20 | 687 |'), expected: /AssertionError/ },
       { file: "test/transfer-review-policy.test.ts", pattern: "public source controls accept", test: "transfer-review-final", transform: (s: string) => s.replace('realpathSync(join(fleet, name, ".agents/pm"))', 'join(fleet, name, ".agents/pm")'), expected: /AssertionError/ },
       { file: "proposer-transfer.ts", pattern: "malformed native envelope roots", test: "transfer-review-native", transform: (s: string) => s.replace('  transferShape(transferObject(value) && typeof value.format === "string", "transfer_record_format");', ''), expected: /AssertionError/ },
@@ -77,17 +94,16 @@ export async function runTransferReverts(root: string, selection?: string): Prom
       { file: "proposer-transfer.ts", pattern: "native replay refuses missing", test: "transfer-archive", transform: (s: string) => s.replace(/^  if \(.+\) assertJsonEncoding\(String\(current.body\), MAX_TRACKER_RECORD_BYTES\);$/m, ''), expected: /AssertionError|Missing expected rejection/ },
       { file: "proposer-transfer.ts", pattern: "explicit prospective designs", test: "transfer-archive", transform: (s: string) => s.replace('const { alpha, power, effect, margin, targets, looks } = parseTransferDesign(declaration);', 'const { alpha, power, effect, margin, targets, looks } = parseTransferDesign({ ...TRANSFER_DESIGN, looks: declaration.looks });'), expected: /AssertionError/ },
     ];
-    const profiles: Readonly<Record<string, readonly string[]>> = { "review-refusals": ["transfer-refusal"], "review-storage": ["transfer-review-storage"], "review-round-one": ["transfer-review"], "owned-review-round-one": ["transfer-review-policy"], "owned-review-round-two": ["powered role projections", "powered paired evaluations", "empty planned meta looks", "power documentation consistently"].map((pattern) => `transfer-review-capacity:${pattern}`), "owned-review-round-three": ["transfer-review-capacity:look-count declarations", "transfer-receipt:malformed decoded diagnostic receipts"], "owned-review-round-four": ["transfer-review-native"], "owned-review-round-five": ["transfer-review-final"] };
+    const profiles: Readonly<Record<string, readonly string[]>> = { "review-auto-round-two": ["transfer-review-round2"], "review-refusals": ["transfer-refusal"], "review-storage": ["transfer-review-storage"], "review-round-one": ["transfer-review"], "owned-review-round-one": ["transfer-review-policy"], "owned-review-round-two": ["powered role projections", "powered paired evaluations", "empty planned meta looks", "power documentation consistently"].map((pattern) => `transfer-review-capacity:${pattern}`), "owned-review-round-three": ["transfer-review-capacity:look-count declarations", "transfer-receipt:malformed decoded diagnostic receipts"], "owned-review-round-four": ["transfer-review-native"], "owned-review-round-five": ["transfer-review-final"] };
     const selected = cases.filter((probe) => selection === undefined || (Object.hasOwn(profiles, selection) ? profiles[selection].some((key) => key === probe.test || key === `${probe.test}:${probe.pattern}`) : probe.pattern === selection));
     assert.ok(selected.length > 0, "transfer_revert_selection");
     copyRevertWorkspace(root, scratch);
     for (const probe of selected) {
-      const path = join(scratch, probe.file); const original = readFileSync(path, "utf8"); const changed = probe.transform(original); assert.notEqual(changed, original);
+      const path = join(scratch, probe.file); const original = readFileSync(path, "utf8"); const changed = probe.transform(original); assert.notEqual(changed, original, `${probe.test}:${probe.pattern} (${probe.file}): revert transform matched no source`);
       try {
         writeFileSync(path, changed);
         const result = spawnSync(process.execPath, ["--test", "--test-concurrency=2", `--test-name-pattern=${probe.pattern}`, `test/${probe.test}.test.ts`], { cwd: scratch, env: { PATH: process.env.PATH, HOME: scratch, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" }, encoding: "utf8", timeout: probe.pattern === "powered paired evaluations" ? 600_000 : 180_000 });
-        const output = result.stdout + result.stderr; writeFileSync(join(scratch, probe.pattern.replaceAll(" ", "-") + ".log"), output);
-        assert.equal(result.status, 1); assert.match(output, probe.expected); assert.doesNotMatch(output, /ERR_MODULE_NOT_FOUND|SyntaxError/);
+        assertTransferProbe(`${probe.test}:${probe.pattern} (${probe.file})`, result, probe.expected);
         console.log(JSON.stringify({ test: probe.pattern, reverted: probe.file, exit: result.status, behavioral_failure: true }));
       } finally { writeFileSync(path, original); }
     }

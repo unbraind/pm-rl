@@ -92,6 +92,8 @@ export function checkedTrackerSourcePath(directory: string): string {
   /** Normalize every component identically at the caller and resolved boundary. */
   const forbidden = (value: string): boolean => {
     const parts = value.split(/[\\/]/).filter(Boolean).map((part) => part.normalize("NFKC").trim().toLowerCase());
+    // Callers supply <repo>/.agents/pm, so the final three components identify the tracker repository.
+    // copyImproverSources constructs this fixed layout; buildTrackerDataset additionally validates layout and remote identity.
     // A fleet container may be named pm-cli; the tracker repository itself may not.
     return parts.some((part, index) => excludedTrackerName(part) && (part !== "pm-cli" || index >= parts.length - 3));
   };

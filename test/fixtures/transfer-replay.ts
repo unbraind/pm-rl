@@ -28,7 +28,7 @@ export interface DiagnosticReceipt {
   readonly evaluations: readonly { readonly historical_digest?: string; readonly digest: string; readonly role: "meta" | "audit"; readonly look: number; readonly pairs: readonly TransferPair[]; readonly report: TransferReport }[];
 }
 
-/** Resolve existing ancestors so symlinks cannot redirect a scratch output into a Git worktree. */
+/** Require the physical <scratch>/.agents/pm layout and reject Git ancestors before any scratch writes. */
 export function requireDiagnosticScratch(pmRoot: string): string {
   const requested = resolve(pmRoot); let parent = requested;
   while (!existsSync(parent)) parent = dirname(parent);
@@ -37,7 +37,9 @@ export function requireDiagnosticScratch(pmRoot: string): string {
     assert.ok(!existsSync(join(cursor, ".git")), "diagnostic_requires_non_git_scratch_tracker");
     if (cursor === dirname(cursor)) break;
   }
-  assert.ok(isAbsolute(physical)); return physical;
+  assert.ok(isAbsolute(physical));
+  assert.ok(basename(physical) === "pm" && basename(dirname(physical)) === ".agents", "diagnostic_scratch_layout");
+  return physical;
 }
 
 /** A decoded record must be an object before any property access or nested iteration. */
@@ -136,7 +138,6 @@ export async function replayDiagnosticMain(argv: readonly string[]): Promise<voi
   }
   assert.ok(options.has("--pm-root"), "diagnostic_explicit_pm_root_required");
   const pmRoot = requireDiagnosticScratch(options.get("--pm-root")!);
-  assert.ok(basename(pmRoot) === "pm" && basename(dirname(pmRoot)) === ".agents", "diagnostic_scratch_layout");
   const receipt = readDiagnosticReceipt(options.get("--receipt") ?? "docs/proposer-transfer-receipt.json");
   const project = dirname(dirname(pmRoot));
   const corpus = rebuildDiagnosticCorpus(receipt, project, options.get("--fleet"));

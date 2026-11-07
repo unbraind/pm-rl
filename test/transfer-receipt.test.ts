@@ -1,6 +1,6 @@
 /** Diagnostic receipts rebuild real native evidence without polluting a development tracker. */
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
 import { hashJson, type JsonValue } from "../json-identity.ts";
@@ -41,7 +41,7 @@ test("malformed decoded diagnostic receipts refuse with shape evidence before so
 
 test("diagnostic replay requires explicit non-Git scratch roots before effects including symlinks", async () => {
   const w = await processWorkspace();
-  assert.equal(requireDiagnosticScratch(w.pmRoot), w.pmRoot);
+  assert.equal(requireDiagnosticScratch(w.pmRoot), realpathSync(w.pmRoot));
   await assert.rejects(replayDiagnosticMain([]), /diagnostic_explicit_pm_root_required/);
   await assert.rejects(replayDiagnosticMain(["--unknown", "x"]), /diagnostic_arguments/);
   const gitProject = join(w.root, "development"); mkdirSync(gitProject); mkdirSync(join(gitProject, ".git"));
