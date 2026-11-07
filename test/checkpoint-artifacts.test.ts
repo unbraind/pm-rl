@@ -24,6 +24,7 @@ import { checkpointBenchmarkMain, measureCheckpointLoads } from "../scripts/chec
 import { liveMetaConfiguration } from "../scripts/live-meta.ts";
 import { isMainInvocation } from "../scripts/script-launcher.ts";
 import { prefixTrainerMain } from "../prefix-trainer.ts";
+import { acquireStateLock } from "../state-boundary.ts";
 import { referenceTrainerMain } from "../process-bandit.ts";
 import { lmTrainerMain } from "../process-lm-trainer.ts";
 
@@ -539,31 +540,67 @@ test("checkpoint benchmark measures both capacities and verified load paths on a
   });
 });
 
-test("two processes promote into one plain tracker without losing roots or corrupting shared artifacts", { timeout: 900_000 }, async () => {
+/** Exercise the same two real promoters with an optional healthy owner delaying workspace admission. */
+async function concurrentCheckpointPromotions(signal: AbortSignal, holdMs = 0): Promise<void> {
   const w = await checkpointWorkspace();
   const file = join(w.root, "request.json"); const config = w.config.initial.arms[1].config;
   writeFileSync(file, JSON.stringify({ root: w.root, pmRoot: w.pmRoot, dataset: w.dataset, manifest: w.manifest, approval: w.approval, config }));
   const bin = checkpointToolBin(w.root);
-  const children = ["writer-one", "writer-two"].map((job) => fork(new URL("./fixtures/checkpoint-promoter.ts", import.meta.url), [file, job], { env: { ...process.env, PATH: bin, GIT_CEILING_DIRECTORIES: dirname(w.root), PM_LOCK_WAIT_MS: "30000" }, stdio: ["ignore", "pipe", "pipe", "ipc"] }));
+  // Reserve bounded admission time for instrumented owners while retaining the existing fit and outer deadlines.
+  const children = ["writer-one", "writer-two"].map((job) => fork(new URL("./fixtures/checkpoint-promoter.ts", import.meta.url), [file, job], { env: { ...process.env, PATH: bin, GIT_CEILING_DIRECTORIES: dirname(w.root), PM_LOCK_WAIT_MS: "120000" }, stdio: ["ignore", "pipe", "pipe", "ipc"] }));
+  let release: (() => Promise<void>) | undefined;
+  let held: Promise<void> | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const exits = children.map((child) => once(child, "exit"));
+  const errors: string[] = []; for (const child of children) child.stderr!.on("data", (data: Buffer) => errors.push(String(data)));
+  /** Refuse immediately if either child exits instead of sending its next protocol message. */
+  const messages = () => children.map((child, index) => Promise.race([
+    once(child, "message", { signal }),
+    exits[index].then((codes) => { throw new Error(`Promoter exited before receipt: ${JSON.stringify(codes)} ${errors.join("\n")}`); }),
+  ]));
   try {
-    const ready = children.map((child) => once(child, "message"));
-    const exits = children.map((child) => once(child, "exit"));
-    const errors: string[] = []; for (const child of children) child.stderr!.on("data", (data: Buffer) => errors.push(String(data)));
-    await Promise.all(ready);
-    const results = children.map((child) => once(child, "message"));
+    await Promise.all(messages());
+    if (holdMs > 0) {
+      release = await acquireStateLock(w.pmRoot, "sdk-workspace-transaction", 3600, "checkpoint-live-holder", false, false, 0);
+      const lock = join(w.pmRoot, "locks", "sdk-workspace-transaction.lock");
+      const owner = readFileSync(lock, "utf8");
+      held = new Promise<void>((resolve) => { timer = setTimeout(resolve, holdMs); }).then(async () => {
+        assert.equal(readFileSync(lock, "utf8"), owner, "retain the live owner's exact lease until release");
+        await release!();
+      });
+    }
+    const results = Promise.all(messages());
     for (const child of children) child.send({ go: true });
-    await collectCheckpointArtifacts(w.pmRoot);
-    const completed = await Promise.race([Promise.all(results), Promise.all(exits).then((codes) => { throw new Error(`Promoters exited before receipts: ${JSON.stringify(codes)} ${errors.join("\n")}`); })]);
+    const [completed] = await Promise.all([results, held, collectCheckpointArtifacts(w.pmRoot)]);
     const trials = completed.map(([result]) => (result as { trial: LearnerTrial }).trial);
     assert.ok(trials.every((trial) => trial.promoted));
     assert.deepEqual(trials[0].candidate.checkpoint, trials[1].candidate.checkpoint);
     assert.deepEqual((await Promise.all(exits)).map(([code]) => code), [0, 0], errors.join("\n"));
     const jobs = await listProcessJobs(w.client); assert.equal(jobs.length, 2); assert.ok(jobs.every((job) => job.state === "promoted"));
+    const identities = jobs.map((job) => job.binding as { proposal: { programme_id: string }; recovery_attempt: number });
+    assert.deepEqual(identities.map((binding) => binding.proposal.programme_id).sort(), ["writer-one", "writer-two"]);
+    assert.ok(identities.every((binding) => binding.recovery_attempt === 0), "contention must not allocate a recovery identity");
+    assert.equal(jobs.reduce((total, job) => total + job.charge.training_steps, 0), 2, "charge each original fit exactly once");
     for (const job of jobs) assert.deepEqual(readCheckpointArtifact(w.pmRoot, job.completion!.artifact!), trials[0].candidate.checkpoint);
     const roots = readCheckpointLedger(w.pmRoot);
     for (const job of jobs) assert.ok(roots.some((entry) => entry.key === `job:${job.id}:promoted`));
     assert.equal((await collectCheckpointArtifacts(w.pmRoot)).retained, 1);
-  } finally { for (const child of children) if (child.exitCode === null) child.kill("SIGKILL"); }
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+    try { await release?.(); }
+    finally {
+      for (const child of children) if (child.exitCode === null) child.kill("SIGKILL");
+      await Promise.all(exits);
+    }
+  }
+}
+
+test("two processes promote into one plain tracker without losing roots or corrupting shared artifacts", { timeout: 900_000 }, async (t) => {
+  await concurrentCheckpointPromotions(t.signal);
+});
+
+test("checkpoint promoters outwait a healthy workspace owner held beyond thirty seconds", { timeout: 900_000 }, async (t) => {
+  await concurrentCheckpointPromotions(t.signal, 35_000);
 });
 
 
