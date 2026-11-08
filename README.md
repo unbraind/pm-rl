@@ -1111,3 +1111,7 @@ See [the SDK, grammar, limits and example](docs/proposer-programs.md).
 Without git: validation, execution and replay work in plain trackers with sealed
 datasets. Only the existing public-history dataset builder requires committed Git
 provenance. No git executable is required by the proposer path.
+
+GitHub issue sync uses `changelog:automation` to run the same full generation
+policy that the package changelog check verifies. Reusable workflow defaults
+therefore cannot add a different pending-release policy to this caller.
