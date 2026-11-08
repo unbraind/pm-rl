@@ -132,6 +132,7 @@
       "."
     ],
     "tests": [
+      "test/automation-changelog.test.ts",
       "test/checkpoint-artifacts.test.ts",
       "test/audit-git-identities.test.ts",
       "test/bandit.test.ts",

@@ -6,19 +6,21 @@ status: in_progress
 priority: 1
 tags[1]: "gh:unbraind/pm-rl#130"
 created_at: "2026-08-06T22:57:42.945Z"
-updated_at: "2026-11-08T06:15:54.991Z"
+updated_at: "2026-11-08T06:40:34.204Z"
 author: codex
 acceptance_criteria: "changelog:full and changelog:check use identical mode, release-tag, version, date, URL, and release-respect inputs except for --check; regeneration followed by check passes; the full release gate passes; The configured reusable sync script generates exactly what the package changelog checker verifies"
 severity: high
 environment: pm-changelog 2026.8.6
 repro_steps: "Run npm run changelog:full followed by npm run changelog:check on the current tracker."
 affected_version: 2026.7.31
-comments[5]{created_at,author,text}:
+comments[7]{created_at,author,text}:
   "2026-11-08T03:18:03.017Z",pi-agent,Reopened for the current sync generation regression. The reusable workflow supplies --no-pending-release only to its default script while the package checker retains the ordinary full generation policy. A caller-owned alias preserves the canonical generator without touching dependencies or thresholds. Clear the old release assignment for this new regression while retaining all historical evidence.
   "2026-11-08T03:25:37.350Z",pi-agent,"The real temporary-tracker regression passes 1 of 1 and local typecheck passes. In a disposable copy, reverting only the caller post-import-script selection fails the existing changelog check, while restoring it passes 1 of 1. The exact pinned reusable workflow declares the string input and conditionally adds the differing flag only for its default changelog:full name. Node test concurrency remains capped at two. Full npm and Bun release checks will run sequentially after the focused verification."
   "2026-11-08T04:07:49.773Z",pi-agent,"The final real-tracker fixture clears inherited Git repository selection, PM-root overrides, npm user-config policy variants and Node test context before setting its isolated paths. Credential-shaped keys are removed. The refined fixture still passes 1 of 1 and typecheck passes. Product configuration, dependency pins and thresholds are unchanged."
   "2026-11-08T06:15:43.647Z",pi-agent,"Focused regression, local typecheck and isolated behavioral revert pass. Full npm and Bun release checks remain required at unchanged thresholds; final-head CI is the full gate and is not yet confirmed. The serial local release queue continues separately."
   "2026-11-08T06:15:54.027Z",pi-agent,"Review handoff: https://github.com/unbraind/pm-rl/pull/159. Final CI is visible at https://github.com/unbraind/pm-rl/pull/159/checks. Focused regression, local typecheck and behavioral revert pass. Full npm/Bun gates are pending final-head CI confirmation, not approved. All tracker writes are completed before final-head CI observation. Release this agent claim for orchestrator verification; the item stays in progress."
+  "2026-11-08T06:39:15.292Z",pi-agent,"Review found that the new automation regression was missing from the explicit coverageGate.tests inventory, so required release CI would not execute it. Add the real temporary-tracker test to that inventory without changing any source scope, ignores or thresholds. The caller-generation behavioral revert remains the same; rerun the linked focused test and typecheck, then publish a forward correction commit and require fresh final-head CI."
+  "2026-11-08T06:40:32.767Z",pi-agent,"The linked real-tracker regression passes 1 of 1 with zero skips and local typecheck passes after adding it to coverageGate.tests. The unchanged release runner now selects the new test explicitly. Source inventory, ignores and all four 100 percent thresholds remain unchanged. A forward correction commit supersedes the earlier handoff head; fresh final-head CI remains required."
 notes[1]{created_at,author,text}:
   "2026-08-06T22:58:01.379Z",codex,"Before fix, changelog:full exited 0 and the immediately following changelog:check exited 1 with an incompatible prepend diff. The commands now differ only by --check."
 files[4]:
