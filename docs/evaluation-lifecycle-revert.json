@@ -181,6 +181,78 @@
         "pass": 1,
         "fail": 0
       }
+    },
+    {
+      "function": "createCausalEvaluationArtifact validated birth reuse",
+      "test": "causal operations read",
+      "reverted": {
+        "pass": 0,
+        "fail": 1,
+        "failure": {
+          "test": "causal operations read each validated birth once across creation validation and retry",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "Every native birth must be read once per causal operation"
+        }
+      },
+      "restored": {
+        "pass": 1,
+        "fail": 0
+      }
+    },
+    {
+      "function": "validateProofRun diagnostic matching",
+      "test": "proof records measured counts",
+      "reverted": {
+        "pass": 0,
+        "fail": 1,
+        "failure": {
+          "test": "proof records measured counts and the selected assertion diagnostic",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "Missing expected exception"
+        }
+      },
+      "restored": {
+        "pass": 1,
+        "fail": 0
+      }
+    },
+    {
+      "function": "verifyCausalEvaluationRetry validated birth reuse",
+      "test": "causal operations read",
+      "reverted": {
+        "pass": 0,
+        "fail": 1,
+        "failure": {
+          "test": "causal operations read each validated birth once across creation validation and retry",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "Every native birth must be read once per causal operation"
+        }
+      },
+      "restored": {
+        "pass": 1,
+        "fail": 0
+      }
+    },
+    {
+      "function": "proveRevert restoration on refusal",
+      "test": "every proof producer",
+      "reverted": {
+        "pass": 0,
+        "fail": 1,
+        "failure": {
+          "test": "every proof producer validates measured selected-test evidence and restores refused reverts",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "Refused proof must restore the implementation"
+        }
+      },
+      "restored": {
+        "pass": 1,
+        "fail": 0
+      }
     }
   ]
 }

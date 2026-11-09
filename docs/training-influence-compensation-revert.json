@@ -6,7 +6,13 @@
       "function": "removePlannedArms",
       "reverted": {
         "pass": 0,
-        "fail": 1
+        "fail": 1,
+        "failure": {
+          "test": "sweep publication retains every SDK revision at every post-write step boundary",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "\"handled\":true"
+        }
       },
       "restored": {
         "pass": 1,
@@ -17,7 +23,13 @@
       "function": "reserveProcessJob",
       "reverted": {
         "pass": 0,
-        "fail": 1
+        "fail": 1,
+        "failure": {
+          "test": "process compensation preserves peer revisions at every journal step boundary",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "complete foreign state retained"
+        }
       },
       "restored": {
         "pass": 1,
@@ -28,7 +40,13 @@
       "function": "transitionProcessJob",
       "reverted": {
         "pass": 0,
-        "fail": 1
+        "fail": 1,
+        "failure": {
+          "test": "process compensation preserves peer revisions at every journal step boundary",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "complete foreign state retained"
+        }
       },
       "restored": {
         "pass": 1,
@@ -36,5 +54,5 @@
       }
     }
   ],
-  "reviewed_source_unchanged": true
+  "reviewed_source_unchanged": false
 }

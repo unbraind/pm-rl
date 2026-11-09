@@ -46,8 +46,8 @@ function references(entries: readonly { id: string; stage: number; item: GetResu
     return { id, digest };
   }).sort((a, b) => a.id < b.id ? -1 : 1);
 }
-/** Validate complete causal ancestry without consulting dates or cross-stream event presentation order. @internal */
-export async function validateCausalEvaluationOrder(client: PmClient, plan: EvaluationPlan, artifacts: readonly EvaluationArtifact[], prospective?: GetResult["item"]): Promise<void> {
+/** Read and validate each native birth once, retaining the per-operation digest cache. */
+async function validatedEntries(client: PmClient, plan: EvaluationPlan, artifacts: readonly EvaluationArtifact[], prospective?: GetResult["item"]) {
   const entries: (EvaluationArtifact & Awaited<ReturnType<typeof witnessedBirth>>)[] = [];
   // Drain each SDK read before refusing; no pending SDK operation may outlive validation.
   for (const entry of artifacts) if (entry.id !== prospective?.id) entries.push({ ...entry, ...await witnessedBirth(client, entry.id) });
@@ -56,11 +56,20 @@ export async function validateCausalEvaluationOrder(client: PmClient, plan: Eval
   for (const entry of entries) {
     if (entry.witness.comparison !== comparison || entry.witness.stage !== entry.stage || JSON.stringify(entry.witness.predecessors) !== JSON.stringify(references(entries, entry.stage, digests))) refuse("eval_plan_late", entry.id);
   }
+  return { entries, digests };
+}
+/** Validate complete causal ancestry without consulting dates or cross-stream event presentation order. @internal */
+export async function validateCausalEvaluationOrder(client: PmClient, plan: EvaluationPlan, artifacts: readonly EvaluationArtifact[], prospective?: GetResult["item"]): Promise<void> {
+  await validatedEntries(client, plan, artifacts, prospective);
 }
 /** Verify an existing birth without creating it; Generation bodies compare provenance and policy cards verify promotion. @internal */
 export async function verifyCausalEvaluationRetry(client: PmClient, plan: EvaluationPlan, options: Parameters<PmClient["create"]>[0] & { id: string }, artifacts: readonly EvaluationArtifact[]): Promise<void> {
-  await validateCausalEvaluationOrder(client, plan, artifacts);
-  const birth = await witnessedBirth(client, options.id);
+  const { entries } = await validatedEntries(client, plan, artifacts);
+  const birth = entries.find(entry => entry.id === options.id) ?? await witnessedBirth(client, options.id);
+  verifyRetryBirth(options, birth);
+}
+/** Compare retry intent and current native state against the already validated birth. */
+function verifyRetryBirth(options: Parameters<PmClient["create"]>[0] & { id: string }, birth: Awaited<ReturnType<typeof witnessedBirth>>): void {
   const bodyIdentity = (item: GetResult["item"]): string => item.type === "Generation" ? hashJson(generationProvenance(extractGenerationSpec(String(item.body), "Causal candidate retry"))) : String(item.body);
   if (birth.witness.request !== hashJson(options as unknown as JsonValue) || (["id", "type", "affected_version", "fixed_version", "component", "environment", "created_at"] as const).some(field => birth.item[field] !== birth.current[field]) || bodyIdentity(birth.item) !== bodyIdentity(birth.current)) refuse("eval_plan_drift", options.id);
 }
@@ -69,16 +78,14 @@ export async function createCausalEvaluationArtifact(client: PmClient, plan: Eva
   const target = artifacts.find((entry) => entry.id === options.id);
   if (target === undefined) refuse("eval_plan_invalid");
   const predecessors = artifacts.filter((entry) => entry.stage < target.stage);
-  await validateCausalEvaluationOrder(client, plan, predecessors);
-  const entries: (EvaluationArtifact & { item: GetResult["item"] })[] = [];
-  for (const entry of predecessors) entries.push({ ...entry, item: (await witnessedBirth(client, entry.id)).item });
-  const request = hashJson(options as unknown as JsonValue);
   const existing = await optionalItem(client, options.id);
   if (existing !== null) {
     await verifyCausalEvaluationRetry(client, plan, options, [...predecessors, target]);
     return { item: existing as Awaited<ReturnType<PmClient["create"]>>["item"], changed_fields: [], warnings: [] };
   }
-  const witness: BirthWitness = { comparison: evaluationComparison(plan), stage: target.stage, nonce: randomUUID(), request, predecessors: references(entries, target.stage) };
+  const { entries, digests } = await validatedEntries(client, plan, predecessors);
+  const request = hashJson(options as unknown as JsonValue);
+  const witness: BirthWitness = { comparison: evaluationComparison(plan), stage: target.stage, nonce: randomUUID(), request, predecessors: references(entries, target.stage, digests) };
   return createVerifiedItem(client, { ...options, note: [...(options.note ?? []), `${PREFIX}${encodeBoundedJson(witness)}`] });
 }
 /** Approve the exact causal sequential design before its Plan exists; approval grants no promotion budget. */

@@ -1,9 +1,10 @@
 /** Behavior-only reverts run in disposable copies with the real SDK and no Git tracker. */
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { copyFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { proveRevert } from "./fixtures/causal-proof.ts";
 import { refuseChangedReceipt, worktreeState } from "./fixtures/revert-receipt.ts";
 
 /** Extract one full top-level implementation, retaining its export and async modifiers. */
@@ -18,6 +19,7 @@ try {
   for (const file of readdirSync(repository)) if (file.endsWith(".ts") || file === "package.json") copyFileSync(join(repository, file), join(root, file));
   mkdirSync(join(root, "test")); copyFileSync("test/training-influence-maintenance.test.ts", join(root, "test/training-influence-maintenance.test.ts"));
   mkdirSync(join(root, "scripts")); copyFileSync("scripts/script-launcher.ts", join(root, "scripts/script-launcher.ts"));
+  cpSync(join(repository, "test/fixtures"), join(root, "test/fixtures"), { recursive: true });
   symlinkSync(join(repository, "node_modules"), join(root, "node_modules"));
   const influence = readFileSync("training-influence.ts", "utf8"); const index = readFileSync("index.ts", "utf8"); const refusal = readFileSync("refuse.ts", "utf8");
   const oldIndex = execFileSync("git", ["show", "cd7370d:index.ts"], { encoding: "utf8" });
@@ -32,12 +34,8 @@ try {
   const results = [];
   for (const check of checks) {
     assert.notEqual(check.mutant, check.source, check.name);
-    const run = () => spawnSync(process.execPath, ["--test", "--test-concurrency=1", `--test-name-pattern=${check.pattern}`, "test/training-influence-maintenance.test.ts"], { cwd: root, encoding: "utf8", timeout: 600_000, env: { ...process.env, NODE_V8_COVERAGE: undefined } });
-    writeFileSync(join(root, check.file), check.mutant);
-    const broken = run(); assert.equal(broken.status, 1, broken.stdout + broken.stderr); assert.match(broken.stdout + broken.stderr, /AssertionError|history_version_pruned/);
-    writeFileSync(join(root, check.file), check.source);
-    const restored = run(); assert.equal(restored.status, 0, restored.stdout + restored.stderr); assert.match(restored.stdout, /pass 1/);
-    results.push({ function: check.name, reverted: { pass: 0, fail: 1 }, restored: { pass: 1, fail: 0 } });
+    const proof = proveRevert(root, check.file, check.source, check.mutant, "test/training-influence-maintenance.test.ts", check.pattern, /Missing expected rejection|Missing expected exception|The validation function is expected to return|Expected values to be strictly (?:deep-)?equal/);
+    results.push({ function: check.name, ...proof });
     process.stdout.write(`${check.name}: revert fails; restoration passes\n`);
   }
   writeFileSync(receipt, JSON.stringify({ format: "pm-rl/influence-maintenance-revert/1", baseline: "cd7370d", tests: results, reviewed_source_unchanged: worktreeState(repository, receipt) === reviewed }, null, 2) + "\n");

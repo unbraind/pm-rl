@@ -1,6 +1,6 @@
 /** Behavioral revert proofs in a disposable source copy; the reviewed checkout is never mutated. */
 import assert from "node:assert/strict";
-import { runProofTest, validateProofRun, type ProofResult } from "./fixtures/causal-proof.ts";
+import { proveRevert, type ProofResult } from "./fixtures/causal-proof.ts";
 import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -23,6 +23,10 @@ try {
     { code: "ERR_ASSERTION", file: "evaluation-lifecycle.ts", expected: /Every predecessor birth must be hashed once per validation/, name: "validateCausalEvaluationOrder", pattern: "hashes each birth", before: 'references(entries, entry.stage, digests)', after: 'references(entries, entry.stage)' },
     { code: "ERR_ASSERTION", file: "test/fixtures/causal-proof.ts", testFile: "test/evaluation-lifecycle-proof.test.ts", expected: /Missing expected exception/, name: "validateProofRun failure admission", pattern: "proof rejects worker timeouts", before: '    assert.doesNotMatch(error, /timed?\\s*out|timeout|cancelled|SyntaxError|ERR_MODULE_NOT_FOUND/i);', after: '    void error; // Revert infrastructure-failure exclusion.' },
     { code: "ERR_ASSERTION", file: "test/fixtures/causal-proof.ts", testFile: "test/evaluation-lifecycle-proof.test.ts", expected: /Expected values to be strictly equal/, name: "validateProofRun measured counts", pattern: "proof records measured counts", before: 'const result: ProofResult = { pass: count("pass"), fail: count("fail") };', after: 'const result: ProofResult = { pass: expectedFailure === undefined ? 1 : 0, fail: expectedFailure === undefined ? 0 : 1 };' },
+    { code: "ERR_ASSERTION", file: "evaluation-lifecycle.ts", expected: /Every native birth must be read once per causal operation/, name: "createCausalEvaluationArtifact validated birth reuse", pattern: "causal operations read", before: '  const { entries, digests } = await validatedEntries(client, plan, predecessors);', after: '  await validateCausalEvaluationOrder(client, plan, predecessors);\n  const { entries, digests } = await validatedEntries(client, plan, predecessors);' },
+    { code: "ERR_ASSERTION", file: "test/fixtures/causal-proof.ts", testFile: "test/evaluation-lifecycle-proof.test.ts", expected: /Missing expected exception/, name: "validateProofRun diagnostic matching", pattern: "proof records measured counts", before: 'const matched = expectedFailure.exec(error)?.[0];', after: 'const matched = expectedFailure.source;' },
+    { code: "ERR_ASSERTION", file: "evaluation-lifecycle.ts", expected: /Every native birth must be read once per causal operation/, name: "verifyCausalEvaluationRetry validated birth reuse", pattern: "causal operations read", before: '  const birth = entries.find(entry => entry.id === options.id) ?? await witnessedBirth(client, options.id);', after: '  const birth = await witnessedBirth(client, options.id);' },
+    { code: "ERR_ASSERTION", file: "test/fixtures/causal-proof.ts", testFile: "test/evaluation-lifecycle-proof.test.ts", expected: /Refused proof must restore the implementation/, name: "proveRevert restoration on refusal", pattern: "every proof producer", before: '} finally { writeFileSync(join(root, sourceFile), fixed); }', after: '} finally { /* Revert restoration after refused proof. */ }' },
   ];
   const selected = process.argv.slice(2);
   assert.ok(selected.every(pattern => cases.some(entry => entry.pattern === pattern)), "Unknown proof selector");
@@ -30,13 +34,8 @@ try {
   for (const entry of cases.filter(entry => selected.length === 0 || selected.includes(entry.pattern))) {
     const source = readFileSync(join(repository, entry.file), "utf8");
     assert.ok(source.includes(entry.before));
-    let reverted: ProofResult;
-    try {
-      writeFileSync(join(root, entry.file), source.replace(entry.before, entry.after));
-      reverted = validateProofRun(runProofTest(root, entry.testFile ?? "test/evaluation-lifecycle.test.ts", entry.pattern), entry.pattern, entry.expected, entry.code);
-    } finally { writeFileSync(join(root, entry.file), source); }
-    const restored = validateProofRun(runProofTest(root, entry.testFile ?? "test/evaluation-lifecycle.test.ts", entry.pattern), entry.pattern);
-    const previous = results.findIndex(result => result.test === entry.pattern);
+    const { reverted, restored } = proveRevert(root, entry.file, source, source.replace(entry.before, entry.after), entry.testFile ?? "test/evaluation-lifecycle.test.ts", entry.pattern, entry.expected, entry.code);
+    const previous = results.findIndex(result => result.test === entry.pattern && result.function === entry.name);
     if (previous !== -1) results.splice(previous, 1);
     results.push({ function: entry.name, test: entry.pattern, reverted, restored });
     process.stdout.write(`${entry.name}: behavioural failure on revert; restoration passes\n`);

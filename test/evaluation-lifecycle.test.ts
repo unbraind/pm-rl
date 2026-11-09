@@ -4,10 +4,11 @@ import { fork } from "node:child_process";
 import { join } from "node:path";
 import { rmSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { test } from "node:test";
+import type { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { Hash } from "node:crypto";
 import { canonicalJson } from "../json-identity.ts";
 import { readSequentialEvaluation } from "../sequential-evaluation.ts";
-import { approveEvaluationPlan, createCausalEvaluationArtifact, validateCausalEvaluationOrder } from "../evaluation-lifecycle.ts";
+import { approveEvaluationPlan, createCausalEvaluationArtifact, validateCausalEvaluationOrder, verifyCausalEvaluationRetry } from "../evaluation-lifecycle.ts";
 import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { promoteGenerationCore, registerGenerationCore, readCompleteLoopItem, startRunCore, type JsonValue, type RlCommandResult } from "../index.ts";
 import { enforceEvaluationPlan, validateEvaluationOrder, evaluationLifecycleArtifacts, parseEvaluationPlan, readEvaluationPlan, registerEvaluationPlan } from "../evaluation-plan.ts";
@@ -252,5 +253,45 @@ test("causal validation hashes each birth once per call and never caches across 
     } finally { probe.mock.restore(); }
     await w.client.notes(artifacts[0].id, { add: 'pm-rl/evaluation-birth/1 {}' });
     await assert.rejects(validateCausalEvaluationOrder(w.client, w.plan, artifacts), refused("eval_plan_evidence"));
+  } finally { process.chdir(testCwd); rmSync(w.root, { recursive: true, force: true }); }
+});
+
+
+test("causal operations read each validated birth once across creation validation and retry", async (t) => {
+  const w = await causalWorkspace();
+  try {
+    const artifacts = Array.from({ length: 6 }, (_, stage) => ({ id: `rl-reads-${stage}`, stage }));
+    const counts = new Map<string, number>();
+    const get = w.client.get;
+    // Observe calls while retaining every real SDK read and its native result.
+    const probe = t.mock.method(w.client, "get", function (this: PmClient, ...args: Parameters<PmClient["get"]>) {
+      if (args[1]?.fields === "id,type,body,affected_version,fixed_version,created_at,component,environment,notes") {
+        const key = `${args[0]}:${args[1]?.at ?? "current"}`;
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+      }
+      return get.apply(this, args);
+    });
+    try {
+      for (const [stage, entry] of artifacts.entries()) {
+        const options = { id: entry.id, type: "Decision", title: "Observed native birth", body: "x".repeat(4096 * stage) };
+        const chain = artifacts.slice(0, stage + 1);
+        for (const operation of ["create", "validate", "retry", "verify"] as const) {
+          counts.clear();
+          if (operation === "validate") assert.equal(await validateCausalEvaluationOrder(w.client, w.plan, chain), undefined);
+          else if (operation === "verify") await verifyCausalEvaluationRetry(w.client, w.plan, options, chain);
+          else await createCausalEvaluationArtifact(w.client, w.plan, options, chain);
+          const expected = operation === "create" ? chain.slice(0, -1) : chain;
+          assert.deepEqual([...counts].sort(), expected.flatMap(row => [[`${row.id}:1`, 1], [`${row.id}:current`, 1]]).sort(), "Every native birth must be read once per causal operation");
+        }
+        // The internal retry surface also supports a target omitted from the ancestry list.
+        await verifyCausalEvaluationRetry(w.client, w.plan, options, chain.slice(0, -1));
+      }
+      const prospective = (await readCompleteLoopItem(w.client, artifacts.at(-1)!.id)).item;
+      counts.clear();
+      await validateCausalEvaluationOrder(w.client, w.plan, artifacts, prospective);
+      assert.equal(counts.has(`${prospective.id}:1`), false);
+      await w.client.notes(artifacts[0].id, { add: "pm-rl/evaluation-birth/1 {}" });
+      for (const operation of [() => validateCausalEvaluationOrder(w.client, w.plan, artifacts), () => createCausalEvaluationArtifact(w.client, w.plan, { id: "rl-next-birth" }, [...artifacts, { id: "rl-next-birth", stage: 7 }])]) await assert.rejects(operation, refused("eval_plan_evidence"));
+    } finally { probe.mock.restore(); }
   } finally { process.chdir(testCwd); rmSync(w.root, { recursive: true, force: true }); }
 });

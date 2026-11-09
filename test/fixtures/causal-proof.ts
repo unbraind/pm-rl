@@ -2,6 +2,8 @@
 import assert from "node:assert/strict";
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { parse } from "yaml";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 /** Measured runner totals and the positively identified behavioral diagnostic, without machine paths. */
 export interface ProofResult {
@@ -59,4 +61,16 @@ export function validateProofRun(run: SpawnSyncReturns<string>, pattern: string,
     result.failure = { test: selected[0].name, code: String(data.code), failureType: String(data.failureType), matched };
   }
   return result;
+}
+
+
+/** Restore the isolated implementation even when failure admission refuses an infrastructure error. */
+export function proveRevert(root: string, sourceFile: string, fixed: string, reverted: string, testFile: string, pattern: string, expected: RegExp, code = "ERR_ASSERTION"): { reverted: ProofResult; restored: ProofResult } {
+  let broken: ProofResult;
+  try {
+    writeFileSync(join(root, sourceFile), reverted);
+    broken = validateProofRun(runProofTest(root, testFile, pattern), pattern, expected, code);
+  } finally { writeFileSync(join(root, sourceFile), fixed); }
+  const restored = validateProofRun(runProofTest(root, testFile, pattern), pattern);
+  return { reverted: broken, restored };
 }

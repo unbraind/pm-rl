@@ -42,7 +42,9 @@ its artifact. It contains the comparison, stage, a fresh random nonce, the
 request digest and exact predecessor birth digests. Readers reconstruct each
 birth using the SDK's verified version-one snapshot, verify the original witness
 still exists unchanged, and compare all predecessor digests. Each predecessor birth
-is hashed at most once per validation; the cache expires when that call returns. Dates remain
+is read once as a birth/current pair per operation. Creation and replay reuse those
+validated records and the digest cache; the cache expires when that call returns.
+Dates remain
 historical content; no date comparison, filesystem mtime or timestamp-sorted
 event-list position decides causal order. Equal timestamps, host skew and clock
 rollback therefore do not alter an eligible chain.
@@ -100,4 +102,6 @@ and records the passing restoration. Process errors, signals, worker timeouts,
 cancelled/skipped tests and unrelated failures cannot certify a revert. Inherited
 Node test filters are excluded. Receipts are written only after every selected
 mutation and restoration has been verified; `finally` restores the disposable
-source even when verification refuses the evidence.
+source even when verification refuses the evidence. All five package revert
+generators use this same admission and restoration helper; the proof tests enumerate
+them and reject independent runners or assumed pass/fail totals.

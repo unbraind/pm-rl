@@ -6,7 +6,13 @@
       "function": "executeReservedProcessJob staging settlement",
       "reverted": {
         "pass": 0,
-        "fail": 1
+        "fail": 1,
+        "failure": {
+          "test": "staging creation failures refund only planned jobs and preserve every exhausted budget dimension",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "The validation function is expected to return"
+        }
       },
       "restored": {
         "pass": 1,
@@ -17,7 +23,13 @@
       "function": "processTransitionTarget consumption floor",
       "reverted": {
         "pass": 0,
-        "fail": 1
+        "fail": 1,
+        "failure": {
+          "test": "every failure settlement edge refuses resource refunds even with claimed completion evidence",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "Missing expected rejection"
+        }
       },
       "restored": {
         "pass": 1,
@@ -28,7 +40,13 @@
       "function": "failedProcessCharge inaccessible reports",
       "reverted": {
         "pass": 0,
-        "fail": 1
+        "fail": 1,
+        "failure": {
+          "test": "recovery settlement retains reservations when either usage report becomes unreadable and charges observable excess",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "Expected values to be strictly equal"
+        }
       },
       "restored": {
         "pass": 1,
@@ -39,7 +57,13 @@
       "function": "failedProcessCharge native birth proof",
       "reverted": {
         "pass": 0,
-        "fail": 1
+        "fail": 1,
+        "failure": {
+          "test": "staging failures cannot refund a rewritten or annotated planned reservation",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "Expected values to be strictly equal"
+        }
       },
       "restored": {
         "pass": 1,

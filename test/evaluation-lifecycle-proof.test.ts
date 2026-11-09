@@ -1,11 +1,11 @@
 /** Exercise proof admission with real bounded Node runners, including unrelated and infrastructure failures. */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
-import { runProofTest, validateProofRun } from "./fixtures/causal-proof.ts";
+import { proveRevert, runProofTest, validateProofRun } from "./fixtures/causal-proof.ts";
 
 /** Each fixture is a real test file outside Git; no SDK behavior is substituted. */
 function fixture(source: string, run: (root: string, file: string) => void): void {
@@ -63,4 +63,22 @@ test("proof execution ignores inherited Node test selection options", () => {
     if (previous === undefined) delete process.env.NODE_OPTIONS;
     else process.env.NODE_OPTIONS = previous;
   }
+});
+
+
+test("every proof producer validates measured selected-test evidence and restores refused reverts", () => {
+  const producers = readdirSync(new URL(".", import.meta.url)).filter(file => /revert.*\.ts$/.test(file));
+  assert.equal(producers.length, 5);
+  for (const file of producers) {
+    const source = readFileSync(new URL(file, import.meta.url), "utf8");
+    assert.match(source, /proveRevert\(/, `${file} must use shared behavioral admission`);
+    assert.doesNotMatch(source, /spawnSync|(?:pass|passed|fail|failed): [01]\b/, `${file} must measure results rather than assume counts`);
+  }
+  fixture("test('selected', () => {});", (root, file) => {
+    const fixed = readFileSync(join(root, file), "utf8");
+    const infrastructure = fixed.replace("() => {}", "() => { throw new Error('Worker selected timed out'); }");
+    assert.throws(() => proveRevert(root, file, fixed, infrastructure, file, "selected", /Worker selected timed out/, "ERR_TEST_FAILURE"));
+    assert.ok(readFileSync(join(root, file), "utf8") === fixed, "Refused proof must restore the implementation");
+    assert.deepEqual(validateProofRun(runProofTest(root, file, "selected"), "selected"), { pass: 1, fail: 0 });
+  });
 });
