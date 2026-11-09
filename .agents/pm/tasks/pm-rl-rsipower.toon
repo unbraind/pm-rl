@@ -6,10 +6,10 @@ status: in_progress
 priority: 2
 tags[2]: "gh:unbraind/pm-rl#148","gh:unbraind/pm-rl#149"
 created_at: "2026-10-19T12:52:29.061Z"
-updated_at: "2026-11-09T19:18:33.852Z"
+updated_at: "2026-11-09T22:28:59.528Z"
 author: codex-agent
 parent: pm-rl-apvf
-comments[80]{created_at,author,text}:
+comments[86]{created_at,author,text}:
   "2026-11-06T04:31:07.159Z",codex-sol,"Plan: freeze public commit-pinned tracker-disjoint development/meta/audit sources; declare a 0.10 transfer effect, 0.01 promotion margin, alpha 0.05 and target power 0.80 before measuring. Use bounded paired tracker means with task and generation Bonferroni correction. Preserve existing promotion gates and refuse underpowered evidence. Seal replayable corpus/split/evaluation context in SDK-owned items and native history; run one CPU-niced bounded real generation, report all refusals honestly."
   "2026-11-06T04:40:26.177Z",codex-sol,"Corpus frozen before scoring: 31 public MIT source pins, 19 development tasks, 16 meta tasks and 11 audit tasks; corpus digest 7156cf8c85b9941e12e42632c08f27419af69b7b3ee8824545c35def3fee9d49. One unverifiable directory excluded; private/hosted sources never opened. Conservative declared power requires 3062 held-out trackers per task; the available fleet cannot meet this. Proceeding with one bounded diagnostic generation, not claiming powered no-transfer evidence."
   "2026-11-06T04:49:32.441Z",codex-sol,"Runtime adjustment before a complete held-out comparison: stopped the broad diagnostic after 19 development fits and one meta-baseline fit, preserving receipts, reservations and any cancellation transition. A second predeclared diagnostic selects the first three trackers with both tasks in each compartment by SHA-256 repository identity and seed 42, with no score-based selection. One generation, one proposal, 64 updates, 10-minute deadline in an isolated non-git SDK tracker. Native corpus, paired observations and replayable decisions are copied through SDK APIs into this tracker; no evidence side files are published."
@@ -90,7 +90,13 @@ comments[80]{created_at,author,text}:
   "2026-11-09T18:30:39.135Z",codex-agent,"Re-review round 4 fixed the single non-blocking finding (docs/proposer-programs.md:39): the shipped two-generation declaration (effect 0.10, three looks) requires 3,218 independent trackers per task at each look, i.e. 12,872 meta tasks, above the 10,000-task compartment cap, so rl proposer run refuses it with transfer_underpowered before any fit. Valid finding; fixed, not refused. General rule closed: every page that presents the shipped declaration as a runnable example must state the task-cap refusal, keep the declaration usable for validation and diagnostic replay, and point to a feasible design. README already stated this from the preflight round; the guide now states it too, and a factory-derived documentation test derives per-look and meta-task figures from transferPower, TRANSFER_MAX_TASKS and proposerEvolutionConfiguration, then checks every such page (README, docs/proposer-programs.md) names transfer_underpowered and the 10,000-task cap and points to the sizing table; the guide must also state the exact derived figures. Two behavioral revert probes in the disposable-copy fixture remove only the guide paragraph or only the README refusal sentences and the test fails (exit 1, AssertionError) both ways."
   "2026-11-09T18:51:30.779Z",codex-agent,"Round-4 gate results: test/transfer-review-capacity.test.ts passes 6/6 including the new factory-derived documentation test; both disposable-copy revert probes for the class fail as required (exit 1, AssertionError) when only the guide paragraph or only the README refusal sentences are removed. Production typecheck, build, test typecheck, lint (max-warnings=0), docstrings (567 declarations), zero duplicates and the identity audit (5 unique addresses) pass. A pm test full-replay of all recorded commands hit a local 20-minute host-load timeout; every recorded command was already run individually in this round with passing results, so it is a host timeout, not a failure. Full release gate remains CI-certified."
   "2026-11-09T19:18:31.225Z",codex-agent,"Round-4 CI handoff at the 30-minute cutoff: pushed head 7eb685d is MERGEABLE with no conflicts. Greptile review passed; codeql, test (22), test (26) and Bun release (26) are still pending at https://github.com/unbraind/pm-rl/actions/runs/42677850332 with no failure result. Full-gate certification remains with CI; this local receipt rides the next genuine push."
-files[33]{path,scope}:
+  "2026-11-09T22:08:19.049Z",codex-agent,"Continuation round 5: retained the existing valid uncommitted changes and the prior local CI handoff commit. Remote PR #148 is MERGEABLE and the branch includes origin/main. One unresolved finding, PRRT_kwDOTqJmqs61cd3M. General rule: reservations, process-slot crediting and statistical comparison counts must derive from the same work population actually executed, including each meta look. Auditing all package formulas, controller/SDK/CLI output paths, non-git trackers and packed consumers; will add behavioral revert evidence and preserve historical receipts."
+  "2026-11-09T22:12:41.701Z",codex-agent,"Class audit: only the proposer partitions meta trackers by look; recursive-improver.ts intentionally fits the entire meta split each generation, so its existing formula is correct. Proposer budget, reservation charges, promotion headroom, worst-case resources, retained-job slot identities and Bonferroni plans now use the executed per-look population. Execution and plan persistence reuse the same selected members. Added an exact-budget end-to-end run/replay and a shared consumer matrix over 1-4 generations, 1/3 candidates and uneven tracker cohorts for source and packed npm/Node/Bun SDKs. The matrix also rejects credit for jobs belonging to another meta look and rejects frozen historical whole-split reservations without mutation. Historical transfer receipts retain their read/replay contract; corrected runs require a fresh identity when an old reservation exists. The guide documents the confidence and plan-digest change."
+  "2026-11-09T22:18:25.805Z",codex-agent,"Revert proof for PRRT_kwDOTqJmqs61cd3M: node test/fixtures/transfer-reverts.ts \"generation budgets and slots\" passed 2/2 expected behavioral failures in disposable copies. Restoring the whole-meta-split fit formula refuses an exactly funded approval; dropping legitimate per-look slot indexes refuses replay. node test/fixtures/transfer-reverts.ts \"per-look meta members obey\" passed 1/1: restoring slots for the whole meta split incorrectly credits an unexecuted job and fails the adversarial matrix assertion. The documentation-only formula revert also fails 1/1. Existing empty-look and unrepresentable-plan preflight revert probes still fail 2/2 after their source matchers were updated for the shared look population. All six probes exited 1 with expected assertions or typed budget refusals, without module/syntax failures, and restored the fixed source in finally. Final positive suite will rerun the restored implementation. Static gates pass: typecheck, build, build:test, lint, docstrings (567 declarations across 63 files), duplicates (zero), identities (five approved addresses), publish attestation and production audit (zero vulnerabilities). Strict isolated tracker health passes; known advisory warnings were retained and all five changed histories retain the main bytes as a prefix."
+  "2026-11-09T22:19:05.519Z",codex-agent,"The expanded packed matrix passed all 8 configurations in source, all 8 in packed npm/Node, and all 8 in packed Bun. The initial expanded full-run assertion used the report plan identifier where the comparison digest was required; corrected the test to compare EvaluationPlanReport.comparison, and the CLI assertions now check its compact budget/identity summary against the SDK report. No production change was needed for those assertion-wiring corrections. Rerunning the corrected focused suite through the linked pm test runner before the broader bounded suite. As specifically authorized for pm-rl, the multi-hour npm/Bun release:check coverage gates remain assigned to exact-head CI; local checks retain all existing thresholds and use at most two test workers."
+  "2026-11-09T22:21:30.122Z",codex-agent,"Corrected focused linked gate passed 3/3 with zero failures, skips or timeouts in 155.389 seconds: documentation contract; full two-generation exact-budget execution with matching generation/audit confidence digests, SDK replay and JSON/TOON CLI projections; and the 24-case source/packed npm/packed Bun matrix. pm test --run --only-index 21 --progress passed with pm_context_mode none and an isolated source snapshot; test-result tracking remains disabled to keep run artefacts out of this package tracker. The broader existing nine-file targeted gate is now running through linked test 18, with two workers and unchanged thresholds."
+  "2026-11-09T22:28:58.282Z",codex-agent,"Final round-5 local validation: pm test pm-rl-rsipower --run --only-index 18 --progress passed the existing nine-file targeted command, 104/104 tests in 386.507 seconds, zero failures/skips/timeouts and all failure categories zero. This reruns the final public-index consumer fixture and the restored implementation after all six successful behavioral revert probes. Focused linked test 21 passed 3/3. Commands and files are linked on this item; test run artefacts remained outside the package tracker. Typecheck, build/build:test, lint, docstrings (63 files/567 declarations), duplicates (0), identities (5 approved addresses), publish attestation, production audit (0 vulnerabilities), changelog generation/check and strict isolated tracker health passed. The final fetch confirms origin/main is included and the existing PR branch has not changed. Full npm and Bun release:check/coverage remain exact-head CI work under the explicit pm-rl host-time exception. The prior round head has successful Node 22, Node 26 and Bun release gates; that is baseline evidence only. Releasing this claim before the final changelog regeneration and push; keep the item open for orchestrator verification. No review thread was replied to or resolved, no duplicate PR/item, merge or release was made."
+files[35]{path,scope}:
   dataset.ts,project
   improver-data.ts,project
   index.ts,project
@@ -99,6 +105,7 @@ files[33]{path,scope}:
   proposer-program.ts,project
   proposer-transfer.ts,project
   scripts/live-improver.ts,project
+  test/fixtures/proposer-budget-consumer.ts,project
   test/fixtures/revert-receipt.ts,project
   test/fixtures/transfer-cli.ts,project
   test/fixtures/transfer-corpus.ts,project
@@ -109,6 +116,7 @@ files[33]{path,scope}:
   test/fixtures/transfer-reverts.ts,project
   test/fixtures/transfer-scratch.ts,project
   test/improver.test.ts,project
+  test/proposer-program.test.ts,project
   test/proposer-transfer.test.ts,project
   test/training-influence-maintenance-revert.ts,project
   test/training-influence.compensation-revert.ts,project
@@ -124,7 +132,7 @@ files[33]{path,scope}:
   test/transfer-review-round2.test.ts,project
   test/transfer-review-storage.test.ts,project
   test/transfer-review.test.ts,project
-tests[20]:
+tests[22]:
   - command: "node --test --test-concurrency=2 --test-name-pattern=training.tracker\\|split.digest\\|power.bound test/proposer-transfer.test.ts"
     scope: project
     provenance:
@@ -281,6 +289,26 @@ tests[20]:
     provenance:
       author: codex-agent
       created_at: "2026-11-09T18:30:53.596Z"
+      source_kind: local_mutation
+      source_ref: rsi-proposer-transfer-evaluation
+  - command: "node --test --test-concurrency=2 --test-name-pattern=\"generation budgets and slots|per-look meta members obey|approval documentation declares\" test/transfer-review-capacity.test.ts test/proposer-program.test.ts"
+    scope: project
+    timeout_seconds: 900
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-09T22:15:14.099Z"
+      source_kind: local_mutation
+      source_ref: rsi-proposer-transfer-evaluation
+  - command: "node test/fixtures/transfer-reverts.ts \"generation budgets and slots\""
+    scope: project
+    timeout_seconds: 900
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-09T22:17:04.218Z"
       source_kind: local_mutation
       source_ref: rsi-proposer-transfer-evaluation
 docs[5]{path,scope}:

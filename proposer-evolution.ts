@@ -172,17 +172,18 @@ function evolutionDataset(directory: string): ImproverDataset {
 function proposerFitIdentity(id: string, key: string, index: number, slot: number): string {
   return `${id}-j${hashJson(`${key}-t${index}-c${slot}`).slice(0, 12)}`;
 }
-/** Replace retained slots' planned allowances with their actual charges, leaving unrelated jobs fully charged. */
-async function proposerProcessBudget(client: PmClient, approval: string, id: string, config: ProposerEvolutionConfig, manifest: ImproverDataset, worst: Resources): Promise<Resources> {
+/** Credit retained jobs only for executed slots, using full-split task indexes within each meta look. */
+async function proposerProcessBudget(client: PmClient, approval: string, id: string, config: ProposerEvolutionConfig, manifest: ImproverDataset, worst: Resources, metaLookIndexes: readonly (readonly number[])[]): Promise<Resources> {
   const slots = new Map<string, Resources>();
-  const searches: { key: string; role: typeof IMPROVER_ROLES[number] }[] = [...Array.from({ length: config.generations }, (_, index) => [
-    { key: `g${index + 1}-d`, role: "development" as const },
-    { key: `g${index + 1}-b`, role: "meta" as const },
-    { key: `g${index + 1}-a`, role: "meta" as const },
-  ]).flat(), { key: "audit-b", role: "audit" }, { key: "audit-a", role: "audit" }];
-  for (const { key, role } of searches) {
+  const searches: { key: string; role: typeof IMPROVER_ROLES[number]; look: number }[] = [...Array.from({ length: config.generations }, (_, index) => [
+    { key: `g${index + 1}-d`, role: "development" as const, look: 0 },
+    { key: `g${index + 1}-b`, role: "meta" as const, look: index + 1 },
+    { key: `g${index + 1}-a`, role: "meta" as const, look: index + 1 },
+  ]).flat(), { key: "audit-b", role: "audit", look: 0 }, { key: "audit-a", role: "audit", look: 0 }];
+  for (const { key, role, look } of searches) {
     slots.set(`${id}-${key}`, PROPOSER_ALLOWANCE);
-    for (let index = 0; index < manifest.splits[role].tasks; index++) for (let slot = 0; slot < config.candidates; slot++) {
+    const population = role === "meta" ? metaLookIndexes[look - 1] : Array.from({ length: manifest.splits[role].tasks }, (_, index) => index);
+    for (const index of population) for (let slot = 0; slot < config.candidates; slot++) {
       const identity = proposerFitIdentity(id, key, index, slot);
       for (let attempt = 0; attempt < IMPROVER_MAX_ATTEMPTS; attempt++) slots.set(`${identity}:${attempt}`, IMPROVER_ADAPTER.allowance);
     }
@@ -211,14 +212,18 @@ export async function runProposerEvolution(client: PmClient, coordinates: Proces
   const auditTasks = BigInt(minimum) * BigInt(design.targets.length);
   const metaTasks = auditTasks * BigInt(design.looks - 1);
   if (metaTasks > TRANSFER_MAX_TASKS || auditTasks > TRANSFER_MAX_TASKS) expectedFail(`transfer_underpowered: This design requires ${minimum} independent trackers per target at each look, ${metaTasks} meta tasks and ${auditTasks} audit tasks; each compartment supports at most ${TRANSFER_MAX_TASKS} tasks. Declare a feasible prospective design or retain this declaration for diagnostic replay.`, "transfer_underpowered");
-  for (let look = 1; look <= config.generations; look += 1) {
-    if (transferMembers(transferCorpus, "meta", config.generations + 1, look).length === 0) expectedFail(`transfer_underpowered: Meta look ${look} has no tracker. Seal a corpus with at least ${config.generations} meta trackers before starting.`, "transfer_underpowered");
+  /** Each generation evaluates only its own look's meta members, so the looks partition the meta split exactly once. */
+  const metaLooks = Array.from({ length: config.generations }, (_, index) => transferMembers(transferCorpus, "meta", config.generations + 1, index + 1));
+  for (const [index, members] of metaLooks.entries()) {
+    if (members.length === 0) expectedFail(`transfer_underpowered: Meta look ${index + 1} has no tracker. Seal a corpus with at least ${config.generations} meta trackers before starting.`, "transfer_underpowered");
   }
   const approval = await proposerApprovalRead(() => readCompleteLoopItem(client, request.approval));
   if (approval.item.type !== "Decision") expectedFail("Approve the complete resource budget in a Decision before starting.", "proposer_approval");
-  const fits = config.candidates * (config.generations * (manifest.splits.development.tasks + 2 * manifest.splits.meta.tasks) + 2 * manifest.splits.audit.tasks);
+  /** Budget the executed work, not whole splits: the meta term sums the per-look members actually fitted. */
+  const metaFits = metaLooks.reduce((total, members) => total + members.length, 0);
+  const fits = config.candidates * (config.generations * manifest.splits.development.tasks + 2 * metaFits + 2 * manifest.splits.audit.tasks);
   // Validate the same plan schema before reservation; later retained digests have the same bounded shape.
-  for (let look = 1; look <= config.generations; look += 1) proposerEvaluationPlan(`${request.id}-g${look}`, config.initial, transferMembers(transferCorpus, "meta", config.generations + 1, look), manifest.splits.meta.digest, fits + config.generations + 1);
+  for (const [index, members] of metaLooks.entries()) proposerEvaluationPlan(`${request.id}-g${index + 1}`, config.initial, members, manifest.splits.meta.digest, fits + config.generations + 1);
   proposerEvaluationPlan(`${request.id}-audit`, config.initial, transferCorpus.tasks.audit, manifest.splits.audit.digest, fits + config.generations + 1);
   const budget = { fits, optimizer_updates: fits * config.updates, max_optimizer_updates: fits * config.updates * 2, inference_tokens: 0 as const, proposal_processes: config.generations * 3 + 2 };
   const binding = hashJson({ config: config as unknown as JsonValue, dataset: manifest.digest, approval: approval.item.body as string });
@@ -226,7 +231,9 @@ export async function runProposerEvolution(client: PmClient, coordinates: Proces
   await proposerApprovalRead(() => reserveSearchCapacity(client, coordinates, request, binding, capacity, fits + config.generations, false, true));
   const approved = await proposerApprovalRead(() => approvedResources(client, request.approval));
   const worst = Object.fromEntries(RESOURCE_KEYS.map((key) => [key, fits * IMPROVER_MAX_ATTEMPTS * IMPROVER_ADAPTER.allowance[key] + budget.proposal_processes * PROPOSER_ALLOWANCE[key]])) as unknown as Resources;
-  const total = await proposerApprovalRead(() => proposerProcessBudget(client, approved.id, request.id, config, manifest, worst));
+  /** Slot each meta search only at the full-split indexes its look actually fits, so retained-job crediting matches executed work. */
+  const metaIndexes = metaLooks.map((members) => { const ids = new Set(members.map((task) => task.id)); return transferCorpus.tasks.meta.map((task, index) => (ids.has(task.id) ? index : -1)).filter((index) => index >= 0); });
+  const total = await proposerApprovalRead(() => proposerProcessBudget(client, approved.id, request.id, config, manifest, worst, metaIndexes));
   for (const key of RESOURCE_KEYS) {
     if (!Number.isSafeInteger(total[key]) || total[key] > approved.budget[key]) expectedFail(`Approved ${key} budget cannot cover the worst-case proposer run. Obtain capacity before starting.`, "process_budget_exhausted");
   }
@@ -276,7 +283,7 @@ export async function runProposerEvolution(client: PmClient, coordinates: Proces
         if (hashJson(cached as unknown as JsonValue) !== hashJson(job.completion!.policy as unknown as JsonValue)) expectedFail("Cached proposal differs from its verified process completion. Restore original controller and process evidence before resuming.", "process_job_drift");
       });
       const scores: { id: string; mean: number }[] = []; const jobs: string[] = []; const observations = counts.map((row) => ({ ...row })); let optimizerUpdates = 0;
-      const selected = role === "development" ? null : new Set(transferMembers(transferCorpus, role, config.generations + 1, look).map((task) => task.id));
+      const selected = role === "development" ? null : new Set((role === "meta" ? metaLooks[look - 1] : transferCorpus.tasks.audit).map((task) => task.id));
       const tasks = proposerDatasetRead(() => environment.tasks(role)).map((task, index) => ({ task, index })).filter(({ task }) => selected === null || selected.has(task.id));
       for (const { index, task } of tasks) {
         const learners: (Awaited<ReturnType<typeof environment.fit>>["retained"] | null)[] = [null]; let mean = 0;
@@ -298,7 +305,7 @@ export async function runProposerEvolution(client: PmClient, coordinates: Proces
     for (let generation = 1; generation <= config.generations; generation += 1) {
       const retained = lineage[1];
       const key = `g${generation}`;
-      const plan = await persistProposerEvaluationPlan(step, `${key}-plan`, retained.digest, proposerEvaluationPlan(`${request.id}-${key}`, retained, transferMembers(transferCorpus, "meta", config.generations + 1, generation), manifest.splits.meta.digest, fits + config.generations + 1), corpusAddress);
+      const plan = await persistProposerEvaluationPlan(step, `${key}-plan`, retained.digest, proposerEvaluationPlan(`${request.id}-${key}`, retained, metaLooks[generation - 1], manifest.splits.meta.digest, fits + config.generations + 1), corpusAddress);
       const development = await search("development", retained, `${key}-d`); counts = [...development.counts];
       const candidate = await step(`${key}-mutation`, { retained, counts }, async () => mutateProposer({ program: retained, counts, role: "development", seed: config.seed, count: config.candidates }));
       const before = await search("meta", retained, `${key}-b`, generation); const after = await search("meta", candidate, `${key}-a`, generation);

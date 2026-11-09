@@ -1,19 +1,24 @@
 /** Powered storage regressions retain released formats and use real native SDK histories. */
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
+import { execFileSync, spawnSync } from "node:child_process";
 import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import extension, { readCompleteLoopItem } from "../index.ts";
+import extension, { readCompleteLoopItem, type RlCommandResult } from "../index.ts";
 import { hashJson, type JsonValue } from "../json-identity.ts";
 import { planImproverRoleFiles, readImproverTasks, type ImproverTask } from "../improver-data.ts";
-import { parseProposerEvolutionConfig, proposerCorpusReader, proposerEvolutionConfiguration, runProposerEvolution } from "../proposer-evolution.ts";
-import { archiveTransferCorpus, loadTransferCorpus, recordTransferPlan, readTransferPlan, recordTransferEvaluation, replayTransferEvaluation, transferPower, TRANSFER_DESIGN, TRANSFER_MAX_TASKS, type TransferCorpus } from "../proposer-transfer.ts";
+import { parseProposerEvolutionConfig, proposerCorpusReader, proposerEvolutionConfiguration, runProposerEvolution, proposerEvaluationPlan, PROPOSER_ALLOWANCE } from "../proposer-evolution.ts";
+import { archiveTransferCorpus, loadTransferCorpus, recordTransferPlan, readTransferPlan, recordTransferEvaluation, replayTransferEvaluation, transferMembers, transferPower, TRANSFER_DESIGN, TRANSFER_MAX_TASKS, type TransferCorpus } from "../proposer-transfer.ts";
 import { MAX_JSON_BYTES, MAX_TRACKER_RECORD_BYTES } from "../tracker-record.ts";
+import { listProcessJobs, RESOURCE_KEYS, type Resources } from "../process.ts";
+import { IMPROVER_ADAPTER, IMPROVER_MAX_ATTEMPTS } from "../improver-environment.ts";
 import { transferCorpus, sealTransferCorpus, writeTransferDataset } from "./fixtures/transfer-corpus.ts";
 import { processWorkspace } from "./fixtures/process-workspace.ts";
+import { checkProposerBudgets } from "./fixtures/proposer-budget-consumer.ts";
+import { withTransferScratch } from "./fixtures/transfer-scratch.ts";
 
 const design = { ...TRANSFER_DESIGN, effect: 0.081, looks: 2 };
 let powered: TransferCorpus | undefined;
@@ -165,4 +170,76 @@ test("documentation pages presenting the shipped runnable declaration state the 
   assert.ok(guide.includes(`${perLook.toLocaleString("en-US")} independent trackers per task at each look`), "docs/proposer-programs.md states the derived per-look requirement");
   assert.ok(guide.includes(`${metaTasks.toLocaleString("en-US")} meta tasks`), "docs/proposer-programs.md states the derived meta-task requirement");
   assert.ok(guide.includes("diagnostic replay"), "docs/proposer-programs.md keeps the shipped declaration usable for validation and diagnostic replay");
+});
+
+test("generation budgets and slots charge the per-look meta members actually executed", { timeout: 600_000 }, async () => {
+  const corpus = transferCorpus({ development: 1, meta: 2, audit: 1 });
+  const members = [1, 2].map((look) => transferMembers(corpus, "meta", 3, look));
+  /** Property: the looks partition the meta trackers disjointly and completely, so executed meta work is counted exactly once. */
+  assert.ok(members.every((look) => look.length > 0));
+  assert.deepEqual([...new Set(members.flat().map((task) => task.repo))].sort(), [...new Set(corpus.tasks.meta.map((task) => task.repo))].sort());
+  const metaFits = members.reduce((total, look) => total + look.length, 0);
+  const config = { ...proposerEvolutionConfiguration(), generations: 2, candidates: 1, updates: 1, transfer: { effect: 0.5, alpha: 0.05, power: 0.8 } };
+  assert.equal(config.generations, 2);
+  const expected = config.candidates * (config.generations * corpus.manifest.splits.development.tasks + 2 * metaFits + 2 * corpus.manifest.splits.audit.tasks);
+  const processes = config.generations * 3 + 2;
+  /** Approve exactly the worst case the executed work plans, so any uncredited retained slot refuses on replay. */
+  const worst = Object.fromEntries(RESOURCE_KEYS.map((key) => [key, expected * IMPROVER_MAX_ATTEMPTS * IMPROVER_ADAPTER.allowance[key] + processes * PROPOSER_ALLOWANCE[key]])) as unknown as Resources;
+  const w = await processWorkspace(worst);
+  await w.client.update(w.approval, { body: '```json\n' + JSON.stringify({ permitted_promotions: 100, meta_budget: { training_samples: expected * config.updates * IMPROVER_MAX_ATTEMPTS, proposal_calls: processes, recipe_promotions: config.generations }, resource_budget: worst }) + '\n```' });
+  const directory = writeTransferDataset(w.root, corpus);
+  assert.deepEqual(loadTransferCorpus(directory), corpus);
+  const request = { id: "per-look-budget", approval: w.approval, dataset: directory, config };
+  const report = await runProposerEvolution(w.client, w.coordinates, request);
+  assert.equal(report.budget.fits, expected);
+  assert.equal(report.budget.max_optimizer_updates, expected * config.updates * 2);
+  /** Adversarial: the whole-split charge multiplies the meta term by the generation count and must be strictly larger than the executed budget. */
+  const wholeSplit = config.candidates * (config.generations * (corpus.manifest.splits.development.tasks + 2 * corpus.manifest.splits.meta.tasks) + 2 * corpus.manifest.splits.audit.tasks);
+  assert.ok(expected < wholeSplit, `executed budget ${expected} must stay below the whole-split charge ${wholeSplit}`);
+  assert.equal(report.generations.length, 2);
+  const comparisons = expected + config.generations + 1;
+  for (const [index, generation] of report.generations.entries()) {
+    assert.equal(generation.comparison.comparison, hashJson(proposerEvaluationPlan(`${request.id}-g${index + 1}`, config.initial, members[index], corpus.manifest.splits.meta.digest, comparisons) as unknown as JsonValue));
+    assert.ok(generation.transfer !== undefined, `generation ${index + 1} records its transfer evaluation`);
+    assert.equal(generation.transfer?.report.tasks.length, members[index].length, `generation ${index + 1} evaluates only its own look`);
+  }
+  const reservation = JSON.parse(String((await w.client.get("per-look-budget-reservation")).item.body));
+  assert.equal(reservation.promotion_headroom, expected + config.generations);
+  assert.equal(reservation.charge.training_samples, report.budget.max_optimizer_updates);
+  assert.equal(report.audit.comparison, hashJson(proposerEvaluationPlan(`${request.id}-audit`, config.initial, corpus.tasks.audit, corpus.manifest.splits.audit.digest, comparisons) as unknown as JsonValue));
+  assert.equal((await listProcessJobs(w.client)).length, expected + processes);
+  /** Replay re-credits every executed slot under the same per-look accounting. */
+  assert.deepEqual(await runProposerEvolution(w.client, w.coordinates, request), report);
+  const file = join(w.root, "config.json"); writeFileSync(file, JSON.stringify(config));
+  const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
+  for (const json of [false, true]) {
+    const result = await harness.runCommand({ command: "rl proposer run", pmRoot: w.pmRoot, args: [request.id], options: { file, dataset: directory, approval: w.approval }, global: { json } });
+    const details = (result.result as RlCommandResult).details!;
+    assert.deepEqual(details.budget, report.budget);
+    assert.equal(details.retained, report.retained.digest);
+    assert.equal((details.generations as readonly JsonValue[]).length, config.generations);
+  }
+});
+
+
+test("per-look meta members obey exact budgets for uneven cohorts in source and packed npm and Bun consumers", { timeout: 600_000 }, async (t) => {
+  await withTransferScratch("proposer-budget-", async (scratch) => {
+    const dataset = writeTransferDataset(scratch, transferCorpus({ development: 1, meta: 5, audit: 1 }));
+    const source = join(scratch, "source"); mkdirSync(source);
+    assert.equal(await checkProposerBudgets(source, dataset), 8);
+    const root = process.cwd();
+    const environment = { PATH: process.env.PATH, HOME: scratch, NPM_CONFIG_USERCONFIG: "/dev/null", npm_config_userconfig: "/dev/null", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
+    const packed = JSON.parse(execFileSync("npm", ["pack", "--ignore-scripts", "--json", "--pack-destination", scratch], { cwd: root, env: environment, encoding: "utf8", timeout: 60_000 })) as { filename: string }[];
+    execFileSync("tar", ["-xf", join(scratch, packed[0].filename), "-C", scratch]); symlinkSync(join(root, "node_modules"), join(scratch, "node_modules"), "dir");
+    const consumer = readFileSync(join(import.meta.dirname, "fixtures/proposer-budget-consumer.ts"), "utf8").replaceAll(/"\.\.\/\.\.\/([^"/]+)\.ts"/g, '"./package/dist/$1.js"') + '\nconsole.log(JSON.stringify({ budget_cases: await checkProposerBudgets(process.cwd(), process.argv[2]), non_git: true }));\n';
+    writeFileSync(join(scratch, "consumer.ts"), consumer);
+    for (const runtime of [process.execPath, "bun"]) {
+      const project = join(scratch, runtime === "bun" ? "bun" : "npm"); mkdirSync(project);
+      const result = spawnSync(runtime, [join(scratch, "consumer.ts"), dataset], { cwd: project, env: environment, encoding: "utf8", timeout: 240_000 });
+      if (runtime === "bun" && (result.error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") { t.diagnostic("Bun unavailable (ENOENT); packed Node checks remain mandatory."); continue; }
+      assert.ifError(result.error); assert.equal(result.status, 0, result.stdout + result.stderr);
+      assert.deepEqual(JSON.parse(result.stdout), { budget_cases: 8, non_git: true });
+      t.diagnostic(`Packed ${runtime === "bun" ? "Bun" : "npm/Node"}: 8 budget cases, exact-capacity resume, unselected-slot refusal and frozen legacy reservations verified.`);
+    }
+  });
 });

@@ -333,7 +333,11 @@ test("worker read-permission documentation matches the sealed launcher grants", 
 test("approval documentation declares the shared headroom formula and retained lifetime", () => {
   const documentation = readFileSync(new URL("../docs/proposer-programs.md", import.meta.url), "utf8");
   assert.match(documentation, /`permitted_promotions` must cover `fits \+ config\.generations`/);
-  assert.match(documentation, /fits = config\.candidates \* \(config\.generations \* \(development\.tasks \+ 2 \* meta\.tasks\) \+ 2 \* audit\.tasks\)/);
+  assert.match(documentation, /fits = config\.candidates \* \(config\.generations \* development\.tasks \+ 2 \* metaFits \+ 2 \* audit\.tasks\)/);
+  assert.match(documentation, /metaFits` is the executed meta work: each generation fits only the trackers its\nlook selects/);
+  assert.match(documentation, /charges every meta task exactly once across all\ngenerations instead of once per generation/);
+  assert.match(documentation, /meta_reservation_drift` before any writes/);
+  assert.match(documentation, /historical transfer replay and start a fresh programme identity/);
   assert.match(documentation, /reservation remains held after completion,\nrefusal, interruption and replay; the search never refunds it/);
 });
 

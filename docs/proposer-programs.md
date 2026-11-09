@@ -21,7 +21,20 @@ process calls, outer promotions and inner/outer promotion headroom before work;
 concurrent searches cannot each spend the same approved capacity.
 `permitted_promotions` must cover `fits + config.generations` in addition to
 capacity already consumed or reserved under that Decision, where
-`fits = config.candidates * (config.generations * (development.tasks + 2 * meta.tasks) + 2 * audit.tasks)`.
+`fits = config.candidates * (config.generations * development.tasks + 2 * metaFits + 2 * audit.tasks)`.
+`metaFits` is the executed meta work: each generation fits only the trackers its
+look selects, so the meta term charges every meta task exactly once across all
+generations instead of once per generation. The same executed-work count sizes
+the optimizer budget, the Bonferroni comparisons and the reserved process slots.
+Under the shipped partition the looks cover the split, so `metaFits` equals
+`meta.tasks`.
+This corrects the former whole-meta-split charge for multi-generation runs and
+changes their confidence allocation and evaluation-plan digests. Existing
+reservations and plans remain frozen: resuming an old multi-generation identity
+refuses with `meta_reservation_drift` before any writes. Keep its receipts for
+historical transfer replay and start a fresh programme identity for the corrected
+budget; do not rewrite the old reservation or plans. Single-generation accounting
+is unchanged.
 The proposer run consumes this shared promotion headroom for its inner fits and
 outer generations. Its conservative reservation remains held after completion,
 refusal, interruption and replay; the search never refunds it.
