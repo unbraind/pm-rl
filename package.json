@@ -127,13 +127,15 @@
     "coverage": "npm run build && npm run build:test && node scripts/coverage-gate.ts",
     "test:live": "node scripts/live-watchdog.ts meta",
     "test:live:systemone": "node scripts/live-watchdog.ts",
-    "test:live:improver": "node scripts/live-improver.ts"
+    "test:live:improver": "node scripts/live-improver.ts",
+    "changelog:automation": "npm run changelog:full"
   },
   "coverageGate": {
     "sources": [
       "."
     ],
     "tests": [
+      "test/automation-changelog.test.ts",
       "test/checkpoint-artifacts.test.ts",
       "test/audit-git-identities.test.ts",
       "test/bandit.test.ts",

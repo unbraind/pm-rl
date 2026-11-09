@@ -1173,3 +1173,6 @@ trackers per task and a prospective power lower bound of 0.00. The decision was
 `transfer_underpowered`; the original proposer remained retained. The audit
 therefore compares the retained baseline with itself. These data establish
 neither improvement nor absence of transfer.
+GitHub issue sync uses `changelog:automation` to run the same full generation
+policy that the package changelog check verifies. Reusable workflow defaults
+therefore cannot add a different pending-release policy to this caller.
