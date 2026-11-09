@@ -199,7 +199,8 @@
       "test/training-influence.test.ts",
       "test/training-influence-maintenance.test.ts",
       "test/proposer-program.test.ts",
-      "test/evaluation-lifecycle.test.ts"
+      "test/evaluation-lifecycle.test.ts",
+      "test/evaluation-lifecycle-proof.test.ts"
     ],
     "thresholds": {
       "statements": 100,

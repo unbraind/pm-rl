@@ -4,22 +4,36 @@ import { fork } from "node:child_process";
 import { join } from "node:path";
 import { rmSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { test } from "node:test";
-import { runWithWorkspaceRecipe, PM_WORKSPACE_RECIPE_SCHEMA } from "@unbrained/pm-cli/sdk";
+import { Hash } from "node:crypto";
+import { canonicalJson } from "../json-identity.ts";
 import { readSequentialEvaluation } from "../sequential-evaluation.ts";
 import { approveEvaluationPlan, createCausalEvaluationArtifact, validateCausalEvaluationOrder } from "../evaluation-lifecycle.ts";
 import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
-import { promoteGenerationCore, registerGenerationCore, readCompleteLoopItem, startRunCore, type RlCommandResult } from "../index.ts";
-import { enforceEvaluationPlan, evaluationLifecycleArtifacts, parseEvaluationPlan, readEvaluationPlan, registerEvaluationPlan } from "../evaluation-plan.ts";
-import { causalWorkspace, causalStep } from "./fixtures/causal-evaluation.ts";
+import { promoteGenerationCore, registerGenerationCore, readCompleteLoopItem, startRunCore, type JsonValue, type RlCommandResult } from "../index.ts";
+import { enforceEvaluationPlan, validateEvaluationOrder, evaluationLifecycleArtifacts, parseEvaluationPlan, readEvaluationPlan, registerEvaluationPlan } from "../evaluation-plan.ts";
+import { causalWorkspace, causalStep, withCausalClock } from "./fixtures/causal-evaluation.ts";
 
 const testCwd = process.cwd();
 
 test("causal birth witnesses permit equal clocks, skew and rollback through collection candidate and looks", async () => {
-  for (const clocks of [[2030, 2030, 2030, 2030, 2030, 2030], [2030, 2029, 2032, 2027, 2026, 2025]]) {
+  // Exercise dispatch directly so a reverted timestamp validator fails on ordering,
+  // before higher-level publication fences can translate that refusal.
+  const dispatch = await causalWorkspace();
+  try {
+    const artifacts = [{ id: "rl-clock-review", stage: 0 }, { id: "rl-clock-plan", stage: 1 }];
+    for (const [i, entry] of artifacts.entries()) await withCausalClock(`${2030 - i}-01-01T00:00:00.000Z`, () => createCausalEvaluationArtifact(dispatch.client, dispatch.plan, { id: entry.id, type: "Decision", title: "Clock-independent dispatch" }, artifacts.slice(0, i + 1)));
+    assert.equal(String((await readCompleteLoopItem(dispatch.client, artifacts[0].id, "1")).item.created_at), "2030-01-01T00:00:00.000Z");
+    assert.equal(String((await readCompleteLoopItem(dispatch.client, artifacts[1].id, "1")).item.created_at), "2029-01-01T00:00:00.000Z");
+    await validateEvaluationOrder(dispatch.client, artifacts, 1000, undefined, dispatch.plan);
+  } finally { process.chdir(testCwd); rmSync(dispatch.root, { recursive: true, force: true }); }
+  for (const clocks of [[2030, 2029, 2032, 2027, 2026, 2025], [2030, 2030, 2030, 2030, 2030, 2030]]) {
     const w = await causalWorkspace();
     try {
       for (const [i, step] of ["review", "plan", "run", "candidate", "first", "last"].entries()) {
-        await runWithWorkspaceRecipe({ schema: PM_WORKSPACE_RECIPE_SCHEMA, seed: step, clock: `${clocks[i]}-01-01T00:00:00.000Z`, tickMs: 0, operations: [] }, () => causalStep(w, step));
+        const clock = `${clocks[i]}-01-01T00:00:00.000Z`;
+        await withCausalClock(clock, () => causalStep(w, step));
+        const id = ["rl-review", "rl-candidate-evaluation-plan", w.request.id, w.plan.candidate, "rl-candidate-evaluation-plan-look-1", "rl-candidate-evaluation-plan-look-2"][i];
+        assert.equal(String((await readCompleteLoopItem(w.client, id, "1")).item.created_at), clock);
       }
       const report = await readSequentialEvaluation(w.client, w.plan.candidate);
       assert.ok(report !== null && !("status" in report));
@@ -213,5 +227,30 @@ test("CLI approval collection and promotion use the causal SDK validator and pre
     assert.equal((await readEvaluationPlan(w.client, fixed.candidate))!.plan.ordering, undefined);
     // The birth fields remain readable independently of a later promotion rewrite.
     assert.equal((await readCompleteLoopItem(w.client, w.plan.candidate, "1")).item.type, "Generation");
+  } finally { process.chdir(testCwd); rmSync(w.root, { recursive: true, force: true }); }
+});
+
+test("causal validation hashes each birth once per call and never caches across validations", async (t) => {
+  const w = await causalWorkspace();
+  try {
+    const artifacts = Array.from({ length: 8 }, (_, stage) => ({ id: `rl-digest-${stage}`, stage }));
+    for (const [stage, entry] of artifacts.entries()) await createCausalEvaluationArtifact(w.client, w.plan, { id: entry.id, type: "Decision", title: "Cumulative checkpoint", body: "x".repeat(4096 * stage) }, artifacts.slice(0, stage + 1));
+    const encodings: string[] = [];
+    for (const entry of artifacts) encodings.push(canonicalJson((await readCompleteLoopItem(w.client, entry.id, "1", "id,type,body,affected_version,fixed_version,created_at,component,environment,notes")).item as unknown as JsonValue));
+    const counts = new Map(encodings.map(text => [text, 0]));
+    const update = Hash.prototype.update;
+    const probe = t.mock.method(Hash.prototype, "update", function (this: Hash, ...args: Parameters<Hash["update"]>): Hash {
+      const text = args[0];
+      if (typeof text === "string" && counts.has(text)) counts.set(text, counts.get(text)! + 1);
+      return update.apply(this, args);
+    });
+    try {
+      for (const validation of [1, 2]) {
+        await validateCausalEvaluationOrder(w.client, w.plan, artifacts);
+        assert.deepEqual(encodings.map(text => counts.get(text)), artifacts.map((_, i) => i === artifacts.length - 1 ? 0 : validation), "Every predecessor birth must be hashed once per validation");
+      }
+    } finally { probe.mock.restore(); }
+    await w.client.notes(artifacts[0].id, { add: 'pm-rl/evaluation-birth/1 {}' });
+    await assert.rejects(validateCausalEvaluationOrder(w.client, w.plan, artifacts), refused("eval_plan_evidence"));
   } finally { process.chdir(testCwd); rmSync(w.root, { recursive: true, force: true }); }
 });

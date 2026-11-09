@@ -3,14 +3,13 @@ import { readFileSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
 import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
-import { runWithWorkspaceRecipe, PM_WORKSPACE_RECIPE_SCHEMA } from "@unbrained/pm-cli/sdk";
-import { causalStep, type causalWorkspace } from "./causal-evaluation.ts";
+import { causalStep, withCausalClock, type causalWorkspace } from "./causal-evaluation.ts";
 
 const fixture = JSON.parse(readFileSync(process.argv[2], "utf8")) as Awaited<ReturnType<typeof causalWorkspace>>;
 fixture.client = new PmClient({ cwd: fixture.root, pmRoot: fixture.pmRoot, author: "lifecycle-peer", noExtensions: true });
 process.send!({ state: "ready" });
 process.once("message", () => {
-  void runWithWorkspaceRecipe({ schema: PM_WORKSPACE_RECIPE_SCHEMA, seed: process.argv[3], clock: process.argv[4], tickMs: 0, operations: [] }, async () => {
+  void withCausalClock(process.argv[4], async () => {
     for (let attempt = 0; ; attempt++) {
       try { return await causalStep(fixture, process.argv[3]); }
       catch (error) { if (!isPmCliExpectedError(error) || error.context.code !== "lock_conflict" || attempt >= 3) throw error; await delay(100); }

@@ -2,6 +2,7 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { mock } from "node:test";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { init } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
@@ -34,4 +35,10 @@ export async function causalStep(w: Pick<Awaited<ReturnType<typeof causalWorkspa
   if (step === "run") return startRunCore(w.client, w.request);
   if (step === "candidate") return registerGenerationCore(w.client, w.generation);
   return recordSequentialEvaluation(w.client, w.plan.candidate, step === "first" ? w.rows.slice(0, 16) : w.rows);
+}
+
+/** Drive every SDK entry point with the same real-process clock and restore it after the operation. */
+export async function withCausalClock<T>(clock: string, operation: () => Promise<T>): Promise<T> {
+  mock.timers.enable({ apis: ["Date"], now: Date.parse(clock) });
+  try { return await operation(); } finally { mock.timers.reset(); }
 }

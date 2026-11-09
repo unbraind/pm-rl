@@ -39,8 +39,12 @@ async function witnessedBirth(client: PmClient, id: string): Promise<{ item: Get
 /** Hash the sealed native birth fields, including the unpredictable witness nonce. */
 function birthDigest(item: GetResult["item"]): string { return hashJson(item as unknown as JsonValue); }
 /** One comparison order is used by both the producer and the validator. */
-function references(entries: readonly { id: string; stage: number; item: GetResult["item"] }[], stage: number): { id: string; digest: string }[] {
-  return entries.filter((entry) => entry.stage < stage).map(({ id, item }) => ({ id, digest: birthDigest(item) })).sort((a, b) => a.id < b.id ? -1 : 1);
+function references(entries: readonly { id: string; stage: number; item: GetResult["item"] }[], stage: number, digests = new Map<GetResult["item"], string>()): { id: string; digest: string }[] {
+  return entries.filter((entry) => entry.stage < stage).map(({ id, item }) => {
+    let digest = digests.get(item);
+    if (digest === undefined) { digest = birthDigest(item); digests.set(item, digest); }
+    return { id, digest };
+  }).sort((a, b) => a.id < b.id ? -1 : 1);
 }
 /** Validate complete causal ancestry without consulting dates or cross-stream event presentation order. @internal */
 export async function validateCausalEvaluationOrder(client: PmClient, plan: EvaluationPlan, artifacts: readonly EvaluationArtifact[], prospective?: GetResult["item"]): Promise<void> {
@@ -48,8 +52,9 @@ export async function validateCausalEvaluationOrder(client: PmClient, plan: Eval
   // Drain each SDK read before refusing; no pending SDK operation may outlive validation.
   for (const entry of artifacts) if (entry.id !== prospective?.id) entries.push({ ...entry, ...await witnessedBirth(client, entry.id) });
   const comparison = evaluationComparison(plan);
+  const digests = new Map<GetResult["item"], string>();
   for (const entry of entries) {
-    if (entry.witness.comparison !== comparison || entry.witness.stage !== entry.stage || JSON.stringify(entry.witness.predecessors) !== JSON.stringify(references(entries, entry.stage))) refuse("eval_plan_late", entry.id);
+    if (entry.witness.comparison !== comparison || entry.witness.stage !== entry.stage || JSON.stringify(entry.witness.predecessors) !== JSON.stringify(references(entries, entry.stage, digests))) refuse("eval_plan_late", entry.id);
   }
 }
 /** Verify an existing birth without creating it; Generation bodies compare provenance and policy cards verify promotion. @internal */

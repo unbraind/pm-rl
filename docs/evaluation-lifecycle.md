@@ -41,7 +41,8 @@ A witness is one `pm-rl/evaluation-birth/1` native note created **atomically wit
 its artifact. It contains the comparison, stage, a fresh random nonce, the
 request digest and exact predecessor birth digests. Readers reconstruct each
 birth using the SDK's verified version-one snapshot, verify the original witness
-still exists unchanged, and compare all predecessor digests. Dates remain
+still exists unchanged, and compare all predecessor digests. Each predecessor birth
+is hashed at most once per validation; the cache expires when that call returns. Dates remain
 historical content; no date comparison, filesystem mtime or timestamp-sorted
 event-list position decides causal order. Equal timestamps, host skew and clock
 rollback therefore do not alter an eligible chain.
@@ -91,4 +92,12 @@ node test/evaluation-lifecycle.acceptance.ts source/.agents/pm PUBLIC_COMMIT
 independent OS writers on one tracker, SIGKILL before application acknowledgement,
 identical retry history, all cross-stage pair inversions, malformed/retroactive
 witnesses, CLI flows, promotion retry and fixed-plan compatibility. The revert
-runner executes behavioural mutations only in disposable copies.
+runner executes behavioural mutations only in disposable copies. Run
+`node test/evaluation-lifecycle.revert.ts` to regenerate the complete
+[revert receipt](evaluation-lifecycle-revert.json). It parses the runner's actual
+TAP counts, requires the selected test's expected failure code and diagnostic,
+and records the passing restoration. Process errors, signals, worker timeouts,
+cancelled/skipped tests and unrelated failures cannot certify a revert. Inherited
+Node test filters are excluded. Receipts are written only after every selected
+mutation and restoration has been verified; `finally` restores the disposable
+source even when verification refuses the evidence.
