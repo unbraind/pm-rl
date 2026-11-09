@@ -16,7 +16,7 @@ import { openImproverEnvironment, IMPROVER_CRITERION, IMPROVER_ADAPTER, IMPROVER
 import { parseEvaluationPlan, evaluatePlan, type EvaluationPlan, type EvaluationPlanReport } from "./evaluation-plan.ts";
 import { requireCheckpointStorage } from "./checkpoint-artifacts.ts";
 import { reserveSearchCapacity } from "./meta.ts";
-import { TRANSFER_DECLARATION_REMEDY, TRANSFER_DESIGN, loadTransferCorpus, verifyTransferCorpus, transferMembers, transferPower, archiveTransferCorpus, replayTransferCorpus, recordTransferEvaluation, replayTransferEvaluation, parseTransferDesign, recordTransferPlan, readTransferPlan, type TransferReport, type TransferCorpus } from "./proposer-transfer.ts";
+import { TRANSFER_DECLARATION_REMEDY, TRANSFER_DESIGN, TRANSFER_MAX_TASKS, loadTransferCorpus, verifyTransferCorpus, transferMembers, transferPower, archiveTransferCorpus, replayTransferCorpus, recordTransferEvaluation, replayTransferEvaluation, parseTransferDesign, recordTransferPlan, readTransferPlan, type TransferReport, type TransferCorpus } from "./proposer-transfer.ts";
 
 /** Same bounded allowance for every proposal interpreter; logical optimizer and inference use are both zero. */
 export const PROPOSER_ALLOWANCE = { training_steps: 0, wall_ms: 30_000, storage_bytes: 16_384, compute_units: 30_000, tokens: 0 } as const;
@@ -159,7 +159,7 @@ function evolutionDataset(directory: string): ImproverDataset {
   const manifest = proposerDatasetRead(() => readImproverDataset(directory)); const seen = new Map<string, string>();
   for (const role of IMPROVER_ROLES) {
     const tasks = proposerDatasetRead(() => readImproverTasks(directory, manifest, role));
-    if (tasks.length > 10_000) expectedFail("At most 10000 tasks per compartment are supported. Seal a smaller disjoint corpus before retrying.", "proposer_cohort_limit");
+    if (tasks.length > TRANSFER_MAX_TASKS) expectedFail("At most 10000 tasks per compartment are supported. Seal a smaller disjoint corpus before retrying.", "proposer_cohort_limit");
     for (const task of tasks) for (const row of [...task.train, ...task.evaluation]) {
       const prior = seen.get(row.id);
       if (prior !== undefined && prior !== role) expectedFail("An item occurs across compartments. Rebuild disjoint development, meta and audit datasets.", "proposer_contamination");
@@ -206,6 +206,11 @@ export async function runProposerEvolution(client: PmClient, coordinates: Proces
   const design = parseTransferDesign({ ...config.transfer, margin: IMPROVER_CRITERION.effectThreshold, looks: config.generations + 1, targets: TRANSFER_DESIGN.targets });
   const request = await programmeRequest(client, raw); const manifest = evolutionDataset(request.dataset);
   const currentCorpus = proposerCorpusReader(request.dataset); const transferCorpus = currentCorpus();
+  const minimum = transferPower(0, design).minimum_trackers;
+  // Exact products also cover valid declarations whose required corpus exceeds safe numeric counts.
+  const auditTasks = BigInt(minimum) * BigInt(design.targets.length);
+  const metaTasks = auditTasks * BigInt(design.looks - 1);
+  if (metaTasks > TRANSFER_MAX_TASKS || auditTasks > TRANSFER_MAX_TASKS) expectedFail(`transfer_underpowered: This design requires ${minimum} independent trackers per target at each look, ${metaTasks} meta tasks and ${auditTasks} audit tasks; each compartment supports at most ${TRANSFER_MAX_TASKS} tasks. Declare a feasible prospective design or retain this declaration for diagnostic replay.`, "transfer_underpowered");
   for (let look = 1; look <= config.generations; look += 1) {
     if (transferMembers(transferCorpus, "meta", config.generations + 1, look).length === 0) expectedFail(`transfer_underpowered: Meta look ${look} has no tracker. Seal a corpus with at least ${config.generations} meta trackers before starting.`, "transfer_underpowered");
   }

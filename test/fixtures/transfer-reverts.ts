@@ -28,6 +28,7 @@ export function assertTransferProbe(identity: string, result: SpawnSyncReturns<s
 export async function runTransferReverts(root: string, selection?: string): Promise<void> {
   await withTransferScratch("transfer-revert-", async (scratch) => {
     const cases = [
+      { file: "proposer-evolution.ts", pattern: "corpus-capacity preflight", test: "transfer-review-capacity", transform: (s: string) => s.replace(/^  if \(metaTasks > TRANSFER_MAX_TASKS .*\n/m, ''), expected: /AssertionError/ },
       { file: "test/fixtures/revert-receipt.ts", pattern: "failed probe diagnostics", test: "transfer-review-round2", transform: (s: string) => s.replace(/export function revertProbeContext[\s\S]*/, 'export function revertProbeContext(identity: string, result: SpawnSyncReturns<string>): string { return (result.stdout ?? "") + (result.stderr ?? ""); }\n'), expected: /AssertionError/ },
       { file: "dataset.ts", pattern: "pm-cli position controls", test: "transfer-review-round2", transform: (s: string) => s.replace(/^    \/\/ Callers supply.*\n    \/\/ copyImproverSources.*\n/m, ''), expected: /AssertionError/ },
       { file: "test/fixtures/transfer-replay.ts", pattern: "every diagnostic entry", test: "transfer-review-round2", transform: (s: string) => s.replace('  assert.ok(basename(physical) === "pm" && basename(dirname(physical)) === ".agents", "diagnostic_scratch_layout");', ''), expected: /AssertionError/ },

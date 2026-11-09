@@ -10,6 +10,8 @@ import { excludedTrackerName } from "./dataset.ts";
 
 /** Historical version-one receipt design; new plans carry explicit operator declarations. */
 export const TRANSFER_DESIGN = Object.freeze({ effect: 0.10, margin: 0.01, alpha: 0.05, power: 0.80, targets: Object.freeze(["issue-type", "time-to-close"] as const) } as const);
+/** Shared role and paired-observation ceiling used by execution preflight and native verification. @internal */
+export const TRANSFER_MAX_TASKS = 10_000;
 /** Correctable operator fields; never include supplied values or advise editing sealed native evidence. @internal */
 export const TRANSFER_DECLARATION_REMEDY = "Correct effect, margin, alpha, power, looks and targets in the prospective transfer declaration: 0.01 <= margin < effect <= 1, 0 < alpha <= 0.05, 0.80 <= power < 1, integer looks from 1 to 64, and targets issue-type then time-to-close.";
 /** Prospective operator choices, sealed before any contender is scored. */
@@ -90,7 +92,7 @@ export function nativeTransferValue<T>(read: () => T): T {
 }
 /** Match the existing task-count contract before mapping or spreading decoded paired observations. */
 function transferPairsShape(pairs: unknown, check: (condition: unknown, code: "transfer_pairs") => void = transferInputShape): asserts pairs is readonly TransferPair[] {
-  check(Array.isArray(pairs) && pairs.length <= 10_000 && pairs.every((pair: unknown) => transferObject(pair) && typeof pair.id === "string"), "transfer_pairs");
+  check(Array.isArray(pairs) && pairs.length <= TRANSFER_MAX_TASKS && pairs.every((pair: unknown) => transferObject(pair) && typeof pair.id === "string"), "transfer_pairs");
 }
 /** Share structural checks between input verification and native reconstruction, before semantic validation. */
 function transferCorpusShape(corpus: TransferCorpus): void {
@@ -129,7 +131,7 @@ export function verifyTransferCorpus(corpus: TransferCorpus, expected?: string):
     validateImproverTasks(tasks, manifest as ImproverDataset, role);
     assert.equal(hashJson(tasks as unknown as JsonValue), manifest.splits[role].digest, "transfer_split_digest");
     assert.equal(tasks.length, manifest.splits[role].tasks, "transfer_split_count");
-    assert.ok(tasks.length > 0 && tasks.length <= 10_000 && new Set(tasks.map((task) => task.id)).size === tasks.length, "transfer_tasks");
+    assert.ok(tasks.length > 0 && tasks.length <= TRANSFER_MAX_TASKS && new Set(tasks.map((task) => task.id)).size === tasks.length, "transfer_tasks");
     for (const task of tasks) {
       const source = seen.get(tracker(task.repo));
       assert.ok(source !== undefined && source.role === role && source.commit === task.commit, "transfer_tracker_leak");
@@ -341,7 +343,7 @@ export async function replayTransferEvaluation(client: PmClient, digest: string)
     const pairs: TransferPair[] = [];
     if (record.format === "pm-rl/proposer-transfer-evaluation/2") { transferPairsShape(record.pairs, transferShape); pairs.push(...record.pairs); }
     else {
-      transferShape(Number.isSafeInteger(record.pair_count) && record.pair_count > 0 && record.pair_count <= 10_000 && Array.isArray(record.shards) && record.shards.length > 0 && record.shards.length <= record.pair_count && new Set(record.shards).size === record.shards.length && record.shards.every((address) => typeof address === "string" && /^[a-f0-9]{64}$/.test(address)), "transfer_pair_shards");
+      transferShape(Number.isSafeInteger(record.pair_count) && record.pair_count > 0 && record.pair_count <= TRANSFER_MAX_TASKS && Array.isArray(record.shards) && record.shards.length > 0 && record.shards.length <= record.pair_count && new Set(record.shards).size === record.shards.length && record.shards.every((address) => typeof address === "string" && /^[a-f0-9]{64}$/.test(address)), "transfer_pair_shards");
       for (const [index, address] of record.shards.entries()) {
         const shard = await readRecord(client, address) as unknown as PairShard;
         transferShape(shard.format === "pm-rl/proposer-transfer-pairs/2" && shard.index === index && Array.isArray(shard.pairs) && shard.pairs.length > 0, "transfer_pair_shard");

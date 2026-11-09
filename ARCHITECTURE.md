@@ -224,6 +224,10 @@ with the generation-derived look count before results; the original study
 declared effect 0.10, margin 0.01, alpha 0.05 and per-task power 0.80. Underpowered
 input can produce diagnostic evidence but cannot promote. This additional gate
 preserves the existing inner, outer, cohort, resource and rollback gates.
+Execution preflights the declared minimum against the 10,000-task meta and audit
+caps before reserving resources or fitting; impossible designs refuse with
+`transfer_underpowered` and required corpus counts. Parsing, native planning and
+historical replay preserve their existing declaration acceptance.
 
 The bound requires 3,062 independent trackers per task at each look for two looks (one generation plus audit).
 The shipped two-generation configuration declares three looks and requires 3,218 independent trackers per task at each look.

@@ -96,7 +96,7 @@ For MDE 0.10, alpha 0.05, per-task power 0.80, margin 0.01 and two tasks, the de
 
 Every meta look uses its own tracker set; audit is separate. These counts are not a combined sample across looks.
 
-At the shipped MDE, two meta looks would need 12,872 meta tasks (3,218 trackers × two targets × two meta looks), above the existing 10,000-task compartment cap. That configuration can produce an underpowered diagnostic under current bounds. A powered study must also fit the compartment cap, using a scientifically justified prospective design or a separately validated capacity expansion. The corpus-scale follow-up tracks this limit; neither the cap nor the statistical gate is relaxed here.
+At the shipped MDE, two meta looks would need 12,872 meta tasks (3,218 trackers × two targets × two meta looks), above the existing 10,000-task compartment cap. New runs refuse with `transfer_underpowered` before reserving capacity or fitting when the declared minimum would exceed either role cap. The refusal reports the required tracker count and the meta and audit task counts. The shipped configuration remains valid for parsing, native planning and historical diagnostic replay. A powered study must also fit the compartment cap, using a scientifically justified prospective design or a separately validated capacity expansion. The corpus-scale follow-up tracks this limit; neither the cap nor the statistical gate is relaxed here.
 
 For alpha 0.05, per-task power 0.80, margin 0.01, two tasks and two looks:
 

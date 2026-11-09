@@ -1122,6 +1122,10 @@ provenance. No git executable is required by the proposer path.
 Promotion of a proposer requires a passed tracker-transfer evaluation.
 A new `rl proposer run` requires a prospective transfer declaration; an underpowered
 run may complete while retaining the prior proposer.
+If the declared minimum cannot fit the 10,000-task meta or audit compartment cap,
+execution refuses with `transfer_underpowered` before reservations or fits and
+reports the required corpus size. Configuration validation and historical replay
+continue to accept that declaration.
 Operators declare the transfer MDE (`effect`), family `alpha` and desired
 per-task `power` in the configuration before scoring. A native evaluation plan
 seals those choices and the generation-derived number of looks. The original

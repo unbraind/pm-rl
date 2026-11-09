@@ -11,7 +11,7 @@ import { parseTransferDesign, transferPower, transferMembers, evaluateTransfer, 
 import { parseProposerEvolutionConfig, proposerEvolutionConfiguration, runProposerEvolution } from "../proposer-evolution.ts";
 import { ProposerRefusal } from "../proposer-program.ts";
 import { processWorkspace } from "./fixtures/process-workspace.ts";
-import { transferCorpus } from "./fixtures/transfer-corpus.ts";
+import { transferCorpus, writeTransferDataset } from "./fixtures/transfer-corpus.ts";
 import { withTransferScratch } from "./fixtures/transfer-scratch.ts";
 import { correction, malformedTransferDesigns } from "./fixtures/transfer-refusal-consumer.ts";
 
@@ -110,9 +110,10 @@ test("packed npm and Bun consumers preserve transfer correction codes in SDK JSO
     const cli = join(root, "node_modules/@unbrained/pm-cli/dist/cli.js");
     for (const runtime of [process.execPath, "bun"]) {
       const project = join(scratch, runtime === "bun" ? "bun" : "npm"); mkdirSync(project);
-      const sdk = spawnSync(runtime, [join(scratch, "consumer.ts")], { cwd: project, env: environment, encoding: "utf8", timeout: 60_000 });
+      const dataset = writeTransferDataset(project, transferCorpus(4));
+      const sdk = spawnSync(runtime, [join(scratch, "consumer.ts"), dataset], { cwd: project, env: environment, encoding: "utf8", timeout: 60_000 });
       if (runtime === "bun" && (sdk.error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") { t.diagnostic("Bun unavailable (ENOENT); packed Node checks remain mandatory."); continue; }
-      assert.ifError(sdk.error); assert.equal(sdk.status, 0, sdk.stdout + sdk.stderr); assert.deepEqual(JSON.parse(sdk.stdout), { sdk_refusal_checks: malformedTransferDesigns().length * 3 + 2, non_git: true, valid_plan_replayed: true });
+      assert.ifError(sdk.error); assert.equal(sdk.status, 0, sdk.stdout + sdk.stderr); assert.deepEqual(JSON.parse(sdk.stdout), { sdk_refusal_checks: malformedTransferDesigns().length * 3 + 2, capacity_refusal_checks: 2, non_git: true, valid_plan_replayed: true });
       const pmRoot = join(project, ".agents/pm");
       execFileSync(process.execPath, [cli, "--pm-path", pmRoot, "package", "install", join(scratch, packed[0].filename), "--project", "--json"], { cwd: project, env: environment, stdio: "pipe", timeout: 60_000 });
       const config = proposerEvolutionConfiguration(); const file = join(project, "invalid.json"); writeFileSync(file, JSON.stringify({ ...config, transfer: { ...config.transfer, alpha: 1 } }));
@@ -122,6 +123,16 @@ test("packed npm and Bun consumers preserve transfer correction codes in SDK JSO
         assert.equal(result.status, 2, result.stdout + result.stderr); assert.match(result.stdout + result.stderr, /transfer_design.*Correct/); assert.doesNotMatch(result.stdout + result.stderr, /Restore the original native records/);
       }
       t.diagnostic(`Packed runtime ${runtime === "bun" ? "bun" : "node"}: SDK=${malformedTransferDesigns().length * 3 + 2} CLI=4 verified.`);
+      const before = readFileSync(join(pmRoot, "history/_workspace.jsonl"), "utf8");
+      for (const value of [config, { ...config, generations: 1, transfer: { effect: 0.08, alpha: 0.05, power: 0.8 } }]) {
+        writeFileSync(file, JSON.stringify(value));
+        for (const json of [false, true]) {
+          const result = spawnSync(runtime, [cli, "--pm-path", pmRoot, "rl", "proposer", "run", "capacity", "--dataset", dataset, "--approval", "unopened", "--file", file, ...(json ? ["--json"] : [])], { cwd: project, env: environment, encoding: "utf8", timeout: 30_000 });
+          assert.equal(result.status, 2, result.stdout + result.stderr); assert.match(result.stdout + result.stderr, /transfer_underpowered.*independent trackers.*meta tasks.*audit tasks.*10000 tasks/);
+        }
+      }
+      assert.equal(readFileSync(join(pmRoot, "history/_workspace.jsonl"), "utf8"), before);
+      t.diagnostic(`Packed capacity runtime ${runtime === "bun" ? "bun" : "node"}: SDK=2 CLI=4 verified in a non-Git tracker.`);
     }
   });
 });
