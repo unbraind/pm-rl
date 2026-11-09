@@ -2,29 +2,57 @@ id: pm-rl-mxe0
 title: "changelog:full and changelog:check use different projections"
 description: "The regeneration command uses mode replace with all release tags, while the mandatory check uses mode prepend from the previous tag. After closing any new PM item, npm run changelog:full succeeds but npm run changelog:check immediately rejects the generated file and proposes an incompatible projection. Align the check with the package-owned full regeneration contract."
 type: Issue
-status: closed
+status: in_progress
 priority: 1
-tags: []
+tags[1]: "gh:unbraind/pm-rl#130"
 created_at: "2026-08-06T22:57:42.945Z"
-updated_at: "2026-08-06T22:58:02.219Z"
-closed_at: "2026-08-06T22:58:01.789Z"
-completed_at: "2026-08-06T22:58:01.789Z"
+updated_at: "2026-11-09T19:52:58.945Z"
 author: codex
-acceptance_criteria: "changelog:full and changelog:check use identical mode, release-tag, version, date, URL, and release-respect inputs except for --check; regeneration followed by check passes; the full release gate passes"
+acceptance_criteria: "changelog:full and changelog:check use identical mode, release-tag, version, date, URL, and release-respect inputs except for --check; regeneration followed by check passes; the full release gate passes; The configured reusable sync script generates exactly what the package changelog checker verifies"
 severity: high
 environment: pm-changelog 2026.8.6
 repro_steps: "Run npm run changelog:full followed by npm run changelog:check on the current tracker."
-resolution: "Made changelog:check use the same replace and all-release-tags projection as changelog:full, retaining the version, fixed date, item URL, and release filtering inputs."
-expected_result: A freshly generated package changelog passes its mandatory check byte-for-byte.
-actual_result: "The check adds entries that changelog:full omitted and fails the release gate."
 affected_version: 2026.7.31
+comments[10]{created_at,author,text}:
+  "2026-11-08T03:18:03.017Z",pi-agent,Reopened for the current sync generation regression. The reusable workflow supplies --no-pending-release only to its default script while the package checker retains the ordinary full generation policy. A caller-owned alias preserves the canonical generator without touching dependencies or thresholds. Clear the old release assignment for this new regression while retaining all historical evidence.
+  "2026-11-08T03:25:37.350Z",pi-agent,"The real temporary-tracker regression passes 1 of 1 and local typecheck passes. In a disposable copy, reverting only the caller post-import-script selection fails the existing changelog check, while restoring it passes 1 of 1. The exact pinned reusable workflow declares the string input and conditionally adds the differing flag only for its default changelog:full name. Node test concurrency remains capped at two. Full npm and Bun release checks will run sequentially after the focused verification."
+  "2026-11-08T04:07:49.773Z",pi-agent,"The final real-tracker fixture clears inherited Git repository selection, PM-root overrides, npm user-config policy variants and Node test context before setting its isolated paths. Credential-shaped keys are removed. The refined fixture still passes 1 of 1 and typecheck passes. Product configuration, dependency pins and thresholds are unchanged."
+  "2026-11-08T06:15:43.647Z",pi-agent,"Focused regression, local typecheck and isolated behavioral revert pass. Full npm and Bun release checks remain required at unchanged thresholds; final-head CI is the full gate and is not yet confirmed. The serial local release queue continues separately."
+  "2026-11-08T06:15:54.027Z",pi-agent,"Review handoff: https://github.com/unbraind/pm-rl/pull/159. Final CI is visible at https://github.com/unbraind/pm-rl/pull/159/checks. Focused regression, local typecheck and behavioral revert pass. Full npm/Bun gates are pending final-head CI confirmation, not approved. All tracker writes are completed before final-head CI observation. Release this agent claim for orchestrator verification; the item stays in progress."
+  "2026-11-08T06:39:15.292Z",pi-agent,"Review found that the new automation regression was missing from the explicit coverageGate.tests inventory, so required release CI would not execute it. Add the real temporary-tracker test to that inventory without changing any source scope, ignores or thresholds. The caller-generation behavioral revert remains the same; rerun the linked focused test and typecheck, then publish a forward correction commit and require fresh final-head CI."
+  "2026-11-08T06:40:32.767Z",pi-agent,"The linked real-tracker regression passes 1 of 1 with zero skips and local typecheck passes after adding it to coverageGate.tests. The unchanged release runner now selects the new test explicitly. Source inventory, ignores and all four 100 percent thresholds remain unchanged. A forward correction commit supersedes the earlier handoff head; fresh final-head CI remains required."
+  "2026-11-09T19:20:50.700Z",codex-agent,"Review round for the open threads: the workflow post-import script is now read by YAML parsing (a helper plus a quoting-style regression covering double-quoted, single-quoted and unquoted values plus the absent-input fallback), and the integration test asserts the fixture item title appears in the generated changelog. Revert proof (thread 1): in a disposable scratch copy, restoring the review-era double-quote regex makes the quoting-style regression fail while the integration test stays green, reproducing the silent fallback defect. Revert proof (thread 2): in a disposable scratch copy, two fixture items where the tracker package script itself drops the delivered item through a shared exclude-tag filter keep changelog:check and the heading assertion green in the pre-fix body, while the fixed body fails on the missing fixture title assertion. Focused file passes 2 of 2; typecheck and lint pass."
+  "2026-11-09T19:21:17.714Z",codex-agent,"Both review threads are fixed on the pushed branch head: the post-import script selection parses the caller workflow as YAML with a quoting-style regression, and the integration test asserts the synthetic delivered change appears in the generated changelog. Focused regression passes 2 of 2, typecheck and lint pass, and the regenerated changelog passes changelog:check with no drift. The merge from the release head kept this branch's history a byte prefix extension of main. Fresh final-head CI on the new head certifies the full release gate."
+  "2026-11-09T19:52:56.563Z",codex-agent,"Final-head CI observation at the 30-minute cutoff: the review-fix head passed Greptile locally reported checks, while the queued test and Bun release jobs of run 42682567589 (test (22), test (26), Bun release (26)) and the codeql job of run 42682567584 were still waiting on the shared GitHub runner queue with no failure reported. Release this agent claim for orchestrator verification; the item stays in progress and CI certifies the full gate on the pushed head."
 notes[1]{created_at,author,text}:
   "2026-08-06T22:58:01.379Z",codex,"Before fix, changelog:full exited 0 and the immediately following changelog:check exited 1 with an incompatible prepend diff. The commands now differ only by --check."
-files[2]{path,scope,note}:
-  package.json,project,canonical changelog command contract
-  CHANGELOG.md,project,regenerated canonical projection
-tests[2]{command,scope,timeout_seconds,pm_context_mode}:
-  "npm run changelog:full && npm run changelog:check",project,180,tracker
-  "npm run release:check",project,900,tracker
-close_reason: Aligned the generation and verification projections so a canonical regeneration is check-stable.
+files[4]:
+  - path: .github/workflows/pm-github-sync.yml
+    scope: project
+  - path: CHANGELOG.md
+    scope: project
+    note: regenerated canonical projection
+  - path: package.json
+    scope: project
+    note: canonical changelog command contract
+  - path: test/automation-changelog.test.ts
+    scope: project
+tests[3]:
+  - command: "npm run changelog:full && npm run changelog:check"
+    scope: project
+    timeout_seconds: 180
+    pm_context_mode: tracker
+  - command: "npm run release:check"
+    scope: project
+    timeout_seconds: 900
+    pm_context_mode: tracker
+  - command: node --test --test-concurrency=2 test/automation-changelog.test.ts
+    scope: project
+    provenance:
+      author: pi-agent
+      created_at: "2026-11-08T03:18:26.428Z"
+      source_kind: local_mutation
+      source_ref: fix/sync-changelog-1108
+docs[1]{path,scope}:
+  README.md,project
 body: ""
