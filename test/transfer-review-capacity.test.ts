@@ -10,7 +10,7 @@ import extension, { readCompleteLoopItem } from "../index.ts";
 import { hashJson, type JsonValue } from "../json-identity.ts";
 import { planImproverRoleFiles, readImproverTasks, type ImproverTask } from "../improver-data.ts";
 import { parseProposerEvolutionConfig, proposerCorpusReader, proposerEvolutionConfiguration, runProposerEvolution } from "../proposer-evolution.ts";
-import { archiveTransferCorpus, loadTransferCorpus, recordTransferPlan, readTransferPlan, recordTransferEvaluation, replayTransferEvaluation, transferPower, TRANSFER_DESIGN, type TransferCorpus } from "../proposer-transfer.ts";
+import { archiveTransferCorpus, loadTransferCorpus, recordTransferPlan, readTransferPlan, recordTransferEvaluation, replayTransferEvaluation, transferPower, TRANSFER_DESIGN, TRANSFER_MAX_TASKS, type TransferCorpus } from "../proposer-transfer.ts";
 import { MAX_JSON_BYTES, MAX_TRACKER_RECORD_BYTES } from "../tracker-record.ts";
 import { transferCorpus, sealTransferCorpus, writeTransferDataset } from "./fixtures/transfer-corpus.ts";
 import { processWorkspace } from "./fixtures/process-workspace.ts";
@@ -145,4 +145,24 @@ test("power documentation consistently states look-count declarations for the st
     assert.ok(text.includes(`three looks and requires ${shipped} independent trackers per task at each look`), file);
     assert.ok(text.includes("look-count table"), file);
   }
+});
+
+test("documentation pages presenting the shipped runnable declaration state the task-cap refusal", () => {
+  const config = proposerEvolutionConfiguration(); const looks = config.generations + 1; assert.ok(config.transfer !== undefined);
+  const perLook = transferPower(0, { ...TRANSFER_DESIGN, ...config.transfer, looks }).minimum_trackers;
+  const metaTasks = perLook * TRANSFER_DESIGN.targets.length * config.generations;
+  /** The shipped declaration must actually exceed the cap for this documentation contract to apply. */
+  assert.ok(metaTasks > TRANSFER_MAX_TASKS, `expected ${metaTasks} meta tasks to exceed the ${TRANSFER_MAX_TASKS}-task cap`);
+  for (const file of ["README.md", "docs/proposer-programs.md"]) {
+    const text = readFileSync(new URL(`../${file}`, import.meta.url), "utf8").replace(/\s+/g, " ").replaceAll("**", "");
+    /** Every page that shows a runnable proposer example with the shipped declaration must explain the refusal. */
+    assert.ok(/rl proposer run|runProposerEvolution/.test(text), `${file} presents the shipped runnable declaration`);
+    assert.ok(text.includes("transfer_underpowered"), `${file} names the refusal code`);
+    assert.ok(text.includes("10,000-task"), `${file} names the compartment cap`);
+    assert.ok(/sizing table|look-count table/.test(text), `${file} points to a feasible declaration`);
+  }
+  const guide = readFileSync(new URL("../docs/proposer-programs.md", import.meta.url), "utf8").replace(/\s+/g, " ").replaceAll("**", "");
+  assert.ok(guide.includes(`${perLook.toLocaleString("en-US")} independent trackers per task at each look`), "docs/proposer-programs.md states the derived per-look requirement");
+  assert.ok(guide.includes(`${metaTasks.toLocaleString("en-US")} meta tasks`), "docs/proposer-programs.md states the derived meta-task requirement");
+  assert.ok(guide.includes("diagnostic replay"), "docs/proposer-programs.md keeps the shipped declaration usable for validation and diagnostic replay");
 });

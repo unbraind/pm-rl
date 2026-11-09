@@ -37,6 +37,15 @@ Git provenance. Executing a sealed dataset requires no Git repository or executa
 New runs require explicit `transfer.effect`, `transfer.alpha` and `transfer.power`;
 a native plan seals them and `generations + 1` looks before scoring. See
 [the transfer design and sizing table](proposer-transfer.md).
+The shipped two-generation declaration (effect 0.10, three looks) requires 3,218
+independent trackers per task at each look: 12,872 meta tasks, above the existing
+10,000-task compartment cap. `rl proposer run` therefore refuses it with
+`transfer_underpowered` before any reservation or fit, so the CLI steps and the SDK
+example below cannot run to completion under current caps; they remain valid for
+`rl proposer validate`, native planning and diagnostic replay. Choose a feasible
+declaration from the sizing table — for example fewer generations with a
+scientifically justified larger effect — or keep the shipped declaration for
+validation and diagnostic replay.
 The example bounds two generations, two proposals per task, and 64 optimizer
 updates per fit; the configuration is sealed on first execution. Retrying the
 same programme resumes verified receipts. Changing its declaration requires a
