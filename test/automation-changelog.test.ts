@@ -5,12 +5,31 @@ import { devNull, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { parse } from 'yaml';
+
+/** Minimal caller-workflow projection for the gated sync job's reusable inputs. */
+interface SyncWorkflow {
+  jobs?: { 'gated-sync'?: { with?: { 'post-import-script'?: unknown } } };
+}
+
+/** Read the configured post-import script from workflow YAML, with the package default when it is absent. */
+function postImportScript(workflow: string): string {
+  const configured = (parse(workflow) as SyncWorkflow).jobs?.['gated-sync']?.with?.['post-import-script'];
+  return typeof configured === 'string' ? configured : 'changelog:full';
+}
+
+test('the configured post-import script is read from every quoting style', () => {
+  for (const configured of ['"changelog:automation"', "'changelog:automation'", 'changelog:automation']) {
+    const workflow = `# Gated GitHub issues sync caller.\njobs:\n  gated-sync:\n    with:\n      post-import-script: ${configured}\n      pm-github-version: "2026.10.16"\n`;
+    assert.equal(postImportScript(workflow), 'changelog:automation', configured);
+  }
+  assert.equal(postImportScript('jobs:\n  gated-sync:\n    with:\n      pm-github-version: "2026.10.16"\n'), 'changelog:full');
+});
 
 test('the configured sync regeneration passes the package changelog check in a real temporary tracker', () => {
   const root = fileURLToPath(new URL('../', import.meta.url));
   const manifest: { name: string; version: string; scripts: Record<string, string> } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
-  const workflow = readFileSync(join(root, '.github/workflows/pm-github-sync.yml'), 'utf8');
-  const script = /post-import-script:\s*"([\w:-]+)"/.exec(workflow)?.[1] ?? 'changelog:full';
+  const script = postImportScript(readFileSync(join(root, '.github/workflows/pm-github-sync.yml'), 'utf8'));
   const directory = mkdtempSync(join(tmpdir(), 'automation-changelog-'));
   const inherited = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(?:GIT_|PM_(?:PATH|GLOBAL_PATH)$|npm_config_(?:userconfig|allow_scripts)$|NODE_TEST_CONTEXT$)/i.test(key)));
   const environment: NodeJS.ProcessEnv = { ...inherited, HOME: join(directory, 'home'), PM_PATH: join(directory, '.agents/pm'), GIT_CEILING_DIRECTORIES: dirname(directory), GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_NOSYSTEM: '1', NPM_CONFIG_USERCONFIG: devNull };
@@ -34,7 +53,9 @@ test('the configured sync regeneration passes the package changelog check in a r
     // The pinned reusable workflow adds this flag only for its default script.
     run(npm, ['run', script, ...(script === 'changelog:full' ? ['--', '--no-pending-release'] : [])]);
     run(npm, ['run', 'changelog:check']);
-    assert.match(readFileSync(join(directory, 'CHANGELOG.md'), 'utf8'), /^# Changelog/m);
+    const changelog = readFileSync(join(directory, 'CHANGELOG.md'), 'utf8');
+    assert.match(changelog, /^# Changelog/m);
+    assert.match(changelog, /Synthetic delivered change/);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
