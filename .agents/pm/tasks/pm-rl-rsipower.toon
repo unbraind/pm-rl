@@ -6,12 +6,12 @@ status: in_progress
 priority: 2
 tags[2]: "gh:unbraind/pm-rl#148","gh:unbraind/pm-rl#149"
 created_at: "2026-10-19T12:52:29.061Z"
-updated_at: "2026-11-09T11:05:09.677Z"
+updated_at: "2026-11-09T11:16:35.494Z"
 assignee: codex-agent
 claim_principal: codex-agent
 author: codex-agent
 parent: pm-rl-apvf
-comments[69]{created_at,author,text}:
+comments[70]{created_at,author,text}:
   "2026-11-06T04:31:07.159Z",codex-sol,"Plan: freeze public commit-pinned tracker-disjoint development/meta/audit sources; declare a 0.10 transfer effect, 0.01 promotion margin, alpha 0.05 and target power 0.80 before measuring. Use bounded paired tracker means with task and generation Bonferroni correction. Preserve existing promotion gates and refuse underpowered evidence. Seal replayable corpus/split/evaluation context in SDK-owned items and native history; run one CPU-niced bounded real generation, report all refusals honestly."
   "2026-11-06T04:40:26.177Z",codex-sol,"Corpus frozen before scoring: 31 public MIT source pins, 19 development tasks, 16 meta tasks and 11 audit tasks; corpus digest 7156cf8c85b9941e12e42632c08f27419af69b7b3ee8824545c35def3fee9d49. One unverifiable directory excluded; private/hosted sources never opened. Conservative declared power requires 3062 held-out trackers per task; the available fleet cannot meet this. Proceeding with one bounded diagnostic generation, not claiming powered no-transfer evidence."
   "2026-11-06T04:49:32.441Z",codex-sol,"Runtime adjustment before a complete held-out comparison: stopped the broad diagnostic after 19 development fits and one meta-baseline fit, preserving receipts, reservations and any cancellation transition. A second predeclared diagnostic selects the first three trackers with both tasks in each compartment by SHA-256 repository identity and seed 42, with no score-based selection. One generation, one proposal, 64 updates, 10-minute deadline in an isolated non-git SDK tracker. Native corpus, paired observations and replayable decisions are copied through SDK APIs into this tracker; no evidence side files are published."
@@ -81,6 +81,7 @@ comments[69]{created_at,author,text}:
   "2026-11-07T10:42:45.201Z",codex-agent,"Auto round 2 revert proof: node test/fixtures/transfer-reverts.ts review-auto-round-two passes seven isolated expected failures in disposable source copies: six behavioural reversions (shared diagnostic formatter, transfer runner assertion context, central layout boundary, physical receipt comparison, missing-Bun exception and transient cleanup handling) plus one explicitly documentation-only mutation of the dataset layout precondition. Every behavioral test fails with only its changed function or guard reverted. node test/fixtures/transfer-reverts.ts \"diagnostic replay rejects alternate\" additionally passes the earlier layout regression after centralization. Fixed sources restore in finally; the final affected suite reran afterward and passed 45/45. No historical assertion or threshold was removed or weakened. The pm-cli position logic remains unchanged because review evidence confirms current callers are safe; its documentation mutation is not claimed as a behavioral fix."
   "2026-11-07T10:45:35.855Z",codex-agent,"Auto round 2 final gates: on Node 26, node --test --test-concurrency=2 test/dataset.test.ts test/transfer-review-round2.test.ts test/transfer-receipt.test.ts test/transfer-refusal.test.ts test/transfer-review.test.ts test/transfer-review-policy.test.ts test/transfer-review-final.test.ts test/transfer-review-storage.test.ts passes 45/45 (166.8 seconds). On Node 22, node --test --test-concurrency=2 test/transfer-review-round2.test.ts test/transfer-refusal.test.ts test/transfer-receipt.test.ts passes 16/16 (164.8 seconds). node --test --test-concurrency=2 test/release-approval.test.ts test/release-calendar.test.ts passes 31/31. PM-linked node --test --test-concurrency=2 test/transfer-review-round2.test.ts passes 6/6 via pm test pm-rl-rsipower --run --only-last --progress, with snapshot workspace, pm-context none and tracking_disabled. Packed real non-git Node/Bun SDK checks each verify 146 cases and four JSON/TOON CLI calls; restricted-path children additionally prove missing Bun passes only its optional leg, while exit 23 and EACCES fail. All final test runs have zero failures, timeouts or skips. Production/test typecheck, npm run build, lint, duplicates (zero clones), docstring (566 declarations), publish attestation, identity audit (five approved identities), production audit (zero vulnerabilities) and dry-run pack (266 files) pass at unchanged thresholds. Shared manual revert-worker diagnostics include each function and phase; compilation and lint pass after the final message-only changes. No dist files are tracked; generated output was rebuilt. Current main is included, all five changed PM histories retain main as a byte prefix, added-content privacy and branch author identity checks pass. Latest CodeRabbit review has no Outside diff range findings. No SDK or PM CLI defect was discovered. Full npm/Bun release gates remain CI-owned under the explicit pm-rl runtime exception: prior Node 26 and Bun passed, while prior Node 22 failed only the cleanup race now covered by regression. Fresh exact-head CI is required after push. Releasing my claim; item stays in_progress. Final changelog and isolated strict health follow the last tracker write; no thread reply/resolution, merge or release."
   "2026-11-09T11:05:09.675Z",codex-agent,"Merge round: PR #148 head 5add8bb was DIRTY against origin/main (7cc6359). Merged origin/main; the only textual conflict was manifest.json version/description. Resolved by keeping main's released version 2026.11.8 and the branch's appended proposer-transfer description sentence, so both sides' behavior is kept. index.ts auto-merged cleanly (main only bumped the extension version line; branch transfer changes untouched). No pm history file changed on both sides: branch history files remain byte prefix-extensions of main's, and main-side history files are identical to main. Verified against current code that the three resolved-but-unanswered threads are fixed: declaration-specific transfer input remedies in parseTransferDesign, the checkedTrackerSourcePath layout-assumption comments in dataset.ts, and the realpathSync comparison in test/transfer-receipt.test.ts. No unresolved threads and no outside-diff findings in any CodeRabbit review body."
+  "2026-11-09T11:16:35.494Z",codex-agent,"Merge-round gates on the merged head: focused tests for the touched modules pass — checkpoint-artifacts 40/40 (main side), index 27/27, transfer-receipt plus transfer-review-policy 8/8, proposer-transfer 9/9, transfer-archive plus transfer-review 11/11 (95 distinct tests total). Production typecheck, build, test typecheck, lint (max-warnings=0), docstrings (566 declarations), zero duplicates, and the git identity audit (5 unique addresses) all pass. No new review findings this round, so no new revert proofs were required; the prior recorded revert proofs are unchanged. Full release gate remains CI-certified. After this final tracker write, changelog regeneration runs before the push."
 files[33]{path,scope}:
   dataset.ts,project
   improver-data.ts,project
@@ -115,7 +116,7 @@ files[33]{path,scope}:
   test/transfer-review-round2.test.ts,project
   test/transfer-review-storage.test.ts,project
   test/transfer-review.test.ts,project
-tests[14]:
+tests[16]:
   - command: "node --test --test-concurrency=2 --test-name-pattern=training.tracker\\|split.digest\\|power.bound test/proposer-transfer.test.ts"
     scope: project
     provenance:
@@ -221,6 +222,20 @@ tests[14]:
     provenance:
       author: codex-agent
       created_at: "2026-11-07T10:41:44.843Z"
+      source_kind: local_mutation
+      source_ref: rsi-proposer-transfer-evaluation
+  - command: node --test --test-concurrency=2 test/checkpoint-artifacts.test.ts test/index.test.ts test/transfer-receipt.test.ts test/transfer-review-policy.test.ts test/proposer-transfer.test.ts test/transfer-archive.test.ts test/transfer-review.test.ts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-09T11:16:22.666Z"
+      source_kind: local_mutation
+      source_ref: rsi-proposer-transfer-evaluation
+  - command: "npm run typecheck && npm run build && npm run build:test && npm run lint && npm run docstring && npm run duplicates && npm run audit:identities"
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-09T11:16:29.289Z"
       source_kind: local_mutation
       source_ref: rsi-proposer-transfer-evaluation
 docs[4]{path,scope}:
