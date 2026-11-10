@@ -1,0 +1,23 @@
+id: pm-rl-toolchain-1110
+title: Adapt generation spec reads to pm toolchain 2026.11.6
+description: "Adapt the SDK consumer for https://github.com/unbraind/pm-rl/pull/162 while preserving full generation specification assertions."
+type: Chore
+status: in_progress
+priority: 2
+tags[1]: "gh:unbraind/pm-rl#162"
+created_at: "2026-11-10T12:27:31.177Z"
+updated_at: "2026-11-10T12:45:15.773Z"
+assignee: codex-toolchain-1110
+claim_principal: codex-toolchain-1110
+author: codex-toolchain-1110
+comments[3]{created_at,author,text}:
+  "2026-11-10T12:29:52.558Z",codex-toolchain-1110,"Read-side omission, not a changed write: a real SDK create/get probe stores a 16023-character JSON fence intact; default get omits body with an omission receipt, whereas full:true plus outputBudget/outputLimit unbounded returns it byte-for-byte. Production complete reads now request the full projection explicitly; LM acceptance readers request the same supported options without changing assertions. Reviewed installed CHANGELOG 2026.11.4-2026.11.6: GH-1576, GH-1655, GH-1660 and GH-1670 do not document a new body-read contract change. Related older budget entry pm-8eclqf; the observed pinned-SDK read omission is an undocumented contract difference for these consumers. No upstream issue filed."
+  "2026-11-10T12:31:29.629Z",codex-toolchain-1110,Source comparison of SDK tags v2026.11.3..v2026.11.6 identifies GH-1576 (2026.11.4) adding item_hash to current get envelopes. No body writer or body inclusion rule changed in that diff. The extra revision facet can change whether a presentation-budgeted response fits; these machine consumers must explicitly request complete unbounded output. The changelog documents revision guards but not their impact on default body availability.
+  "2026-11-10T12:45:15.773Z",codex-toolchain-1110,"Focused LM suite: 22 tests, 21 passed, 1 failed, zero skips/cancellations. The recursive-learning JSON fence assertions pass; packed CLI hits the existing 25-second subprocess timeout on the loaded shared host. No time bound or assertion was relaxed. Initial npm test/release attempts stopped at test compilation because explicitly budgeted SDK get returns a union. Acceptance code now uses production readCompleteLoopItem, which checks the envelope; build:test passes. Full suite and release gate will be rerun after that correction. Auto-merge disabled before any push."
+files[3]{path,scope}:
+  index.ts,project
+  test/lm-cli.test.ts,project
+  test/lm-loop.test.ts,project
+tests[1]{command,scope,provenance{author,created_at,source_kind}}:
+  npm run typecheck,project,codex-toolchain-1110,"2026-11-10T12:30:49.540Z",local_mutation
+body: ""

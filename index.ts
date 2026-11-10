@@ -814,7 +814,7 @@ export async function readCompleteLoopItem(client: PmClient, id: string, at?: st
     const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
     id = canonicalizeIdentifier(id, prefix);
   }
-  const result = await identifierClient(client).get(id, { ...(fields === undefined ? { depth: "standard" } : { fields }), outputLimit: "unbounded", outputBudget: "unbounded", ...(at === undefined ? {} : { at }) }).catch((error: unknown) => {
+  const result = await identifierClient(client).get(id, { ...(fields === undefined ? { full: true } : { fields }), outputLimit: "unbounded", outputBudget: "unbounded", ...(at === undefined ? {} : { at }) }).catch((error: unknown) => {
     if (observing && isPmCliExpectedError(error) && error.exitCode === EXIT_CODE.NOT_FOUND) observePromotionEvidence(id, fields, null, at);
     try { return rethrowProvenanceRead(error); }
     catch (classified) {
