@@ -6,10 +6,10 @@ status: in_progress
 priority: 2
 tags[2]: "gh:unbraind/pm-rl#148","gh:unbraind/pm-rl#149"
 created_at: "2026-10-19T12:52:29.061Z"
-updated_at: "2026-11-10T00:08:10.832Z"
+updated_at: "2026-11-10T12:06:06.378Z"
 author: codex-agent
 parent: pm-rl-apvf
-comments[96]{created_at,author,text}:
+comments[97]{created_at,author,text}:
   "2026-11-06T04:31:07.159Z",codex-sol,"Plan: freeze public commit-pinned tracker-disjoint development/meta/audit sources; declare a 0.10 transfer effect, 0.01 promotion margin, alpha 0.05 and target power 0.80 before measuring. Use bounded paired tracker means with task and generation Bonferroni correction. Preserve existing promotion gates and refuse underpowered evidence. Seal replayable corpus/split/evaluation context in SDK-owned items and native history; run one CPU-niced bounded real generation, report all refusals honestly."
   "2026-11-06T04:40:26.177Z",codex-sol,"Corpus frozen before scoring: 31 public MIT source pins, 19 development tasks, 16 meta tasks and 11 audit tasks; corpus digest 7156cf8c85b9941e12e42632c08f27419af69b7b3ee8824545c35def3fee9d49. One unverifiable directory excluded; private/hosted sources never opened. Conservative declared power requires 3062 held-out trackers per task; the available fleet cannot meet this. Proceeding with one bounded diagnostic generation, not claiming powered no-transfer evidence."
   "2026-11-06T04:49:32.441Z",codex-sol,"Runtime adjustment before a complete held-out comparison: stopped the broad diagnostic after 19 development fits and one meta-baseline fit, preserving receipts, reservations and any cancellation transition. A second predeclared diagnostic selects the first three trackers with both tasks in each compartment by SHA-256 repository identity and seed 42, with no score-based selection. One generation, one proposal, 64 updates, 10-minute deadline in an isolated non-git SDK tracker. Native corpus, paired observations and replayable decisions are copied through SDK APIs into this tracker; no evidence side files are published."
@@ -106,6 +106,7 @@ comments[96]{created_at,author,text}:
   "2026-11-09T23:59:46.714Z",codex-agent,"Correction to the preceding revert summary: that five-probe linked run failed in its harness after two successful probes, because the new SDK/JSON agreement assertion intercepted the JSON mutation before the expected independent capacity assertion. The mutation still caused a real assertion failure; no production or positive test failed. Reordered the test to check independent feasibility before agreement, preserving both assertions and the stricter expected failure. Retaining the failed run record and rerunning all five proofs before reporting success."
   "2026-11-10T00:00:22.948Z",codex-agent,"The corrected final linked revert run passes 5/5 expected failures (linked command passed, exit 0); each disposable mutation restored in finally. Earlier failed harness evidence remains in history. The fixed independent capacity check now runs before SDK agreement, so JSON and constructor regressions each fail their intended invariant. No production threshold or historical acceptance assertion changed."
   "2026-11-10T00:08:09.906Z",codex-agent,"Final auto-round-6 validation: expanded twelve-file targeted gate passed 116/116 in 545.272 seconds, zero failures/skips/cancellations/timeouts, at two workers. This includes proposer SDK/controller, legacy receipts, refusal ownership, native sharding, per-look budgets and packed npm/Bun controls; the new four-test boundary file passed source and packed Node/Bun consumers. Earlier main automation checks passed 2/2, focused historical capacity/documentation checks passed 3/3, and the corrected linked revert profile passed 5/5 expected failures with fixed-source positives rerun. Build, production/test typechecks, lint, docstrings (567 declarations), duplication (0), publish attestation (1), identity audit (5 approved addresses), production audit (0 vulnerabilities) and packing (266 files) passed. Isolated-HOME strict tracker health passed with existing advisories; normal HOME still reports the previously documented global pm-github host-version skew. All five changed histories preserve main as a byte prefix. No dist files are tracked; generated output was rebuilt. Final claim release precedes changelog regeneration/check and commit/push. Full npm/Bun release:check and 100-percent coverage certification remain exact-head CI work under the explicit pm-rl runtime exception; monitor the existing PR checks. No new SDK/PM defect, duplicate item/PR, review reply/resolution, merge or release."
+  "2026-11-10T12:06:05.716Z",claude-orchestrator,"Orchestrator final fix (CodeRabbit thread PRRT_kwDOTqJmqs61gIxb): the malformed-transfer CLI assertion now checks the typed contract, isPmCliExpectedError with context.code proposer_invalid and exitCode EXIT_CODE.USAGE, instead of matching message text. Revert proof: changing the CLI refusal code at index.ts:5684 to proposer_other makes the test fail (0 pass / 1 fail); the old /proposer_invalid/ regex still passed because the message keeps the token. Focused run 1/0, tsc clean; CI certifies the full gate. Branch updated from main first (workflow pin bumps only)."
 files[38]{path,scope}:
   dataset.ts,project
   examples/proposer-program.json,project
@@ -145,7 +146,7 @@ files[38]{path,scope}:
   test/transfer-review-round6.test.ts,project
   test/transfer-review-storage.test.ts,project
   test/transfer-review.test.ts,project
-tests[25]:
+tests[26]:
   - command: "node --test --test-concurrency=2 --test-name-pattern=training.tracker\\|split.digest\\|power.bound test/proposer-transfer.test.ts"
     scope: project
     provenance:
@@ -352,6 +353,13 @@ tests[25]:
     provenance:
       author: codex-agent
       created_at: "2026-11-10T00:04:33.658Z"
+      source_kind: local_mutation
+      source_ref: rsi-proposer-transfer-evaluation
+  - command: node --test --test-name-pattern='malformed transfer declarations' test/transfer-review.test.ts
+    scope: project
+    provenance:
+      author: claude-orchestrator
+      created_at: "2026-11-10T12:06:06.325Z"
       source_kind: local_mutation
       source_ref: rsi-proposer-transfer-evaluation
 docs[5]{path,scope}:

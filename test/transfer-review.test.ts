@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, s
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { test } from "node:test";
-import { init, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
+import { EXIT_CODE, init, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import extension, { type RlCommandResult } from "../index.ts";
 import { proposerEvolutionConfiguration, parseProposerEvolutionConfig, proposerCorpusReader } from "../proposer-evolution.ts";
@@ -42,7 +42,7 @@ test("malformed transfer declarations consistently refuse through parser and nat
   for (const transfer of [null, "abc", 5, false, [], {}, { effect: 0.1, alpha: 0.05, power: 0.8, extra: true }, { effect: 0.1, alpha: 0, power: 0.8 }, { effect: 0.01, alpha: 0.05, power: 0.8 }]) {
     assert.throws(() => parseProposerEvolutionConfig({ ...config, transfer }), ProposerRefusal);
     writeFileSync(file, JSON.stringify({ ...config, transfer }));
-    await assert.rejects(harness.runCommand({ pmRoot: w.pmRoot, command: "rl proposer validate", options: { file } }), /proposer_invalid/);
+    await assert.rejects(harness.runCommand({ pmRoot: w.pmRoot, command: "rl proposer validate", options: { file } }), (error) => isPmCliExpectedError(error) && error.context.code === "proposer_invalid" && error.exitCode === EXIT_CODE.USAGE);
   }
   const { transfer: _transfer, ...legacy } = config;
   for (const declaration of [config, legacy]) {
