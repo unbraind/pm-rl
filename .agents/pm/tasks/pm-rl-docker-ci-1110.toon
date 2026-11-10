@@ -1,0 +1,14 @@
+id: pm-rl-docker-ci-1110
+title: Investigate npm ci failures in isolated Compose fixture builds
+description: The bounded SDK 2026.11.7 consumer run for pm-rl-toolchain-1110 reports npm ci exit 1 during three Compose fixture image builds. The underlying install cause is not localized; no SDK runtime regression is established. Capture non-quiet build diagnostics and compare CI before changing fixture policy or dependency pins.
+type: Task
+status: open
+priority: 2
+tags[3]: compose,follow-up,validation
+created_at: "2026-11-10T17:07:14.304Z"
+updated_at: "2026-11-10T17:07:16.687Z"
+author: codex-toolchain-1110
+files[2]{path,scope}:
+  test/compose.test.ts,project
+  test/fixtures/compose.Dockerfile,project
+body: ""
