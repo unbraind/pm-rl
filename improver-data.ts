@@ -9,8 +9,8 @@ import { buildTrackerDataset, historyBlobs, type TrackerBuildOptions } from "./d
 import { hashJson, type JsonValue } from "./index.ts";
 import { validateHistoryPrefix, type HistoryPrefix } from "./prefix-data.ts";
 
-/** Tracker-disjoint development, proposer validation and untouched audit compartments. */
-export const IMPROVER_ROLES = ["development", "meta", "audit"] as const;
+import { IMPROVER_ROLES, IMPROVER_MAX_TASKS } from "./improver-limits.ts";
+export { IMPROVER_ROLES, IMPROVER_MAX_TASKS } from "./improver-limits.ts";
 /** A label is available only at its recorded timestamp; inputs contain no type field or type value. */
 export interface ImproverRow {
   readonly id: string;
@@ -179,7 +179,9 @@ export function readImproverDataset(directory: string): ImproverDataset {
 export function readImproverTasks(directory: string, manifest: ImproverDataset, role: typeof IMPROVER_ROLES[number]): ImproverTask[] {
   const root = parseBoundedJson(readFileSync(statePath(directory, `${role}.json`), "utf8")) as ImproverTask[] | { format: string; role: string; digest: string; count: number; shards: string[] };
   assert.ok(root !== null && typeof root === "object", "improver_role_identity");
+  assert.ok(Number.isSafeInteger(manifest.splits[role].tasks) && manifest.splits[role].tasks > 0 && manifest.splits[role].tasks <= IMPROVER_MAX_TASKS, "improver_role_count");
   const tasks: ImproverTask[] = [];
+  if (Array.isArray(root)) { assert.ok(root.length <= IMPROVER_MAX_TASKS, "improver_role_count"); }
   if (Array.isArray(root)) { for (const task of root) tasks.push(task); }
   else {
     assert.ok(root.format === "pm-rl/improver-role/2" && root.role === role && root.digest === manifest.splits[role].digest && root.count === manifest.splits[role].tasks, "improver_role_identity");
@@ -190,6 +192,7 @@ export function readImproverTasks(directory: string, manifest: ImproverDataset, 
       assert.ok(shard !== null && typeof shard === "object" && !Array.isArray(shard), "improver_role_shard");
       assert.equal(hashJson(shard as unknown as JsonValue), digest, "improver_role_digest");
       assert.ok(shard.format === "pm-rl/improver-role-shard/1" && shard.role === role && shard.index === index && Array.isArray(shard.tasks) && shard.tasks.length > 0, "improver_role_shard");
+      assert.ok(tasks.length + shard.tasks.length <= root.count, "improver_role_count");
       for (const task of shard.tasks) tasks.push(task);
     }
     assert.equal(tasks.length, root.count, "improver_role_count");

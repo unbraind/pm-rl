@@ -1,7 +1,7 @@
 /** Executable examples, path aliases and fresh replay destinations remain safe in real trackers. */
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
 import { checkTransferBoundaries } from "./fixtures/transfer-boundary-consumer.ts";
@@ -32,7 +32,8 @@ test("shipped examples and every source path alias share SDK and CLI preflight",
 });
 
 test("diagnostic replay rejects every occupied scratch project before copying or tracker writes", async () => {
-  await withTransferScratch("transfer-fresh-", async (scratch) => {
+  await withTransferScratch("transfer-fresh-", async (physical) => {
+    const scratch = join(physical, "alias"); symlinkSync(physical, scratch, "dir");
     const receipt = resolve(import.meta.dirname, "../docs/proposer-transfer-receipt.json");
     const bin = join(scratch, "bin"); mkdirSync(bin);
     const log = join(scratch, "source-command"); const gh = join(bin, "gh");
@@ -44,7 +45,7 @@ test("diagnostic replay rejects every occupied scratch project before copying or
         if (name === "sentinel") writeFileSync(join(project, name), "untouched");
         else mkdirSync(join(project, name));
         const root = join(project, ".agents/pm");
-        assert.equal(requireDiagnosticScratch(root), root);
+        assert.equal(requireDiagnosticScratch(root), join(realpathSync(project), ".agents/pm"));
         const before = readdirSync(project, { recursive: true });
         for (const fleet of [[], ["--fleet", "unopened-fleet"]]) {
           await assert.rejects(replayDiagnosticMain(["--pm-root", root, "--receipt", receipt, ...fleet]), /diagnostic_requires_fresh_scratch/);
@@ -58,6 +59,8 @@ test("diagnostic replay rejects every occupied scratch project before copying or
       assert.equal(existsSync(log), false, "occupied projects must refuse before source commands");
       // Fresh destinations reach live source preflight; a synthetic external command stops before cloning.
       for (const exists of [false, true]) {
+        rmSync(log, { force: true });
+        assert.equal(existsSync(log), false, "proof:fresh_stub_log");
         const project = join(scratch, exists ? "empty" : "absent"); if (exists) mkdirSync(project);
         await assert.rejects(replayDiagnosticMain(["--pm-root", join(project, ".agents/pm"), "--receipt", receipt]), /Command failed/);
         assert.equal(readFileSync(log, "utf8"), "preflight");

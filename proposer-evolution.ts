@@ -158,8 +158,8 @@ async function proposerApprovalRead<T>(read: () => Promise<T>): Promise<T> {
 function evolutionDataset(directory: string): ImproverDataset {
   const manifest = proposerDatasetRead(() => readImproverDataset(directory)); const seen = new Map<string, string>();
   for (const role of IMPROVER_ROLES) {
+    if (proposerDatasetRead(() => Number.isSafeInteger(manifest.splits[role].tasks) && manifest.splits[role].tasks > TRANSFER_MAX_TASKS)) expectedFail("At most 10000 tasks per compartment are supported. Seal a smaller disjoint corpus before retrying.", "proposer_cohort_limit");
     const tasks = proposerDatasetRead(() => readImproverTasks(directory, manifest, role));
-    if (tasks.length > TRANSFER_MAX_TASKS) expectedFail("At most 10000 tasks per compartment are supported. Seal a smaller disjoint corpus before retrying.", "proposer_cohort_limit");
     for (const task of tasks) for (const row of [...task.train, ...task.evaluation]) {
       const prior = seen.get(row.id);
       if (prior !== undefined && prior !== role) expectedFail("An item occurs across compartments. Rebuild disjoint development, meta and audit datasets.", "proposer_contamination");

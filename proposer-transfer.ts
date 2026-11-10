@@ -4,14 +4,21 @@ import type { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { EXIT_CODE, isPmCliExpectedError, createPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { createVerifiedItem, readCompleteLoopItem } from "./index.ts";
 import { hashJson, type JsonValue } from "./json-identity.ts";
-import { IMPROVER_ROLES, readImproverDataset, readImproverTasks, validateImproverTasks, type ImproverDataset, type ImproverTask } from "./improver-data.ts";
+import { IMPROVER_ROLES, IMPROVER_MAX_TASKS } from "./improver-limits.ts";
+import { readImproverDataset, readImproverTasks, validateImproverTasks, type ImproverDataset, type ImproverTask } from "./improver-data.ts";
 import { assertJsonEncoding, encodeBoundedJson, parseBoundedJson, MAX_TRACKER_RECORD_BYTES } from "./tracker-record.ts";
 import { excludedTrackerName } from "./dataset.ts";
 
 /** Historical version-one receipt design; new plans carry explicit operator declarations. */
 export const TRANSFER_DESIGN = Object.freeze({ effect: 0.10, margin: 0.01, alpha: 0.05, power: 0.80, targets: Object.freeze(["issue-type", "time-to-close"] as const) } as const);
 /** Shared role and paired-observation ceiling used by execution preflight and native verification. @internal */
-export const TRANSFER_MAX_TASKS = 10_000;
+export const TRANSFER_MAX_TASKS = IMPROVER_MAX_TASKS;
+/** Source metadata is bounded by the total role capacity; each source has two target omissions at most. */
+export const TRANSFER_MAX_SOURCES = IMPROVER_ROLES.length * TRANSFER_MAX_TASKS;
+/** Two declared targets may be omitted per admitted source. */
+export const TRANSFER_MAX_OMISSIONS = TRANSFER_MAX_SOURCES * TRANSFER_DESIGN.targets.length;
+/** Total archive work bound: role tasks plus bounded source and omission metadata. */
+export const TRANSFER_MAX_ENTRIES = IMPROVER_ROLES.length * TRANSFER_MAX_TASKS + TRANSFER_MAX_SOURCES + TRANSFER_MAX_OMISSIONS;
 /** Correctable operator fields; never include supplied values or advise editing sealed native evidence. @internal */
 export const TRANSFER_DECLARATION_REMEDY = "Correct effect, margin, alpha, power, looks and targets in the prospective transfer declaration: 0.01 <= margin < effect <= 1, 0 < alpha <= 0.05, 0.80 <= power < 1, integer looks from 1 to 64, and targets issue-type then time-to-close.";
 /** Prospective operator choices, sealed before any contender is scored. */
@@ -98,10 +105,10 @@ function transferPairsShape(pairs: unknown, check: (condition: unknown, code: "t
 function transferCorpusShape(corpus: TransferCorpus): void {
   transferInputShape(transferObject(corpus) && transferObject(corpus.manifest) && transferObject(corpus.tasks), "transfer_corpus_shape");
   const manifest = corpus.manifest;
-  transferInputShape(typeof manifest.digest === "string" && typeof manifest.format === "string" && Number.isSafeInteger(manifest.seed) && Array.isArray(manifest.sources) && Array.isArray(manifest.omitted) && transferObject(manifest.splits), "transfer_corpus_shape");
+  transferInputShape(typeof manifest.digest === "string" && typeof manifest.format === "string" && Number.isSafeInteger(manifest.seed) && Array.isArray(manifest.sources) && manifest.sources.length <= TRANSFER_MAX_SOURCES && Array.isArray(manifest.omitted) && manifest.omitted.length <= TRANSFER_MAX_OMISSIONS && transferObject(manifest.splits), "transfer_corpus_shape");
   transferInputShape(manifest.sources.every((source) => transferObject(source) && typeof source.repo === "string" && typeof source.commit === "string" && typeof source.role === "string") && manifest.omitted.every((row) => transferObject(row) && typeof row.repo === "string" && typeof row.target === "string"), "transfer_corpus_shape");
   for (const role of IMPROVER_ROLES) {
-    transferInputShape(transferObject(manifest.splits[role]) && typeof manifest.splits[role].digest === "string" && Number.isSafeInteger(manifest.splits[role].tasks) && Array.isArray(corpus.tasks[role]), "transfer_corpus_shape");
+    transferInputShape(transferObject(manifest.splits[role]) && typeof manifest.splits[role].digest === "string" && Number.isSafeInteger(manifest.splits[role].tasks) && Array.isArray(corpus.tasks[role]) && corpus.tasks[role].length <= TRANSFER_MAX_TASKS, "transfer_corpus_shape");
     for (const task of corpus.tasks[role]) {
       transferInputShape(transferObject(task) && [task.id, task.repo, task.commit, task.target].every((value) => typeof value === "string") && typeof task.cutoff === "number" && Array.isArray(task.train) && Array.isArray(task.evaluation), "transfer_corpus_shape");
       for (const row of [...task.train, ...task.evaluation]) {
@@ -256,30 +263,35 @@ export async function replayTransferCorpus(client: PmClient, digest: string): Pr
   const tasks: Record<typeof IMPROVER_ROLES[number], ImproverTask[]> = { development: [], meta: [], audit: [] };
   if (record.format === "pm-rl/proposer-transfer-corpus/1") {
     transferShape(Array.isArray(record.tasks), "transfer_record_format");
+    transferShape(transferObject(record.manifest) && Array.isArray(record.manifest.sources) && Array.isArray(record.manifest.omitted), "transfer_corpus_shape");
+    transferShape(record.tasks.length <= IMPROVER_ROLES.length * TRANSFER_MAX_TASKS && record.manifest.sources.length <= TRANSFER_MAX_SOURCES && record.manifest.omitted.length <= TRANSFER_MAX_OMISSIONS, "transfer_shard_count");
     for (const reference of record.tasks as CorpusRecord["tasks"]) {
       transferShape(transferObject(reference) && IMPROVER_ROLES.includes(reference.role) && typeof reference.digest === "string" && /^[a-f0-9]{64}$/.test(reference.digest), "transfer_record_format");
       const packet = await readRecord(client, reference.digest) as unknown as { format: string; role: typeof IMPROVER_ROLES[number]; task: ImproverTask };
       transferShape(packet.format === "pm-rl/proposer-transfer-task/1" && packet.role === reference.role && IMPROVER_ROLES.includes(packet.role), "transfer_record_format");
+      transferShape(tasks[packet.role].length < TRANSFER_MAX_TASKS, "transfer_shard_count");
       tasks[packet.role].push(packet.task);
     }
     const corpus = { manifest: record.manifest, tasks }; nativeTransferValue(() => verifyTransferCorpus(corpus)); return corpus;
   }
   transferShape(record.format === "pm-rl/proposer-transfer-corpus/2", "transfer_record_format");
-  transferShape(Number.isSafeInteger(record.entry_count) && record.entry_count > 0, "transfer_shard_count");
-  transferShape(Array.isArray(record.shards) && record.shards.length > 0 && new Set(record.shards).size === record.shards.length && record.shards.every((address) => typeof address === "string" && /^[a-f0-9]{64}$/.test(address)), "transfer_shard_order");
+  transferShape(Number.isSafeInteger(record.entry_count) && record.entry_count > 0 && record.entry_count <= TRANSFER_MAX_ENTRIES, "transfer_shard_count");
+  transferShape(Array.isArray(record.shards) && record.shards.length > 0 && record.shards.length <= record.entry_count && record.shards.length <= TRANSFER_MAX_ENTRIES && new Set(record.shards).size === record.shards.length && record.shards.every((address) => typeof address === "string" && /^[a-f0-9]{64}$/.test(address)), "transfer_shard_order");
   const sources: ImproverDataset["sources"][number][] = []; const omitted: ImproverDataset["omitted"][number][] = []; let count = 0;
   for (const [index, address] of record.shards.entries()) {
     const shard = await readRecord(client, address) as unknown as CorpusShard;
     transferShape(shard.format === "pm-rl/proposer-transfer-shard/2", "transfer_record_format");
     transferShape(Number.isSafeInteger(shard.index) && shard.index === index, "transfer_shard_order");
     transferShape(Array.isArray(shard.entries) && shard.entries.length > 0, "transfer_shard_empty");
+    transferShape(count + shard.entries.length <= record.entry_count, "transfer_shard_count");
     for (const entry of shard.entries as readonly ArchiveEntry[]) {
       transferShape(transferObject(entry) && ["source", "omission", "task"].includes(entry.kind), "transfer_shard_entry");
       count++;
-      if (entry.kind === "source") sources.push(entry.source);
-      else if (entry.kind === "omission") omitted.push(entry.omission);
+      if (entry.kind === "source") { transferShape(sources.length < TRANSFER_MAX_SOURCES, "transfer_shard_count"); sources.push(entry.source); }
+      else if (entry.kind === "omission") { transferShape(omitted.length < TRANSFER_MAX_OMISSIONS, "transfer_shard_count"); omitted.push(entry.omission); }
       else {
         transferShape(entry.kind === "task" && IMPROVER_ROLES.includes(entry.role), "transfer_record_format");
+        transferShape(tasks[entry.role].length < TRANSFER_MAX_TASKS, "transfer_shard_count");
         tasks[entry.role].push(entry.task);
       }
     }
