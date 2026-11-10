@@ -124,7 +124,7 @@ test("packed npm and Bun consumers preserve transfer correction codes in SDK JSO
       }
       t.diagnostic(`Packed runtime ${runtime === "bun" ? "bun" : "node"}: SDK=${malformedTransferDesigns().length * 3 + 2} CLI=4 verified.`);
       const before = readFileSync(join(pmRoot, "history/_workspace.jsonl"), "utf8");
-      for (const value of [config, { ...config, generations: 1, transfer: { effect: 0.08, alpha: 0.05, power: 0.8 } }]) {
+      for (const value of [{ ...config, transfer: { effect: 0.1, alpha: 0.05, power: 0.8 } }, { ...config, generations: 1, transfer: { effect: 0.08, alpha: 0.05, power: 0.8 } }]) {
         writeFileSync(file, JSON.stringify(value));
         for (const json of [false, true]) {
           const result = spawnSync(runtime, [cli, "--pm-path", pmRoot, "rl", "proposer", "run", "capacity", "--dataset", dataset, "--approval", "unopened", "--file", file, ...(json ? ["--json"] : [])], { cwd: project, env: environment, encoding: "utf8", timeout: 30_000 });

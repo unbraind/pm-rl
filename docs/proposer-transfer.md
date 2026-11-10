@@ -37,7 +37,7 @@ ceil(2 (sqrt(log(2m/alpha)) + sqrt(log(1/(1-power))))^2 / (MDE-margin)^2)
 ```
 
 For the original study declaration (MDE 0.10, alpha 0.05, power 0.80, two looks), this is 3,062 independent trackers per task at each look for two looks (one generation plus audit).
-The shipped two-generation configuration declares three looks and requires 3,218 independent trackers per task at each look. See the look-count table below. Every meta generation uses a disjoint tracker set, and audit uses a separate set.
+The historical library-default two-generation configuration declares three looks and requires 3,218 independent trackers per task at each look. See the look-count table below. Every meta generation uses a disjoint tracker set, and audit uses a separate set.
 The calculation uses the declared alternative, never an observed effect or fitted
 variance. Zero rows or a missing target remain underpowered. Confidence intervals
 are wide rather than silently borrowing item counts or training examples.
@@ -61,7 +61,7 @@ New proposer configurations must contain an explicit `transfer` declaration:
 }
 ```
 
-This fragment accompanies the other bounded fields in
+This historical fragment accompanies the other bounded fields in
 `examples/proposer-program.json`. `effect` is the minimum detectable population
 gain (MDE), not the observed gain or the promotion margin. The controller derives
 the total looks from the predeclared generation count plus one final audit and
@@ -90,13 +90,15 @@ For MDE 0.10, alpha 0.05, per-task power 0.80, margin 0.01 and two tasks, the de
 | Generations | Total looks (generations plus audit) | Required trackers per task at each look |
 | ---: | ---: | ---: |
 | 1 (original diagnostic) | 2 | 3,062 |
-| 2 (shipped configuration) | 3 | 3,218 |
+| 2 (historical library default) | 3 | 3,218 |
 | 3 | 4 | 3,327 |
 | 4 | 5 | 3,411 |
 
 Every meta look uses its own tracker set; audit is separate. These counts are not a combined sample across looks.
 
-At the shipped MDE, two meta looks would need 12,872 meta tasks (3,218 trackers × two targets × two meta looks), above the existing 10,000-task compartment cap. New runs refuse with `transfer_underpowered` before reserving capacity or fitting when the declared minimum would exceed either role cap. The refusal reports the required tracker count and the meta and audit task counts. The shipped configuration remains valid for parsing, native planning and historical diagnostic replay. A powered study must also fit the compartment cap, using a scientifically justified prospective design or a separately validated capacity expansion. The corpus-scale follow-up tracks this limit; neither the cap nor the statistical gate is relaxed here.
+At the historical library-default MDE, two meta looks would need 12,872 meta tasks (3,218 trackers × two targets × two meta looks), above the existing 10,000-task compartment cap. New runs refuse with `transfer_underpowered` before reserving capacity or fitting when the declared minimum would exceed either role cap. The refusal reports the required tracker count and the meta and audit task counts. The historical library default remains valid for parsing, native planning and historical diagnostic replay. A powered study must also fit the compartment cap, using a scientifically justified prospective design or a separately validated capacity expansion. The corpus-scale follow-up tracks this limit; neither the cap nor the statistical gate is relaxed here.
+
+The shipped `examples/proposer-program.json` instead predeclares effect 0.50 with two generations and three looks: 109 trackers per task at each look, 436 meta tasks and 218 audit tasks. This fits the compartment cap; alpha 0.05 and power 0.80 are unchanged. The example illustrates a prospective design, not evidence of efficacy or a choice to reuse after observing outcomes.
 
 For alpha 0.05, per-task power 0.80, margin 0.01, two tasks and two looks:
 

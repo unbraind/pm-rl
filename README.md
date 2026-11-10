@@ -1157,7 +1157,8 @@ comments, titles, authors and paths are excluded.
 The public acceptance froze 31 public MIT source pins, yielding 19 development,
 16 meta and 11 audit tasks. Its conservative power calculation requires **3,062
 independent trackers per task at each look** for two looks (one generation plus audit).
-The shipped two-generation configuration declares three looks and requires **3,218 independent trackers per task at each look**.
+The historical library-default two-generation configuration declares three looks and requires **3,218 independent trackers per task at each look**.
+The shipped JSON example instead predeclares effect 0.50: three looks require 109 trackers per task at each look, 436 meta tasks and 218 audit tasks, within the cap. Alpha and power are unchanged.
 See the [look-count table](docs/proposer-transfer.md#choosing-and-sealing-a-prospective-design). Both sizes are far beyond this fleet. A resource-bounded diagnostic
 uses three trackers with both tasks per compartment, selected by repository hash
 and seed before scores, without changing any gate. Meta: pm-context, pm-ops,

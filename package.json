@@ -210,7 +210,8 @@
       "test/transfer-review-final.test.ts",
       "test/transfer-review-storage.test.ts",
       "test/transfer-refusal.test.ts",
-      "test/transfer-review-round2.test.ts"
+      "test/transfer-review-round2.test.ts",
+      "test/transfer-review-round6.test.ts"
     ],
     "thresholds": {
       "statements": 100,

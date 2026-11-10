@@ -230,7 +230,7 @@ caps before reserving resources or fitting; impossible designs refuse with
 historical replay preserve their existing declaration acceptance.
 
 The bound requires 3,062 independent trackers per task at each look for two looks (one generation plus audit).
-The shipped two-generation configuration declares three looks and requires 3,218 independent trackers per task at each look.
+The historical library-default two-generation configuration declares three looks and requires 3,218 independent trackers per task at each look.
 See the [look-count table](docs/proposer-transfer.md#choosing-and-sealing-a-prospective-design). The available frozen public fleet provides 31 source pins and 46 tasks,
 so it cannot establish powered efficacy. A bounded diagnostic uses three trackers
 per role. Its human-facing result is `pm-rl-rsipower-bounded-result`; replay uses

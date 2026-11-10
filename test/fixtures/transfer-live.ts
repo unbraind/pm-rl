@@ -69,7 +69,7 @@ export async function transferLiveMain(argv: readonly string[]): Promise<void> {
     const pmRoot = initialized.path;
     const client = new PmClient({ cwd: project, pmRoot, noExtensions: true, author: "codex-sol" });
     const approval = await client.create({ id: "approval", type: "Decision", title: "Fixed three-tracker diagnostic resource approval", body: '```json\n'+JSON.stringify({ permitted_promotions: 31, meta_budget: { training_samples: 3840, proposal_calls: 5, recipe_promotions: 1 }, resource_budget: { training_steps: 60, wall_ms: 1950000, compute_units: 1950000, storage_bytes: 327680, tokens: 0 }, corpus: manifest.digest })+'\n```' });
-    const config = { ...proposerEvolutionConfiguration(), generations: 1, candidates: 1, updates: 64, timeout_ms: 600_000 };
+    const config = { ...proposerEvolutionConfiguration(), generations: 1, candidates: 1, updates: 64, timeout_ms: 600_000, transfer: { effect: 0.10, alpha: 0.05, power: 0.80 } };
     const started = performance.now();
     console.log(JSON.stringify({ corpus: manifest.digest, selected: IMPROVER_ROLES.map((role) => ({ role, trackers: [...new Set(selected[role].map((task) => task.repo))] })), config }));
     const report = await runProposerEvolution(client, { pmRoot, author: "codex-sol" }, { id: "rsipower-bounded", approval: approval.item.id, dataset: directory, config, async onStep(key) { console.log(JSON.stringify({ step: key, elapsed_ms: Math.ceil(performance.now() - started) })); } });

@@ -98,7 +98,7 @@ test("empty planned meta looks refuse before native controller writes or any fit
   const w = await processWorkspace(); const directory = writeTransferDataset(w.root, transferCorpus());
   const before = (await w.client.listAllComplete({ includeBody: true })).items;
   let entered = false;
-  await assert.rejects(runProposerEvolution(w.client, w.coordinates, { id: "impossible-empty-look", dataset: directory, approval: w.approval, config: proposerEvolutionConfiguration() }), (error) => isPmCliExpectedError(error) && error.context.code === "transfer_underpowered" && error.message.includes("12872 meta tasks"));
+  await assert.rejects(runProposerEvolution(w.client, w.coordinates, { id: "impossible-empty-look", dataset: directory, approval: w.approval, config: { ...proposerEvolutionConfiguration(), transfer: { effect: 0.1, alpha: 0.05, power: 0.8 } } }), (error) => isPmCliExpectedError(error) && error.context.code === "transfer_underpowered" && error.message.includes("12872 meta tasks"));
   await assert.rejects(runProposerEvolution(w.client, w.coordinates, { id: "empty-look", dataset: directory, approval: w.approval, config: { ...proposerEvolutionConfiguration(), transfer: { effect: 0.5, alpha: 0.05, power: 0.8 }, candidates: 1, updates: 1 }, onStep() { entered = true; } }), (error) => isPmCliExpectedError(error) && error.context.code === "transfer_underpowered" && error.message.includes("Meta look 2"));
   assert.equal(entered, false); assert.deepEqual((await w.client.listAllComplete({ includeBody: true })).items, before);
 });
@@ -140,28 +140,28 @@ test("corpus-capacity preflight matches the power oracle across SDK and CLI form
   for (const [path, text] of histories) assert.equal(readFileSync(path, "utf8"), text);
 });
 
-test("power documentation consistently states look-count declarations for the study and shipped configuration", () => {
+test("power documentation consistently states look-count declarations for the study and historical library default", () => {
   const required = transferPower(0, { ...TRANSFER_DESIGN, looks: 2 }).minimum_trackers.toLocaleString("en-US");
   for (const file of ["README.md", "ARCHITECTURE.md", "docs/proposer-transfer.md"]) {
     const text = readFileSync(new URL(`../${file}`, import.meta.url), "utf8").replace(/\s+/g, " ").replaceAll("**", "");
     assert.ok(text.includes(`${required} independent trackers per task at each look for two looks (one generation plus audit)`), file);
     const config = proposerEvolutionConfiguration(); const looks = config.generations + 1; assert.ok(config.transfer !== undefined);
-    const shipped = transferPower(0, { ...TRANSFER_DESIGN, ...config.transfer, looks }).minimum_trackers.toLocaleString("en-US");
+    const shipped = transferPower(0, { ...TRANSFER_DESIGN, looks }).minimum_trackers.toLocaleString("en-US");
     assert.ok(text.includes(`three looks and requires ${shipped} independent trackers per task at each look`), file);
     assert.ok(text.includes("look-count table"), file);
   }
 });
 
-test("documentation pages presenting the shipped runnable declaration state the task-cap refusal", () => {
+test("documentation pages presenting the historical default declaration state the task-cap refusal", () => {
   const config = proposerEvolutionConfiguration(); const looks = config.generations + 1; assert.ok(config.transfer !== undefined);
-  const perLook = transferPower(0, { ...TRANSFER_DESIGN, ...config.transfer, looks }).minimum_trackers;
+  const perLook = transferPower(0, { ...TRANSFER_DESIGN, looks }).minimum_trackers;
   const metaTasks = perLook * TRANSFER_DESIGN.targets.length * config.generations;
-  /** The shipped declaration must actually exceed the cap for this documentation contract to apply. */
+  /** The historical library default must actually exceed the cap for this documentation contract to apply. */
   assert.ok(metaTasks > TRANSFER_MAX_TASKS, `expected ${metaTasks} meta tasks to exceed the ${TRANSFER_MAX_TASKS}-task cap`);
   for (const file of ["README.md", "docs/proposer-programs.md"]) {
     const text = readFileSync(new URL(`../${file}`, import.meta.url), "utf8").replace(/\s+/g, " ").replaceAll("**", "");
-    /** Every page that shows a runnable proposer example with the shipped declaration must explain the refusal. */
-    assert.ok(/rl proposer run|runProposerEvolution/.test(text), `${file} presents the shipped runnable declaration`);
+    /** Pages presenting runnable examples must also explain the historical default's refusal. */
+    assert.ok(/rl proposer run|runProposerEvolution/.test(text), `${file} presents the historical default declaration`);
     assert.ok(text.includes("transfer_underpowered"), `${file} names the refusal code`);
     assert.ok(text.includes("10,000-task"), `${file} names the compartment cap`);
     assert.ok(/sizing table|look-count table/.test(text), `${file} points to a feasible declaration`);
@@ -169,7 +169,7 @@ test("documentation pages presenting the shipped runnable declaration state the 
   const guide = readFileSync(new URL("../docs/proposer-programs.md", import.meta.url), "utf8").replace(/\s+/g, " ").replaceAll("**", "");
   assert.ok(guide.includes(`${perLook.toLocaleString("en-US")} independent trackers per task at each look`), "docs/proposer-programs.md states the derived per-look requirement");
   assert.ok(guide.includes(`${metaTasks.toLocaleString("en-US")} meta tasks`), "docs/proposer-programs.md states the derived meta-task requirement");
-  assert.ok(guide.includes("diagnostic replay"), "docs/proposer-programs.md keeps the shipped declaration usable for validation and diagnostic replay");
+  assert.ok(guide.includes("diagnostic replay"), "docs/proposer-programs.md keeps the historical default usable for validation and diagnostic replay");
 });
 
 test("generation budgets and slots charge the per-look meta members actually executed", { timeout: 600_000 }, async () => {

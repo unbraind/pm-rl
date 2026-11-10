@@ -1,7 +1,7 @@
 /** Rebuild the compact public diagnostic receipt into an explicitly isolated native tracker. */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { init } from "@unbrained/pm-cli/sdk/runtime";
@@ -140,6 +140,7 @@ export async function replayDiagnosticMain(argv: readonly string[]): Promise<voi
   const pmRoot = requireDiagnosticScratch(options.get("--pm-root")!);
   const receipt = readDiagnosticReceipt(options.get("--receipt") ?? "docs/proposer-transfer-receipt.json");
   const project = dirname(dirname(pmRoot));
+  assert.ok(!existsSync(project) || readdirSync(project).length === 0, "diagnostic_requires_fresh_scratch");
   const corpus = rebuildDiagnosticCorpus(receipt, project, options.get("--fleet"));
   const initialized = await init("diagnostic", { defaults: true, agentGuidance: "skip", author: "codex-sol" }, { cwd: project, pmRoot });
   const client = new PmClient({ cwd: project, pmRoot: initialized.path, noExtensions: true, author: "codex-sol" });

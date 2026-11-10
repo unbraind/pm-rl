@@ -31,7 +31,7 @@ export async function runTransferRefusalConsumer(): Promise<void> {
   }
   const config = proposerEvolutionConfiguration();
   const before = (await client.listAllComplete({ includeBody: true })).items;
-  for (const value of [config, { ...config, generations: 1, transfer: { effect: 0.08, alpha: 0.05, power: 0.8 } }]) {
+  for (const value of [{ ...config, transfer: { effect: 0.1, alpha: 0.05, power: 0.8 } }, { ...config, generations: 1, transfer: { effect: 0.08, alpha: 0.05, power: 0.8 } }]) {
     assert.deepEqual(parseProposerEvolutionConfig(value), value);
     await assert.rejects(runProposerEvolution(client, { pmRoot, author: "refusal-test" }, { id: "capacity", config: value, dataset: process.argv[2], approval: "unopened" }), (error) => {
       assert.ok(isPmCliExpectedError(error)); assert.equal(error.context.code, "transfer_underpowered");

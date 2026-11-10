@@ -123,7 +123,8 @@ export function verifyTransferCorpus(corpus: TransferCorpus, expected?: string):
   for (const source of manifest.sources) {
     const name = tracker(source.repo);
     assert.ok(!seen.has(name), "transfer_tracker_leak"); seen.set(name, source);
-    assert.ok(!excludedTrackerName(name.split("/").at(-1)!), "transfer_private_source");
+    const segments = name.split("/");
+    assert.ok(!(segments.length === 1 ? segments : segments.slice(1)).some(excludedTrackerName), "transfer_private_source");
     assert.ok(IMPROVER_ROLES.includes(source.role) && /^[a-f0-9]{40}$/.test(source.commit), "transfer_source");
   }
   for (const role of IMPROVER_ROLES) {

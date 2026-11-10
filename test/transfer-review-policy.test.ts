@@ -24,8 +24,10 @@ test("shared source exclusions reject every forbidden repository while permittin
     assert.throws(() => checkedTrackerSourcePath(physical), /dataset_forbidden_source/);
     const alias = join(w.root, `${name}-alias`); symlinkSync(join(w.root, "sources", name), alias, "dir");
     assert.throws(() => checkedTrackerSourcePath(join(alias, ".agents/pm")), /dataset_forbidden_source/);
-    const invalid = sealTransferCorpus({ ...original, manifest: { ...original.manifest, sources: original.manifest.sources.map((source) => source.role === "meta" ? { ...source, repo: `public-fixture/${name}` } : source) }, tasks: { ...original.tasks, meta: original.tasks.meta.map((task) => ({ ...task, repo: `public-fixture/${name}` })) } });
-    await assert.rejects(archiveTransferCorpus(w.client, invalid), /transfer_private_source/);
+    for (const repo of [`public-fixture/${name}`, `public-fixture/${name}/`, `public-fixture/${name}/extra`]) {
+      const invalid = sealTransferCorpus({ ...original, manifest: { ...original.manifest, sources: original.manifest.sources.map((source) => source.role === "meta" ? { ...source, repo } : source) }, tasks: { ...original.tasks, meta: original.tasks.meta.map((task) => ({ ...task, repo })) } });
+      await assert.rejects(archiveTransferCorpus(w.client, invalid), /transfer_private_source/);
+    }
   }
   assert.deepEqual((await w.client.listAllComplete({ includeBody: true })).items, before);
   await withTrackerSources(async ({ root, directories }) => {

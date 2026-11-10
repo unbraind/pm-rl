@@ -31,8 +31,8 @@ export interface ProposerEvolutionReport { readonly format: "pm-rl/proposer-evol
 /** Explicit operator coordinates and optional interruption probe; no executable callback enters a candidate. */
 export interface ProposerEvolutionRequest { readonly id: string; readonly config: ProposerEvolutionConfig; readonly dataset: string; readonly approval: string; readonly signal?: AbortSignal; readonly forceTakeover?: boolean; readonly onStep?: (key: string) => void | Promise<void> }
 
-/** A modest declaration keeps actual training bounded to two recursive generations. */
-export function proposerEvolutionConfiguration(): ProposerEvolutionConfig { return { initial: initialProposer(), generations: 2, candidates: 2, updates: 64, seed: 42, timeout_ms: 1_140_000, transfer: { effect: 0.10, alpha: 0.05, power: 0.80 } }; }
+/** A prospective declaration fits the task cap and bounds training to two recursive generations. */
+export function proposerEvolutionConfiguration(): ProposerEvolutionConfig { return { initial: initialProposer(), generations: 2, candidates: 2, updates: 64, seed: 42, timeout_ms: 1_140_000, transfer: { effect: 0.50, alpha: 0.05, power: 0.80 } }; }
 /** Validate the complete configuration before any controller lease or resource reservation. */
 export function parseProposerEvolutionConfig(value: unknown): ProposerEvolutionConfig {
   if (value === null || typeof value !== "object" || Array.isArray(value)) throw new ProposerRefusal();
