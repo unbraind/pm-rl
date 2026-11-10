@@ -1,0 +1,54 @@
+id: pm-rl-toolchain-1110
+title: Adapt generation spec reads to pm toolchain 2026.11.6
+description: "Adapt the SDK consumer for https://github.com/unbraind/pm-rl/pull/162 while preserving full generation specification assertions."
+type: Chore
+pm_format_version: 2
+status: in_progress
+priority: 2
+tags[1]: "gh:unbraind/pm-rl#162"
+created_at: "2026-11-10T12:27:31.177Z"
+updated_at: "2026-11-10T17:07:20.563Z"
+author: codex-toolchain-1110
+comments[9]{created_at,author,text}:
+  "2026-11-10T12:29:52.558Z",codex-toolchain-1110,"Read-side omission, not a changed write: a real SDK create/get probe stores a 16023-character JSON fence intact; default get omits body with an omission receipt, whereas full:true plus outputBudget/outputLimit unbounded returns it byte-for-byte. Production complete reads now request the full projection explicitly; LM acceptance readers request the same supported options without changing assertions. Reviewed installed CHANGELOG 2026.11.4-2026.11.6: GH-1576, GH-1655, GH-1660 and GH-1670 do not document a new body-read contract change. Related older budget entry pm-8eclqf; the observed pinned-SDK read omission is an undocumented contract difference for these consumers. No upstream issue filed."
+  "2026-11-10T12:31:29.629Z",codex-toolchain-1110,Source comparison of SDK tags v2026.11.3..v2026.11.6 identifies GH-1576 (2026.11.4) adding item_hash to current get envelopes. No body writer or body inclusion rule changed in that diff. The extra revision facet can change whether a presentation-budgeted response fits; these machine consumers must explicitly request complete unbounded output. The changelog documents revision guards but not their impact on default body availability.
+  "2026-11-10T12:45:15.773Z",codex-toolchain-1110,"Focused LM suite: 22 tests, 21 passed, 1 failed, zero skips/cancellations. The recursive-learning JSON fence assertions pass; packed CLI hits the existing 25-second subprocess timeout on the loaded shared host. No time bound or assertion was relaxed. Initial npm test/release attempts stopped at test compilation because explicitly budgeted SDK get returns a union. Acceptance code now uses production readCompleteLoopItem, which checks the envelope; build:test passes. Full suite and release gate will be rerun after that correction. Auto-merge disabled before any push."
+  "2026-11-10T12:53:14.867Z",codex-toolchain-1110,"Review correction before publication: existing production generation reads already used standard-depth unbounded SDK output. Keep that supported projection to avoid unnecessary full-mode hierarchy/history work. Harden it to refuse a missing body rather than silently parse an omitted spec, and route the remaining launch-authority body read through it too. Added a real SDK large-fence regression plus a real brief-projection omission negative control; acceptance readers reuse this production helper. Stopped the owned incomplete full run before changing source; its partial results are not final-head evidence. Restart full checks on this corrected implementation."
+  "2026-11-10T12:54:47.814Z",codex-toolchain-1110,"Corrected focused selection: 3 tests, 2 passed, 1 failed, zero skips/cancellations. The real recursive LM fence assertions and large-spec/omission contract pass; packed CLI still exceeds its original 25-second child timeout, matching existing pm-rl-7c7m. The new real SDK contract also passes 1/1 through pm test --run --only-last --progress. No JSON assertion or time bound changed."
+  "2026-11-10T13:04:33.926Z",codex-toolchain-1110,"Exact released-package comparison confirms GH-1576 (CHANGELOG 2026.11.4) as the budget boundary change: current get gains the serialized item_hash facet, exactly 79 bytes. On the same real tracker/document, 2026.11.3 includes a 15335-character fenced JSON body while 2026.11.6 omits it with a body omission receipt. Binary search finds the fixture payload ceiling changes from 15303 to 15224 characters, exactly 79. The 2026.11.6 standard-depth outputBudget/outputLimit unbounded read returns the identical full body. Writes are unchanged. This is a documented revision-envelope addition with an undocumented SDK body-read budget consequence, not normalized or truncated storage; no upstream issue filed."
+  "2026-11-10T15:42:30.029Z",codex-toolchain-1110,"Full npm run remains active in exhaustive sequential SDK boundary tests; incomplete results are not a completed gate receipt. Real recursive LM fence assertions and the new large-spec/omission contract pass. Observed failures are the unchanged packed CLI child timeout (existing pm-rl-7c7m) and the unchanged 600-second policy-card recovery matrix timeout with its trailing canceled subcases (existing pm-rl-local-gate-timing). No JSON assertion, timeout, coverage threshold or source scope was relaxed. Runner startup was bounded to two workers and the actual worker count was verified; final totals and the queued release gate remain pending."
+  "2026-11-10T16:50:00.531Z",codex-toolchain-1110,"Orchestrator supersedes the full-suite plan: stop owned test jobs, use bounded focused evidence and let CI certify full gates. The earlier full npm attempt was interrupted, not passed. Current remote PR162 advanced independently to head 3a44f78 with SDK/pm-changelog 2026.11.7 and pm-ops 2026.11.6; preserve that dependency update by merging it before the final bounded checks and fast-forward push. The SDK 2026.11.6 compatibility evidence and GH-1576 79-byte boundary proof remain valid."
+  "2026-11-10T17:07:19.803Z",codex-toolchain-1110,"Final bounded evidence on current SDK 2026.11.7: named failing files plus SDK adoption regression completed 26 tests, 25 passed, 1 failed, zero skipped/canceled. The failure is the original packed CLI subprocess timeout; JSON fence and full-spec assertions pass. Typecheck, build:test and changelog:check pass. A separate run selected all 56 direct index-module consumer files and stopped at its 600-second cap (exit 124): 93 passing and 4 failing completed TAP records, not a completed suite. Failures: checkpoint promoter TimeoutError and three Compose image builds where npm ci exits 1. Compose install diagnosis is tracked by pm-rl-docker-ci-1110; timing remains with pm-rl-7c7m and pm-rl-local-gate-timing. CI must complete the consumer sweep and full release gate. GH-1576 is the documented revision-envelope addition; its 79-byte default body-budget consequence is undocumented. Auto-merge disabled before push. Existing Dependabot-authored commits are preserved; every new authored commit uses the required SteveBot address."
+files[4]{path,scope}:
+  index.ts,project
+  test/lm-cli.test.ts,project
+  test/lm-loop.test.ts,project
+  test/sdk-adoption.test.ts,project
+tests[4]:
+  - command: npm run typecheck
+    scope: project
+    provenance:
+      author: codex-toolchain-1110
+      created_at: "2026-11-10T12:30:49.540Z"
+      source_kind: local_mutation
+  - command: node --test --test-concurrency=2 --test-name-pattern='complete SDK reads' test/sdk-adoption.test.ts
+    scope: project
+    provenance:
+      author: codex-toolchain-1110
+      created_at: "2026-11-10T12:54:21.939Z"
+      source_kind: local_mutation
+  - command: timeout --kill-after=5s 600 node --test --test-concurrency=2 --test-reporter=tap test/lm-cli.test.ts test/lm-loop.test.ts test/sdk-adoption.test.ts
+    scope: project
+    timeout_seconds: 1200
+    provenance:
+      author: codex-toolchain-1110
+      created_at: "2026-11-10T17:07:18.084Z"
+      source_kind: local_mutation
+  - command: timeout --kill-after=5s 600 node --test --test-concurrency=2 --test-reporter=tap test/lm-cli.test.ts test/lm-loop.test.ts test/sdk-adoption.test.ts test/bandit.test.ts test/baseline.test.ts test/checkpoint-artifacts.test.ts test/compare.test.ts test/compose.test.ts test/continuation-faults.test.ts test/controller-boundaries.test.ts test/controller-compatibility.test.ts test/controller-faults.test.ts test/corpus.test.ts test/dataset.test.ts test/decision-evidence.test.ts test/decision-recovery.test.ts test/durable-loop.test.ts test/durable-snapshots.test.ts test/evaluation-compatibility.test.ts test/evaluation-integration.test.ts test/evaluation-plan.test.ts test/gatesim.test.ts test/improver.test.ts test/index.test.ts test/invalidate.test.ts test/json-boundaries.test.ts test/leaderboard.test.ts test/lineage.test.ts test/live-systemone.test.ts test/lm-compose.test.ts test/lm.test.ts test/loop.test.ts test/meta.test.ts test/mutation-preflight.test.ts test/objective.test.ts test/policy-card.test.ts test/prefix.test.ts test/process-cli.test.ts test/process-compatibility.test.ts test/process-loop.test.ts test/process-publication.test.ts test/process.test.ts test/proposer-program.test.ts test/receipt.test.ts test/recipe.test.ts test/sdk-lock-confinement.test.ts test/sequential-evaluation.test.ts test/shadow.test.ts test/state-boundary.test.ts test/sweep.test.ts test/systemone.test.ts test/training-influence-maintenance.test.ts test/training-influence.test.ts test/transaction-races.test.ts test/transfer.test.ts test/worst-cohort.test.ts
+    scope: project
+    timeout_seconds: 1200
+    provenance:
+      author: codex-toolchain-1110
+      created_at: "2026-11-10T17:07:19.009Z"
+      source_kind: local_mutation
+body: ""
