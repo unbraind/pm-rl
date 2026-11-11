@@ -7,10 +7,10 @@ status: in_progress
 priority: 2
 tags[3]: api,evaluation-lifecycle,"gh:unbraind/pm-rl#153"
 created_at: "2026-10-27T05:03:56.149Z"
-updated_at: "2026-11-09T16:52:17.783Z"
+updated_at: "2026-11-11T17:31:58.127Z"
 author: codex-agent
 acceptance_criteria: "Migrate the typed SDK and CLI to one lifecycle contract: review approved -> Plan sealed -> all collection Runs -> candidate -> ordered checkpoints/looks -> promotion; document the migration and preserve fixed-sample behavior.; Prove lifecycle ordering independently of wall-clock timestamps, including clock skew, equal timestamps and rollback; every promotion and approval path calls the same validator and adversarial artifact-pair permutations refuse every out-of-order transition."
-comments[20]{created_at,author,text}:
+comments[22]{created_at,author,text}:
   "2026-10-27T05:56:09.951Z",codex-agent,"Round 3 correction to the previous scope split: PR 107 now requires complete chronology coverage for all existing artifacts, including every collection Run before the candidate and every cumulative look. That correctness fix stays in pm-rl-sequential. This Feature still exclusively tracks the public lifecycle API migration and clock-independent ordering proof; it does not block that fix or expand its API."
   "2026-10-31T15:36:42.952Z",codex-agent,"PRRT_kwDOTqJmqs6yR9cm: corrected description and acceptance_criteria with pm update to review approved -> Plan sealed -> all collection Runs -> candidate -> ordered checkpoints/looks -> promotion. Verified against reviewSequentialPlan, evaluationLifecycleArtifacts and README. Clock-independent ordering and fixed-sample compatibility requirements remain. This corrects planning text only; the future API migration remains open."
   "2026-11-06T20:18:52.587Z",codex-astra,"Orientation complete. The item has no parent; read its originating sequential feature and the package architecture and README. The current lifecycle uses creation timestamps and timestamp-sorted SDK mutation events, so event-list positions are not an independent ordering proof. Investigating a versioned durable causal receipt while preserving existing fixed-plan serialization and readers."
@@ -31,7 +31,9 @@ comments[20]{created_at,author,text}:
   "2026-11-09T16:40:32.720Z",codex-agent,"Validation update: lifecycle/proof suite passed 14/14 with 100% lifecycle lines/branches/functions; proof-only pm test --run --progress passed 5/5. Both packed consumers passed. Historical proof execution correctly refused stale no-op selectors and unexpected assertion categories rather than publishing them. Updated selectors to current mutation/reader functions; strengthened reversed-history coverage to reorder actual SDK histories for scoped recovery clients too. The strengthened policy-card regression passes. No existing tests were deleted or weakened, and no infrastructure failure has been accepted as behavioral evidence. Strict health passes with isolated identity and existing advisories; production audit has zero vulnerabilities. Final receipt regeneration and compatibility/quality checks remain in progress."
   "2026-11-09T16:49:34.455Z",codex-agent,"Revert proof verified: all 42 behavioral mutation/restoration pairs pass: lifecycle 14, influence 10, compensation 3, executor 6, staging 4 and maintenance 5. PRRT_kwDOTqJmqs60v10P is covered by actual diagnostic/code admission, timeout exclusion, measured totals, all-five-producer enforcement and guaranteed source restoration; reverting those guards fails the linked adversarial proof tests. PRRT_kwDOTqJmqs61P8CY is covered by creation and retry mutants: duplicate validated-birth reads each cause Every native birth must be read once per causal operation, restoration passes. Final isolated-identity targeted command passes 104/104, zero failures/skips/cancellations, lifecycle 100% lines/branches/functions. Focused reversed-history test also passes and detects both attribution and snapshot-order mutants. Two historical receipt unchanged flags observed concurrent evidence/tracker updates; retain those observations in the implementation commit, then regenerate compensation and maintenance sequentially with a stable worktree. No timeout was accepted as proof."
   "2026-11-09T16:52:16.926Z",codex-agent,"Final verification for implementation aa5e6ef: sequential compensation and maintenance reruns both pass with measured reviewed_source_unchanged=true; all historical generators retain their observed failure diagnostics and measured counts. All 42 pairs pass with restored implementations. Targeted isolated-identity suite: 104/104, no failures/skips/cancellations, lifecycle 100% lines/branches/functions; focused history regression passes, proof-only pm test --run --progress 5/5. Typecheck, build:test, build, lint, docstrings (539 declarations), zero-clone duplication, publish attestation, approved identity audit, zero-vulnerability production audit and strict tracker health pass. Both captured npm/Bun consumer flows passed on non-git trackers. Native history remains a prefix-extension of origin/main; branch commits use only the required identity. Under-lease revalidation after discovery intentionally remains, while redundant birth reads inside one operation are removed. Full npm and Bun release gates remain pending for the pushed head in CI: https://github.com/unbraind/pm-rl/actions/workflows/ci.yml . No release or merge; review threads remain untouched for orchestrator/bot verification. Claim released with the item left in progress."
-files[18]{path,scope}:
+  "2026-11-11T17:28:06.589Z",codex-smallfix3-1111,"Read seven review threads and all comments; two unresolved findings. Inspected the 34-file saved WIP against base 70c39db. Select only the failure-cause admission change and its regression; implement locale-independent replay ordering locally without the unrelated JSON identity migration. Scoped tests, lint and typecheck will retain existing thresholds."
+  "2026-11-11T17:31:57.339Z",codex-smallfix3-1111,"Regression suite passes 7/7 with zero skipped. Disposable reverts independently restoring localeCompare in traversal and in member selection each fail the code-point assertion (exit 1); restoring only the old causal-proof admission fails the legitimate timeout-word control (exit 1). Fixed rerun passes 7/7; lint, typecheck and build:test pass. Selected only the saved causal-proof change and its proof test. Left out all saved production-module JSON identity/order migration, other acceptance scripts, unrelated tests and prior PM changes; replay ordering is scoped to the acceptance helper."
+files[20]{path,scope}:
   evaluation-lifecycle.ts,project
   evaluation-plan.ts,project
   index.ts,project
@@ -41,16 +43,18 @@ files[18]{path,scope}:
   test/evaluation-lifecycle.acceptance.ts,project
   test/evaluation-lifecycle.revert.ts,project
   test/evaluation-lifecycle.test.ts,project
+  test/evaluation-replay-order.test.ts,project
   test/fixtures/causal-evaluation.ts,project
   test/fixtures/causal-proof.ts,project
   test/fixtures/causal-worker.ts,project
+  test/fixtures/replay-order.ts,project
   test/policy-card.test.ts,project
   test/sequential-evaluation.test.ts,project
   test/training-influence-maintenance-revert.ts,project
   test/training-influence.compensation-revert.ts,project
   test/training-influence.executor-revert.ts,project
   test/training-influence.revert.ts,project
-tests[12]:
+tests[13]:
   - command: node --test --test-concurrency=2 --experimental-test-coverage --test-coverage-include=**/evaluation-lifecycle.ts --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100 test/evaluation-lifecycle.test.ts
     scope: project
     timeout_seconds: 900
@@ -149,6 +153,13 @@ tests[12]:
     provenance:
       author: codex-agent
       created_at: "2026-11-09T16:47:50.166Z"
+      source_kind: local_mutation
+      source_ref: clock-independent-evaluation-lifecycle
+  - command: node --test --test-concurrency=2 test/evaluation-replay-order.test.ts test/evaluation-lifecycle-proof.test.ts
+    scope: project
+    provenance:
+      author: codex-smallfix3-1111
+      created_at: "2026-11-11T17:28:53.154Z"
       source_kind: local_mutation
       source_ref: clock-independent-evaluation-lifecycle
 docs[12]{path,scope}:

@@ -55,7 +55,12 @@ export function validateProofRun(run: SpawnSyncReturns<string>, pattern: string,
     if (expectedCode !== undefined) assert.equal(data.code, expectedCode, `Unexpected failure code: ${String(data.error)}`);
     assert.equal(data.failureType, "testCodeFailure");
     const error = String(data.error);
-    assert.doesNotMatch(error, /timed?\s*out|timeout|cancelled|SyntaxError|ERR_MODULE_NOT_FOUND/i);
+    // Refuse infrastructure noise by its PRIMARY CAUSE, not by banned words: a harness
+    // timeout embeds the child's stderr after the marker (so the expected diagnostic can
+    // appear inside noise), and a broken reverted source fails module loading. A genuine
+    // behavioral message may legitimately mention timeouts, cancellation or syntax errors
+    // anywhere else, so only the message start is checked here.
+    assert.doesNotMatch(error, /^(?:Worker [^\n]*? timed out|SyntaxError|ERR_MODULE_NOT_FOUND)/, "Runner infrastructure noise is not behavioral evidence");
     const matched = expectedFailure.exec(error)?.[0];
     assert.ok(matched !== undefined, `Unexpected behavioral cause: ${String(data.code)}: ${error}`);
     result.failure = { test: selected[0].name, code: String(data.code), failureType: String(data.failureType), matched };

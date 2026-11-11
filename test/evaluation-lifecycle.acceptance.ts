@@ -1,32 +1,19 @@
 /** Read one public tracker copy and retain descriptive causal-protocol evidence without changing its records. */
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
-import { readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { trackerDigest, selectReplayItems } from "./fixtures/replay-order.ts";
+import { rmSync, writeFileSync } from "node:fs";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { evaluationComparison } from "../evaluation-plan.ts";
 import { readCompleteLoopItem } from "../index.ts";
 import { readSequentialEvaluation } from "../sequential-evaluation.ts";
 import { causalWorkspace, causalStep, withCausalClock } from "./fixtures/causal-evaluation.ts";
 
-/** Hash authoritative public records only; SDK read caches are derived, disposable state. */
-function trackerDigest(root: string): string {
-  const hash = createHash("sha256");
-  const visit = (directory: string): void => {
-    for (const entry of readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
-      const path = join(directory, entry.name);
-      if (entry.isDirectory() && !["runtime", "locks", "search", "transactions"].includes(entry.name)) visit(path);
-      if (entry.isFile() && /\.(toon|jsonl|json)$/.test(entry.name)) hash.update(relative(root, path)).update(readFileSync(path));
-    }
-  };
-  visit(root); return hash.digest("hex");
-}
 const acceptanceCwd = process.cwd();
 const source = process.argv[2]; const commit = process.argv[3];
 assert.match(commit, /^[a-f0-9]{40}$/);
 const before = trackerDigest(source);
 const client = new PmClient({ pmRoot: source, author: "public-replay", noExtensions: true });
-const items = (await client.listAllComplete({ includeBody: false })).items.sort((a, b) => a.id.localeCompare(b.id)).slice(0, 64);
+const items = selectReplayItems((await client.listAllComplete({ includeBody: false })).items);
 assert.equal(items.length, 64);
 const w = await causalWorkspace();
 try {

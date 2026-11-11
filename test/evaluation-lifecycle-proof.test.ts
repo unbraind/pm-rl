@@ -40,6 +40,30 @@ test("proof rejects worker timeouts, runner errors, cancellation and unrelated f
   assert.throws(() => validateProofRun(run, "selected", /expected/), /Runner process error/);
 });
 
+test("proof admits behavioral failures that name infrastructure words and refuses harness noise by its primary cause", () => {
+  // A behavioral assertion may legitimately mention timeouts, cancellation or syntax errors:
+  // the refusal must classify noise by the message's primary cause, not by banned words.
+  for (const source of [
+    "test('selected', () => { throw new Error('expected refusal: the run must reject cancelled checkpoints after the timeout'); });",
+    "test('selected', () => { throw new Error('expected refusal: a SyntaxError must not be reported as a runner failure'); });",
+  ]) {
+    fixture(source, (root, file) => {
+      const result = validateProofRun(runProofTest(root, file, "selected"), "selected", /expected refusal/);
+      assert.equal(result.failure!.matched, "expected refusal");
+    });
+  }
+  // The harness timeout embeds the child's stderr after the marker, so the expected
+  // diagnostic can appear INSIDE the noise; the primary cause must still be refused.
+  for (const source of [
+    "test('selected', () => { throw new Error('Worker run timed out: stderr: Evaluation plan refused (eval_plan_late)'); });",
+    "test('selected', () => { throw new Error('SyntaxError: unexpected token in reverted source'); });",
+  ]) {
+    fixture(source, (root, file) => {
+      assert.throws(() => validateProofRun(runProofTest(root, file, "selected"), "selected", /eval_plan_late|unexpected token/));
+    });
+  }
+});
+
 test("proof refuses skipped, missing, duplicate and malformed runner evidence", () => {
   fixture("test.skip('selected', () => {});", (root, file) => {
     assert.throws(() => validateProofRun(runProofTest(root, file, "selected"), "selected"));
