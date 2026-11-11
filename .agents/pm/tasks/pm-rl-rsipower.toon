@@ -6,10 +6,10 @@ status: in_progress
 priority: 2
 tags[2]: "gh:unbraind/pm-rl#148","gh:unbraind/pm-rl#149"
 created_at: "2026-10-19T12:52:29.061Z"
-updated_at: "2026-11-10T22:53:37.322Z"
+updated_at: "2026-11-11T17:30:10.488Z"
 author: codex-agent
 parent: pm-rl-apvf
-comments[104]{created_at,author,text}:
+comments[106]{created_at,author,text}:
   "2026-11-06T04:31:07.159Z",codex-sol,"Plan: freeze public commit-pinned tracker-disjoint development/meta/audit sources; declare a 0.10 transfer effect, 0.01 promotion margin, alpha 0.05 and target power 0.80 before measuring. Use bounded paired tracker means with task and generation Bonferroni correction. Preserve existing promotion gates and refuse underpowered evidence. Seal replayable corpus/split/evaluation context in SDK-owned items and native history; run one CPU-niced bounded real generation, report all refusals honestly."
   "2026-11-06T04:40:26.177Z",codex-sol,"Corpus frozen before scoring: 31 public MIT source pins, 19 development tasks, 16 meta tasks and 11 audit tasks; corpus digest 7156cf8c85b9941e12e42632c08f27419af69b7b3ee8824545c35def3fee9d49. One unverifiable directory excluded; private/hosted sources never opened. Conservative declared power requires 3062 held-out trackers per task; the available fleet cannot meet this. Proceeding with one bounded diagnostic generation, not claiming powered no-transfer evidence."
   "2026-11-06T04:49:32.441Z",codex-sol,"Runtime adjustment before a complete held-out comparison: stopped the broad diagnostic after 19 development fits and one meta-baseline fit, preserving receipts, reservations and any cancellation transition. A second predeclared diagnostic selects the first three trackers with both tasks in each compartment by SHA-256 repository identity and seed 42, with no score-based selection. One generation, one proposal, 64 updates, 10-minute deadline in an isolated non-git SDK tracker. Native corpus, paired observations and replayable decisions are copied through SDK APIs into this tracker; no evidence side files are published."
@@ -114,7 +114,9 @@ comments[104]{created_at,author,text}:
   "2026-11-10T22:43:18.474Z",codex-smallfix2-1110,"Final preflight follow-through: malformed manifest split metadata is read inside proposerDatasetRead, preserving a typed proposer_dataset_invalid refusal before controller work. A new regression failed with the raw TypeError before this wrapper and passes after it (proof:typed_manifest_preflight). Current PM-linked focused suite passes 7/7, and the compatibility/refusal subset passes 5/5. Typecheck, test typecheck and lint pass. The full run started before this final field-read wrapper and remains budget-bounded; it is not exact-final-head certification. CI must certify the full gate if the remaining run cannot complete."
   "2026-11-10T22:53:34.949Z",codex-smallfix2-1110,"Final review fixes: PRRT_kwDOTqJmqs61sM_h bounds native v2 entry and shard declarations before child reads, caps v1 references, checks batches before collecting and bounds the related improver reader. Shared roles/task limits live in independent improver-limits.ts so a fresh direct reader import cannot create an initialization cycle; shipped files include the compiled limits module. PRRT_kwDOTqJmqs61sM_u uses a physical parent expectation under a real symlink. PRRT_kwDOTqJmqs61sM_3 clears and verifies the stub log for each fresh destination. Revert proofs fail when the declared ceiling, batch check, physical expectation or log reset is removed. Additional regressions reproduced raw malformed-manifest preflight errors and the fresh-reader import ReferenceError before their fixes. Final PM-linked focused tests pass 8/8; compatibility/refusal subset passes 5/5. Build, typecheck, test typecheck and lint pass; exact installed dependencies match the lockfile."
   "2026-11-10T22:53:35.697Z",codex-smallfix2-1110,"Bounded full invocation timeout 2700 npm test -- --test-concurrency=2 reached the 45-minute cap. Node reported 835 tests: 786 passed, zero failed, 49 cancelled, zero skipped; this is incomplete evidence, not a green full gate. The full run began before the final typed field-read and independent-limits follow-through, so exact final-head full certification remains for CI. The initial importer run reported 111/113 before two refusal-compatibility corrections; the current 5/5 subset covers those corrected cases and the final reader regressions. No test deadlines were raised."
-files[40]{path,scope}:
+  "2026-11-11T17:27:04.501Z",codex-smallfix3-1111,"Read 50 review threads and all comments; two unresolved findings. Will make the release coverage runner discover all test files and add a reachability guard, then fix document heading hierarchy. Scoped gates follow the requested test, lint and typecheck budget."
+  "2026-11-11T17:30:09.675Z",codex-smallfix3-1111,"Verified all five scoped tests pass (5/5, zero skipped), lint and typecheck pass. Disposable behavioral revert of only package.json test discovery exits 1 with AssertionError: release gate omits test/release-test-discovery.test.ts. Fixed implementation rerun passes 5/5. Both release jobs now use the coverage glob, including transfer-review-bounds.test.ts and future package tests; unchanged thresholds. Document has one title and level-two sections. No thread replies or resolutions made."
+files[41]{path,scope}:
   dataset.ts,project
   examples/proposer-program.json,project
   improver-data.ts,project
@@ -139,6 +141,7 @@ files[40]{path,scope}:
   test/improver.test.ts,project
   test/proposer-program.test.ts,project
   test/proposer-transfer.test.ts,project
+  test/release-test-discovery.test.ts,project
   test/training-influence-maintenance-revert.ts,project
   test/training-influence.compensation-revert.ts,project
   test/training-influence.executor-revert.ts,project
@@ -155,7 +158,7 @@ files[40]{path,scope}:
   test/transfer-review-round6.test.ts,project
   test/transfer-review-storage.test.ts,project
   test/transfer-review.test.ts,project
-tests[30]:
+tests[31]:
   - command: "node --test --test-concurrency=2 --test-name-pattern=training.tracker\\|split.digest\\|power.bound test/proposer-transfer.test.ts"
     scope: project
     provenance:
@@ -401,6 +404,13 @@ tests[30]:
     provenance:
       author: codex-smallfix2-1110
       created_at: "2026-11-10T22:53:36.514Z"
+      source_kind: local_mutation
+      source_ref: rsi-proposer-transfer-evaluation
+  - command: node --test --test-concurrency=2 test/release-test-discovery.test.ts test/transfer-review-bounds.test.ts
+    scope: project
+    provenance:
+      author: codex-smallfix3-1111
+      created_at: "2026-11-11T17:27:27.061Z"
       source_kind: local_mutation
       source_ref: rsi-proposer-transfer-evaluation
 docs[5]{path,scope}:

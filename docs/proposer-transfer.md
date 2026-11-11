@@ -50,7 +50,7 @@ between fleet projects. The follow-up corpus task requires a justified broader
 sampling frame. The existing public Git builder also caps source count at 64;
 its current domain cannot supply this power requirement.
 
-# Choosing and sealing a prospective design
+## Choosing and sealing a prospective design
 
 New proposer configurations must contain an explicit `transfer` declaration:
 
@@ -121,7 +121,7 @@ bounded accuracy gain. Higher confidence, higher target power or more looks
 require more evidence. Existing task-count, time, resource and independent
 promotion gates also apply; this table does not guarantee overall loop promotion.
 
-# Corpus and replay contract
+## Corpus and replay contract
 
 The builder verifies PUBLIC visibility, MIT licensing and published commit pins
 before projecting copies. Private and hosted tracker directories are denied
@@ -165,7 +165,7 @@ representation permits 10,000 tasks per compartment so its shape is not itself
 incapable of representing a powered population. Time, optimizer, token, shared
 approval and original statistical limits remain unchanged.
 
-# Real public diagnostic
+## Real public diagnostic
 
 The complete frozen public corpus digest is
 `7156cf8c85b9941e12e42632c08f27419af69b7b3ee8824545c35def3fee9d49`.
@@ -236,8 +236,8 @@ From a package checkout with dependencies installed:
 scratch=$(mktemp -d)
 nice -n 19 node test/fixtures/transfer-replay.ts \
   --receipt docs/proposer-transfer-receipt.json --pm-root "$scratch/.agents/pm"
-# Optional: append --fleet "$PUBLIC_FLEET" to use read-only local clone sources.
-# SDK replay above is complete; install the local package for native CLI replay:
+## Optional: append --fleet "$PUBLIC_FLEET" to use read-only local clone sources.
+## SDK replay above is complete; install the local package for native CLI replay:
 npm run build
 archive=$(NPM_CONFIG_USERCONFIG=/dev/null npm pack --ignore-scripts --silent --pack-destination "$scratch")
 pm --pm-path "$scratch/.agents/pm" package install "$scratch/$archive" --project
@@ -263,7 +263,7 @@ pm --pm-path "$scratch/.agents/pm" rl proposer run transfer-study \
   --approval resource-decision --json
 ```
 
-# Regression evidence
+## Regression evidence
 
 Real non-Git temporary SDK trackers cover underpowered refusal, normalized tracker
 leakage, native split-digest mismatch, immutable record drift, unavailable native
@@ -276,7 +276,7 @@ the transfer gate or only the corpus verifier, and requires the three named nati
 regressions to fail with assertion errors (exit 1). Every mutation is restored in
 `finally`. No SDK mocks, missing imports or build failures count as revert proof.
 
-# Powered archive capacity regression (issue 149)
+## Powered archive capacity regression (issue 149)
 
 The minimum-size real SDK regression uses 3,062 synthetic tracker references per
 task in both meta and audit, plus valid development data: 12,248 held-out tasks.
