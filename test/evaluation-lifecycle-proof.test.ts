@@ -119,9 +119,8 @@ test("selected revert receipts exclude unverified results from earlier source", 
     mkdirSync(join(root, "docs"));
     const receipt = join(root, "docs/evaluation-lifecycle-revert.json");
     writeFileSync(receipt, JSON.stringify({ tests: [{ function: "stale", test: "unselected prior source", reverted: { pass: 0, fail: 1 }, restored: { pass: 1, fail: 0 } }] }));
-    const childEnv: NodeJS.ProcessEnv = { ...process.env, NODE_OPTIONS: undefined, NODE_TEST_CONTEXT: undefined, NODE_V8_COVERAGE: undefined };
-    for (const key of Object.keys(childEnv)) if (/TOKEN|SECRET|PASSWORD|CREDENTIAL|NPM_MEDIA_SERVER/i.test(key)) delete childEnv[key];
-    const run = spawnSync(process.execPath, ["test/evaluation-lifecycle.revert.ts", "proof rejects worker timeouts"], { cwd: root, encoding: "utf8", env: childEnv, timeout: 60_000 });
+    // The shared filter, so names such as OPENAI_API_KEY or HTTP_AUTHORIZATION never reach the intermediate receipt process.
+    const run = spawnSync(process.execPath, ["test/evaluation-lifecycle.revert.ts", "proof rejects worker timeouts"], { cwd: root, encoding: "utf8", env: isolatedChildEnv(), timeout: 60_000 });
     assert.equal(run.error, undefined);
     assert.equal(run.status, 0, run.stdout + run.stderr);
     const recorded = JSON.parse(readFileSync(receipt, "utf8")) as { complete: boolean; selection: string[]; tests: { test: string }[] };

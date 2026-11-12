@@ -20,12 +20,12 @@ result grants execution or mutation authority.
 pm rl eval plan approve --file plan.json
 pm rl eval plan register --file plan.json
 pm rl run start rl-collection --environment rl-training --algorithm policy \
-  --evaluation-candidate rl-candidate
-pm rl generation register rl-candidate --parent rl-seed --base-checkpoint candidate \
+  --evaluation-candidate rl-sequential-candidate
+pm rl generation register rl-sequential-candidate --parent rl-seed --base-checkpoint candidate \
   --policy policy --collection-runs rl-collection --environment rl-training
-pm rl eval plan advance rl-candidate --file first-look.json
-pm rl eval plan advance rl-candidate --file final-look.json
-pm rl eval plan resume rl-candidate --json
+pm rl eval plan advance rl-sequential-candidate --file first-look.json
+pm rl eval plan advance rl-sequential-candidate --file final-look.json
+pm rl eval plan resume rl-sequential-candidate --json
 # Promotion uses the existing approval and exact-score requirements.
 ```
 
