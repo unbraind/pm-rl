@@ -1482,3 +1482,37 @@ test("${name} meets ${peer}", async () => {
   assert.match(result.stdout, /1 source file.*thresholds met/);
   assert.match(result.stdout, /statements 100\.00%/);
 });
+
+
+test("source discovery excludes tooling configs while operational scripts remain measured", () => {
+  dir = makeTempDir(); const root = dir.root;
+  mkdirSync(join(root, "scripts"));
+  writeFileSync(join(root, "scripts", "eslint.config.ts"), "export default [];\n");
+  writeFileSync(join(root, "scripts", "worker.ts"), "export const run = 1;\n");
+  writeFileSync(join(root, "vitest.config.ts"), "export default {};\n");
+  assert.deepEqual(collectSources(root, defaultSkipDirs, root), ["scripts/worker.ts"]);
+  assert.throws(() => collectSources(join(root, "scripts/eslint.config.ts"), defaultSkipDirs, root), /not a TypeScript source file/);
+  const actual = collectSources(repoRoot, defaultSkipDirs, repoRoot);
+  assert.ok(!actual.includes("scripts/eslint.config.ts"));
+  assert.ok(actual.includes("scripts/coverage-gate.ts"));
+  assert.ok(actual.includes("scripts/live-improver.ts"));
+});
+
+test("loaded tooling config branches never enter the unchanged release coverage thresholds", () => {
+  dir = makeTempDir(); const root = dir.root;
+  writeFileSync(join(root, "package.json"), '{"type":"module"}');
+  writeFileSync(join(root, "tool.config.ts"), 'export const setting = process.platform === "fixture-platform" ? 1 : 2;\n');
+  writeFileSync(join(root, "source.ts"), 'import { setting } from "./tool.config.ts"; export const answer = setting;\n');
+  mkdirSync(join(root, "test"));
+  writeFileSync(join(root, "test", "source.test.ts"), 'import assert from "node:assert/strict"; import { test } from "node:test"; import { answer } from "../source.ts"; test("source", () => assert.equal(answer, 2));\n');
+  let output = "";
+  const result = runGate({ sources: ["."], tests: ["test/source.test.ts"], thresholds: { lines: 100, branches: 100, functions: 100, statements: 100 } }, root,
+    (command, args, options) => {
+      assert.deepEqual(args.filter(arg => arg.startsWith("--test-coverage-include=")), ["--test-coverage-include=source.ts"]);
+      const child = spawnSync(command, [...args], { ...options, stdio: "pipe", encoding: "utf8", env: { PATH: options.env.PATH, NODE_V8_COVERAGE: options.env.NODE_V8_COVERAGE } });
+      output = child.stdout + child.stderr; return child;
+    });
+  assert.equal(result.exitCode, 0, output + result.stderr);
+  assert.match(result.stdout, /1 source file.*thresholds met/);
+  assert.match(result.stdout, /branches 100\.00%/);
+});

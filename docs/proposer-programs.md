@@ -8,7 +8,9 @@ capability grammar, never JavaScript, shell, a plugin or another trainer.
 
 ```sh
 pm rl proposer validate --file examples/proposer-program.json --json
-pm rl proposer run experiment --file examples/proposer-program.json \
+scratch=$(mktemp -d)
+# Initialize/install the package and create resource approval in this scratch tracker.
+pm --pm-path "$scratch/.agents/pm" rl proposer run experiment --file examples/proposer-program.json \
   --dataset sealed-improver-data --approval resource-decision --json
 ```
 
@@ -19,7 +21,20 @@ process calls, outer promotions and inner/outer promotion headroom before work;
 concurrent searches cannot each spend the same approved capacity.
 `permitted_promotions` must cover `fits + config.generations` in addition to
 capacity already consumed or reserved under that Decision, where
-`fits = config.candidates * (config.generations * (development.tasks + 2 * meta.tasks) + 2 * audit.tasks)`.
+`fits = config.candidates * (config.generations * development.tasks + 2 * metaFits + 2 * audit.tasks)`.
+`metaFits` is the executed meta work: each generation fits only the trackers its
+look selects, so the meta term charges every meta task exactly once across all
+generations instead of once per generation. The same executed-work count sizes
+the optimizer budget, the Bonferroni comparisons and the reserved process slots.
+Under the shipped partition the looks cover the split, so `metaFits` equals
+`meta.tasks`.
+This corrects the former whole-meta-split charge for multi-generation runs and
+changes their confidence allocation and evaluation-plan digests. Existing
+reservations and plans remain frozen: resuming an old multi-generation identity
+refuses with `meta_reservation_drift` before any writes. Keep its receipts for
+historical transfer replay and start a fresh programme identity for the corrected
+budget; do not rewrite the old reservation or plans. Single-generation accounting
+is unchanged.
 The proposer run consumes this shared promotion headroom for its inner fits and
 outer generations. Its conservative reservation remains held after completion,
 refusal, interruption and replay; the search never refunds it.
@@ -32,6 +47,18 @@ An undersized declaration refuses before the controller lease or any jobs.
 Supply a frozen dataset from `rl improver build` with disjoint development, meta
 and audit trackers. The existing public-history builder requires committed public
 Git provenance. Executing a sealed dataset requires no Git repository or executable.
+New runs require explicit `transfer.effect`, `transfer.alpha` and `transfer.power`;
+a native plan seals them and `generations + 1` looks before scoring. See
+[the transfer design and sizing table](proposer-transfer.md).
+The historical library-default two-generation declaration (effect 0.10, three looks) requires 3,218
+independent trackers per task at each look: 12,872 meta tasks, above the existing
+10,000-task compartment cap. `rl proposer run` therefore refuses it with
+`transfer_underpowered` before any reservation or fit, while remaining valid for
+`rl proposer validate`, native planning and diagnostic replay. Choose a feasible
+declaration from the sizing table — for example fewer generations with a
+scientifically justified larger effect — or keep the historical library default for
+validation and diagnostic replay.
+The shipped JSON example and SDK example below predeclare effect 0.50 instead: three looks require 109 independent trackers per task at each look, 436 meta tasks and 218 audit tasks, within the cap. Alpha 0.05 and power 0.80 stay unchanged. This prospective example does not establish efficacy.
 The example bounds two generations, two proposals per task, and 64 optimizer
 updates per fit; the configuration is sealed on first execution. Retrying the
 same programme resumes verified receipts. Changing its declaration requires a
@@ -52,10 +79,11 @@ const alternate = proposerArtifact({
   order: 3,
   curriculum: "balanced",
 });
-// client is the host-injected PmClient. Coordinates identify its existing tracker.
+// client and coordinates identify the explicitly initialized scratch tracker.
 const report = await runProposerEvolution(client, coordinates, {
   id: "experiment", approval: "resource-decision", dataset: "sealed-improver-data",
-  config: { ...proposerEvolutionConfiguration(), initial: alternate },
+  config: { ...proposerEvolutionConfiguration(), initial: alternate,
+    transfer: { effect: 0.50, alpha: 0.05, power: 0.80 } },
 });
 console.log(report.retained.digest, report.rollback);
 ```
@@ -69,7 +97,7 @@ seeded order, reverse order or training-label interleaving. Unknown keys, sparse
 arrays, nonfinite values and out-of-domain counts refuse before effects. Exactly
 eight recipe-arm counts are accepted, each with at most one million trials.
 There are at most eight proposals, four recursive generations, 512 updates per
-fit and 256 tasks in each dataset compartment.
+fit and 10,000 tasks in each dataset compartment.
 
 Mutation consumes only actual development promotion counts. With complete arm
 coverage it ranks empirical rates; with incomplete coverage it adds novelty.

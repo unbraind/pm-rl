@@ -205,3 +205,53 @@ The concurrency claim in §1.1 is tested against **real git branches** with a re
 simulated. The storage claim is likewise measured across repeated real SDK mutations and the
 actual history file, not estimated from encoded payloads. If either test fails, the package's
 central premise is false and the failure must be loud.
+
+## 8. Prospective proposer-transfer qualification
+
+`runProposerEvolution` seals a transfer declaration and corpus context before
+fitting. `proposer-transfer.ts` archives projected chronological tasks, source metadata and exact
+split membership as ordered bounded native SDK shards plus a small root (`affected_version` content address,
+`component=proposer-transfer`), then records paired observations and the derived
+report in another immutable Decision. Native birth history and hashes are checked
+on replay; a changed split or a tracker crossing compartments refuses. No separate
+metric or corpus evidence store is introduced.
+
+Each adaptive generation gets fresh meta trackers, and the final audit uses a
+third compartment. Equal-weight paired tracker differences have simultaneous
+bounded confidence intervals with Bonferroni correction over two tasks and every
+planned generation/audit. An explicit prospective plan records operator MDE, alpha and target power,
+with the generation-derived look count before results; the original study
+declared effect 0.10, margin 0.01, alpha 0.05 and per-task power 0.80. Underpowered
+input can produce diagnostic evidence but cannot promote. This additional gate
+preserves the existing inner, outer, cohort, resource and rollback gates.
+Execution preflights the declared minimum against the 10,000-task meta and audit
+caps before reserving resources or fitting; impossible designs refuse with
+`transfer_underpowered` and required corpus counts. Parsing, native planning and
+historical replay preserve their existing declaration acceptance.
+
+The bound requires 3,062 independent trackers per task at each look for two looks (one generation plus audit).
+The historical library-default two-generation configuration declares three looks and requires 3,218 independent trackers per task at each look.
+See the [look-count table](docs/proposer-transfer.md#choosing-and-sealing-a-prospective-design). The available frozen public fleet provides 31 source pins and 46 tasks,
+so it cannot establish powered efficacy. A bounded diagnostic uses three trackers
+per role. Its human-facing result is `pm-rl-rsipower-bounded-result`; replay uses
+`pm --pm-path "$scratch/.agents/pm" rl proposer transfer replay <evaluation-digest> --json`.
+Run artefacts remain in an explicit non-Git scratch tracker.
+`docs/proposer-transfer-receipt.json` pins public sources, paired observations,
+splits, root/shards and plan; the replay fixture reconstructs and checks the
+native records without reading run records from the development tracker. See
+[the derivation, real measurements and limitations](docs/proposer-transfer.md).
+
+The bounded real controller completed one generation and final audit in 567.448
+seconds (576.235 seconds including verified publication). Thirty fits consumed
+1,920 optimizer updates and zero inference tokens. Meta and audit effects were
+0.00 for both tasks, with simultaneous intervals [-1.00, 1.00], three trackers
+per task and power lower bound 0.00. Transfer and existing sample gates refused;
+the prior proposer remained retained. This proves fail-closed execution and
+native replay, not statistically powered transfer efficacy.
+
+The issue-149 minimum powered archive regression covers 12,248 held-out task
+references with 73 native shards, a 5,412-byte root and maximum record size
+264,191 bytes. Replay validates ordered shard identities and complete corpus
+digests; the one-MiB limit is unchanged. Version-one evidence remains readable.
+
+Powered dataset role projections can span bounded, content-addressed task shards without changing the manifest or ordered split digest. The verified corpus cache watches each shard identity. Oversized paired observations likewise use native pair shards with an ordered version-three evaluation root; small historical formats remain readable. Empty configured meta looks refuse before controller creation or fitting.

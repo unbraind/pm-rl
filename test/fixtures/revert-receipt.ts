@@ -1,5 +1,5 @@
 /** Revert receipts are tracked evidence: never overwrite uncommitted edits, and measure the reviewed worktree. */
-import { execFileSync } from "node:child_process";
+import { execFileSync, type SpawnSyncReturns } from "node:child_process";
 
 /**
  * Refuse to regenerate a receipt that has uncommitted edits.
@@ -19,4 +19,10 @@ export function refuseChangedReceipt(repository: string, receipt: string): void 
  */
 export function worktreeState(repository: string, receipt: string): string {
   return execFileSync("git", ["status", "--porcelain=v1", "--untracked-files=all", "--", ".", `:(exclude)${receipt}`], { cwd: repository, encoding: "utf8" });
+}
+
+/** Survive disposable cleanup with a bounded identity, spawn outcome and combined output tail for every probe. */
+export function revertProbeContext(identity: string, result: SpawnSyncReturns<string>): string {
+  const output = (result.stdout ?? "") + (result.stderr ?? "");
+  return `${identity}\nstatus=${result.status} signal=${result.signal} error=${result.error?.message ?? "none"}\n${output.slice(-4000)}`;
 }

@@ -1,14 +1,14 @@
 /** Sealed, dependency-free proposal interpreter: no paths, code, evaluation rows or IO capabilities. */
 import { hashJson, type JsonValue } from "./json-identity.ts";
 
-/** Stable refusal for the single program and wire schema; no caller content enters diagnostics. */
+/** Stable refusal for the single program and wire schema; only producer-authored guidance belongs in diagnostics. */
 export class ProposerRefusal extends Error {
   /** Machine-readable refusal shared by SDK and CLI. */
   readonly code = "proposer_invalid";
   /** A fresh valid declaration is required before any reservation or effect. */
-  readonly remedy = "Supply a sealed bounded proposer program and development-only counts; retain prior evidence.";
-  /** Construct a content-free actionable refusal. */
-  constructor() { super("proposer_invalid: Supply a sealed bounded proposer program and development-only counts; retain prior evidence."); }
+  readonly remedy: string;
+  /** Construct a refusal from static producer-authored correction guidance. */
+  constructor(remedy = "Supply a sealed bounded proposer program and development-only counts; retain prior evidence.") { super(`proposer_invalid: ${remedy}`); this.remedy = remedy; }
 }
 /** Arithmetic on development counts only; fifteen nodes and depth four cap interpretation. */
 export type ProposalExpression = { readonly op: "rate" } | { readonly op: "novelty" } | { readonly op: "zero" } | { readonly op: "add" | "multiply"; readonly left: ProposalExpression; readonly right: ProposalExpression };

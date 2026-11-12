@@ -1,0 +1,15 @@
+id: pm-rl-rsipower-corpus-scale
+title: Acquire enough independent public tracker cohorts for predeclared transfer power
+description: "The frozen 0.10 effect, 0.01 margin, alpha 0.05 and 80 percent distribution-free design needs 3062 independent trackers per task for one generation plus audit. The public fleet and the current 64-source Git builder cannot supply that size. Broaden verified public provenance and independently justify cross-tracker correlation units before making a powered efficacy claim; retain the existing gate and never choose thresholds from observed results."
+type: Task
+status: open
+priority: 2
+tags[3]: follow-up,power,transfer
+created_at: "2026-11-06T04:54:48.062Z"
+updated_at: "2026-11-06T13:05:04.013Z"
+author: codex-sol
+parent: pm-rl-rsipower
+comments[2]{created_at,author,text}:
+  "2026-11-06T06:06:08.171Z",codex-sol,"Clarification for configurable prospective plans: 3062 trackers per task is the historical MDE 0.10, alpha 0.05, per-task power 0.80, two-look study requirement, not a universal constant. New studies declare effect, alpha, power and generation-derived looks before scoring; feasibility depends on that plan and practical relevance. The public-source/independence follow-up remains open. Issue 149 separately removes the native single-root capacity blocker without changing record caps or historical results."
+  "2026-11-06T13:05:04.011Z",codex-agent,"Review self-audit: the shipped two-generation historical MDE 0.10 design declares three looks and requires 3,218 independent trackers per task at each look. Its two disjoint meta looks would require 12,872 meta tasks across the two targets, exceeding the unchanged 10,000-task compartment cap. The transfer docs now identify that configuration as diagnostic under current bounds and require powered studies to check both the statistical requirement and aggregate look allocation before budget approval. Future capacity expansion or an independently justified prospective design belongs in this existing follow-up; no cap or statistical threshold was relaxed."
+body: ""

@@ -285,8 +285,8 @@ export function resolveEmitPaths(
  * Collects every TypeScript source file at a configured location.
  *
  * A file entry resolves to itself; a directory entry is walked recursively with
- * `skipDirs` pruned. Declaration files are skipped either way: they carry no
- * runtime code and so can never appear in a coverage report.
+ * `skipDirs` pruned. Declaration files carry no runtime code, and `.config.ts`
+ * files configure tooling. Neither belongs in the measured source set.
  *
  * @param target - Absolute path to a source file or directory.
  * @param skipDirs - Set of directory names to skip while walking.
@@ -301,9 +301,9 @@ export function collectSources(target: string, skipDirs: Set<string>, repoRoot: 
     );
   }
   if (!statSync(target).isDirectory()) {
-    if (!target.endsWith(".ts") || target.endsWith(".d.ts")) {
+    if (!target.endsWith(".ts") || target.endsWith(".d.ts") || target.endsWith(".config.ts")) {
       throw new Error(
-        `coverage-gate: \`coverageGate.sources\` names ${relative(repoRoot, target)}, which is not a TypeScript source file. A declaration file or non-TypeScript entry can never appear in a coverage report, so requiring it would make the gate unsatisfiable.`,
+        `coverage-gate: \`coverageGate.sources\` names ${relative(repoRoot, target)}, which is not a TypeScript source file. Declare executable source files, excluding declarations and tooling configs.`,
       );
     }
     return [relative(repoRoot, target).split(sep).join("/")];
@@ -314,7 +314,7 @@ export function collectSources(target: string, skipDirs: Set<string>, repoRoot: 
       if (!skipDirs.has(entry.name)) {
         found.push(...collectSources(join(target, entry.name), skipDirs, repoRoot));
       }
-    } else if (entry.name.endsWith(".ts") && !entry.name.endsWith(".d.ts")) {
+    } else if (entry.name.endsWith(".ts") && !entry.name.endsWith(".d.ts") && !entry.name.endsWith(".config.ts")) {
       found.push(relative(repoRoot, join(target, entry.name)).split(sep).join("/"));
     }
   }

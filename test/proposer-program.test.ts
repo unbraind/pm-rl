@@ -216,8 +216,8 @@ test("cohort limits, cross-role contamination, approval and dataset drift refuse
   const original = JSON.parse(readFileSync(join(directory, "improver-dataset.json"), "utf8")) as ImproverDataset;
   const tasks = JSON.parse(readFileSync(join(directory, "meta.json"), "utf8")) as ImproverTask[];
   const reseal = (rows: ImproverTask[]) => { const { digest: _, ...record } = original; const updated = { ...record, splits: { ...record.splits, meta: { tasks: rows.length, digest: hashJson(rows as unknown as JsonValue) } } }; writeFileSync(join(directory, "meta.json"), JSON.stringify(rows)); writeFileSync(join(directory, "improver-dataset.json"), JSON.stringify({ ...updated, digest: hashJson(updated as unknown as JsonValue) })); };
-  reseal(Array.from({ length: 257 }, (_, index) => ({ ...tasks[0], id: `meta-${index}` })));
-  await assert.rejects(runProposerEvolution(w.client, w.coordinates, request), /256 tasks/); assert.equal((await listProcessJobs(w.client)).length, 0);
+  reseal(Array.from({ length: 10001 }, (_, index) => ({ ...tasks[0], id: `meta-${index}` })));
+  await assert.rejects(runProposerEvolution(w.client, w.coordinates, request), /10000 tasks/); assert.equal((await listProcessJobs(w.client)).length, 0);
   reseal([{ ...tasks[0], train: tasks[0].train.map((row, index) => index === 0 ? { ...row, id: "development-row-0" } : row) }]);
   await assert.rejects(runProposerEvolution(w.client, w.coordinates, request), /occurs across compartments/);
   reseal(tasks);
@@ -333,7 +333,11 @@ test("worker read-permission documentation matches the sealed launcher grants", 
 test("approval documentation declares the shared headroom formula and retained lifetime", () => {
   const documentation = readFileSync(new URL("../docs/proposer-programs.md", import.meta.url), "utf8");
   assert.match(documentation, /`permitted_promotions` must cover `fits \+ config\.generations`/);
-  assert.match(documentation, /fits = config\.candidates \* \(config\.generations \* \(development\.tasks \+ 2 \* meta\.tasks\) \+ 2 \* audit\.tasks\)/);
+  assert.match(documentation, /fits = config\.candidates \* \(config\.generations \* development\.tasks \+ 2 \* metaFits \+ 2 \* audit\.tasks\)/);
+  assert.match(documentation, /metaFits` is the executed meta work: each generation fits only the trackers its\nlook selects/);
+  assert.match(documentation, /charges every meta task exactly once across all\ngenerations instead of once per generation/);
+  assert.match(documentation, /meta_reservation_drift` before any writes/);
+  assert.match(documentation, /historical transfer replay and start a fresh programme identity/);
   assert.match(documentation, /reservation remains held after completion,\nrefusal, interruption and replay; the search never refunds it/);
 });
 
