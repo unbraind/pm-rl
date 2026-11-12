@@ -10,8 +10,12 @@ import { validateCausalEvaluationOrder } from "../evaluation-lifecycle.ts";
 import { evaluationLifecycleArtifacts, readEvaluationPlan } from "../evaluation-plan.ts";
 import { readSequentialEvaluation, recordSequentialEvaluation } from "../sequential-evaluation.ts";
 import { causalWorkspace, causalStep } from "./fixtures/causal-evaluation.ts";
+import { isolatedChildEnv } from "./fixtures/child-env.ts";
 
 const repository = process.cwd();
+/** The installed pm CLI's JavaScript entry, read from its package manifest rather than npm's platform-specific shim. */
+const pmCliPackage = join(repository, "node_modules/@unbrained/pm-cli");
+const pmCliEntry = join(pmCliPackage, (JSON.parse(readFileSync(join(pmCliPackage, "package.json"), "utf8")) as { bin: { pm: string } }).bin.pm);
 const verdict = { decision: "refuse" as const, reason_digest: hashJson("Birth refusal"), detail: { samples: 16, cohort: "sealed" } };
 type Workspace = Awaited<ReturnType<typeof causalWorkspace>>;
 
@@ -77,9 +81,8 @@ for (const replay of ["SDK", "CLI"]) test(`causal birth verdict rejects CLI body
   await withCandidate({ ...verdict, decision: "promote" }, async w => {
     // Replay an owned checkpoint, so a missing-checkpoint refusal cannot mask verdict drift.
     await recordSequentialEvaluation(w.client, w.plan.candidate, w.rows.slice(0, 16));
-    const childEnv: NodeJS.ProcessEnv = { ...process.env, NODE_OPTIONS: undefined, NODE_V8_COVERAGE: undefined, NODE_TEST_CONTEXT: undefined };
-    for (const key of Object.keys(childEnv)) if (/TOKEN|SECRET|PASSWORD|CREDENTIAL|NPM_MEDIA_SERVER/i.test(key)) delete childEnv[key];
-    const update = spawnSync(join(repository, "node_modules/.bin/pm"), ["--no-extensions", "--pm-path", w.pmRoot, "update", w.plan.candidate, "--body", await rewrittenBody(w, { ...verdict, decision: "promote", reason_digest: hashJson("CLI changed reason") }), "--json"], { cwd: w.root, encoding: "utf8", env: childEnv, timeout: 60_000 });
+    // Launch the CLI's JavaScript entry with this Node: npm's extensionless .bin shim is not executable on Windows.
+    const update = spawnSync(process.execPath, [pmCliEntry, "--no-extensions", "--pm-path", w.pmRoot, "update", w.plan.candidate, "--body", await rewrittenBody(w, { ...verdict, decision: "promote", reason_digest: hashJson("CLI changed reason") }), "--json"], { cwd: w.root, encoding: "utf8", env: isolatedChildEnv(), timeout: 60_000 });
     assert.equal(update.error, undefined);
     assert.equal(update.status, 0, update.stdout + update.stderr);
     const before = history(w);

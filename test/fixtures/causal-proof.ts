@@ -4,6 +4,7 @@ import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { parse } from "yaml";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { isolatedChildEnv } from "./child-env.ts";
 
 /** Measured runner totals and the positively identified behavioral diagnostic, without machine paths. */
 export interface ProofResult {
@@ -13,9 +14,7 @@ export interface ProofResult {
 }
 /** Launch a bounded selected test without inherited runner filters or credentials. */
 export function runProofTest(root: string, file: string, pattern: string): SpawnSyncReturns<string> {
-  const childEnv: NodeJS.ProcessEnv = { ...process.env, NODE_OPTIONS: undefined, NODE_V8_COVERAGE: undefined, NODE_TEST_CONTEXT: undefined };
-  for (const key of Object.keys(childEnv)) if (/TOKEN|SECRET|PASSWORD|CREDENTIAL|NPM_MEDIA_SERVER/i.test(key)) delete childEnv[key];
-  return spawnSync(process.execPath, ["--test", "--test-reporter=tap", "--test-concurrency=1", `--test-name-pattern=${pattern}`, file], { cwd: root, encoding: "utf8", timeout: 600_000, env: childEnv });
+  return spawnSync(process.execPath, ["--test", "--test-reporter=tap", "--test-concurrency=1", `--test-name-pattern=${pattern}`, file], { cwd: root, encoding: "utf8", timeout: 600_000, env: isolatedChildEnv() });
 }
 /** Refuse infrastructure errors and require the selected test's observed result and expected failure cause. */
 export function validateProofRun(run: SpawnSyncReturns<string>, pattern: string, expectedFailure?: RegExp, expectedCode?: string): ProofResult {

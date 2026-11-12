@@ -10,7 +10,7 @@ import { encodeEventSegment } from "../series.ts";
 import { canonicalJson } from "../json-identity.ts";
 import { readSequentialEvaluation } from "../sequential-evaluation.ts";
 import { approveEvaluationPlan, createCausalEvaluationArtifact, validateCausalEvaluationOrder, verifyCausalEvaluationRetry } from "../evaluation-lifecycle.ts";
-import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
+import { createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { promoteGenerationCore, registerGenerationCore, readCompleteLoopItem, startRunCore, type JsonValue, type RlCommandResult } from "../index.ts";
 import { enforceEvaluationPlan, validateEvaluationOrder, evaluationLifecycleArtifacts, parseEvaluationPlan, readEvaluationPlan, registerEvaluationPlan } from "../evaluation-plan.ts";
 import { causalWorkspace, causalStep, withCausalClock } from "./fixtures/causal-evaluation.ts";
@@ -91,8 +91,15 @@ function worker(file: string, step: string, clock: string, hold = false) {
   return { child, ready: wait("ready"), committed: wait("committed"), exit };
 }
 
-/** Match stable typed refusals without depending on the wording of SDK diagnostics. */
-function refused(code: string) { return (error: unknown): boolean => isPmCliExpectedError(error) && error.context.code === code; }
+/** Match stable typed refusals (machine code plus the conflict exit code) without depending on the wording of SDK diagnostics. */
+function refused(code: string) { return (error: unknown): boolean => isPmCliExpectedError(error) && error.context.code === code && error.exitCode === EXIT_CODE.CONFLICT; }
+
+test("the refusal matcher requires the conflict exit code as well as the machine code", () => {
+  const matches = refused("eval_plan_drift");
+  assert.equal(matches(createPmCliExpectedError("fixture", { exitCode: EXIT_CODE.CONFLICT, context: { code: "eval_plan_drift" } })), true);
+  assert.equal(matches(createPmCliExpectedError("fixture", { exitCode: EXIT_CODE.USAGE, context: { code: "eval_plan_drift" } })), false, "a changed exit code must not match");
+  assert.equal(matches(createPmCliExpectedError("fixture", { exitCode: EXIT_CODE.CONFLICT, context: { code: "eval_plan_late" } })), false, "another code must not match");
+});
 
 test("causal collection retries reject configuration-hash drift", async () => {
   const w = await causalWorkspace();

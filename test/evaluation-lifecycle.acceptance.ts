@@ -1,6 +1,6 @@
 /** Read one public tracker copy and retain descriptive causal-protocol evidence without changing its records. */
 import assert from "node:assert/strict";
-import { trackerDigest, selectReplayItems } from "./fixtures/replay-order.ts";
+import { trackerDigest, selectReplayItems, verifySourceCommit } from "./fixtures/replay-order.ts";
 import { rmSync, writeFileSync } from "node:fs";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { evaluationComparison } from "../evaluation-plan.ts";
@@ -10,8 +10,8 @@ import { causalWorkspace, causalStep, withCausalClock } from "./fixtures/causal-
 
 const acceptanceCwd = process.cwd();
 const source = process.argv[2]; const commit = process.argv[3];
-assert.match(commit, /^[a-f0-9]{40}$/);
-const before = trackerDigest(source);
+// The receipt names this commit as the source, so the copy must be exactly that commit's tracker.
+const before = verifySourceCommit(acceptanceCwd, source, commit);
 const client = new PmClient({ pmRoot: source, author: "public-replay", noExtensions: true });
 const items = selectReplayItems((await client.listAllComplete({ includeBody: false })).items);
 assert.equal(items.length, 64);

@@ -83,8 +83,10 @@ contamination, exact scores, terminal state and approval capacity.
 ## Public tracker example
 
 The [retained receipt](evaluation-lifecycle-evidence.json) uses a read-only copy
-of public `unbraind/pm-rl` main, with the exact source commit and authoritative
-record digest. It selects the first 64 canonical item IDs and records the
+of public `unbraind/pm-rl` main, with its source commit and authoritative record
+digest. The acceptance script verifies that commit: it extracts the commit's
+`.agents/pm` tree with `git archive` and refuses unless that tree has the same
+digest as the source copy. The digest length-prefixes every path and file body. It selects the first 64 canonical item IDs and records the
 closed-item fraction against constant 0.5. These are descriptive bounded values,
 not measured policy improvement. All items belong to **one repository correlation
 unit**, so the conservative sequential gate refuses promotion.
