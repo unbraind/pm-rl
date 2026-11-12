@@ -1,7 +1,9 @@
 /** Causal evaluation birth witnesses, persisted atomically with their native SDK artifacts. */
 import { randomUUID } from "node:crypto";
 import type { GetResult, PmClient } from "@unbrained/pm-cli/sdk/core";
-import { createVerifiedItem, extractGenerationSpec, generationProvenance, hashJson, readCompleteLoopItem, type JsonValue } from "./index.ts";
+import type { HistoryResult } from "@unbrained/pm-cli/sdk/query";
+import { createVerifiedItem, extractGenerationSpec, generationProvenance, hashJson, orderedHistoryEntries, readCompleteLoopItem, type JsonValue } from "./index.ts";
+import { identifierClient } from "./state-boundary.ts";
 import { evaluationComparison, evaluationPlanId, evaluationOutcomeIds, validateEvaluationIdentities, optionalItem, refuse, resolveEvaluationPlan, verifyCreatedRecord, type EvaluationPlan } from "./evaluation-plan.ts";
 import { withEvaluationLease, type SequentialStopping } from "./sequential-evaluation.ts";
 import { encodeBoundedJson, parseBoundedJson } from "./tracker-record.ts";
@@ -54,7 +56,7 @@ async function validatedEntries(client: PmClient, plan: EvaluationPlan, artifact
   const comparison = evaluationComparison(plan);
   const digests = new Map<GetResult["item"], string>();
   for (const entry of entries) {
-    verifySealedBirth(entry);
+    await verifySealedBirth(client, entry);
     if (entry.witness.comparison !== comparison || entry.witness.stage !== entry.stage || JSON.stringify(entry.witness.predecessors) !== JSON.stringify(references(entries, entry.stage, digests))) refuse("eval_plan_late", entry.id);
   }
   return { entries, digests };
@@ -67,10 +69,28 @@ export async function validateCausalEvaluationOrder(client: PmClient, plan: Eval
 export async function verifyCausalEvaluationRetry(client: PmClient, plan: EvaluationPlan, options: Parameters<PmClient["create"]>[0] & { id: string }, artifacts: readonly EvaluationArtifact[]): Promise<void> {
   const { entries } = await validatedEntries(client, plan, artifacts);
   const birth = entries.find(entry => entry.id === options.id) ?? await witnessedBirth(client, options.id);
+  if (!entries.some(entry => entry === birth)) await verifySealedBirth(client, birth);
   verifyRetryBirth(options, birth);
 }
-/** Compare birth verdicts with live storage; permit verdict addition only when absent at birth. */
-function verifySealedBirth(birth: Awaited<ReturnType<typeof witnessedBirth>>): void {
+/** Seal the first native verdict and compare every later stored state, including removals, independently of wall clocks. */
+async function verifyStoredEvaluation(client: PmClient, item: GetResult["item"], first: JsonValue | undefined, current: JsonValue | undefined): Promise<void> {
+  const history = await identifierClient(client).run("history", { id: item.id, options: { compact: true, verify: true, outputLimit: "unbounded", outputBudget: "unbounded" } }) as HistoryResult;
+  /** Apply one write-once comparison to stored snapshots and the separately read live state. */
+  const compare = (evaluation: JsonValue | undefined): void => {
+    if (first !== undefined && (evaluation === undefined || hashJson(first) !== hashJson(evaluation))) refuse("eval_plan_drift", item.id);
+    if (first === undefined) first = evaluation;
+  };
+  for (const row of orderedHistoryEntries(history, "loop_history_incomplete")) {
+    const at = row.version ?? row.index;
+    if (at === 1) continue; // The caller already certified and decoded the native birth.
+    const snapshot = (await readCompleteLoopItem(client, item.id, String(at), "id,type,body")).item;
+    const evaluation = extractGenerationSpec(String(snapshot.body), "Stored causal verdict").policy_evaluation;
+    compare(evaluation);
+  }
+  compare(current);
+}
+/** Compare sealed provenance and the first stored verdict while permitting the initial post-birth addition. */
+async function verifySealedBirth(client: PmClient, birth: Awaited<ReturnType<typeof witnessedBirth>>): Promise<void> {
   if ((["id", "type", "affected_version", "fixed_version", "component", "environment", "created_at"] as const).some(field => birth.item[field] !== birth.current[field])) refuse("eval_plan_drift", birth.item.id);
   const bodyIdentity = (item: GetResult["item"]) => {
     if (item.type !== "Generation") return { identity: String(item.body) };
@@ -79,12 +99,11 @@ function verifySealedBirth(birth: Awaited<ReturnType<typeof witnessedBirth>>): v
   };
   const sealed = bodyIdentity(birth.item);
   const current = bodyIdentity(birth.current);
-  if (sealed.identity !== current.identity
-    || (sealed.evaluation !== undefined && (current.evaluation === undefined || hashJson(sealed.evaluation) !== hashJson(current.evaluation)))) refuse("eval_plan_drift", birth.item.id);
+  if (sealed.identity !== current.identity) refuse("eval_plan_drift", birth.item.id);
+  if (birth.item.type === "Generation") await verifyStoredEvaluation(client, birth.item, sealed.evaluation, current.evaluation);
 }
 /** Compare retry intent and current native state against the already validated birth. */
 function verifyRetryBirth(options: Parameters<PmClient["create"]>[0] & { id: string }, birth: Awaited<ReturnType<typeof witnessedBirth>>): void {
-  verifySealedBirth(birth);
   if (birth.witness.request !== hashJson(options as unknown as JsonValue)) refuse("eval_plan_drift", options.id);
 }
 /** Create a witnessed artifact in one SDK mutation; an uncertain acknowledgement retries the same birth. @internal */

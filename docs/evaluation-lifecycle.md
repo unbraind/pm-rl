@@ -67,11 +67,16 @@ write. A new Run after candidate creation is refused; a retry of an already
 admitted Run remains valid. Annotations and metric appends remain allowed.
 Existing candidate registration and preflight verify the same birth envelope,
 including the checkpoint field. Generation bodies compare their immutable
-provenance and the complete `policy_evaluation` when present at birth. Changing,
-removing or extending any birth-time verdict field refuses on causal retries,
+provenance and the complete first stored `policy_evaluation`. Its first native
+snapshot seals the verdict, whether it is present at birth or added afterwards.
+Verified native history is read in durable revision order; every subsequent
+snapshot and live value must retain that verdict. Changing,
+removing or extending any verdict field refuses on causal retries,
 replay and checkpoint publication, including after a native SDK or CLI body
-update. Equal values with different JSON key order remain valid. If the verdict
-was absent at birth, the existing rejection path may add it later:
+update. Restoring the current value cannot erase an earlier history violation.
+Equal values with different JSON key order remain valid, and a candidate may
+remain without a verdict. If the verdict was absent at birth, the existing
+rejection path may add it once:
 `recordRefusedPolicyCard` calls `validateRefusedPolicyCard` to attach
 `{ decision: "refuse", reason_digest: hashJson(reason) }`, together with captured
 `evaluation_evidence` when available. Policy-card checks retain the existing

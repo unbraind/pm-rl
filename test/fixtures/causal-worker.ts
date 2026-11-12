@@ -9,6 +9,7 @@ const fixture = JSON.parse(readFileSync(process.argv[2], "utf8")) as Awaited<Ret
 fixture.client = new PmClient({ cwd: fixture.root, pmRoot: fixture.pmRoot, author: "lifecycle-peer", noExtensions: true });
 process.send!({ state: "ready" });
 process.once("message", () => {
+  if (process.argv[3] === "exit-after-ready") { process.disconnect!(); return; }
   void withCausalClock(process.argv[4], async () => {
     for (let attempt = 0; ; attempt++) {
       try { return await causalStep(fixture, process.argv[3]); }

@@ -27,7 +27,7 @@ try {
     { code: "ERR_ASSERTION", file: "test/fixtures/causal-proof.ts", testFile: "test/evaluation-lifecycle-proof.test.ts", expected: /Missing expected exception/, name: "validateProofRun diagnostic matching", pattern: "proof records measured counts", before: 'const matched = expectedFailure.exec(error)?.[0];', after: 'const matched = expectedFailure.source;' },
     { code: "ERR_ASSERTION", file: "evaluation-lifecycle.ts", expected: /Every native birth must be read once per causal operation/, name: "verifyCausalEvaluationRetry validated birth reuse", pattern: "causal operations read", before: '  const birth = entries.find(entry => entry.id === options.id) ?? await witnessedBirth(client, options.id);', after: '  const birth = await witnessedBirth(client, options.id);' },
     { code: "ERR_ASSERTION", file: "test/fixtures/causal-proof.ts", testFile: "test/evaluation-lifecycle-proof.test.ts", expected: /Refused proof must restore the implementation/, name: "proveRevert restoration on refusal", pattern: "every proof producer", before: '} finally { writeFileSync(join(root, sourceFile), fixed); }', after: '} finally { /* Revert restoration after refused proof. */ }' },
-    { code: "ERR_ASSERTION", file: "evaluation-lifecycle.ts", expected: /Missing expected rejection/, name: "validatedEntries live sealed state", pattern: "live collection drift", before: '    verifySealedBirth(entry);', after: '    void entry; // Revert live predecessor identity validation.' },
+    { code: "ERR_ASSERTION", file: "evaluation-lifecycle.ts", expected: /Missing expected rejection/, name: "validatedEntries live sealed state", pattern: "live collection drift", before: '    await verifySealedBirth(client, entry);', after: '    void entry; // Revert live predecessor identity validation.' },
     { code: "ERR_ASSERTION", file: "evaluation-plan.ts", expected: /Missing expected rejection/, name: "validateEvaluationIdentities canonical slots", pattern: "canonical identity collisions", before: '  if (new Set(identities).size !== identities.length) refuse("eval_plan_invalid");', after: '  void identities; // Revert canonical identity admission at write boundaries.' },
     { code: "ERR_ASSERTION", file: "test/evaluation-lifecycle.revert.ts", testFile: "test/evaluation-lifecycle-proof.test.ts", expected: /Selected receipts must contain only freshly measured results/, name: "selected receipt evidence isolation", pattern: "selected revert receipts", before: '  const results: RevertProof[] = ' + '[]; // Selected receipts contain only evidence measured by this run.', after: '  const results: RevertProof[] = selected.length === 0 ? [] : (JSON.parse(readFileSync("docs/evaluation-lifecycle-revert.json", "utf8")) as { tests: RevertProof[] }).tests;' },
   ];
@@ -36,7 +36,16 @@ try {
     "causal birth verdict rejects checkpoint publication after refuse to promote tamper",
     ...["SDK", "CLI"].map(path => `causal birth verdict rejects CLI body tamper on ${path} replay`),
   ]) cases.push({ code: "ERR_ASSERTION", file: "evaluation-lifecycle.ts", testFile: "test/evaluation-lifecycle-verdict.test.ts", expected: /Missing expected rejection/, name: "verifySealedBirth birth verdict", pattern,
-    before: '(sealed.evaluation !== undefined && (current.evaluation === undefined || hashJson(sealed.evaluation) !== hashJson(current.evaluation)))', after: "false" });
+    before: '  if (birth.item.type === "Generation") await verifyStoredEvaluation(client, birth.item, sealed.evaluation, current.evaluation);', after: "" });
+  for (const pattern of [
+    ...["SDK promote", "CLI promote", "SDK removal"].flatMap(tamper => ["validation", "SDK replay", "CLI replay", "append"].map(consumer => `causal write-once verdict rejects ${tamper} through ${consumer}`)),
+    "causal write-once verdict rejects a changed post-birth reason",
+    "causal write-once verdict rejects a historical tamper after the current value is restored",
+    "causal write-once verdict rejects a changed post-birth verdict on native retry verification",
+  ]) cases.push({ code: "ERR_ASSERTION", file: "evaluation-lifecycle.ts", testFile: "test/evaluation-lifecycle-verdict.test.ts", expected: /Missing expected rejection/, name: "verifySealedBirth first native verdict", pattern,
+    before: '  if (birth.item.type === "Generation") await verifyStoredEvaluation(client, birth.item, sealed.evaluation, current.evaluation);', after: "" });
+  cases.push({ code: "ERR_ASSERTION", file: "test/evaluation-lifecycle.test.ts", testFile: "test/evaluation-lifecycle.test.ts", expected: /Clean worker exit must reject committed/, name: "worker early clean exit", pattern: "causal IPC rejects a clean worker exit between ready and committed",
+    before: 'reject(new Error(`Worker ${step} exited before ${state} (code ${String(code)}): ${stderr}`));', after: 'if (code !== 0) reject(new Error(`Worker ${step} exited before ${state} (code ${String(code)}): ${stderr}`));' });
   const selected = process.argv.slice(2);
   assert.ok(selected.every(pattern => cases.some(entry => entry.pattern === pattern)), "Unknown proof selector");
   const results: RevertProof[] = []; // Selected receipts contain only evidence measured by this run.

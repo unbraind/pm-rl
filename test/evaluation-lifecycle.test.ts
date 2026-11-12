@@ -15,6 +15,7 @@ import { promoteGenerationCore, registerGenerationCore, readCompleteLoopItem, st
 import { enforceEvaluationPlan, validateEvaluationOrder, evaluationLifecycleArtifacts, parseEvaluationPlan, readEvaluationPlan, registerEvaluationPlan } from "../evaluation-plan.ts";
 import { causalWorkspace, causalStep, withCausalClock } from "./fixtures/causal-evaluation.ts";
 import { refused } from "./fixtures/refused.ts";
+import { isolatedChildEnv } from "./fixtures/child-env.ts";
 
 const testCwd = process.cwd();
 
@@ -79,18 +80,42 @@ test("causal creation is shared across OS processes and killed acknowledgements 
 function trackerHistory(root: string): string[] { return readdirSync(join(root, "history")).sort().map(file => readFileSync(join(root, "history", file), "utf8")); }
 /** A bounded child and IPC barriers let two native writers contend on exactly one tracker. */
 function worker(file: string, step: string, clock: string, hold = false) {
-  const childEnv: NodeJS.ProcessEnv = { ...process.env, PM_LOCK_WAIT_MS: "30000" };
-  for (const key of Object.keys(childEnv)) if (/TOKEN|SECRET|PASSWORD|CREDENTIAL|NPM_MEDIA_SERVER/i.test(key)) delete childEnv[key];
+  const childEnv = isolatedChildEnv({ ...process.env, PM_LOCK_WAIT_MS: "30000" });
   const child = fork(new URL("./fixtures/causal-worker.ts", import.meta.url), [file, step, clock, hold ? "hold" : "exit"], { env: childEnv, stdio: ["ignore", "pipe", "pipe", "ipc"] });
   let stderr = ""; child.stderr!.on("data", chunk => { stderr += String(chunk); });
   const wait = (state: string): Promise<{ result: { created?: boolean } }> => new Promise((resolve, reject) => {
     const timer = setTimeout(() => { child.kill("SIGKILL"); reject(new Error(`Worker ${step} timed out: ${stderr}`)); }, 120_000);
     child.on("message", message => { const value = message as { state: string; result: { created?: boolean } }; if (value.state === state) { clearTimeout(timer); resolve(value); } });
-    child.once("exit", code => { clearTimeout(timer); if (code !== 0) reject(new Error(`Worker ${step} exited: ${stderr}`)); });
+    child.once("exit", code => { clearTimeout(timer); reject(new Error(`Worker ${step} exited before ${state} (code ${String(code)}): ${stderr}`)); });
   });
   const exit = new Promise<void>(resolve => { child.once("exit", () => { resolve(); }); });
   return { child, ready: wait("ready"), committed: wait("committed"), exit };
 }
+
+test("causal IPC rejects a clean worker exit between ready and committed", async () => {
+  const w = await causalWorkspace();
+  try {
+    const file = join(w.root, "worker.json");
+    writeFileSync(file, JSON.stringify({ root: w.root, pmRoot: w.pmRoot }));
+    const peer = worker(file, "exit-after-ready", "2030-01-01T00:00:00.000Z");
+    // Attach rejection handling before either IPC message can arrive.
+    const committed = peer.committed.then(() => "unexpected commit", (error: unknown) => String(error));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await peer.ready;
+      peer.child.send("go");
+      await peer.exit;
+      assert.equal(peer.child.exitCode, 0);
+      const outcome = await Promise.race([committed, new Promise<string>(resolve => { timer = setTimeout(() => { resolve("pending"); }, 100); })]);
+      assert.notEqual(outcome, "pending", "Clean worker exit must reject committed");
+      assert.match(outcome, /exited before committed \(code 0\)/);
+    } finally {
+      clearTimeout(timer);
+      if (peer.child.exitCode === null) peer.child.kill("SIGKILL");
+      await peer.exit;
+    }
+  } finally { process.chdir(testCwd); rmSync(w.root, { recursive: true, force: true }); }
+});
 
 /** Match stable typed refusals (machine code plus the conflict exit code) without depending on the wording of SDK diagnostics. */
 

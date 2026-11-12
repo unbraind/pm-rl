@@ -1,0 +1,326 @@
+{
+  "format": "pm-rl/evaluation-lifecycle-revert/1",
+  "isolated_copy": true,
+  "complete": false,
+  "selection": [
+    "causal write-once verdict rejects SDK promote through validation",
+    "causal write-once verdict rejects SDK promote through SDK replay",
+    "causal write-once verdict rejects SDK promote through CLI replay",
+    "causal write-once verdict rejects SDK promote through append",
+    "causal write-once verdict rejects CLI promote through validation",
+    "causal write-once verdict rejects CLI promote through SDK replay",
+    "causal write-once verdict rejects CLI promote through CLI replay",
+    "causal write-once verdict rejects CLI promote through append",
+    "causal write-once verdict rejects SDK removal through validation",
+    "causal write-once verdict rejects SDK removal through SDK replay",
+    "causal write-once verdict rejects SDK removal through CLI replay",
+    "causal write-once verdict rejects SDK removal through append",
+    "causal write-once verdict rejects a changed post-birth reason",
+    "causal write-once verdict rejects a historical tamper after the current value is restored",
+    "causal write-once verdict rejects a changed post-birth verdict on native retry verification",
+    "causal IPC rejects a clean worker exit between ready and committed"
+  ],
+  "tests": [
+    {
+      "function": "verifySealedBirth first native verdict",
+      "test": "causal write-once verdict rejects SDK promote through validation",
+      "reverted": {
+        "pass": 0,
+        "fail": 1,
+        "failure": {
+          "test": "causal write-once verdict rejects SDK promote through validation",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "Missing expected rejection"
+        }
+      },
+      "restored": {
+        "pass": 1,
+        "fail": 0
+      }
+    },
+    {
+      "function": "verifySealedBirth first native verdict",
+      "test": "causal write-once verdict rejects SDK promote through SDK replay",
+      "reverted": {
+        "pass": 0,
+        "fail": 1,
+        "failure": {
+          "test": "causal write-once verdict rejects SDK promote through SDK replay",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "Missing expected rejection"
+        }
+      },
+      "restored": {
+        "pass": 1,
+        "fail": 0
+      }
+    },
+    {
+      "function": "verifySealedBirth first native verdict",
+      "test": "causal write-once verdict rejects SDK promote through CLI replay",
+      "reverted": {
+        "pass": 0,
+        "fail": 1,
+        "failure": {
+          "test": "causal write-once verdict rejects SDK promote through CLI replay",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "Missing expected rejection"
+        }
+      },
+      "restored": {
+        "pass": 1,
+        "fail": 0
+      }
+    },
+    {
+      "function": "verifySealedBirth first native verdict",
+      "test": "causal write-once verdict rejects SDK promote through append",
+      "reverted": {
+        "pass": 0,
+        "fail": 1,
+        "failure": {
+          "test": "causal write-once verdict rejects SDK promote through append",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "Missing expected rejection"
+        }
+      },
+      "restored": {
+        "pass": 1,
+        "fail": 0
+      }
+    },
+    {
+      "function": "verifySealedBirth first native verdict",
+      "test": "causal write-once verdict rejects CLI promote through validation",
+      "reverted": {
+        "pass": 0,
+        "fail": 1,
+        "failure": {
+          "test": "causal write-once verdict rejects CLI promote through validation",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "Missing expected rejection"
+        }
+      },
+      "restored": {
+        "pass": 1,
+        "fail": 0
+      }
+    },
+    {
+      "function": "verifySealedBirth first native verdict",
+      "test": "causal write-once verdict rejects CLI promote through SDK replay",
+      "reverted": {
+        "pass": 0,
+        "fail": 1,
+        "failure": {
+          "test": "causal write-once verdict rejects CLI promote through SDK replay",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "Missing expected rejection"
+        }
+      },
+      "restored": {
+        "pass": 1,
+        "fail": 0
+      }
+    },
+    {
+      "function": "verifySealedBirth first native verdict",
+      "test": "causal write-once verdict rejects CLI promote through CLI replay",
+      "reverted": {
+        "pass": 0,
+        "fail": 1,
+        "failure": {
+          "test": "causal write-once verdict rejects CLI promote through CLI replay",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "Missing expected rejection"
+        }
+      },
+      "restored": {
+        "pass": 1,
+        "fail": 0
+      }
+    },
+    {
+      "function": "verifySealedBirth first native verdict",
+      "test": "causal write-once verdict rejects CLI promote through append",
+      "reverted": {
+        "pass": 0,
+        "fail": 1,
+        "failure": {
+          "test": "causal write-once verdict rejects CLI promote through append",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "Missing expected rejection"
+        }
+      },
+      "restored": {
+        "pass": 1,
+        "fail": 0
+      }
+    },
+    {
+      "function": "verifySealedBirth first native verdict",
+      "test": "causal write-once verdict rejects SDK removal through validation",
+      "reverted": {
+        "pass": 0,
+        "fail": 1,
+        "failure": {
+          "test": "causal write-once verdict rejects SDK removal through validation",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "Missing expected rejection"
+        }
+      },
+      "restored": {
+        "pass": 1,
+        "fail": 0
+      }
+    },
+    {
+      "function": "verifySealedBirth first native verdict",
+      "test": "causal write-once verdict rejects SDK removal through SDK replay",
+      "reverted": {
+        "pass": 0,
+        "fail": 1,
+        "failure": {
+          "test": "causal write-once verdict rejects SDK removal through SDK replay",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "Missing expected rejection"
+        }
+      },
+      "restored": {
+        "pass": 1,
+        "fail": 0
+      }
+    },
+    {
+      "function": "verifySealedBirth first native verdict",
+      "test": "causal write-once verdict rejects SDK removal through CLI replay",
+      "reverted": {
+        "pass": 0,
+        "fail": 1,
+        "failure": {
+          "test": "causal write-once verdict rejects SDK removal through CLI replay",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "Missing expected rejection"
+        }
+      },
+      "restored": {
+        "pass": 1,
+        "fail": 0
+      }
+    },
+    {
+      "function": "verifySealedBirth first native verdict",
+      "test": "causal write-once verdict rejects SDK removal through append",
+      "reverted": {
+        "pass": 0,
+        "fail": 1,
+        "failure": {
+          "test": "causal write-once verdict rejects SDK removal through append",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "Missing expected rejection"
+        }
+      },
+      "restored": {
+        "pass": 1,
+        "fail": 0
+      }
+    },
+    {
+      "function": "verifySealedBirth first native verdict",
+      "test": "causal write-once verdict rejects a changed post-birth reason",
+      "reverted": {
+        "pass": 0,
+        "fail": 1,
+        "failure": {
+          "test": "causal write-once verdict rejects a changed post-birth reason",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "Missing expected rejection"
+        }
+      },
+      "restored": {
+        "pass": 1,
+        "fail": 0
+      }
+    },
+    {
+      "function": "verifySealedBirth first native verdict",
+      "test": "causal write-once verdict rejects a historical tamper after the current value is restored",
+      "reverted": {
+        "pass": 0,
+        "fail": 1,
+        "failure": {
+          "test": "causal write-once verdict rejects a historical tamper after the current value is restored",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "Missing expected rejection"
+        }
+      },
+      "restored": {
+        "pass": 1,
+        "fail": 0
+      }
+    },
+    {
+      "function": "verifySealedBirth first native verdict",
+      "test": "causal write-once verdict rejects a changed post-birth verdict on native retry verification",
+      "reverted": {
+        "pass": 0,
+        "fail": 1,
+        "failure": {
+          "test": "causal write-once verdict rejects a changed post-birth verdict on native retry verification",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "Missing expected rejection"
+        }
+      },
+      "restored": {
+        "pass": 1,
+        "fail": 0
+      }
+    },
+    {
+      "function": "worker early clean exit",
+      "test": "causal IPC rejects a clean worker exit between ready and committed",
+      "reverted": {
+        "pass": 0,
+        "fail": 1,
+        "failure": {
+          "test": "causal IPC rejects a clean worker exit between ready and committed",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "Clean worker exit must reject committed"
+        }
+      },
+      "restored": {
+        "pass": 1,
+        "fail": 0
+      }
+    }
+  ],
+  "source": {
+    "base_commit": "59455663e6f733e4dfacf107a11e8668cba0091d",
+    "files_sha256": {
+      "evaluation-lifecycle.ts": "4c7d0c2541090185c406d1d52819bf87aa70d854d54836ffb036ebc8f30eb8f0",
+      "test/evaluation-lifecycle-verdict.test.ts": "96886ef9a83e15acba884e4b22489098cc1cf595211e443ac844bb6413be416a",
+      "test/evaluation-lifecycle.test.ts": "2334c49a491c88bdf05a77ca4d39b085c5c2f0c551c473b1250ac7576b0535df",
+      "test/fixtures/causal-worker.ts": "5bbedbc608813db90d667a0c3703fc3852adbfc2ed70804a92cbee3086f149fa",
+      "test/evaluation-lifecycle.revert.ts": "fa66bda4b79792a86c0ec73abe046bc3d16583cdc011e06e22e6add13a0ef04b",
+      "test/fixtures/causal-proof.ts": "d92d385092b6abc00d1865e96741904f4c18ca8465d7625836fd16215a2b62ea",
+      "test/fixtures/child-env.ts": "17abce39011b45bfa822ae3197dc0ec4cd757b9e674e93ebd104726196a5d9ab",
+      "test/fixtures/refused.ts": "55a88243aa76dfdbbe7b49ff24053fe3626b64be4a5d7272b87f488e64e3593a"
+    }
+  }
+}

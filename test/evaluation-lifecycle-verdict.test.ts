@@ -5,7 +5,7 @@ import { existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { extractGenerationSpec, hashJson, readCompleteLoopItem, recordRefusedPolicyCard, registerGenerationCore, type JsonValue } from "../index.ts";
-import { validateCausalEvaluationOrder } from "../evaluation-lifecycle.ts";
+import { createCausalEvaluationArtifact, validateCausalEvaluationOrder, verifyCausalEvaluationRetry } from "../evaluation-lifecycle.ts";
 import { evaluationLifecycleArtifacts, readEvaluationPlan } from "../evaluation-plan.ts";
 import { readSequentialEvaluation, recordSequentialEvaluation } from "../sequential-evaluation.ts";
 import { causalWorkspace, causalStep } from "./fixtures/causal-evaluation.ts";
@@ -113,5 +113,96 @@ test("causal birth verdict permits the real post-birth rejection addition and re
     assert.equal((await registerGenerationCore(w.client, w.generation)).created, false);
     await validate(w);
     assert.deepEqual(extractGenerationSpec(String((await readCompleteLoopItem(w.client, w.plan.candidate)).item.body), "Retained verdict").policy_evaluation, spec.policy_evaluation);
+  });
+});
+
+for (const tamper of ["SDK promote", "CLI promote", "SDK removal"]) {
+  for (const consumer of ["validation", "SDK replay", "CLI replay", "append"]) test(`causal write-once verdict rejects ${tamper} through ${consumer}`, async () => {
+    await withCandidate(undefined, async w => {
+      await recordSequentialEvaluation(w.client, w.plan.candidate, w.rows.slice(0, 16));
+      assert.equal(await recordRefusedPolicyCard(w.client, w.plan.candidate, "Stop after first look"), "refused");
+      const spec = extractGenerationSpec(String((await readCompleteLoopItem(w.client, w.plan.candidate)).item.body), "First stored verdict");
+      const changed = tamper === "SDK removal" ? undefined : { ...(spec.policy_evaluation as Record<string, JsonValue>), decision: "promote" };
+      const body = await rewrittenBody(w, changed);
+      if (tamper === "CLI promote") {
+        const update = spawnSync(process.execPath, [pmCliEntry, "--no-extensions", "--pm-path", w.pmRoot, "update", w.plan.candidate, "--body", body, "--json"], { cwd: w.root, encoding: "utf8", env: isolatedChildEnv(), timeout: 60_000 });
+        assert.equal(update.error, undefined);
+        assert.equal(update.status, 0, update.stdout + update.stderr);
+      } else await w.client.update(w.plan.candidate, { body });
+      const before = history(w);
+      const operations: Record<string, () => Promise<unknown>> = {
+        validation: () => validate(w),
+        "SDK replay": () => readSequentialEvaluation(w.client, w.plan.candidate),
+        "CLI replay": () => w.harness.runCommand({ command: "rl eval plan resume", pmRoot: w.pmRoot, args: [w.plan.candidate] }),
+        append: () => recordSequentialEvaluation(w.client, w.plan.candidate, w.rows),
+      };
+      await assert.rejects(operations[consumer], drift);
+      assert.deepEqual(history(w), before, "A tampered first verdict must refuse before every publication");
+      assert.equal(existsSync(join(w.pmRoot, "history", `${w.plan.candidate}-evaluation-plan-look-2.jsonl`)), false);
+    });
+  });
+}
+
+test("causal write-once verdict rejects a changed post-birth reason", async () => {
+  await withCandidate(undefined, async w => {
+    await recordRefusedPolicyCard(w.client, w.plan.candidate, "First reason");
+    await w.client.update(w.plan.candidate, { body: await rewrittenBody(w, { decision: "refuse", reason_digest: hashJson("Changed reason") }) });
+    const before = history(w);
+    await assert.rejects(validate(w), drift);
+    assert.deepEqual(history(w), before);
+  });
+});
+
+test("causal write-once verdict rejects a historical tamper after the current value is restored", async () => {
+  await withCandidate(undefined, async w => {
+    await recordRefusedPolicyCard(w.client, w.plan.candidate, "First reason");
+    const original = String((await readCompleteLoopItem(w.client, w.plan.candidate)).item.body);
+    await w.client.update(w.plan.candidate, { body: await rewrittenBody(w, { decision: "promote", reason_digest: hashJson("First reason") }) });
+    await w.client.update(w.plan.candidate, { body: original });
+    const before = history(w);
+    await assert.rejects(validate(w), drift);
+    assert.deepEqual(history(w), before, "Restoring current state cannot erase a native history violation");
+  });
+});
+
+test("causal write-once verdict rejects a changed post-birth verdict on native retry verification", async () => {
+  await withCandidate(undefined, async w => {
+    const spec = extractGenerationSpec(String((await readCompleteLoopItem(w.client, "rl-seed")).item.body), "Native retry seed");
+    const options = { id: "rl-native-retry", type: "Generation", title: "Native retry verdict", body: `\`\`\`json\n${JSON.stringify(spec)}\n\`\`\`` };
+    const artifacts = [{ id: options.id, stage: 0 }];
+    await createCausalEvaluationArtifact(w.client, w.plan, options, artifacts);
+    const evaluation = { decision: "refuse", reason_digest: hashJson("Retry verdict") };
+    await w.client.update(options.id, { body: `\`\`\`json\n${JSON.stringify({ ...spec, policy_evaluation: evaluation })}\n\`\`\`` });
+    await verifyCausalEvaluationRetry(w.client, w.plan, options, artifacts);
+    await verifyCausalEvaluationRetry(w.client, w.plan, options, []);
+    await w.client.update(options.id, { body: `\`\`\`json\n${JSON.stringify({ ...spec, policy_evaluation: { ...evaluation, decision: "promote" } })}\n\`\`\`` });
+    const before = history(w);
+    await assert.rejects(verifyCausalEvaluationRetry(w.client, w.plan, options, artifacts), drift);
+    assert.deepEqual(history(w), before);
+  });
+});
+
+test("causal write-once verdict permits its first addition and an idempotent rewrite", async () => {
+  await withCandidate(undefined, async w => {
+    const reason = "First stored verdict";
+    await recordSequentialEvaluation(w.client, w.plan.candidate, w.rows.slice(0, 16));
+    await recordRefusedPolicyCard(w.client, w.plan.candidate, reason);
+    await w.client.update(w.plan.candidate, { body: await rewrittenBody(w, { reason_digest: hashJson(reason), decision: "refuse" }) });
+    await w.client.notes(w.plan.candidate, { add: "Unrelated post-verdict annotation" });
+    await validate(w);
+    const report = await readSequentialEvaluation(w.client, w.plan.candidate);
+    assert.ok(report !== null && !("status" in report));
+    assert.equal(report.sequential?.look, 1);
+    assert.equal((await registerGenerationCore(w.client, w.generation)).created, false);
+  });
+});
+
+test("causal write-once verdict permits a candidate that never gets a verdict", async () => {
+  await withCandidate(undefined, async w => {
+    await w.client.notes(w.plan.candidate, { add: "No evaluator verdict" });
+    for (const rows of [w.rows.slice(0, 16), w.rows]) await recordSequentialEvaluation(w.client, w.plan.candidate, rows);
+    await validate(w);
+    assert.equal((await registerGenerationCore(w.client, w.generation)).created, false);
+    assert.equal(extractGenerationSpec(String((await readCompleteLoopItem(w.client, w.plan.candidate)).item.body), "No verdict").policy_evaluation, undefined);
   });
 });
