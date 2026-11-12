@@ -67,7 +67,15 @@ write. A new Run after candidate creation is refused; a retry of an already
 admitted Run remains valid. Annotations and metric appends remain allowed.
 Existing candidate registration and preflight verify the same birth envelope,
 including the checkpoint field. Generation bodies compare their immutable
-provenance, and policy-card checks retain the promotion-bookkeeping validation.
+provenance and the complete `policy_evaluation` when present at birth. Changing,
+removing or extending any birth-time verdict field refuses on causal retries,
+replay and checkpoint publication, including after a native SDK or CLI body
+update. Equal values with different JSON key order remain valid. If the verdict
+was absent at birth, the existing rejection path may add it later:
+`recordRefusedPolicyCard` calls `validateRefusedPolicyCard` to attach
+`{ decision: "refuse", reason_digest: hashJson(reason) }`, together with captured
+`evaluation_evidence` when available. Policy-card checks retain the existing
+promotion-bookkeeping validation.
 Causal witnesses also participate in decision/evidence digests. Promotion and
 already-promoted retries revalidate the same chain alongside provenance,
 contamination, exact scores, terminal state and approval capacity.

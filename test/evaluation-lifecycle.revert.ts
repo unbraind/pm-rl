@@ -31,6 +31,12 @@ try {
     { code: "ERR_ASSERTION", file: "evaluation-plan.ts", expected: /Missing expected rejection/, name: "validateEvaluationIdentities canonical slots", pattern: "canonical identity collisions", before: '  if (new Set(identities).size !== identities.length) refuse("eval_plan_invalid");', after: '  void identities; // Revert canonical identity admission at write boundaries.' },
     { code: "ERR_ASSERTION", file: "test/evaluation-lifecycle.revert.ts", testFile: "test/evaluation-lifecycle-proof.test.ts", expected: /Selected receipts must contain only freshly measured results/, name: "selected receipt evidence isolation", pattern: "selected revert receipts", before: '  const results: RevertProof[] = ' + '[]; // Selected receipts contain only evidence measured by this run.', after: '  const results: RevertProof[] = selected.length === 0 ? [] : (JSON.parse(readFileSync("docs/evaluation-lifecycle-revert.json", "utf8")) as { tests: RevertProof[] }).tests;' },
   ];
+  for (const pattern of [
+    ...["decision", "reason", "nested field", "added field", "removed field", "removed verdict", "null verdict"].map(field => `causal birth verdict rejects SDK ${field} tamper`),
+    "causal birth verdict rejects checkpoint publication after refuse to promote tamper",
+    ...["SDK", "CLI"].map(path => `causal birth verdict rejects CLI body tamper on ${path} replay`),
+  ]) cases.push({ code: "ERR_ASSERTION", file: "evaluation-lifecycle.ts", testFile: "test/evaluation-lifecycle-verdict.test.ts", expected: /Missing expected rejection/, name: "verifySealedBirth birth verdict", pattern,
+    before: '(sealed.evaluation !== undefined && (current.evaluation === undefined || hashJson(sealed.evaluation) !== hashJson(current.evaluation)))', after: "false" });
   const selected = process.argv.slice(2);
   assert.ok(selected.every(pattern => cases.some(entry => entry.pattern === pattern)), "Unknown proof selector");
   const results: RevertProof[] = []; // Selected receipts contain only evidence measured by this run.

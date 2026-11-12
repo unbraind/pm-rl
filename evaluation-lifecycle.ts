@@ -63,16 +63,24 @@ async function validatedEntries(client: PmClient, plan: EvaluationPlan, artifact
 export async function validateCausalEvaluationOrder(client: PmClient, plan: EvaluationPlan, artifacts: readonly EvaluationArtifact[], prospective?: GetResult["item"]): Promise<void> {
   await validatedEntries(client, plan, artifacts, prospective);
 }
-/** Verify an existing birth without creating it; Generation bodies compare provenance and policy cards verify promotion. @internal */
+/** Verify an existing birth, preserving Generation provenance and birth verdicts while policy cards verify promotion. @internal */
 export async function verifyCausalEvaluationRetry(client: PmClient, plan: EvaluationPlan, options: Parameters<PmClient["create"]>[0] & { id: string }, artifacts: readonly EvaluationArtifact[]): Promise<void> {
   const { entries } = await validatedEntries(client, plan, artifacts);
   const birth = entries.find(entry => entry.id === options.id) ?? await witnessedBirth(client, options.id);
   verifyRetryBirth(options, birth);
 }
-/** Compare sealed identity with live storage, preserving Generation promotion bookkeeping. */
+/** Compare birth verdicts with live storage; permit verdict addition only when absent at birth. */
 function verifySealedBirth(birth: Awaited<ReturnType<typeof witnessedBirth>>): void {
-  const bodyIdentity = (item: GetResult["item"]): string => item.type === "Generation" ? hashJson(generationProvenance(extractGenerationSpec(String(item.body), "Causal candidate retry"))) : String(item.body);
-  if ((["id", "type", "affected_version", "fixed_version", "component", "environment", "created_at"] as const).some(field => birth.item[field] !== birth.current[field]) || bodyIdentity(birth.item) !== bodyIdentity(birth.current)) refuse("eval_plan_drift", birth.item.id);
+  if ((["id", "type", "affected_version", "fixed_version", "component", "environment", "created_at"] as const).some(field => birth.item[field] !== birth.current[field])) refuse("eval_plan_drift", birth.item.id);
+  const bodyIdentity = (item: GetResult["item"]) => {
+    if (item.type !== "Generation") return { identity: String(item.body) };
+    const spec = extractGenerationSpec(String(item.body), "Causal candidate retry");
+    return { identity: hashJson(generationProvenance(spec)), evaluation: spec.policy_evaluation };
+  };
+  const sealed = bodyIdentity(birth.item);
+  const current = bodyIdentity(birth.current);
+  if (sealed.identity !== current.identity
+    || (sealed.evaluation !== undefined && (current.evaluation === undefined || hashJson(sealed.evaluation) !== hashJson(current.evaluation)))) refuse("eval_plan_drift", birth.item.id);
 }
 /** Compare retry intent and current native state against the already validated birth. */
 function verifyRetryBirth(options: Parameters<PmClient["create"]>[0] & { id: string }, birth: Awaited<ReturnType<typeof witnessedBirth>>): void {
