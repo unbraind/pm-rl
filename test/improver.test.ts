@@ -471,7 +471,11 @@ test("public command builds chronological tasks and copied sources cannot modify
   const pins = w.directories.map((directory) => ({ repo: git(dirname(dirname(directory)), ['remote','get-url','origin']).replace('https://github.com/','').replace('.git',''), commit: git(dirname(dirname(directory)), ['rev-parse','HEAD']) }));
   const fleet = join(w.root, 'fleet'); mkdirSync(fleet);
   for (const directory of w.directories) execFileSync('ln', ['-s', dirname(dirname(directory)), join(fleet, dirname(dirname(directory)).split('/').at(-1)!)]);
-  const copies = copyImproverSources(fleet, join(w.root, 'copies'), pins);
+  // Copy preflight uses the same synthetic public metadata as dataset construction.
+  const originalPath = process.env.PATH; process.env.PATH = `${w.bin}:${originalPath}`;
+  let copies: string[];
+  try { copies = copyImproverSources(fleet, join(w.root, 'copies'), pins); }
+  finally { process.env.PATH = originalPath; }
   assert.equal(copies.length, 5); assert.equal(readFileSync(join(copies[0], 'history/item-0.jsonl'), 'utf8'), readFileSync(join(w.directories[0], 'history/item-0.jsonl'), 'utf8'));
   assert.equal(existsSync(join(dirname(dirname(copies[0])), 'source-only.ts')), false, 'source copies contain tracker files only');
   assert.ok(w.directories.every((directory) => git(dirname(dirname(directory)), ['status','--porcelain']) === ''));

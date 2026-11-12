@@ -1,0 +1,12 @@
+id: pm-rl-rsipower-approval
+title: Bounded public proposer transfer evaluation approval
+description: ""
+type: Decision
+status: open
+priority: 2
+tags: []
+created_at: "2026-11-06T04:40:22.363Z"
+updated_at: "2026-11-06T04:40:22.363Z"
+author: codex-sol
+parent: pm-rl-rsipower
+body: "```json\n{\"permitted_promotions\":74,\"meta_budget\":{\"training_samples\":9344,\"proposal_calls\":5,\"recipe_promotions\":1},\"resource_budget\":{\"training_steps\":146,\"wall_ms\":4530000,\"storage_bytes\":679936,\"compute_units\":4530000,\"tokens\":0},\"evaluation_design\":{\"effect\":0.1,\"margin\":0.01,\"alpha\":0.05,\"power\":0.8,\"generations\":1,\"candidates\":1,\"updates\":64,\"wall_limit_ms\":1140000,\"nice\":15},\"corpus\":\"7156cf8c85b9941e12e42632c08f27419af69b7b3ee8824545c35def3fee9d49\"}\n```"

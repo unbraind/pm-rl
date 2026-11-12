@@ -18,5 +18,10 @@
   "candidates": 2,
   "updates": 64,
   "seed": 42,
-  "timeout_ms": 1140000
+  "timeout_ms": 1140000,
+  "transfer": {
+    "effect": 0.5,
+    "alpha": 0.05,
+    "power": 0.8
+  }
 }

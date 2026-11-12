@@ -49,7 +49,7 @@ test("builder fails before reading histories from private, unlicensed, hosted or
     }
     for (const count of [0, 2, 65]) assert.throws(() => buildTrackerDataset(Array.from({ length: count }, () => directories[0]), join(root, `count-${count}`)), /dataset_bounds/);
     for (const seed of [-1, 1.1, 0x100000000]) assert.throws(() => buildTrackerDataset(directories, join(root, "seed"), seed), /dataset_bounds/);
-    for (const name of ["pm-hosted-data", "pm-web", "pm-gpt"]) {
+    for (const name of ["pm-hosted-data", "pm-web", "pm-gpt", "pm-observer", "pm-web-hosted", "PM-OBSERVER"]) {
       const path = join(root, name, ".agents/pm"); mkdirSync(path, { recursive: true });
       assert.throws(() => buildTrackerDataset([path, directories[1], directories[2]], join(root, name + "-output")), /forbidden_source/);
     }
@@ -57,7 +57,7 @@ test("builder fails before reading histories from private, unlicensed, hosted or
     const project = dirname(dirname(directories[0]));
     git(project, ["remote", "set-url", "origin", "https://example.test/repo"]);
     assert.throws(() => buildTrackerDataset(directories, join(root, "foreign")), /github_source/);
-    for (const repo of ["pm-web", "pm-gpt", "pm-cli"]) {
+    for (const repo of ["pm-web", "pm-gpt", "pm-cli", "pm-observer", "pm-web-hosted"]) {
       git(project, ["remote", "set-url", "origin", `git@github.com:public-fixture/${repo}.git`]);
       assert.throws(() => buildTrackerDataset(directories, join(root, repo + "-remote")), /excluded_repo/);
     }
