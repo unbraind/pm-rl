@@ -16,6 +16,8 @@ process.once("message", () => {
       catch (error) { if (!isPmCliExpectedError(error) || error.context.code !== "lock_conflict" || attempt >= 3) throw error; await delay(100); }
     }
   }).then((result) => {
+    // Lost acknowledgement: the durable write has happened, and the parent never hears about it.
+    if (process.argv[5] === "kill-before-ack") { process.kill(process.pid, "SIGKILL"); return; }
     process.send!({ state: "committed", result });
     if (process.argv[5] === "hold") setInterval(() => {}, 1000);
     else process.disconnect!();

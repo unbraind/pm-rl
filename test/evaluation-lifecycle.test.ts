@@ -48,7 +48,7 @@ test("causal birth witnesses permit equal clocks, skew and rollback through coll
   }
 });
 
-test("causal creation is shared across OS processes and killed acknowledgements replay the same births", async () => {
+test("causal creation is shared across OS processes and lost acknowledgements replay the same births", async () => {
   const w = await causalWorkspace();
   try {
     const file = join(w.root, "worker.json");
@@ -62,11 +62,15 @@ test("causal creation is shared across OS processes and killed acknowledgements 
       await Promise.all(peers.map(peer => peer.exit));
     } finally { for (const peer of peers) if (peer.child.exitCode === null) peer.child.kill("SIGKILL"); await Promise.all(peers.map(peer => peer.exit)); }
     for (const step of ["candidate", "first", "last"]) {
-      const peer = worker(file, step, "2010-01-01T00:00:00.000Z", true);
+      // The worker dies after its durable write and before it sends "committed", so the acknowledgement is lost.
+      const peer = worker(file, step, "2010-01-01T00:00:00.000Z", "kill-before-ack");
+      const unacknowledged = peer.committed.then(() => false, () => true);
       try {
-        await peer.ready; peer.child.send("go"); await peer.committed;
-        peer.child.kill("SIGKILL"); await peer.exit;
+        const start = trackerHistory(w.pmRoot);
+        await peer.ready; peer.child.send("go"); await peer.exit;
+        assert.equal(await unacknowledged, true, `${step} worker must die before acknowledging`);
         const before = trackerHistory(w.pmRoot);
+        assert.notDeepEqual(before, start, `${step} write must be durable before the kill`);
         await causalStep(w, step);
         assert.deepEqual(trackerHistory(w.pmRoot), before, `${step} must not rewrite a committed birth`);
       } finally { if (peer.child.exitCode === null) peer.child.kill("SIGKILL"); await peer.exit; }
@@ -79,9 +83,9 @@ test("causal creation is shared across OS processes and killed acknowledgements 
 /** Observe actual history bytes so retries cannot hide a duplicate write behind equal projected values. */
 function trackerHistory(root: string): string[] { return readdirSync(join(root, "history")).sort().map(file => readFileSync(join(root, "history", file), "utf8")); }
 /** A bounded child and IPC barriers let two native writers contend on exactly one tracker. */
-function worker(file: string, step: string, clock: string, hold = false) {
+function worker(file: string, step: string, clock: string, mode: "exit" | "hold" | "kill-before-ack" = "exit") {
   const childEnv = isolatedChildEnv({ ...process.env, PM_LOCK_WAIT_MS: "30000" });
-  const child = fork(new URL("./fixtures/causal-worker.ts", import.meta.url), [file, step, clock, hold ? "hold" : "exit"], { env: childEnv, stdio: ["ignore", "pipe", "pipe", "ipc"] });
+  const child = fork(new URL("./fixtures/causal-worker.ts", import.meta.url), [file, step, clock, mode], { env: childEnv, stdio: ["ignore", "pipe", "pipe", "ipc"] });
   let stderr = ""; child.stderr!.on("data", chunk => { stderr += String(chunk); });
   const wait = (state: string): Promise<{ result: { created?: boolean } }> => new Promise((resolve, reject) => {
     const timer = setTimeout(() => { child.kill("SIGKILL"); reject(new Error(`Worker ${step} timed out: ${stderr}`)); }, 120_000);
