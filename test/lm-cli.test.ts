@@ -8,7 +8,7 @@ import { join, resolve } from "node:path";
 import { test } from "node:test";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { init } from "@unbrained/pm-cli/sdk/runtime";
-import type { RlLoopReport } from "../index.ts";
+import { readCompleteLoopItem, type RlLoopReport } from "../index.ts";
 import { parseGenerationSpec } from "../lineage.ts";
 
 test("packed pm CLI performs three real LM generations and records contamination refusal under 20 seconds", async () => {
@@ -42,7 +42,7 @@ test("packed pm CLI performs three real LM generations and records contamination
     const rows: Record<string, unknown>[] = [];
     const artifacts: Array<{ path: string; bytes: Buffer }> = [];
     for (const generation of report.generations) {
-      const item = await client.get(generation.item);
+      const item = await readCompleteLoopItem(client, generation.item);
       const fenced = /```json\n([\s\S]+?)\n```/.exec(String(item.item.body));
       assert.ok(fenced?.[1]);
       const spec = parseGenerationSpec(fenced[1], "CLI generation");

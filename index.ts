@@ -824,8 +824,8 @@ export async function readCompleteLoopItem(client: PmClient, id: string, at?: st
       throw classified;
     }
   });
-  if (!("item" in result) || "output_budget_exceeded" in result) {
-    fail(`Item ${id} was omitted despite an unbounded read request.`, "loop_history_incomplete", EXIT_CODE.CONFLICT);
+  if (!("item" in result) || "output_budget_exceeded" in result || (fields === undefined && typeof result.item.body !== "string")) {
+    fail(`Item ${id} or its body was omitted despite an unbounded read request.`, "loop_history_incomplete", EXIT_CODE.CONFLICT);
   }
   if (observing) observePromotionEvidence(result.item.id, fields, result.item, at);
   const tracing = decisionReads.getStore();
@@ -3535,7 +3535,7 @@ async function acquireControllerLease(client: PmClient, coordinates: WorkspaceCo
         }
         const launchId = loopLeaseLockId(id);
         const owner = hashJson(realpathSync(resolve(coordinates.pmRoot)));
-        const previous = await identifierClient(authority).get(launchId).catch((error: unknown) => isItemNotFound(error) ? null : Promise.reject(error));
+        const previous = await readCompleteLoopItem(authority, launchId).catch((error: unknown) => isItemNotFound(error) ? null : Promise.reject(error));
         if (previous === null) {
           await createVerifiedItem(authority, { id: launchId, type: "Decision", title: `Loop ${id} launch authority`, body: owner });
         } else if (String(previous.item.body) !== owner) {
