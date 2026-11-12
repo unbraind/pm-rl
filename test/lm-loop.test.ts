@@ -12,7 +12,7 @@ import { encodeEventSegments, readSeries, type MetricEvent } from "../series.ts"
 import { parseGenerationSpec } from "../lineage.ts";
 import { lmCollectBatch, parseLmCollectionEvent, parseLmLoopConfig, serializeLmCheckpoint, LM_COLLECTION_METRIC, type LmLoopConfig, type LmObservation } from "../lm.ts";
 import extension, {
-  runRlLoop, resumeRlLoop, rlLoopStatus, loopLeaseLockId, LOOP_LEASE_TTL_SECONDS,
+  runRlLoop, resumeRlLoop, rlLoopStatus, readCompleteLoopItem, loopLeaseLockId, LOOP_LEASE_TTL_SECONDS,
   RL_ITEM_TYPES, type JsonValue, type RlCommandResult, type RefusalAuditContext, type RlLoopReport,
 } from "../index.ts";
 
@@ -146,8 +146,8 @@ test("pm rl loop run performs real recursive self-improvement on the language mo
   assert.notEqual(third.candidate_checkpoint, second.candidate_checkpoint);
   // Generation two collects with generation one's promoted adapter: the run's
   // component IS the predecessor's candidate checkpoint, asserted by receipt.
-  const generationOne = await client.get("lmloop-g1");
-  const generationTwo = await client.get("lmloop-g2");
+  const generationOne = await readCompleteLoopItem(client, "lmloop-g1");
+  const generationTwo = await readCompleteLoopItem(client, "lmloop-g2");
   const runTwo = await client.get("lmloop-g2-collect");
   const runThree = await client.get("lmloop-g3-collect");
   const specOne = generationSpecOf(String(generationOne.item.body));
@@ -162,7 +162,7 @@ test("pm rl loop run performs real recursive self-improvement on the language mo
   // reward and evaluation curve, and the wall time of each generation's fit.
   const trainingOne = specOne.training_config as Record<string, unknown>;
   const trainingTwo = specTwo.training_config as Record<string, unknown>;
-  const trainingThree = generationSpecOf(String((await client.get("lmloop-g3")).item.body)).training_config as Record<string, unknown>;
+  const trainingThree = generationSpecOf(String((await readCompleteLoopItem(client, "lmloop-g3")).item.body)).training_config as Record<string, unknown>;
   for (const training of [trainingOne, trainingTwo, trainingThree]) {
     assert.match(String(training.source_checkpoint), /^sha256:[a-f0-9]{64}$/);
     assert.match(String(training.candidate_checkpoint), /^sha256:[a-f0-9]{64}$/);
@@ -178,7 +178,7 @@ test("pm rl loop run performs real recursive self-improvement on the language mo
   assert.ok(Number(trainingTwo.candidate_exact_match) > Number(trainingOne.baseline_exact_match));
   // The refused third generation records its refusal in the candidate's
   // history; a refused candidate never becomes a collection policy.
-  const thirdGeneration = await client.get("lmloop-g3");
+  const thirdGeneration = await readCompleteLoopItem(client, "lmloop-g3");
   const thirdComments = await client.comments(String(thirdGeneration.item.id));
   assert.ok(JSON.stringify(thirdComments).includes("refused"), "the refusal is recorded in the candidate's history");
   assert.equal(report.final_checkpoint, second.candidate_checkpoint);
@@ -210,7 +210,7 @@ test("the persisted training configuration replays the pure step exactly", async
   const decoded: LmObservation[] = events.map((event, index) => parseLmCollectionEvent(event, config, `event ${index}`));
   assert.deepEqual(decoded, lmCollectBatch(config, 1, config.initial));
   // The persisted training configuration matches the reported candidate.
-  const stored = generationSpecOf(String((await client.get("replay-g1")).item.body));
+  const stored = generationSpecOf(String((await readCompleteLoopItem(client, "replay-g1")).item.body));
   const training = stored.training_config as Record<string, unknown>;
   assert.equal(training.candidate_checkpoint, report.generations[0]!.candidate_checkpoint);
   assert.equal(training.source_checkpoint, config.initial.digest);
@@ -377,7 +377,7 @@ test("LM status requires artifact authority and refuses missing disk evidence", 
   const approval = await createApproval(client, "artifacts-approval", 8);
   const report = await runRlLoop(client, { pmRoot, author: "pm-rl-test" }, { id: "artifacts", config: smallConfig({ max_generations: 1 }), approval });
   await refusalOf(() => rlLoopStatus(client, "artifacts"), "lm_missing_artifact_root");
-  const item = await client.get(report.generations[0]!.item);
+  const item = await readCompleteLoopItem(client, report.generations[0]!.item);
   const receipt = generationSpecOf(String(item.item.body)).training_config as Record<string, unknown>;
   rmSync(join(pmRoot, String(receipt.checkpoint_path)));
   await refusalOf(() => rlLoopStatus(client, "artifacts", pmRoot), "lm_checkpoint_artifact_missing");
@@ -503,7 +503,7 @@ test("a tampered candidate checkpoint is refused as invalid before the chain adv
   const approval = await createApproval(client, "lm-tamper-approval", 8);
   await assert.rejects(runRlLoop(client, { pmRoot, author: "pm-rl-test" }, { id: "tamper", config: smallConfig() as JsonValue, approval,
     onPhase(phase) { if (phase === "evaluate") throw new Error("pause"); } }), /pause/);
-  const candidate = await client.get("tamper-g1");
+  const candidate = await readCompleteLoopItem(client, "tamper-g1");
   const body = String(candidate.item.body);
   const spec = generationSpecOf(body);
   const training = spec.training_config as Record<string, unknown>;

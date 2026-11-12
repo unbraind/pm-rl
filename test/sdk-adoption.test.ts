@@ -7,7 +7,7 @@ import { test } from "node:test";
 import { commitWorkspaceTransaction, type CommitWorkspaceTransactionOptions } from "@unbrained/pm-cli/sdk";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { acquireLock, getHistoryPath, init, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
-import { commitProcessTransaction, loopProcessStartTime, rlLoopStatus, runRlLoop, withProcessJobFence, type JsonValue } from "../index.ts";
+import { commitProcessTransaction, loopProcessStartTime, readCompleteLoopItem, rlLoopStatus, runRlLoop, withProcessJobFence, type JsonValue } from "../index.ts";
 
 /** Initialize a real standalone tracker with no enclosing Git repository. */
 async function workspace(execute: (root: string, client: PmClient) => Promise<void>): Promise<void> {
@@ -90,5 +90,21 @@ test("SDK adoption integrity prerequisite: primed event caches cannot hide corru
     await assert.rejects(rlLoopStatus(client, "adoption", pmRoot), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_generation_drift");
     await writeFile(path, original);
     assert.equal((await rlLoopStatus(client, "adoption", pmRoot)).promoted, 1);
+  });
+});
+
+
+test("complete SDK reads retain large specification fences and refuse body omissions", async () => {
+  await workspace(async (_pmRoot, client) => {
+    const body = "```json\n" + JSON.stringify({ specification: "x".repeat(16_000) }) + "\n```";
+    const { item } = await client.create({ id: "large-spec", type: "Decision", title: "Large specification", body });
+    assert.equal((await readCompleteLoopItem(client, item.id)).item.body, body);
+    const get = client.get.bind(client);
+    client.get = ((id, options) => get(id, { ...options, depth: "brief" })) as PmClient["get"];
+    try {
+      await assert.rejects(readCompleteLoopItem(client, item.id), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "loop_history_incomplete");
+      const projected = await readCompleteLoopItem(client, item.id, undefined, "id,title");
+      assert.equal(projected.item.title, "Large specification");
+    } finally { Object.assign(client, { get }); }
   });
 });
