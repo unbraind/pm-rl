@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { fork } from "node:child_process";
 import { join } from "node:path";
-import { rmSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, rmSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { test } from "node:test";
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { Hash } from "node:crypto";
@@ -295,3 +295,35 @@ test("causal operations read each validated birth once across creation validatio
     } finally { probe.mock.restore(); }
   } finally { process.chdir(testCwd); rmSync(w.root, { recursive: true, force: true }); }
 });
+
+for (const slot of ["candidate", "candidate-evaluation-plan-look-1", "candidate-evaluation-plan-look-2"]) {
+  for (const alias of [false, true]) {
+    test(`causal collection refuses reserved ${slot} ID (${alias ? "alias" : "canonical"}) without writes`, async () => {
+      const w = await causalWorkspace();
+      try {
+        assert.equal(existsSync(join(w.root, ".git")), false, "Exercise the real SDK without Git");
+        for (const step of ["review", "plan"]) await causalStep(w, step);
+        const items = (await w.client.listAllComplete({ includeBody: true })).items;
+        const history = trackerHistory(w.pmRoot);
+        const id = alias ? slot.toUpperCase() : `rl-${slot}`;
+        await assert.rejects(startRunCore(w.client, {
+          ...w.request, id, evaluationCandidate: alias ? "CANDIDATE" : w.plan.candidate,
+        }), refused("eval_plan_late"));
+        assert.deepEqual((await w.client.listAllComplete({ includeBody: true })).items, items, "Refusal must preserve all item fields");
+        assert.deepEqual(trackerHistory(w.pmRoot), history, "Refusal must precede every item/history write");
+        // A nearby ID is not reserved, and its normalized retry keeps the same birth.
+        const request = { ...w.request, id: `rl-${slot}-collection` };
+        assert.equal((await startRunCore(w.client, request)).created, true);
+        const admitted = trackerHistory(w.pmRoot);
+        assert.equal((await startRunCore(w.client, { ...request, id: request.id.slice(3).toUpperCase() })).created, false);
+        assert.deepEqual(trackerHistory(w.pmRoot), admitted);
+        // The rejected request must leave both the candidate and all looks usable.
+        const generation = { ...w.generation, collectionRuns: [request.id] };
+        for (const step of ["candidate", "first", "last"]) await causalStep({ ...w, generation }, step);
+        const report = await readSequentialEvaluation(w.client, w.plan.candidate);
+        assert.ok(report !== null && !("status" in report));
+        assert.equal(report.sequential?.look, 2);
+      } finally { process.chdir(testCwd); rmSync(w.root, { recursive: true, force: true }); }
+    });
+  }
+}

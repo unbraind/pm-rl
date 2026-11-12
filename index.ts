@@ -1454,7 +1454,7 @@ async function createEvaluationCollection(client: PmClient, candidate: string, o
       const current = (await readEvaluationPlan(client, candidate))!;
       const existing = await optionalItem(client, options.id);
       if (existing === null) {
-        for (const id of [candidate, ...evaluationOutcomeIds(current.plan)]) if (await optionalItem(client, id) !== null || await optionalItem(client, id, "1") !== null) refuseEvaluation("eval_plan_late", id);
+        for (const id of [candidate, ...evaluationOutcomeIds(current.plan)]) if (id === options.id || await optionalItem(client, id) !== null || await optionalItem(client, id, "1") !== null) refuseEvaluation("eval_plan_late", id);
       }
       await ensurePersistentTypes(client);
       const artifacts = evaluationLifecycleArtifacts(current, [options.id], 0).filter((entry) => entry.stage < 3);
