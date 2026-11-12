@@ -4,13 +4,13 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { extractGenerationSpec, hashJson, readCompleteLoopItem, recordRefusedPolicyCard, registerGenerationCore, type JsonValue } from "../index.ts";
 import { validateCausalEvaluationOrder } from "../evaluation-lifecycle.ts";
 import { evaluationLifecycleArtifacts, readEvaluationPlan } from "../evaluation-plan.ts";
 import { readSequentialEvaluation, recordSequentialEvaluation } from "../sequential-evaluation.ts";
 import { causalWorkspace, causalStep } from "./fixtures/causal-evaluation.ts";
 import { isolatedChildEnv } from "./fixtures/child-env.ts";
+import { refused } from "./fixtures/refused.ts";
 
 const repository = process.cwd();
 /** The installed pm CLI's JavaScript entry, read from its package manifest rather than npm's platform-specific shim. */
@@ -41,8 +41,8 @@ async function rewrittenBody(w: Workspace, evaluation: JsonValue | undefined): P
 function history(w: Workspace): string[] {
   return readdirSync(join(w.pmRoot, "history")).sort().map(file => readFileSync(join(w.pmRoot, "history", file), "utf8"));
 }
-/** Match the shared causal drift refusal rather than an unrelated card or process error. */
-function drift(error: unknown): boolean { return isPmCliExpectedError(error) && error.context.code === "eval_plan_drift"; }
+/** Match the shared causal drift refusal, with its conflict exit code, rather than an unrelated card or process error. */
+const drift = refused("eval_plan_drift");
 /** Exercise the same sealed-birth validator used by causal creation, retries and reads. */
 async function validate(w: Workspace): Promise<void> {
   const registered = (await readEvaluationPlan(w.client, w.plan.candidate))!;

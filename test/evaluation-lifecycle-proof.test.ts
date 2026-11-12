@@ -132,12 +132,13 @@ test("selected revert receipts exclude unverified results from earlier source", 
 });
 
 test("proof and CLI child processes never inherit credentials, including API and access keys", () => {
-  const names = ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "AWS_SECRET_ACCESS_KEY", "AWS_ACCESS_KEY_ID", "GH_TOKEN", "NPM_MEDIA_SERVER", "DB_PASSWORD", "BASIC_AUTH", "SESSION_COOKIE"];
-  const env = isolatedChildEnv({ PATH: "/bin", HOME: "/home/fixture", PM_AUTHOR: "fixture-author", NODE_OPTIONS: "--inspect", ...Object.fromEntries(names.map(name => [name, "fixture-secret"])) });
+  const names = ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "AWS_SECRET_ACCESS_KEY", "AWS_ACCESS_KEY_ID", "GH_TOKEN", "NPM_MEDIA_SERVER", "DB_PASSWORD", "BASIC_AUTH", "SESSION_COOKIE",
+    "HTTP_AUTHORIZATION", "GITHUB_AUTHORIZATION", "PM_AUTHORIZATION", "PM_AUTHOR_TOKEN"];
+  const env = isolatedChildEnv({ PATH: "/bin", HOME: "/home/fixture", PM_AUTHOR: "fixture-author", GIT_AUTHOR_NAME: "Fixture Author", GIT_AUTHOR_EMAIL: "author@example.invalid", NODE_OPTIONS: "--inspect", ...Object.fromEntries(names.map(name => [name, "fixture-secret"])) });
   for (const name of names) assert.equal(env[name], undefined, `${name} must not reach a child process`);
   assert.equal(env.NODE_OPTIONS, undefined);
   // Must allow: ordinary runtime variables, including the pm author, still reach the child.
-  assert.deepEqual([env.PATH, env.HOME, env.PM_AUTHOR], ["/bin", "/home/fixture", "fixture-author"]);
+  assert.deepEqual([env.PATH, env.HOME, env.PM_AUTHOR, env.GIT_AUTHOR_NAME, env.GIT_AUTHOR_EMAIL], ["/bin", "/home/fixture", "fixture-author", "Fixture Author", "author@example.invalid"]);
   const previous = process.env.OPENAI_API_KEY;
   try {
     process.env.OPENAI_API_KEY = "fixture-secret";

@@ -10,10 +10,11 @@ import { encodeEventSegment } from "../series.ts";
 import { canonicalJson } from "../json-identity.ts";
 import { readSequentialEvaluation } from "../sequential-evaluation.ts";
 import { approveEvaluationPlan, createCausalEvaluationArtifact, validateCausalEvaluationOrder, verifyCausalEvaluationRetry } from "../evaluation-lifecycle.ts";
-import { createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
+import { createPmCliExpectedError, EXIT_CODE } from "@unbrained/pm-cli/sdk/runtime";
 import { promoteGenerationCore, registerGenerationCore, readCompleteLoopItem, startRunCore, type JsonValue, type RlCommandResult } from "../index.ts";
 import { enforceEvaluationPlan, validateEvaluationOrder, evaluationLifecycleArtifacts, parseEvaluationPlan, readEvaluationPlan, registerEvaluationPlan } from "../evaluation-plan.ts";
 import { causalWorkspace, causalStep, withCausalClock } from "./fixtures/causal-evaluation.ts";
+import { refused } from "./fixtures/refused.ts";
 
 const testCwd = process.cwd();
 
@@ -92,7 +93,6 @@ function worker(file: string, step: string, clock: string, hold = false) {
 }
 
 /** Match stable typed refusals (machine code plus the conflict exit code) without depending on the wording of SDK diagnostics. */
-function refused(code: string) { return (error: unknown): boolean => isPmCliExpectedError(error) && error.context.code === code && error.exitCode === EXIT_CODE.CONFLICT; }
 
 test("the refusal matcher requires the conflict exit code as well as the machine code", () => {
   const matches = refused("eval_plan_drift");
@@ -337,6 +337,27 @@ for (const slot of ["candidate", "candidate-evaluation-plan-look-1", "candidate-
 }
 
 
+test("an existing candidate's registration retry refuses collection drift in causal validation", async () => {
+  const w = await causalWorkspace();
+  try {
+    for (const step of ["review", "plan", "run", "candidate"]) await causalStep(w, step);
+    const birth = (await readCompleteLoopItem(w.client, w.request.id, "1")).item;
+    for (const edit of [{ body: "Changed collection payload" }, { fixedVersion: "changed-configuration" }]) {
+      await w.client.update(w.request.id, edit);
+      const before = trackerHistory(w.pmRoot);
+      const items = (await w.client.listAllComplete({ includeBody: true })).items;
+      for (const preflight of [true, false]) {
+        await assert.rejects(registerGenerationCore(w.client, { ...w.generation, preflight }), refused("eval_plan_drift"));
+      }
+      assert.deepEqual(trackerHistory(w.pmRoot), before, "Refusal must precede every history write");
+      assert.deepEqual((await w.client.listAllComplete({ includeBody: true })).items, items);
+      await w.client.update(w.request.id, { body: String(birth.body), fixedVersion: String(birth.fixed_version) });
+      // Must allow: with the birth collection restored, the retry reads the existing candidate.
+      for (const preflight of [true, false]) assert.equal((await registerGenerationCore(w.client, { ...w.generation, preflight })).created, false);
+    }
+  } finally { process.chdir(testCwd); rmSync(w.root, { recursive: true, force: true }); }
+});
+
 test("causal ancestry rejects live collection drift before candidate and look writes", async () => {
   const w = await causalWorkspace();
   try {
@@ -359,9 +380,11 @@ test("causal ancestry rejects live collection drift before candidate and look wr
       const before = trackerHistory(w.pmRoot);
       const items = (await w.client.listAllComplete({ includeBody: true })).items;
       await assert.rejects(validateCausalEvaluationOrder(w.client, w.plan, artifacts), refused("eval_plan_drift"));
-      // Body/config drift used to bypass both candidate registration paths.
+      // Body/config drift used to bypass both candidate registration paths. A new candidate is refused by its
+      // policy card, which binds the collection run, before causal validation runs; the retry of an existing
+      // candidate reaches causal validation and is covered by its own test below.
       if ("body" in edit || "fixedVersion" in edit) for (const preflight of [true, false]) {
-        await assert.rejects(registerGenerationCore(w.client, { ...w.generation, preflight }), error => refused("eval_plan_drift")(error) || refused("card_drift")(error));
+        await assert.rejects(registerGenerationCore(w.client, { ...w.generation, preflight }), refused("card_drift"));
       }
       assert.deepEqual(trackerHistory(w.pmRoot), before, "Refusal must precede every history write");
       assert.deepEqual((await w.client.listAllComplete({ includeBody: true })).items, items);
