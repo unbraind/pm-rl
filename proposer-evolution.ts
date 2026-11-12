@@ -16,7 +16,7 @@ import { openImproverEnvironment, IMPROVER_CRITERION, IMPROVER_ADAPTER, IMPROVER
 import { parseEvaluationPlan, evaluatePlan, type EvaluationPlan, type EvaluationPlanReport } from "./evaluation-plan.ts";
 import { requireCheckpointStorage } from "./checkpoint-artifacts.ts";
 import { reserveSearchCapacity } from "./meta.ts";
-import { TRANSFER_DECLARATION_REMEDY, TRANSFER_DESIGN, TRANSFER_MAX_TASKS, loadTransferCorpus, verifyTransferCorpus, transferMembers, transferPower, archiveTransferCorpus, replayTransferCorpus, recordTransferEvaluation, replayTransferEvaluation, parseTransferDesign, recordTransferPlan, readTransferPlan, type TransferReport, type TransferCorpus } from "./proposer-transfer.ts";
+import { TRANSFER_DECLARATION_REMEDY, TRANSFER_DESIGN, TRANSFER_MAX_TASKS, loadTransferCorpus, verifyTransferCorpus, transferMembers, transferPower, planTransferArchive, publishTransferArchive, replayTransferCorpus, recordTransferEvaluation, replayTransferEvaluation, parseTransferDesign, recordTransferPlan, readTransferPlan, type TransferReport, type TransferCorpus } from "./proposer-transfer.ts";
 
 /** Same bounded allowance for every proposal interpreter; logical optimizer and inference use are both zero. */
 export const PROPOSER_ALLOWANCE = { training_steps: 0, wall_ms: 30_000, storage_bytes: 16_384, compute_units: 30_000, tokens: 0 } as const;
@@ -225,6 +225,7 @@ export async function runProposerEvolution(client: PmClient, coordinates: Proces
   // Validate the same plan schema before reservation; later retained digests have the same bounded shape.
   for (const [index, members] of metaLooks.entries()) proposerEvaluationPlan(`${request.id}-g${index + 1}`, config.initial, members, manifest.splits.meta.digest, fits + config.generations + 1);
   proposerEvaluationPlan(`${request.id}-audit`, config.initial, transferCorpus.tasks.audit, manifest.splits.audit.digest, fits + config.generations + 1);
+  const transferArchive = planTransferArchive(transferCorpus);
   const budget = { fits, optimizer_updates: fits * config.updates, max_optimizer_updates: fits * config.updates * 2, inference_tokens: 0 as const, proposal_processes: config.generations * 3 + 2 };
   const binding = hashJson({ config: config as unknown as JsonValue, dataset: manifest.digest, approval: approval.item.body as string });
   const capacity = { training_samples: budget.max_optimizer_updates, proposal_calls: budget.proposal_processes, recipe_promotions: config.generations };
@@ -260,7 +261,7 @@ export async function runProposerEvolution(client: PmClient, coordinates: Proces
       const plan = await readTransferPlan(client, receipt.digest);
       assert.equal(hashJson(plan as unknown as JsonValue), hashJson({ format: "pm-rl/proposer-transfer-plan/2", corpus: manifest.digest, design } as unknown as JsonValue), "transfer_plan_drift");
     });
-    const corpusReceipt = await step("transfer-corpus", { corpus: manifest.digest, plan: planReceipt.digest }, async () => ({ digest: await archiveTransferCorpus(client, transferCorpus) }), async (receipt) => {
+    const corpusReceipt = await step("transfer-corpus", { corpus: manifest.digest, plan: planReceipt.digest }, async () => ({ digest: await publishTransferArchive(client, transferArchive) }), async (receipt) => {
       const restored = await replayTransferCorpus(client, receipt.digest);
       verifyTransferCorpus(restored, manifest.digest);
     });

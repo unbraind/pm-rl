@@ -207,7 +207,7 @@ export function validateImproverTasks(tasks: readonly ImproverTask[], manifest: 
   assert.equal(new Set(tasks.map((task) => task.id)).size, tasks.length, "improver_task_duplicate");
   const sources = new Map(manifest.sources.filter((source) => source.role === role).map((source) => [source.repo, source.commit]));
   for (const task of tasks) {
-    assert.ok(sources.get(task.repo) === task.commit, "improver_role_leakage");
+    assert.ok(sources.has(task.repo) && sources.get(task.repo) === task.commit, "improver_role_leakage");
     assert.ok(["time-to-close", "issue-type"].includes(task.target) && (task.target === "issue-type" ? task.threshold_ms === null : Number.isFinite(task.threshold_ms)), "improver_task_target");
     assert.ok(task.train.length >= 4 && task.evaluation.length >= 4 && task.train.length + task.evaluation.length <= 10_000, "improver_task_size");
     assert.equal(new Set([...task.train, ...task.evaluation].map((row) => row.id)).size, task.train.length + task.evaluation.length, "improver_item_overlap");

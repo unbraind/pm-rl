@@ -253,7 +253,10 @@ export function planTransferArchive(corpus: TransferCorpus): TransferArchive {
 }
 /** Publish a small root only after all content-addressed shards have passed the shared byte preflight. */
 export async function archiveTransferCorpus(client: PmClient, corpus: TransferCorpus): Promise<string> {
-  const plan = planTransferArchive(corpus);
+  return publishTransferArchive(client, planTransferArchive(corpus));
+}
+/** Publish the exact preflighted packets retained by the controller before capacity reservation. @internal */
+export async function publishTransferArchive(client: PmClient, plan: TransferArchive): Promise<string> {
   for (const shard of plan.shards) await writeRecord(client, shard);
   return writeRecord(client, plan.root);
 }
