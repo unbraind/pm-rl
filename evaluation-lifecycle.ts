@@ -2,7 +2,7 @@
 import { randomUUID } from "node:crypto";
 import type { GetResult, PmClient } from "@unbrained/pm-cli/sdk/core";
 import { createVerifiedItem, extractGenerationSpec, generationProvenance, hashJson, readCompleteLoopItem, type JsonValue } from "./index.ts";
-import { evaluationComparison, evaluationPlanId, evaluationOutcomeIds, optionalItem, refuse, resolveEvaluationPlan, verifyCreatedRecord, type EvaluationPlan } from "./evaluation-plan.ts";
+import { evaluationComparison, evaluationPlanId, evaluationOutcomeIds, validateEvaluationIdentities, optionalItem, refuse, resolveEvaluationPlan, verifyCreatedRecord, type EvaluationPlan } from "./evaluation-plan.ts";
 import { withEvaluationLease, type SequentialStopping } from "./sequential-evaluation.ts";
 import { encodeBoundedJson, parseBoundedJson } from "./tracker-record.ts";
 
@@ -54,6 +54,7 @@ async function validatedEntries(client: PmClient, plan: EvaluationPlan, artifact
   const comparison = evaluationComparison(plan);
   const digests = new Map<GetResult["item"], string>();
   for (const entry of entries) {
+    verifySealedBirth(entry);
     if (entry.witness.comparison !== comparison || entry.witness.stage !== entry.stage || JSON.stringify(entry.witness.predecessors) !== JSON.stringify(references(entries, entry.stage, digests))) refuse("eval_plan_late", entry.id);
   }
   return { entries, digests };
@@ -68,10 +69,15 @@ export async function verifyCausalEvaluationRetry(client: PmClient, plan: Evalua
   const birth = entries.find(entry => entry.id === options.id) ?? await witnessedBirth(client, options.id);
   verifyRetryBirth(options, birth);
 }
+/** Compare sealed identity with live storage, preserving Generation promotion bookkeeping. */
+function verifySealedBirth(birth: Awaited<ReturnType<typeof witnessedBirth>>): void {
+  const bodyIdentity = (item: GetResult["item"]): string => item.type === "Generation" ? hashJson(generationProvenance(extractGenerationSpec(String(item.body), "Causal candidate retry"))) : String(item.body);
+  if ((["id", "type", "affected_version", "fixed_version", "component", "environment", "created_at"] as const).some(field => birth.item[field] !== birth.current[field]) || bodyIdentity(birth.item) !== bodyIdentity(birth.current)) refuse("eval_plan_drift", birth.item.id);
+}
 /** Compare retry intent and current native state against the already validated birth. */
 function verifyRetryBirth(options: Parameters<PmClient["create"]>[0] & { id: string }, birth: Awaited<ReturnType<typeof witnessedBirth>>): void {
-  const bodyIdentity = (item: GetResult["item"]): string => item.type === "Generation" ? hashJson(generationProvenance(extractGenerationSpec(String(item.body), "Causal candidate retry"))) : String(item.body);
-  if (birth.witness.request !== hashJson(options as unknown as JsonValue) || (["id", "type", "affected_version", "fixed_version", "component", "environment", "created_at"] as const).some(field => birth.item[field] !== birth.current[field]) || bodyIdentity(birth.item) !== bodyIdentity(birth.current)) refuse("eval_plan_drift", options.id);
+  verifySealedBirth(birth);
+  if (birth.witness.request !== hashJson(options as unknown as JsonValue)) refuse("eval_plan_drift", options.id);
 }
 /** Create a witnessed artifact in one SDK mutation; an uncertain acknowledgement retries the same birth. @internal */
 export async function createCausalEvaluationArtifact(client: PmClient, plan: EvaluationPlan, options: Parameters<PmClient["create"]>[0] & { id: string }, artifacts: readonly EvaluationArtifact[]): Promise<Awaited<ReturnType<PmClient["create"]>>> {
@@ -94,6 +100,7 @@ export async function approveEvaluationPlan(client: PmClient, value: unknown): P
   if (plan.ordering !== "causal/1") refuse("eval_plan_stopping");
   const id = (plan.stopping as SequentialStopping).review;
   return withEvaluationLease(client, plan.candidate, [], async () => {
+    validateEvaluationIdentities(plan);
     if (await optionalItem(client, id) === null) {
       for (const future of [evaluationPlanId(plan.candidate), plan.candidate, ...evaluationOutcomeIds(plan)]) if (await optionalItem(client, future) !== null || await optionalItem(client, future, "1") !== null) refuse("eval_plan_late", future);
     }

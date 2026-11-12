@@ -105,3 +105,18 @@ mutation and restoration has been verified; `finally` restores the disposable
 source even when verification refuses the evidence. All five package revert
 generators use this same admission and restoration helper; the proof tests enumerate
 them and reject independent runners or assumed pass/fail totals.
+
+Causal ancestry checks compare each stored birth with a fresh current read of its
+sealed fields: ID, type, creation time, affected and fixed versions, component,
+environment, and body. Run metric notes, annotations and terminal status may
+change; Generation bodies compare provenance so promotion bookkeeping remains
+supported. These checks apply to ancestry and retries before publication.
+
+Causal artifact slots must remain distinct after native project-prefix
+normalization. Approval repeats the identity check under its lease before the
+review write, and plan resolution applies the same rule to registration.
+
+A selected lifecycle revert run writes a partial receipt (`complete: false`) with
+its selection and only the results measured by that invocation. It never adopts
+older results. A run without selectors measures every case and writes a complete
+receipt.

@@ -1,9 +1,11 @@
 {
   "format": "pm-rl/evaluation-lifecycle-revert/1",
   "isolated_copy": true,
+  "complete": true,
+  "selection": [],
   "tests": [
     {
-      "function": "registerGenerationSnapshot",
+      "function": "registerGenerationSnapshot sealed birth",
       "test": "causal candidate retries",
       "reverted": {
         "pass": 0,
@@ -247,6 +249,60 @@
           "code": "ERR_ASSERTION",
           "failureType": "testCodeFailure",
           "matched": "Refused proof must restore the implementation"
+        }
+      },
+      "restored": {
+        "pass": 1,
+        "fail": 0
+      }
+    },
+    {
+      "function": "validatedEntries live sealed state",
+      "test": "live collection drift",
+      "reverted": {
+        "pass": 0,
+        "fail": 1,
+        "failure": {
+          "test": "causal ancestry rejects live collection drift before candidate and look writes",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "Missing expected rejection"
+        }
+      },
+      "restored": {
+        "pass": 1,
+        "fail": 0
+      }
+    },
+    {
+      "function": "validateEvaluationIdentities canonical slots",
+      "test": "canonical identity collisions",
+      "reverted": {
+        "pass": 0,
+        "fail": 1,
+        "failure": {
+          "test": "causal approval refuses canonical identity collisions without writing and allows distinct aliases",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "Missing expected rejection"
+        }
+      },
+      "restored": {
+        "pass": 1,
+        "fail": 0
+      }
+    },
+    {
+      "function": "selected receipt evidence isolation",
+      "test": "selected revert receipts",
+      "reverted": {
+        "pass": 0,
+        "fail": 1,
+        "failure": {
+          "test": "selected revert receipts exclude unverified results from earlier source",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "Selected receipts must contain only freshly measured results"
         }
       },
       "restored": {

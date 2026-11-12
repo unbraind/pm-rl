@@ -1,7 +1,7 @@
 /** Exercise proof admission with real bounded Node runners, including unrelated and infrastructure failures. */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
@@ -105,4 +105,27 @@ test("every proof producer validates measured selected-test evidence and restore
     assert.ok(readFileSync(join(root, file), "utf8") === fixed, "Refused proof must restore the implementation");
     assert.deepEqual(validateProofRun(runProofTest(root, file, "selected"), "selected"), { pass: 1, fail: 0 });
   });
+});
+
+
+test("selected revert receipts exclude unverified results from earlier source", () => {
+  const repository = new URL("../", import.meta.url);
+  const root = mkdtempSync(join(tmpdir(), "rl-selected-proof-"));
+  try {
+    for (const file of readdirSync(repository)) if (file.endsWith(".ts") || file === "package.json") cpSync(new URL(file, repository), join(root, file));
+    for (const directory of ["test", "scripts", "examples"]) cpSync(new URL(directory, repository), join(root, directory), { recursive: true });
+    symlinkSync(new URL("node_modules", repository), join(root, "node_modules"));
+    mkdirSync(join(root, "docs"));
+    const receipt = join(root, "docs/evaluation-lifecycle-revert.json");
+    writeFileSync(receipt, JSON.stringify({ tests: [{ function: "stale", test: "unselected prior source", reverted: { pass: 0, fail: 1 }, restored: { pass: 1, fail: 0 } }] }));
+    const childEnv: NodeJS.ProcessEnv = { ...process.env, NODE_OPTIONS: undefined, NODE_TEST_CONTEXT: undefined, NODE_V8_COVERAGE: undefined };
+    for (const key of Object.keys(childEnv)) if (/TOKEN|SECRET|PASSWORD|CREDENTIAL|NPM_MEDIA_SERVER/i.test(key)) delete childEnv[key];
+    const run = spawnSync(process.execPath, ["test/evaluation-lifecycle.revert.ts", "proof rejects worker timeouts"], { cwd: root, encoding: "utf8", env: childEnv, timeout: 60_000 });
+    assert.equal(run.error, undefined);
+    assert.equal(run.status, 0, run.stdout + run.stderr);
+    const recorded = JSON.parse(readFileSync(receipt, "utf8")) as { complete: boolean; selection: string[]; tests: { test: string }[] };
+    assert.deepEqual(recorded.tests.map(row => row.test), ["proof rejects worker timeouts"], "Selected receipts must contain only freshly measured results");
+    assert.equal(recorded.complete, false);
+    assert.deepEqual(recorded.selection, ["proof rejects worker timeouts"]);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });

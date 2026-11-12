@@ -6,6 +6,7 @@ import { existsSync, rmSync, readFileSync, readdirSync, writeFileSync } from "no
 import { test } from "node:test";
 import type { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { Hash } from "node:crypto";
+import { encodeEventSegment } from "../series.ts";
 import { canonicalJson } from "../json-identity.ts";
 import { readSequentialEvaluation } from "../sequential-evaluation.ts";
 import { approveEvaluationPlan, createCausalEvaluationArtifact, validateCausalEvaluationOrder, verifyCausalEvaluationRetry } from "../evaluation-lifecycle.ts";
@@ -327,3 +328,82 @@ for (const slot of ["candidate", "candidate-evaluation-plan-look-1", "candidate-
     });
   }
 }
+
+
+test("causal ancestry rejects live collection drift before candidate and look writes", async () => {
+  const w = await causalWorkspace();
+  try {
+    for (const step of ["review", "plan", "run"]) await causalStep(w, step);
+    const birth = (await readCompleteLoopItem(w.client, w.request.id, "1")).item;
+    const registered = (await readEvaluationPlan(w.client, w.plan.candidate))!;
+    const artifacts = evaluationLifecycleArtifacts(registered, [w.request.id], 0).filter(entry => entry.stage < 3);
+    const edits = [
+      { body: "Changed collection payload" }, { fixedVersion: "changed-configuration" },
+      { affectedVersion: "changed-environment-snapshot" }, { component: "changed-policy" },
+      { environment: "changed-environment" }, { type: "Decision" },
+    ];
+    // Metrics, annotations and terminal status are legitimate Run updates, outside the sealed fields.
+    await w.client.notes(w.request.id, { add: encodeEventSegment([{ step: 1, metric: "return", value: 0.5 }]) });
+    await w.client.notes(w.request.id, { add: "Collection annotation" });
+    await w.harness.runCommand({ command: "rl run finish", pmRoot: w.pmRoot, args: [w.request.id], options: { reason: "completed" } });
+    await validateCausalEvaluationOrder(w.client, w.plan, artifacts);
+    for (const edit of edits) {
+      await w.client.update(w.request.id, edit);
+      const before = trackerHistory(w.pmRoot);
+      const items = (await w.client.listAllComplete({ includeBody: true })).items;
+      await assert.rejects(validateCausalEvaluationOrder(w.client, w.plan, artifacts), refused("eval_plan_drift"));
+      // Body/config drift used to bypass both candidate registration paths.
+      if ("body" in edit || "fixedVersion" in edit) for (const preflight of [true, false]) {
+        await assert.rejects(registerGenerationCore(w.client, { ...w.generation, preflight }), error => refused("eval_plan_drift")(error) || refused("card_drift")(error));
+      }
+      assert.deepEqual(trackerHistory(w.pmRoot), before, "Refusal must precede every history write");
+      assert.deepEqual((await w.client.listAllComplete({ includeBody: true })).items, items);
+      await w.client.update(w.request.id, { body: String(birth.body), fixedVersion: String(birth.fixed_version), affectedVersion: String(birth.affected_version), component: String(birth.component), environment: String(birth.environment), type: "Run" });
+      await validateCausalEvaluationOrder(w.client, w.plan, artifacts);
+    }
+    await causalStep(w, "candidate");
+    await w.client.update(w.request.id, { body: "Changed after candidate birth" });
+    const before = trackerHistory(w.pmRoot);
+    await assert.rejects(causalStep(w, "first"), refused("eval_plan_drift"));
+    assert.deepEqual(trackerHistory(w.pmRoot), before);
+    await w.client.update(w.request.id, { body: String(birth.body) });
+    for (const step of ["first", "last"]) await causalStep(w, step);
+    const report = await readSequentialEvaluation(w.client, w.plan.candidate);
+    assert.ok(report !== null && !("status" in report));
+    assert.equal(report.sequential?.look, 2);
+  } finally { process.chdir(testCwd); rmSync(w.root, { recursive: true, force: true }); }
+});
+
+test("causal approval refuses canonical identity collisions without writing and allows distinct aliases", async () => {
+  const w = await causalWorkspace();
+  try {
+    const stopping = w.plan.stopping;
+    assert.equal(stopping.kind, "sequential");
+    if (stopping.kind !== "sequential") assert.fail("Expected sequential fixture");
+    const collisions = [
+      { ...w.plan, stopping: { ...stopping, review: "candidate" } },
+      { ...w.plan, stopping: { ...stopping, review: "seed" } },
+      { ...w.plan, stopping: { ...stopping, review: "candidate-evaluation-plan" } },
+      ...[1, 2].map(look => ({ ...w.plan, stopping: { ...stopping, review: `candidate-evaluation-plan-look-${look}` } })),
+      { ...w.plan, candidate: "seed" },
+      { ...w.plan, incumbent: "candidate-evaluation-plan" },
+      { ...w.plan, incumbent: "candidate-evaluation-plan-look-1" },
+    ];
+    for (const plan of collisions) {
+      // The raw schema sees distinct strings; the collision exists only after native normalization.
+      parseEvaluationPlan(plan, "write");
+      const before = trackerHistory(w.pmRoot);
+      const items = (await w.client.listAllComplete({ includeBody: true })).items;
+      for (const write of [approveEvaluationPlan, registerEvaluationPlan]) await assert.rejects(write(w.client, plan), refused("eval_plan_invalid"));
+      assert.deepEqual(trackerHistory(w.pmRoot), before);
+      assert.deepEqual((await w.client.listAllComplete({ includeBody: true })).items, items);
+    }
+    const aliases = { ...w.plan, candidate: "CANDIDATE", incumbent: "SEED", stopping: { ...stopping, review: "REVIEW" } };
+    assert.equal((await approveEvaluationPlan(w.client, aliases)).id, "rl-review");
+    const approved = trackerHistory(w.pmRoot);
+    await approveEvaluationPlan(w.client, w.plan);
+    assert.deepEqual(trackerHistory(w.pmRoot), approved);
+    await registerEvaluationPlan(w.client, aliases);
+    for (const step of ["run", "candidate", "first", "last"]) await causalStep(w, step);
+  } finally { process.chdir(testCwd); rmSync(w.root, { recursive: true, force: true }); }
+});

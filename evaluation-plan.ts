@@ -186,13 +186,16 @@ export function parseEvaluationPlan(value: unknown, mode: ValidationMode = "read
     objective: label(p.objective), objective_version: label(p.objective_version), evaluation_context: label(p.evaluation_context, "context", mode), direction: p.direction as EvaluationPlan["direction"],
     reward_bounds: [b[0] as number, b[1] as number], criterion: { confidence: c.confidence, minSamples: c.minSamples, effectThreshold: c.effectThreshold },
     stopping: sequential ? stopping as SequentialStopping : { kind: "fixed", observations: members.length, independent_units: units.size } };
-  if (normalized.ordering === "causal/1") {
-    const identities = [candidate, incumbent, (normalized.stopping as SequentialStopping).review, evaluationPlanId(candidate), ...evaluationOutcomeIds(normalized)];
-    if (new Set(identities).size !== identities.length) refuse("eval_plan_invalid");
-  }
+  validateEvaluationIdentities(normalized);
   if (sequential && Buffer.byteLength(JSON.stringify(normalized)) > 1_048_576) refuse("eval_plan_invalid");
   evaluationPlanBody(normalized);
   return normalized;
+}
+/** Refuse overlapping causal artifact slots after normalization and at native write boundaries. @internal */
+export function validateEvaluationIdentities(plan: EvaluationPlan): void {
+  if (plan.ordering !== "causal/1") return;
+  const identities = [plan.candidate, plan.incumbent, (plan.stopping as SequentialStopping).review, evaluationPlanId(plan.candidate), ...evaluationOutcomeIds(plan)];
+  if (new Set(identities).size !== identities.length) refuse("eval_plan_invalid");
 }
 /** Preflight the actual persisted wrapper, including duplicated incumbent identity and cohort expansion. */
 function evaluationPlanBody(plan: EvaluationPlan): string { return encodeBoundedJson({ plan, incumbent_version: plan.incumbent_version }); }
@@ -301,7 +304,9 @@ export async function readEvaluationPlan(client: PmClient, candidate: string): P
 export async function resolveEvaluationPlan(client: PmClient, value: unknown, mode: ValidationMode = "read"): Promise<EvaluationPlan> {
   const parsed = parseEvaluationPlan(value, mode);
   const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
-  return { ...parsed, candidate: canonicalizeIdentifier(parsed.candidate, prefix), incumbent: canonicalizeIdentifier(parsed.incumbent, prefix), stopping: parsed.stopping.kind === "fixed" ? parsed.stopping : { ...parsed.stopping, review: canonicalizeIdentifier(parsed.stopping.review, prefix) } };
+  const resolved = { ...parsed, candidate: canonicalizeIdentifier(parsed.candidate, prefix), incumbent: canonicalizeIdentifier(parsed.incumbent, prefix), stopping: parsed.stopping.kind === "fixed" ? parsed.stopping : { ...parsed.stopping, review: canonicalizeIdentifier(parsed.stopping.review, prefix) } };
+  validateEvaluationIdentities(resolved);
+  return resolved;
 }
 /** Register before candidate creation; repeat identical declarations safely, refusing edited designs. */
 export async function registerEvaluationPlan(client: PmClient, value: unknown): Promise<RegisteredEvaluationPlan> {
