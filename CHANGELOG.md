@@ -83,6 +83,7 @@
 
 ### Other
 
+- Evaluate proposer transfer on a statistically powered tracker corpus ([pm-rl-rsipower](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-rsipower.toon))
 - Keep the HTTP receipt crash drill within its unchanged timeout ([pm-rl-bi4v](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-bi4v.toon))
 - Reconcile inherited release-test expectations with native refusal contracts ([pm-rl-meta-gate](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-meta-gate.toon))
 - Reconcile the empty-author transaction contract with native SDK behavior ([pm-rl-empty-author](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-empty-author.toon))
