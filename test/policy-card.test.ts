@@ -1721,7 +1721,7 @@ test("retained ancestry ownership rejects a removed native tag", async () => {
 });
 
 
-test("reversed native history preserves earliest policy citations and promotion author", async () => {
+test("reversed native history preserves earliest policy citations and promotion author", async (context) => {
   const w = await workspace();
   await w.client.create({ id: "rl-approval", type: "Decision", title: "Consent", body: '```json\n{"permitted_promotions":1}\n```' });
   const config = { ...JSON.parse(readFileSync(new URL("../examples/loop-bandit.json", import.meta.url), "utf8")) as Record<string, JsonValue>, max_generations: 1 };
@@ -1730,11 +1730,12 @@ test("reversed native history preserves earliest policy citations and promotion 
   const retained = await exportPolicyCard(w.client, id);
   const peer = new PmClient({ pmRoot: w.pmRoot, cwd: w.root, author: "annotation-peer", noExtensions: true });
   await peer.update(id, { title: "Later annotation" });
-  const run = w.client.run.bind(w.client);
-  w.client.run = (async (...args: Parameters<typeof run>) => {
-    const result = await run(...args);
-    return args[0] === "history" ? { ...result as HistoryResult, compact_history: [...(result as HistoryResult).compact_history!].reverse() } : result;
-  }) as PmClient["run"];
+  // Recovery creates scoped SDK clients; reorder real native histories on every client.
+  const run = PmClient.prototype.run;
+  context.mock.method(PmClient.prototype, "run", async function (this: PmClient, ...args: Parameters<PmClient["run"]>) {
+    const result = await run.apply(this, args);
+    return args[0] === "history" ? { ...result as HistoryResult, compact_history: [...(result as HistoryResult).compact_history!].sort((a, b) => (b.version ?? b.index) - (a.version ?? a.index)) } : result;
+  });
   assert.deepEqual(await exportPolicyCard(w.client, id), retained);
   const resumed = await resumeRlLoop(w.client, { pmRoot: w.pmRoot, author: "card-test" }, { id: "order", approval: "rl-approval" });
   assert.equal(resumed.promoted, 1); assert.equal(resumed.generations[0].promoted_by, first.generations[0].promoted_by);

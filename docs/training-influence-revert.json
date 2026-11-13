@@ -4,7 +4,13 @@
   "behavior_removed": "Declared slice membership no longer changes training composition",
   "mutant": {
     "passed": 0,
-    "failed": 1
+    "failed": 1,
+    "failure": {
+      "test": "fixed learner and seed reproduce exact checkpoints and per-evaluation movements; held-out labels never train",
+      "code": "ERR_ASSERTION",
+      "failureType": "testCodeFailure",
+      "matched": "The expression evaluated to a falsy value"
+    }
   },
   "restored": {
     "passed": 1,
@@ -14,7 +20,13 @@
     "function": "readTrainingInfluence",
     "mutant": {
       "passed": 0,
-      "failed": 1
+      "failed": 1,
+      "failure": {
+        "test": "compacted disposable histories use durable SDK versions rather than physical row positions",
+        "code": "ERR_ASSERTION",
+        "failureType": "testCodeFailure",
+        "matched": "Expected values to be strictly equal"
+      }
     },
     "restored": {
       "passed": 1,
@@ -26,7 +38,13 @@
       "function": "readTrainingInfluence SDK native identity",
       "mutant": {
         "passed": 0,
-        "failed": 1
+        "failed": 1,
+        "failure": {
+          "test": "native project prefixes round-trip through SDK identity even when they overlap the report name",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "Missing expected rejection"
+        }
       },
       "restored": {
         "passed": 1,
@@ -37,7 +55,13 @@
       "function": "promotionAuthor",
       "mutant": {
         "passed": 0,
-        "failed": 1
+        "failed": 1,
+        "failure": {
+          "test": "reversed native history preserves earliest policy citations and promotion author",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "Expected values to be strictly equal"
+        }
       },
       "restored": {
         "passed": 1,
@@ -45,10 +69,16 @@
       }
     },
     {
-      "function": "snapshot",
+      "function": "firstDecisionSnapshot (policy-card snapshot)",
       "mutant": {
         "passed": 0,
-        "failed": 1
+        "failed": 1,
+        "failure": {
+          "test": "reversed native history preserves earliest policy citations and promotion author",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "Expected values to be strictly deep-equal"
+        }
       },
       "restored": {
         "passed": 1,
@@ -59,7 +89,13 @@
       "function": "orderedHistoryEntries",
       "mutant": {
         "passed": 0,
-        "failed": 1
+        "failed": 1,
+        "failure": {
+          "test": "history order is irrelevant across 500 seeded native revision permutations",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "Expected values to be strictly deep-equal"
+        }
       },
       "restored": {
         "passed": 1,
@@ -70,7 +106,13 @@
       "function": "readTrainingInfluence current-envelope validation",
       "mutant": {
         "passed": 0,
-        "failed": 1
+        "failed": 1,
+        "failure": {
+          "test": "history order is irrelevant across 500 seeded native revision permutations",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "Missing expected rejection"
+        }
       },
       "restored": {
         "passed": 1,
@@ -81,7 +123,13 @@
       "function": "matchingRetainedCard",
       "mutant": {
         "passed": 0,
-        "failed": 1
+        "failed": 1,
+        "failure": {
+          "test": "retained policy-card ownership agrees across producers, preflights and consumers",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "Missing expected rejection"
+        }
       },
       "restored": {
         "passed": 1,
@@ -92,7 +140,13 @@
       "function": "ownedRecord",
       "mutant": {
         "passed": 0,
-        "failed": 1
+        "failed": 1,
+        "failure": {
+          "test": "influence ownership stays consistent after a peer changes every persistence boundary",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "Missing expected rejection"
+        }
       },
       "restored": {
         "passed": 1,
@@ -103,7 +157,13 @@
       "function": "createVerifiedItem",
       "mutant": {
         "passed": 0,
-        "failed": 1
+        "failed": 1,
+        "failure": {
+          "test": "every producer certifies native type and provenance after creation through SDK birth read-back",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "Missing expected rejection"
+        }
       },
       "restored": {
         "passed": 1,

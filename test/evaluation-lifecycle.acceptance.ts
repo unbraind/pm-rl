@@ -1,0 +1,36 @@
+/** Read one public tracker copy and retain descriptive causal-protocol evidence without changing its records. */
+import assert from "node:assert/strict";
+import { trackerDigest, selectReplayItems, verifySourceCommit } from "./fixtures/replay-order.ts";
+import { rmSync, writeFileSync } from "node:fs";
+import { PmClient } from "@unbrained/pm-cli/sdk/core";
+import { evaluationComparison } from "../evaluation-plan.ts";
+import { readCompleteLoopItem } from "../index.ts";
+import { readSequentialEvaluation } from "../sequential-evaluation.ts";
+import { causalWorkspace, causalStep, withCausalClock } from "./fixtures/causal-evaluation.ts";
+
+const acceptanceCwd = process.cwd();
+const source = process.argv[2]; const commit = process.argv[3];
+// The receipt names this commit as the source, so the copy must be exactly that commit's tracker.
+const before = verifySourceCommit(acceptanceCwd, source, commit);
+const client = new PmClient({ pmRoot: source, author: "public-replay", noExtensions: true });
+const items = selectReplayItems((await client.listAllComplete({ includeBody: false })).items);
+assert.equal(items.length, 64);
+const w = await causalWorkspace();
+try {
+  w.plan = { ...w.plan, population: "Public pm-rl tracker snapshot", selection: "First 64 canonical item IDs", correlation_unit: "repository", members: items.map(item => ({ id: item.id, unit: "repository" })), criterion: { ...w.plan.criterion, minSamples: 1 }, stopping: { kind: "sequential", method: "hoeffding-alpha-spending/1", observations: 64, independent_units: 1, unit_order: ["repository"], looks: [1], review: "rl-review" } };
+  w.rows = items.map(item => ({ id: item.id, candidate: item.status === "closed" ? 1 : 0, incumbent: 0.5 }));
+  const clocks = [2032, 2031, 2030, 2029, 2028];
+  const birthTimestamps: string[] = [];
+  for (const [i, step] of ["review", "plan", "run", "candidate", "last"].entries()) {
+    const clock = `${clocks[i]}-01-01T00:00:00.000Z`;
+    await withCausalClock(clock, () => causalStep(w, step));
+    const id = ["rl-review", "rl-candidate-evaluation-plan", w.request.id, w.plan.candidate, "rl-candidate-evaluation-plan-look-1"][i];
+    const timestamp = String((await readCompleteLoopItem(w.client, id, "1")).item.created_at);
+    assert.equal(timestamp, clock); birthTimestamps.push(timestamp);
+  }
+  const report = await readSequentialEvaluation(w.client, w.plan.candidate);
+  assert.ok(report !== null && !("status" in report));
+  assert.equal(report.verdict.decision, "refuse");
+  assert.equal(trackerDigest(source), before);
+  writeFileSync("docs/evaluation-lifecycle-evidence.json", JSON.stringify({ format: "pm-rl/evaluation-lifecycle-evidence/1", source: { repository: "https://github.com/unbraind/pm-rl", commit, authoritative_digest: before, unchanged: true }, records: items.length, correlation_units: 1, measurement: "Descriptive closed-item fraction against constant 0.5; no trained policy or causal effect claim", clock_years: clocks, birth_timestamps: birthTimestamps, comparison: evaluationComparison(w.plan), report: { observations: report.observations, independent_units: report.independent_units, candidate_mean: report.candidate_mean, incumbent_mean: report.incumbent_mean, state: report.sequential!.state, verdict: report.verdict.decision }, non_git_target: true }, null, 2) + "\n");
+} finally { process.chdir(acceptanceCwd); rmSync(w.root, { recursive: true, force: true }); }

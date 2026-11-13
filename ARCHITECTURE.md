@@ -206,7 +206,36 @@ simulated. The storage claim is likewise measured across repeated real SDK mutat
 actual history file, not estimated from encoded payloads. If either test fails, the package's
 central premise is false and the failure must be loud.
 
-## 8. Prospective proposer-transfer qualification
+
+## 8. Causal evaluation ordering
+
+New sequential plans may opt into `ordering: "causal/1"`. Review approval,
+Plan sealing, all collection Runs, candidate creation and ordered looks form one
+causal graph. The existing promotion reader validates that graph before consuming
+approval capacity. A native note committed with each artifact binds its random
+birth nonce, comparison, stage and the verified creation snapshots of every
+predecessor. Collection Runs occupy the same exchangeable stage. One validator
+serves creation preflight, readers, retries and promotion; timestamps are never
+ordering coordinates in this mode.
+
+This uses atomic native creates and verified SDK history rather than a second
+ordering database. Candidate/Plan leases serialize collection admission, and the
+existing source revision fences guard candidate and promotion writes. Killed
+application acknowledgements replay the original births. Missing or retroactive
+witnesses refuse; native annotations and metric appends remain available.
+Existing-candidate registration and preflight share birth-envelope verification
+before policy-card publication. Retries refuse checkpoint metadata drift; Generation
+bodies compare provenance so promotion bookkeeping can retain its existing card checks.
+
+Legacy sequential and fixed plans retain their original serialization and ordering
+contract. A fresh candidate and review are required to migrate. The public-copy
+[example and trust boundary](docs/evaluation-lifecycle.md) replay 64 public pm-rl
+items with clocks stepping backwards and unchanged source records. One repository
+is one correlation unit, and the statistical result refuses promotion. That
+measurement validates lifecycle/replay behavior; it does not establish policy
+improvement or a deployed causal effect.
+
+## 9. Prospective proposer-transfer qualification
 
 `runProposerEvolution` seals a transfer declaration and corpus context before
 fitting. `proposer-transfer.ts` archives projected chronological tasks, source metadata and exact

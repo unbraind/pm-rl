@@ -1,10 +1,11 @@
 /** Revert only compensation functions in a disposable copy and require behavioral failures. */
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { copyFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { refuseChangedReceipt, worktreeState, revertProbeContext } from "./fixtures/revert-receipt.ts";
+import { proveRevert } from "./fixtures/causal-proof.ts";
+import { refuseChangedReceipt, worktreeState } from "./fixtures/revert-receipt.ts";
 
 const repository = resolve(".");
 const receipt = "docs/training-influence-compensation-revert.json"; refuseChangedReceipt(repository, receipt); const reviewed = worktreeState(repository, receipt);
@@ -36,17 +37,8 @@ try {
     const previous = execFileSync("git", ["show", `1e3e620:${file}`], { cwd: repository, encoding: "utf8" });
     const mutant = fixed.replace(functionText(fixed, name), functionText(previous, name));
     assert.notEqual(mutant, fixed);
-    const args = ["--test", "--test-concurrency=1", `--test-name-pattern=${pattern}`, `test/${test}.test.ts`];
-    const run = () => spawnSync(process.execPath, args, { cwd: root, encoding: "utf8", timeout: 240_000, env: { ...process.env, NODE_V8_COVERAGE: undefined } });
-    writeFileSync(join(root, file), mutant);
-    const broken = run();
-    assert.equal(broken.status, 1, revertProbeContext(`training-influence.compensation-revert.ts:${name}:broken`, broken));
-    assert.match(broken.stdout + broken.stderr, /AssertionError/);
-    writeFileSync(join(root, file), fixed);
-    const restored = run();
-    assert.equal(restored.status, 0, revertProbeContext(`training-influence.compensation-revert.ts:${name}:restored`, restored));
-    assert.match(restored.stdout, /pass 1/);
-    results.push({ function: name, reverted: { pass: 0, fail: 1 }, restored: { pass: 1, fail: 0 } });
+    const proof = proveRevert(root, file, fixed, mutant, `test/${test}.test.ts`, pattern, /complete foreign state retained|"handled":true|peer's complete native state survives|no rollback history was appended|Expected values to be strictly (?:deep-)?equal|Missing expected rejection/);
+    results.push({ function: name, ...proof });
     process.stdout.write(`${name}: revert fails; restoration passes\n`);
   }
   writeFileSync(receipt, JSON.stringify({ format: "pm-rl/compensation-revert/1", baseline: "1e3e620", tests: results, reviewed_source_unchanged: worktreeState(repository, receipt) === reviewed }, null, 2) + "\n");

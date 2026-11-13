@@ -6,7 +6,13 @@
       "function": "executeReservedProcessJob",
       "reverted": {
         "pass": 0,
-        "fail": 1
+        "fail": 1,
+        "failure": {
+          "test": "full executor publication faults preserve every peer revision and original cause",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "Expected values to be strictly equal"
+        }
       },
       "restored": {
         "pass": 1,
@@ -17,7 +23,13 @@
       "function": "transitionProcessJob",
       "reverted": {
         "pass": 0,
-        "fail": 1
+        "fail": 1,
+        "failure": {
+          "test": "every process lifecycle transition refuses stale sources and acknowledges a peer winner",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "Missing expected rejection"
+        }
       },
       "restored": {
         "pass": 1,
@@ -28,7 +40,13 @@
       "function": "mutateLoopItem revision fence",
       "reverted": {
         "pass": 0,
-        "fail": 1
+        "fail": 1,
+        "failure": {
+          "test": "native item CAS rejects ABA between the last inspection and write, even at a fixed clock",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "Missing expected rejection"
+        }
       },
       "restored": {
         "pass": 1,
@@ -39,7 +57,13 @@
       "function": "commitProcessTransition journal identity",
       "reverted": {
         "pass": 0,
-        "fail": 1
+        "fail": 1,
+        "failure": {
+          "test": "process journals bind the target revision instead of replaying an older prepared plan",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "The expression evaluated to a falsy value"
+        }
       },
       "restored": {
         "pass": 1,
@@ -50,7 +74,13 @@
       "function": "processTransitionTarget accounting schema",
       "reverted": {
         "pass": 0,
-        "fail": 1
+        "fail": 1,
+        "failure": {
+          "test": "transition producers share the reader resource schema and refuse extreme values before writing",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "Expected values to be strictly deep-equal"
+        }
       },
       "restored": {
         "pass": 1,
@@ -61,7 +91,13 @@
       "function": "runRlLoop authoritative refusal",
       "reverted": {
         "pass": 0,
-        "fail": 1
+        "fail": 1,
+        "failure": {
+          "test": "recursive controller propagates publication refusal and reports peer process state",
+          "code": "ERR_ASSERTION",
+          "failureType": "testCodeFailure",
+          "matched": "the controller reads authoritative peer state"
+        }
       },
       "restored": {
         "pass": 1,

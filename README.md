@@ -640,6 +640,24 @@ job. Evaluation is an adaptive validation set; a separate final benchmark is
 needed after repeated selection. See [the execution contract](RECURSIVE_TRAINING.md)
 for the local process and Compose adapters; [the decision adapter](docs/durable-systemone-validation.md) documents the implemented frozen-model calibration trainer.
 
+## Clock-independent evaluation lifecycle
+
+For a new sequential design, set `"ordering":"causal/1"`, record its review with
+`pm rl eval plan approve --file plan.json`, then register the Plan. Start each
+collection with `pm rl run start ... --evaluation-candidate <candidate>` before
+registering that candidate. Existing advance, resume and promotion paths verify
+immutable causal birth witnesses instead of comparing wall clocks. The typed SDK
+exports `approveEvaluationPlan` and `startRunCore` with `RunStartRequest`.
+Candidate registration retries and preflight also verify the original checkpoint
+envelope while accepting validated promotion bookkeeping.
+Existing plans retain their original ordering and hashes; use a fresh candidate
+to migrate. Fixed-sample behavior is unchanged.
+
+The [migration and SDK contract](docs/evaluation-lifecycle.md) includes a real
+public pm-rl tracker replay: 64 items, one repository correlation unit, clocks
+moving backwards at every stage, unchanged source records, and a statistical
+refusal rather than a promotion claim.
+
 ## Reviewed sequential evaluation boundaries
 
 A reviewed sequential plan can stop collection early for sufficient benefit or
@@ -686,8 +704,9 @@ Every cumulative look is bound to **all** collection Runs in the candidate's
 sealed provenance and must follow those Runs and the candidate; later looks must
 follow their predecessors. Collection Runs may be recorded in any order, but none
 may be created after the candidate or any look. The resulting lifecycle is
-review → Plan → all collection Runs → candidate → ordered looks → promotion. One validator compares SDK creation snapshots and
-native creation-event order on reads, retries and promotion. Pre-sealing a
+review → Plan → all collection Runs → candidate → ordered looks → promotion. One validator checks SDK creation snapshots on reads, retries and promotion.
+Legacy plans compare timestamps and timestamp-sorted creation events; causal
+plans verify predecessor birth witnesses independently of those clocks. Pre-sealing a
 correctly hashed checkpoint never makes it eligible for a later declaration.
 Raw historical provenance hashes remain unchanged; subsequent reference comparisons
 resolve SDK aliases to canonical item IDs for both fixed and sequential plans. Version-one controller names,
@@ -821,7 +840,7 @@ Plan reads, evaluation retries and promotions compare sealed fields against the
 SDK's verified version-one history snapshot. Replacing observations or a plan
 and recomputing its hash is refused with `eval_plan_drift`. Missing, corrupt or
 compacted-away original history also refuses; unrelated annotations remain allowed.
-Candidate provenance is checked against its creation snapshot, while creation
+Candidate provenance is checked against its creation snapshot, while legacy creation
 order uses the original candidate and collection-run timestamps. Deleting a plan
 and removing the candidate's pin cannot discard a reservation retained in history.
 This relies on the SDK's append-only history: privileged rewriting of the original

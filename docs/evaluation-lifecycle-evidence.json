@@ -1,0 +1,36 @@
+{
+  "format": "pm-rl/evaluation-lifecycle-evidence/1",
+  "source": {
+    "repository": "https://github.com/unbraind/pm-rl",
+    "commit": "701aaca1a3b01d301b069ddd1b97baeb865aa13b",
+    "authoritative_digest": "2897891d5614d844003f7f9915c9b317c1529372d55696c5af48a4083d873f7f",
+    "unchanged": true
+  },
+  "records": 64,
+  "correlation_units": 1,
+  "measurement": "Descriptive closed-item fraction against constant 0.5; no trained policy or causal effect claim",
+  "clock_years": [
+    2032,
+    2031,
+    2030,
+    2029,
+    2028
+  ],
+  "birth_timestamps": [
+    "2032-01-01T00:00:00.000Z",
+    "2031-01-01T00:00:00.000Z",
+    "2030-01-01T00:00:00.000Z",
+    "2029-01-01T00:00:00.000Z",
+    "2028-01-01T00:00:00.000Z"
+  ],
+  "comparison": "4d95cb67b29ecceadfe7192ad45e7a4d48f61d2897411286c40c449b4a078d89",
+  "report": {
+    "observations": 64,
+    "independent_units": 1,
+    "candidate_mean": 0.734375,
+    "incumbent_mean": 0.5,
+    "state": "exhausted",
+    "verdict": "refuse"
+  },
+  "non_git_target": true
+}

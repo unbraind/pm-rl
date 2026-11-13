@@ -97,6 +97,10 @@
     "dist/proposer-evolution.*",
     "docs/proposer-programs.md",
     "docs/proposer-public-evidence.json",
+    "dist/evaluation-lifecycle.*",
+    "docs/evaluation-lifecycle.md",
+    "docs/evaluation-lifecycle-evidence.json",
+    "docs/evaluation-lifecycle-revert.json",
     "dist/proposer-transfer.*",
     "docs/proposer-transfer.md",
     "docs/proposer-transfer-receipt.json"
@@ -252,6 +256,9 @@
       "docs/training-influence-evidence.json",
       "docs/proposer-programs.md",
       "docs/proposer-public-evidence.json",
+      "docs/evaluation-lifecycle.md",
+      "docs/evaluation-lifecycle-evidence.json",
+      "docs/evaluation-lifecycle-revert.json",
       "docs/proposer-transfer.md",
       "docs/proposer-transfer-receipt.json"
     ],
@@ -274,7 +281,8 @@
       "examples/sequential-evaluation-plan.json",
       "examples/evaluation-plan-protected.json",
       "examples/training-influence.json",
-      "examples/proposer-program.json"
+      "examples/proposer-program.json",
+      "examples/evaluation-plan-causal.json"
     ]
   },
   "publishConfig": {

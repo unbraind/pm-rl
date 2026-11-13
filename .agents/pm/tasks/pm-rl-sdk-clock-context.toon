@@ -1,0 +1,14 @@
+id: pm-rl-sdk-clock-context
+title: Verify recipe clocks across the published SDK entry points
+description: "During PR 153 evidence verification, runWithWorkspaceRecipe from sdk did not consistently control native creation timestamps written through sdk/core. Installed public signature: dist/sdk/workspace-recipe.d.ts exports runWithWorkspaceRecipe<T>(recipe: WorkspaceRecipe, operation: () => Promise<T>): Promise<T>. The package exports separately bundled sdk and sdk/core modules. Search of open upstream issues for workspace recipe clock bundle returned no matches. Reproduce independently with exact native timestamp assertions before reporting upstream; the lifecycle fixtures now use a process Date clock and verify persisted timestamps."
+type: Task
+status: open
+priority: 3
+tags[2]: follow-up,tooling
+created_at: "2026-11-09T10:04:46.758Z"
+updated_at: "2026-11-09T10:04:50.034Z"
+author: codex-agent
+acceptance_criteria: Compare native birth timestamps under each published SDK entry point and record a minimal sanitized reproduction; file no upstream issue without verification.
+files[1]{path,scope}:
+  test/fixtures/causal-evaluation.ts,project
+body: ""
