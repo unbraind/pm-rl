@@ -15,7 +15,8 @@ const root = mkdtempSync(join(tmpdir(), "rl-causal-revert-"));
 try {
   for (const file of readdirSync(repository)) if (file.endsWith(".ts") || file === "package.json") cpSync(join(repository, file), join(root, file));
   for (const directory of ["test", "scripts", "examples"]) cpSync(join(repository, directory), join(root, directory), { recursive: true });
-  symlinkSync(join(repository, "node_modules"), join(root, "node_modules"));
+  // Junctions need no symbolic-link privilege on Windows.
+  symlinkSync(join(repository, "node_modules"), join(root, "node_modules"), process.platform === "win32" ? "junction" : "dir");
   const cases = [
     { code: "ERR_ASSERTION", file: "evaluation-lifecycle.ts", expected: /Missing expected rejection/, name: "registerGenerationSnapshot sealed birth", pattern: "causal candidate retries", before: '["id", "type", "affected_version", "fixed_version", "component", "environment", "created_at"]', after: '["id", "type", "affected_version", "component", "environment", "created_at"]' },
     { code: "eval_plan_late", file: "evaluation-plan.ts", expected: /^Evaluation plan refused \(eval_plan_late\)/, name: "validateEvaluationOrder", pattern: "permit equal clocks", before: '  if (plan?.ordering === "causal/1") return validateCausalEvaluationOrder(client, plan, artifacts, prospective);', after: "  void plan; // Revert causal dispatch to the original timestamp validator." },

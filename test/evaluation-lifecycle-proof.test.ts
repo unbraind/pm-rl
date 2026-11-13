@@ -115,7 +115,7 @@ test("selected revert receipts exclude unverified results from earlier source", 
   try {
     for (const file of readdirSync(repository)) if (file.endsWith(".ts") || file === "package.json") cpSync(new URL(file, repository), join(root, file));
     for (const directory of ["test", "scripts", "examples"]) cpSync(new URL(directory, repository), join(root, directory), { recursive: true });
-    symlinkSync(new URL("node_modules", repository), join(root, "node_modules"));
+    symlinkSync(new URL("node_modules", repository), join(root, "node_modules"), process.platform === "win32" ? "junction" : "dir");
     mkdirSync(join(root, "docs"));
     const receipt = join(root, "docs/evaluation-lifecycle-revert.json");
     writeFileSync(receipt, JSON.stringify({ tests: [{ function: "stale", test: "unselected prior source", reverted: { pass: 0, fail: 1 }, restored: { pass: 1, fail: 0 } }] }));
