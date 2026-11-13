@@ -8,8 +8,11 @@ import { causalStep, withCausalClock, type causalWorkspace } from "./causal-eval
 const fixture = JSON.parse(readFileSync(process.argv[2], "utf8")) as Awaited<ReturnType<typeof causalWorkspace>>;
 fixture.client = new PmClient({ cwd: fixture.root, pmRoot: fixture.pmRoot, author: "lifecycle-peer", noExtensions: true });
 process.send!({ state: "ready" });
+// A worker that never exits lets the parent prove its exit deadline.
+if (process.argv[3] === "stay-after-ready") setInterval(() => {}, 1000);
 process.once("message", () => {
   if (process.argv[3] === "exit-after-ready") { process.disconnect!(); return; }
+  if (process.argv[3] === "stay-after-ready") return;
   void withCausalClock(process.argv[4], async () => {
     for (let attempt = 0; ; attempt++) {
       try { return await causalStep(fixture, process.argv[3]); }

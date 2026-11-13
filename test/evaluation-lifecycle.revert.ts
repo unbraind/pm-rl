@@ -1,13 +1,17 @@
 /** Behavioral revert proofs in a disposable source copy; the reviewed checkout is never mutated. */
 import assert from "node:assert/strict";
 import { proveRevert, type ProofResult } from "./fixtures/causal-proof.ts";
-import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { refuseChangedReceipt } from "./fixtures/revert-receipt.ts";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 /** One observed behavioral failure and its passing restoration. */
 interface RevertProof { function: string; test: string; reverted: ProofResult; restored: ProofResult }
-const repository = resolve("."); const root = mkdtempSync(join(tmpdir(), "rl-causal-revert-"));
+const repository = resolve(".");
+// A git checkout tracks the receipt, so never overwrite uncommitted edits; disposable source copies have no tracked receipt.
+if (existsSync(join(repository, ".git"))) refuseChangedReceipt(repository, "docs/evaluation-lifecycle-revert.json");
+const root = mkdtempSync(join(tmpdir(), "rl-causal-revert-"));
 try {
   for (const file of readdirSync(repository)) if (file.endsWith(".ts") || file === "package.json") cpSync(join(repository, file), join(root, file));
   for (const directory of ["test", "scripts", "examples"]) cpSync(join(repository, directory), join(root, directory), { recursive: true });

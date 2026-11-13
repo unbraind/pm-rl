@@ -83,7 +83,7 @@ test("causal creation is shared across OS processes and lost acknowledgements re
 /** Observe actual history bytes so retries cannot hide a duplicate write behind equal projected values. */
 function trackerHistory(root: string): string[] { return readdirSync(join(root, "history")).sort().map(file => readFileSync(join(root, "history", file), "utf8")); }
 /** A bounded child and IPC barriers let two native writers contend on exactly one tracker. */
-function worker(file: string, step: string, clock: string, mode: "exit" | "hold" | "kill-before-ack" = "exit") {
+function worker(file: string, step: string, clock: string, mode: "exit" | "hold" | "kill-before-ack" = "exit", exitDeadlineMs = 120_000) {
   const childEnv = isolatedChildEnv({ ...process.env, PM_LOCK_WAIT_MS: "30000" });
   const child = fork(new URL("./fixtures/causal-worker.ts", import.meta.url), [file, step, clock, mode], { env: childEnv, stdio: ["ignore", "pipe", "pipe", "ipc"] });
   let stderr = ""; child.stderr!.on("data", chunk => { stderr += String(chunk); });
@@ -92,9 +92,28 @@ function worker(file: string, step: string, clock: string, mode: "exit" | "hold"
     child.on("message", message => { const value = message as { state: string; result: { created?: boolean } }; if (value.state === state) { clearTimeout(timer); resolve(value); } });
     child.once("exit", code => { clearTimeout(timer); reject(new Error(`Worker ${step} exited before ${state} (code ${String(code)}): ${stderr}`)); });
   });
-  const exit = new Promise<void>(resolve => { child.once("exit", () => { resolve(); }); });
+  // Bounded like the IPC waits: a worker that never exits is killed and reported instead of stalling the run.
+  const exit = new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => { child.kill("SIGKILL"); reject(new Error(`Worker ${step} did not exit within ${String(exitDeadlineMs)} ms: ${stderr}`)); }, exitDeadlineMs);
+    child.once("exit", () => { clearTimeout(timer); resolve(); });
+  });
+  exit.catch(() => {}); // Observed by the awaiting test; this only prevents an early unhandled-rejection report.
   return { child, ready: wait("ready"), committed: wait("committed"), exit };
 }
+
+test("a worker that never exits is killed at its exit deadline instead of stalling the run", async () => {
+  const w = await causalWorkspace();
+  try {
+    const file = join(w.root, "worker.json");
+    writeFileSync(file, JSON.stringify({ root: w.root, pmRoot: w.pmRoot }));
+    const peer = worker(file, "stay-after-ready", "2030-01-01T00:00:00.000Z", "exit", 15_000);
+    const unacknowledged = peer.committed.then(() => false, () => true);
+    await peer.ready; peer.child.send("go");
+    await assert.rejects(peer.exit, /did not exit within 15000 ms/);
+    assert.equal(await unacknowledged, true);
+    assert.notEqual(peer.child.signalCode ?? peer.child.exitCode, null, "the deadline kills the worker");
+  } finally { process.chdir(testCwd); rmSync(w.root, { recursive: true, force: true }); }
+});
 
 test("causal IPC rejects a clean worker exit between ready and committed", async () => {
   const w = await causalWorkspace();
