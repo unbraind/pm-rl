@@ -5,7 +5,8 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { buildTrackerDataset, historyBlobs, type TrackerBuildOptions } from "./dataset.ts";
+import { buildTrackerDataset, committedTrackerStatusRegistry, historyBlobs, type TrackerBuildOptions } from "./dataset.ts";
+import { isTerminalStatus } from "@unbrained/pm-cli/sdk/runtime";
 import { hashJson, type JsonValue } from "./index.ts";
 import { validateHistoryPrefix, type HistoryPrefix } from "./prefix-data.ts";
 
@@ -66,11 +67,12 @@ export function historyBeforePrediction(events: readonly HistoryEvent[], timesta
 }
 
 /** Predict one millisecond after creation, independently of any future close time or history length. */
-export function projectImproverHistory(history: string, repo: string, item: string): ImproverProjection | null {
+export function projectImproverHistory(history: string, repo: string, item: string, registry?: ReturnType<typeof committedTrackerStatusRegistry>): ImproverProjection | null {
   const events = history.split("\n").filter(Boolean).map((line) => parseBoundedJson(line) as HistoryEvent);
   const times = events.map((event) => Date.parse(event.ts!));
   if (events.length === 0 || !times.every((time, index) => Number.isFinite(time) && (index === 0 || time >= times[index - 1]))) return null;
-  const terminal = events.findIndex((event) => event.patch?.some((patch) => patch.path === "/metadata/status" && patch.op !== "remove" && ["closed", "canceled", "cancelled"].includes(String(patch.value))));
+  const terminal = events.findIndex((event) => event.patch?.some((patch) => patch.path === "/metadata/status" && patch.op !== "remove" && (registry === undefined
+    ? ["closed", "canceled", "cancelled"].includes(String(patch.value)) : isTerminalStatus(String(patch.value), registry))));
   const type = events[0].patch?.find((patch) => patch.path === "/metadata/type" && patch.op !== "remove");
   const prediction_at = times[0] + 1;
   if (terminal < 1 || times[terminal] <= prediction_at || type === undefined) return null;
@@ -116,9 +118,10 @@ export function buildImproverDataset(directories: readonly string[], output: str
     const repo = /^(?:https:\/\/github\.com\/|git@github\.com:)([\w-]+\/pm-[\w-]+?)(?:\.git)?$/.exec(remote)![1].toLowerCase();
     const source = sources.find((entry) => entry.repo.toLowerCase() === repo);
     if (source === undefined) continue;
+    const registry = committedTrackerStatusRegistry(root, source.commit);
     const paths = execFileSync("git", ["ls-tree", "-r", "--name-only", source.commit, "--", ".agents/pm/history"], { cwd: root, encoding: "utf8", maxBuffer: 8 * 1024 * 1024 }).trim().split("\n").filter((path) => path.endsWith(".jsonl"));
     const rows = historyBlobs(root, source.commit, paths).flatMap((history, index) => {
-      const row = projectImproverHistory(history, source.repo, paths[index]);
+      const row = projectImproverHistory(history, source.repo, paths[index], registry);
       return row === null ? [] : [row];
     });
     for (const target of ["time-to-close", "issue-type"] as const) {

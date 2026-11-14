@@ -1,0 +1,247 @@
+{
+  "format": "pm-rl/status-roles-public-run/1",
+  "source": {
+    "repo": "unbraind/pm-ops",
+    "commit": "eba7d5262fd75e67afce0caad29dae7dc7dfbaeb",
+    "tracker_files": 300,
+    "files_digest": "491c81737754e25dfca1c3acfe7f1f0f0d357833436238f7478f41ab10156254",
+    "bytes_unchanged": true,
+    "git_repository": false,
+    "runtime_cache_changes_excluded": true
+  },
+  "controller_git_repository": false,
+  "cli_version": "2026.11.7",
+  "bounds": {
+    "initial_weight": 0,
+    "fit_steps": 8,
+    "seed": 42,
+    "max_generations": 2,
+    "samples_per_generation": 256,
+    "budget": 512,
+    "learning_rate": 1,
+    "minimum_improvement": 0.01,
+    "maximum_gap": 0.2,
+    "evaluation_samples": 40000,
+    "confidence": 0.95,
+    "min_samples": 10,
+    "adapter": {
+      "kind": "process-bandit",
+      "allowance": {
+        "training_steps": 8,
+        "wall_ms": 5000,
+        "storage_bytes": 262144,
+        "compute_units": 1000,
+        "tokens": 0
+      }
+    }
+  },
+  "programme_digest": "17720f2c1e58043c8374024cfe63b25c710b0d11ada35705690dd4b0e6dd58c2",
+  "generations": [
+    {
+      "generation": 1,
+      "source_checkpoint": "sha256:17493680209cdf2fc86126ff2ad0b7bb6063ae24ce00f28f931224bb5ab2fd11",
+      "candidate_checkpoint": "sha256:2df645949b852625c2acdc20bf5232620cac8c87d1ab1f8f85c4221da14ac605",
+      "collection_policy": "sha256:17493680209cdf2fc86126ff2ad0b7bb6063ae24ce00f28f931224bb5ab2fd11",
+      "promoted": true,
+      "training": {
+        "fit_steps": 8,
+        "format": "pm-rl/loop-generation/1",
+        "generation": 1,
+        "learning_rate": 1,
+        "evaluation_samples": 40000,
+        "collection_seed": 606291014,
+        "samples": 256,
+        "collection_digest": "sha256:03123dfa4a496a20d86d925563577c6d463f404d9af97227e182630e3abd0895",
+        "action_counts": [
+          131,
+          125
+        ],
+        "source_checkpoint": "sha256:17493680209cdf2fc86126ff2ad0b7bb6063ae24ce00f28f931224bb5ab2fd11",
+        "candidate_checkpoint": "sha256:2df645949b852625c2acdc20bf5232620cac8c87d1ab1f8f85c4221da14ac605",
+        "candidate_weight": 0.6829963490640114,
+        "training_score": 0.5602653245388369,
+        "evaluation_score": 0.5979768545815656,
+        "incumbent_held_out_mean": 0.499825,
+        "candidate_held_out_mean": 0.59765
+      },
+      "held_out": {
+        "objective": "expected_reward",
+        "objective_version": "pm-rl/bandit/1",
+        "evaluation_context": "sha256:c5155e7ccaa7c721d59e618f16aa1e0e5d9cf6c5b00a828d0e536a82b0917254",
+        "seed_set": "sha256:b8df11015ac4f72ff0e0c78a6277f4383bb92f608663001758935abf3182496d",
+        "direction": "maximize",
+        "scale": 1,
+        "value": 0.59765
+      },
+      "evaluation": {
+        "decision": "promote",
+        "reason_digest": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+      }
+    },
+    {
+      "generation": 2,
+      "source_checkpoint": "sha256:2df645949b852625c2acdc20bf5232620cac8c87d1ab1f8f85c4221da14ac605",
+      "candidate_checkpoint": "sha256:3e31b06286e99d6b3d73486216f98f0c6d519228cac4bcbefc56f4945c292863",
+      "collection_policy": "sha256:2df645949b852625c2acdc20bf5232620cac8c87d1ab1f8f85c4221da14ac605",
+      "promoted": true,
+      "training": {
+        "fit_steps": 8,
+        "format": "pm-rl/loop-generation/1",
+        "generation": 2,
+        "learning_rate": 1,
+        "evaluation_samples": 40000,
+        "collection_seed": 3260726775,
+        "samples": 256,
+        "collection_digest": "sha256:f701ec157a7cc3788c85e30055d09f3a5ead149f4a26f10df05dc72f6de746c3",
+        "action_counts": [
+          91,
+          165
+        ],
+        "source_checkpoint": "sha256:2df645949b852625c2acdc20bf5232620cac8c87d1ab1f8f85c4221da14ac605",
+        "candidate_checkpoint": "sha256:3e31b06286e99d6b3d73486216f98f0c6d519228cac4bcbefc56f4945c292863",
+        "candidate_weight": 1.3452115701518008,
+        "training_score": 0.611385607433161,
+        "evaluation_score": 0.6810112913266447,
+        "incumbent_held_out_mean": 0.5951,
+        "candidate_held_out_mean": 0.685825
+      },
+      "held_out": {
+        "objective": "expected_reward",
+        "objective_version": "pm-rl/bandit/1",
+        "evaluation_context": "sha256:c5155e7ccaa7c721d59e618f16aa1e0e5d9cf6c5b00a828d0e536a82b0917254",
+        "seed_set": "sha256:6c3c70ddeb376f0c08a46811acf3d2758e55803a375f8aad028f7301ef2f3b11",
+        "direction": "maximize",
+        "scale": 1,
+        "value": 0.685825
+      },
+      "evaluation": {
+        "decision": "promote",
+        "reason_digest": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+      }
+    }
+  ],
+  "jobs": [
+    {
+      "id": "process-afff09ccad3ce1c3fbac8605aa183fdc42e771fb2c721556c423f92f86d2bea4",
+      "state": "promoted",
+      "charge": {
+        "training_steps": 8,
+        "wall_ms": 633,
+        "storage_bytes": 2195,
+        "compute_units": 5,
+        "tokens": 0
+      },
+      "settled": true,
+      "checkpoint_bytes_sha256": "46986ca2d60f8058e79b70b947270cc236da14a0a48fd8b54f85b42dd1bba64a"
+    },
+    {
+      "id": "process-ddc45f71d7879876e6c89e4d47ea49891b69aa24cfc6b944ae3a05f438cfc026",
+      "state": "promoted",
+      "charge": {
+        "training_steps": 8,
+        "wall_ms": 1735,
+        "storage_bytes": 2197,
+        "compute_units": 8,
+        "tokens": 0
+      },
+      "settled": true,
+      "checkpoint_bytes_sha256": "d3c63351af84ea2b363ae237518713235972840c6a59c3737007d95ec2f6a3d5"
+    }
+  ],
+  "elapsed_ms": 51440.042764000005,
+  "corpus": {
+    "snapshot": "e45e6205eddf35edc2167d253a2ef1fb5ce2a4c4116557497f1e24da2230b656",
+    "training_items": 105,
+    "held_out_items": 41,
+    "held_out_closed": 36
+  },
+  "source_base": "b2c1cfbd950d674183d5713b2f90d165efcb5f7b",
+  "implementation_sha256": {
+    "dataset.ts": "86718bdf27b3e3890642593bfd7b0e2c3450ab2e3642ded74ced0ac3c5c37782",
+    "improver-data.ts": "b943e6c27ebee3a49d2425b4a341e3644ca76c69623baa9b2cdfb5f93a8f8f16",
+    "test/history-status-roles.test.ts": "f7ca26a3cfc585430b0cf22b2f590169c8eaabd8605667d23402b2f1e84ca876"
+  },
+  "packed_artifact_sha256": "b91088703e36bf75ea1a9f5330aa70274356afd6198387de8b9d8d59a15f1f2d",
+  "terminal": {
+    "stop_reason": "generation_limit",
+    "promoted": 2,
+    "samples_consumed": 512,
+    "budget": 512,
+    "final_checkpoint": "sha256:3e31b06286e99d6b3d73486216f98f0c6d519228cac4bcbefc56f4945c292863"
+  },
+  "replay": {
+    "stop_reason": "generation_limit",
+    "promoted": 2,
+    "samples_consumed": 512,
+    "budget": 512,
+    "final_checkpoint": "sha256:3e31b06286e99d6b3d73486216f98f0c6d519228cac4bcbefc56f4945c292863",
+    "resumed_generations": 2
+  },
+  "replay_verification": {
+    "jobs": 2,
+    "artifacts_unchanged": true,
+    "charges_unchanged": true
+  },
+  "reverts": [
+    {
+      "variant": "projection-literal-terminals",
+      "typecheck_exit": 0,
+      "test_exit": 1,
+      "command": "node --test --test-concurrency=2 --test-name-pattern=\"SDK roles\" test/history-status-roles.test.ts",
+      "elapsed_seconds": 20.785
+    },
+    {
+      "variant": "dataset-literal-statuses",
+      "typecheck_exit": 0,
+      "test_exit": 1,
+      "command": "node --test --test-concurrency=2 --test-name-pattern=\"SDK roles\" test/history-status-roles.test.ts",
+      "elapsed_seconds": 22.981
+    },
+    {
+      "variant": "builder-ignores-registry",
+      "typecheck_exit": 0,
+      "test_exit": 1,
+      "command": "node --test --test-concurrency=2 --test-name-pattern=\"improver builder pins\" test/history-status-roles.test.ts",
+      "elapsed_seconds": 16.08
+    },
+    {
+      "variant": "registry-working-tree",
+      "typecheck_exit": 0,
+      "test_exit": 1,
+      "command": "node --test --test-concurrency=2 --test-name-pattern=\"improver builder pins\" test/history-status-roles.test.ts",
+      "elapsed_seconds": 7.352
+    }
+  ],
+  "gates": {
+    "focused_tests": 18,
+    "source_path_regression": 1,
+    "linked_tests": 3,
+    "lines": {
+      "hit": 462,
+      "found": 462
+    },
+    "branches": {
+      "hit": 305,
+      "found": 305
+    },
+    "functions": {
+      "hit": 79,
+      "found": 79
+    },
+    "statements": {
+      "hit": 303,
+      "found": 303
+    },
+    "unchanged_thresholds": {
+      "statements": 100,
+      "lines": 100,
+      "branches": 100,
+      "functions": 100
+    },
+    "typecheck": true,
+    "build_test": true,
+    "lint": true,
+    "docstring_declarations": 572,
+    "duplication_clones": 0
+  }
+}
