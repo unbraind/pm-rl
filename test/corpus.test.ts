@@ -16,6 +16,7 @@ import { banditCheckpoint, fitBanditBatch } from "../bandit.ts";
 import { processWorkspace, trainingInput } from "./fixtures/process-workspace.ts";
 import { executeProcessTrainer, listProcessJobs, parseProcessAdapter } from "../process.ts";
 import { sourceBytes } from "./fixtures/corpus-source-snapshot.ts";
+import { assertMissingHostOption } from "./fixtures/extension-option-refusal.ts";
 
 const bounds = JSON.parse(readFileSync(new URL("../examples/loop-corpus.json", import.meta.url), "utf8")) as Record<string, JsonValue>;
 const items = Array.from({ length: 80 }, (_, index) => ({ id: `source-${index}`, title: "x".repeat(index + 1), status: index % 3 === 0 ? "open" : "closed" }));
@@ -28,6 +29,74 @@ async function seedCorpusSource(client: Awaited<ReturnType<typeof processWorkspa
   const lengths = [false, true].flatMap((held) => Array.from({ length: 80 }, (_, i) => i + 1).filter((n) => corpusHeldOut(n) === held).slice(0, 2));
   for (const length of lengths) await client.create({ id: `source-${length}`, type: "Task", title: "z".repeat(length) });
 }
+
+test("corpus declared SDK and CLI spellings retain output refusals and reject spelling conflicts", async () => {
+  const w = await processWorkspace();
+  const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
+  const output = join(w.root, "existing.json"); writeFileSync(output, "preserve bytes");
+  const before = sourceBytes(w.pmRoot);
+  try {
+    for (const key of ["fromTracker", "from-tracker"]) {
+      await assert.rejects(harness.runCommand({ command: "rl corpus build", pmRoot: w.pmRoot, options: {
+        [key]: join(w.root, "missing-source"), file: join(w.root, "missing-bounds"), output,
+      } }), (error: unknown) => {
+        assert.ok(refuses("corpus_output_exists")(error));
+        assert.ok(isPmCliExpectedError(error)); assert.equal(error.exitCode, EXIT_CODE.CONFLICT);
+        return true;
+      });
+    }
+    await assert.rejects(harness.runCommand({ command: "rl corpus build", pmRoot: w.pmRoot, options: {
+      fromTracker: w.pmRoot, "from-tracker": join(w.root, "other-source"), file: join(w.root, "missing-bounds"), output,
+    } }), (error: unknown) => {
+      assert.ok(refuses("extension_option_spelling_conflict")(error));
+      assert.ok(isPmCliExpectedError(error)); assert.equal(error.exitCode, EXIT_CODE.USAGE);
+      return true;
+    });
+    assert.equal(sourceBytes(w.pmRoot), before);
+    assert.equal(readFileSync(output, "utf8"), "preserve bytes");
+  } finally { await harness.deactivate(); }
+});
+
+test("corpus missing host options and reachable blank handler options refuse without writes", async () => {
+  const w = await processWorkspace();
+  const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
+  const output = join(w.root, "sealed.json");
+  const options: Record<string, string> = { fromTracker: w.pmRoot, file: join(w.root, "missing-bounds"), output };
+  const before = sourceBytes(w.pmRoot);
+  try {
+    for (const [key, flag, code] of [
+      ["fromTracker", "--from-tracker", "missing_from_tracker"],
+      ["file", "--file", "missing_file"], ["output", "--output", "missing_output"],
+    ]) {
+      const missing = { ...options }; delete missing[key];
+      await assertMissingHostOption(harness, { command: "rl corpus build", pmRoot: w.pmRoot, options: missing }, flag);
+      await assert.rejects(harness.runCommand({ command: "rl corpus build", pmRoot: w.pmRoot, options: { ...options, [key]: "   " } }), (error: unknown) => {
+        assert.ok(refuses(code)(error));
+        assert.ok(isPmCliExpectedError(error)); assert.equal(error.exitCode, EXIT_CODE.USAGE);
+        assert.ok(!error.message.includes(w.root)); return true;
+      });
+      assert.equal(sourceBytes(w.pmRoot), before); assert.equal(existsSync(output), false);
+    }
+  } finally { await harness.deactivate(); }
+});
+
+test("corpus unowned underscore keys cannot override the declared source option", async () => {
+  const w = await processWorkspace();
+  const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
+  const file = join(w.root, "bounds.json"); writeFileSync(file, "null");
+  const output = join(w.root, "sealed.json"); const before = sourceBytes(w.pmRoot);
+  try {
+    await assert.rejects(harness.runCommand({ command: "rl corpus build", pmRoot: w.pmRoot, options: {
+      fromTracker: w.pmRoot, from_tracker: join(w.root, "missing-source"), file, output,
+    } }), (error: unknown) => {
+      assert.ok(isPmCliExpectedError(error));
+      // Current hosts forward unowned keys; a host that refuses them first is also safe.
+      assert.ok(["corpus_invalid_bounds", "unknown_option"].includes(error.context.code!));
+      assert.equal(error.exitCode, EXIT_CODE.USAGE); return true;
+    });
+    assert.equal(sourceBytes(w.pmRoot), before); assert.equal(existsSync(output), false);
+  } finally { await harness.deactivate(); }
+});
 
 test("corpus source snapshots detect every durable filename and byte change but allow SDK runtime updates", async () => {
   const w = await processWorkspace();
@@ -68,7 +137,7 @@ test("corpus output conflicts refuse before source or bounds reads without expos
   const dangling = join(w.root, "dangling.json"); symlinkSync(join(w.root, "absent"), dangling);
   for (const output of [existing, dangling, w.pmRoot]) {
     await assert.rejects(harness.runCommand({ command: "rl corpus build", pmRoot: w.pmRoot, args: [], options: {
-      from_tracker: join(w.root, "missing-source"), file: join(w.root, "missing-bounds"), output,
+      fromTracker: join(w.root, "missing-source"), file: join(w.root, "missing-bounds"), output,
     } }), (error: unknown) => {
       assert.ok(isPmCliExpectedError(error)); assert.equal(error.context.code, "corpus_output_exists");
       assert.equal(error.exitCode, EXIT_CODE.CONFLICT); assert.ok(!error.message.includes(w.root)); return true;
@@ -92,7 +161,7 @@ test("corpus output inside the source refuses before inventory reads through rel
     [w.pmRoot, join(childAlias, "sealed.json"), "rl_state_path_invalid"], [w.pmRoot, relative(process.cwd(), join(nested, "..", "sealed.json")), "corpus_output_inside_source"],
   ]) {
     await assert.rejects(harness.runCommand({ command: "rl corpus build", pmRoot: w.pmRoot, args: [], options: {
-      from_tracker: source, file: join(w.root, "missing-bounds"), output,
+      fromTracker: source, file: join(w.root, "missing-bounds"), output,
     } }), refuses(code));
     assert.equal(existsSync(output), false); assert.equal(sourceBytes(w.pmRoot), before);
   }
@@ -101,7 +170,7 @@ test("corpus output inside the source refuses before inventory reads through rel
 test("corpus exclusive publication handles a real concurrent creator and preserves other IO errors", async (t) => {
   const w = await processWorkspace(); await seedCorpusSource(w.client);
   const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
-  const options = { from_tracker: w.pmRoot, file: new URL("../examples/loop-corpus.json", import.meta.url).pathname, output: join(dirname(w.pmRoot), "sealed.json") };
+  const options = { fromTracker: w.pmRoot, file: new URL("../examples/loop-corpus.json", import.meta.url).pathname, output: join(dirname(w.pmRoot), "sealed.json") };
   const sibling = `${w.pmRoot}-copy`; mkdirSync(sibling);
   for (const output of [options.output, join(sibling, "sealed.json")]) {
     await harness.runCommand({ command: "rl corpus build", pmRoot: w.pmRoot, args: [], options: { ...options, output } });
@@ -152,7 +221,7 @@ test("corpus missing or invalid directories refuse with stable path-free errors 
     [w.pmRoot, join(dangling, "sealed.json"), "rl_state_path_invalid"],
   ]) {
     await assert.rejects(harness.runCommand({ command: "rl corpus build", pmRoot: w.pmRoot, args: [], options: {
-      from_tracker: source, file: join(w.root, "missing-bounds"), output,
+      fromTracker: source, file: join(w.root, "missing-bounds"), output,
     } }), (error: unknown) => {
       assert.ok(refuses(code)(error), `${code} expected`); assert.ok(error instanceof Error); assert.ok(!error.message.includes(w.root)); return true;
     });
@@ -167,7 +236,7 @@ test("corpus missing or invalid directories refuse with stable path-free errors 
   syncBuiltinESMExports();
   try {
     const result = await harness.runCommand({ command: "rl corpus build", pmRoot: w.pmRoot, args: [], options: {
-      from_tracker: w.pmRoot, file: join(w.root, "missing-bounds"), output: join(w.root, "sealed.json"),
+      fromTracker: w.pmRoot, file: join(w.root, "missing-bounds"), output: join(w.root, "sealed.json"),
     } });
     assert.match(JSON.stringify(result), /synthetic read denied/);
   } finally { injection.mock.restore(); syncBuiltinESMExports(); }
@@ -194,7 +263,7 @@ test("corpus publication pins canonical targets and rechecks alias and canonical
     });
     syncBuiltinESMExports();
     try {
-      await assert.rejects(harness.runCommand({ command: "rl corpus build", pmRoot: w.pmRoot, args: [], options: { from_tracker: w.pmRoot, file, output } }), refuses(mode === "removed" ? "corpus_output_parent_missing" : "rl_state_path_invalid"));
+      await assert.rejects(harness.runCommand({ command: "rl corpus build", pmRoot: w.pmRoot, args: [], options: { fromTracker: w.pmRoot, file, output } }), refuses(mode === "removed" ? "corpus_output_parent_missing" : "rl_state_path_invalid"));
       assert.equal(swapped, true);
       assert.equal(existsSync(join(w.pmRoot, "sealed.json")), false);
       assert.equal(existsSync(join(w.root, "sealed.json")), false);
@@ -323,7 +392,7 @@ test("fit steps are bounded, persisted and matched to a reservation before any j
   await assert.rejects(buildTrackerLoopCorpus(w.client, bounds), refuses("corpus_insufficient_split"));
   await seedCorpusSource(w.client);
   const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
-  const built = await harness.runCommand({ command: "rl corpus build", pmRoot: w.pmRoot, args: [], options: { from_tracker: w.pmRoot, file: new URL("../examples/loop-corpus.json", import.meta.url).pathname, output: join(w.root, "sealed.json") } });
+  const built = await harness.runCommand({ command: "rl corpus build", pmRoot: w.pmRoot, args: [], options: { fromTracker: w.pmRoot, file: new URL("../examples/loop-corpus.json", import.meta.url).pathname, output: join(w.root, "sealed.json") } });
   assert.equal(built.handled, true); assert.equal((JSON.parse(readFileSync(join(w.root, "sealed.json"), "utf8")) as Record<string, JsonValue>).fit_steps, 8);
   const rejectedConfig = parseLoopConfig({ ...bounds, environment: { name: "Regression", version: "1" }, training: [{ id: "train", feature: 1, rewards: [0, 1] }], evaluation: [{ id: "opposite", feature: 0.8, rewards: [1, 0] }] });
   const rejected = runLoopGeneration(rejectedConfig, step, 1, banditCheckpoint(0));

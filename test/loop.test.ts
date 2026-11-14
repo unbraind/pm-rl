@@ -1,6 +1,7 @@
 /** The persisted recursive loop: pure bounds, derived successor configs, and end-to-end tracker runs. */
 
 import assert from "node:assert/strict";
+import { assertMissingHostOption } from "./fixtures/extension-option-refusal.ts";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -770,8 +771,8 @@ test("the loop fails closed on missing arguments, unreadable or invalid configur
   const approval = await createApproval(client, "loop-approval", 10);
   const file = writeJson(root, "loop.json", LOOP_CONFIG);
   await assert.rejects(harness.runCommand({ command: "rl loop run", pmRoot, options: { file, approval } }), /pm rl requires a loop id/);
-  await assert.rejects(harness.runCommand({ command: "rl loop run", pmRoot, args: ["loop-a"], options: { approval } }), /requires --file/);
-  await assert.rejects(harness.runCommand({ command: "rl loop run", pmRoot, args: ["loop-a"], options: { file } }), /requires --approval/);
+  await assertMissingHostOption(harness, { command: "rl loop run", pmRoot, args: ["loop-a"], options: { approval } }, "--file");
+  await assertMissingHostOption(harness, { command: "rl loop run", pmRoot, args: ["loop-a"], options: { file } }, "--approval");
   await assert.rejects(
     harness.runCommand({ command: "rl loop run", pmRoot, args: ["loop-a"], options: { file: join(root, "absent.json"), approval } }),
     /could not be read/,

@@ -1,6 +1,7 @@
 /** Host-level tests for pm-rl's schema and first environment/run lifecycle. */
 
 import assert from "node:assert/strict";
+import { assertMissingHostOption } from "./fixtures/extension-option-refusal.ts";
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -742,7 +743,7 @@ test("repeated realistic metric batches retain every event with measured bounded
 test("domain commands reject missing arguments, options, wrong item types, and absent SDK injection", async (testContext) => {
   const { pmRoot, harness } = await workspace();
   await assert.rejects(harness.runCommand({ command: "rl env show", pmRoot }), /requires an environment id/);
-  await assert.rejects(harness.runCommand({ command: "rl run finish", pmRoot, args: ["unknown"] }), /requires --reason/);
+  await assertMissingHostOption(harness, { command: "rl run finish", pmRoot, args: ["unknown"] }, "--reason");
   const wrong = await new PmClient({ pmRoot, author: "pm-rl-test" }).create({
     id: "wrong-type",
     title: "Not an environment",

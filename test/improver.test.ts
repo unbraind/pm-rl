@@ -439,7 +439,7 @@ test("three recursive generations survive SIGKILL after update, adopt receipts a
   const configFile = join(w.root, 'programme.json'); writeFileSync(configFile, JSON.stringify(w.config));
   const command = await harness.runCommand({ command: 'rl improver run', pmRoot: w.coordinates.pmRoot, args: [request.id.toUpperCase()], options: { file: configFile, dataset: w.dataset, approval: w.approval, forceTakeover: false }, global: { author: 'improver-test' } });
   assert.equal(command.handled, true, command.errorMessage ?? 'improver command'); assert.deepEqual((command.result as RlCommandResult).details, report);
-  await assert.rejects(harness.runCommand({ command: 'rl improver run', pmRoot: w.coordinates.pmRoot, args: ['../INVALID'], options: { file: configFile, dataset: w.dataset, approval: w.approval, force_takeover: true }, global: { author: 'improver-test' } }), (error) => isPmCliExpectedError(error) && error.context.code === 'rl_identifier_invalid');
+  await assert.rejects(harness.runCommand({ command: 'rl improver run', pmRoot: w.coordinates.pmRoot, args: ['../INVALID'], options: { file: configFile, dataset: w.dataset, approval: w.approval, forceTakeover: true }, global: { author: 'improver-test' } }), (error) => isPmCliExpectedError(error) && error.context.code === 'rl_identifier_invalid');
   await assert.rejects(runRecursiveImprover(w.client, w.coordinates, { ...request, signal: AbortSignal.abort(new Error('pre-cancelled')) }), /pre-cancelled/);
   await assert.rejects(runRecursiveImprover(w.client, w.coordinates, { ...request, config: { ...w.config, seed: 43 } }), /disagrees/);
   await assert.rejects(runRecursiveImprover(w.client, w.coordinates, { ...request, id: 'TOO-LONG-AND-INVALID' }), /programme_id/);
@@ -462,7 +462,7 @@ test("public command builds chronological tasks and copied sources cannot modify
     const original = process.env.PATH; process.env.PATH = `${w.bin}:${original}`;
     try {
       const output = join(w.root, 'command-data');
-      const result = await harness.runCommand({ command: 'rl improver build', pmRoot: w.coordinates.pmRoot, args: w.directories.slice(1), options: { from_trackers: w.directories[0], output }, global: { author: 'improver-test' } });
+      const result = await harness.runCommand({ command: 'rl improver build', pmRoot: w.coordinates.pmRoot, args: w.directories.slice(1), options: { fromTrackers: w.directories[0], output }, global: { author: 'improver-test' } });
       assert.equal(result.handled, true, result.errorMessage ?? 'improver build'); assert.equal((result.result as RlCommandResult).action, 'rl-improver-build');
     } finally { process.env.PATH = original; }
   });

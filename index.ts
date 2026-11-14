@@ -598,7 +598,7 @@ function fail(message: string, code: string, exitCode: number = EXIT_CODE.USAGE)
 /** Return a required non-empty command option. */
 function stringOption(context: CommandHandlerContext, key: string, required = true): string | undefined {
   const camel = key.replaceAll(/_([a-z])/g, (_match, letter: string) => letter.toUpperCase());
-  const value = context.options[key] ?? context.options[camel];
+  const value = context.options[camel];
   if (typeof value === "string" && ["checkpoint", "base_checkpoint", "policy"].includes(key)) return value; // Labels are validated only when a new record will be written.
   if (typeof value === "string" && ["environment", "parent", "approval", "run", "benchmark", "candidate", "incumbent", "source", "target"].includes(key)) { operationIdentifier(value); return value; }
   if (typeof value === "string" && ["collection_runs", "contaminated_by"].includes(key)) { value.split(",").forEach((id) => operationIdentifier(id)); return value; }
@@ -5050,7 +5050,7 @@ async function runMetaCommand(context: CommandHandlerContext): Promise<RlCommand
       id, config: parseMetaConfig(readJsonFile(stringOption(context, "file")!, "Meta configuration")),
       dataset: stringOption(context, "dataset")!, approval: stringOption(context, "approval")!,
       proposer: (stringOption(context, "proposer", false) ?? "seeded") as "seeded" | "decision-model", signal: cancellation.controller.signal,
-      forceTakeover: (context.options["force_takeover"] ?? context.options["forceTakeover"]) === true,
+      forceTakeover: context.options["forceTakeover"] === true,
     });
   } finally {
     removeCancellationSignals(cancellation.handlers);
@@ -5072,7 +5072,7 @@ async function runImproverCommand(context: CommandHandlerContext): Promise<RlCom
     const report = await runRecursiveImprover(clientFor(context), { pmRoot: context.pm_root, author: authorFor(context) }, {
       id, config: parseImproverConfig(readJsonFile(stringOption(context, "file")!, "Improver programme") as unknown as ImproverConfig),
       dataset: stringOption(context, "dataset")!, approval: stringOption(context, "approval")!, signal: cancellation.controller.signal,
-      forceTakeover: (context.options["force_takeover"] ?? context.options["forceTakeover"]) === true,
+      forceTakeover: context.options["forceTakeover"] === true,
     });
     return { action: "rl-improver-run", id, details: { ...report } };
   } finally { removeCancellationSignals(cancellation.handlers); }
@@ -5086,7 +5086,7 @@ async function resumeLoopCommand(context: CommandHandlerContext): Promise<RlComm
   let report: RlLoopReport;
   try {
     report = await resumeRlLoop(clientFor(context), { pmRoot: context.pm_root, author: authorFor(context) }, { id, approval, signal: cancellation.controller.signal,
-      forceTakeover: (context.options["force_takeover"] ?? context.options["forceTakeover"]) === true });
+      forceTakeover: context.options["forceTakeover"] === true });
   } finally {
     removeCancellationSignals(cancellation.handlers);
   }
@@ -5739,7 +5739,7 @@ export const RL_COMMANDS = [
     const cancellation = installCancellationSignals();
     try {
       try {
-        const report = await runProposerEvolution(clientFor(context), { pmRoot: context.pm_root, author: authorFor(context) }, { id: requiredArgument(context, "a proposer programme id"), config: parseProposerEvolutionConfig(readJsonFile(stringOption(context, "file")!, "Proposer declaration")), dataset: stringOption(context, "dataset")!, approval: stringOption(context, "approval")!, signal: cancellation.controller.signal, forceTakeover: (context.options["force_takeover"] ?? context.options["forceTakeover"]) === true });
+        const report = await runProposerEvolution(clientFor(context), { pmRoot: context.pm_root, author: authorFor(context) }, { id: requiredArgument(context, "a proposer programme id"), config: parseProposerEvolutionConfig(readJsonFile(stringOption(context, "file")!, "Proposer declaration")), dataset: stringOption(context, "dataset")!, approval: stringOption(context, "approval")!, signal: cancellation.controller.signal, forceTakeover: context.options["forceTakeover"] === true });
         return { action: "rl-proposer-run", details: { retained: report.retained.digest, rollback: report.rollback, budget: report.budget, audit: report.audit.verdict.decision, transfer: report.transfer.digest, generations: report.generations.map((row) => ({ generation: row.generation, candidate: row.candidate.digest, retained: row.retained, promoted: row.promoted, behavior_changed: row.behavior_changed, verdict: row.comparison.verdict.decision, transfer: row.transfer.digest })) } };
       } catch (error) {
         if (error instanceof ProposerRefusal) {

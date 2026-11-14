@@ -318,7 +318,7 @@ test("foreign-host lease refuses automatic recovery and CLI force takeover audit
     writeFileSync(path, JSON.stringify({ ...record, hostname: "other-host.invalid" }));
     await assert.rejects(resumeRlLoop(client, { pmRoot, author: "rl-test" }, { id: "race", approval }), /holder is ambiguous/);
     const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
-    const result = await harness.runCommand({ command: "rl loop resume", pmRoot, args: ["race"], options: { approval, force_takeover: true }, global: { author: "operator-test" } });
+    const result = await harness.runCommand({ command: "rl loop resume", pmRoot, args: ["race"], options: { approval, forceTakeover: true }, global: { author: "operator-test" } });
     assert.equal(result.handled, true);
     const seed = await client.get("race-seed");
     const history = readFileSync(join(pmRoot, "history", `${seed.item.id}.jsonl`), "utf8");

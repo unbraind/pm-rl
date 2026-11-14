@@ -1,6 +1,7 @@
 /** Recursive-self-improvement lineage: pure provenance math and the generation/lineage commands. */
 
 import assert from "node:assert/strict";
+import { assertMissingHostOption } from "./fixtures/extension-option-refusal.ts";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -786,10 +787,7 @@ test("registering a candidate refuses an unpromoted parent, a policy-mismatched 
     /requires --collection-runs/,
   );
   // A missing base checkpoint is refused.
-  await assert.rejects(
-    harness.runCommand({ command: "rl generation register", pmRoot, args: ["gen-nobase"] }),
-    /requires --base-checkpoint/,
-  );
+  await assertMissingHostOption(harness, { command: "rl generation register", pmRoot, args: ["gen-nobase"] }, "--base-checkpoint");
   // Environments that are not content-addressed refuse the candidate.
   const noHash = await client.create({ id: "env-nohash", title: "NoHash", type: "Environment", status: "open" });
   await assert.rejects(

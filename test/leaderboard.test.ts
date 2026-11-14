@@ -1,6 +1,7 @@
 /** Benchmark, evaluation-provenance, and fail-closed leaderboard acceptance tests. */
 
 import assert from "node:assert/strict";
+import { assertMissingHostOption } from "./fixtures/extension-option-refusal.ts";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -302,7 +303,7 @@ test("benchmark re-reads preserve provenance and refuse a wrong contamination ro
 test("benchmark and evaluation commands reject incomplete input and mutated identities", async () => {
   const { root, pmRoot, client, harness } = await workspace();
   const source = await sourceRun(root, pmRoot, harness, "1");
-  await assert.rejects(harness.runCommand({ command: "rl benchmark register", pmRoot }), /requires --file/);
+  await assertMissingHostOption(harness, { command: "rl benchmark register", pmRoot }, "--file");
   await assert.rejects(harness.runCommand({ command: "rl leaderboard", pmRoot }), /requires a benchmark id/);
   const benchmarkId = await benchmark(root, pmRoot, harness);
   await assert.rejects(harness.runCommand({ command: "rl eval record", pmRoot, options: { run: source.run, benchmark: benchmarkId, checkpoint: "sha", score: "NaN", passed: true } }), /finite --score/);
