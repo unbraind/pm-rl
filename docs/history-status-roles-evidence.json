@@ -265,5 +265,80 @@
     "docstring_declarations": 572,
     "duplication_clones": 0
   },
-  "resource_budget_scope": "External trainer jobs; whole CLI elapsed time is recorded separately."
+  "resource_budget_scope": "External trainer jobs; whole CLI elapsed time is recorded separately.",
+  "round_2": {
+    "review_comment": 4573711129,
+    "review_thread": "PRRT_kwDOTqJmqs63eU9w",
+    "source_base": "1b2764be557fef9a0b0d4588fe171ab51f832ba2",
+    "listing_readers": 3,
+    "listing_max_bytes": 8388608,
+    "listing_timeout_ms": 30000,
+    "batch_max_bytes": 67108864,
+    "blob_max_bytes": 8388608,
+    "filenames": [
+      "schema/roles-ascii.json",
+      "schema/roles-ä.json",
+      "schema/roles space.json",
+      "schema/roles\nline.json"
+    ],
+    "focused_tests": 4,
+    "linked_tests": 4,
+    "coverage_tests": 20,
+    "coverage": {
+      "statements": {
+        "total": 304,
+        "covered": 304,
+        "percentage": 100,
+        "uncoveredFiles": []
+      },
+      "lines": {
+        "found": 469,
+        "hit": 469
+      },
+      "branches": {
+        "found": 306,
+        "hit": 306
+      },
+      "functions": {
+        "found": 80,
+        "hit": 80
+      }
+    },
+    "reverts": [
+      {
+        "variant": "listing-without-z",
+        "typecheck_exit": 0,
+        "test_exit": 1,
+        "command": "node --test --test-concurrency=2 --test-name-pattern=\"committed registry reads\" test/history-status-roles.test.ts",
+        "elapsed_ms": 3184
+      },
+      {
+        "variant": "listing-old-newline-protocol",
+        "typecheck_exit": 0,
+        "test_exit": 1,
+        "command": "node --test --test-concurrency=2 --test-name-pattern=\"committed registry reads\" test/history-status-roles.test.ts",
+        "elapsed_ms": 4390
+      },
+      {
+        "variant": "batch-old-newline-protocol",
+        "typecheck_exit": 0,
+        "test_exit": 1,
+        "command": "node --test --test-concurrency=2 --test-name-pattern=\"committed registry reads\" test/history-status-roles.test.ts",
+        "elapsed_ms": 4247
+      },
+      {
+        "variant": "improver-old-listing",
+        "typecheck_exit": 0,
+        "test_exit": 1,
+        "command": "node --test --test-concurrency=2 --test-name-pattern=\"improver builder pins\" test/history-status-roles.test.ts",
+        "elapsed_ms": 9606
+      }
+    ],
+    "implementation_sha256": {
+      "dataset.ts": "9e1f91a39e0202dee7b3b824ba31d5b82630960c3eaa6e8c1f57dd53f61b8acc",
+      "improver-data.ts": "84861743d364384f4fb60873293e95e2340f150f36ea30dcb21511a7834c8715",
+      "test/history-status-roles.test.ts": "a487574f109abbacac58f2f05f92913dab0e6eef520ddaf16c2fe40b7700ac25"
+    },
+    "original_real_run_repeated": false
+  }
 }

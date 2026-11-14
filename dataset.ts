@@ -40,9 +40,16 @@ function sourceCommand(command: string, args: string[], cwd: string): string {
   return execFileSync(command, args, { cwd, encoding: "utf8", timeout: 30_000, maxBuffer: 8 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
 
+/** Read exact committed pathnames without Git quoting or whitespace normalization, within the source listing bound. */
+export function trackerTreePaths(root: string, commit: string, path: string): string[] {
+  return execFileSync("git", ["ls-tree", "-r", "--name-only", "-z", commit, "--", path], {
+    cwd: root, encoding: "utf8", timeout: 30_000, maxBuffer: 8 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"],
+  }).split("\0").filter(Boolean);
+}
+
 /** Read selected committed blobs in one bounded Git process, preserving byte lengths for Unicode history. */
 export function historyBlobs(root: string, commit: string, paths: readonly string[]): string[] {
-  const bytes = execFileSync("git", ["cat-file", "--batch"], { cwd: root, input: paths.map((path) => `${commit}:${path}\n`).join(""),
+  const bytes = execFileSync("git", ["cat-file", "--batch", "-z"], { cwd: root, input: paths.map((path) => `${commit}:${path}\0`).join(""),
     timeout: 30_000, maxBuffer: 64 * 1024 * 1024, stdio: ["pipe", "pipe", "pipe"] });
   let offset = 0;
   return paths.map(() => {
@@ -80,7 +87,7 @@ export function trackerHistoryExample(history: string, repo: string, commit: str
 
 /** Resolve status roles from the same immutable Git tree as its histories, never the working schema. */
 export function committedTrackerStatusRegistry(root: string, commit: string): ReturnType<typeof resolveRuntimeStatusRegistry> {
-  const paths = new Set(sourceCommand("git", ["ls-tree", "-r", "--name-only", commit, "--", ".agents/pm"], root).split("\n"));
+  const paths = new Set(trackerTreePaths(root, commit, ".agents/pm"));
   const settingsPath = ".agents/pm/settings.json";
   const settings = paths.has(settingsPath) ? parseBoundedJson(historyBlobs(root, commit, [settingsPath])[0]) as { schema?: PmSettings["schema"] } : {};
   const schema = settings.schema;
@@ -152,7 +159,7 @@ export function buildTrackerDataset(directories: readonly string[], output: stri
     const commit = pin?.commit ?? sourceCommand("git", ["rev-parse", "HEAD"], root);
     verifyPublicTrackerSource(repo, commit, root);
     const registry = committedTrackerStatusRegistry(root, commit);
-    const paths = sourceCommand("git", ["ls-tree", "-r", "--name-only", commit, "--", ".agents/pm/history"], root).split("\n");
+    const paths = trackerTreePaths(root, commit, ".agents/pm/history");
     assert.ok(paths.length <= 10_000, "dataset_history_limit");
     const examples: TrackerExample[] = [];
     const projections: PrefixProjection[] = [];

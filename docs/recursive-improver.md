@@ -397,3 +397,40 @@ The supplementary selection is `pm-cli position controls` in
 directory; `computeStatementCoverage` from `scripts/coverage-gate.ts` enforces
 100% over their combined exact-source reports. Run-artifact records stay outside
 this package's planning tracker; only minimized receipts are committed here.
+
+### Round 2: exact committed pathnames
+
+CodeRabbit comment `4573711129` identified C-quoted `git ls-tree` output silently
+omitting configured Unicode status files. All three pathname readers in
+`dataset.ts` and `improver-data.ts` now use one `trackerTreePaths` helper with
+`ls-tree -z`, NUL parsing and no whitespace trimming. A repository-wide source
+audit found no other Git pathname enumeration in the affected implementation.
+Scalar Git output and whole-status assertions are not pathname parsers.
+
+The adjacent `cat-file --batch` input is also NUL framed with `-z`; otherwise an
+accepted newline filename would still split a blob request after enumeration.
+Its output retains the original byte-length framing and checks. Immutable
+commit reads, the 8 MiB / 30-second listing bound, the 64 MiB batch output bound,
+the 8 MiB per-blob bound and existing history-count limits remain intact.
+
+The new regression reads ASCII, Unicode, space and newline schema filenames
+with Git quoting enabled, verifies exact listing membership and blob bytes,
+changes the working files and still reads the pinned terminal role. The
+improver fixture also includes Unicode, space and newline history filenames
+and requires all 40 rows to participate in each balanced task. Sealed dataset
+readers still run in a plain directory.
+
+The touched regression file passes 4/4 directly and through pinned `pm test`.
+Focused coverage passes 20/20 with 469/469 lines, 306/306 branches, 80/80
+functions and 304/304 statement blocks: unchanged 100% in all four dimensions.
+Typecheck, test declarations, lint and docstrings pass. Four disposable
+behavioral reverts each typecheck and fail retained assertions: removing
+listing `-z`; restoring the old newline listing protocol; restoring newline
+batch requests; and restoring the improver's old quoted listing. After
+restoration the file passes 4/4. The machine-readable receipt records exact
+commands and counts. Original real-run evidence above remains historical; no
+finished generation run was repeated for this pathname transport correction.
+
+Thread `PRRT_kwDOTqJmqs63eU9w` remains untouched for the orchestrator. The
+previously local cancellation audit `1b2764b` remains accurate historical
+evidence and is retained in the branch for publication with this fix.

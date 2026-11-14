@@ -1,12 +1,12 @@
 /** Pinned SDK status roles, historical projection compatibility and plain-directory dataset consumers. */
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { init, normalizeStatusInput, readSettings } from "@unbrained/pm-cli/sdk/runtime";
 import { resolveRuntimeStatusRegistry, type PmSettings } from "@unbrained/pm-cli/sdk";
-import { committedTrackerStatusRegistry, trackerHistoryExample } from "../dataset.ts";
+import { committedTrackerStatusRegistry, historyBlobs, trackerHistoryExample, trackerTreePaths } from "../dataset.ts";
 import { buildImproverDataset, projectImproverHistory, readImproverDataset, readImproverTasks, IMPROVER_ROLES } from "../improver-data.ts";
 import { withTrackerSources, git } from "./fixtures/meta-workspace.ts";
 
@@ -68,6 +68,8 @@ test("improver builder pins file-backed SDK roles and non-git readers retain sea
       const client = new PmClient({ cwd: root, pmRoot: directory, author: "status-test", noExtensions: true });
       await client.schemaAddStatus("finished", { role: ["terminal", "terminal_done"], alias: ["finished-alias"] });
       for (let index = 0; index < 40; index++) writeFileSync(join(directory, "history", `item-${index}.jsonl`), history(index, "open", "finished-alias"));
+      git(root, ["config", "core.quotePath", "true"]);
+      for (const [index, name] of ["item-ä.jsonl", "item space.jsonl", "item\nline.jsonl"].entries()) renameSync(join(directory, "history", `item-${index}.jsonl`), join(directory, "history", name));
       git(root, ["add", ".agents/pm/settings.json", ".agents/pm/schema", ".agents/pm/history"]);
       git(root, ["-c", "user.name=Public Fixture", "-c", "user.email=public@example.test", "commit", "-qm", "Pin synthetic custom terminal registry"]);
       const commit = git(root, ["rev-parse", "HEAD"]);
@@ -86,7 +88,30 @@ test("improver builder pins file-backed SDK roles and non-git readers retain sea
     for (const role of IMPROVER_ROLES) {
       const tasks = readImproverTasks(output, manifest, role);
       assert.equal(tasks.length, manifest.sources.filter((entry) => entry.role === role).length * 2);
-      assert.ok(tasks.every((task) => task.train.length > 0 && task.evaluation.length > 0));
+      assert.ok(tasks.every((task) => task.train.length + task.evaluation.length === 40), "every unusual committed history participates in each balanced task");
+    }
+  });
+});
+
+test("committed registry reads ASCII Unicode space and newline filenames byte-exactly", async () => {
+  await withTrackerSources(async ({ directories }) => {
+    const pmRoot = directories[0]; const root = dirname(dirname(pmRoot));
+    await init("roles", { defaults: true, agentGuidance: "skip", author: "status-test" }, { cwd: root, pmRoot });
+    git(root, ["config", "core.quotePath", "true"]);
+    const settings = await readSettings(pmRoot);
+    const body = JSON.stringify({ statuses: [{ id: "file-only", roles: ["terminal", "terminal_done"], description: "Synthetic größe" }] }) + "\n";
+    for (const file of ["schema/roles-ascii.json", "schema/roles-ä.json", "schema/roles space.json", "schema/roles\nline.json"]) {
+      settings.schema.files.statuses = file;
+      writeFileSync(join(pmRoot, "settings.json"), JSON.stringify(settings)); writeFileSync(join(pmRoot, file), body);
+      git(root, ["add", ".agents/pm/settings.json", ".agents/pm/schema"]);
+      git(root, ["-c", "user.name=Public Fixture", "-c", "user.email=public@example.test", "commit", "-qm", "Pin exact synthetic schema pathname"]);
+      const commit = git(root, ["rev-parse", "HEAD"]); const path = `.agents/pm/${file}`;
+      assert.ok(trackerTreePaths(root, commit, ".agents/pm").includes(path), "the committed listing retains the exact pathname");
+      assert.deepEqual(historyBlobs(root, commit, [path, ".agents/pm/settings.json"]), [body, JSON.stringify(settings)]);
+      writeFileSync(join(pmRoot, file), JSON.stringify({ statuses: [] }));
+      const registry = committedTrackerStatusRegistry(root, commit);
+      assert.ok(registry.terminal_done_statuses.has(normalizeStatusInput("file-only", registry)!));
+      assert.equal(trackerHistoryExample(history(0, "open", "file-only"), "public/pm-fixture", commit, "item", registry)!.label, "completed");
     }
   });
 });

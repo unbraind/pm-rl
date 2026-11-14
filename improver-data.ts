@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { buildTrackerDataset, committedTrackerStatusRegistry, historyBlobs, type TrackerBuildOptions } from "./dataset.ts";
+import { buildTrackerDataset, committedTrackerStatusRegistry, historyBlobs, trackerTreePaths, type TrackerBuildOptions } from "./dataset.ts";
 import { isTerminalStatus } from "@unbrained/pm-cli/sdk/runtime";
 import { hashJson, type JsonValue } from "./index.ts";
 import { validateHistoryPrefix, type HistoryPrefix } from "./prefix-data.ts";
@@ -119,7 +119,7 @@ export function buildImproverDataset(directories: readonly string[], output: str
     const source = sources.find((entry) => entry.repo.toLowerCase() === repo);
     if (source === undefined) continue;
     const registry = committedTrackerStatusRegistry(root, source.commit);
-    const paths = execFileSync("git", ["ls-tree", "-r", "--name-only", source.commit, "--", ".agents/pm/history"], { cwd: root, encoding: "utf8", maxBuffer: 8 * 1024 * 1024 }).trim().split("\n").filter((path) => path.endsWith(".jsonl"));
+    const paths = trackerTreePaths(root, source.commit, ".agents/pm/history").filter((path) => path.endsWith(".jsonl"));
     const rows = historyBlobs(root, source.commit, paths).flatMap((history, index) => {
       const row = projectImproverHistory(history, source.repo, paths[index], registry);
       return row === null ? [] : [row];
