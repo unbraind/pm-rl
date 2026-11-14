@@ -4,6 +4,7 @@
 
 ### Added
 
+- Migrate evaluation lifecycle APIs to a clock-independent ordering contract ([pm-rl-lifecycle](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-lifecycle.toon))
 - Stop predeclared evaluations safely at sequential boundaries ([pm-rl-sequential](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-sequential.toon))
 - Measure evaluation sensitivity to declared training slices ([pm-rl-measured-influence](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-measured-influence.toon))
 - Refuse promotion when a protected task cohort regresses ([pm-rl-worstcohort](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-worstcohort.toon))
