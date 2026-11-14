@@ -1,0 +1,39 @@
+id: pm-rl-toolchain-1114b
+title: Adopt current pm-cli extension option contract and toolchain
+description: ""
+type: Chore
+status: in_progress
+priority: 2
+tags[1]: "gh:unbraind/pm-rl#172"
+created_at: "2026-11-14T09:25:06.551Z"
+updated_at: "2026-11-14T09:44:36.513Z"
+author: codex-toolchain-1114b
+comments[4]{created_at,author,text}:
+  "2026-11-14T09:26:13.424Z",codex-toolchain-1114b,"Baseline current pm-cli 2026.11.14 and pm-changelog 2026.11.13 reproduces corpus.test.ts: 7 pass, 7 fail, including all four named scenarios plus containment rechecks, bounded fits and no-git training. GH-1665 normalizes declared spellings to camel-case SDK keys; underscore options are undeclared, so required-option validation precedes the handler. Keep every filesystem refusal and race witness using supported SDK keys; add explicit host refusal/no-write checks. The historical failed CI log also shows required-option message assertions in domain, benchmark, lineage and loop tests; reproduce and adapt those without weakening matchers. Only this tracker item is owned; recursive-training items remain untouched."
+  "2026-11-14T09:35:51.273Z",codex-toolchain-1114b,"Installed public SDK declarations in sdk/extension/command-options.d.ts document canonical camel-case keys, direct spelling normalization and required/unknown validation. Two synthetic pm-cli 2026.11.14 probes are upstream candidates, not filed: (1) a missing required flag yields PmCliError with exitCode 2 but code undefined and context {}, so exact message plus absent-code plus no-write witnesses replace handler-message assertions; (2) a declared required fromTracker plus undeclared typo or from_tracker is dispatched with both keys, despite unknown-option refusal being documented. Canonical handler reads ignore those undeclared values and remain correct if a future host refuses them first. Searches for extension required option code and unknown_option harness returned no issues. The npm artifact omits CHANGELOG.md; reviewed the exact v2026.11.14 source changelog through 2026.11.8, including all new Migrate notes. No setup-phase linked tests are added, preserving tracker-reader compatibility."
+  "2026-11-14T09:44:21.235Z",codex-toolchain-1114b,"| Failure | Cause | Fix |\n| --- | --- | --- |\n| corpus exclusive publication handles a real concurrent creator and preserves other IO errors | GH-1665 canonical SDK option keys; underscore-only input fails required-option validation before dispatch | use fromTracker; retain exclusive wx publication, real concurrent creator, ENOENT/ENOTDIR and other IO witnesses |\n| corpus missing or invalid directories refuse with stable path-free errors before inventory reads | same host option normalization and required-option precedence | use fromTracker; retain every missing/file/dangling source and parent, stable path-free refusal and preserved bytes |\n| corpus output conflicts refuse before source or bounds reads without exposing paths | same required-option precedence | use fromTracker so existing-output refusal executes before source/bounds; retain existing file, dangling link and directory cases |\n| corpus output inside the source refuses before inventory reads through relative and symlink aliases | same required-option precedence | use fromTracker; retain all direct, relative and symlink containment refusals with no source/output writes |\n| containment rechecks, bounded fits, no-git corpus/intake and public improver building | same unsupported underscore-only SDK keys | use declared fromTracker/fromTrackers; keep real training, bounded reservations, sealed replay and immutable sources |\n| domain, benchmark, lineage and loop missing-option expectations | required flags now refuse in the host; missing-option code is absent (upstream candidate) | match exact host text, expected error shape, absent code, exit 2 and unchanged tracker; keep reachable whitespace handler refusals |\n| takeover and evaluation SDK option spellings | GH-1665 publishes canonical camel-case SDK keys and folds CLI spellings | use forceTakeover/evaluationCandidate and actual force-takeover spelling; remove underscore fallback reads that real CLI dispatch never supplies |\n\nValidation: corpus 17/17; other focused command checks 10/10; intake 8/8; release approval/calendar 31/31; production and test typechecking, lint, zero duplication across 64 sources, docstrings (572 declarations), publish attestation, identity audit, production audit (zero vulnerabilities), pack dry-run and isolated strict health with required merge drivers pass. Reverting only stringOption in a disposable copy makes the canonical-source regression fail (1/1 fails); restoring it passes (1/1). The four takeover fallback branches were removed because supported CLI dispatch only supplies forceTakeover; both real CLI and SDK spellings remain covered. Required string guards remain reachable via whitespace values and are retained.\n\nFull npm run release:check, bun run release:check and unchanged 100/100/100/100 coverage scope are deferred to CI under the explicit 45-minute local budget: the measured Dependabot npm/Bun jobs took 78/62 minutes. These full local gates were not run and no full coverage certification is claimed. No thresholds, seed counts, deadlines or assertions were lowered; no other tracker item or recursive-training epic was changed. The two upstream candidates are recorded separately and were not filed."
+  "2026-11-14T09:44:36.511Z",codex-toolchain-1114b,"Linked npm run changelog:check passes via pm test --run --progress. Claim is released; the item remains in progress for orchestrator verification. Regenerate and check the changelog after this final tracker write. Full exact-head npm/Bun and coverage certification remains required in CI."
+files[18]{path,scope}:
+  bun.lock,project
+  CHANGELOG.md,project
+  index.ts,project
+  package-lock.json,project
+  package.json,project
+  test/corpus.test.ts,project
+  test/durable-loop.test.ts,project
+  test/evaluation-lifecycle.test.ts,project
+  test/fixtures/corpus-no-git.ts,project
+  test/fixtures/extension-option-refusal.ts,project
+  test/fixtures/intake-no-git.ts,project
+  test/improver.test.ts,project
+  test/index.test.ts,project
+  test/leaderboard.test.ts,project
+  test/lineage.test.ts,project
+  test/loop.test.ts,project
+  test/meta.test.ts,project
+  test/proposer-program.test.ts,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  "npm run changelog:check",project,codex-toolchain-1114b,"2026-11-14T09:40:10.693Z",local_mutation,chore/adopt-pm-cli-option-contract
+docs[1]{path,scope}:
+  CHANGELOG.md,project
+body: ""

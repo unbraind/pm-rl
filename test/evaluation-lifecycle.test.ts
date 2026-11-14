@@ -262,7 +262,7 @@ test("CLI approval collection and promotion use the causal SDK validator and pre
     await causalStep(w, "plan");
     const shown = await w.harness.runCommand({ command: "rl eval plan show", pmRoot: w.pmRoot, args: [w.plan.candidate] });
     assert.equal((shown.result as RlCommandResult).details!.ordering, "causal/1");
-    await w.harness.runCommand({ command: "rl run start", pmRoot: w.pmRoot, args: [w.request.id], options: { environment: w.request.environmentId, algorithm: w.request.algorithm, evaluation_candidate: w.plan.candidate } });
+    await w.harness.runCommand({ command: "rl run start", pmRoot: w.pmRoot, args: [w.request.id], options: { environment: w.request.environmentId, algorithm: w.request.algorithm, evaluationCandidate: w.plan.candidate } });
     await causalStep(w, "candidate");
     for (const step of ["first", "last"]) await causalStep(w, step);
     const report = await readSequentialEvaluation(w.client, w.plan.candidate);

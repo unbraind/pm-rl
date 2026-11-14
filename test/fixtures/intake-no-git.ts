@@ -23,10 +23,10 @@ export async function intakeNoGit(root: string): Promise<void> {
   const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
   const output = join(root, "sealed-intake.json");
   const invalidBounds = join(root, "invalid-bounds.json"); writeFileSync(invalidBounds, "null");
-  await assert.rejects(harness.runCommand({ command: "rl corpus build", pmRoot, args: [], options: { from_tracker: pmRoot, file: invalidBounds, output } }), /corpus_invalid_bounds/);
+  await assert.rejects(harness.runCommand({ command: "rl corpus build", pmRoot, args: [], options: { fromTracker: pmRoot, file: invalidBounds, output } }), /corpus_invalid_bounds/);
   await assert.rejects(runBaselineAcceptance(pmRoot, join(root, "invalid-controller"), null), /corpus_invalid_bounds/);
   const built = await harness.runCommand({ command: "rl corpus build", pmRoot, args: [], options: {
-    from_tracker: pmRoot, file: new URL("../../examples/loop-intake-objective.json", import.meta.url).pathname, output,
+    fromTracker: pmRoot, file: new URL("../../examples/loop-intake-objective.json", import.meta.url).pathname, output,
   } });
   assert.equal((built.result as RlCommandResult).details!.held_out_positive, 1);
   assert.equal((JSON.parse(readFileSync(output, "utf8")) as Record<string, JsonValue>).objective, "intake-issue-balanced-v1");

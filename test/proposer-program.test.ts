@@ -494,7 +494,7 @@ test("CLI recovery guards reject unusable identities for both flag spellings bef
   const w = await workspace(); const directory = dataset(w.root);
   const file = join(w.root, "program.json"); writeFileSync(file, JSON.stringify(proposerEvolutionConfiguration()));
   const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
-  for (const flag of ["force_takeover", "forceTakeover"]) {
+  for (const flag of ["force-takeover", "forceTakeover"]) {
     await assert.rejects(harness.runCommand({ pmRoot: w.pmRoot, command: "rl proposer run", args: ["../invalid"], options: { file, dataset: directory, approval: w.approval, [flag]: true } }), (error) => isPmCliExpectedError(error) && error.context.code === "rl_identifier_invalid");
   }
   assert.equal((await listProcessJobs(w.client)).length, 0);
