@@ -210,6 +210,27 @@
       "test_exit": 1,
       "command": "node --test --test-concurrency=2 --test-name-pattern=\"improver builder pins\" test/history-status-roles.test.ts",
       "elapsed_seconds": 7.352
+    },
+    {
+      "variant": "registry-ignores-file",
+      "typecheck_exit": 0,
+      "test_exit": 1,
+      "command": "node --test --test-concurrency=2 --test-name-pattern=\"committed registry\" test/history-status-roles.test.ts",
+      "elapsed_seconds": 4.834
+    },
+    {
+      "variant": "registry-allows-escape",
+      "typecheck_exit": 0,
+      "test_exit": 1,
+      "command": "node --test --test-concurrency=2 --test-name-pattern=\"committed registry\" test/history-status-roles.test.ts",
+      "elapsed_seconds": 5.002
+    },
+    {
+      "variant": "dataset-ignores-registry",
+      "typecheck_exit": 0,
+      "test_exit": 1,
+      "command": "node --test --test-concurrency=2 --test-name-pattern=\"improver builder pins\" test/history-status-roles.test.ts",
+      "elapsed_seconds": 9.089
     }
   ],
   "gates": {
@@ -243,5 +264,6 @@
     "lint": true,
     "docstring_declarations": 572,
     "duplication_clones": 0
-  }
+  },
+  "resource_budget_scope": "External trainer jobs; whole CLI elapsed time is recorded separately."
 }

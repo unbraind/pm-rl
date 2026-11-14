@@ -321,7 +321,10 @@ excluded. The corpus has 105 training and 41 held-out items.
 The existing `examples/loop-corpus.json` supplies the two-generation schedule and
 unchanged statistical thresholds. A separate scratch Decision approved two
 promotions and 16 optimizer updates, 10,000 wall milliseconds, 524,288 staging
-bytes, 2,000 CPU milliseconds and zero tokens. The real installed CLI executed:
+bytes, 2,000 CPU milliseconds and zero tokens. These resource dimensions bound
+the two external trainer jobs; controller bookkeeping and source sealing are
+separate. The receipt reports whole CLI elapsed time independently.
+The real installed CLI executed:
 
 ```sh
 node node_modules/@unbrained/pm-cli/dist/cli.js --author codex-rl-apvf-1114 rl corpus build --from-tracker source/.agents/pm --file examples/loop-corpus.json --output programme.json --json
@@ -358,10 +361,14 @@ assertion. The fixed checkout is never reverted.
 | `dataset-literal-statuses` | `trackerHistoryExample` ignores SDK status normalization and terminal sets | `SDK roles` |
 | `builder-ignores-registry` | `buildImproverDataset` omits its pinned registry when projecting histories | `improver builder pins` |
 | `registry-working-tree` | `committedTrackerStatusRegistry` reads working settings instead of the pinned tree | `improver builder pins` |
+| `registry-ignores-file` | `committedTrackerStatusRegistry` ignores optional SDK status-file definitions | `committed registry` |
+| `registry-allows-escape` | `committedTrackerStatusRegistry` omits the source-relative reference guard | `committed registry` |
+| `dataset-ignores-registry` | `buildTrackerDataset` omits registry forwarding during terminal-disposition verification | `improver builder pins` |
 
 Exact commands are `npm run typecheck` and
 `node --test --test-concurrency=2 --test-name-pattern="<selection>" test/history-status-roles.test.ts`.
-After restoration, the complete new regression file passes 3/3.
+All seven variants typecheck and fail the retained behavioral assertions. After
+restoration, the complete new regression file passes 3/3.
 
 ### Targeted gates
 
