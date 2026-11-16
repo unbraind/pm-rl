@@ -102,16 +102,37 @@ The 10,000-trial simulation retains 1,000 trials; success/error assertions use
 the generated trial count. Proposer replay counts derive from generated records,
 including actual mutation cases, rather than the original 500-case totals.
 Fixed capacity, memory and resource-budget fixtures remain intact.
-`testCases` applies `testDepth` to exhaustive corruption and fault matrices. It
-retains first/last cases, evenly spread middle cases, every declared input/site,
-and each fault or boundary kind. Required kinds can exceed the depth budget;
-matrices below 25 cases remain exhaustive (including the 15-case main corpus,
-four-phase crash sweeps and eight HTTP receipt crash cases). Full depth returns
-every case in the original order. The native snapshot chain still runs all three
-promotions and every receipt/card variant at quick depth; only its corruption
-pairs are sampled. Card recovery retains all command paths and before/after boundary kinds, plus
-EIO/ENOSPC/SIGKILL for each schema, receipt, seal, card and read boundary kind. The callback matrix retains every operation site and
-error code. Routine card mutations retain every input and mutation kind.
+`testCases` applies `testDepth` to corruption and fault matrices. It retains
+first/last cases, evenly spread middle cases, and every declared input/site,
+fault or boundary kind; required kinds can exceed the depth budget. Matrices
+below 25 cases remain exhaustive, including the 15-case main corpus and the
+four-phase crash sweeps that do not use `testKindCases`. Full depth returns
+every case in the original order.
+
+`testKindCases` instead keeps endpoints and the first representative of every
+declared kind, even for matrices smaller than 25 (pairs stay exhaustive):
+
+* HTTP receipt recovery runs five of eight stage/metric combinations: the
+  `systemone_decision` metric at remote, response, commit and request, plus
+  `systemone_held_out_decision` at request. Deep runs both metrics at all four
+  stages.
+* The baseline vector crash test runs collect plus all four refusal/report
+  before/after boundaries (five of seven); deep additionally runs train and
+  evaluate phase crashes.
+* Generated chronology witnesses keep all nine run-count/look-count shapes,
+  their baseline and focused orders, but sample inversions by artifact-class
+  pair. Deep runs every inversion.
+* The native snapshot chain keeps all three promotions, four receipts and
+  every card variant. Quick sweeps corruption on three receipts (legacy,
+  first-cycle and latest-cycle), and samples each selected receipt's corruption
+  pairs with `testCases`, retaining every single-input kind. Deep sweeps all
+  four receipts and every corruption pair.
+
+Card recovery retains all command paths and before/after boundary kinds, plus
+EIO/ENOSPC/SIGKILL for each schema, receipt, seal, card and read boundary kind.
+The callback matrix retains every operation site and error code. Routine card
+mutations retain every input and mutation kind. Deep runs these matrices
+exhaustively; quick preserves the declared kinds through `testCases`.
 
 The 35-second healthy-owner wait is deep-only, with its real product contract
 unchanged; the ordinary competing-promoter test remains in quick. The controller
