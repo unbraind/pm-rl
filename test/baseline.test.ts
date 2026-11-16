@@ -137,7 +137,7 @@ test("item-gated fitting preserves incumbent, budget and replay without a Git ex
   try {
     const bin = join(root, "tools"); mkdirSync(bin); symlinkSync(process.execPath, join(bin, "node"));
     for (const tool of ["ps", "getconf"]) symlinkSync(execFileSync("sh", ["-c", `command -v ${tool}`], { encoding: "utf8" }).trim(), join(bin, tool));
-    const output = execFileSync(process.execPath, [new URL("./fixtures/baseline-no-git.ts", import.meta.url).pathname, root, "1"], { encoding: "utf8", timeout: testTime(280_000),
+    const output = execFileSync(process.execPath, [fileURLToPath(new URL("./fixtures/baseline-no-git.ts", import.meta.url)), root, "1"], { encoding: "utf8", timeout: testTime(280_000),
       env: { ...process.env, NODE_V8_COVERAGE: undefined, PATH: bin, GIT_CEILING_DIRECTORIES: dirname(root) } });
     assert.match(output, /1 refused vector proposals; sealed replay; incumbent retained/);
   } finally { rmSync(root, { recursive: true, force: true }); }

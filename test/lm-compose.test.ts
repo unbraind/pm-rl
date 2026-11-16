@@ -1,10 +1,12 @@
+import { fileURLToPath } from "node:url";
 import { dockerSkip as skip } from "./support/docker.ts";
 import { testTime } from "./support/depth.ts";
 /** Shared-contract LM unit, real-process and real-container recursive execution drills. */
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { execFileSync, fork, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { Readable, Writable } from "node:stream";
 import { setTimeout } from "node:timers/promises";
@@ -41,7 +43,7 @@ async function staged() {
   const input = inputFor(); const id = processJobId(input, undefined, config().process);
   let output = "";
   const sink = new Writable({ write(chunk, _encoding, callback) { output += String(chunk); callback(); } });
-  await lmTrainerMain([process.execPath, new URL("../process-lm-trainer.ts", import.meta.url).pathname], new URL("../process-lm-trainer.ts", import.meta.url).href,
+  await lmTrainerMain([process.execPath, fileURLToPath(new URL("../process-lm-trainer.ts", import.meta.url))], new URL("../process-lm-trainer.ts", import.meta.url).href,
     Readable.from([JSON.stringify({ job: id.toUpperCase(), input })]), sink, directory);
   assert.equal((JSON.parse(readFileSync(join(directory, "completion.json"), "utf8")) as ProcessCompletion).job, id);
   writeFileSync(join(directory, "runner.json"), JSON.stringify({ started_at: Date.now() - 5000 }));
@@ -89,7 +91,7 @@ test("LM real fit publishes canonical tensors and rejects corrupt bytes, memory 
 test("LM real child process uses the shared stream and refuses mismatched adapter limits before reserving", async () => {
   const { root, client, coordinates, approval } = await processWorkspace(budget); const input = inputFor(); const directory = join(root, "process"); mkdirSync(directory);
   const id = processJobId(input, undefined, config().process);
-  await launchTrainer(directory, id, input, allowance, [process.execPath, new URL("../process-lm-trainer.ts", import.meta.url).pathname]);
+  await launchTrainer(directory, id, input, allowance, [process.execPath, fileURLToPath(new URL("../process-lm-trainer.ts", import.meta.url))]);
   assert.notEqual(validateProcessCompletion(directory, id, input, allowance).policy.digest, input.source.digest);
   for (const selected of [{ kind: "process-bandit", allowance: { ...allowance, training_steps: 1 } }, { ...config().process!, memory_bytes: 134_217_728 }, { ...config().process!, allowance: { ...allowance, training_steps: 1 } }]) await assert.rejects(executeProcessTrainer(client, coordinates, input, approval, selected as ProcessAdapter));
   assert.equal((await listProcessJobs(client)).length, 0);
@@ -148,7 +150,7 @@ test("LM Compose controller trains, verifies and promotes through the packaged c
   // PATH-injected stand-in whose `compose run` executes the packaged trainer entrypoint directly,
   // so this drill needs no Docker daemon and stays deterministic at every depth.
   const bin = join(root, "bin"); mkdirSync(bin, { recursive: true });
-  const trainer = new URL("../process-lm-trainer.ts", import.meta.url).pathname;
+  const trainer = fileURLToPath(new URL("../process-lm-trainer.ts", import.meta.url));
   writeFileSync(join(bin, "docker"), `#!${process.execPath}\nconst a=process.argv.slice(2);\nif(a.includes("run")){const c=require("node:child_process").spawnSync(process.execPath,[${JSON.stringify(trainer)}],{stdio:"inherit"});process.exit(c.status===null?1:c.status);}\nelse if(a[0]==="container"&&a[1]==="ls")console.log("owned-container");\nelse if(a[1]==="inspect")console.log(JSON.stringify({memory_bytes:268435456,nano_cpus:1000000000,oom_killed:false,exit_code:0,network:"none",user:"65534:65534"}));\n`, { mode: 0o755 });
   const previous = process.env.PATH; process.env.PATH = `${bin}${delimiter}${previous}`;
   try {
@@ -281,4 +283,26 @@ test("two real Compose LM controllers launch once and reserve once", { skip }, a
   const jobs = await listProcessJobs(client); assert.equal(jobs.length, 1); assert.equal(jobs[0].charge.training_steps, 6);
   const directory = processStaging(pmRoot, jobs[0].id); assert.equal(readFileSync(join(directory, "launches.ndjson"), "utf8").trim().split("\n").length, 1);
   assert.equal((await resumeRlLoop(client, coordinates, { id: "process-drill", approval })).resumed_generations, 1); removed(jobs[0].id, directory);
+});
+
+/** Exercise the real daemon-free controller from a checkout URL containing escaped spaces. */
+test("LM Compose trainer paths survive checkout spaces", () => {
+  const scratch = mkdtempSync(join(tmpdir(), "lm-path-"));
+  const checkout = join(scratch, "checkout with spaces");
+  try {
+    const source = fileURLToPath(new URL("../", import.meta.url));
+    mkdirSync(checkout);
+    for (const entry of readdirSync(source)) {
+      if (entry.endsWith(".ts") || ["package.json", "examples", "scripts", "test"].includes(entry)) cpSync(join(source, entry), join(checkout, entry), { recursive: true });
+    }
+    symlinkSync(join(source, "node_modules"), join(checkout, "node_modules"), "junction");
+    const result = spawnSync(process.execPath, ["--test",
+      "--test-name-pattern=^LM Compose controller trains, verifies and promotes through the packaged compose entrypoint without a daemon$",
+      join(checkout, "test/lm-compose.test.ts")], {
+      encoding: "utf8", timeout: testTime(120_000),
+      env: { ...process.env, PM_TEST_DOCKER: "off", NODE_V8_COVERAGE: undefined, NODE_TEST_CONTEXT: undefined },
+    });
+    assert.equal(result.status, 0, `${result.error?.message ?? ""}\n${result.stdout}\n${result.stderr}`);
+    assert.match(result.stdout, /(?:pass 1|# pass 1)\b/u);
+  } finally { rmSync(scratch, { recursive: true, force: true }); }
 });

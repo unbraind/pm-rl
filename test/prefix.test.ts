@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { testDepth, testTime } from "./support/depth.ts";
 /** Behavioural acceptance for sealed projections, real fits, feature sensitivity and statistical refusals. */
 import assert from "node:assert/strict";
@@ -190,9 +191,9 @@ test("trainer IO publishes exact measured checkpoint evidence and validation ref
   assert.throws(() => validatePrefixCompletion(bytes, { ...completion, policy: source as unknown as ProcessCompletion["policy"] }, input as unknown as ProcessInput), /policy/);
   assert.throws(() => validatePrefixCompletion(bytes, verified, { ...input, prefix: { rows: [], knobs: { ...knobs, regularisation: 0.01 } } } as unknown as ProcessInput), /knobs/);
   assert.ok(prefixTrainerArgv()[1].endsWith(".ts")); assert.ok(prefixTrainerArgv(new URL("../dist/prefix-trainer.js", import.meta.url).href)[1].endsWith(".js"));
-  await prefixTrainerMain(["node", new URL("./prefix.test.ts", import.meta.url).pathname], new URL("../prefix-trainer.ts", import.meta.url).href);
+  await prefixTrainerMain(["node", fileURLToPath(new URL("./prefix.test.ts", import.meta.url))], new URL("../prefix-trainer.ts", import.meta.url).href);
   const other = mkdtempSync(join(tmpdir(), "rl-prefix-main-"));
-  await prefixTrainerMain(["node", new URL("../prefix-trainer.ts", import.meta.url).pathname], new URL("../prefix-trainer.ts", import.meta.url).href, Readable.from([JSON.stringify({ job: "synthetic", input, artifactRoot })]), sink, other);
+  await prefixTrainerMain(["node", fileURLToPath(new URL("../prefix-trainer.ts", import.meta.url))], new URL("../prefix-trainer.ts", import.meta.url).href, Readable.from([JSON.stringify({ job: "synthetic", input, artifactRoot })]), sink, other);
 });
 
 test("public snapshot builder pins the task, calibrates only fit items and preserves repository compartments", async () => {
@@ -329,7 +330,7 @@ test("live prefix acceptance installs the packed command and retains public per-
     await liveMetaMain({ PM_RL_TRACKER_ROOT: root }, (value) => { evidence = value; }, pinsFile);
     assert.equal(evidence!.report.generations.length, 2);
     assert.ok(evidence!.report.initial.fit!.changed);
-    const summary = JSON.parse(readFileSync(join(new URL("..", import.meta.url).pathname, evidence!.artifacts, "summary.json"), "utf8")) as { examples: { repo: string; commit: string; prefix_digest: string }[] };
+    const summary = JSON.parse(readFileSync(join(fileURLToPath(new URL("..", import.meta.url)), evidence!.artifacts, "summary.json"), "utf8")) as { examples: { repo: string; commit: string; prefix_digest: string }[] };
     assert.equal(summary.examples.length, 160);
     assert.ok(summary.examples.every((row) => row.repo.startsWith("public-fixture/") && /^[a-f0-9]{40}$/.test(row.commit) && /^[a-f0-9]{64}$/.test(row.prefix_digest)));
   });

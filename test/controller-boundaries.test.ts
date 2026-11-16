@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { testCases, testDepth, testTime } from "./support/depth.ts";
 /** Canonical SDK identities and complete callback failure paths on real non-git trackers. */
 import assert from "node:assert/strict";
@@ -130,7 +131,7 @@ test("callback fault matrix reaps real children and settles each reservation onc
   const budget = { training_steps: 1000, wall_ms: 5000000, storage_bytes: 100000000, compute_units: 1000000, tokens: 0 };
   let { pmRoot, root, client, coordinates, approval } = await processWorkspace(budget);
   const input = trainingInput(); const adapter = { kind: "process-bandit", allowance: { ...allowance, wall_ms: 60000 } } as const;
-  const fixture = new URL("./fixtures/process-trainer.ts", import.meta.url).pathname;
+  const fixture = fileURLToPath(new URL("./fixtures/process-trainer.ts", import.meta.url));
   const sites = new Set<string>(); let count = 0;
   let outside = join(root, "outside"); mkdirSync(outside); let tripwire = join(outside, "sentinel"); writeFileSync(tripwire, "unchanged");
   const unhandled: unknown[] = []; const monitor = (error: unknown): void => { unhandled.push(error); };
@@ -239,7 +240,7 @@ test("recovery stops only the exact live trainer birth identity and awaits nativ
 
 test("a false native stop result and emitted error cannot recurse or bypass reaping", async () => {
   const { client, coordinates, approval, pmRoot } = await processWorkspace(); const input = trainingInput();
-  const command = [process.execPath, new URL("./fixtures/process-trainer.ts", import.meta.url).pathname, "callback-good", "false-stop"];
+  const command = [process.execPath, fileURLToPath(new URL("./fixtures/process-trainer.ts", import.meta.url)), "callback-good", "false-stop"];
   const native = ChildProcess.prototype.kill; let calls = 0;
   const stop = mock.method(ChildProcess.prototype, "kill", function (this: ChildProcess, signal?: NodeJS.Signals | number): boolean {
     calls += 1;
@@ -263,7 +264,7 @@ test("a false native stop result and emitted error cannot recurse or bypass reap
 test("owned child cleanup retries beyond three failures and settles persistent failures without latching", { timeout: testTime(120000) }, async (t) => {
   for (const persistent of [false, true]) await t.test(persistent ? "bounded final failure" : "three transient native failures", async () => {
     const { client, coordinates, approval, pmRoot } = await processWorkspace(); const input = trainingInput();
-    const command = [process.execPath, new URL("./fixtures/process-trainer.ts", import.meta.url).pathname, "callback-long", String(persistent)];
+    const command = [process.execPath, fileURLToPath(new URL("./fixtures/process-trainer.ts", import.meta.url)), "callback-long", String(persistent)];
     const nativeChildKill = ChildProcess.prototype.kill; const nativeKill = process.kill.bind(process);
     let attempts = 0; let pid: number | undefined; let child: ChildProcess | undefined;
     const unhandled: unknown[] = []; const monitor = (error: unknown): void => { unhandled.push(error); };
@@ -332,7 +333,7 @@ test("owned stop retry bounds handle false returns, thrown errors, permanent ref
 test("cleanup exhaustion fault matrix observes native detach, identity and close failures", async (t) => {
   for (const mode of ["stdin", "stdout", "stderr", "unref", "identity", "identity-exit", "runner", "false-success", "close-lost", "close-deferred"] as const) await t.test(mode, async () => {
     const { client, coordinates, approval, pmRoot } = await processWorkspace(); const input = trainingInput();
-    const command = [process.execPath, new URL("./fixtures/process-trainer.ts", import.meta.url).pathname, mode === "identity-exit" ? "empty" : "callback-long", mode];
+    const command = [process.execPath, fileURLToPath(new URL("./fixtures/process-trainer.ts", import.meta.url)), mode === "identity-exit" ? "empty" : "callback-long", mode];
     const nativeChildKill = ChildProcess.prototype.kill; const nativeKill = process.kill.bind(process); const nativeEmit = ChildProcess.prototype.emit; const identityRead = loopProcessIdentityIO.read;
     let child: ChildProcess | undefined; let pid: number | undefined; let deferred: unknown[] | undefined; let injected = false;
     if (mode === "identity" || mode === "identity-exit" || mode === "runner") Object.assign(loopProcessIdentityIO, { read: (file: string) => {
@@ -435,7 +436,7 @@ test("primitive callback faults remain failures after successful close and settl
   const budget = { training_steps: 100, wall_ms: 1000000, storage_bytes: 10000000, compute_units: 100000, tokens: 0 };
   let w = await processWorkspace(budget); let count = 0;
   const values: unknown[] = [undefined, null, false, 0, NaN, Infinity, -Infinity, "bare failure", Symbol("opaque")];
-  const input = trainingInput(); const fixture = new URL("./fixtures/process-trainer.ts", import.meta.url).pathname;
+  const input = trainingInput(); const fixture = fileURLToPath(new URL("./fixtures/process-trainer.ts", import.meta.url));
   const unhandled: unknown[] = []; const monitor = (error: unknown): void => { unhandled.push(error); };
   process.on("uncaughtExceptionMonitor", monitor); process.on("unhandledRejection", monitor);
   try {

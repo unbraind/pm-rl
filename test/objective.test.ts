@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { testDepth, testTime } from "./support/depth.ts";
 /** Intake objectives use creation inputs, balanced item evidence and mandatory fixed-router comparisons. */
 import assert from "node:assert/strict";
@@ -153,7 +154,7 @@ test("intake fit and replay need no git executable or enclosing repository", { t
   try {
     const bin = join(root, "tools"); mkdirSync(bin); symlinkSync(process.execPath, join(bin, "node"));
     for (const tool of ["ps", "getconf"]) symlinkSync(execFileSync("sh", ["-c", `command -v ${tool}`], { encoding: "utf8" }).trim(), join(bin, tool));
-    const output = execFileSync(process.execPath, [new URL("./fixtures/intake-no-git.ts", import.meta.url).pathname, root], { encoding: "utf8", timeout: testTime(280_000), env: { ...process.env, NODE_V8_COVERAGE: undefined, PATH: bin, GIT_CEILING_DIRECTORIES: dirname(root) } });
+    const output = execFileSync(process.execPath, [fileURLToPath(new URL("./fixtures/intake-no-git.ts", import.meta.url)), root], { encoding: "utf8", timeout: testTime(280_000), env: { ...process.env, NODE_V8_COVERAGE: undefined, PATH: bin, GIT_CEILING_DIRECTORIES: dirname(root) } });
     assert.match(output, /balanced intake fit and sealed replay/);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

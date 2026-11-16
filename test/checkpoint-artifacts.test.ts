@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { testTime } from "./support/depth.ts";
 /** Real tracker regressions for larger checkpoints, integrity, reachability and concurrent promotion without Git. */
 import assert from "node:assert/strict";
@@ -533,7 +534,7 @@ test("checkpoint benchmark measures both capacities and verified load paths on a
     const dataset = join(source.root, "checkpoint-data"); buildTrackerDataset(source.directories, dataset, 42, { task: "history-prefix" });
     const output = join(source.root, "checkpoint-evidence.json");
     const moduleUrl = new URL("../scripts/checkpoint-benchmark.ts", import.meta.url).href;
-    await checkpointBenchmarkMain([process.execPath, new URL(moduleUrl).pathname, dataset, relative(process.cwd(), join(source.root, "benchmark")), output], moduleUrl, { ...liveMetaConfiguration(), meta_generations: 1, candidates: 1 });
+    await checkpointBenchmarkMain([process.execPath, fileURLToPath(new URL(moduleUrl)), dataset, relative(process.cwd(), join(source.root, "benchmark")), output], moduleUrl, { ...liveMetaConfiguration(), meta_generations: 1, candidates: 1 });
     const evidence = JSON.parse(readFileSync(output, "utf8")) as { runs: { hashing_width: number; checkpoints: { checkpoint_bytes: number; legacy_4096_byte_reader: object | null }[] }[] };
     assert.equal(JSON.stringify(evidence).includes('"weights"'), false, "publish measurements and digests without committing checkpoint payloads");
     assert.deepEqual(evidence.runs.map((run) => run.hashing_width), [32, 4096]);

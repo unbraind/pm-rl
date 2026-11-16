@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 /** Protocol, real child execution, atomic approved reservations and evidence corruption. */
 import assert from "node:assert/strict";
 import fs, { readFileSync, writeFileSync, mkdirSync, symlinkSync, lstatSync, existsSync, rmSync, renameSync, type PathLike } from "node:fs";
@@ -17,7 +18,7 @@ delete process.env["NODE_V8_COVERAGE"];
 
 const adapter = { kind: "process-bandit", allowance } as const;
 /** Only explicitly trusted test code selects fixture argv; tracker bodies never carry commands. */
-function argv(mode: string): readonly string[] { return [process.execPath, new URL("./fixtures/process-trainer.ts", import.meta.url).pathname, mode]; }
+function argv(mode: string): readonly string[] { return [process.execPath, fileURLToPath(new URL("./fixtures/process-trainer.ts", import.meta.url)), mode]; }
 
 test("staging measurement tolerates an entry deleted after listing without accepting a missing completion", async () => {
   const { root } = await processWorkspace(); const directory = join(root, "vanishing-staging"); mkdirSync(directory);
@@ -103,7 +104,7 @@ test("receipt-required, digest and storage failures retain artifacts and settle 
 test("wall expiry and AbortSignal settle a running real child while retaining partial artifacts", async () => {
   for (const cancel of [false, true]) {
     const { client, coordinates, approval, pmRoot } = await processWorkspace(); const input = trainingInput();
-    const command = [process.execPath, new URL("./fixtures/process-hang.ts", import.meta.url).pathname]; const controller = new AbortController();
+    const command = [process.execPath, fileURLToPath(new URL("./fixtures/process-hang.ts", import.meta.url))]; const controller = new AbortController();
     let signalRunning: (() => void) | undefined;
     const running = new Promise<void>((resolve) => { signalRunning = resolve; });
     const run = executeProcessTrainer(client, { ...coordinates, onTransition(context) {
@@ -374,7 +375,7 @@ test("UTF-8 NDJSON survives split multibyte chunks without corrupting retained e
 test("the reference entry dispatcher executes the same numerical trainer with explicit real IO", async () => {
   const { root } = await processWorkspace(); let text = ""; const output = new Writable({ write(chunk: Buffer, _encoding, callback) { text += String(chunk); callback(); } });
   const url = new URL("../process-bandit.ts", import.meta.url); const input = Readable.from([JSON.stringify({ job: "entry", input: trainingInput() })]);
-  await referenceTrainerMain([process.execPath, url.pathname], url.href, input, output, root);
+  await referenceTrainerMain([process.execPath, fileURLToPath(url)], url.href, input, output, root);
   assert.ok(text.includes('"type":"complete"'));
 });
 
