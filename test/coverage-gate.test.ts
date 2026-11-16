@@ -1523,13 +1523,14 @@ test("loaded tooling config branches never enter the unchanged release coverage 
 
 
 test("sharded raw-hit replay equals unsharded lines branches functions and statements", () => {
-  dir = makeTempDir(); const root = dir.root;
+  dir = makeTempDir(); const root = join(dir.root, "checkout with spaces");
+  mkdirSync(join(root, "src"), { recursive: true });
   writeFileSync(join(root, "package.json"), '{"type":"module"}');
-  writeFileSync(join(root, "source.ts"), "/** Branch selected by separate workers. */\nexport function choose(value: boolean) {\n  if (value) return first();\n  return second();\n}\n/** First shard only. */\nfunction first() { return 1; }\n/** Second shard only. */\nfunction second() { return 2; }\n");
+  writeFileSync(join(root, "src/source.ts"), "/** Branch selected by separate workers. */\nexport function choose(value: boolean) {\n  if (value) return first();\n  return second();\n}\n/** First shard only. */\nfunction first() { return 1; }\n/** Second shard only. */\nfunction second() { return 2; }\n");
   for (const [name, value, expected] of [["first", true, 1], ["second", false, 2]] as const) {
-    writeFileSync(join(root, `${name}.test.ts`), `import { test } from 'node:test'; import assert from 'node:assert/strict'; import { choose } from './source.ts'; test('${name}', () => assert.equal(choose(${value}), ${expected}));`);
+    writeFileSync(join(root, `${name}.test.ts`), `import { test } from 'node:test'; import assert from 'node:assert/strict'; import { choose } from './src/source.ts'; test('${name}', () => assert.equal(choose(${value}), ${expected}));`);
   }
-  const config = { sources: ["source.ts"], tests: ["first.test.ts", "second.test.ts"], thresholds: { lines: 100, branches: 100, functions: 100, statements: 100 } };
+  const config = { sources: ["src/source.ts"], tests: ["first.test.ts", "second.test.ts"], thresholds: { lines: 100, branches: 100, functions: 100, statements: 100 } };
   let output = "";
   const spawn: typeof defaultSpawn = (command, args, options) => {
     const child = spawnSync(command, [...args], { ...options, stdio: "pipe", encoding: "utf8", env: { PATH: options.env.PATH, NODE_V8_COVERAGE: options.env.NODE_V8_COVERAGE } });
@@ -1540,7 +1541,7 @@ test("sharded raw-hit replay equals unsharded lines branches functions and state
   const whole = runGate(config, root, spawn);
   assert.equal(whole.exitCode, 0, output + whole.stderr);
   const lcov = readFileSync(join(root, "coverage/lcov.info"), "utf8");
-  const statements = computeStatementCoverage(join(root, "coverage/v8"), ["source.ts"], root);
+  const statements = computeStatementCoverage(join(root, "coverage/v8"), ["src/source.ts"], root);
   for (const shard of ["1/2", "2/2"]) {
     const result = runGate(config, root, spawn, undefined, { shard });
     assert.equal(result.exitCode, 0, output + result.stderr);
@@ -1548,14 +1549,14 @@ test("sharded raw-hit replay equals unsharded lines branches functions and state
   }
   const inputs = [join(root, "coverage/shard-1-of-2"), join(root, "coverage/shard-2-of-2")];
   // Simulate artifacts downloaded into a different checkout root.
-  const relocated = join(root, "relocated"); mkdirSync(relocated);
-  cpSync(join(root, "source.ts"), join(relocated, "source.ts"));
+  const relocated = join(root, "relocated"); mkdirSync(join(relocated, "src"), { recursive: true });
+  cpSync(join(root, "src/source.ts"), join(relocated, "src/source.ts"));
   const merged = runGate(config, relocated, spawn, undefined, { merge: inputs });
   assert.equal(merged.exitCode, 0, output + merged.stderr);
   assert.equal(merged.stdout, whole.stdout);
   const mergedLcov = readFileSync(join(relocated, "coverage/lcov.info"), "utf8");
   assert.equal(mergedLcov.replaceAll(relocated, root), lcov);
-  assert.deepEqual(computeStatementCoverage(join(relocated, "coverage/v8"), ["source.ts"], relocated), statements);
+  assert.deepEqual(computeStatementCoverage(join(relocated, "coverage/v8"), ["src/source.ts"], relocated), statements);
   const incomplete = runGate(config, relocated, spawn, undefined, { merge: inputs.slice(0, 1) });
   assert.notEqual(incomplete.exitCode, 0, "one shard must not satisfy the unchanged thresholds");
 });
