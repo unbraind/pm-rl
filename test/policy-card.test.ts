@@ -426,7 +426,7 @@ test("generation citations include parents, collection, environments and evaluat
 test("durable recursive phase cards are automatic and retry-safe and retain rejection explanations", async () => {
   const w = await workspace(); await w.client.create({ id: "rl-approval", type: "Decision", title: "Consent" });
   const coordinates = { pmRoot: w.pmRoot, author: "card-test" };
-  const execute = () => withRlController(w.client, coordinates, { id: "cards", approval: "rl-approval", recoveryCommand: "resume programme" }, AbortSignal.timeout(60000), async (step) => {
+  const execute = () => withRlController(w.client, coordinates, { id: "cards", approval: "rl-approval", recoveryCommand: "resume programme" }, AbortSignal.timeout(testTime(60000)), async (step) => {
     await step("programme", {}, async () => ({ config: { generations: 2, updates: 2 } }));
     await step("proposals", {}, async () => ({ configs: [{ rate: 1 }, { rate: 2 }] }));
     await step("g1-candidate", {}, async () => ({ promoted: true, samples: 2 }));
@@ -698,7 +698,7 @@ test("recursive card batch refuses collision before publishing any card", async 
 test("recursive receipt card limits refuse before receipt and history writes", async () => {
   const w = await workspace();
   await w.client.create({ id: "rl-approval", type: "Decision", title: "Consent" });
-  await withRlController(w.client, { pmRoot: w.pmRoot, author: "card-test" }, { id: "limits", approval: "rl-approval", recoveryCommand: "resume programme" }, AbortSignal.timeout(60000), async (step) => {
+  await withRlController(w.client, { pmRoot: w.pmRoot, author: "card-test" }, { id: "limits", approval: "rl-approval", recoveryCommand: "resume programme" }, AbortSignal.timeout(testTime(60000)), async (step) => {
     await step("programme", {}, async () => ({ config: { samples: 1 } }));
     await unchanged(w.pmRoot, () => step("proposals", {}, async () => ({ configs: Array(33).fill({ samples: 1 }), checkpoint: prefixCheckpoint(Array<number>(16).fill(0), { regularisation: 0.1, ngram_order: 1, hashing_width: 16 }) as unknown as JsonValue })), "card_limit");
     assert.deepEqual(await step("proposals", {}, async () => ({ configs: [{ samples: 1 }] })), { configs: [{ samples: 1 }] });
@@ -821,7 +821,7 @@ test("every receipt write preserves a peer winner between read and publication",
     const peer = new PmClient({ pmRoot: w.pmRoot, author: "peer", noExtensions: true });
     const running = JSON.stringify({ format: "pm-rl/loop-step/1", key: "receipt-step-work", input: hashJson({}), state: "running" });
     if (exists) await peer.create({ id: "receipt-step-work", type: "Decision", title: "Running", body: running });
-    await assert.rejects(withRlController(w.client, { pmRoot: w.pmRoot, author: "card-test" }, { id: "receipt", approval: "rl-approval", recoveryCommand: "resume programme" }, AbortSignal.timeout(60000), async (step) => {
+    await assert.rejects(withRlController(w.client, { pmRoot: w.pmRoot, author: "card-test" }, { id: "receipt", approval: "rl-approval", recoveryCommand: "resume programme" }, AbortSignal.timeout(testTime(60000)), async (step) => {
       await step("programme", {}, async () => ({}));
       return step("work", {}, async () => {
         if (exists) await peer.update("receipt-step-work", { body: "peer receipt" });
@@ -971,7 +971,7 @@ test("every receipt honors a peer completion between its initial check and revis
     if (!injected && args[0] === key) { injected = true; await peer.update(key, { body }); }
     return value;
   }) as PmClient["get"];
-  await withRlController(w.client, { pmRoot: w.pmRoot, author: "card-test" }, { id: "early-peer", approval: "rl-approval", recoveryCommand: "resume programme" }, AbortSignal.timeout(60000), async (step) => {
+  await withRlController(w.client, { pmRoot: w.pmRoot, author: "card-test" }, { id: "early-peer", approval: "rl-approval", recoveryCommand: "resume programme" }, AbortSignal.timeout(testTime(60000)), async (step) => {
     await step("programme", {}, async () => ({}));
     assert.deepEqual(await step("work", {}, async () => { executed = true; return { samples: 1 }; }), result);
   });

@@ -1,3 +1,4 @@
+import { testTime } from "./support/depth.ts";
 /**
  * Behavioral tests for the coverage gate script.
  *
@@ -1465,7 +1466,7 @@ import { ${member} } from "./source.ts";
 test("${name} meets ${peer}", async () => {
   assert.equal(${member}(), ${expected});
   writeFileSync("${name}.ready", "ready");
-  const deadline = Date.now() + 10000;
+  const deadline = Date.now() + ${testTime(10_000)};
   while (!existsSync("${peer}.ready") && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
   assert.ok(existsSync("${peer}.ready"), "independent native suite did not start before its peer finished");
 });

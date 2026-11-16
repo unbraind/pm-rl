@@ -115,10 +115,10 @@ async function until(predicate: () => boolean): Promise<void> {
 }
 /** Observe the daemon's actual kernel-OOM flag before allowing the idle fixture supervisor to exit. */
 async function nativeOomRecorded(id: string, directory: string): Promise<void> {
-  const deadline = performance.now() + 30_000;
+  const deadline = performance.now() + testTime(30_000);
   for (;;) {
     const remaining = deadline - performance.now();
-    assert.ok(remaining > 0, "Docker did not record the native OOM within the existing barrier bound");
+    assert.ok(remaining > 0, "Docker did not record the native OOM within the scaled harness barrier bound");
     const result = spawnSync("docker", ["container", "inspect", `${composeProject(id, directory)}-trainer`, "--format", "{{.State.OOMKilled}}"],
       { encoding: "utf8", timeout: Math.max(1, Math.floor(Math.min(1000, remaining))) });
     assert.equal(result.status, 0, "memory fixture supervisor must remain inspectable until native OOM acknowledgement");
