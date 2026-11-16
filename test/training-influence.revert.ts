@@ -17,7 +17,10 @@ function revertHistoryOrder(source: string, name: string): string {
   return source.slice(0, start) + body + source.slice(end);
 }
 const root = mkdtempSync(join(tmpdir(), "rl-influence-revert-")); const repository = resolve(".");
-const receipt = "docs/training-influence-revert.json"; refuseChangedReceipt(repository, receipt); const reviewed = worktreeState(repository, receipt);
+const receipt = "docs/training-influence-revert.json";
+const checkCopy = process.argv.includes("--check-copy");
+let reviewed: string | undefined;
+if (!checkCopy) { refuseChangedReceipt(repository, receipt); reviewed = worktreeState(repository, receipt); }
 try {
   for (const file of readdirSync(repository)) if (file.endsWith(".ts") || file === "package.json") copyFileSync(join(repository, file), join(root, file));
   mkdirSync(join(root, "test")); copyFileSync(join(repository, "test/training-influence.test.ts"), join(root, "test/training-influence.test.ts"));
@@ -28,7 +31,7 @@ try {
   cpSync(join(repository, "test/support"), join(root, "test/support"), { recursive: true });
   symlinkSync(join(repository, "node_modules"), join(root, "node_modules"), "dir");
   assert.doesNotThrow(() => execFileSync(process.execPath, ["--test", "--test-name-pattern=^copy-import-probe$", "test/training-influence.test.ts"], { cwd: root, encoding: "utf8", env: { ...process.env, NODE_TEST_CONTEXT: "" } }));
-  if (process.argv.includes("--check-copy")) { rmSync(root, { recursive: true, force: true }); process.exit(0); }
+  if (checkCopy) { rmSync(root, { recursive: true, force: true }); process.exit(0); }
   const source = join(root, "training-influence.ts"); const original = readFileSync(source, "utf8");
   const oldBehavior = original.replace("const selected = new Set(slice.members);", "const selected = new Set<string>();");
   assert.notEqual(oldBehavior, original);

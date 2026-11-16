@@ -1,7 +1,9 @@
 /** Required checks fail closed over every quick-tier dependency; deep remains a single gate. */
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { test } from "node:test";
 import { parseDocument } from "yaml";
 
@@ -56,4 +58,32 @@ test("parallel release checks retain every non-coverage release component", () =
 test("revert runner's disposable test copy imports with its support modules", () => {
   const child = spawnSync(process.execPath, ["test/training-influence.revert.ts", "--check-copy"], { encoding: "utf8", timeout: 60_000, env: { ...process.env, NODE_TEST_CONTEXT: "" } });
   assert.equal(child.status, 0, child.stdout + child.stderr);
+});
+
+test("copy-only revert probe accepts edited receipts while regeneration refuses them", t => {
+  const root = mkdtempSync(join(tmpdir(), "rl-copy-receipt-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  for (const entry of readdirSync(".")) if (entry.endsWith(".ts") || entry === "package.json" || ["test", "scripts", "examples"].includes(entry)) {
+    cpSync(entry, join(root, entry), { recursive: true });
+  }
+  symlinkSync(resolve("node_modules"), join(root, "node_modules"), "dir");
+  mkdirSync(join(root, "docs"));
+  const receipt = "docs/training-influence-revert.json";
+  const original = readFileSync(receipt, "utf8");
+  writeFileSync(join(root, receipt), original);
+  execFileSync("git", ["init", "--quiet"], { cwd: root });
+  execFileSync("git", ["add", "--", receipt], { cwd: root });
+  // No commit or global identity is needed: a staged receipt is already an edited receipt.
+  const edited = original + " \n";
+  writeFileSync(join(root, receipt), edited);
+  const run = (args: string[]) => spawnSync(process.execPath, ["test/training-influence.revert.ts", ...args], {
+    cwd: root, encoding: "utf8", timeout: 60_000, env: { ...process.env, NODE_TEST_CONTEXT: "" },
+  });
+  const check = run(["--check-copy"]);
+  assert.equal(check.status, 0, check.stdout + check.stderr);
+  assert.equal(readFileSync(join(root, receipt), "utf8"), edited);
+  const regenerate = run([]);
+  assert.notEqual(regenerate.status, 0);
+  assert.match(regenerate.stderr, /has uncommitted edits.*before regenerating the receipt/);
+  assert.equal(readFileSync(join(root, receipt), "utf8"), edited);
 });

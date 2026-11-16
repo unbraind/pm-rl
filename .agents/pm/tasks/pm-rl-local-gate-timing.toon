@@ -7,10 +7,10 @@ status: in_progress
 priority: 3
 tags[7]: acceptance,ci,follow-up,"gh:unbraind/pm-rl#145","gh:unbraind/pm-rl#180",performance,timing
 created_at: "2026-11-05T09:52:10.732Z"
-updated_at: "2026-11-16T11:59:51.129Z"
+updated_at: "2026-11-16T19:10:30.558Z"
 author: codex-agent
 parent: pm-rl-apvf
-comments[72]:
+comments[75]:
   - created_at: "2026-11-05T10:11:24.980Z"
     author: codex-agent
     text: "Final standalone results are recorded in docs/proposer-revert-evidence.json: packed process CLI reproduces ETIMEDOUT at its unchanged 20000 ms command limit; the canonical 512-card property and recoverable card transaction matrix each reproduce their unchanged 600000 ms parent limit. The transaction retry reports 133 tests: 124 pass, 7 failed-to-start after the parent finished, 2 cancellations, zero skip/todo. The packed LM command also reproduces ETIMEDOUT at 25000 ms and remains owned by pm-rl-7c7m. HTTP retry passed 1/1; callback log recovered 123/123 passes with recorder exit status unavailable after the provider interruption. Linked the already-executed process/card reproduction commands without rerunning them. Complete source-fix CI remains green across npm Node 22/26 and Bun Node 26 at original scope and thresholds."
@@ -228,6 +228,15 @@ comments[72]:
   - created_at: "2026-11-16T11:59:49.141Z"
     author: codex-sol
     text: "Verification complete for PRRT_kwDOTqJmqs632Dm-: with source dist moved aside, the corrected broad linked row passed build, typecheck, build:test and lint, then 112 behavior tests passed, 0 failed and 5 real-Docker cases skipped under the retained PM_TEST_DOCKER=off setting. It ran as row 22 before the two other repaired entries moved it to row 20. The isolated live-prefix packed acceptance passed as current row 23: 1 test, 0 failures, 0 skips. Command: pm test pm-rl-local-gate-timing --run --only-index 23 --progress --full-output. Current workflow row 21 passed 73 contracts, and changelog:check passed. Original rows 9, 21 and 22 differ solely by build prefixes; environments, contexts, selectors and timeouts are preserved. Rebuilt the source dist from current code after the snapshot runs; the prior generated output remains set aside. Docker-backed behavior and remote CI are not certified by these results."
+  - created_at: "2026-11-16T19:06:16.675Z"
+    author: codex-sol
+    text: "Review round O: pulled fast-forward only and verified supplied PR head. Checking each requested thread against source before changes; will run targeted gates and commit tracker evidence with fixes. No workflow dispatches or review-thread mutations."
+  - created_at: "2026-11-16T19:08:39.559Z"
+    author: codex-sol
+    text: "PRRT_kwDOTqJmqs64Blju verified: receipt regeneration guards ran before copy-only exit. Check-copy now skips refuseChangedReceipt and worktreeState; regenerating mode retains both. Regression uses a disposable Git repository with an edited receipt, checks copy-only succeeds without byte changes and regeneration refuses. No CI rerun or dispatch requested."
+  - created_at: "2026-11-16T19:10:28.170Z"
+    author: codex-sol
+    text: "Round O validation passed: npm run typecheck; npm run build:test; npm run lint; node --test --test-concurrency=1 test/ci-workflow.test.ts test/release-workflow.test.ts; npm run changelog:check; git diff --check. Linked test execution passed in tracker/source mode after an invalid context selection ran no tests. Disposable receipt probe succeeds with whitespace edits under --check-copy, preserves receipt bytes, and regeneration still refuses. No workflow dispatch or rerun. Full CI remains separate evidence."
 files[60]{path,scope}:
   .agents/pm/tasks/pm-rl-local-gate-timing.toon,project
   .github/workflows/ci-deep.yml,project
@@ -289,7 +298,7 @@ files[60]{path,scope}:
   test/transfer-review-round6.test.ts,project
   test/transfer-review.test.ts,project
   test/worst-cohort.test.ts,project
-tests[23]:
+tests[25]:
   - command: npm run build && nice -n 10 node --test --test-concurrency=1 --test-reporter=spec '--test-name-pattern=packed CLI trains two external generations' test/process-cli.test.ts
     scope: project
     timeout_seconds: 420
@@ -494,6 +503,22 @@ tests[23]:
     provenance:
       author: codex-sol
       created_at: "2026-11-16T11:58:12.691Z"
+      source_kind: local_mutation
+      source_ref: ci/quick-pr-tier-deep-local-tier
+  - command: "node --test --test-concurrency=1 test/ci-workflow.test.ts test/release-workflow.test.ts && npm run changelog:check && git diff --check"
+    scope: project
+    timeout_seconds: 1800
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-16T19:08:46.828Z"
+      source_kind: local_mutation
+      source_ref: ci/quick-pr-tier-deep-local-tier
+  - command: "npm run typecheck && npm run build:test && npm run lint"
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-16T19:09:21.271Z"
       source_kind: local_mutation
       source_ref: ci/quick-pr-tier-deep-local-tier
 docs[9]{path,scope}:
