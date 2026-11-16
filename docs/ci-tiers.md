@@ -25,6 +25,8 @@ CodeQL is not required by main branch protection.
 | Synthetic Docker executable tests | quick | quick | if selected | four release gates on pm-local |
 | Real Compose bandit and LM lifecycle/resource drills | hosted deep only | hosted deep only | hosted deep only | separate hosted Docker jobs, Node 22/26 |
 | Exhaustive sequential mutable-edge/commuting-read matrix | focused endpoints | focused endpoints | full-depth deep only | full in four release gates |
+| Snapshot/card corruption and callback/recovery fault matrices | representative kinds | representative kinds | if selected | exhaustive in four release gates |
+| Real healthy-owner wait beyond 30 seconds | deep only | deep only | deep only | unchanged real wait |
 | CodeQL | matching paths | matching paths | path-filtered | main matching paths and weekly Monday 05:37 UTC |
 
 The docs/tracker classifier uses a NUL-delimited base-to-head diff, without rename
@@ -82,7 +84,23 @@ The four independent 128-case card corpora retain 25 cases **per seed**.
 The 10,000-trial simulation retains 1,000 trials; success/error assertions use
 the generated trial count. Proposer replay counts derive from generated records,
 including actual mutation cases, rather than the original 500-case totals.
-Fixed capacity, memory, resource-budget and corruption fixtures remain intact.
+Fixed capacity, memory and resource-budget fixtures remain intact.
+`testCases` applies `testDepth` to exhaustive corruption and fault matrices. It
+retains first/last cases, evenly spread middle cases, every declared input/site,
+and each fault or boundary kind. Required kinds can exceed the depth budget;
+matrices below 25 cases remain exhaustive (including the 15-case main corpus,
+four-phase crash sweeps and eight HTTP receipt crash cases). Full depth returns
+every case in the original order. The native snapshot chain still runs all three
+promotions and every receipt/card variant at quick depth; only its corruption
+pairs are sampled. Card recovery retains all command paths, boundary kinds and
+EIO/ENOSPC/SIGKILL modes. The callback matrix retains every operation site and
+error code. Routine card mutations retain every input and mutation kind.
+
+The 35-second healthy-owner wait is deep-only, with its real product contract
+unchanged; the ordinary competing-promoter test remains in quick. The controller
+heartbeat contract still uses its real interval in both tiers. Quick engines and
+coverage run at most four independent files at once; full/local test commands
+retain two. Tests that patch process globals remain serial within each file.
 The exhaustive sequential snapshot matrix moves to deep; its focused endpoint
 and candidate-discovery drill remains in quick. No coverage threshold, source
 scope or exclusion changes in either depth.

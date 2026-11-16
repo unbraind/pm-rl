@@ -4,12 +4,14 @@ description: "Investigate repeatable local acceptance latency without changing a
 type: Task
 status: in_progress
 priority: 3
-tags[6]: acceptance,ci,follow-up,"gh:unbraind/pm-rl#145",performance,timing
+tags[7]: acceptance,ci,follow-up,"gh:unbraind/pm-rl#145","gh:unbraind/pm-rl#180",performance,timing
 created_at: "2026-11-05T09:52:10.732Z"
-updated_at: "2026-11-16T00:43:04.825Z"
+updated_at: "2026-11-16T02:00:02.864Z"
+assignee: codex-sol
+claim_principal: codex-sol
 author: codex-agent
 parent: pm-rl-apvf
-comments[26]{created_at,author,text}:
+comments[32]{created_at,author,text}:
   "2026-11-05T10:11:24.980Z",codex-agent,"Final standalone results are recorded in docs/proposer-revert-evidence.json: packed process CLI reproduces ETIMEDOUT at its unchanged 20000 ms command limit; the canonical 512-card property and recoverable card transaction matrix each reproduce their unchanged 600000 ms parent limit. The transaction retry reports 133 tests: 124 pass, 7 failed-to-start after the parent finished, 2 cancellations, zero skip/todo. The packed LM command also reproduces ETIMEDOUT at 25000 ms and remains owned by pm-rl-7c7m. HTTP retry passed 1/1; callback log recovered 123/123 passes with recorder exit status unavailable after the provider interruption. Linked the already-executed process/card reproduction commands without rerunning them. Complete source-fix CI remains green across npm Node 22/26 and Bun Node 26 at original scope and thresholds."
   "2026-11-05T12:32:36.997Z",codex-agent,"PR 145 replay review round 3 adds another unchanged-bound local timing receipt: Node 26 npm release passed 31/31 release-policy tests, then test/baseline.test.ts case refused vector retries converge at every collect train evaluate refusal and terminal boundary on one plain tracker reached its existing 600000 ms parent timeout. The full local command subsequently exhausted a 20-minute outer execution budget and has no completed coverage totals. No successful retry is claimed: the exact fix-head CI release matrix remains queued at https://github.com/unbraind/pm-rl/actions/runs/42025105305 . The new replay-focused run passed 19/19 and restored behavioral revert controls passed 6/6. Preserve all existing test and coverage bounds; replay correctness remains tracked by pm-rl-proposer-program."
   "2026-11-05T13:53:54.713Z",codex-agent,"Round 4 measures the unchanged 500-sequence test before/after retaining all SDK checks. Inputs and native-update draws stay in their original deterministic order; eight identity groups share one real tracker and one lease each. Added structural assertions for all 500 visited sequences, 2000 program operations, 500 native replays, 1000 native read-back checks, 20 native mutations and eight sessions. The existing 600-second parent timeout and all release thresholds remain unchanged. Baseline timing is running; direct release gates will use the CI runtime and isolated Git identity."
@@ -36,7 +38,13 @@ comments[26]{created_at,author,text}:
   "2026-11-16T00:41:22.849Z",codex-sol,"Quick seeded/property proof passed 8/8 in 320250 ms on the shared host at time scale 3: paired and balanced gates, card alias corpus, proposer model, sequential simulation/model, training-influence model and worst-cohort model. Actual proposer records: 50 sequences, 200 randomized operations, 50 SDK replays, 100 native-read assertions, 2 native mutations, 36 drift refusals, 8 controller sessions. Simulation: 1000 trials, 1000 benefit successes/early stops, zero null errors/false futility. These are local subset timings, not complete quick-gate or hosted measurements. Diagnostics now report generated depth rather than the original full count. Docs-only routing explicitly retains identity/privacy/secret-named suites as well as docs/packed input suites."
   "2026-11-16T00:41:56.843Z",codex-sol,"Documentation audit confirms the old 20-second LM elapsed assertion described acceptance throughput, while product trainer/resource budgets are separately declared. Current verification prose now states the scaled external-command harness watchdog (LM default 25 seconds, process default 20 seconds) and diagnostic elapsed measurements. Historical measured receipts remain intact. Product allowance/deadline assertions remain unchanged."
   "2026-11-16T00:43:03.223Z",codex-sol,"Final local evidence: 96/96 touched identity/coverage-harness tests passed in 8.95 seconds at scale 3; final generated-count diagnostics passed 2/2 in 11.06 seconds. Source typecheck, build, test typecheck, lint, changelog, unchanged publish-attestation verifier, clean-HOME strict health and strict YAML/matrix checks passed. One optional quick coverage attempt was stopped after 983 seconds in the gate (16m23s), still in early controller fault matrices, because it could not plausibly complete inside the 20-minute shared-host budget. No failure had been reported before termination; this is incomplete coverage evidence, not a pass. Full depth was not run locally. Current code CI run 43781112285 has both required checks still running, so completed PR wall times are unavailable. Full baseline hosted times remain 79m58s / 60m14s / 63m23s. Risks: complete quick coverage, final PR duration under 30 minutes, and post-merge full local/Docker deep routing remain unverified. No reviews were answered, no item closed, and no merge or repository policy changes made."
-files[51]{path,scope}:
+  "2026-11-16T01:21:30.020Z",codex-sol,"Claimed follow-up for #180. Cancelled run 43782039631 had no test failure: Node 22 engines step 1797s and Node 26 release step 1792s. Ranked remaining tests: card recovery matrix 193s, shared tracker interleavings 64s, routine card mutations 48s, large learner 48s, generation evidence mutations 44s, pending peer refusals 34s (Node 26). Plan: depth-aware deterministic matrix sampling with required kinds retained, deep-only long real ownership wait, unchanged coverage and job timeouts. Existing test and coverage runners already use file concurrency 2."
+  "2026-11-16T01:27:03.790Z",codex-sol,"Sampler design retains all required input/site and fault/boundary kinds plus first/last and spread cases, never below testDepth minimum. Small matrices remain exhaustive: 15-case main compatibility corpus, four-phase crash sweeps and eight HTTP receipt cases. Three snapshot promotions and all receipt/card variants remain in quick. The 35s ownership wait moves to deep without changing its contract; real heartbeat interval remains unchanged. Quick engines/coverage overlap four independent files; full retains two. A linked-test invocation accidentally selected historical commands; stopped that replay and reran only the newly linked depth test, which passed 3/3 in 4.48s. No historical coverage pass is claimed."
+  "2026-11-16T01:43:01.296Z",codex-sol,"Local original quick baseline: callback matrix reached its unchanged 600s harness timeout (no assertion failure before timeout); healthy-owner real-wait test completed in 103.105s; decision graph corruption matrix completed in 323.585s; unchanged heartbeat contract completed in 71.326s. Local load is high, so these are shared-host measurements, not hosted CI predictions. New focused depth tests passed 3/3; coverage harness suites passed 65/65 in 14.016s, including real full/quick worker coverage merging; release/workflow/discovery contracts passed 38/38 in 2.663s. Typecheck, test typecheck, lint, build, changelog, strict isolated health, strict workflow YAML and unchanged release-publish attestation verification passed. Final sampled-file timing is running at quick depth with harness scale 3; product deadlines and resources are unchanged."
+  "2026-11-16T01:51:08.348Z",codex-sol,"Final callback quick matrix passed all 30 selected cases in 163.011s with zero unhandled failures, versus original timeout at 600.003s. All 16 discovered operation sites, all callback/cleanup/symlink sites and all error kinds remain represented. The ownership-wait quick skip removes the original 103.105s real-wait test, which stays unchanged in deep. Card recovery selection keys each boundary kind by command path, retaining before/after schema, receipt, seal, card and read boundaries wherever that command supports them. Focused depth/coverage suites passed 65/65 through pm test in 11.127s."
+  "2026-11-16T01:55:11.885Z",codex-sol,"Raw jobs API independently confirms run 43782039631: Node 22 created-to-completed 1816s, execution 1814s, engines step cancelled at 1797s; Node 26 created-to-completed 1818s, execution 1816s, release step cancelled at 1792s. New sampled decision-graph corruption test passed locally in 229.696s versus 323.585s before. All three generations, legacy/current receipt variants and all snapshot single-input corruptions are retained. The main 15-case compatibility corpus and small phase/HTTP sweeps stay exhaustive because they are below the depth floor."
+  "2026-11-16T02:00:02.858Z",codex-sol,"Pushing implementation early per rollout template while the remaining original/sampled snapshot and card timings continue locally. Completed sampled callback 163.011s versus original 600.003s timeout; sampled graph 229.696s versus 323.585s. Sampled graph candidate/refused sweep 188.025s versus 185.309s: no speedup claimed for that case. Original routine-card mutations completed in 410.284s; sampled timing pending. All static gates and release contracts pass. Final local touched-file total, unchanged 100-percent quick coverage and hosted step durations remain pending. Observation is bounded to 30 minutes after the last push."
+files[53]{path,scope}:
   .agents/pm/tasks/pm-rl-local-gate-timing.toon,project
   .github/workflows/ci-deep.yml,project
   .github/workflows/ci.yml,project
@@ -44,6 +52,7 @@ files[51]{path,scope}:
   docs/ci-tiers.md,project
   docs/lm-adapter.md,project
   docs/process-trainer.md,project
+  scripts/coverage-gate.ts,project
   test/audit-git-identities.test.ts,project
   test/bandit.test.ts,project
   test/baseline.test.ts,project
@@ -59,6 +68,7 @@ files[51]{path,scope}:
   test/depth.test.ts,project
   test/evaluation-compatibility.test.ts,project
   test/evaluation-integration.test.ts,project
+  test/fixtures/durable-snapshots.ts,project
   test/improver.test.ts,project
   test/json-boundaries.test.ts,project
   test/lm-cli.test.ts,project
@@ -88,18 +98,138 @@ files[51]{path,scope}:
   test/transfer-review-round6.test.ts,project
   test/transfer-review.test.ts,project
   test/worst-cohort.test.ts,project
-tests[11]{command,scope,timeout_seconds,pm_context_mode,workspace_context_mode,provenance{author,created_at,source_kind,source_ref}}:
-  npm run build && nice -n 10 node --test --test-concurrency=1 --test-reporter=spec '--test-name-pattern=packed CLI trains two external generations' test/process-cli.test.ts,project,420,none,snapshot,codex-agent,"2026-11-05T17:57:00.565Z",local_mutation,feat/proposer-program-evolution
-  "npm run build && nice -n 10 node --test --test-concurrency=1 --test-reporter=spec '--test-name-pattern=canonical card property: 512 seeded' test/policy-card.test.ts",project,870,none,snapshot,codex-agent,"2026-11-05T17:57:08.621Z",local_mutation,feat/proposer-program-evolution
-  npm run build && nice -n 10 node --test --test-concurrency=1 --test-reporter=spec '--test-name-pattern=recoverable card transactions finish every EIO' test/policy-card.test.ts,project,870,none,snapshot,codex-agent,"2026-11-05T17:57:15.645Z",local_mutation,feat/proposer-program-evolution
-  npm run build && node --test --test-concurrency=1 --test-name-pattern=500.seeded test/proposer-program.test.ts,project,820,none,snapshot,codex-agent,"2026-11-05T17:57:34.774Z",local_mutation,feat/proposer-program-evolution
-  "npm run build && node --test --test-concurrency=1 --test-name-pattern=\"owned child cleanup retries|SIGKILL at every HTTP-to-PM receipt boundary\" test/controller-boundaries.test.ts test/decision-recovery.test.ts",project,720,none,snapshot,codex-agent,"2026-11-05T17:58:00.164Z",local_mutation,feat/proposer-program-evolution
-  npm run build && node --test --test-concurrency=1 test/bandit.test.ts,project,420,none,snapshot,codex-agent,"2026-11-05T17:59:02.104Z",local_mutation,feat/proposer-program-evolution
-  node --test test/depth.test.ts,project,120,none,snapshot,codex-sol,"2026-11-16T00:27:11.896Z",local_mutation,ci/quick-pr-tier-deep-local-tier
-  PM_TEST_DEPTH=quick PM_TEST_DOCKER=off PM_TEST_TIME_SCALE=3 timeout --kill-after=30s 1200s npm run coverage,project,1260,none,snapshot,codex-sol,"2026-11-16T00:32:58.831Z",local_mutation,ci/quick-pr-tier-deep-local-tier
-  "npm run typecheck && npm run lint && npm run build:test",project,300,none,snapshot,codex-sol,"2026-11-16T00:33:02.260Z",local_mutation,ci/quick-pr-tier-deep-local-tier
-  PM_TEST_DEPTH=quick PM_TEST_DOCKER=off PM_TEST_TIME_SCALE=3 node --test --test-concurrency=2 test/audit-git-identities.test.ts test/coverage-gate.test.ts,project,180,none,snapshot,codex-sol,"2026-11-16T00:33:38.658Z",local_mutation,ci/quick-pr-tier-deep-local-tier
-  "PM_TEST_DEPTH=quick PM_TEST_DOCKER=off PM_TEST_TIME_SCALE=3 timeout --kill-after=15s 600s node --test --test-concurrency=2 '--test-name-pattern=^500 seeded|^canonical card property|^null, benefit|^balanced gate property|^paired gate property' test/training-influence.test.ts test/proposer-program.test.ts test/sequential-evaluation.test.ts test/policy-card.test.ts test/worst-cohort.test.ts test/objective.test.ts test/baseline.test.ts",project,660,none,snapshot,codex-sol,"2026-11-16T00:41:20.427Z",local_mutation,ci/quick-pr-tier-deep-local-tier
+tests[14]:
+  - command: npm run build && nice -n 10 node --test --test-concurrency=1 --test-reporter=spec '--test-name-pattern=packed CLI trains two external generations' test/process-cli.test.ts
+    scope: project
+    timeout_seconds: 420
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-05T17:57:00.565Z"
+      source_kind: local_mutation
+      source_ref: feat/proposer-program-evolution
+  - command: "npm run build && nice -n 10 node --test --test-concurrency=1 --test-reporter=spec '--test-name-pattern=canonical card property: 512 seeded' test/policy-card.test.ts"
+    scope: project
+    timeout_seconds: 870
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-05T17:57:08.621Z"
+      source_kind: local_mutation
+      source_ref: feat/proposer-program-evolution
+  - command: npm run build && nice -n 10 node --test --test-concurrency=1 --test-reporter=spec '--test-name-pattern=recoverable card transactions finish every EIO' test/policy-card.test.ts
+    scope: project
+    timeout_seconds: 870
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-05T17:57:15.645Z"
+      source_kind: local_mutation
+      source_ref: feat/proposer-program-evolution
+  - command: npm run build && node --test --test-concurrency=1 --test-name-pattern=500.seeded test/proposer-program.test.ts
+    scope: project
+    timeout_seconds: 820
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-05T17:57:34.774Z"
+      source_kind: local_mutation
+      source_ref: feat/proposer-program-evolution
+  - command: "npm run build && node --test --test-concurrency=1 --test-name-pattern=\"owned child cleanup retries|SIGKILL at every HTTP-to-PM receipt boundary\" test/controller-boundaries.test.ts test/decision-recovery.test.ts"
+    scope: project
+    timeout_seconds: 720
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-05T17:58:00.164Z"
+      source_kind: local_mutation
+      source_ref: feat/proposer-program-evolution
+  - command: npm run build && node --test --test-concurrency=1 test/bandit.test.ts
+    scope: project
+    timeout_seconds: 420
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-05T17:59:02.104Z"
+      source_kind: local_mutation
+      source_ref: feat/proposer-program-evolution
+  - command: node --test test/depth.test.ts
+    scope: project
+    timeout_seconds: 120
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-16T00:27:11.896Z"
+      source_kind: local_mutation
+      source_ref: ci/quick-pr-tier-deep-local-tier
+  - command: PM_TEST_DEPTH=quick PM_TEST_DOCKER=off PM_TEST_TIME_SCALE=3 timeout --kill-after=30s 1200s npm run coverage
+    scope: project
+    timeout_seconds: 1260
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-16T00:32:58.831Z"
+      source_kind: local_mutation
+      source_ref: ci/quick-pr-tier-deep-local-tier
+  - command: "npm run typecheck && npm run lint && npm run build:test"
+    scope: project
+    timeout_seconds: 300
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-16T00:33:02.260Z"
+      source_kind: local_mutation
+      source_ref: ci/quick-pr-tier-deep-local-tier
+  - command: PM_TEST_DEPTH=quick PM_TEST_DOCKER=off PM_TEST_TIME_SCALE=3 node --test --test-concurrency=2 test/audit-git-identities.test.ts test/coverage-gate.test.ts
+    scope: project
+    timeout_seconds: 180
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-16T00:33:38.658Z"
+      source_kind: local_mutation
+      source_ref: ci/quick-pr-tier-deep-local-tier
+  - command: "PM_TEST_DEPTH=quick PM_TEST_DOCKER=off PM_TEST_TIME_SCALE=3 timeout --kill-after=15s 600s node --test --test-concurrency=2 '--test-name-pattern=^500 seeded|^canonical card property|^null, benefit|^balanced gate property|^paired gate property' test/training-influence.test.ts test/proposer-program.test.ts test/sequential-evaluation.test.ts test/policy-card.test.ts test/worst-cohort.test.ts test/objective.test.ts test/baseline.test.ts"
+    scope: project
+    timeout_seconds: 660
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-16T00:41:20.427Z"
+      source_kind: local_mutation
+      source_ref: ci/quick-pr-tier-deep-local-tier
+  - command: PM_TEST_DEPTH=quick node --test test/depth.test.ts
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-16T01:24:03.154Z"
+      source_kind: local_mutation
+      source_ref: ci/quick-pr-tier-deep-local-tier
+  - command: PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 node --test --test-reporter=tap --test-concurrency=2 test/checkpoint-artifacts.test.ts test/controller-boundaries.test.ts test/decision-evidence.test.ts test/durable-snapshots.test.ts test/policy-card.test.ts
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-16T01:42:58.874Z"
+      source_kind: local_mutation
+      source_ref: ci/quick-pr-tier-deep-local-tier
+  - command: PM_TEST_DEPTH=quick node --test test/coverage-gate.test.ts test/depth.test.ts
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-16T01:46:14.918Z"
+      source_kind: local_mutation
+      source_ref: ci/quick-pr-tier-deep-local-tier
 docs[7]{path,scope}:
   docs/ci-tiers.md,project
   docs/lm-adapter.md,project

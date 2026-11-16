@@ -1,4 +1,4 @@
-import { testDepth } from "./support/depth.ts";
+import { testCases, testDepth } from "./support/depth.ts";
 /** Adversarial graphs are certified and corrupted through the real SDK in a non-git tracker. */
 import assert from "node:assert/strict";
 import { rmSync, existsSync, readFileSync } from "node:fs";
@@ -88,7 +88,8 @@ async function corruptDecisionCards(client: PmClient, cards: readonly PolicyCard
     }
     const originals = new Map(await Promise.all(ids.map(async (id) => [id, (await readCompleteLoopItem(client, id)).item] as const)));
     let checks = 0;
-    for (const damaged of cases) {
+    const selected = testCases(cases, (ids) => [ids.length === 1 ? `single:${ids[0]}` : "pair"]);
+    for (const damaged of selected) {
       for (const id of damaged) {
         const item = originals.get(id)!;
         await client.update(id, item.type === "Generation" ? { affectedVersion: "corrupt" } : { body: `${String(item.body ?? "")}\ncorrupt` });
@@ -113,7 +114,7 @@ async function corruptDecisionCards(client: PmClient, cards: readonly PolicyCard
       if (checks % 40 === 0) console.log(JSON.stringify({ corruption_checks_completed: checks }));
     }
     for (const card of cards) assert.equal((await exportPolicyCard(client, card.subject, card.selection)).digest, card.digest);
-    console.log(JSON.stringify({ outcome: cards[0].outcome, inputs: ids.length, mutation_sets: cases.length, cards: cards.length, corruption_checks: checks, non_git: true }));
+    console.log(JSON.stringify({ outcome: cards[0].outcome, inputs: ids.length, mutation_sets: selected.length, cards: cards.length, corruption_checks: checks, non_git: true }));
 }
 
 test("decision graph property corrupts every input and every pair for generation recursive and selected cards", async () => {

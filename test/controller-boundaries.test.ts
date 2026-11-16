@@ -1,4 +1,4 @@
-import { testDepth, testTime } from "./support/depth.ts";
+import { testCases, testDepth, testTime } from "./support/depth.ts";
 /** Canonical SDK identities and complete callback failure paths on real non-git trackers. */
 import assert from "node:assert/strict";
 import { ChildProcess, spawn } from "node:child_process";
@@ -140,8 +140,9 @@ test("callback fault matrix reaps real children and settles each reservation onc
     controllerCallbackIO.before = () => undefined;
     const operations = [...sites].filter((site) => !site.startsWith("callback.")).sort();
     assert.ok(operations.includes("stderr.path") && operations.includes("stdout.read") && operations.includes("poll.staging.list"));
-    for (const site of [...operations, "callback.stdout", "callback.stderr", "callback.close", "callback.poll", "callback.timer", "callback.abort", "failure.kill", "failure.kill-all", "review.symlink", "child.symlink"]) {
-      for (const code of site.endsWith("symlink") ? ["symlink"] : ["EACCES", "ENOSPC", "ENOENT", "EISDIR", "statePath"]) {
+    const cases = [...operations, "callback.stdout", "callback.stderr", "callback.close", "callback.poll", "callback.timer", "callback.abort", "failure.kill", "failure.kill-all", "review.symlink", "child.symlink"]
+      .flatMap((site) => (site.endsWith("symlink") ? ["symlink"] : ["EACCES", "ENOSPC", "ENOENT", "EISDIR", "statePath"]).map((code) => ({ site, code })));
+    for (const { site, code } of testCases(cases, ({ site, code }) => [`site:${site}`, `code:${code}`])) {
         await t.test(`${site}/${code}`, async () => {
         count += 1; let injected = false;
         // Bound tracker size without deleting any accounting evidence or replacing the real SDK.
@@ -177,7 +178,6 @@ test("callback fault matrix reaps real children and settles each reservation onc
         assert.deepEqual(await client.get(id, { full: true }), saved);
         if (count % 20 === 0) console.log(JSON.stringify({ fault_cases_verified: count }));
         });
-      }
     }
     assert.deepEqual(unhandled, []); console.log(JSON.stringify({ callback_operation_sites: operations, fault_cases: count, unhandled: unhandled.length }));
   } finally { controllerCallbackIO.before = () => undefined; process.removeListener("uncaughtExceptionMonitor", monitor); process.removeListener("unhandledRejection", monitor); }

@@ -1454,7 +1454,10 @@ test("a file with several uncovered blocks is listed once", () => {
 });
 
 
-test("bounded two-worker coverage joins independent native suites and merges their source coverage", () => {
+for (const depth of ["full", "quick"] as const) test(`bounded ${depth} coverage joins independent native suites and merges their source coverage`, (context) => {
+  const previous = process.env.PM_TEST_DEPTH;
+  process.env.PM_TEST_DEPTH = depth;
+  context.after(() => { if (previous === undefined) delete process.env.PM_TEST_DEPTH; else process.env.PM_TEST_DEPTH = previous; });
   dir = makeTempDir(); const root = dir.root;
   writeFileSync(join(root, "package.json"), '{"type":"module"}');
   writeFileSync(join(root, "source.ts"), "/** First participant. */\nexport function first() { return 1; }\n/** Second participant. */\nexport function second() { return 2; }\n");

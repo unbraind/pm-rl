@@ -609,7 +609,7 @@ test("two processes promote into one plain tracker without losing roots or corru
   await concurrentCheckpointPromotions(t.signal);
 });
 
-test("checkpoint promoters outwait a healthy workspace owner held beyond thirty seconds", { timeout: testTime(900_000) }, async (t) => {
+test("checkpoint promoters outwait a healthy workspace owner held beyond thirty seconds", { skip: process.env.PM_TEST_DEPTH === "quick" ? "long real ownership wait is certified in ci-deep" : false, timeout: testTime(900_000) }, async (t) => {
   await concurrentCheckpointPromotions(t.signal, 35_000);
 });
 

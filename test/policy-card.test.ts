@@ -1,4 +1,4 @@
-import { testDepth, testTime } from "./support/depth.ts";
+import { testCases, testDepth, testTime } from "./support/depth.ts";
 /** Portable explanation regressions exercise real SDK histories in plain-directory trackers. */
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -471,7 +471,7 @@ test("promoted cards survive every routine tracker mutation throughout the certi
   const w = await promotedFixture();
   const original = await exportPolicyCard(w.client, w.subject);
   const ids = new Set([w.subject, ...original.evidence.map((entry) => entry.id), `rl-policy-card-${original.digest}`]);
-  for (const id of ids) {
+  const cases = [...ids].flatMap((id) => {
     const mutations: readonly [string, () => Promise<unknown>][] = [
       ["comment", () => w.client.comments(id, { add: "Routine progress comment" })],
       ["note", () => w.client.notes(id, { add: "Routine private note" })],
@@ -482,13 +482,14 @@ test("promoted cards survive every routine tracker mutation throughout the certi
       ["status note", () => w.client.update(id, { status: "in_progress", message: "Routine status note" })],
       ["unrelated field", () => w.client.update(id, { title: "Annotated result", priority: 3 })],
     ];
-    for (const [name, mutate] of mutations) {
+    return mutations.map(([name, mutate]) => ({ id, name, mutate }));
+  });
+  for (const { id, name, mutate } of testCases(cases, ({ id, name }) => [`input:${id}`, `mutation:${name}`])) {
       await mutate();
       const fresh = await exportPolicyCard(w.client, w.subject);
       assert.deepEqual(fresh, original, `${id}: ${name} must preserve all digests and citations`);
       assert.equal((await adoptPolicyCard(w.client, fresh)).digest, original.digest, `${id}: ${name} fresh adoption`);
       assert.equal((await adoptPolicyCard(w.client, original)).digest, original.digest, `${id}: ${name} retained adoption`);
-    }
   }
 });
 
@@ -762,7 +763,7 @@ test("one generation evidence set binds card identity and normal resume for ever
       mutations.push({ id: ref.id, options: { fixedVersion: "routine-version" }, changes: false });
     }
   }
-  for (const mutation of mutations) {
+  for (const mutation of testCases(mutations, (row) => [`input:${row.id}`, `changes:${row.changes}`, ...Object.keys(row.options ?? {}).map((key) => `field:${key}`)])) {
     const before = (await w.client.get(mutation.id, { fields: "type,status,body,affected_version,component,environment,notes,fixed_version" })).item;
     await w.client.update(mutation.id, mutation.options);
     const probe = async () => hashJson((await generationEvidence(w.client, row.item)).evidence as unknown as JsonValue);
@@ -1598,12 +1599,15 @@ test("recoverable card transactions finish every EIO ENOSPC and SIGKILL boundary
     ["publish", ["card-0:before", "card-0:after", "card-1:before", "card-1:after", "card-2:before", "card-2:after"]],
     ["export", ["read:before", "read:after"]], ["adopt", ["read:before", "read:after"]],
   ];
-  for (const [path, boundaries] of cases) {
+  const faults = cases.flatMap(([path, boundaries]) => boundaries.flatMap((boundary) =>
+    (["EIO", "ENOSPC", "kill"] as const satisfies readonly FaultMode[]).map((mode) => ({ path, boundary, mode }))));
+  const selected = testCases(faults, ({ path, boundary, mode }) => [`path:${path}`, `boundary:${path}:${boundary.replace(/schema-[^:]+/, "schema").replace(/card-\d+/, "card")}`, `fault:${mode}`]);
+  for (const [path] of cases) {
     // Read-only paths start from a complete promotion; every write path starts from the same candidate.
     if (path === "export") await recoveryPath(base.pmRoot, "promote", "", "none");
     const healthy = clone(); await recoveryPath(healthy.pmRoot, path, "", "none");
     const expected = await recoveryState(healthy.client);
-    for (const boundary of boundaries) for (const mode of ["EIO", "ENOSPC", "kill"] as const satisfies readonly FaultMode[]) {
+    for (const { boundary, mode } of selected.filter((row) => row.path === path)) {
       await context.test(`${path} ${boundary} ${mode}`, async () => {
         const w = clone();
         if (mode === "kill") await killRecovery(w.pmRoot, path, boundary);
