@@ -6,12 +6,12 @@ status: in_progress
 priority: 3
 tags[7]: acceptance,ci,follow-up,"gh:unbraind/pm-rl#145","gh:unbraind/pm-rl#180",performance,timing
 created_at: "2026-11-05T09:52:10.732Z"
-updated_at: "2026-11-16T04:35:42.082Z"
+updated_at: "2026-11-16T04:46:13.477Z"
 assignee: codex-sol
 claim_principal: codex-sol
 author: codex-agent
 parent: pm-rl-apvf
-comments[48]{created_at,author,text}:
+comments[51]{created_at,author,text}:
   "2026-11-05T10:11:24.980Z",codex-agent,"Final standalone results are recorded in docs/proposer-revert-evidence.json: packed process CLI reproduces ETIMEDOUT at its unchanged 20000 ms command limit; the canonical 512-card property and recoverable card transaction matrix each reproduce their unchanged 600000 ms parent limit. The transaction retry reports 133 tests: 124 pass, 7 failed-to-start after the parent finished, 2 cancellations, zero skip/todo. The packed LM command also reproduces ETIMEDOUT at 25000 ms and remains owned by pm-rl-7c7m. HTTP retry passed 1/1; callback log recovered 123/123 passes with recorder exit status unavailable after the provider interruption. Linked the already-executed process/card reproduction commands without rerunning them. Complete source-fix CI remains green across npm Node 22/26 and Bun Node 26 at original scope and thresholds."
   "2026-11-05T12:32:36.997Z",codex-agent,"PR 145 replay review round 3 adds another unchanged-bound local timing receipt: Node 26 npm release passed 31/31 release-policy tests, then test/baseline.test.ts case refused vector retries converge at every collect train evaluate refusal and terminal boundary on one plain tracker reached its existing 600000 ms parent timeout. The full local command subsequently exhausted a 20-minute outer execution budget and has no completed coverage totals. No successful retry is claimed: the exact fix-head CI release matrix remains queued at https://github.com/unbraind/pm-rl/actions/runs/42025105305 . The new replay-focused run passed 19/19 and restored behavioral revert controls passed 6/6. Preserve all existing test and coverage bounds; replay correctness remains tracked by pm-rl-proposer-program."
   "2026-11-05T13:53:54.713Z",codex-agent,"Round 4 measures the unchanged 500-sequence test before/after retaining all SDK checks. Inputs and native-update draws stay in their original deterministic order; eight identity groups share one real tracker and one lease each. Added structural assertions for all 500 visited sequences, 2000 program operations, 500 native replays, 1000 native read-back checks, 20 native mutations and eight sessions. The existing 600-second parent timeout and all release thresholds remain unchanged. Baseline timing is running; direct release gates will use the CI runtime and isolated Git identity."
@@ -60,6 +60,9 @@ comments[48]{created_at,author,text}:
   "2026-11-16T04:30:55.993Z",codex-sol,"The no-context pm test retry was refused before execution because pm_context_mode=none requires an isolated/snapshot workspace. Running the exact linked integration command directly instead, preserving source-workspace fidelity and avoiding injected PM_PATH. The mandatory pm test execution is recorded above; its 104-test harness command passed, while the integration wrapper failure is a sandbox collision."
   "2026-11-16T04:34:24.025Z",codex-sol,"The final shard/merge and CLI-mode fixtures also pass on Node 26.13.0 (2/2), matching the hosted coverage runtime. Source/test typechecks and lint pass after the final artifact diagnostic change. Explicit-path staging contains only the workflow, coverage gate and fixtures, both review fixes, CI tier documentation, and this item's task/history pair."
   "2026-11-16T04:35:42.081Z",codex-sol,"Direct execution of the linked touched-suite command passed 115/115, zero failures, skips or cancellations: PM_TEST_DEPTH=quick PM_TEST_DOCKER=off node --test --test-concurrency=2 test/mutation-preflight.test.ts test/controller-boundaries.test.ts test/training-influence.test.ts. Printed operations=50 and canonical_sequences=50 at quick depth. The wrapper sandbox collision and refused no-context wrapper remain separate receipts. Final local validation is complete; preparing the implementation push and bounded hosted observation."
+  "2026-11-16T04:36:05.562Z",codex-sol,"Pushed implementation 829fef3017da0389a3a3cf745507e6ff3226f1a5 at 2026-11-16 04:35:45 UTC after checking the shared-runner hold and verifying that all branch commit author emails equal the approved bot address. Both supplied Greptile thread fixes are in that commit. PR body updated with job shape, local proof, previous jobs API times and the 05:05:45 UTC observation deadline. Waiting only within that bound for hosted job durations and merged package-wide coverage."
+  "2026-11-16T04:45:58.149Z",codex-sol,"Hosted implementation run 43805065024 exposed an existing proof-producer source contract: evaluation-lifecycle-proof.test.ts forbids spawnSync in revert producers. Coverage shard 4 failed at 501 s solely on the new copy-import probe's spawnSync spelling; release-checks passed in 49 s and coverage shard 1 in 222 s. Replacing that probe with asserted execFileSync preserves the actual copied-test import check and the shared proveRevert admission path. Running proof/workflow contracts plus test typecheck/lint before the corrective push. Other first-run shards are still active; their eventual cancellations must not be counted as passes."
+  "2026-11-16T04:46:13.476Z",codex-sol,"Corrective local proof passed: PM_TEST_DEPTH=quick node --test --test-concurrency=2 test/evaluation-lifecycle-proof.test.ts test/ci-workflow.test.ts (11/11, zero failures/skips), npm run build:test and npm run lint. Both copied-test import and existing proof-producer contracts pass with asserted execFileSync."
 files[55]{path,scope}:
   .agents/pm/tasks/pm-rl-local-gate-timing.toon,project
   .github/workflows/ci-deep.yml,project
@@ -116,7 +119,7 @@ files[55]{path,scope}:
   test/transfer-review-round6.test.ts,project
   test/transfer-review.test.ts,project
   test/worst-cohort.test.ts,project
-tests[18]:
+tests[19]:
   - command: npm run build && nice -n 10 node --test --test-concurrency=1 --test-reporter=spec '--test-name-pattern=packed CLI trains two external generations' test/process-cli.test.ts
     scope: project
     timeout_seconds: 420
@@ -276,6 +279,14 @@ tests[18]:
     provenance:
       author: codex-sol
       created_at: "2026-11-16T04:27:44.550Z"
+      source_kind: local_mutation
+      source_ref: ci/quick-pr-tier-deep-local-tier
+  - command: PM_TEST_DEPTH=quick node --test --test-concurrency=2 test/evaluation-lifecycle-proof.test.ts test/ci-workflow.test.ts
+    scope: project
+    timeout_seconds: 180
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-16T04:45:59.122Z"
       source_kind: local_mutation
       source_ref: ci/quick-pr-tier-deep-local-tier
 docs[7]{path,scope}:
