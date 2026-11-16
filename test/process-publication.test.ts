@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 /** Full-executor publication faults and native revision fences preserve peer progress and accounting. */
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -464,7 +465,7 @@ test("real child failure and cancellation cannot settle a peer's newer running r
   for (const cancel of [false, true]) {
     const resources = { ...allowance, tokens: 4 };
     const { client, coordinates, approval, pmRoot } = await processWorkspace(resources); const input = trainingInput();
-    const command = [process.execPath, new URL("./fixtures/process-hang.ts", import.meta.url).pathname];
+    const command = [process.execPath, fileURLToPath(new URL("./fixtures/process-hang.ts", import.meta.url))];
     const adapter = { kind: "process-bandit", allowance: resources } as const; const id = processJobId(input, command, adapter);
     const directory = processStaging(pmRoot, id); const controller = new AbortController();
     const outcome = executeProcessTrainer(client, coordinates, input, approval, adapter, controller.signal, command).then(() => null, (error: unknown) => error);

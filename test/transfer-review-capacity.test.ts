@@ -1,3 +1,4 @@
+import { testTime } from "./support/depth.ts";
 /** Powered storage regressions retain released formats and use real native SDK histories. */
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync, rmSync } from "node:fs";
@@ -41,7 +42,7 @@ async function native(client: PmClient, value: unknown): Promise<string> {
   return digest;
 }
 
-test("powered role projections cross the old JSON bound without changing split identities or stale-cache protection", { timeout: 300_000 }, async () => {
+test("powered role projections cross the old JSON bound without changing split identities or stale-cache protection", { timeout: testTime(300_000) }, async () => {
   const w = await processWorkspace(); const value = poweredCorpus();
   assert.ok(Buffer.byteLength(JSON.stringify(value.tasks.audit)) > MAX_JSON_BYTES);
   const files = planImproverRoleFiles("audit", value.tasks.audit);
@@ -69,7 +70,7 @@ test("powered role projections cross the old JSON bound without changing split i
   writeFileSync(rootFile, rootText); assert.deepEqual(readImproverTasks(directory, value.manifest, "audit"), value.tasks.audit);
 });
 
-test("powered paired evaluations exceeding one MiB replay through bounded native shards and reject corrupted roots", { timeout: 600_000 }, async () => {
+test("powered paired evaluations exceeding one MiB replay through bounded native shards and reject corrupted roots", { timeout: testTime(600_000) }, async () => {
   const w = await processWorkspace(); const value = poweredCorpus();
   const plan = await recordTransferPlan(w.client, value.manifest.digest, design);
   const corpus = await archiveTransferCorpus(w.client, value);
@@ -172,7 +173,7 @@ test("documentation pages presenting the historical default declaration state th
   assert.ok(guide.includes("diagnostic replay"), "docs/proposer-programs.md keeps the historical default usable for validation and diagnostic replay");
 });
 
-test("generation budgets and slots charge the per-look meta members actually executed", { timeout: 600_000 }, async () => {
+test("generation budgets and slots charge the per-look meta members actually executed", { timeout: testTime(600_000) }, async () => {
   const corpus = transferCorpus({ development: 1, meta: 2, audit: 1 });
   const members = [1, 2].map((look) => transferMembers(corpus, "meta", 3, look));
   /** Property: the looks partition the meta trackers disjointly and completely, so executed meta work is counted exactly once. */
@@ -222,20 +223,20 @@ test("generation budgets and slots charge the per-look meta members actually exe
 });
 
 
-test("per-look meta members obey exact budgets for uneven cohorts in source and packed npm and Bun consumers", { timeout: 600_000 }, async (t) => {
+test("per-look meta members obey exact budgets for uneven cohorts in source and packed npm and Bun consumers", { timeout: testTime(600_000) }, async (t) => {
   await withTransferScratch("proposer-budget-", async (scratch) => {
     const dataset = writeTransferDataset(scratch, transferCorpus({ development: 1, meta: 5, audit: 1 }));
     const source = join(scratch, "source"); mkdirSync(source);
     assert.equal(await checkProposerBudgets(source, dataset), 8);
     const root = process.cwd();
     const environment = { PATH: process.env.PATH, HOME: scratch, NPM_CONFIG_USERCONFIG: "/dev/null", npm_config_userconfig: "/dev/null", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
-    const packed = JSON.parse(execFileSync("npm", ["pack", "--ignore-scripts", "--json", "--pack-destination", scratch], { cwd: root, env: environment, encoding: "utf8", timeout: 60_000 })) as { filename: string }[];
+    const packed = JSON.parse(execFileSync("npm", ["pack", "--ignore-scripts", "--json", "--pack-destination", scratch], { cwd: root, env: environment, encoding: "utf8", timeout: testTime(60_000) })) as { filename: string }[];
     execFileSync("tar", ["-xf", join(scratch, packed[0].filename), "-C", scratch]); symlinkSync(join(root, "node_modules"), join(scratch, "node_modules"), "dir");
     const consumer = readFileSync(join(import.meta.dirname, "fixtures/proposer-budget-consumer.ts"), "utf8").replaceAll(/"\.\.\/\.\.\/([^"/]+)\.ts"/g, '"./package/dist/$1.js"') + '\nconsole.log(JSON.stringify({ budget_cases: await checkProposerBudgets(process.cwd(), process.argv[2]), non_git: true }));\n';
     writeFileSync(join(scratch, "consumer.ts"), consumer);
     for (const runtime of [process.execPath, "bun"]) {
       const project = join(scratch, runtime === "bun" ? "bun" : "npm"); mkdirSync(project);
-      const result = spawnSync(runtime, [join(scratch, "consumer.ts"), dataset], { cwd: project, env: environment, encoding: "utf8", timeout: 240_000 });
+      const result = spawnSync(runtime, [join(scratch, "consumer.ts"), dataset], { cwd: project, env: environment, encoding: "utf8", timeout: testTime(240_000) });
       if (runtime === "bun" && (result.error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") { t.diagnostic("Bun unavailable (ENOENT); packed Node checks remain mandatory."); continue; }
       assert.ifError(result.error); assert.equal(result.status, 0, result.stdout + result.stderr);
       assert.deepEqual(JSON.parse(result.stdout), { budget_cases: 8, non_git: true });

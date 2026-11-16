@@ -1,5 +1,6 @@
 /** Behavioral revert proof mutates only a disposable copy, preserving the reviewed implementation. */
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { copyFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -16,7 +17,10 @@ function revertHistoryOrder(source: string, name: string): string {
   return source.slice(0, start) + body + source.slice(end);
 }
 const root = mkdtempSync(join(tmpdir(), "rl-influence-revert-")); const repository = resolve(".");
-const receipt = "docs/training-influence-revert.json"; refuseChangedReceipt(repository, receipt); const reviewed = worktreeState(repository, receipt);
+const receipt = "docs/training-influence-revert.json";
+const checkCopy = process.argv.includes("--check-copy");
+let reviewed: string | undefined;
+if (!checkCopy) { refuseChangedReceipt(repository, receipt); reviewed = worktreeState(repository, receipt); }
 try {
   for (const file of readdirSync(repository)) if (file.endsWith(".ts") || file === "package.json") copyFileSync(join(repository, file), join(root, file));
   mkdirSync(join(root, "test")); copyFileSync(join(repository, "test/training-influence.test.ts"), join(root, "test/training-influence.test.ts"));
@@ -24,7 +28,10 @@ try {
   mkdirSync(join(root, "examples")); copyFileSync(join(repository, "examples/loop-bandit.json"), join(root, "examples/loop-bandit.json"));
   mkdirSync(join(root, "scripts")); copyFileSync(join(repository, "scripts/script-launcher.ts"), join(root, "scripts/script-launcher.ts"));
   cpSync(join(repository, "test/fixtures"), join(root, "test/fixtures"), { recursive: true });
+  cpSync(join(repository, "test/support"), join(root, "test/support"), { recursive: true });
   symlinkSync(join(repository, "node_modules"), join(root, "node_modules"), "dir");
+  assert.doesNotThrow(() => execFileSync(process.execPath, ["--test", "--test-name-pattern=^copy-import-probe$", "test/training-influence.test.ts"], { cwd: root, encoding: "utf8", env: { ...process.env, NODE_TEST_CONTEXT: "" } }));
+  if (checkCopy) { rmSync(root, { recursive: true, force: true }); process.exit(0); }
   const source = join(root, "training-influence.ts"); const original = readFileSync(source, "utf8");
   const oldBehavior = original.replace("const selected = new Set(slice.members);", "const selected = new Set<string>();");
   assert.notEqual(oldBehavior, original);

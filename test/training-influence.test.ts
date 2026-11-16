@@ -1,3 +1,4 @@
+import { testDepth, testTime } from "./support/depth.ts";
 /** Fixed-seed sensitivity, strict boundaries and real SDK model/interleaving tests without Git. */
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, readdirSync } from "node:fs";
@@ -145,14 +146,14 @@ test("native records, compact CLI packets and historical evidence feed the next 
   }
 });
 
-test("500 seeded operation sequences model replay, native fields and relationship preservation through SDK read-back", { timeout: 600000 }, async (context) => {
+test("500 seeded operation sequences model replay, native fields and relationship preservation through SDK read-back", { timeout: testTime(600000) }, async (context) => {
   const { client } = await workspace(); const rng = random(0x57a1ce);
   const model = new Map<string, { body: string; title: string; version: string; status: string; parent: string | undefined; dependencies: { id: string; kind: string }[]; tags: string[] }>();
   const statuses: string[] = [];
   for (let i = 0; i < 8; i += 1) { const status = `custom-${rng()}`; const added = await client.schemaAddStatus(status, { role: ["active"] }); statuses.push(added.status.id); }
   await client.create({ id: "related", type: "Task", title: "Related native item", unset: ["parent"] });
   const inputs = Array.from({ length: 12 }, (_, index) => request(index));
-  for (let sequence = 0; sequence < 500; sequence += 1) {
+  for (let sequence = 0; sequence < testDepth(500); sequence += 1) {
     context.signal.throwIfAborted();
     if (sequence % 25 === 0) await client.focus("related");
     const input = inputs[(rng() >>> 16) % inputs.length];
@@ -265,7 +266,7 @@ test("history order is irrelevant across 500 seeded native revision permutations
   const history = await client.run("history", { id: saved.id, options: { compact: true, verify: true, outputLimit: "unbounded", outputBudget: "unbounded" } }) as HistoryResult;
   const entries = history.compact_history!; const rng = random(0x7e51);
   const expected = Array.from({ length: 7 }, (_, index) => index + 1);
-  for (let seed = 0; seed < 500; seed += 1) {
+  for (let seed = 0; seed < testDepth(500); seed += 1) {
     const rows = [...entries];
     for (let index = rows.length - 1; index > 0; index -= 1) { const other = rng() % (index + 1); [rows[index], rows[other]] = [rows[other], rows[index]]; }
     assert.deepEqual(orderedHistoryEntries({ ...history, compact_history: rows }, "influence_drift").map((row) => row.version ?? row.index), expected);

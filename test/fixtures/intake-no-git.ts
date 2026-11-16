@@ -26,7 +26,7 @@ export async function intakeNoGit(root: string): Promise<void> {
   await assert.rejects(harness.runCommand({ command: "rl corpus build", pmRoot, args: [], options: { from_tracker: pmRoot, file: invalidBounds, output } }), /corpus_invalid_bounds/);
   await assert.rejects(runBaselineAcceptance(pmRoot, join(root, "invalid-controller"), null), /corpus_invalid_bounds/);
   const built = await harness.runCommand({ command: "rl corpus build", pmRoot, args: [], options: {
-    from_tracker: pmRoot, file: new URL("../../examples/loop-intake-objective.json", import.meta.url).pathname, output,
+    from_tracker: pmRoot, file: fileURLToPath(new URL("../../examples/loop-intake-objective.json", import.meta.url)), output,
   } });
   assert.equal((built.result as RlCommandResult).details!.held_out_positive, 1);
   assert.equal((JSON.parse(readFileSync(output, "utf8")) as Record<string, JsonValue>).objective, "intake-issue-balanced-v1");

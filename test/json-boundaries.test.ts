@@ -1,3 +1,4 @@
+import { testDepth, testTime } from "./support/depth.ts";
 /** Producer/consumer byte and depth agreement across real tracker and artifact boundaries. */
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, readdirSync, rmSync, existsSync, writeFileSync, globSync, mkdirSync, copyFileSync, symlinkSync } from "node:fs";
@@ -82,7 +83,7 @@ test("every isolated trainer image includes its producer runtime dependency clos
       return [...readFileSync(source, "utf8").matchAll(/from "(\.[^"]+)"/g)].map((match) => pathToFileURL(join(dirname(source), match[1])).href);
     });
     assert.ok(dependencies.length > 0);
-    const child = spawnSync(process.execPath, ["--input-type=module", "-e", `for (const target of ${JSON.stringify(dependencies)}) await import(target)`], { cwd: root, encoding: "utf8", timeout: 120_000, env: { ...process.env, NODE_V8_COVERAGE: undefined, GIT_CEILING_DIRECTORIES: root } });
+    const child = spawnSync(process.execPath, ["--input-type=module", "-e", `for (const target of ${JSON.stringify(dependencies)}) await import(target)`], { cwd: root, encoding: "utf8", timeout: testTime(120_000), env: { ...process.env, NODE_V8_COVERAGE: undefined, GIT_CEILING_DIRECTORIES: root } });
     assert.equal(child.status, 0, `${recipe}: ${child.stderr}`);
   }
 });
@@ -159,7 +160,7 @@ test("500 seeded byte/depth/escaping variants either round-trip through the read
   /** Deterministic operation choices include both Unicode byte expansion and JSON escape expansion. */
   function next(): number { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state >>> 12; }
   const symbols = ["a", "é", "😀", "\u0000", '"', "\\", "\r\n", "[]{}"];
-  for (let i = 0; i < 500; i += 1) {
+  for (let i = 0; i < testDepth(500); i += 1) {
     const count = next() % 1024; const text = symbols[next() % symbols.length].repeat(count); const layers = next() % 67;
     let nested: JsonValue = text; for (let depth = 0; depth < layers; depth += 1) nested = [nested];
     const value: JsonValue = { text, nested }; const maximum = next() % 8192 + 2;
@@ -182,7 +183,7 @@ test("500 seeded byte/depth/escaping variants either round-trip through the read
   }
 });
 
-test("expanded cohort reservations and raw-input-fit wrapper overflows refuse through SDK and CLI before persistence", { timeout: 120_000 }, async () => {
+test("expanded cohort reservations and raw-input-fit wrapper overflows refuse through SDK and CLI before persistence", { timeout: testTime(120_000) }, async () => {
   const w = await workspace(); const maximum = largePlan(); assert.ok(Buffer.byteLength(reservation(maximum)) > MAX_JSON_BYTES);
   const wrapperOnly = wrapperOverflowPlan(); const input = JSON.stringify(wrapperOnly);
   assert.ok(Buffer.byteLength(input) <= MAX_JSON_BYTES); assert.ok(Buffer.byteLength(reservation(wrapperOnly)) > MAX_JSON_BYTES);
@@ -247,9 +248,9 @@ test("shadow lookup expansion is rejected before it can reserve an evaluation pl
   assert.deepEqual(durable(w.pmRoot), before);
 });
 
-test("large valid JSON cannot overflow native V8 coverage counters", { timeout: 300000 }, () => {
+test("large valid JSON cannot overflow native V8 coverage counters", { timeout: testTime(300000) }, () => {
   const root = mkdtempSync(join(tmpdir(), "rl-json-counter-")); roots.push(root); const coverage = join(root, "coverage");
-  const result = spawnSync(process.execPath, [fileURLToPath(new URL("./fixtures/json-counter-stress.ts", import.meta.url))], { encoding: "utf8", timeout: 290000, env: { ...process.env, NODE_V8_COVERAGE: coverage } });
+  const result = spawnSync(process.execPath, [fileURLToPath(new URL("./fixtures/json-counter-stress.ts", import.meta.url))], { encoding: "utf8", timeout: testTime(290000), env: { ...process.env, NODE_V8_COVERAGE: coverage } });
   assert.equal(result.status, 0, result.stderr); assert.deepEqual(JSON.parse(result.stdout), { bytes: MAX_JSON_BYTES, encodings: 130 });
   const records = readdirSync(coverage).filter(name => name.endsWith(".json")).flatMap(name => {
     const report = JSON.parse(readFileSync(join(coverage, name), "utf8")) as { result: { url: string; functions: { functionName: string; ranges: { count: number }[] }[] }[] };

@@ -1,3 +1,4 @@
+import { testTime } from "./support/depth.ts";
 /** The persisted language-model loop: real CLI acceptance, receipts, resume and refusals. */
 import { fork } from "node:child_process";
 import assert from "node:assert/strict";
@@ -540,7 +541,7 @@ async function stepHistory(client: PmClient, pmRoot: string, phase: string): Pro
   return readFileSync(join(pmRoot, "history", `${item.item.id}.jsonl`), "utf8");
 }
 
-test("SIGKILL inside real LM collect and fit writes resumes only unfinished generation steps", { timeout: 600_000 }, async () => {
+test("SIGKILL inside real LM collect and fit writes resumes only unfinished generation steps", { timeout: testTime(600_000) }, async () => {
   const reference = await workspace();
   const approved = await createApproval(reference.client, "reference-approval", 8);
   const baseline = await runRlLoop(reference.client, { pmRoot: reference.pmRoot, author: "pm-rl-test" }, { id: "lm-drill", config: smallConfig({ max_generations: 1, budget: 32 }), approval: approved });
@@ -582,7 +583,7 @@ test("SIGKILL inside real LM collect and fit writes resumes only unfinished gene
   }
 });
 
-test("two real tiny-LM processes racing acquire exactly one lease and publish one collection", { timeout: 300_000 }, async () => {
+test("two real tiny-LM processes racing acquire exactly one lease and publish one collection", { timeout: testTime(300_000) }, async () => {
   const { pmRoot, client } = await workspace();
   const approval = await createApproval(client, "race-approval", 8);
   const first = lmController(pmRoot, approval, "race"); const second = lmController(pmRoot, approval, "race");
@@ -607,7 +608,7 @@ test("two real tiny-LM processes racing acquire exactly one lease and publish on
   } finally { for (const process of [first, second]) if (process.child.exitCode === null && process.child.signalCode === null) { process.child.kill("SIGKILL"); await process.result; } }
 });
 
-test("expired live-controller takeover fences its later writes and claim cleanup", { timeout: 300_000 }, async () => {
+test("expired live-controller takeover fences its later writes and claim cleanup", { timeout: testTime(300_000) }, async () => {
   const { pmRoot, client } = await workspace();
   const approval = await createApproval(client, "expiry-approval", 8);
   const old = lmController(pmRoot, approval, "race", smallConfig());
@@ -626,7 +627,7 @@ test("expired live-controller takeover fences its later writes and claim cleanup
   } finally { if (old.child.exitCode === null && old.child.signalCode === null) { old.child.kill("SIGKILL"); await old.result; } }
 });
 
-test("SIGTERM inside LM collection commits the boundary, records cancellation and resumes", { timeout: 300_000 }, async () => {
+test("SIGTERM inside LM collection commits the boundary, records cancellation and resumes", { timeout: testTime(300_000) }, async () => {
   const { pmRoot, client } = await workspace();
   const approval = await createApproval(client, "cancel-drill-approval", 8);
   const process = lmController(pmRoot, approval, "mid-collect");

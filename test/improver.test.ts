@@ -1,3 +1,4 @@
+import { testTime } from "./support/depth.ts";
 /** Behavioral tests use committed synthetic histories and real temporary SDK trackers and process fits. */
 import assert from "node:assert/strict";
 import { once } from "node:events";
@@ -242,7 +243,7 @@ test("reserved fits preserve candidate evidence on inner rejection and support r
   const evaluation = Array.from({ length: 2000 }, (_, index) => ({ ...original.evaluation[index % original.evaluation.length], id: `eval-${index}` }));
   let manifest = reseal(w.dataset, w.manifest, 'development', [{ ...original, train: training, evaluation }]);
   let env = openImproverEnvironment(w.client, w.coordinates, w.dataset, manifest, w.approval, 256, 42, IMPROVER_CRITERION);
-  const accepted = await env.fit('development', 0, config, 'positive-fit', null, AbortSignal.timeout(60_000));
+  const accepted = await env.fit('development', 0, config, 'positive-fit', null, AbortSignal.timeout(testTime(60_000)));
   assert.equal(accepted.promoted, true, JSON.stringify({ mean: accepted.mean, gain: accepted.gain, gap: accepted.gap, verdict: accepted.verdict }));
   assert.equal(accepted.diagnostics.distinct_predictions, 2);
   assert.deepEqual(accepted.diagnostics.held_out_classes, { '0': 1000, '1': 1000 });
@@ -258,22 +259,22 @@ test("reserved fits preserve candidate evidence on inner rejection and support r
   assert.equal(constant.train_accuracy, 0.5); assert.equal(constant.held_out_classes['0'] + constant.held_out_classes['1'], original.evaluation.length);
   assert.equal(constant.calibration.brier, 0.25); assert.equal(constant.calibration.ece, 0);
   assert.deepEqual(constant.calibration, constant.training_frequency_calibration);
-  assert.deepEqual(await env.fit('development', 0, config, 'positive-fit', null, AbortSignal.timeout(60_000)), accepted);
-  assert.deepEqual(await env.fit('development', 0, config, 'positive-fit', null, AbortSignal.timeout(60_000), "seeded", accepted), accepted);
-  assert.deepEqual(await env.fit('development', 0, config, 'positive-fit', null, AbortSignal.timeout(60_000), "seeded", { ...accepted, job: `rl-${accepted.job}` }), accepted);
-  await assert.rejects(env.fit('development', 0, config, 'positive-fit', null, AbortSignal.timeout(60_000), "seeded", { ...accepted, mean: 0 }), (error) => isPmCliExpectedError(error) && error.context.code === "process_job_drift");
-  await assert.rejects(env.fit('development', 0, config, 'positive-fit', null, AbortSignal.timeout(60_000), "seeded", { ...accepted, job: "foreign-fit" }), (error) => isPmCliExpectedError(error) && error.context.code === "process_job_drift");
+  assert.deepEqual(await env.fit('development', 0, config, 'positive-fit', null, AbortSignal.timeout(testTime(60_000))), accepted);
+  assert.deepEqual(await env.fit('development', 0, config, 'positive-fit', null, AbortSignal.timeout(testTime(60_000)), "seeded", accepted), accepted);
+  assert.deepEqual(await env.fit('development', 0, config, 'positive-fit', null, AbortSignal.timeout(testTime(60_000)), "seeded", { ...accepted, job: `rl-${accepted.job}` }), accepted);
+  await assert.rejects(env.fit('development', 0, config, 'positive-fit', null, AbortSignal.timeout(testTime(60_000)), "seeded", { ...accepted, mean: 0 }), (error) => isPmCliExpectedError(error) && error.context.code === "process_job_drift");
+  await assert.rejects(env.fit('development', 0, config, 'positive-fit', null, AbortSignal.timeout(testTime(60_000)), "seeded", { ...accepted, job: "foreign-fit" }), (error) => isPmCliExpectedError(error) && error.context.code === "process_job_drift");
   const promotedJob = (await w.client.get(accepted.job)).item;
   try {
     await w.client.update(promotedJob.id, { body: JSON.stringify({ ...JSON.parse(String(promotedJob.body)), state: "evaluated" }) });
-    await assert.rejects(env.fit('development', 0, config, 'positive-fit', null, AbortSignal.timeout(60_000), "seeded", accepted),
+    await assert.rejects(env.fit('development', 0, config, 'positive-fit', null, AbortSignal.timeout(testTime(60_000)), "seeded", accepted),
       (error) => isPmCliExpectedError(error) && error.context.code === "process_job_drift");
   } finally { await w.client.update(promotedJob.id, { body: promotedJob.body }); }
-  const held = await env.fit('development', 0, config, 'incumbent-fit', accepted.retained, AbortSignal.timeout(60_000));
+  const held = await env.fit('development', 0, config, 'incumbent-fit', accepted.retained, AbortSignal.timeout(testTime(60_000)));
   assert.equal(held.promoted, false); assert.equal(held.retained_mean, accepted.retained_mean);
   manifest = reseal(w.dataset, manifest, 'development', [{ ...original, train: training, evaluation: evaluation.map((row) => ({ ...row, label: row.label === 0 ? 1 : 0 })) }]);
   env = openImproverEnvironment(w.client, w.coordinates, w.dataset, manifest, w.approval, 256, 42, IMPROVER_CRITERION);
-  const gap = await env.fit('development', 0, config, 'gap-fit', null, AbortSignal.timeout(60_000));
+  const gap = await env.fit('development', 0, config, 'gap-fit', null, AbortSignal.timeout(testTime(60_000)));
   assert.ok(gap.gap > 0.3); assert.equal(gap.promoted, false); assert.equal(gap.retained_mean, 0.5);
   assert.equal(gap.diagnostics.distinct_predictions, 2); assert.equal(gap.diagnostics.train_accuracy, 1);
   assert.equal(gap.diagnostics.beats_train_majority, true, 'rejected candidate diagnostics must not describe the constant retained learner');
@@ -298,15 +299,15 @@ test("SIGKILL before exec recovers missing and partial receipts once inside the 
     const exited = once(child, 'exit'); child.kill('SIGKILL'); assert.equal((await exited)[1], 'SIGKILL');
     const before = (await listProcessJobs(w.client)).length;
     if (mode === 'invalid') {
-      await assert.rejects(executeImproverFit(w.client, w.coordinates, input, w.approval, AbortSignal.timeout(60_000)), (error) => isPmCliExpectedError(error) && error.context.code === "rl_identifier_invalid");
-      await assert.rejects(executeImproverFit(w.client, w.coordinates, input, w.approval, AbortSignal.timeout(60_000)), /failed/);
+      await assert.rejects(executeImproverFit(w.client, w.coordinates, input, w.approval, AbortSignal.timeout(testTime(60_000))), (error) => isPmCliExpectedError(error) && error.context.code === "rl_identifier_invalid");
+      await assert.rejects(executeImproverFit(w.client, w.coordinates, input, w.approval, AbortSignal.timeout(testTime(60_000))), /failed/);
       assert.equal((await listProcessJobs(w.client)).length, before, 'intact invalid evidence is never retried');
     } else {
-      const recovered = await executeImproverFit(w.client, w.coordinates, input, w.approval, AbortSignal.timeout(60_000));
+      const recovered = await executeImproverFit(w.client, w.coordinates, input, w.approval, AbortSignal.timeout(testTime(60_000)));
       assert.equal(recovered.state, 'materialized'); assert.notEqual(recovered.completion!.policy.digest, base.source.digest);
       const jobs = await listProcessJobs(w.client); assert.equal(jobs.length, before + 1);
       assert.ok(jobs.find((job) => job.id === originalId)!.settled); assert.equal(jobs.find((job) => job.id === originalId)!.state, 'failed');
-      assert.deepEqual(await executeImproverFit(w.client, w.coordinates, input, w.approval, AbortSignal.timeout(60_000)), recovered);
+      assert.deepEqual(await executeImproverFit(w.client, w.coordinates, input, w.approval, AbortSignal.timeout(testTime(60_000))), recovered);
       assert.deepEqual(await verifyImproverFit(w.client, w.coordinates, input, w.approval, recovered.id), recovered);
       const first = (await w.client.get(originalId)).item; const record = JSON.parse(String(first.body));
       await w.client.update(first.id, { body: JSON.stringify({ ...record, state: "planned" }) });
@@ -319,10 +320,10 @@ test("SIGKILL before exec recovers missing and partial receipts once inside the 
   }
   const invalid = { ...base, identity: { programme_id: 'bounded-failure' }, prefix: { knobs, rows: [] } };
   const before = (await listProcessJobs(w.client)).length;
-  await assert.rejects(executeImproverFit(w.client, w.coordinates, invalid, w.approval, AbortSignal.timeout(60_000)), /unsuccessfully/);
+  await assert.rejects(executeImproverFit(w.client, w.coordinates, invalid, w.approval, AbortSignal.timeout(testTime(60_000))), /unsuccessfully/);
   assert.equal((await listProcessJobs(w.client)).length, before + 1, 'an ordinary trainer failure stops the current invocation');
-  await assert.rejects(executeImproverFit(w.client, w.coordinates, invalid, w.approval, AbortSignal.timeout(60_000)), /unsuccessfully/);
-  await assert.rejects(executeImproverFit(w.client, w.coordinates, invalid, w.approval, AbortSignal.timeout(60_000)), /failed/);
+  await assert.rejects(executeImproverFit(w.client, w.coordinates, invalid, w.approval, AbortSignal.timeout(testTime(60_000))), /unsuccessfully/);
+  await assert.rejects(executeImproverFit(w.client, w.coordinates, invalid, w.approval, AbortSignal.timeout(testTime(60_000))), /failed/);
   assert.equal((await listProcessJobs(w.client)).length, before + 2, 'a third attempt cannot consume more compute');
   await assert.rejects(executeImproverFit(w.client, w.coordinates, base, w.approval, AbortSignal.abort(new Error('pre-cancelled'))), /pre-cancelled/);
   const cancellationCount = (await listProcessJobs(w.client)).length;
@@ -331,7 +332,7 @@ test("SIGKILL before exec recovers missing and partial receipts once inside the 
   const blocked = { ...base, identity: { programme_id: 'blocked-staging' } };
   const staging = processStaging(w.coordinates.pmRoot, processJobId(improverProcessAttempt(blocked, 0), prefixTrainerArgv(), IMPROVER_ADAPTER));
   mkdirSync(dirname(staging), { recursive: true }); writeFileSync(staging, 'storage fault sentinel');
-  await assert.rejects(executeImproverFit(w.client, w.coordinates, blocked, w.approval, AbortSignal.timeout(60_000)), /EEXIST/);
+  await assert.rejects(executeImproverFit(w.client, w.coordinates, blocked, w.approval, AbortSignal.timeout(testTime(60_000))), /EEXIST/);
 });
 
 test("legacy improver receipts refuse resume and replay before fits while current receipts resume", { timeout: 300_000 }, async () => {
@@ -446,7 +447,7 @@ test("three recursive generations survive SIGKILL after update, adopt receipts a
   const originalBody = String((await w.client.get(w.approval)).item.body);
   await assert.rejects(runRecursiveImprover(w.client, w.coordinates, { ...request, id: 'drift', onStep: async (key) => { if (key === 'programme') await w.client.update(w.approval, { body: originalBody + '\nChanged approval contract.' }); } }), /approval_drift/);
   await w.client.update(w.approval, { body: originalBody });
-  const expired = { ...request, id: 'expired', config: { ...w.config, timeout_ms: 1 }, signal: AbortSignal.timeout(60_000) };
+  const expired = { ...request, id: 'expired', config: { ...w.config, timeout_ms: 1 }, signal: AbortSignal.timeout(testTime(60_000)) };
   await assert.rejects(runRecursiveImprover(w.client, w.coordinates, { ...expired, onStep: (key) => { if (key === 'programme') throw new Error('original deadline pinned'); } }), /deadline pinned/);
   await assert.rejects(runRecursiveImprover(w.client, w.coordinates, expired), /aborted|timeout/i);
   assert.equal((await listProcessJobs(w.client)).length, after.length, 'drift and an expired original deadline must never launch another fit');

@@ -1,3 +1,4 @@
+import { testTime } from "./support/depth.ts";
 /** Early bounded refusals prevent extra native and filesystem reads of sealed corpus data. */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -55,6 +56,6 @@ test("malformed manifest preflight stays a typed dataset refusal before controll
 });
 
 test("direct reader import initializes shared limits without a module cycle", () => {
-  const result = spawnSync(process.execPath, ["--input-type=module", "-e", 'await import("./improver-data.ts");'], { cwd: new URL("..", import.meta.url), encoding: "utf8", timeout: 30_000 });
+  const result = spawnSync(process.execPath, ["--input-type=module", "-e", 'await import("./improver-data.ts");'], { cwd: new URL("..", import.meta.url), encoding: "utf8", timeout: testTime(30_000) });
   assert.ifError(result.error); assert.equal(result.status, 0, `proof:reader_import_cycle ${result.stdout}${result.stderr}`);
 });

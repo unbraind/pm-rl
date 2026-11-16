@@ -1,3 +1,4 @@
+import { testCases, testDepth } from "./support/depth.ts";
 /** Adversarial graphs are certified and corrupted through the real SDK in a non-git tracker. */
 import assert from "node:assert/strict";
 import { rmSync, existsSync, readFileSync } from "node:fs";
@@ -87,7 +88,8 @@ async function corruptDecisionCards(client: PmClient, cards: readonly PolicyCard
     }
     const originals = new Map(await Promise.all(ids.map(async (id) => [id, (await readCompleteLoopItem(client, id)).item] as const)));
     let checks = 0;
-    for (const damaged of cases) {
+    const selected = testCases(cases, (ids) => [ids.length === 1 ? `single:${ids[0]}` : "pair"]);
+    for (const damaged of selected) {
       for (const id of damaged) {
         const item = originals.get(id)!;
         await client.update(id, item.type === "Generation" ? { affectedVersion: "corrupt" } : { body: `${String(item.body ?? "")}\ncorrupt` });
@@ -112,7 +114,7 @@ async function corruptDecisionCards(client: PmClient, cards: readonly PolicyCard
       if (checks % 40 === 0) console.log(JSON.stringify({ corruption_checks_completed: checks }));
     }
     for (const card of cards) assert.equal((await exportPolicyCard(client, card.subject, card.selection)).digest, card.digest);
-    console.log(JSON.stringify({ outcome: cards[0].outcome, inputs: ids.length, mutation_sets: cases.length, cards: cards.length, corruption_checks: checks, non_git: true }));
+    console.log(JSON.stringify({ outcome: cards[0].outcome, inputs: ids.length, mutation_sets: selected.length, cards: cards.length, corruption_checks: checks, non_git: true }));
 }
 
 test("decision graph property corrupts every input and every pair for generation recursive and selected cards", async () => {
@@ -152,7 +154,7 @@ test("graph boundary and seeded 500 transport sequences retain SDK-read native s
     const frozen = await sealDecisionEvidence(w.client, hashJson("transport"), [w.native.item]);
     const older: { body: string; graph: typeof graph }[] = [];
     const formats = new Set<string>();
-    for (let sequence = 0; sequence < 500; sequence += 1) {
+    for (let sequence = 0; sequence < testDepth(500); sequence += 1) {
       seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
       const expected = sequence % 2 ? frozen : graph;
       const serialized = JSON.stringify({ ...spec, evaluation_evidence: expected }, null, seed % 2 ? 2 : 0).replaceAll("\n", "\r\n"); older.push({ body: serialized, graph: expected });
@@ -176,7 +178,7 @@ test("graph boundary and seeded 500 transport sequences retain SDK-read native s
     await assert.rejects(captureDecisionInputs(w.client, async () => { throw new Error("native failure"); }), /native failure/);
     const snapshot = await readCompleteLoopItem(w.client, w.plan.candidate);
     assert.equal(evaluationEvidence(graph.comparison, [snapshot.item]).inputs.length, 1);
-    console.log(JSON.stringify({ transport_sequences: 500, formats: formats.size, model: "live/frozen SDK-read graphs plus explicit native relationships and custom status" }));
+    console.log(JSON.stringify({ transport_sequences: testDepth(500), formats: formats.size, model: "live/frozen SDK-read graphs plus explicit native relationships and custom status" }));
   } finally { rmSync(w.root, { recursive: true, force: true }); }
 });
 
@@ -185,7 +187,7 @@ test("strict input graph schema has 500 seeded must-allow and must-refuse transp
   assert.equal(decodeTrackerRecord(null, envelope, { type: "Plan" }), null);
   assert.ok(decodeTrackerRecord(null, envelope, { type: "Plan", maxBytes: 16_777_216 }));
   let seed = 0x5e17;
-  for (let index = 0; index < 500; index += 1) {
+  for (let index = 0; index < testDepth(500); index += 1) {
     seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
     const body = { format: index % 2 ? "pm-rl/evaluation-evidence/2" as const : "pm-rl/evaluation-evidence/1" as const, comparison: hashJson(index), inputs: [{ id: `rl-input-${seed}`, digest: hashJson(seed), ...(index % 2 ? { at: String(index + 1) } : {}) }] };
     const valid = { ...body, digest: hashJson(body as unknown as JsonValue) };

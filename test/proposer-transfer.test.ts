@@ -1,3 +1,4 @@
+import { testTime } from "./support/depth.ts";
 /** Native SDK trackers exercise power, leakage and digest refusals without a simulated host. */
 import assert from "node:assert/strict";
 import { writeFileSync, readFileSync, rmSync } from "node:fs";
@@ -28,7 +29,7 @@ async function legacyArchive(client: PmClient, value: TransferCorpus): Promise<s
   await client.create({ id: `transfer-${digest}`, type: "Decision", title: "Legacy synthetic corpus", body: JSON.stringify(record), affectedVersion: digest, component: "proposer-transfer" }); return digest;
 }
 
-test("underpowered real non-git controller refuses transfer and replays native evidence without dataset files", { timeout: 300_000 }, async () => {
+test("underpowered real non-git controller refuses transfer and replays native evidence without dataset files", { timeout: testTime(300_000) }, async () => {
   const w = await processWorkspace({ training_steps: 1000, wall_ms: 100_000_000, compute_units: 100_000_000, storage_bytes: 100_000_000, tokens: 0 });
   await w.client.update(w.approval, { body: '```json\n'+JSON.stringify({ permitted_promotions: 100, meta_budget: { training_samples: 100000, proposal_calls: 100, recipe_promotions: 100 }, resource_budget: { training_steps: 1000, wall_ms: 100_000_000, compute_units: 100_000_000, storage_bytes: 100_000_000, tokens: 0 } })+'\n```' });
   const value = corpus(); const directory = dataset(w.root, value);

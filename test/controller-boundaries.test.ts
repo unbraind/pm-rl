@@ -1,3 +1,5 @@
+import { fileURLToPath } from "node:url";
+import { testCases, testDepth, testTime } from "./support/depth.ts";
 /** Canonical SDK identities and complete callback failure paths on real non-git trackers. */
 import assert from "node:assert/strict";
 import { ChildProcess, spawn } from "node:child_process";
@@ -27,12 +29,13 @@ async function contenders(root: string, left: string, right: string, same: boole
   } finally { for (const result of results) if (result.status === "fulfilled") await result.value(); }
 }
 
-test("canonical identity property: 500 SDK variant pairs share exactly one lease or remain independent", { timeout: 180000 }, async () => {
+test("canonical identity property: 500 SDK variant pairs share exactly one lease or remain independent", { timeout: testTime(180000) }, async () => {
   const { pmRoot, root, client, coordinates, approval } = await processWorkspace();
   assert.equal(existsSync(join(root, ".git")), false);
   let seed = 0x107ca5e;
   const pool = ["Race", "prefix-Hyphen", "Évaluation", "e\u0301valuation", "Δ-run", "日本語", "under_score"];
-  for (let index = 0; index < 500; index += 1) {
+  const sequences = testDepth(500);
+  for (let index = 0; index < sequences; index += 1) {
     seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
     const left = index === 0 ? "Race" : `${pool[seed % pool.length]}-${index}`;
     const right = index === 0 ? "race" : index % 3 === 0 ? left.normalize(index % 2 === 0 ? "NFC" : "NFD") : index % 3 === 1 ? `#${left.toUpperCase()}` : `${left}-other`;
@@ -70,10 +73,10 @@ test("canonical identity property: 500 SDK variant pairs share exactly one lease
   assert.deepEqual(await reserveProcessJob(client, coordinates, `#rl-${jobId.toUpperCase()}`, input, approval, allowance), reserved);
   assert.equal((await readProcessJob(client, `rl-${jobId.toUpperCase()}`))!.id, jobId);
   assert.equal(JSON.parse(String((await client.get(jobId, { full: true })).item.body)).id, jobId);
-  console.log(JSON.stringify({ canonical_sequences: 500, sdk_unicode_equivalence: normalizeRawItemId("É") === normalizeRawItemId("E\u0301"), whitespace: "strict-refusal" }));
+  console.log(JSON.stringify({ canonical_sequences: sequences, sdk_unicode_equivalence: normalizeRawItemId("É") === normalizeRawItemId("E\u0301"), whitespace: "strict-refusal" }));
 });
 
-test("Race/race controllers cannot force-claim the same seed concurrently", { timeout: 120000 }, async () => {
+test("Race/race controllers cannot force-claim the same seed concurrently", { timeout: testTime(120000) }, async () => {
   const { client, coordinates, approval } = await processWorkspace();
   const config = { ...JSON.parse(readFileSync(new URL("../examples/loop-bandit.json", import.meta.url), "utf8")) as Record<string, JsonValue>, max_generations: 1 };
   let ready!: () => void; let release!: () => void;
@@ -124,11 +127,11 @@ test("actual CLI signal callback failures cancel cleanly and remove owned signal
   }
 });
 
-test("callback fault matrix reaps real children and settles each reservation once", { timeout: 600000 }, async (t) => {
+test("callback fault matrix reaps real children and settles each reservation once", { timeout: testTime(600000) }, async (t) => {
   const budget = { training_steps: 1000, wall_ms: 5000000, storage_bytes: 100000000, compute_units: 1000000, tokens: 0 };
   let { pmRoot, root, client, coordinates, approval } = await processWorkspace(budget);
   const input = trainingInput(); const adapter = { kind: "process-bandit", allowance: { ...allowance, wall_ms: 60000 } } as const;
-  const fixture = new URL("./fixtures/process-trainer.ts", import.meta.url).pathname;
+  const fixture = fileURLToPath(new URL("./fixtures/process-trainer.ts", import.meta.url));
   const sites = new Set<string>(); let count = 0;
   let outside = join(root, "outside"); mkdirSync(outside); let tripwire = join(outside, "sentinel"); writeFileSync(tripwire, "unchanged");
   const unhandled: unknown[] = []; const monitor = (error: unknown): void => { unhandled.push(error); };
@@ -139,8 +142,9 @@ test("callback fault matrix reaps real children and settles each reservation onc
     controllerCallbackIO.before = () => undefined;
     const operations = [...sites].filter((site) => !site.startsWith("callback.")).sort();
     assert.ok(operations.includes("stderr.path") && operations.includes("stdout.read") && operations.includes("poll.staging.list"));
-    for (const site of [...operations, "callback.stdout", "callback.stderr", "callback.close", "callback.poll", "callback.timer", "callback.abort", "failure.kill", "failure.kill-all", "review.symlink", "child.symlink"]) {
-      for (const code of site.endsWith("symlink") ? ["symlink"] : ["EACCES", "ENOSPC", "ENOENT", "EISDIR", "statePath"]) {
+    const cases = [...operations, "callback.stdout", "callback.stderr", "callback.close", "callback.poll", "callback.timer", "callback.abort", "failure.kill", "failure.kill-all", "review.symlink", "child.symlink"]
+      .flatMap((site) => (site.endsWith("symlink") ? ["symlink"] : ["EACCES", "ENOSPC", "ENOENT", "EISDIR", "statePath"]).map((code) => ({ site, code })));
+    for (const { site, code } of testCases(cases, ({ site, code }) => [`site:${site}`, `code:${code}`])) {
         await t.test(`${site}/${code}`, async () => {
         count += 1; let injected = false;
         // Bound tracker size without deleting any accounting evidence or replacing the real SDK.
@@ -176,7 +180,6 @@ test("callback fault matrix reaps real children and settles each reservation onc
         assert.deepEqual(await client.get(id, { full: true }), saved);
         if (count % 20 === 0) console.log(JSON.stringify({ fault_cases_verified: count }));
         });
-      }
     }
     assert.deepEqual(unhandled, []); console.log(JSON.stringify({ callback_operation_sites: operations, fault_cases: count, unhandled: unhandled.length }));
   } finally { controllerCallbackIO.before = () => undefined; process.removeListener("uncaughtExceptionMonitor", monitor); process.removeListener("unhandledRejection", monitor); }
@@ -237,7 +240,7 @@ test("recovery stops only the exact live trainer birth identity and awaits nativ
 
 test("a false native stop result and emitted error cannot recurse or bypass reaping", async () => {
   const { client, coordinates, approval, pmRoot } = await processWorkspace(); const input = trainingInput();
-  const command = [process.execPath, new URL("./fixtures/process-trainer.ts", import.meta.url).pathname, "callback-good", "false-stop"];
+  const command = [process.execPath, fileURLToPath(new URL("./fixtures/process-trainer.ts", import.meta.url)), "callback-good", "false-stop"];
   const native = ChildProcess.prototype.kill; let calls = 0;
   const stop = mock.method(ChildProcess.prototype, "kill", function (this: ChildProcess, signal?: NodeJS.Signals | number): boolean {
     calls += 1;
@@ -258,10 +261,10 @@ test("a false native stop result and emitted error cannot recurse or bypass reap
   } finally { controllerCallbackIO.before = () => undefined; stop.mock.restore(); }
 });
 
-test("owned child cleanup retries beyond three failures and settles persistent failures without latching", { timeout: 120000 }, async (t) => {
+test("owned child cleanup retries beyond three failures and settles persistent failures without latching", { timeout: testTime(120000) }, async (t) => {
   for (const persistent of [false, true]) await t.test(persistent ? "bounded final failure" : "three transient native failures", async () => {
     const { client, coordinates, approval, pmRoot } = await processWorkspace(); const input = trainingInput();
-    const command = [process.execPath, new URL("./fixtures/process-trainer.ts", import.meta.url).pathname, "callback-long", String(persistent)];
+    const command = [process.execPath, fileURLToPath(new URL("./fixtures/process-trainer.ts", import.meta.url)), "callback-long", String(persistent)];
     const nativeChildKill = ChildProcess.prototype.kill; const nativeKill = process.kill.bind(process);
     let attempts = 0; let pid: number | undefined; let child: ChildProcess | undefined;
     const unhandled: unknown[] = []; const monitor = (error: unknown): void => { unhandled.push(error); };
@@ -281,7 +284,7 @@ test("owned child cleanup retries beyond three failures and settles persistent f
     const observed = operation.then(() => ({ ok: true, error: undefined }), (error: unknown) => ({ ok: false, error }));
     let deadline: ReturnType<typeof setTimeout> | undefined;
     try {
-      const result = await Promise.race([observed, new Promise<undefined>((done) => { deadline = setTimeout(() => done(undefined), 8000); })]);
+      const result = await Promise.race([observed, new Promise<undefined>((done) => { deadline = setTimeout(() => done(undefined), testTime(8000)); })]);
       assert.notEqual(result, undefined, "cleanup must settle after bounded retries rather than latch after three failures");
       assert.equal(result!.ok, false);
       assert.ok(isPmCliExpectedError(result!.error) && result!.error.context.code === (persistent ? "process_stop_failed" : "process_callback_failed"));
@@ -330,7 +333,7 @@ test("owned stop retry bounds handle false returns, thrown errors, permanent ref
 test("cleanup exhaustion fault matrix observes native detach, identity and close failures", async (t) => {
   for (const mode of ["stdin", "stdout", "stderr", "unref", "identity", "identity-exit", "runner", "false-success", "close-lost", "close-deferred"] as const) await t.test(mode, async () => {
     const { client, coordinates, approval, pmRoot } = await processWorkspace(); const input = trainingInput();
-    const command = [process.execPath, new URL("./fixtures/process-trainer.ts", import.meta.url).pathname, mode === "identity-exit" ? "empty" : "callback-long", mode];
+    const command = [process.execPath, fileURLToPath(new URL("./fixtures/process-trainer.ts", import.meta.url)), mode === "identity-exit" ? "empty" : "callback-long", mode];
     const nativeChildKill = ChildProcess.prototype.kill; const nativeKill = process.kill.bind(process); const nativeEmit = ChildProcess.prototype.emit; const identityRead = loopProcessIdentityIO.read;
     let child: ChildProcess | undefined; let pid: number | undefined; let deferred: unknown[] | undefined; let injected = false;
     if (mode === "identity" || mode === "identity-exit" || mode === "runner") Object.assign(loopProcessIdentityIO, { read: (file: string) => {
@@ -433,7 +436,7 @@ test("primitive callback faults remain failures after successful close and settl
   const budget = { training_steps: 100, wall_ms: 1000000, storage_bytes: 10000000, compute_units: 100000, tokens: 0 };
   let w = await processWorkspace(budget); let count = 0;
   const values: unknown[] = [undefined, null, false, 0, NaN, Infinity, -Infinity, "bare failure", Symbol("opaque")];
-  const input = trainingInput(); const fixture = new URL("./fixtures/process-trainer.ts", import.meta.url).pathname;
+  const input = trainingInput(); const fixture = fileURLToPath(new URL("./fixtures/process-trainer.ts", import.meta.url));
   const unhandled: unknown[] = []; const monitor = (error: unknown): void => { unhandled.push(error); };
   process.on("uncaughtExceptionMonitor", monitor); process.on("unhandledRejection", monitor);
   try {
