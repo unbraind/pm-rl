@@ -664,9 +664,9 @@ export function runGate(
     process.execPath,
     [
       "--test",
-      // V8 reports from isolated workers are merged by the gate below. Quick CI
-      // overlaps independent files; full depth retains the conservative local limit.
-      process.env.PM_TEST_DEPTH === "quick" ? "--test-concurrency=4" : "--test-concurrency=2",
+      // Merge isolated-worker V8 reports while bounding instrumentation CPU and
+      // memory. Four coverage workers slowed the hosted quick run; keep two.
+      "--test-concurrency=2",
       "--experimental-test-coverage",
       // Scope the report to exactly the files the presence check requires. Passing
       // the enumerated paths rather than a directory glob keeps the two in step by

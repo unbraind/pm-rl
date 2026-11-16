@@ -98,9 +98,8 @@ error code. Routine card mutations retain every input and mutation kind.
 
 The 35-second healthy-owner wait is deep-only, with its real product contract
 unchanged; the ordinary competing-promoter test remains in quick. The controller
-heartbeat contract still uses its real interval in both tiers. Quick engines and
-coverage run at most four independent files at once; full/local test commands
-retain two. Tests that patch process globals remain serial within each file.
+heartbeat contract still uses its real interval in both tiers. Quick engines run at most four independent files at once; instrumented coverage
+and full/local test commands retain two. Tests that patch process globals remain serial within each file.
 The exhaustive sequential snapshot matrix moves to deep; its focused endpoint
 and candidate-discovery drill remains in quick. No coverage threshold, source
 scope or exclusion changes in either depth.
@@ -144,7 +143,10 @@ was cancelled by the unchanged 30-minute job cap without a test failure.
 The jobs API measured the Node 22 engines step at 1797 seconds and the Node 26
 release gate at 1792 seconds; created-to-completed job times were 1816/1818
 seconds respectively. This follow-up samples every large exhaustive matrix and
-overlaps four independent quick files, targeting at most 15 minutes per job.
+overlaps four independent engines files, targeting at most 15 minutes per job.
+Instrumented coverage retains two workers: four workers reached only the card
+recovery matrix after 26 minutes, while the earlier two-worker run reached the
+transfer suites within 30 minutes.
 
 Shared-host Node 24 measurements at quick depth follow. Original runs used
 harness scale 1; sampled runs use scale 3 only for watchdogs. Host load varied;
@@ -182,6 +184,10 @@ running job logs API returned 404, so a fresh per-test ranking was unavailable.
 The previous Node 26 quick run's next unchanged costs were the main compatibility
 corpus (65.5 s), heartbeat (65.2 s), shared-tracker interleavings (64.2 s), large
 learner (47.7 s), pending peer refusals (34.2 s) and chain regression (32.7 s).
-The 15-minute target is not yet demonstrated. The final recovery sampler also
+The 15-minute target is not yet demonstrated. The direct engines invocation also restores the package-local CLI directory on
+PATH: the first attempt exposed three pm ENOENT failures because npm had
+previously provided that directory implicitly. Isolated CLI resolution and all
+38 release/workflow/discovery contracts pass with the explicit PATH.
+The final recovery sampler also
 retains every fault mode for each boundary kind, preserving physical SIGKILL
 coverage at receipt, seal and card writes; its focused measurement is pending.
