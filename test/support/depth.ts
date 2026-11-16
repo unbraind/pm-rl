@@ -26,6 +26,17 @@ export function testCases<T>(values: readonly T[], kinds: (value: T) => readonly
 
 // Validate on import, before callers can launch any worker or subprocess.
 const scale = Number(process.env.PM_TEST_TIME_SCALE ?? "1");
+
+/** Quick depth keeps one representative of every declared kind; other depths keep every case. */
+export function testKindCases<T>(values: readonly T[], kinds: (value: T, index: number) => readonly string[] = () => []): T[] {
+  if (process.env.PM_TEST_DEPTH !== "quick" || values.length <= 2) return [...values];
+  const selected = new Set<number>([0, values.length - 1]);
+  const seen = new Set<string>();
+  values.forEach((value, index) => {
+    for (const kind of kinds(value, index)) if (!seen.has(kind)) { seen.add(kind); selected.add(index); }
+  });
+  return [...selected].sort((a, b) => a - b).map((index) => values[index]);
+}
 if (!Number.isFinite(scale) || scale <= 0) throw new Error("PM_TEST_TIME_SCALE must be finite and greater than zero");
 
 /** Scale harness watchdogs only. Product deadlines and resource allowances stay unchanged. */

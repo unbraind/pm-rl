@@ -5,6 +5,14 @@ The PR tier runs on pull requests and dispatch, cancels superseded PR runs,
 and bounds each job to 30 minutes. Main pushes no longer duplicate that tier.
 CodeQL is not required by main branch protection.
 
+Node 22 quick tests run in the non-required `quick-shard (22, 1)` and
+`quick-shard (22, 2)` jobs, which split the quick test files with
+`node --test --test-shard`. The required `test (22)` check is their aggregate:
+it needs the shards, runs with `always()`, and fails unless every shard
+concluded successfully. For docs/tracker PRs the shards idle and `test (22)`
+runs the same health, changelog, audit, pack and docs-input contracts the old
+single Node 22 leg ran. `test (26)` is unchanged.
+
 | Check | Code PR Node 22 | Code PR Node 26 | Docs/tracker PR, both nodes | Deep |
 | --- | --- | --- | --- | --- |
 | npm ci and merge-driver preparation | yes | yes | yes | all jobs |
@@ -41,7 +49,8 @@ packaging, identity and release documentation contracts. No independent secret
 scanner or markdown linter exists in the original release gate. Documentation
 suites that pack consumers can still be substantial; they must not be bypassed.
 
-Node 22 runs build, test typecheck and quick tests, without a separate coverage,
+Node 22 runs build, test typecheck and quick tests through the shard jobs above,
+without a separate coverage,
 changelog or pack gate. Several existing tests pack their own consumers, and these
 remain intact. Packed tests execute Node and Bun consumers but do **not** prove
 Bun project/global package-manager installs or bunx ephemeral installation. The

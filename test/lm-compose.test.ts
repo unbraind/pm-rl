@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { execFileSync, fork, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { Readable, Writable } from "node:stream";
 import { setTimeout } from "node:timers/promises";
 import { after, test } from "node:test";
@@ -141,6 +141,36 @@ function removed(id: string, directory: string): void {
   const result = spawnSync("docker", ["container", "inspect", `${composeProject(id, directory)}-trainer`], { encoding: "utf8" });
   assert.notEqual(result.status, 0); assert.match(result.stderr, /No such (object|container)/u);
 }
+
+test("LM Compose controller trains, verifies and promotes through the packaged compose entrypoint without a daemon", async () => {
+  const { client, coordinates, approval, pmRoot, root } = await processWorkspace(budget); const selected = config().process as Extract<ProcessAdapter, { kind: "compose-lm" }>;
+  // The controller owns the real Compose lifecycle: only the container runtime is replaced by a
+  // PATH-injected stand-in whose `compose run` executes the packaged trainer entrypoint directly,
+  // so this drill needs no Docker daemon and stays deterministic at every depth.
+  const bin = join(root, "bin"); mkdirSync(bin, { recursive: true });
+  const trainer = new URL("../process-lm-trainer.ts", import.meta.url).pathname;
+  writeFileSync(join(bin, "docker"), `#!${process.execPath}\nconst a=process.argv.slice(2);\nif(a.includes("run")){const c=require("node:child_process").spawnSync(process.execPath,[${JSON.stringify(trainer)}],{stdio:"inherit"});process.exit(c.status===null?1:c.status);}\nelse if(a[0]==="container"&&a[1]==="ls")console.log("owned-container");\nelse if(a[1]==="inspect")console.log(JSON.stringify({memory_bytes:268435456,nano_cpus:1000000000,oom_killed:false,exit_code:0,network:"none",user:"65534:65534"}));\n`, { mode: 0o755 });
+  const previous = process.env.PATH; process.env.PATH = `${bin}${delimiter}${previous}`;
+  try {
+    const report = await runRlLoop(client, coordinates, { id: "process-drill", approval, config: { ...(rawConfig() as Record<string, JsonValue>), max_generations: 1 } });
+    assert.equal(report.promoted, 1); assert.equal(report.process_jobs!.length, 1);
+    const job = report.process_jobs![0];
+    assert.equal(job.state, "promoted"); assert.equal(job.charge.training_steps, 6); assert.ok(job.charge.tokens > 0);
+    assert.equal(job.completion!.digest, job.completion!.policy.digest); assert.notEqual(job.completion!.source_policy, job.completion!.digest);
+    const cfg = config(); const directory = processStaging(pmRoot, job.id);
+    const stagedInput = JSON.parse(readFileSync(join(directory, "input.json"), "utf8")).input;
+    for (const example of cfg.evaluation) assert.ok(!JSON.stringify(stagedInput).includes(`"string":"${example.string}"`));
+    verifiedProcessPolicy(job, pmRoot, stagedInput);
+    verifyLmProcessJob(job, pmRoot, stagedInput, { digest: job.completion!.digest, training: job.completion!.training });
+    for (const missing of [null, { ...job, completion: null }]) assert.throws(() => verifyLmProcessJob(missing, pmRoot, stagedInput, { digest: job.completion!.digest }));
+    assert.throws(() => verifyLmProcessJob(job, pmRoot, stagedInput, { digest: job.completion!.source_policy }));
+    assert.throws(() => verifyLmProcessJob(job, pmRoot, stagedInput, { digest: job.completion!.digest, training: null }));
+    const stop = JSON.parse(readFileSync(join(directory, "compose-stop.json"), "utf8").trim());
+    assert.equal(stop.resources.memory_bytes, selected.memory_bytes); assert.equal(stop.resources.nano_cpus, 1_000_000_000);
+    assert.equal(stop.resources.network, "none"); assert.equal(stop.resources.oom_killed, false);
+    assert.equal((await resumeRlLoop(client, coordinates, { id: "process-drill", approval })).resumed_generations, 1);
+  } finally { if (previous === undefined) delete process.env.PATH; else process.env.PATH = previous; }
+});
 
 test("real Compose LM promotes two generations and collects with the promoted checkpoint", { skip }, async (t) => {
   const { client, coordinates, approval, pmRoot } = await processWorkspace(budget); const selected = adapter("production");

@@ -1,4 +1,4 @@
-import { testDepth, testTime } from "./support/depth.ts";
+import { testDepth, testKindCases, testTime } from "./support/depth.ts";
 /** Capacity, item-paired promotion and sealed replay regressions use real numerical fitting and SDK jobs. */
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
@@ -198,7 +198,10 @@ test("sealed exploration stops on the original gap and sampled-evidence refusals
 
 
 test("refused vector retries converge at every collect train evaluate refusal and terminal boundary on one plain tracker", { timeout: testTime(600_000) }, async (context) => {
-  for (const boundary of ["collect", "train", "evaluate", "refuse-before", "refuse-after", "record-before", "record-after"] as const) await context.test(boundary, async () => {
+  // Quick depth keeps one phase crash (the durable-loop phase sweep covers the remaining
+  // crash points at quick depth) plus every refusal/report comment boundary in both arms;
+  // full depth stays exhaustive.
+  for (const boundary of testKindCases(["collect", "train", "evaluate", "refuse-before", "refuse-after", "record-before", "record-after"] as const, (row) => [row.endsWith("-before") || row.endsWith("-after") ? row : "phase-crash"])) await context.test(boundary, async () => {
     const w = await processWorkspace({ training_steps: 16, wall_ms: 60000, storage_bytes: 524288, compute_units: 20000, tokens: 0 });
     const lengths = [false, true].flatMap((held) => Array.from({ length: 200 }, (_, i) => i + 40).filter((length) => corpusHeldOut(length) === held).slice(0, 10));
     const config = sealTrackerLoopCorpus(lengths.map((length) => ({ id: `source-${length}`, title: "t".repeat(length), status: "closed" })), {

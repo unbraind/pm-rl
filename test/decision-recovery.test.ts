@@ -1,4 +1,4 @@
-import { testTime } from "./support/depth.ts";
+import { testKindCases, testTime } from "./support/depth.ts";
 /** Real HTTP receipt recovery against built code and real scratch PM projects. */
 import assert from "node:assert/strict";
 import { fork } from "node:child_process";
@@ -104,41 +104,41 @@ function launch(pmRoot: string, config: Record<string, JsonValue>, stage: string
 }
 
 test("SIGKILL at every HTTP-to-PM receipt boundary replays one decision per query", { timeout: testTime(300000) }, async () => {
-  for (const stage of ["remote", "response", "commit", "request"]) {
-    await Promise.all(["systemone_decision", "systemone_held_out_decision"].map(async (metric) => {
-      const endpoint = await receiptServer(false, stage === "remote" ? (metric === "systemone_decision" ? 1 : 3) : 0);
-      const { root, pmRoot, client } = await workspace();
-      const config = configValue(endpoint.baseURL);
-      config.decision_model = { base_url: endpoint.baseURL, model: "tev1:4b", timeout_ms: 10000, receipt_protocol: "idempotency-v1" };
-      const process = launch(pmRoot, config, stage, metric, 0);
-      try {
-        await Promise.all([process.uninstrumented, Promise.race([stage === "remote" ? endpoint.remote : process.ready,
-          process.result.then(() => { throw new Error("controller exited before crash injection"); })])]);
-        process.child.kill("SIGKILL"); await process.result;
-        const before = await rlLoopStatus(client, "recovery");
-        assert.equal(before.samples_consumed, (metric === "systemone_decision" ? 0 : 2) + (stage === "commit" ? 1 : 0));
-        const report = await resumeSource(client, { pmRoot, author: "receipt-test" }, { id: "recovery", approval: "approval" });
-        assert.equal(report.promoted, 2); assert.equal(report.samples_consumed, 8);
-        assert.equal(endpoint.physical(), 8, `${metric}/${stage}`);
-        const ids = new Set<string>(); let tokens = 0; let physical = 0;
-        for (const generation of report.generations) {
-          const notes = await client.notes(generation.run!, { outputBudget: "unbounded", outputLimit: "unbounded" });
-          assert.ok(!("output_budget_exceeded" in notes));
-          const events = readSeries(notes.notes.map((note) => note.text)).events;
-          assert.equal(events.length, 4);
-          for (const event of events) {
-            assert.ok(!ids.has(event.tags!.decision_id)); ids.add(event.tags!.decision_id);
-            physical += Number(event.tags!.physical_requests); tokens += Number(event.tags!.tokens);
-            assert.equal(Number(event.tags!.input_tokens) + Number(event.tags!.output_tokens), Number(event.tags!.tokens));
-            assert.equal(event.tags!.latency_ms, "12");
-          }
+  // Quick depth keeps every crash-stage kind and both decision metrics without repeating
+  // each full stage/metric combination; full depth stays exhaustive.
+  for (const { stage, metric } of testKindCases(["remote", "response", "commit", "request"].flatMap((stage) => ["systemone_decision", "systemone_held_out_decision"].map((metric) => ({ stage, metric }))), (row) => [row.stage])) {
+    const endpoint = await receiptServer(false, stage === "remote" ? (metric === "systemone_decision" ? 1 : 3) : 0);
+    const { root, pmRoot, client } = await workspace();
+    const config = configValue(endpoint.baseURL);
+    config.decision_model = { base_url: endpoint.baseURL, model: "tev1:4b", timeout_ms: 10000, receipt_protocol: "idempotency-v1" };
+    const process = launch(pmRoot, config, stage, metric, 0);
+    try {
+      await Promise.all([process.uninstrumented, Promise.race([stage === "remote" ? endpoint.remote : process.ready,
+        process.result.then(() => { throw new Error("controller exited before crash injection"); })])]);
+      process.child.kill("SIGKILL"); await process.result;
+      const before = await rlLoopStatus(client, "recovery");
+      assert.equal(before.samples_consumed, (metric === "systemone_decision" ? 0 : 2) + (stage === "commit" ? 1 : 0));
+      const report = await resumeSource(client, { pmRoot, author: "receipt-test" }, { id: "recovery", approval: "approval" });
+      assert.equal(report.promoted, 2); assert.equal(report.samples_consumed, 8);
+      assert.equal(endpoint.physical(), 8, `${metric}/${stage}`);
+      const ids = new Set<string>(); let tokens = 0; let physical = 0;
+      for (const generation of report.generations) {
+        const notes = await client.notes(generation.run!, { outputBudget: "unbounded", outputLimit: "unbounded" });
+        assert.ok(!("output_budget_exceeded" in notes));
+        const events = readSeries(notes.notes.map((note) => note.text)).events;
+        assert.equal(events.length, 4);
+        for (const event of events) {
+          assert.ok(!ids.has(event.tags!.decision_id)); ids.add(event.tags!.decision_id);
+          physical += Number(event.tags!.physical_requests); tokens += Number(event.tags!.tokens);
+          assert.equal(Number(event.tags!.input_tokens) + Number(event.tags!.output_tokens), Number(event.tags!.tokens));
+          assert.equal(event.tags!.latency_ms, "12");
         }
-        assert.equal(physical, 8); assert.equal(tokens, 88);
-        const attempts = endpoint.attempts();
-        await resumeSource(client, { pmRoot, author: "receipt-test" }, { id: "recovery", approval: "approval" });
-        assert.equal(endpoint.attempts(), attempts);
-      } finally { process.child.kill("SIGKILL"); await process.result; endpoint.server.closeAllConnections(); endpoint.server.close(); rmSync(root, { recursive: true, force: true }); }
-    }));
+      }
+      assert.equal(physical, 8); assert.equal(tokens, 88);
+      const attempts = endpoint.attempts();
+      await resumeSource(client, { pmRoot, author: "receipt-test" }, { id: "recovery", approval: "approval" });
+      assert.equal(endpoint.attempts(), attempts);
+    } finally { process.child.kill("SIGKILL"); await process.result; endpoint.server.closeAllConnections(); endpoint.server.close(); rmSync(root, { recursive: true, force: true }); }
   }
 });
 

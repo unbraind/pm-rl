@@ -4,7 +4,7 @@ import { cpSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
-import { testCases } from "../support/depth.ts";
+import { testCases, testKindCases } from "../support/depth.ts";
 import { concurrentCases } from "./concurrent-cases.ts";
 import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { captureDecisionInputs, extractGenerationSpec, DECISION_INPUT_FIELDS, firstDecisionSnapshot, hashJson, generationProvenance, readCompleteLoopItem, withRlController, promoteGenerationCore, verifyDecisionEvidence, verifyDecisionSnapshots, type JsonValue } from "../../index.ts";
@@ -81,7 +81,10 @@ export async function durableSnapshotProperty(cycles = 3, corruption: "all" | "n
       await recordSequentialEvaluation(w.client, candidate, w.rows);
     }
     // Every immutable input remains checked; quick samples pairs while full sweeps all of them.
-    for (const receipt of corruption === "all" ? receipts : []) {
+    // Quick depth also keeps a representative receipt subset (legacy, first and latest cycle
+    // graph sizes) instead of sweeping every receipt; full depth stays exhaustive.
+    const swept = testKindCases(receipts, (_receipt, index) => index === 0 ? ["legacy-receipt"] : index === receipts.length - 1 ? ["latest-cycle-receipt"] : ["intermediate-cycle-receipt"]);
+    for (const receipt of corruption === "all" ? swept : []) {
       const original = String((await readCompleteLoopItem(w.client, receipt.id)).item.body);
       const body = JSON.parse(original) as { decision_evidence: EvaluationEvidence };
       const refs = body.decision_evidence.inputs;

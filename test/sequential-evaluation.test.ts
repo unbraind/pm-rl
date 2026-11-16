@@ -1,4 +1,4 @@
-import { testDepth } from "./support/depth.ts";
+import { testDepth, testKindCases } from "./support/depth.ts";
 /** Real SDK state machines, finite-look simulations and adversarial sequential evidence. */
 import assert from "node:assert/strict";
 import { BoundaryClasses, peerAffects, representativeBoundaries } from "./fixtures/boundary-classes.ts";
@@ -323,9 +323,15 @@ test("generated SDK chronology witnesses bind every source through promotion res
     const baseline = ["review", "plan", ...runs, "candidate", ...looks];
     const orders = [baseline, [...looks, "review", "plan", ...runs, "candidate"]];
     // Generated adjacent precedence witnesses include every inversion, including nonadjacent Runs/looks.
+    // The class sequence a swap produces is determined by the two artifact classes it exchanges, so
+    // quick depth keeps one inversion of every class pair while full depth keeps every inversion.
+    const classOf = (index: number) => index === 0 ? "review" : index === 1 ? "plan" : index < 2 + runCount ? "run" : index === 2 + runCount ? "candidate" : "look";
+    const inversions: { order: string[]; kind: string }[] = [];
     for (let left = 0; left < baseline.length; left += 1) for (let right = left + 1; right < baseline.length; right += 1) {
-      const order = [...baseline]; [order[left], order[right]] = [order[right], order[left]]; orders.push(order);
+      const order = [...baseline]; [order[left], order[right]] = [order[right], order[left]];
+      inversions.push({ order, kind: `${classOf(left)}:${classOf(right)}` });
     }
+    for (const { order } of testKindCases(inversions, (row) => [row.kind])) orders.push(order);
     // Review's exact counterexample: candidate and first look before the collection Run.
     if (runCount === 1 && lookCount === 2) orders.push(["review", "plan", "candidate", "look-1", "run-1", "look-2"]);
     for (const order of orders) {

@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { test } from "node:test";
-import { testCases, testDepth } from "./support/depth.ts";
+import { testCases, testDepth, testKindCases } from "./support/depth.ts";
 
 const helper = new URL("./support/depth.ts", import.meta.url).href;
 test("quick depth keeps a deterministic prefix, a 25 case floor and full defaults", () => {
@@ -40,5 +40,25 @@ test("matrix sampling retains endpoints, middle cases, rare kinds and the depth 
     assert.equal(testCases(cases.slice(0, 30)).length, 25);
     assert.deepEqual(testCases(cases.slice(0, 10)), cases.slice(0, 10));
     assert.deepEqual(testCases([]), []);
+  } finally { if (previous === undefined) delete process.env.PM_TEST_DEPTH; else process.env.PM_TEST_DEPTH = previous; }
+});
+
+test("kind sampling keeps one representative of every kind and full-depth exhaustiveness", () => {
+  const previous = process.env.PM_TEST_DEPTH;
+  const boundaries = ["collect", "train", "evaluate", "refuse-before", "refuse-after", "record-before", "record-after"] as const;
+  const kindOf = (boundary: (typeof boundaries)[number]) => [boundary.endsWith("-before") || boundary.endsWith("-after") ? boundary : "phase-crash"];
+  try {
+    process.env.PM_TEST_DEPTH = "full";
+    assert.deepEqual(testKindCases(boundaries, kindOf), boundaries);
+    delete process.env.PM_TEST_DEPTH;
+    assert.deepEqual(testKindCases(boundaries, kindOf), boundaries);
+    process.env.PM_TEST_DEPTH = "quick";
+    const selected = testKindCases(boundaries, kindOf);
+    assert.equal(selected[0], boundaries[0]); assert.equal(selected.at(-1), boundaries.at(-1));
+    assert.ok(selected.length < boundaries.length, "quick depth must reduce a kind matrix");
+    for (const kind of new Set(boundaries.flatMap(kindOf))) assert.ok(selected.some((boundary) => kindOf(boundary).includes(kind)));
+    assert.deepEqual(selected, testKindCases(boundaries, kindOf), "selection is deterministic");
+    assert.deepEqual(testKindCases(["a", "b"], (row) => [row]), ["a", "b"], "small pairs stay exhaustive");
+    assert.deepEqual(testKindCases([], () => []), []);
   } finally { if (previous === undefined) delete process.env.PM_TEST_DEPTH; else process.env.PM_TEST_DEPTH = previous; }
 });

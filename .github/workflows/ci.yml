@@ -13,7 +13,10 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  test:
+  # Node 22 is the engines floor and runs the quick suite in two file shards so a
+  # hosted runner never carries the whole quick serial budget. It is not required;
+  # the required `test (22)` check aggregates these shards.
+  quick-shard:
     # Required checks stay on fast GitHub-hosted hardware.
     runs-on: ubuntu-latest
     # Quick tier targets at most 15 min. A hung step must not hold a hosted slot for the default 6 h:
@@ -26,8 +29,148 @@ jobs:
       fail-fast: false
       matrix:
         # 22 is the floor declared in `engines` and the first line that strips
-        # TypeScript without a flag; 26 is what the fleet develops against.
-        node-version: [22, 26]
+        # TypeScript without a flag; the quick release gate leg below covers 26.
+        node-version: [22]
+        shard: [1, 2]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      # Checkout must precede this first decision. NUL delimiters handle unusual
+      # filenames; compare the actual PR endpoints, not the synthetic merge commit.
+      # Disable rename folding so moving source into docs still counts its deletion.
+      - name: Detect code changes
+        id: changes
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          code=true
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            code=false
+            git diff --name-only --no-renames -z "$BASE_SHA...$HEAD_SHA" > "$RUNNER_TEMP/ci-changed-paths"
+            while IFS= read -r -d '' path; do
+              case "$path" in
+                # Executable tracker files use the same code tier in every package.
+                .agents/pm/*.mjs|.agents/pm/*.cjs|.agents/pm/*.js|.agents/pm/*.ts) code=true ;;
+                .agents/pm/*|*.md|docs/*|CHANGELOG.md|LICENSE) ;;
+                *) code=true ;;
+              esac
+            done < "$RUNNER_TEMP/ci-changed-paths"
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Install dependencies
+        if: steps.changes.outputs.code == 'true'
+        run: npm ci
+
+      - name: Engines floor shard
+        if: steps.changes.outputs.code == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          gate_home=$(mktemp -d)
+          npm run build && npm run build:test
+          env PATH="$PWD/node_modules/.bin:$PATH" HOME="$gate_home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 node --test --test-concurrency=4 --test-shard=${{ matrix.shard }}/2 test/*.test.ts
+
+  # The required `test (22)` check aggregates the quick Node 22 shards and carries the
+  # documentation/tracker contract leg for non-code PRs, matching the old single-leg shape.
+  test-22:
+    name: test (22)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: quick-shard
+    if: always()
+    env:
+      PM_TEST_DEPTH: quick
+      PM_TEST_DOCKER: off
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Detect code changes
+        id: changes
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          code=true
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            code=false
+            git diff --name-only --no-renames -z "$BASE_SHA...$HEAD_SHA" > "$RUNNER_TEMP/ci-changed-paths"
+            while IFS= read -r -d '' path; do
+              case "$path" in
+                # Executable tracker files use the same code tier in every package.
+                .agents/pm/*.mjs|.agents/pm/*.cjs|.agents/pm/*.js|.agents/pm/*.ts) code=true ;;
+                .agents/pm/*|*.md|docs/*|CHANGELOG.md|LICENSE) ;;
+                *) code=true ;;
+              esac
+            done < "$RUNNER_TEMP/ci-changed-paths"
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      # A matrix job concludes `success` only when every shard succeeded, so one
+      # failed shard fails this required check; `always()` still reports failures
+      # after cancellation instead of leaving the required check pending forever.
+      - name: Fail unless every quick Node 22 shard succeeded
+        if: steps.changes.outputs.code == 'true' && needs.quick-shard.result != 'success'
+        run: |
+          echo "quick-shard job result: ${{ needs.quick-shard.result }}" >&2
+          exit 1
+
+      - name: Install dependencies
+        if: steps.changes.outputs.code != 'true'
+        run: npm ci
+
+      # Documentation and tracker inputs retain the same contracts the old Node 22 leg ran.
+      - name: Check documentation and tracker changes
+        if: steps.changes.outputs.code != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run changelog:check
+          npm run audit:identities
+          npm run pack:dry-run
+          gate_home=$(mktemp -d)
+          env HOME="$gate_home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 node test/support/docs-inputs.ts
+
+  test:
+    # Required checks stay on fast GitHub-hosted hardware.
+    runs-on: ubuntu-latest
+    # Quick tier targets at most 15 min. A hung step must not hold a hosted slot for the default 6 h:
+    # on 2026-11-15 three fleet release-gate jobs hung for 90+ min until another session cancelled them.
+    timeout-minutes: 30
+    env:
+      PM_TEST_DEPTH: quick
+      PM_TEST_DOCKER: off
+    strategy:
+      fail-fast: false
+      matrix:
+        # 26 is what the fleet develops against; the engines floor runs in the
+        # quick-shard job above and its required `test (22)` aggregate.
+        node-version: [26]
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -106,15 +249,6 @@ jobs:
           npm run pack:dry-run
           gate_home=$(mktemp -d)
           env HOME="$gate_home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 node test/support/docs-inputs.ts
-
-      - name: Engines floor tests
-        if: steps.changes.outputs.code == 'true' && matrix.node-version == 22
-        shell: bash
-        run: |
-          set -euo pipefail
-          gate_home=$(mktemp -d)
-          npm run build && npm run build:test
-          env PATH="$PWD/node_modules/.bin:$PATH" HOME="$gate_home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 node --test --test-concurrency=4 test/*.test.ts
 
       - name: Quick npm release gate
         if: steps.changes.outputs.code == 'true' && matrix.node-version == 26
