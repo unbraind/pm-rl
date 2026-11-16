@@ -1601,7 +1601,10 @@ test("recoverable card transactions finish every EIO ENOSPC and SIGKILL boundary
   ];
   const faults = cases.flatMap(([path, boundaries]) => boundaries.flatMap((boundary) =>
     (["EIO", "ENOSPC", "kill"] as const satisfies readonly FaultMode[]).map((mode) => ({ path, boundary, mode }))));
-  const selected = testCases(faults, ({ path, boundary, mode }) => [`path:${path}`, `boundary:${path}:${boundary.replace(/schema-[^:]+/, "schema").replace(/card-\d+/, "card")}`, `fault:${mode}`]);
+  const selected = testCases(faults, ({ path, boundary, mode }) => {
+    const kind = boundary.replace(/schema-[^:]+/, "schema").replace(/card-\d+/, "card");
+    return [`path:${path}`, `boundary:${path}:${kind}`, `fault:${kind.split(":")[0]}:${mode}`];
+  });
   for (const [path] of cases) {
     // Read-only paths start from a complete promotion; every write path starts from the same candidate.
     if (path === "export") await recoveryPath(base.pmRoot, "promote", "", "none");

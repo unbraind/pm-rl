@@ -92,8 +92,8 @@ matrices below 25 cases remain exhaustive (including the 15-case main corpus,
 four-phase crash sweeps and eight HTTP receipt crash cases). Full depth returns
 every case in the original order. The native snapshot chain still runs all three
 promotions and every receipt/card variant at quick depth; only its corruption
-pairs are sampled. Card recovery retains all command paths, boundary kinds and
-EIO/ENOSPC/SIGKILL modes. The callback matrix retains every operation site and
+pairs are sampled. Card recovery retains all command paths and before/after boundary kinds, plus
+EIO/ENOSPC/SIGKILL for each schema, receipt, seal, card and read boundary kind. The callback matrix retains every operation site and
 error code. Routine card mutations retain every input and mutation kind.
 
 The 35-second healthy-owner wait is deep-only, with its real product contract
@@ -128,10 +128,60 @@ not comparable to a full hosted gate. The optional local quick coverage attempt
 was stopped after 983 seconds in the gate, still in early controller matrices,
 as it could not plausibly finish within the 20-minute shared-host budget. It
 reported no failure before termination, but establishes no coverage percentage.
-Full depth is deferred to post-merge CI Deep. Required PR checks were still
-running at handoff; completed PR wall times are unavailable. Remaining evidence
+Full depth is deferred to post-merge CI Deep. At the initial rollout handoff required PR checks were still
+running; that handoff had no completed PR wall times. Remaining evidence
 and run links are recorded in the Task and PR body.
 
 Tracking: [pm-rl-local-gate-timing](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-local-gate-timing.toon),
 companion `pm-cli-website-dyhg`. Release callers, release verifier scripts and
 pm-github workflows remain owned by their separate rollout.
+
+
+## Quick timing follow-up
+
+The next quick run, [43782039631](https://github.com/unbraind/pm-rl/actions/runs/43782039631),
+was cancelled by the unchanged 30-minute job cap without a test failure.
+The jobs API measured the Node 22 engines step at 1797 seconds and the Node 26
+release gate at 1792 seconds; created-to-completed job times were 1816/1818
+seconds respectively. This follow-up samples every large exhaustive matrix and
+overlaps four independent quick files, targeting at most 15 minutes per job.
+
+Shared-host Node 24 measurements at quick depth follow. Original runs used
+harness scale 1; sampled runs use scale 3 only for watchdogs. Host load varied;
+these are relative diagnostics, and timed-out baselines are lower bounds.
+The original full-file baseline was incomplete after its callback timeout and
+replacement of its card-file leg by a focused original-source matrix run.
+
+| Test | Before (s) | After (s) |
+| --- | ---: | ---: |
+| Snapshot corruption pairs | 1504.418 | 595.319 |
+| Callback fault matrix | timeout at 600.003 | 163.011 |
+| Decision graph corruption | 323.585 | 229.696 |
+| Candidate/refused graph sweep | 185.309 | 188.025 |
+| Routine card mutations | 410.284 | 175.374 |
+| Generation evidence mutations | 293.039 | 103.787 |
+| Recoverable card transactions | timeout at 600.002 | initial sample 152.887; stronger sample pending |
+| Real healthy-owner wait | 103.105 | deep only |
+| Three-generation chain regression | 220.458 | 243.255 |
+
+Snapshot counts fall from 337 to 100, and corrupt-card checks from 1910 to 500,
+while retaining three promotions, four receipts, ten card variants and 21 replays.
+The callback matrix passes 30 representative cases with every site/error kind
+retained. No improvement is claimed for the small candidate/refused sweep or the
+unchanged chain regression. Whole-suite quick coverage remains at the original
+100 percent thresholds and scope, with results pending hosted CI.
+
+Implementation head: `031a2357485e9cd0d3dc5a93748057030b6e87cc`.
+[Follow-up CI run 43789664325](https://github.com/unbraind/pm-rl/actions/runs/43789664325)
+started both required jobs at 02:01:47 UTC. Completed step durations are pending;
+CI observation is bounded to 30 minutes after the last push.
+
+
+After 20 minutes, both required jobs were still executing their main steps. The
+running job logs API returned 404, so a fresh per-test ranking was unavailable.
+The previous Node 26 quick run's next unchanged costs were the main compatibility
+corpus (65.5 s), heartbeat (65.2 s), shared-tracker interleavings (64.2 s), large
+learner (47.7 s), pending peer refusals (34.2 s) and chain regression (32.7 s).
+The 15-minute target is not yet demonstrated. The final recovery sampler also
+retains every fault mode for each boundary kind, preserving physical SIGKILL
+coverage at receipt, seal and card writes; its focused measurement is pending.
