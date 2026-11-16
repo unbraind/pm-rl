@@ -88,7 +88,6 @@
 ### Other
 
 - Adapt generation spec reads to pm toolchain 2026.11.6 ([pm-rl-toolchain-1110](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-toolchain-1110.toon))
-- Stabilize local process and card acceptance timings at unchanged bounds ([pm-rl-local-gate-timing](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-local-gate-timing.toon))
 - Evaluate proposer transfer on a statistically powered tracker corpus ([pm-rl-rsipower](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-rsipower.toon))
 - Keep the HTTP receipt crash drill within its unchanged timeout ([pm-rl-bi4v](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-bi4v.toon))
 - Reconcile inherited release-test expectations with native refusal contracts ([pm-rl-meta-gate](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-meta-gate.toon))
