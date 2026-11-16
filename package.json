@@ -103,7 +103,8 @@
     "docs/evaluation-lifecycle-revert.json",
     "dist/proposer-transfer.*",
     "docs/proposer-transfer.md",
-    "docs/proposer-transfer-receipt.json"
+    "docs/proposer-transfer-receipt.json",
+    "docs/history-status-roles-evidence.json"
   ],
   "engines": {
     "node": ">=22.18.0"
@@ -260,7 +261,8 @@
       "docs/evaluation-lifecycle-evidence.json",
       "docs/evaluation-lifecycle-revert.json",
       "docs/proposer-transfer.md",
-      "docs/proposer-transfer-receipt.json"
+      "docs/proposer-transfer-receipt.json",
+      "docs/history-status-roles-evidence.json"
     ],
     "examples": [
       "README.md",

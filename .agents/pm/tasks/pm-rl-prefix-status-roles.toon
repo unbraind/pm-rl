@@ -1,0 +1,13 @@
+id: pm-rl-prefix-status-roles
+title: Normalize custom lifecycle roles in the separate history-prefix dataset builder
+description: projectHistoryPrefix in prefix-data.ts still accepts the released literal lifecycle vocabulary. This slice fixes chronological improver collection and terminal-disposition verification. Separately add pinned SDK-role normalization to the history-prefix task while preserving existing sealed prefix datasets and prediction-time boundaries.
+type: Task
+status: open
+priority: 2
+tags[3]: collection,follow-up,status-roles
+created_at: "2026-11-14T12:28:13.844Z"
+updated_at: "2026-11-14T12:28:13.844Z"
+author: codex-rl-apvf-1114
+acceptance_criteria: "Custom open, active, blocked and terminal roles build a valid history-prefix dataset from pinned public snapshots; supported historical sealed datasets retain their exact identities and remain readable; real non-git consumers and behavioral revert proofs pass."
+parent: pm-rl-apvf
+body: ""
