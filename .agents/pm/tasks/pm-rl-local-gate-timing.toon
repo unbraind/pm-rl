@@ -7,10 +7,10 @@ status: in_progress
 priority: 3
 tags[7]: acceptance,ci,follow-up,"gh:unbraind/pm-rl#145","gh:unbraind/pm-rl#180",performance,timing
 created_at: "2026-11-05T09:52:10.732Z"
-updated_at: "2026-11-16T08:48:23.699Z"
+updated_at: "2026-11-16T11:59:51.129Z"
 author: codex-agent
 parent: pm-rl-apvf
-comments[65]:
+comments[72]:
   - created_at: "2026-11-05T10:11:24.980Z"
     author: codex-agent
     text: "Final standalone results are recorded in docs/proposer-revert-evidence.json: packed process CLI reproduces ETIMEDOUT at its unchanged 20000 ms command limit; the canonical 512-card property and recoverable card transaction matrix each reproduce their unchanged 600000 ms parent limit. The transaction retry reports 133 tests: 124 pass, 7 failed-to-start after the parent finished, 2 cancellations, zero skip/todo. The packed LM command also reproduces ETIMEDOUT at 25000 ms and remains owned by pm-rl-7c7m. HTTP retry passed 1/1; callback log recovered 123/123 passes with recorder exit status unavailable after the provider interruption. Linked the already-executed process/card reproduction commands without rerunning them. Complete source-fix CI remains green across npm Node 22/26 and Bun Node 26 at original scope and thresholds."
@@ -207,7 +207,28 @@ comments[65]:
   - created_at: "2026-11-16T08:48:22.518Z"
     author: codex-sol
     text: "Round L complete. PRRT_kwDOTqJmqs630k0X: linked entry 21 now stores pm_context_mode none and workspace_context_mode snapshot through the pm CLI; its isolated run passed typecheck/build:test/lint and all 73 workflow/coverage tests, zero failures/skips. PRRT_kwDOTqJmqs630k0b: all 26 filesystem pathname uses found across tests/fixtures now use fileURLToPath; no executable matches remain. The copied-checkout spaces regression fails with the original trainer line and passes with the fix. Final pm test --run --only-index 22 --progress passed typecheck/build:test/lint and all 112 selected touched tests; five real Docker tests were intentionally skipped by PM_TEST_DOCKER=off, with zero failures/cancellations. Direct npm run changelog:check and git diff --check passed. The earlier broad run was deliberately stopped and is not counted as passing evidence. Project tracking is disabled, so comments retain execution receipts. Releasing in progress; no thread mutations, closes or merges."
-files[59]{path,scope}:
+  - created_at: "2026-11-16T11:43:19.064Z"
+    author: codex-sol
+    text: "Review round N confirms PRRT_kwDOTqJmqs632Dm-: linked row 22 selects live prefix acceptance, whose packed installation skips package scripts, while typecheck and build:test do not emit dist. Prepended npm run build through pm test, retaining every selected case, environment setting and watchdog. Auditing the other linked rows for packed consumers before clean-output verification."
+  - created_at: "2026-11-16T11:43:41.351Z"
+    author: codex-sol
+    text: "Other linked entries audit: rows 1-6 already build, row 8 runs coverage which starts with build, and rows 7/9-21 do not select the live packed-prefix acceptance path. Its actual pack --ignore-scripts call is in scripts/live-meta.ts; the selected prefix acceptance is in row 22. Moving the existing generated dist aside before executing that exact updated row through PM, with its original snapshot isolation and unchanged test selection."
+  - created_at: "2026-11-16T11:44:33.575Z"
+    author: codex-sol
+    text: "Correction to the earlier progress note: pm test rejects changing a command with --set-json because commands are immutable identities. Replaced row 22 atomically with --remove-index plus --add-json, preserving its timeout and snapshot/none context metadata. Inspection also found doubled regexp escapes in the old selector: it did not match the named live prefix acceptance at all. Normalized those escapes without changing the intended case names. The first, unmodified run was stopped; it is not passing evidence. The generated dist remains moved aside for the corrected run."
+  - created_at: "2026-11-16T11:45:04.107Z"
+    author: codex-sol
+    text: "Evidence correction: a direct RegExp check confirms the original selector DOES match the live prefix case; its escaping was only display encoding. The replacement command differs solely by the npm run build prefix, with all original selector bytes preserved. The initial unmodified clean-dist run finished with an assertion failure before the stop check; inspect that failure as regression evidence, not a successful or interrupted run. No selector defect or follow-up is asserted."
+  - created_at: "2026-11-16T11:46:06.835Z"
+    author: codex-sol
+    text: "Clean-dist regression evidence: the unmodified row failed in build:test with TS2307 for dist/index.js and dist/meta.js before acceptance could run. The same audit exposes the prerequisite gap in original linked rows 9 and 21, which also invoke build:test without build. Replaced those two commands through PM with build prepended as well. Other source-only linked commands do not pack the prefix CLI; coverage already builds. The intended selector is unchanged."
+  - created_at: "2026-11-16T11:58:10.934Z"
+    author: codex-sol
+    text: The clean-output corrected broad entry is still running its unchanged selected behavior cases. Separate workflow entry 21 passed all 73 contracts plus build/typecheck/test compilation/lint. Adding an isolated live-prefix command as direct evidence for the supplied packed-install finding; source dist remains absent and each linked run uses its own snapshot. The broad entry remains active and its eventual result will be reported separately.
+  - created_at: "2026-11-16T11:59:49.141Z"
+    author: codex-sol
+    text: "Verification complete for PRRT_kwDOTqJmqs632Dm-: with source dist moved aside, the corrected broad linked row passed build, typecheck, build:test and lint, then 112 behavior tests passed, 0 failed and 5 real-Docker cases skipped under the retained PM_TEST_DOCKER=off setting. It ran as row 22 before the two other repaired entries moved it to row 20. The isolated live-prefix packed acceptance passed as current row 23: 1 test, 0 failures, 0 skips. Command: pm test pm-rl-local-gate-timing --run --only-index 23 --progress --full-output. Current workflow row 21 passed 73 contracts, and changelog:check passed. Original rows 9, 21 and 22 differ solely by build prefixes; environments, contexts, selectors and timeouts are preserved. Rebuilt the source dist from current code after the snapshot runs; the prior generated output remains set aside. Docker-backed behavior and remote CI are not certified by these results."
+files[60]{path,scope}:
   .agents/pm/tasks/pm-rl-local-gate-timing.toon,project
   .github/workflows/ci-deep.yml,project
   .github/workflows/ci.yml,project
@@ -216,6 +237,7 @@ files[59]{path,scope}:
   docs/lm-adapter.md,project
   docs/process-trainer.md,project
   scripts/coverage-gate.ts,project
+  scripts/live-meta.ts,project
   test/audit-git-identities.test.ts,project
   test/bandit.test.ts,project
   test/baseline.test.ts,project
@@ -267,7 +289,7 @@ files[59]{path,scope}:
   test/transfer-review-round6.test.ts,project
   test/transfer-review.test.ts,project
   test/worst-cohort.test.ts,project
-tests[22]:
+tests[23]:
   - command: npm run build && nice -n 10 node --test --test-concurrency=1 --test-reporter=spec '--test-name-pattern=packed CLI trains two external generations' test/process-cli.test.ts
     scope: project
     timeout_seconds: 420
@@ -346,16 +368,6 @@ tests[22]:
     provenance:
       author: codex-sol
       created_at: "2026-11-16T00:32:58.831Z"
-      source_kind: local_mutation
-      source_ref: ci/quick-pr-tier-deep-local-tier
-  - command: "npm run typecheck && npm run lint && npm run build:test"
-    scope: project
-    timeout_seconds: 300
-    pm_context_mode: none
-    workspace_context_mode: snapshot
-    provenance:
-      author: codex-sol
-      created_at: "2026-11-16T00:33:02.260Z"
       source_kind: local_mutation
       source_ref: ci/quick-pr-tier-deep-local-tier
   - command: PM_TEST_DEPTH=quick PM_TEST_DOCKER=off PM_TEST_TIME_SCALE=3 node --test --test-concurrency=2 test/audit-git-identities.test.ts test/coverage-gate.test.ts
@@ -445,28 +457,46 @@ tests[22]:
       created_at: "2026-11-16T05:24:51.675Z"
       source_kind: local_mutation
       source_ref: ci/quick-pr-tier-deep-local-tier
-  - command: "npm run typecheck && npm run build:test && npm run lint && node --test --test-concurrency=2 test/coverage-gate.test.ts test/ci-workflow.test.ts test/release-workflow.test.ts && git diff --check"
-    scope: project
-    pm_context_mode: none
-    workspace_context_mode: snapshot
-    provenance:
-      author: codex-sol
-      created_at: "2026-11-16T07:26:26.326Z"
-      source_kind: local_mutation
-      source_ref: ci/quick-pr-tier-deep-local-tier
-    updated_by: codex-sol
-    updated_at: "2026-11-16T08:25:19.105Z"
-  - command: "npm run typecheck && npm run build:test && npm run lint && PM_TEST_DEPTH=quick PM_TEST_DOCKER=off PM_TEST_TIME_SCALE=3 node --test --test-concurrency=2 '--test-name-pattern=^(?:LM\\ Compose\\ controller\\ trains,\\ verifies\\ and\\ promotes\\ through\\ the\\ packaged\\ compose\\ entrypoint\\ without\\ a\\ daemon|LM\\ Compose\\ parser\\ declares\\ image,\\ licences,\\ fit,\\ memory,\\ CPU\\ and\\ resource\\ bounds|LM\\ Compose\\ trainer\\ paths\\ survive\\ checkout\\ spaces|LM\\ real\\ child\\ process\\ uses\\ the\\ shared\\ stream\\ and\\ refuses\\ mismatched\\ adapter\\ limits\\ before\\ reserving|LM\\ real\\ fit\\ publishes\\ canonical\\ tensors\\ and\\ rejects\\ corrupt\\ bytes,\\ memory\\ and\\ token\\ evidence|NDJSON\\ event\\ ordering,\\ final\\ accounting\\ and\\ native\\ pipe\\ failures\\ are\\ enforced\\ with\\ real\\ children|UTF\\-8\\ NDJSON\\ survives\\ split\\ multibyte\\ chunks\\ without\\ corrupting\\ retained\\ events|a\\ diagnostics\\ write\\ failure\\ becomes\\ a\\ refusal\\ instead\\ of\\ escaping\\ the\\ stream\\ callback|a\\ false\\ native\\ stop\\ result\\ and\\ emitted\\ error\\ cannot\\ recurse\\ or\\ bypass\\ reaping|a\\ job\\ body\\ copied\\ into\\ another\\ task\\ neither\\ double\\-charges\\ nor\\ names\\ a\\ missing\\ job|a\\ real\\ staging\\ creation\\ failure\\ releases\\ the\\ unlaunched\\ reservation\\ with\\ a\\ failed\\ outcome|a\\ running\\ job\\ with\\ no\\ staged\\ completion\\ fails\\ safely,\\ and\\ native\\ spawn\\ errors\\ settle|approval\\ aliases\\ share\\ one\\ physical\\ budget\\ and\\ the\\ same\\ reservation\\ identity|atomic\\ reservation\\-once\\ survives\\ concurrent\\ replay\\ and\\ exhausted\\ approval|budget\\ and\\ job\\ identity\\ drift\\ refuse\\ execution\\ through\\ real\\ tracker\\ reads|callback\\ fault\\ matrix\\ reaps\\ real\\ children\\ and\\ settles\\ each\\ reservation\\ once|checkpoint\\ benchmark\\ measures\\ both\\ capacities\\ and\\ verified\\ load\\ paths\\ on\\ a\\ sealed\\ corpus|checkpoint\\ schema\\ size,\\ actual\\ wall\\ use\\ and\\ malformed\\ resource\\ evidence\\ fail\\ closed|cleanup\\ exhaustion\\ fault\\ matrix\\ observes\\ native\\ detach,\\ identity\\ and\\ close\\ failures|completion\\ validation\\ refuses\\ foreign\\ lineage,\\ unsafe\\ resources\\ and\\ unreadable\\ staging|corpus\\ exclusive\\ publication\\ handles\\ a\\ real\\ concurrent\\ creator\\ and\\ preserves\\ other\\ IO\\ errors|corpus\\ publication\\ pins\\ canonical\\ targets\\ and\\ rechecks\\ alias\\ and\\ canonical\\ containment\\ after\\ collection|coverage:\\ native\\ completion\\ and\\ approval\\ drift\\ cannot\\ supply\\ a\\ verified\\ process\\ policy|every\\ budget\\ dimension\\ is\\ checked\\ atomically\\ before\\ a\\ child\\ can\\ launch|failed\\ process\\ candidates\\ never\\ become\\ a\\ successor\\ collection\\ policy|fit\\ steps\\ are\\ bounded,\\ persisted\\ and\\ matched\\ to\\ a\\ reservation\\ before\\ any\\ job\\ launches|identity\\ publication\\ failure\\ stops\\ the\\ real\\ child\\ and\\ settles\\ without\\ overwriting\\ retained\\ metadata|intake\\ fit\\ and\\ replay\\ need\\ no\\ git\\ executable\\ or\\ enclosing\\ repository|interrupted\\ process\\ publication\\ retains\\ committed\\ reservations\\ and\\ transitions\\ for\\ reconciliation|item\\-gated\\ fitting\\ preserves\\ incumbent,\\ budget\\ and\\ replay\\ without\\ a\\ Git\\ executable|live\\ prefix\\ acceptance\\ installs\\ the\\ packed\\ command\\ and\\ retains\\ public\\ per\\-example\\ provenance|malformed\\ wall\\ identity\\ and\\ terminal\\ candidates\\ cannot\\ supply\\ an\\ executable\\ policy|native\\ child\\ identity\\ failure\\ and\\ PID\\ reuse\\ do\\ not\\ authorize\\ an\\ unrelated\\ stop|oversized\\ durable\\ completion\\ refuses\\ before\\ parsing\\ and\\ preserves\\ failed\\-job\\ evidence|owned\\ child\\ cleanup\\ retries\\ beyond\\ three\\ failures\\ and\\ settles\\ persistent\\ failures\\ without\\ latching|parent\\ AbortSignal\\ during\\ an\\ external\\ fit\\ records\\ terminal\\ cancellation\\ and\\ preserves\\ staged\\ evidence|primitive\\ callback\\ faults\\ remain\\ failures\\ after\\ successful\\ close\\ and\\ settle\\ once|process\\ compensation\\ preserves\\ peer\\ revisions\\ at\\ every\\ journal\\ step\\ boundary|process\\ transaction\\ owner\\ probes\\ refuse\\ unavailable\\ OS\\ identity\\ without\\ effects|real\\ Compose\\ LM\\ corrupt\\ checkpoints\\ and\\ exceeded\\ memory/time\\ refuse\\ promotion|real\\ Compose\\ LM\\ mid\\-fit\\ cancellation\\ retains\\ evidence\\ and\\ process_cancelled|real\\ Compose\\ LM\\ promotes\\ two\\ generations\\ and\\ collects\\ with\\ the\\ promoted\\ checkpoint|real\\ Compose\\ LM\\ staged\\ completion\\ survives\\ SIGKILL\\ without\\ retraining\\ or\\ double\\ charge|real\\ child\\ failure\\ and\\ cancellation\\ cannot\\ settle\\ a\\ peer'\"'\"'s\\ newer\\ running\\ revision|real\\ non\\-git\\ corpus\\ command\\ trains\\ two\\ successors,\\ resumes\\ sealed\\ inputs\\ and\\ preserves\\ source\\ bytes|real\\ trainer\\ materializes\\ changed\\ weights\\ and\\ replays\\ one\\ settled\\ reservation|receipt\\-required,\\ digest\\ and\\ storage\\ failures\\ retain\\ artifacts\\ and\\ settle\\ without\\ eligible\\ policies|renamed\\ held\\-out\\ copies\\ are\\ rejected\\ before\\ any\\ process\\ reservation|resource\\ vectors\\ and\\ packaged\\ adapter\\ require\\ complete\\ bounded\\ declarations|staging\\ measurement\\ tolerates\\ an\\ entry\\ deleted\\ after\\ listing\\ without\\ accepting\\ a\\ missing\\ completion|standalone\\ SDK\\ execution\\ also\\ launches\\ one\\ child\\ under\\ contention|the\\ reference\\ entry\\ dispatcher\\ executes\\ the\\ same\\ numerical\\ trainer\\ with\\ explicit\\ real\\ IO|the\\ shipped\\ trainer\\ writes\\ real\\ parameter\\ updates\\ and\\ durable\\ NDJSON\\ receipts|the\\ workspace\\ writer\\ lock\\ carries\\ a\\ recoverable\\ phase\\ identity\\ from\\ its\\ creation|trainer\\ IO\\ publishes\\ exact\\ measured\\ checkpoint\\ evidence\\ and\\ validation\\ refuses\\ forged\\ parameters|two\\ real\\ Compose\\ LM\\ controllers\\ launch\\ once\\ and\\ reserve\\ once|wall\\ expiry\\ and\\ AbortSignal\\ settle\\ a\\ running\\ real\\ child\\ while\\ retaining\\ partial\\ artifacts)$' test/controller-boundaries.test.ts test/checkpoint-artifacts.test.ts test/process.test.ts test/baseline.test.ts test/corpus.test.ts test/prefix.test.ts test/process-loop.test.ts test/objective.test.ts test/lm-compose.test.ts test/process-publication.test.ts"
+  - command: "npm run build && npm run typecheck && npm run build:test && npm run lint && PM_TEST_DEPTH=quick PM_TEST_DOCKER=off PM_TEST_TIME_SCALE=3 node --test --test-concurrency=2 '--test-name-pattern=^(?:LM\\ Compose\\ controller\\ trains,\\ verifies\\ and\\ promotes\\ through\\ the\\ packaged\\ compose\\ entrypoint\\ without\\ a\\ daemon|LM\\ Compose\\ parser\\ declares\\ image,\\ licences,\\ fit,\\ memory,\\ CPU\\ and\\ resource\\ bounds|LM\\ Compose\\ trainer\\ paths\\ survive\\ checkout\\ spaces|LM\\ real\\ child\\ process\\ uses\\ the\\ shared\\ stream\\ and\\ refuses\\ mismatched\\ adapter\\ limits\\ before\\ reserving|LM\\ real\\ fit\\ publishes\\ canonical\\ tensors\\ and\\ rejects\\ corrupt\\ bytes,\\ memory\\ and\\ token\\ evidence|NDJSON\\ event\\ ordering,\\ final\\ accounting\\ and\\ native\\ pipe\\ failures\\ are\\ enforced\\ with\\ real\\ children|UTF\\-8\\ NDJSON\\ survives\\ split\\ multibyte\\ chunks\\ without\\ corrupting\\ retained\\ events|a\\ diagnostics\\ write\\ failure\\ becomes\\ a\\ refusal\\ instead\\ of\\ escaping\\ the\\ stream\\ callback|a\\ false\\ native\\ stop\\ result\\ and\\ emitted\\ error\\ cannot\\ recurse\\ or\\ bypass\\ reaping|a\\ job\\ body\\ copied\\ into\\ another\\ task\\ neither\\ double\\-charges\\ nor\\ names\\ a\\ missing\\ job|a\\ real\\ staging\\ creation\\ failure\\ releases\\ the\\ unlaunched\\ reservation\\ with\\ a\\ failed\\ outcome|a\\ running\\ job\\ with\\ no\\ staged\\ completion\\ fails\\ safely,\\ and\\ native\\ spawn\\ errors\\ settle|approval\\ aliases\\ share\\ one\\ physical\\ budget\\ and\\ the\\ same\\ reservation\\ identity|atomic\\ reservation\\-once\\ survives\\ concurrent\\ replay\\ and\\ exhausted\\ approval|budget\\ and\\ job\\ identity\\ drift\\ refuse\\ execution\\ through\\ real\\ tracker\\ reads|callback\\ fault\\ matrix\\ reaps\\ real\\ children\\ and\\ settles\\ each\\ reservation\\ once|checkpoint\\ benchmark\\ measures\\ both\\ capacities\\ and\\ verified\\ load\\ paths\\ on\\ a\\ sealed\\ corpus|checkpoint\\ schema\\ size,\\ actual\\ wall\\ use\\ and\\ malformed\\ resource\\ evidence\\ fail\\ closed|cleanup\\ exhaustion\\ fault\\ matrix\\ observes\\ native\\ detach,\\ identity\\ and\\ close\\ failures|completion\\ validation\\ refuses\\ foreign\\ lineage,\\ unsafe\\ resources\\ and\\ unreadable\\ staging|corpus\\ exclusive\\ publication\\ handles\\ a\\ real\\ concurrent\\ creator\\ and\\ preserves\\ other\\ IO\\ errors|corpus\\ publication\\ pins\\ canonical\\ targets\\ and\\ rechecks\\ alias\\ and\\ canonical\\ containment\\ after\\ collection|coverage:\\ native\\ completion\\ and\\ approval\\ drift\\ cannot\\ supply\\ a\\ verified\\ process\\ policy|every\\ budget\\ dimension\\ is\\ checked\\ atomically\\ before\\ a\\ child\\ can\\ launch|failed\\ process\\ candidates\\ never\\ become\\ a\\ successor\\ collection\\ policy|fit\\ steps\\ are\\ bounded,\\ persisted\\ and\\ matched\\ to\\ a\\ reservation\\ before\\ any\\ job\\ launches|identity\\ publication\\ failure\\ stops\\ the\\ real\\ child\\ and\\ settles\\ without\\ overwriting\\ retained\\ metadata|intake\\ fit\\ and\\ replay\\ need\\ no\\ git\\ executable\\ or\\ enclosing\\ repository|interrupted\\ process\\ publication\\ retains\\ committed\\ reservations\\ and\\ transitions\\ for\\ reconciliation|item\\-gated\\ fitting\\ preserves\\ incumbent,\\ budget\\ and\\ replay\\ without\\ a\\ Git\\ executable|live\\ prefix\\ acceptance\\ installs\\ the\\ packed\\ command\\ and\\ retains\\ public\\ per\\-example\\ provenance|malformed\\ wall\\ identity\\ and\\ terminal\\ candidates\\ cannot\\ supply\\ an\\ executable\\ policy|native\\ child\\ identity\\ failure\\ and\\ PID\\ reuse\\ do\\ not\\ authorize\\ an\\ unrelated\\ stop|oversized\\ durable\\ completion\\ refuses\\ before\\ parsing\\ and\\ preserves\\ failed\\-job\\ evidence|owned\\ child\\ cleanup\\ retries\\ beyond\\ three\\ failures\\ and\\ settles\\ persistent\\ failures\\ without\\ latching|parent\\ AbortSignal\\ during\\ an\\ external\\ fit\\ records\\ terminal\\ cancellation\\ and\\ preserves\\ staged\\ evidence|primitive\\ callback\\ faults\\ remain\\ failures\\ after\\ successful\\ close\\ and\\ settle\\ once|process\\ compensation\\ preserves\\ peer\\ revisions\\ at\\ every\\ journal\\ step\\ boundary|process\\ transaction\\ owner\\ probes\\ refuse\\ unavailable\\ OS\\ identity\\ without\\ effects|real\\ Compose\\ LM\\ corrupt\\ checkpoints\\ and\\ exceeded\\ memory/time\\ refuse\\ promotion|real\\ Compose\\ LM\\ mid\\-fit\\ cancellation\\ retains\\ evidence\\ and\\ process_cancelled|real\\ Compose\\ LM\\ promotes\\ two\\ generations\\ and\\ collects\\ with\\ the\\ promoted\\ checkpoint|real\\ Compose\\ LM\\ staged\\ completion\\ survives\\ SIGKILL\\ without\\ retraining\\ or\\ double\\ charge|real\\ child\\ failure\\ and\\ cancellation\\ cannot\\ settle\\ a\\ peer'\"'\"'s\\ newer\\ running\\ revision|real\\ non\\-git\\ corpus\\ command\\ trains\\ two\\ successors,\\ resumes\\ sealed\\ inputs\\ and\\ preserves\\ source\\ bytes|real\\ trainer\\ materializes\\ changed\\ weights\\ and\\ replays\\ one\\ settled\\ reservation|receipt\\-required,\\ digest\\ and\\ storage\\ failures\\ retain\\ artifacts\\ and\\ settle\\ without\\ eligible\\ policies|renamed\\ held\\-out\\ copies\\ are\\ rejected\\ before\\ any\\ process\\ reservation|resource\\ vectors\\ and\\ packaged\\ adapter\\ require\\ complete\\ bounded\\ declarations|staging\\ measurement\\ tolerates\\ an\\ entry\\ deleted\\ after\\ listing\\ without\\ accepting\\ a\\ missing\\ completion|standalone\\ SDK\\ execution\\ also\\ launches\\ one\\ child\\ under\\ contention|the\\ reference\\ entry\\ dispatcher\\ executes\\ the\\ same\\ numerical\\ trainer\\ with\\ explicit\\ real\\ IO|the\\ shipped\\ trainer\\ writes\\ real\\ parameter\\ updates\\ and\\ durable\\ NDJSON\\ receipts|the\\ workspace\\ writer\\ lock\\ carries\\ a\\ recoverable\\ phase\\ identity\\ from\\ its\\ creation|trainer\\ IO\\ publishes\\ exact\\ measured\\ checkpoint\\ evidence\\ and\\ validation\\ refuses\\ forged\\ parameters|two\\ real\\ Compose\\ LM\\ controllers\\ launch\\ once\\ and\\ reserve\\ once|wall\\ expiry\\ and\\ AbortSignal\\ settle\\ a\\ running\\ real\\ child\\ while\\ retaining\\ partial\\ artifacts)$' test/controller-boundaries.test.ts test/checkpoint-artifacts.test.ts test/process.test.ts test/baseline.test.ts test/corpus.test.ts test/prefix.test.ts test/process-loop.test.ts test/objective.test.ts test/lm-compose.test.ts test/process-publication.test.ts"
     scope: project
     timeout_seconds: 1500
     pm_context_mode: none
     workspace_context_mode: snapshot
     provenance:
       author: codex-sol
-      created_at: "2026-11-16T08:39:50.712Z"
+      created_at: "2026-11-16T11:44:31.232Z"
       source_kind: local_mutation
       source_ref: ci/quick-pr-tier-deep-local-tier
-docs[8]{path,scope}:
+  - command: "npm run build && npm run typecheck && npm run build:test && npm run lint && node --test --test-concurrency=2 test/coverage-gate.test.ts test/ci-workflow.test.ts test/release-workflow.test.ts && git diff --check"
+    scope: project
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-16T11:45:56.483Z"
+      source_kind: local_mutation
+      source_ref: ci/quick-pr-tier-deep-local-tier
+  - command: "npm run build && npm run typecheck && npm run lint && npm run build:test"
+    scope: project
+    timeout_seconds: 300
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-16T11:46:01.460Z"
+      source_kind: local_mutation
+      source_ref: ci/quick-pr-tier-deep-local-tier
+  - command: "npm run build && PM_TEST_DEPTH=quick PM_TEST_DOCKER=off PM_TEST_TIME_SCALE=3 node --test --test-name-pattern=\"^live prefix acceptance installs the packed command and retains public per-example provenance$\" test/prefix.test.ts"
+    scope: project
+    timeout_seconds: 1200
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-16T11:58:12.691Z"
+      source_kind: local_mutation
+      source_ref: ci/quick-pr-tier-deep-local-tier
+docs[9]{path,scope}:
   .github/workflows/ci.yml,project
   docs/ci-tiers.md,project
   docs/lm-adapter.md,project
@@ -475,4 +505,5 @@ docs[8]{path,scope}:
   docs/proposer-revert-evidence.json,project
   docs/proposer-review-round-4-evidence.json,project
   docs/proposer-review-round-5-evidence.json,project
+  package.json,project
 body: ""
