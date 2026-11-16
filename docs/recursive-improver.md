@@ -434,3 +434,28 @@ finished generation run was repeated for this pathname transport correction.
 Thread `PRRT_kwDOTqJmqs63eU9w` remains untouched for the orchestrator. The
 previously local cancellation audit `1b2764b` remains accurate historical
 evidence and is retained in the branch for publication with this fix.
+
+
+## Review Q: committed workflow lifecycle configuration (2026-11-16)
+
+Two additional consumer cases are covered by `test/history-status-roles.test.ts`.
+`trackerHistoryExample` now maps the registry's configured `in_progress_status`
+to `in_progress` even when that registered status has no `active` role. Alias
+normalization still happens through the SDK before lifecycle projection.
+
+`committedTrackerStatusRegistry` now loads `schema/workflows.json` (or its
+configured override) from the same immutable commit as the statuses and histories.
+It accepts the SDK's flat object, `workflow` and `workflows` containers and merges
+file configuration over inline workflow settings. Both schema sections use the
+same relative-path guard, bounded Git blob reader and bounded JSON parser.
+Tests retain Unicode and newline path handling, ignore uncommitted edits, compare
+optional malformed containers with the SDK loader, and reject escaping paths
+and workflow blobs over eight MiB. A role-less configured `triage` open status
+therefore reaches lifecycle validation as `open`.
+
+The branch first merged current main without conflicts. These regressions failed
+against the prior implementation with `dataset_unknown_status: doing` and the
+pinned registry retaining `open` instead of `triage`. The separate history-prefix
+projection follow-up remains separate. Historical measurement receipts above
+remain tied to their recorded implementation; this round does not renew their
+full coverage or end-to-end acceptance claims.

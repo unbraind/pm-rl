@@ -20,6 +20,83 @@ function history(index: number, opened: string, ended: string): string {
   ].map((event) => JSON.stringify(event)).join("\n");
 }
 
+test("configured in-progress status projects without an active role", () => {
+  const defaults = resolveRuntimeStatusRegistry({} as PmSettings["schema"]);
+  const registry = resolveRuntimeStatusRegistry({ statuses: [...defaults.definitions, { id: "doing", roles: [], aliases: ["working"] }], workflow: { in_progress_status: "doing" } } as unknown as PmSettings["schema"]);
+  assert.equal(registry.active_statuses.has("doing"), false);
+  assert.equal(registry.in_progress_status, "doing");
+  for (const status of ["doing", " WORKING "]) {
+    assert.deepEqual(trackerHistoryExample(history(0, status, "closed"), "public/pm-fixture", "pin", "item", registry)!.prefix, ["in_progress"]);
+  }
+});
+
+test("committed workflow files pin role-less lifecycle statuses in every SDK container", async () => {
+  await withTrackerSources(async ({ directories }) => {
+    const pmRoot = directories[0]; const root = dirname(dirname(pmRoot));
+    await init("roles", { defaults: true, agentGuidance: "skip", author: "status-test" }, { cwd: root, pmRoot });
+    const settings = await readSettings(pmRoot);
+    settings.schema.statuses.push({ id: "triage", roles: [], aliases: [] }, { id: "doing", roles: [], aliases: [] });
+    const workflow = { open_status: "triage", in_progress_status: "doing" };
+    for (const [index, value] of [workflow, { workflow }, { workflows: workflow }].entries()) {
+      const file = ["schema/workflows.json", "schema/workflows-ä.json", "schema/workflows\nline.json"][index];
+      settings.schema.files.workflows = file;
+      writeFileSync(join(pmRoot, "settings.json"), JSON.stringify(settings));
+      writeFileSync(join(pmRoot, file), JSON.stringify(value));
+      git(root, ["add", ".agents/pm/settings.json", `.agents/pm/${file}`]);
+      git(root, ["-c", "user.name=Public Fixture", "-c", "user.email=public@example.test", "commit", "-qm", "Pin synthetic role-less workflow"]);
+      const commit = git(root, ["rev-parse", "HEAD"]);
+      writeFileSync(join(pmRoot, file), JSON.stringify({ open_status: "open", in_progress_status: "in_progress" }));
+      const registry = committedTrackerStatusRegistry(root, commit);
+      assert.equal(registry.open_status, "triage");
+      assert.equal(registry.in_progress_status, "doing");
+      assert.deepEqual(trackerHistoryExample(history(0, "triage", "closed"), "public/pm-fixture", commit, "item", registry)!.prefix, ["open"]);
+      assert.deepEqual(trackerHistoryExample(history(0, "doing", "closed"), "public/pm-fixture", commit, "item", registry)!.prefix, ["in_progress"]);
+    }
+  });
+});
+
+test("committed workflow references retain path guards and the per-blob byte bound", async () => {
+  await withTrackerSources(async ({ directories }) => {
+    const pmRoot = directories[0]; const root = dirname(dirname(pmRoot));
+    await init("roles", { defaults: true, agentGuidance: "skip", author: "status-test" }, { cwd: root, pmRoot });
+    const settings = await readSettings(pmRoot);
+    for (const file of ["../outside.json", "/outside.json", "schema\\outside.json"]) {
+      settings.schema.files.workflows = file;
+      writeFileSync(join(pmRoot, "settings.json"), JSON.stringify(settings));
+      git(root, ["add", ".agents/pm/settings.json"]);
+      git(root, ["-c", "user.name=Public Fixture", "-c", "user.email=public@example.test", "commit", "-qm", "Pin invalid synthetic workflow reference"]);
+      assert.throws(() => committedTrackerStatusRegistry(root, "HEAD"), /dataset_workflow_schema_path/);
+    }
+    settings.schema.files.workflows = "schema/oversized-workflow.json";
+    writeFileSync(join(pmRoot, "settings.json"), JSON.stringify(settings));
+    writeFileSync(join(pmRoot, settings.schema.files.workflows), JSON.stringify({ padding: "x".repeat(8 * 1024 * 1024) }));
+    git(root, ["add", ".agents/pm/settings.json", ".agents/pm/schema/oversized-workflow.json"]);
+    git(root, ["-c", "user.name=Public Fixture", "-c", "user.email=public@example.test", "commit", "-qm", "Pin oversized synthetic workflow"]);
+    assert.throws(() => committedTrackerStatusRegistry(root, "HEAD"), /dataset_history_bytes/);
+  });
+});
+
+test("optional workflow shapes preserve the SDK inline fallback", async () => {
+  await withTrackerSources(async ({ directories }) => {
+    const pmRoot = directories[0]; const root = dirname(dirname(pmRoot));
+    await init("roles", { defaults: true, agentGuidance: "skip", author: "status-test" }, { cwd: root, pmRoot });
+    const settings = await readSettings(pmRoot);
+    settings.schema.statuses.push({ id: "triage", roles: [], aliases: [] });
+    settings.schema.workflow.open_status = "triage";
+    settings.schema.files.workflows = "schema/optional-workflow.json";
+    for (const value of [null, "invalid", [], {}, { workflow: null }, { workflow: [] }, { workflow: "invalid" }, { workflows: null }, { workflows: [] }, { workflows: "invalid" }, { workflow: {}, workflows: { open_status: "open" } }]) {
+      writeFileSync(join(pmRoot, "settings.json"), JSON.stringify(settings));
+      writeFileSync(join(pmRoot, settings.schema.files.workflows), JSON.stringify(value));
+      git(root, ["add", ".agents/pm/settings.json", ".agents/pm/schema/optional-workflow.json"]);
+      git(root, ["-c", "user.name=Public Fixture", "-c", "user.email=public@example.test", "commit", "-qm", "Pin optional synthetic workflow shape"]);
+      const actual = committedTrackerStatusRegistry(root, "HEAD");
+      const expected = resolveRuntimeStatusRegistry((await readSettings(pmRoot)).schema);
+      assert.equal(actual.open_status, expected.open_status);
+      assert.equal(actual.open_status, "triage");
+    }
+  });
+});
+
 test("SDK roles project randomized custom terminals and aliases while preserving released histories", async () => {
   await withTrackerSources(async (source) => {
     const root = join(source.root, "plain"); mkdirSync(root);

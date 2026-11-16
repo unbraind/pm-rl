@@ -77,7 +77,7 @@ export function trackerHistoryExample(history: string, repo: string, commit: str
           label: registry.terminal_done_statuses.has(status) ? "completed" : "cancelled" };
       }
       const lifecycle = status === registry.open_status || registry.draft_statuses.has(status) ? "open"
-        : registry.blocked_statuses.has(status) ? "blocked" : registry.active_statuses.has(status) ? "in_progress" : status;
+        : registry.blocked_statuses.has(status) ? "blocked" : status === registry.in_progress_status || registry.active_statuses.has(status) ? "in_progress" : status;
       validateLifecyclePrefix([lifecycle]);
       prefix.push(lifecycle);
     }
@@ -91,15 +91,22 @@ export function committedTrackerStatusRegistry(root: string, commit: string): Re
   const settingsPath = ".agents/pm/settings.json";
   const settings = paths.has(settingsPath) ? parseBoundedJson(historyBlobs(root, commit, [settingsPath])[0]) as { schema?: PmSettings["schema"] } : {};
   const schema = settings.schema;
-  const file = schema?.files?.statuses?.trim() || "schema/statuses.json";
-  assert.ok(typeof file === "string" && !file.startsWith("/") && !file.includes("\\") && file.split("/").every((part) => part !== ".."), "dataset_status_schema_path");
-  const statusPath = posix.normalize(`.agents/pm/${file}`);
-  const value = paths.has(statusPath) ? parseBoundedJson(historyBlobs(root, commit, [statusPath])[0]) : [];
+  /** Apply identical path, blob and JSON bounds to both committed schema sections. */
+  const readSchemaFile = (section: "statuses" | "workflows"): unknown => {
+    const file = schema?.files?.[section]?.trim() || `schema/${section}.json`;
+    assert.ok(typeof file === "string" && !file.startsWith("/") && !file.includes("\\") && file.split("/").every((part) => part !== ".."), section === "statuses" ? "dataset_status_schema_path" : "dataset_workflow_schema_path");
+    const path = posix.normalize(`.agents/pm/${file}`);
+    return paths.has(path) ? parseBoundedJson(historyBlobs(root, commit, [path])[0]) : null;
+  };
+  const value = readSchemaFile("statuses");
   const container = value !== null && typeof value === "object" ? value as Record<string, unknown> : {};
   const definitions = Array.isArray(value) ? value : Array.isArray(container["statuses"]) ? container["statuses"] : Array.isArray(container["definitions"]) ? container["definitions"] : [];
+  const workflowValue = readSchemaFile("workflows");
+  const workflowContainer = workflowValue !== null && typeof workflowValue === "object" && !Array.isArray(workflowValue) ? workflowValue as Record<string, unknown> : {};
+  const workflow = [workflowContainer["workflow"], workflowContainer["workflows"]].find((entry) => entry !== null && typeof entry === "object" && !Array.isArray(entry)) ?? workflowContainer;
   // SDK hydration appends optional file definitions to the normalized inline/default registry.
   const inline = resolveRuntimeStatusRegistry(schema as PmSettings["schema"]);
-  return resolveRuntimeStatusRegistry({ ...schema, statuses: [...inline.definitions, ...definitions as PmSettings["schema"]["statuses"]] } as PmSettings["schema"]);
+  return resolveRuntimeStatusRegistry({ ...schema, workflow: { ...schema?.workflow, ...workflow as PmSettings["schema"]["workflow"] }, statuses: [...inline.definitions, ...definitions as PmSettings["schema"]["statuses"]] } as PmSettings["schema"]);
 }
 
 /** Explicit task and sealed public commit pins; default builds preserve the original environment. */
