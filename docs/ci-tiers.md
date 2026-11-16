@@ -162,7 +162,7 @@ replacement of its card-file leg by a focused original-source matrix run.
 | Candidate/refused graph sweep | 185.309 | 188.025 |
 | Routine card mutations | 410.284 | 175.374 |
 | Generation evidence mutations | 293.039 | 103.787 |
-| Recoverable card transactions | timeout at 600.002 | initial sample 152.887; stronger sample pending |
+| Recoverable card transactions | timeout at 600.002 | final 35 cases: 768.207 |
 | Real healthy-owner wait | 103.105 | deep only |
 | Three-generation chain regression | 220.458 | 243.255 |
 
@@ -173,7 +173,7 @@ retained. No improvement is claimed for the small candidate/refused sweep or the
 unchanged chain regression. Whole-suite quick coverage remains at the original
 100 percent thresholds and scope, with results pending hosted CI.
 
-Implementation head: `031a2357485e9cd0d3dc5a93748057030b6e87cc`.
+Implementation head: `054c023d54ea7fa3f11d5ed9858a2189c77d4f1b`.
 [Follow-up CI run 43789664325](https://github.com/unbraind/pm-rl/actions/runs/43789664325)
 started both required jobs at 02:01:47 UTC. Completed step durations are pending;
 CI observation is bounded to 30 minutes after the last push.
@@ -190,4 +190,48 @@ previously provided that directory implicitly. Isolated CLI resolution and all
 38 release/workflow/discovery contracts pass with the explicit PATH.
 The final recovery sampler also
 retains every fault mode for each boundary kind, preserving physical SIGKILL
-coverage at receipt, seal and card writes; its focused measurement is pending.
+coverage at receipt, seal and card writes; its focused run passed all 35 cases (36 tests including parent) in 768.207 s.
+
+
+Final local results: the five full touched files passed 285 tests with one
+intentional deep-only skip and zero failures in 2848.564 s. The stronger recovery
+superset passed 36/36 tests; final depth/coverage harness passed 65/65 and release
+contracts passed 38/38. Final source/test typecheck, lint, zero-duplication gate,
+changelog, strict tracker health, identity/docstring/attestation and YAML checks
+passed. The original recovery baseline is censored and load changed substantially;
+no runtime improvement is inferred from its final local duration alone.
+
+[Final implementation CI run 43793233716](https://github.com/unbraind/pm-rl/actions/runs/43793233716)
+started both jobs at 02:37:06 UTC. Its observation deadline is 03:06:41 UTC.
+The earlier follow-up run was superseded at 1599 s (engines) / 1603 s (release);
+job created-to-completed times were 1628 / 1626 s. Node 22 exposed the now-fixed
+local CLI PATH regression. No successful complete quick coverage or target
+runtime is claimed until the final jobs finish.
+
+
+Final bounded observation at 2026-11-16 03:05:13 UTC: test (22): in_progress/None; test (26): completed/failure.
+The 15-minute target was missed. Completed gate durations and final quick
+coverage remain unverified. The observed jobs API step times follow; running
+values are elapsed observations, not completed durations.
+
+| Step | Node 22 (s) | Node 26 (s) |
+| --- | ---: | ---: |
+| Set up job | 0 | 1 |
+| Checkout | 3 | 3 |
+| Detect code changes | 0 | 0 |
+| Setup Node.js | 3 | 7 |
+| Setup Bun | 1 | 1 |
+| Install dependencies | 9 | 3 |
+| Verify tracked pm project health | skipped | 2 |
+| Check documentation and tracker changes | skipped | skipped |
+| Engines floor tests | running (~1671 s) | skipped |
+| Quick npm release gate | pending | 1584 |
+| Verify Bun can install the package graph | pending | skipped |
+| Post Setup Bun | pending | skipped |
+| Post Setup Node.js | pending | skipped |
+| Post Checkout | pending | 0 |
+| Complete job | not reached | 0 |
+
+The item claim is released and its status remains in progress. This final
+docs/tracker receipt is committed locally and left unpushed to avoid superseding
+the running implementation checks. The PR body publishes the same measurements.
