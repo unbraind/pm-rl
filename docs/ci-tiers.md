@@ -2,7 +2,7 @@
 
 Required checks remain `test (22)` and `test (26)` on `ubuntu-latest`.
 The PR tier runs on pull requests and dispatch, cancels superseded PR runs,
-and bounds each job to 30 minutes. Main pushes no longer duplicate that tier.
+and bounds each job to 22 minutes (target: at most 15 minutes). Main pushes no longer duplicate that tier.
 CodeQL is not required by main branch protection.
 
 Node 22 quick tests run in the non-required `quick-shard (22, 1)` and
@@ -10,44 +10,52 @@ Node 22 quick tests run in the non-required `quick-shard (22, 1)` and
 `node --test --test-shard`. The required `test (22)` check is their aggregate:
 it needs the shards, runs with `always()`, and fails unless every shard
 concluded successfully. For docs/tracker PRs the shards idle and `test (22)`
-runs the same health, changelog, audit, pack and docs-input contracts the old
-single Node 22 leg ran. `test (26)` is unchanged.
+runs changelog, identity, pack-manifest and workflow contracts. Node 26 uses four
+non-required `coverage-shard (26, 1..4)` jobs at quick depth with
+`--test-shard=i/4`. Each uploads original per-worker V8 function/block hit ranges.
+`coverage-merge` relocates artifact URLs, replays all raw reports through Node's
+own coverage reporter, and reuses the coverage gate's source reconciliation and
+statement measurement. Thresholds remain 100% in all four dimensions.
+`release-checks (26)` runs the remaining release checks and packed Node/Bun
+acceptance in parallel. Required `test (26)` needs all three job groups, uses
+`always()`, and fails unless every dependency succeeded. CI Deep and the single
+local `npm run release:check` command are unchanged.
+
+Four shards project to roughly eight minutes each from the previous run's
+29-plus-minute instrumented test lower bound. Actual file imbalance and setup
+cost must be measured on CI. Docs/tracker shards and merge skip build/test work;
+the release job runs strict health and the lightweight contracts. Pack inspection
+uses `--ignore-scripts`; docs-only CI does not build or run packed consumers.
 
 | Check | Code PR Node 22 | Code PR Node 26 | Docs/tracker PR, both nodes | Deep |
 | --- | --- | --- | --- | --- |
 | npm ci and merge-driver preparation | yes | yes | yes | all jobs |
-| Strict pm health, required merge drivers | — | yes | yes | four release gates |
-| Release approval/workflow and calendar contracts | tests | release gate | input suites | four release gates |
-| Build and test typecheck | quick tests | release gate | build for package contents | four release gates |
+| Strict pm health, required merge drivers | — | yes | Node 26 | four release gates |
+| Release approval/workflow and calendar contracts | tests | release checks | workflow contracts | four release gates |
+| Build and test typecheck | quick tests | release checks/shards | — | four release gates |
 | Source typecheck, lint, duplicates, docstring | — | yes | — | four release gates |
-| Publish attestation verifier | tests | release gate | when selected by input suites | four release gates |
+| Publish attestation verifier | tests | release checks | — | four release gates |
 | Coverage: statements, lines, branches, functions, all 100% | — | quick | — | full in four release gates |
 | Full-history Git identity audit | tests | release gate | explicit audit | four release gates |
-| Privacy/identity/path refusal tests | quick | quick | input suites and packed tests | full in four release gates |
+| Privacy/identity/path refusal tests | quick | quick | identity audit | full in four release gates |
 | Production dependency audit | — | yes | — | four release gates |
-| Pack dry-run and package file list | embedded acceptance | explicit + embedded | explicit + embedded | four release gates |
+| Pack dry-run and package file list | embedded acceptance | explicit + embedded | manifest only, no scripts | four release gates |
 | Changelog consistency | — | yes | yes | four release gates |
-| Docs, README, public evidence, LICENSE and shipped examples | tests | tests | input suites | four release gates |
-| Packed Node/Bun SDK and CLI acceptance | embedded tests | embedded tests | packed input suites | four release gates |
-| Bun graph install, bunx CLI resolution, Bun built-module smoke | — | yes | packed consumers only | four release gates |
-| Synthetic Docker executable tests | quick | quick | if selected | four release gates on pm-local |
+| Docs, README, public evidence, LICENSE and shipped examples | tests | tests | pack manifest + workflow contracts | four release gates |
+| Packed Node/Bun SDK and CLI acceptance | embedded tests | release checks + shards | — | four release gates |
+| Bun graph install, bunx CLI resolution, Bun built-module smoke | — | yes | — | four release gates |
+| Synthetic Docker executable tests | quick | quick | — | four release gates on pm-local |
 | Real Compose bandit and LM lifecycle/resource drills | hosted deep only | hosted deep only | hosted deep only | separate hosted Docker jobs, Node 22/26 |
 | Exhaustive sequential mutable-edge/commuting-read matrix | focused endpoints | focused endpoints | full-depth deep only | full in four release gates |
-| Snapshot/card corruption and callback/recovery fault matrices | representative kinds | representative kinds | if selected | exhaustive in four release gates |
+| Snapshot/card corruption and callback/recovery fault matrices | representative kinds | representative kinds | — | exhaustive in four release gates |
 | Real healthy-owner wait beyond 30 seconds | deep only | deep only | deep only | unchanged real wait |
 | CodeQL | matching paths | matching paths | path-filtered | main matching paths and weekly Monday 05:37 UTC |
 
-The docs/tracker classifier uses a NUL-delimited base-to-head diff, without rename
+The docs/tracker classifier uses a NUL-delimited base-to-head diff without rename
 folding. Executable JS/TS tracker files select the code path. Documentation and
-tracker changes retain strict health and changelog checks, the full-history
-identity audit, pack dry-run (including its build), and entire existing suites
-that read repository documentation/evidence or pack package contents. The
-conservative selector is `test/support/docs-inputs.ts`; identity/privacy/secret
-suites are always selected by filename, and its log lists every
-selected file. This retains README/LICENSE, public evidence, private path refusal,
-packaging, identity and release documentation contracts. No independent secret
-scanner or markdown linter exists in the original release gate. Documentation
-suites that pack consumers can still be substantial; they must not be bypassed.
+tracker changes run strict health, changelog, identity, pack-manifest and workflow
+contracts without compiling. Packed acceptance and the broader documentation
+input suites still run on code PRs and in CI Deep.
 
 Node 22 runs build, test typecheck and quick tests through the shard jobs above,
 without a separate coverage,

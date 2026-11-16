@@ -33,7 +33,8 @@ test("canonical identity property: 500 SDK variant pairs share exactly one lease
   assert.equal(existsSync(join(root, ".git")), false);
   let seed = 0x107ca5e;
   const pool = ["Race", "prefix-Hyphen", "Évaluation", "e\u0301valuation", "Δ-run", "日本語", "under_score"];
-  for (let index = 0; index < testDepth(500); index += 1) {
+  const sequences = testDepth(500);
+  for (let index = 0; index < sequences; index += 1) {
     seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
     const left = index === 0 ? "Race" : `${pool[seed % pool.length]}-${index}`;
     const right = index === 0 ? "race" : index % 3 === 0 ? left.normalize(index % 2 === 0 ? "NFC" : "NFD") : index % 3 === 1 ? `#${left.toUpperCase()}` : `${left}-other`;
@@ -71,7 +72,7 @@ test("canonical identity property: 500 SDK variant pairs share exactly one lease
   assert.deepEqual(await reserveProcessJob(client, coordinates, `#rl-${jobId.toUpperCase()}`, input, approval, allowance), reserved);
   assert.equal((await readProcessJob(client, `rl-${jobId.toUpperCase()}`))!.id, jobId);
   assert.equal(JSON.parse(String((await client.get(jobId, { full: true })).item.body)).id, jobId);
-  console.log(JSON.stringify({ canonical_sequences: testDepth(500), sdk_unicode_equivalence: normalizeRawItemId("É") === normalizeRawItemId("E\u0301"), whitespace: "strict-refusal" }));
+  console.log(JSON.stringify({ canonical_sequences: sequences, sdk_unicode_equivalence: normalizeRawItemId("É") === normalizeRawItemId("E\u0301"), whitespace: "strict-refusal" }));
 });
 
 test("Race/race controllers cannot force-claim the same seed concurrently", { timeout: testTime(120000) }, async () => {

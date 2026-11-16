@@ -1,5 +1,6 @@
 /** Behavioral revert proof mutates only a disposable copy, preserving the reviewed implementation. */
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { copyFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -24,7 +25,11 @@ try {
   mkdirSync(join(root, "examples")); copyFileSync(join(repository, "examples/loop-bandit.json"), join(root, "examples/loop-bandit.json"));
   mkdirSync(join(root, "scripts")); copyFileSync(join(repository, "scripts/script-launcher.ts"), join(root, "scripts/script-launcher.ts"));
   cpSync(join(repository, "test/fixtures"), join(root, "test/fixtures"), { recursive: true });
+  cpSync(join(repository, "test/support"), join(root, "test/support"), { recursive: true });
   symlinkSync(join(repository, "node_modules"), join(root, "node_modules"), "dir");
+  const imported = spawnSync(process.execPath, ["--test", "--test-name-pattern=^copy-import-probe$", "test/training-influence.test.ts"], { cwd: root, encoding: "utf8", env: { ...process.env, NODE_TEST_CONTEXT: "" } });
+  assert.equal(imported.status, 0, imported.stdout + imported.stderr);
+  if (process.argv.includes("--check-copy")) { rmSync(root, { recursive: true, force: true }); process.exit(0); }
   const source = join(root, "training-influence.ts"); const original = readFileSync(source, "utf8");
   const oldBehavior = original.replace("const selected = new Set(slice.members);", "const selected = new Set<string>();");
   assert.notEqual(oldBehavior, original);

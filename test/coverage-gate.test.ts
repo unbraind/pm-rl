@@ -9,7 +9,7 @@ import { testTime } from "./support/depth.ts";
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, test } from "node:test";
@@ -1519,4 +1519,62 @@ test("loaded tooling config branches never enter the unchanged release coverage 
   assert.equal(result.exitCode, 0, output + result.stderr);
   assert.match(result.stdout, /1 source file.*thresholds met/);
   assert.match(result.stdout, /branches 100\.00%/);
+});
+
+
+test("sharded raw-hit replay equals unsharded lines branches functions and statements", () => {
+  dir = makeTempDir(); const root = dir.root;
+  writeFileSync(join(root, "package.json"), '{"type":"module"}');
+  writeFileSync(join(root, "source.ts"), "/** Branch selected by separate workers. */\nexport function choose(value: boolean) {\n  if (value) return first();\n  return second();\n}\n/** First shard only. */\nfunction first() { return 1; }\n/** Second shard only. */\nfunction second() { return 2; }\n");
+  for (const [name, value, expected] of [["first", true, 1], ["second", false, 2]] as const) {
+    writeFileSync(join(root, `${name}.test.ts`), `import { test } from 'node:test'; import assert from 'node:assert/strict'; import { choose } from './source.ts'; test('${name}', () => assert.equal(choose(${value}), ${expected}));`);
+  }
+  const config = { sources: ["source.ts"], tests: ["first.test.ts", "second.test.ts"], thresholds: { lines: 100, branches: 100, functions: 100, statements: 100 } };
+  let output = "";
+  const spawn: typeof defaultSpawn = (command, args, options) => {
+    const child = spawnSync(command, [...args], { ...options, stdio: "pipe", encoding: "utf8", env: { PATH: options.env.PATH, NODE_V8_COVERAGE: options.env.NODE_V8_COVERAGE } });
+    output += child.stdout + child.stderr;
+    writeFileSync(join(options.env.NODE_V8_COVERAGE!, "notes.txt"), "not coverage");
+    return child;
+  };
+  const whole = runGate(config, root, spawn);
+  assert.equal(whole.exitCode, 0, output + whole.stderr);
+  const lcov = readFileSync(join(root, "coverage/lcov.info"), "utf8");
+  const statements = computeStatementCoverage(join(root, "coverage/v8"), ["source.ts"], root);
+  for (const shard of ["1/2", "2/2"]) {
+    const result = runGate(config, root, spawn, undefined, { shard });
+    assert.equal(result.exitCode, 0, output + result.stderr);
+    assert.match(result.stdout, /thresholds deferred/);
+  }
+  const inputs = [join(root, "coverage/shard-1-of-2"), join(root, "coverage/shard-2-of-2")];
+  // Simulate artifacts downloaded into a different checkout root.
+  const relocated = join(root, "relocated"); mkdirSync(relocated);
+  cpSync(join(root, "source.ts"), join(relocated, "source.ts"));
+  const merged = runGate(config, relocated, spawn, undefined, { merge: inputs });
+  assert.equal(merged.exitCode, 0, output + merged.stderr);
+  assert.equal(merged.stdout, whole.stdout);
+  const mergedLcov = readFileSync(join(relocated, "coverage/lcov.info"), "utf8");
+  assert.equal(mergedLcov.replaceAll(relocated, root), lcov);
+  assert.deepEqual(computeStatementCoverage(join(relocated, "coverage/v8"), ["source.ts"], relocated), statements);
+  const incomplete = runGate(config, relocated, spawn, undefined, { merge: inputs.slice(0, 1) });
+  assert.notEqual(incomplete.exitCode, 0, "one shard must not satisfy the unchanged thresholds");
+});
+
+
+test("main selects shard collection and merged enforcement from CLI arguments", () => {
+  dir = makeTempDir(); const root = dir.root;
+  const config = { sources: ["a.ts"], tests: ["test/a.test.ts"], thresholds: { lines: 100, branches: 100, functions: 100 } };
+  writeFileSync(join(root, "a.ts"), "export const a = 1;\n");
+  writeFileSync(join(root, "package.json"), JSON.stringify({ coverageGate: config }));
+  const argv = process.argv; const exitCode = process.exitCode;
+  const stdout = process.stdout.write;
+  process.stdout.write = (() => true) as typeof process.stdout.write;
+  try {
+    process.argv = [process.execPath, "coverage-gate.ts", "--shard", "1/1"];
+    main(root, mockSpawnSuccess(["a.ts"], join(root, "coverage/lcov.info")));
+    assert.equal(process.exitCode, 0);
+    process.argv = [process.execPath, "coverage-gate.ts", "--merge", "coverage/shard-1-of-1"];
+    main(root, mockSpawnSuccess(["a.ts"], join(root, "coverage/lcov.info")));
+    assert.equal(process.exitCode, 0);
+  } finally { process.argv = argv; process.exitCode = exitCode; process.stdout.write = stdout; }
 });

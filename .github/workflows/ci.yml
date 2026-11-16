@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     # Quick tier targets at most 15 min. A hung step must not hold a hosted slot for the default 6 h:
     # on 2026-11-15 three fleet release-gate jobs hung for 90+ min until another session cancelled them.
-    timeout-minutes: 30
+    timeout-minutes: 22
     env:
       PM_TEST_DEPTH: quick
       PM_TEST_DOCKER: off
@@ -89,7 +89,7 @@ jobs:
   test-22:
     name: test (22)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 22
     needs: quick-shard
     if: always()
     env:
@@ -144,7 +144,7 @@ jobs:
         if: steps.changes.outputs.code != 'true'
         run: npm ci
 
-      # Documentation and tracker inputs retain the same contracts the old Node 22 leg ran.
+      # Lightweight documentation/tracker contracts do not compile the package.
       - name: Check documentation and tracker changes
         if: steps.changes.outputs.code != 'true'
         shell: bash
@@ -152,16 +152,164 @@ jobs:
           set -euo pipefail
           npm run changelog:check
           npm run audit:identities
-          npm run pack:dry-run
+          npm run pack:dry-run -- --ignore-scripts
           gate_home=$(mktemp -d)
-          env HOME="$gate_home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 node test/support/docs-inputs.ts
+          env HOME="$gate_home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 node --test --test-concurrency=2 test/release-workflow.test.ts test/ci-workflow.test.ts
 
-  test:
+  coverage-shard:
     # Required checks stay on fast GitHub-hosted hardware.
     runs-on: ubuntu-latest
     # Quick tier targets at most 15 min. A hung step must not hold a hosted slot for the default 6 h:
     # on 2026-11-15 three fleet release-gate jobs hung for 90+ min until another session cancelled them.
-    timeout-minutes: 30
+    timeout-minutes: 22
+    env:
+      PM_TEST_DEPTH: quick
+      PM_TEST_DOCKER: off
+    strategy:
+      fail-fast: false
+      matrix:
+        # 26 is what the fleet develops against; the engines floor runs in the
+        # quick-shard job above and its required `test (22)` aggregate.
+        node-version: [26]
+        shard: [1, 2, 3, 4]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      # Checkout must precede this first decision. NUL delimiters handle unusual
+      # filenames; compare the actual PR endpoints, not the synthetic merge commit.
+      # Disable rename folding so moving source into docs still counts its deletion.
+      - name: Detect code changes
+        id: changes
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          code=true
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            code=false
+            git diff --name-only --no-renames -z "$BASE_SHA...$HEAD_SHA" > "$RUNNER_TEMP/ci-changed-paths"
+            while IFS= read -r -d '' path; do
+              case "$path" in
+                # Executable tracker files use the same code tier in every package.
+                .agents/pm/*.mjs|.agents/pm/*.cjs|.agents/pm/*.js|.agents/pm/*.ts) code=true ;;
+                .agents/pm/*|*.md|docs/*|CHANGELOG.md|LICENSE) ;;
+                *) code=true ;;
+              esac
+            done < "$RUNNER_TEMP/ci-changed-paths"
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Setup Bun
+        if: steps.changes.outputs.code == 'true'
+        uses: oven-sh/setup-bun@v2.2.0
+        with:
+          bun-version: "1.3.14"
+
+      - name: Install dependencies
+        if: steps.changes.outputs.code == 'true'
+        run: npm ci
+
+      - name: Collect quick coverage shard
+        if: steps.changes.outputs.code == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          gate_home=$(mktemp -d)
+          npm run build && npm run build:test
+          env PATH="$PWD/node_modules/.bin:$PATH" HOME="$gate_home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 node scripts/coverage-gate.ts --shard ${{ matrix.shard }}/4
+      - name: Upload raw coverage hits
+        if: steps.changes.outputs.code == 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: coverage-26-${{ matrix.shard }}
+          path: coverage/shard-${{ matrix.shard }}-of-4
+          if-no-files-found: error
+          retention-days: 3
+
+  coverage-merge:
+    # Required checks stay on fast GitHub-hosted hardware.
+    runs-on: ubuntu-latest
+    # Quick tier targets at most 15 min. A hung step must not hold a hosted slot for the default 6 h:
+    # on 2026-11-15 three fleet release-gate jobs hung for 90+ min until another session cancelled them.
+    timeout-minutes: 22
+    env:
+      PM_TEST_DEPTH: quick
+      PM_TEST_DOCKER: off
+    needs: coverage-shard
+    if: always()
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      # Checkout must precede this first decision. NUL delimiters handle unusual
+      # filenames; compare the actual PR endpoints, not the synthetic merge commit.
+      # Disable rename folding so moving source into docs still counts its deletion.
+      - name: Detect code changes
+        id: changes
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          code=true
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            code=false
+            git diff --name-only --no-renames -z "$BASE_SHA...$HEAD_SHA" > "$RUNNER_TEMP/ci-changed-paths"
+            while IFS= read -r -d '' path; do
+              case "$path" in
+                # Executable tracker files use the same code tier in every package.
+                .agents/pm/*.mjs|.agents/pm/*.cjs|.agents/pm/*.js|.agents/pm/*.ts) code=true ;;
+                .agents/pm/*|*.md|docs/*|CHANGELOG.md|LICENSE) ;;
+                *) code=true ;;
+              esac
+            done < "$RUNNER_TEMP/ci-changed-paths"
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: npm
+
+      - name: Require successful shards
+        if: needs.coverage-shard.result != 'success'
+        run: exit 1
+      - name: Install dependencies
+        if: steps.changes.outputs.code == 'true'
+        run: npm ci
+      - name: Download raw coverage hits
+        if: steps.changes.outputs.code == 'true'
+        uses: actions/download-artifact@v7
+        with:
+          pattern: coverage-26-*
+          path: coverage-input
+      - name: Enforce merged coverage thresholds
+        if: steps.changes.outputs.code == 'true'
+        run: node scripts/coverage-gate.ts --merge coverage-input/coverage-26-{1,2,3,4}
+
+  release-checks:
+    # Required checks stay on fast GitHub-hosted hardware.
+    runs-on: ubuntu-latest
+    # Quick tier targets at most 15 min. A hung step must not hold a hosted slot for the default 6 h:
+    # on 2026-11-15 three fleet release-gate jobs hung for 90+ min until another session cancelled them.
+    timeout-minutes: 22
     env:
       PM_TEST_DEPTH: quick
       PM_TEST_DOCKER: off
@@ -237,8 +385,8 @@ jobs:
           # still exiting successfully.
           ./node_modules/.bin/pm health --strict-exit --require-merge-drivers
 
-      # Docs/tracker inputs affect shipped evidence, pack contents, identity and
-      # release contracts. Retain their actual test files, not just changelog.
+      # Docs/tracker checks inspect the package manifest without compiling.
+      # Code and deep runs retain the full packed-consumer input suites.
       - name: Check documentation and tracker changes
         if: steps.changes.outputs.code != 'true'
         shell: bash
@@ -246,17 +394,21 @@ jobs:
           set -euo pipefail
           npm run changelog:check
           npm run audit:identities
-          npm run pack:dry-run
+          npm run pack:dry-run -- --ignore-scripts
           gate_home=$(mktemp -d)
-          env HOME="$gate_home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 node test/support/docs-inputs.ts
+          env HOME="$gate_home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 node --test --test-concurrency=2 test/release-workflow.test.ts test/ci-workflow.test.ts
 
-      - name: Quick npm release gate
+      - name: Quick non-coverage release checks
         if: steps.changes.outputs.code == 'true' && matrix.node-version == 26
         shell: bash
         run: |
           set -euo pipefail
           gate_home=$(mktemp -d)
-          env HOME="$gate_home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 npm run release:check
+          env HOME="$gate_home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 node --test --test-concurrency=2 test/release-approval.test.ts test/release-calendar.test.ts
+          for check in typecheck build build:test lint duplicates docstring verify:release-publish-attestation audit:identities audit:prod pack:dry-run changelog:check; do
+            env HOME="$gate_home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 npm run "$check"
+          done
+          env HOME="$gate_home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 node --test --test-concurrency=2 test/transfer-review-round6.test.ts
 
       # Packed tests cover Node/Bun SDK and CLI consumers, but do not certify
       # Bun package-manager/global installs or bunx resolution. Smoke both tools.
@@ -267,3 +419,17 @@ jobs:
           bun install --no-save
           bunx --no-install pm --version
           bun --eval "await import('./dist/index.js')"
+
+  test:
+    name: test (26)
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    needs: [coverage-shard, coverage-merge, release-checks]
+    if: always()
+    steps:
+      - name: Require every Node 26 job to succeed
+        env:
+          SHARDS: ${{ needs.coverage-shard.result }}
+          MERGE: ${{ needs.coverage-merge.result }}
+          RELEASE: ${{ needs.release-checks.result }}
+        run: test "$SHARDS" = success && test "$MERGE" = success && test "$RELEASE" = success
