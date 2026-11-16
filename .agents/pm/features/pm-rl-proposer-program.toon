@@ -3,14 +3,19 @@ title: Evolve bounded proposal strategies across recursive generations
 description: "Extend fixed recipe arms with a sealed typed proposal program that changes feature construction, curriculum and search strategy using development outcomes. Existing process, recipe, lineage and resource APIs remain authoritative."
 type: Feature
 pm_format_version: 2
-status: in_progress
+status: closed
 priority: 2
 tags[4]: acceptance,evolution,"gh:unbraind/pm-rl#145",proposer
 created_at: "2026-11-04T20:40:44.145Z"
-updated_at: "2026-11-05T19:32:49.471Z"
+updated_at: "2026-11-16T20:35:14.188Z"
+closed_at: "2026-11-16T20:35:14.150Z"
+completed_at: "2026-11-16T20:35:14.150Z"
 author: codex-agent
 acceptance_criteria: "A positive control promotes an actual changed strategy across two recursive generations; metadata-only changes cannot pass.; Predeclared inner and outer statistical gates, contamination checks, cohort limits and equal total optimizer and inference budgets apply.; Invalid programs stop before effects. Rejection and post-promotion regression restore the prior content-addressed program while retaining evidence.; Typed SDK and CLI, compact TOON and JSON, typed remedies, README and example, read-only public tracker validation, seeded 500-sequence state properties, interleavings, packed acquisition and npm/Bun CI evidence."
 parent: pm-rl-apvf
+resolution: Implemented and merged in #145 (962ac05).
+expected_result: The change described by this item is on main.
+actual_result: "Merged in #145 as 962ac05; checks successful at head 19496e8: Bun release (26), CodeQL, codeql, test (22), test (26)."
 comments[66]{created_at,author,text}:
   "2026-11-04T20:40:54.233Z",codex-agent,"Overlap recheck: recipe.ts seededRecipes changes values in fixed recipe domains; improver.ts updateImprover preserves arm configs and posterior-mixture strategy; recursive-improver.ts supplies durable comparisons. Current host version is 2026.11.4; pinned SDK 2026.11.2 public declarations expose tracker and transaction primitives but no proposer-program API. Sibling pm-context, pm-jev, pm-rlm and pm-swarm documentation exposes context, inference, recursive query and orchestration, not algorithm evolution. No open package PR or tracker item duplicates this scope; pm-rl-rsipower remains the separate powered-corpus evaluation task. Reuse existing process, recipe, lineage, checkpoint and controller boundaries; no trainer replacement or arbitrary code capability."
   "2026-11-04T20:50:52.371Z",codex-agent,"Implementation uses a depth-four typed arithmetic AST over exact development count ratios, deterministic selection, feature masks/ngrams and training-only curricula. The isolated proposer uses the existing process reservation, staged completion, accounting and CAS APIs with zero optimizer/inference allowance and no inherited environment. Existing recipe validation and paired evaluation-plan gates remain authoritative. Both code identity and emitted recipe instructions must change before promotion. Programme, comparisons and rejected artifacts remain in durable SDK receipts; final audit failure selects the prior artifact without deleting evidence."
@@ -114,4 +119,5 @@ docs[10]{path,scope}:
   docs/proposer-review-round-6-evidence.json,project
   examples/proposer-program.json,project
   README.md,project
+close_reason: "Delivered by #145 \"Evolve bounded proposal strategies with isolated execution and rollback\" (merged as 962ac05). Checks successful at the PR head 19496e8: Bun release (26), CodeQL, codeql, test (22), test (26)."
 body: ""
