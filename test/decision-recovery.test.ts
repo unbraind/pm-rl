@@ -1,3 +1,4 @@
+import { testTime } from "./support/depth.ts";
 /** Real HTTP receipt recovery against built code and real scratch PM projects. */
 import assert from "node:assert/strict";
 import { fork } from "node:child_process";
@@ -102,7 +103,7 @@ function launch(pmRoot: string, config: Record<string, JsonValue>, stage: string
   return { child, ready, result, uninstrumented };
 }
 
-test("SIGKILL at every HTTP-to-PM receipt boundary replays one decision per query", { timeout: 300000 }, async () => {
+test("SIGKILL at every HTTP-to-PM receipt boundary replays one decision per query", { timeout: testTime(300000) }, async () => {
   for (const stage of ["remote", "response", "commit", "request"]) {
     await Promise.all(["systemone_decision", "systemone_held_out_decision"].map(async (metric) => {
       const endpoint = await receiptServer(false, stage === "remote" ? (metric === "systemone_decision" ? 1 : 3) : 0);

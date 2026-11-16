@@ -1,3 +1,4 @@
+import { testDepth } from "./support/depth.ts";
 /** Calibration head, checkpoint guards and the real HTTP decision boundary. */
 import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
@@ -74,7 +75,7 @@ test("real calibration gradients lower loss, change two checkpoints and replay e
   assert.ok(systemOneSeedTrainingConfig(config)); assert.ok(systemOnePromotionScores(config, step, first));
   assert.match(systemOneState(config.training[0]), /Fix export/);
   assert.deepEqual(calibratedProbabilities({ A: 0, B: 1 }, 0, { A: 0, B: 0 }), { A: 9.99999999999001e-13, B: 0.9999999999989999 });
-  for (let seed = 0; seed < 30; seed += 1) assert.ok(sampleSystemOneActions(collection[0], config.training[0], config.questions, config.initial, systemOneSampleSeed(seed, 1, 0)).reward >= 0);
+  for (let seed = 0; seed < testDepth(30); seed += 1) assert.ok(sampleSystemOneActions(collection[0], config.training[0], config.questions, config.initial, systemOneSampleSeed(seed, 1, 0)).reward >= 0);
   assert.deepEqual(neutralSystemOneHead(config.questions), config.initial.parameters);
 });
 

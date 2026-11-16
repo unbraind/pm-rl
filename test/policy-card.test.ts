@@ -1,3 +1,4 @@
+import { testDepth, testTime } from "./support/depth.ts";
 /** Portable explanation regressions exercise real SDK histories in plain-directory trackers. */
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -733,7 +734,7 @@ test("prospective rejection notes and oversized proposed sources refuse without 
 });
 
 
-test("one generation evidence set binds card identity and normal resume for every evidence mutation", { timeout: 600_000 }, async () => {
+test("one generation evidence set binds card identity and normal resume for every evidence mutation", { timeout: testTime(600_000) }, async () => {
   const w = await workspace();
   await w.client.create({ id: "rl-approval", type: "Decision", title: "Consent", body: '```json\n{"permitted_promotions":1}\n```' });
   const config = { ...JSON.parse(readFileSync(new URL("../examples/loop-bandit.json", import.meta.url), "utf8")) as Record<string, JsonValue>, max_generations: 1 };
@@ -845,7 +846,7 @@ test("card creation verifies and preserves a peer collision at the native create
   assert.equal((await peer.get(`policy-card-${card.digest}`)).item.body, "peer card");
 });
 
-test("promotion, approval budget and recovery closure refuse peer changes after their reads", { timeout: 600_000 }, async (context) => {
+test("promotion, approval budget and recovery closure refuse peer changes after their reads", { timeout: testTime(600_000) }, async (context) => {
   for (const path of ["promotion", "budget", "recovery", "journal"] as const) await context.test(path, async () => {
     const w = await workspace(); const coordinates = { pmRoot: w.pmRoot, author: "card-test" };
     await w.client.create({ id: "rl-approval", type: "Decision", title: "Consent", body: '```json\n{"permitted_promotions":1}\n```' });
@@ -979,7 +980,7 @@ test("every receipt honors a peer completion between its initial check and revis
 });
 
 
-test("promotion, approval fresh-state checks preserve peer recovery, terminal and seed decisions", { timeout: 600_000 }, async (context) => {
+test("promotion, approval fresh-state checks preserve peer recovery, terminal and seed decisions", { timeout: testTime(600_000) }, async (context) => {
   for (const mode of ["recovery", "terminal", "seed"] as const) await context.test(mode, async () => {
     const w = await workspace(); const coordinates = { pmRoot: w.pmRoot, author: "card-test" };
     await w.client.create({ id: "rl-approval", type: "Decision", title: "Consent", body: '```json\n{"permitted_promotions":1}\n```' });
@@ -1022,7 +1023,7 @@ function seededOrder<T>(values: T[], seed: number): T[] {
   return values;
 }
 
-test("seeded foreign tracker corpus is skipped across discovery resume export and promote", { timeout: 600_000 }, async () => {
+test("seeded foreign tracker corpus is skipped across discovery resume export and promote", { timeout: testTime(600_000) }, async () => {
   const w = await workspace();
   await w.client.create({ id: "rl-approval", type: "Decision", title: "Consent", body: '```json\n{"permitted_promotions":1}\n```' });
   const config = { ...JSON.parse(readFileSync(new URL("../examples/loop-bandit.json", import.meta.url), "utf8")) as Record<string, JsonValue>, max_generations: 1 };
@@ -1082,7 +1083,7 @@ test("seeded foreign tracker corpus is skipped across discovery resume export an
   assert.ok(resumed.skipped_records!.length >= planted.length);
 });
 
-test("shared tracker loop interleavings preserve peer promotion at evaluate promote and adopt boundaries", { timeout: 600_000 }, async (context) => {
+test("shared tracker loop interleavings preserve peer promotion at evaluate promote and adopt boundaries", { timeout: testTime(600_000) }, async (context) => {
   for (const boundary of ["evaluate", "before-promote-read", "after-promote-read", "before-promote-write", "after-promote-write", "promote", "before-adopt", "after-adopt", "refusal-already_refused", "refusal-lost_claim", "refusal-stale_revision", "refusal-loop_write_conflict", "refusal-compare_and_set_refused", "refusal-race-peer-promotes"] as const) await context.test(boundary, async () => {
     const w = await workspace(); const coordinates = { pmRoot: w.pmRoot, author: "card-test" };
     await w.client.create({ id: "rl-approval", type: "Decision", title: "Consent", body: '```json\n{"permitted_promotions":1}\n```' });
@@ -1179,7 +1180,7 @@ test("peer refusal remains attributed to its own evaluation after local CAS refu
   assert.equal(String((await peer.get(id)).item.body), body);
 });
 
-test("shared tracker peer refusals survive evaluate and promotion CAS boundaries in both loop reports", { timeout: 600_000 }, async (context) => {
+test("shared tracker peer refusals survive evaluate and promotion CAS boundaries in both loop reports", { timeout: testTime(600_000) }, async (context) => {
   for (const boundary of ["evaluate", "promotion-cas", "promotion-refusal-cas"] as const) await context.test(boundary, async () => {
     const w = await workspace();
     const peer = new PmClient({ pmRoot: w.pmRoot, cwd: w.root, author: "peer-evaluator", noExtensions: true });
@@ -1214,7 +1215,7 @@ test("shared tracker peer refusals survive evaluate and promotion CAS boundaries
   });
 });
 
-test("lost controller claim reports the committed peer state without recording a local refusal", { timeout: 600_000 }, async () => {
+test("lost controller claim reports the committed peer state without recording a local refusal", { timeout: testTime(600_000) }, async () => {
   const w = await workspace();
   await w.client.create({ id: "rl-approval", type: "Decision", title: "Consent", body: '```json\n{"permitted_promotions":1}\n```' });
   const config = { ...JSON.parse(readFileSync(new URL("../examples/loop-bandit.json", import.meta.url), "utf8")) as Record<string, JsonValue>, max_generations: 1 };
@@ -1498,7 +1499,7 @@ function cardRandom(seed: number): () => number {
   return () => { state ^= state << 13; state ^= state >>> 17; state ^= state << 5; return state >>> 0; };
 }
 
-test("canonical card property: 512 seeded alias duplicate case ordering and foreign-record round trips", { timeout: 600_000 }, async () => {
+test("canonical card property: 512 seeded alias duplicate case ordering and foreign-record round trips", { timeout: testTime(600_000) }, async () => {
   const seeds = [0x100, 0x5eed, 0xc0ffee, 0x7fffffff];
   for (const seed of seeds) {
     const random = cardRandom(seed); const w = await workspace();
@@ -1513,7 +1514,7 @@ test("canonical card property: 512 seeded alias duplicate case ordering and fore
       const value = random() % 2 === 0 ? id.replace(/^rl-/, "") : id;
       return [...value].map((char) => random() % 2 === 0 ? char.toUpperCase() : char).join("");
     };
-    for (let index = 0; index < 128; index += 1) {
+    for (let index = 0; index < testDepth(128); index += 1) {
       const ids = Array.from({ length: 1 + random() % 4 }, (_, run) => `rl-run-${run}`);
       // More than 32 raw references must remain bounded by their canonical set, not raw alias count.
       const mixed = Array.from({ length: 2 + random() % 40 }, () => alias(ids[random() % ids.length]));
@@ -1580,7 +1581,7 @@ async function recoveryFixture() {
   return { ...base, score };
 }
 
-test("recoverable card transactions finish every EIO ENOSPC and SIGKILL boundary without duplicate effects", { timeout: 600_000 }, async (context) => {
+test("recoverable card transactions finish every EIO ENOSPC and SIGKILL boundary without duplicate effects", { timeout: testTime(600_000) }, async (context) => {
   const base = await recoveryFixture();
   /** Clone the same non-git baseline, retaining identical historical citation coordinates. */
   const clone = () => {

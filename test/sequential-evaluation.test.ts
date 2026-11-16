@@ -1,3 +1,4 @@
+import { testDepth } from "./support/depth.ts";
 /** Real SDK state machines, finite-look simulations and adversarial sequential evidence. */
 import assert from "node:assert/strict";
 import { BoundaryClasses, peerAffects, representativeBoundaries } from "./fixtures/boundary-classes.ts";
@@ -495,7 +496,7 @@ test("null, benefit and futility simulations obey declared simultaneous error bo
   const next = random(0x51eaa1); const p = plan("rl-simulation", 256);
   const design: EvaluationPlan = { ...p, stopping: { ...p.stopping, kind: "sequential", method: "hoeffding-alpha-spending/1", unit_order: p.members.map((m) => m.unit), review: "rl-review", looks: [16, 32, 64, 128, 256] } };
   let nullErrors = 0; let benefitSuccesses = 0; let benefitEarly = 0; let falseFutility = 0;
-  for (let trial = 0; trial < 10_000; trial += 1) {
+  for (let trial = 0; trial < testDepth(10_000); trial += 1) {
     let nullMean = 0; let benefitMean = 0; let nullStop = false; let benefitStop = false;
     for (let n = 1; n <= 256; n += 1) {
       nullMean += ((next() < 0.5 ? 1 : 0) - nullMean) / n;
@@ -508,18 +509,18 @@ test("null, benefit and futility simulations obey declared simultaneous error bo
       if (!benefitStop && benefit.sequential.state !== "continue") { if (benefit.sequential.state === "sufficient") { benefitSuccesses += 1; if (n < 256) benefitEarly += 1; } if (benefit.sequential.state === "futile") falseFutility += 1; benefitStop = true; }
     }
   }
-  assert.ok(nullErrors / 10_000 <= 0.05); assert.ok(falseFutility / 10_000 <= 0.05);
-  assert.equal(benefitSuccesses, 10_000); assert.equal(benefitEarly, 10_000);
+  assert.ok(nullErrors / testDepth(10_000) <= 0.05); assert.ok(falseFutility / testDepth(10_000) <= 0.05);
+  assert.equal(benefitSuccesses, testDepth(10_000)); assert.equal(benefitEarly, testDepth(10_000));
   const futile = evaluatePlan(design, observations(design, 64).map((row) => ({ ...row, incumbent: 1 })));
   assert.equal(futile.sequential?.state, "futile");
   const exhausted = evaluatePlan(design, observations(design, 256)); assert.equal(exhausted.sequential?.state, "exhausted");
-  console.log(JSON.stringify({ simulations: 10_000, seed: "51eaa1", nullErrors, benefitSuccesses, benefitEarly, falseFutility, declaredError: 0.05 }));
+  console.log(JSON.stringify({ simulations: testDepth(10_000), seed: "51eaa1", nullErrors, benefitSuccesses, benefitEarly, falseFutility, declaredError: 0.05 }));
 });
 
 test("boundary input and output fuzzing stays finite across extreme representable reward scales", () => {
   const next = random(9941); const p = plan();
   const bounds: readonly (readonly [number, number])[] = [[0, Number.MIN_VALUE], [1e16, 1e16 + 2], [-Number.MAX_VALUE, -Number.MAX_VALUE * 0.5], [0, Number.MAX_VALUE], [-1, 1]];
-  for (let trial = 0; trial < 500; trial += 1) {
+  for (let trial = 0; trial < testDepth(500); trial += 1) {
     const reward_bounds = bounds[trial % bounds.length]; const [lo, hi] = reward_bounds;
     const q: EvaluationPlan = { ...p, reward_bounds, direction: next() < 0.5 ? "maximize" : "minimize", criterion: { confidence: next() < 0.5 ? Number.MIN_VALUE : 1 - Number.EPSILON, minSamples: next() < 0.5 ? 1 : Number.MAX_SAFE_INTEGER, effectThreshold: next() < 0.5 ? 0 : Number.MAX_VALUE } };
     const rows = observations(q, 64).map((row) => ({ ...row, candidate: next() < 0.5 ? lo : hi, incumbent: next() < 0.5 ? lo : hi }));
@@ -591,7 +592,7 @@ test("500 seeded model-based operation sequences read canonical state through th
   const nativeCheckpoints = new Map<number, Awaited<ReturnType<typeof nativeDocument>>>();
   const canonical = await readCompleteLoopItem(w.client, `${p.candidate}-evaluation-plan`);
   const candidate = await readCompleteLoopItem(w.client, p.candidate);
-  for (let sequence = 0; sequence < 500; sequence += 1) {
+  for (let sequence = 0; sequence < testDepth(500); sequence += 1) {
     // Every sequence transports a seeded prior/next input through whitespace/CRLF, imports it, and exports live SDK state.
     if (sequence % 100 === 0) { await w.client.update(p.candidate, { status: statuses[Math.floor(next() * statuses.length)] }); nativeCandidate = await nativeDocument(p.candidate); }
     const count = sequence === 1 || (sequence > 1 && next() < 0.55) ? 64 : 16;
@@ -1076,7 +1077,7 @@ async function sequentialSnapshotMatrix(focused: boolean): Promise<void> {
   } finally { if (previousWait === undefined) delete process.env.PM_LOCK_WAIT_MS; else process.env.PM_LOCK_WAIT_MS = previousWait; }
 }
 
-test("sequential mutation snapshot matrix covers every mutable SDK edge and commuting observation region", () => sequentialSnapshotMatrix(false));
+test("sequential mutation snapshot matrix covers every mutable SDK edge and commuting observation region", { skip: process.env.PM_TEST_DEPTH === "quick" ? "Exhaustive SDK edge matrix runs in CI Deep; focused endpoints run in quick" : false }, () => sequentialSnapshotMatrix(false));
 test("sequential mutation snapshot focused endpoints and candidate discovery remain coherent", () => sequentialSnapshotMatrix(true));
 
 

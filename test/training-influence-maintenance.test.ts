@@ -1,3 +1,4 @@
+import { testDepth } from "./support/depth.ts";
 /** Real SDK compaction recovery and category-preserving dataset admission. */
 import assert from "node:assert/strict";
 import { after, test } from "node:test";
@@ -35,7 +36,7 @@ test("dataset categories agree across every influence SDK and CLI entry point", 
   const malformed = { ...p, training: p.training.map((row, index) => ({ ...row, ...(index ? {} : { features: [1] }) })) };
   const overlap = { ...p, training: [...p.training, p.held_out[0]] };
   let seed = 0x31415926;
-  for (let i = 0; i < 500; i += 1) {
+  for (let i = 0; i < testDepth(500); i += 1) {
     seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
     const dimensions = 1 + seed % 64;
     const vector = { ...p, training: p.training.map((row) => ({ ...row, features: Array.from({ length: dimensions }, () => row.feature) })), held_out: p.held_out.map((row) => ({ ...row, features: Array.from({ length: dimensions }, () => row.feature) })) };

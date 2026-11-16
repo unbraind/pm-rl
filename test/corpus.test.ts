@@ -1,3 +1,4 @@
+import { testTime } from "./support/depth.ts";
 /** Real tracker snapshots and inherited durable jobs work without Git or source mutation. */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -330,7 +331,7 @@ test("fit steps are bounded, persisted and matched to a reservation before any j
   assert.notEqual(rejected.candidate.digest, rejected.source.digest); assert.equal(rejected.promoted, false); assert.ok(rejected.refusalReason); assert.ok(rejected.evaluationScore < rejected.baselineScore);
 });
 
-test("real non-git corpus command trains two successors, resumes sealed inputs and preserves source bytes", { timeout: 300_000 }, () => {
+test("real non-git corpus command trains two successors, resumes sealed inputs and preserves source bytes", { timeout: testTime(300_000) }, () => {
   const root = mkdtempSync(join(tmpdir(), "rl-corpus-no-git-"));
   try {
     const bin = join(root, "tools"); mkdirSync(bin);
@@ -340,7 +341,7 @@ test("real non-git corpus command trains two successors, resumes sealed inputs a
       symlinkSync(path, join(bin, tool));
     }
     const output = execFileSync(process.execPath, [new URL("./fixtures/corpus-no-git.ts", import.meta.url).pathname, root], {
-      encoding: "utf8", timeout: 280_000, env: { ...process.env, NODE_V8_COVERAGE: undefined, PATH: bin, GIT_CEILING_DIRECTORIES: dirname(root) },
+      encoding: "utf8", timeout: testTime(280_000), env: { ...process.env, NODE_V8_COVERAGE: undefined, PATH: bin, GIT_CEILING_DIRECTORIES: dirname(root) },
     });
     assert.match(output, /two promoted successors; sealed replay/);
   } finally { rmSync(root, { recursive: true, force: true }); }

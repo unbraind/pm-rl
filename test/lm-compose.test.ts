@@ -1,3 +1,5 @@
+import { dockerSkip as skip } from "./support/docker.ts";
+import { testTime } from "./support/depth.ts";
 /** Shared-contract LM unit, real-process and real-container recursive execution drills. */
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -93,8 +95,6 @@ test("LM real child process uses the shared stream and refuses mismatched adapte
   assert.equal((await listProcessJobs(client)).length, 0);
 });
 
-const version = spawnSync("docker", ["compose", "version"], { encoding: "utf8" });
-const skip = version.status === 0 ? false : `SKIPPED: docker compose version failed: ${version.error?.message ?? version.stderr.trim()}`;
 const images = new Map<string, string>();
 const imageRun = randomUUID();
 const imageOwner = process.env["PM_RL_VALIDATION_OWNER"] ?? `pm-rl-${imageRun}`;
@@ -103,7 +103,7 @@ after(() => { for (const [mode, image] of images) if (mode !== "production") exe
 function adapter(mode = "fit"): Extract<ProcessAdapter, { kind: "compose-lm" }> {
   let image = images.get(mode);
   if (image === undefined) {
-    image = execFileSync("docker", ["build", "--quiet", "--tag", `pm-rl-lm-${mode}-${imageRun}`, "--label", `pm-rl-validation-run=pm-rl-${imageRun}`, "--label", `pm-rl-validation-owner=${imageOwner}`, "--file", mode === "production" ? "lm-trainer.Dockerfile" : "test/fixtures/lm-compose.Dockerfile", "--build-arg", `MODE=${mode}`, "."], { encoding: "utf8", timeout: 180_000 }).trim();
+    image = execFileSync("docker", ["build", "--quiet", "--tag", `pm-rl-lm-${mode}-${imageRun}`, "--label", `pm-rl-validation-run=pm-rl-${imageRun}`, "--label", `pm-rl-validation-owner=${imageOwner}`, "--file", mode === "production" ? "lm-trainer.Dockerfile" : "test/fixtures/lm-compose.Dockerfile", "--build-arg", `MODE=${mode}`, "."], { encoding: "utf8", timeout: testTime(180_000) }).trim();
     assert.match(image, /^sha256:[a-f0-9]{64}$/u); images.set(mode, image);
   }
   return { kind: "compose-lm", image, memory_bytes: 268_435_456, cpus: 1, allowance };

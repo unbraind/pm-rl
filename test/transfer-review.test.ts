@@ -1,3 +1,4 @@
+import { testDepth, testTime } from "./support/depth.ts";
 /** Review regressions use real SDK trackers, physical filesystem identities and disposable executable copies. */
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
@@ -55,7 +56,7 @@ test("malformed transfer declarations consistently refuse through parser and nat
 test("verified corpus cache reuses stable projections and invalidates every dataset file identity", async () => {
   const w = await processWorkspace(); const directory = writeTransferDataset(w.root, transferCorpus());
   const current = proposerCorpusReader(directory); let prior = current();
-  for (let index = 0; index < 1000; index++) assert.equal(current(), prior);
+  for (let index = 0; index < testDepth(1000); index++) assert.equal(current(), prior);
   for (const name of ["improver-dataset.json", ...IMPROVER_ROLES.map((role) => `${role}.json`)]) {
     const file = join(directory, name); const original = readFileSync(file, "utf8");
     utimesSync(file, 1000, 1000); prior = current(); const info = statSync(file);
@@ -103,18 +104,18 @@ test("disposable transfer fixtures remove complete and partially initialized SDK
     } finally { if (location !== "") rmSync(location, { recursive: true, force: true }); }
   }
   const w = await processWorkspace(); const temp = join(w.root, "child-temp"); mkdirSync(temp);
-  const failed = spawnSync(process.execPath, [resolve(import.meta.dirname, "fixtures/transfer-cli.ts")], { cwd: resolve(import.meta.dirname, ".."), env: { PATH: "", HOME: w.root, TMPDIR: temp }, encoding: "utf8", timeout: 30_000 });
+  const failed = spawnSync(process.execPath, [resolve(import.meta.dirname, "fixtures/transfer-cli.ts")], { cwd: resolve(import.meta.dirname, ".."), env: { PATH: "", HOME: w.root, TMPDIR: temp }, encoding: "utf8", timeout: testTime(30_000) });
   assert.equal(failed.status, 1); assert.match(failed.stderr, /spawnSync npm ENOENT/);
   assert.deepEqual(readdirSync(temp), []);
 });
 
-test("behavioral revert runner works from a source copy without Git history", { timeout: 180_000 }, async () => {
+test("behavioral revert runner works from a source copy without Git history", { timeout: testTime(180_000) }, async () => {
   await withTransferScratch("transfer-review-nogit-", async (scratch) => {
     copyRevertWorkspace(resolve(import.meta.dirname, ".."), scratch);
-    const result = spawnSync(process.execPath, ["test/fixtures/transfer-reverts.ts", "native replay refuses missing"], { cwd: scratch, env: { PATH: process.env.PATH, HOME: scratch, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" }, encoding: "utf8", timeout: 150_000 });
+    const result = spawnSync(process.execPath, ["test/fixtures/transfer-reverts.ts", "native replay refuses missing"], { cwd: scratch, env: { PATH: process.env.PATH, HOME: scratch, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" }, encoding: "utf8", timeout: testTime(150_000) });
     assert.equal(result.status, 0, result.stdout + result.stderr);
     assert.equal(result.stdout.trim().split("\n").length, 2);
-    const invalid = spawnSync(process.execPath, ["test/fixtures/transfer-reverts.ts", "misspelled-probe"], { cwd: scratch, env: { PATH: process.env.PATH, HOME: scratch, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" }, encoding: "utf8", timeout: 30_000 });
+    const invalid = spawnSync(process.execPath, ["test/fixtures/transfer-reverts.ts", "misspelled-probe"], { cwd: scratch, env: { PATH: process.env.PATH, HOME: scratch, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" }, encoding: "utf8", timeout: testTime(30_000) });
     assert.equal(invalid.status, 1); assert.match(invalid.stderr, /transfer_revert_selection/);
   });
 });

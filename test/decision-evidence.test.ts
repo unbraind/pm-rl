@@ -1,3 +1,4 @@
+import { testDepth } from "./support/depth.ts";
 /** Adversarial graphs are certified and corrupted through the real SDK in a non-git tracker. */
 import assert from "node:assert/strict";
 import { rmSync, existsSync, readFileSync } from "node:fs";
@@ -152,7 +153,7 @@ test("graph boundary and seeded 500 transport sequences retain SDK-read native s
     const frozen = await sealDecisionEvidence(w.client, hashJson("transport"), [w.native.item]);
     const older: { body: string; graph: typeof graph }[] = [];
     const formats = new Set<string>();
-    for (let sequence = 0; sequence < 500; sequence += 1) {
+    for (let sequence = 0; sequence < testDepth(500); sequence += 1) {
       seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
       const expected = sequence % 2 ? frozen : graph;
       const serialized = JSON.stringify({ ...spec, evaluation_evidence: expected }, null, seed % 2 ? 2 : 0).replaceAll("\n", "\r\n"); older.push({ body: serialized, graph: expected });
@@ -185,7 +186,7 @@ test("strict input graph schema has 500 seeded must-allow and must-refuse transp
   assert.equal(decodeTrackerRecord(null, envelope, { type: "Plan" }), null);
   assert.ok(decodeTrackerRecord(null, envelope, { type: "Plan", maxBytes: 16_777_216 }));
   let seed = 0x5e17;
-  for (let index = 0; index < 500; index += 1) {
+  for (let index = 0; index < testDepth(500); index += 1) {
     seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
     const body = { format: index % 2 ? "pm-rl/evaluation-evidence/2" as const : "pm-rl/evaluation-evidence/1" as const, comparison: hashJson(index), inputs: [{ id: `rl-input-${seed}`, digest: hashJson(seed), ...(index % 2 ? { at: String(index + 1) } : {}) }] };
     const valid = { ...body, digest: hashJson(body as unknown as JsonValue) };

@@ -1,3 +1,4 @@
+import { testTime } from "./support/depth.ts";
 /** Real tracker regressions for larger checkpoints, integrity, reachability and concurrent promotion without Git. */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -81,7 +82,7 @@ test("checkpoint benchmark and trainer imports tolerate non-file launcher entrie
   for (const launcher of ["missing", "absent"]) {
     const result = childProcess.spawnSync(process.execPath, ["--input-type=module", "-e",
       `${launcher === "missing" ? 'process.argv[1] = "[eval]";' : "delete process.argv[1];"} await import(${JSON.stringify(moduleUrl)}); await import(${JSON.stringify(new URL("../process-lm-trainer.ts", import.meta.url).href)});`],
-    { encoding: "utf8", timeout: 60_000 });
+    { encoding: "utf8", timeout: testTime(60_000) });
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.stdout, "", "imports must not start a benchmark or trainer");
   }
@@ -461,7 +462,7 @@ test("mixed Git executable availability preserves shared worktree authority and 
   }
 });
 
-test("large learner trains, promotes, resumes and audits by digest with no Git executable", { timeout: 900_000 }, async () => {
+test("large learner trains, promotes, resumes and audits by digest with no Git executable", { timeout: testTime(900_000) }, async () => {
   const w = await checkpointWorkspace();
   const bin = checkpointToolBin(w.root);
   const originalPath = process.env.PATH; const originalCeiling = process.env.GIT_CEILING_DIRECTORIES;
@@ -527,7 +528,7 @@ test("large learner trains, promotes, resumes and audits by digest with no Git e
   } finally { process.env.PATH = originalPath; if (originalCeiling === undefined) delete process.env.GIT_CEILING_DIRECTORIES; else process.env.GIT_CEILING_DIRECTORIES = originalCeiling; }
 });
 
-test("checkpoint benchmark measures both capacities and verified load paths on a sealed corpus", { timeout: 900_000 }, async () => {
+test("checkpoint benchmark measures both capacities and verified load paths on a sealed corpus", { timeout: testTime(900_000) }, async () => {
   await withTrackerSources(async (source) => {
     const dataset = join(source.root, "checkpoint-data"); buildTrackerDataset(source.directories, dataset, 42, { task: "history-prefix" });
     const output = join(source.root, "checkpoint-evidence.json");
@@ -604,11 +605,11 @@ async function concurrentCheckpointPromotions(signal: AbortSignal, holdMs = 0): 
   }
 }
 
-test("two processes promote into one plain tracker without losing roots or corrupting shared artifacts", { timeout: 900_000 }, async (t) => {
+test("two processes promote into one plain tracker without losing roots or corrupting shared artifacts", { timeout: testTime(900_000) }, async (t) => {
   await concurrentCheckpointPromotions(t.signal);
 });
 
-test("checkpoint promoters outwait a healthy workspace owner held beyond thirty seconds", { timeout: 900_000 }, async (t) => {
+test("checkpoint promoters outwait a healthy workspace owner held beyond thirty seconds", { timeout: testTime(900_000) }, async (t) => {
   await concurrentCheckpointPromotions(t.signal, 35_000);
 });
 

@@ -1,3 +1,4 @@
+import { testDepth, testTime } from "./support/depth.ts";
 /** Protected cohort decisions and immutable state are exercised through real non-git SDK trackers. */
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
@@ -84,7 +85,7 @@ test("strict schema rejects sparse, oversized, ambiguous and extreme cohort inpu
 
 test("exact rational boundaries use equal unit means and inclusive decimal limits in both directions", () => {
   const next = random(0xc0a07);
-  for (let trial = 0; trial < 500; trial += 1) {
+  for (let trial = 0; trial < testDepth(500); trial += 1) {
     const p = design(); const n = next() % 17 + 1; const losses = next() % (n + 1);
     const members = Array.from({ length: n }, (_, i) => ({ id: `m-${i}`, unit: `u-${i}` }));
     // Integer rewards and a rational count oracle are independent of production arithmetic.
@@ -161,7 +162,7 @@ test("real CLI and promotion refuse protected regressions and insufficient sampl
   await assert.rejects(command("rl generation promote", [p.candidate], { approval: approval.item.id, scores: scoreFile, evidence: "Protected slices passed; training leakage still refuses" }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "contamination_refused");
 });
 
-test("500 seeded operation sequences replay normalized declarations and evidence against an SDK-read reference model", { timeout: 600_000 }, async () => {
+test("500 seeded operation sequences replay normalized declarations and evidence against an SDK-read reference model", { timeout: testTime(600_000) }, async () => {
   const w = await workspace(); const next = random(0x500c0a); const pick = () => next() >>> 16;
   const fields = "id,type,body,affected_version,parent,sprint,release,dependencies,title,status,created_at";
   const model = new Map<string, { plan: EvaluationPlan; native: GetResult["item"]; result: GetResult["item"]; input: EvaluationObservation[] }>();
@@ -172,7 +173,7 @@ test("500 seeded operation sequences replay normalized declarations and evidence
   await w.client.focus(focus.item.id);
   // Distinct custom status names prove that no status spelling is interpreted by this feature.
   for (let i = 0; i < 3; i += 1) await w.client.schemaAddStatus(`custom-${pick()}`, { role: ["active"] });
-  for (let sequence = 0; sequence < 500; sequence += 1) {
+  for (let sequence = 0; sequence < testDepth(500); sequence += 1) {
     const key = `rl-model-${pick() % 4}`; const prior = model.get(key); const p = prior?.plan ?? parseEvaluationPlan(design(key));
     if (prior === undefined) await w.client.focus(scopes[pick() % scopes.length]);
     const variant = JSON.parse(JSON.stringify({ ...p, population: ` \r\n${p.population}\r\n `, members: [...p.members].reverse(), protected_cohorts: p.protected_cohorts!.map((c) => ({ ...c, members: [...c.members].reverse() })) })) as unknown;
@@ -231,7 +232,7 @@ test("native annotations, custom active statuses and relationships survive all p
   await enforceEvaluationPlan(w.client, p.candidate, score(p, 1));
 });
 
-test("competing declarations and evaluations serialize at every SDK step boundary on one non-git tracker", { timeout: 600_000 }, async () => {
+test("competing declarations and evaluations serialize at every SDK step boundary on one non-git tracker", { timeout: testTime(600_000) }, async () => {
   const w = await workspace(); const peer = new PmClient({ cwd: w.root, pmRoot: w.pmRoot, author: "cohort-peer", noExtensions: true });
   let boundary = 0; let injectAt = -1; let inject: (() => void) | null = null;
   /** Reset only after the prior invocation and its competing writer have settled. */

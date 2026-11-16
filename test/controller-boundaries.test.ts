@@ -1,3 +1,4 @@
+import { testDepth, testTime } from "./support/depth.ts";
 /** Canonical SDK identities and complete callback failure paths on real non-git trackers. */
 import assert from "node:assert/strict";
 import { ChildProcess, spawn } from "node:child_process";
@@ -27,12 +28,12 @@ async function contenders(root: string, left: string, right: string, same: boole
   } finally { for (const result of results) if (result.status === "fulfilled") await result.value(); }
 }
 
-test("canonical identity property: 500 SDK variant pairs share exactly one lease or remain independent", { timeout: 180000 }, async () => {
+test("canonical identity property: 500 SDK variant pairs share exactly one lease or remain independent", { timeout: testTime(180000) }, async () => {
   const { pmRoot, root, client, coordinates, approval } = await processWorkspace();
   assert.equal(existsSync(join(root, ".git")), false);
   let seed = 0x107ca5e;
   const pool = ["Race", "prefix-Hyphen", "Évaluation", "e\u0301valuation", "Δ-run", "日本語", "under_score"];
-  for (let index = 0; index < 500; index += 1) {
+  for (let index = 0; index < testDepth(500); index += 1) {
     seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
     const left = index === 0 ? "Race" : `${pool[seed % pool.length]}-${index}`;
     const right = index === 0 ? "race" : index % 3 === 0 ? left.normalize(index % 2 === 0 ? "NFC" : "NFD") : index % 3 === 1 ? `#${left.toUpperCase()}` : `${left}-other`;
@@ -73,7 +74,7 @@ test("canonical identity property: 500 SDK variant pairs share exactly one lease
   console.log(JSON.stringify({ canonical_sequences: 500, sdk_unicode_equivalence: normalizeRawItemId("É") === normalizeRawItemId("E\u0301"), whitespace: "strict-refusal" }));
 });
 
-test("Race/race controllers cannot force-claim the same seed concurrently", { timeout: 120000 }, async () => {
+test("Race/race controllers cannot force-claim the same seed concurrently", { timeout: testTime(120000) }, async () => {
   const { client, coordinates, approval } = await processWorkspace();
   const config = { ...JSON.parse(readFileSync(new URL("../examples/loop-bandit.json", import.meta.url), "utf8")) as Record<string, JsonValue>, max_generations: 1 };
   let ready!: () => void; let release!: () => void;
@@ -124,7 +125,7 @@ test("actual CLI signal callback failures cancel cleanly and remove owned signal
   }
 });
 
-test("callback fault matrix reaps real children and settles each reservation once", { timeout: 600000 }, async (t) => {
+test("callback fault matrix reaps real children and settles each reservation once", { timeout: testTime(600000) }, async (t) => {
   const budget = { training_steps: 1000, wall_ms: 5000000, storage_bytes: 100000000, compute_units: 1000000, tokens: 0 };
   let { pmRoot, root, client, coordinates, approval } = await processWorkspace(budget);
   const input = trainingInput(); const adapter = { kind: "process-bandit", allowance: { ...allowance, wall_ms: 60000 } } as const;
@@ -258,7 +259,7 @@ test("a false native stop result and emitted error cannot recurse or bypass reap
   } finally { controllerCallbackIO.before = () => undefined; stop.mock.restore(); }
 });
 
-test("owned child cleanup retries beyond three failures and settles persistent failures without latching", { timeout: 120000 }, async (t) => {
+test("owned child cleanup retries beyond three failures and settles persistent failures without latching", { timeout: testTime(120000) }, async (t) => {
   for (const persistent of [false, true]) await t.test(persistent ? "bounded final failure" : "three transient native failures", async () => {
     const { client, coordinates, approval, pmRoot } = await processWorkspace(); const input = trainingInput();
     const command = [process.execPath, new URL("./fixtures/process-trainer.ts", import.meta.url).pathname, "callback-long", String(persistent)];
@@ -281,7 +282,7 @@ test("owned child cleanup retries beyond three failures and settles persistent f
     const observed = operation.then(() => ({ ok: true, error: undefined }), (error: unknown) => ({ ok: false, error }));
     let deadline: ReturnType<typeof setTimeout> | undefined;
     try {
-      const result = await Promise.race([observed, new Promise<undefined>((done) => { deadline = setTimeout(() => done(undefined), 8000); })]);
+      const result = await Promise.race([observed, new Promise<undefined>((done) => { deadline = setTimeout(() => done(undefined), testTime(8000)); })]);
       assert.notEqual(result, undefined, "cleanup must settle after bounded retries rather than latch after three failures");
       assert.equal(result!.ok, false);
       assert.ok(isPmCliExpectedError(result!.error) && result!.error.context.code === (persistent ? "process_stop_failed" : "process_callback_failed"));

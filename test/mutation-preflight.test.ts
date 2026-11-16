@@ -1,3 +1,4 @@
+import { testDepth } from "./support/depth.ts";
 /** Expected refusals cannot allocate tracker identities, history, capacity or journals. */
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -114,7 +115,7 @@ test("seeded mutation-command boundary property leaves every native file unchang
     assert.ok(commands.includes("rl generation register")); assert.ok(commands.includes("rl sweep plan"));
     const file = join(root, "invalid.json"); const identifiers = ["../outside", ".", "", "rl-absent", "#RL-ABSENT", " ", "C:\\outside", "a".repeat(300)];
     let seed = 0x1070f11; const covered = new Set<string>();
-    for (let index = 0; index < 500; index += 1) {
+    for (let index = 0; index < testDepth(500); index += 1) {
       seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
       const command = commands[index % commands.length]; covered.add(command);
       writeFileSync(file, ((seed >>> 8) & 1) ? "{broken" : JSON.stringify({ invalid: seed }));
