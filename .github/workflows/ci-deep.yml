@@ -47,14 +47,20 @@ jobs:
       - run: npm ci
       - name: Strict tracker health
         run: ./node_modules/.bin/pm health --strict-exit --require-merge-drivers
-      - name: One full release gate with isolated identity
+      - name: One full npm release gate with isolated identity
+        if: matrix.package-manager == 'npm'
         shell: bash
-        env:
-          PACKAGE_MANAGER: ${{ matrix.package-manager }}
         run: |
           set -euo pipefail
           gate_home=$(mktemp -d)
-          env HOME="$gate_home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 "$PACKAGE_MANAGER" run release:check
+          env HOME="$gate_home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 npm run release:check
+      - name: One full Bun release gate with isolated identity
+        if: matrix.package-manager == 'bun'
+        shell: bash
+        run: |
+          set -euo pipefail
+          gate_home=$(mktemp -d)
+          env HOME="$gate_home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 bun run release:check
       - name: Bun install and bunx smoke
         run: |
           bun install --no-save
