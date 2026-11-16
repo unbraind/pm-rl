@@ -1,0 +1,21 @@
+id: pm-rl-github-eecd7460423f-167
+title: "Follow-up to #148: reject a transfer replay receipt with no evaluations"
+description: "GH issue #167: https://github.com/unbraind/pm-rl/issues/167 · author @unbraind · created 2026-11-12T04:05:32Z · updated 2026-11-12T04:05:32Z"
+type: Issue
+status: open
+priority: 2
+tags[2]: "gh:unbraind/pm-rl#167","github_author:unbraind"
+created_at: "2026-11-12T04:05:32Z"
+updated_at: "2026-11-16T07:59:53.489Z"
+author: pm-github
+github_close_reason: ""
+github_closed_at: ""
+github_created_at: "2026-11-12T04:05:32Z"
+github_link_only: false
+github_number: 167
+github_release: ""
+github_state: open
+github_state_reason: unspecified
+github_updated_at: "2026-11-12T04:05:32Z"
+github_url: "https://github.com/unbraind/pm-rl/issues/167"
+body: "Follow-up to #148. CodeRabbit's review of d7b2dbf left one non-blocking finding in the transfer replay fixture:\n\n- [test/fixtures/transfer-replay.ts:58](https://github.com/unbraind/pm-rl/pull/148#discussion_r4546096808): Reject a receipt with no evaluations.\n\nEach fix needs a test that fails on revert."

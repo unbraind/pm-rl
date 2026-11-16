@@ -1,0 +1,21 @@
+id: pm-rl-github-eecd7460423f-168
+title: "Follow-up to #153: write limit for generated plan and look IDs, portable replay digest paths"
+description: "GH issue #168: https://github.com/unbraind/pm-rl/issues/168 · author @unbraind · created 2026-11-12T05:40:51Z · updated 2026-11-12T05:40:51Z"
+type: Issue
+status: open
+priority: 2
+tags[2]: "gh:unbraind/pm-rl#168","github_author:unbraind"
+created_at: "2026-11-12T05:40:51Z"
+updated_at: "2026-11-16T07:59:53.432Z"
+author: pm-github
+github_close_reason: ""
+github_closed_at: ""
+github_created_at: "2026-11-12T05:40:51Z"
+github_link_only: false
+github_number: 168
+github_release: ""
+github_state: open
+github_state_reason: unspecified
+github_updated_at: "2026-11-12T05:40:51Z"
+github_url: "https://github.com/unbraind/pm-rl/issues/168"
+body: "Follow-up to #153. CodeRabbit's review of 41d8d58 left two non-blocking findings:\n\n- [evaluation-plan.ts:198](https://github.com/unbraind/pm-rl/pull/153#discussion_r4546507762): Apply the 200-byte write limit to generated Plan and look IDs.\n- [test/fixtures/replay-order.ts:13](https://github.com/unbraind/pm-rl/pull/153#discussion_r4546507769): Normalize replay digest paths to forward slashes before hashing.\n\nEach fix needs a test that fails on revert."
