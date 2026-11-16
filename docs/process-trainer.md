@@ -312,8 +312,9 @@ samples and 40,000 held-out evaluation episodes per policy per generation, and
 promoted both candidates. Acceptance used a 256-sample total cap; the shipped
 example declares 256 samples per generation and a 512-sample total cap. The measured
 acceptance command completed in **5.210 seconds** at the time of measurement. The test
-asserts outcomes only: it logs the elapsed time and keeps the 20-second subprocess
-deadline, so host load cannot fail an otherwise correct run. This is a synthetic contextual-bandit
+asserts outcomes and logs elapsed time. Its subprocess harness watchdog defaults
+to 20 seconds and scales with `PM_TEST_TIME_SCALE`; declared product allowances
+remain unscaled. See [CI tiers](ci-tiers.md). This is a synthetic contextual-bandit
 objective and an adaptive validation set, not a language-model capability claim.
 
 | Generation | Collecting policy SHA-256 | Candidate policy SHA-256 | Sampled held-out reward |

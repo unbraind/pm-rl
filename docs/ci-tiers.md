@@ -32,7 +32,8 @@ folding. Executable JS/TS tracker files select the code path. Documentation and
 tracker changes retain strict health and changelog checks, the full-history
 identity audit, pack dry-run (including its build), and entire existing suites
 that read repository documentation/evidence or pack package contents. The
-conservative selector is `test/support/docs-inputs.ts`; its log lists every
+conservative selector is `test/support/docs-inputs.ts`; identity/privacy/secret
+suites are always selected by filename, and its log lists every
 selected file. This retains README/LICENSE, public evidence, private path refusal,
 packaging, identity and release documentation contracts. No independent secret
 scanner or markdown linter exists in the original release gate. Documentation
@@ -103,9 +104,15 @@ sequential snapshot matrix, 1,388,331 ms (23m08s), followed by immutable snapsho
 cycles (199,855 ms), recovery-card transactions (179,657 ms), generated chronology
 witnesses (154,117 ms), the seeded sequential model (147,315 ms) and card aliases
 (138,794 ms). These are full-depth hosted measurements, not quick predictions.
-Local quick coverage has a 20-minute observation budget; full depth is certified
-by post-merge CI Deep. PR quick timing and any remaining validation gaps are
-recorded in the Task and PR body.
+The local quick seeded/property subset passed 8/8 in 320,250 ms, including
+50 proposer sequences and 1,000 simulation trials. This shared-host subset is
+not comparable to a full hosted gate. The optional local quick coverage attempt
+was stopped after 983 seconds in the gate, still in early controller matrices,
+as it could not plausibly finish within the 20-minute shared-host budget. It
+reported no failure before termination, but establishes no coverage percentage.
+Full depth is deferred to post-merge CI Deep. Required PR checks were still
+running at handoff; completed PR wall times are unavailable. Remaining evidence
+and run links are recorded in the Task and PR body.
 
 Tracking: [pm-rl-local-gate-timing](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-local-gate-timing.toon),
 companion `pm-cli-website-dyhg`. Release callers, release verifier scripts and

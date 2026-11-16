@@ -5,7 +5,7 @@ import { testTime } from "./depth.ts";
 
 const files = readdirSync("test").filter((file) => file.endsWith(".test.ts")).filter((file) => {
   const source = readFileSync(`test/${file}`, "utf8");
-  return /docs\/|README\.md|ARCHITECTURE\.md|LICENSE|CHANGELOG|changelog|["']pack["']|npm pack/.test(source);
+  return /identity|identities|privacy|secret/.test(file) || /docs\/|README\.md|ARCHITECTURE\.md|LICENSE|CHANGELOG|changelog|["']pack["']|npm pack/.test(source);
 }).map((file) => `test/${file}`);
 if (files.length === 0) throw new Error("No documentation/packaging input suites selected");
 console.log(`Documentation and packaging suites: ${files.join(" ")}`);

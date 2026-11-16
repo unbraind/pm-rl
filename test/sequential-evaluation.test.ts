@@ -636,7 +636,7 @@ test("500 seeded model-based operation sequences read canonical state through th
     }
   }
   assert.equal((await w.client.listAllComplete({ includeBody: false })).items.filter((item) => item.type === "Decision").length, 3);
-  console.log(JSON.stringify({ modelSequences: 500, seed: "5eed1025", operationKinds: ["transport", "advance", "old-snapshot-replay", "refused-rewrite", "SDK-export", "custom-status", "relationships", "refused-id-padding"], checkpointRecords: 2 }));
+  console.log(JSON.stringify({ modelSequences: testDepth(500), seed: "5eed1025", operationKinds: ["transport", "advance", "old-snapshot-replay", "refused-rewrite", "SDK-export", "custom-status", "relationships", "refused-id-padding"], checkpointRecords: 2 }));
 });
 
 test("foreign reserved records are skipped with a reason and retained intact", async () => {

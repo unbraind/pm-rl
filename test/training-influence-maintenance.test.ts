@@ -60,7 +60,7 @@ test("dataset categories agree across every influence SDK and CLI entry point", 
     }
     assert.deepEqual(await w.client.get(w.saved.id, { full: true }), before);
   }
-  context.diagnostic("500 seeded shape/category cases plus real SDK and both CLI output modes");
+  context.diagnostic(`${testDepth(500)} seeded shape/category cases plus real SDK and both CLI output modes`);
 });
 
 test("sealed loop evidence survives pruned report history through run resume and status", async () => {

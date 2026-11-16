@@ -177,7 +177,7 @@ test("graph boundary and seeded 500 transport sequences retain SDK-read native s
     await assert.rejects(captureDecisionInputs(w.client, async () => { throw new Error("native failure"); }), /native failure/);
     const snapshot = await readCompleteLoopItem(w.client, w.plan.candidate);
     assert.equal(evaluationEvidence(graph.comparison, [snapshot.item]).inputs.length, 1);
-    console.log(JSON.stringify({ transport_sequences: 500, formats: formats.size, model: "live/frozen SDK-read graphs plus explicit native relationships and custom status" }));
+    console.log(JSON.stringify({ transport_sequences: testDepth(500), formats: formats.size, model: "live/frozen SDK-read graphs plus explicit native relationships and custom status" }));
   } finally { rmSync(w.root, { recursive: true, force: true }); }
 });
 

@@ -6,12 +6,10 @@ status: in_progress
 priority: 3
 tags[6]: acceptance,ci,follow-up,"gh:unbraind/pm-rl#145",performance,timing
 created_at: "2026-11-05T09:52:10.732Z"
-updated_at: "2026-11-16T00:33:41.031Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-11-16T00:43:04.825Z"
 author: codex-agent
 parent: pm-rl-apvf
-comments[23]{created_at,author,text}:
+comments[26]{created_at,author,text}:
   "2026-11-05T10:11:24.980Z",codex-agent,"Final standalone results are recorded in docs/proposer-revert-evidence.json: packed process CLI reproduces ETIMEDOUT at its unchanged 20000 ms command limit; the canonical 512-card property and recoverable card transaction matrix each reproduce their unchanged 600000 ms parent limit. The transaction retry reports 133 tests: 124 pass, 7 failed-to-start after the parent finished, 2 cancellations, zero skip/todo. The packed LM command also reproduces ETIMEDOUT at 25000 ms and remains owned by pm-rl-7c7m. HTTP retry passed 1/1; callback log recovered 123/123 passes with recorder exit status unavailable after the provider interruption. Linked the already-executed process/card reproduction commands without rerunning them. Complete source-fix CI remains green across npm Node 22/26 and Bun Node 26 at original scope and thresholds."
   "2026-11-05T12:32:36.997Z",codex-agent,"PR 145 replay review round 3 adds another unchanged-bound local timing receipt: Node 26 npm release passed 31/31 release-policy tests, then test/baseline.test.ts case refused vector retries converge at every collect train evaluate refusal and terminal boundary on one plain tracker reached its existing 600000 ms parent timeout. The full local command subsequently exhausted a 20-minute outer execution budget and has no completed coverage totals. No successful retry is claimed: the exact fix-head CI release matrix remains queued at https://github.com/unbraind/pm-rl/actions/runs/42025105305 . The new replay-focused run passed 19/19 and restored behavioral revert controls passed 6/6. Preserve all existing test and coverage bounds; replay correctness remains tracked by pm-rl-proposer-program."
   "2026-11-05T13:53:54.713Z",codex-agent,"Round 4 measures the unchanged 500-sequence test before/after retaining all SDK checks. Inputs and native-update draws stay in their original deterministic order; eight identity groups share one real tracker and one lease each. Added structural assertions for all 500 visited sequences, 2000 program operations, 500 native replays, 1000 native read-back checks, 20 native mutations and eight sessions. The existing 600-second parent timeout and all release thresholds remain unchanged. Baseline timing is running; direct release gates will use the CI runtime and isolated Git identity."
@@ -35,12 +33,17 @@ comments[23]{created_at,author,text}:
   "2026-11-16T00:30:33.091Z",codex-sol,"PR 180 first CI run 43780615797 caught a workflow-only verifier refusal: the shell-variable package-manager executable could not be proven safe. Replaced it with literal npm/Bun commands in mutually exclusive matrix steps, preserving exactly one full gate per deep job. The unchanged publish-attestation verifier now passes locally. Node 26 initial wall time was 29 seconds to this early failure; it is not a quick-tier completion measurement."
   "2026-11-16T00:33:08.207Z",codex-sol,"The final timeout audit also scales harness cancellation signals for real policy-card/improver drills, the coverage peer-readiness barrier, native-OOM acknowledgement, and identity-test child-reaping observation. Product stream timeoutMs, escalation budgets, wall_ms, lock waits and resource assertions stay unscaled. The docs/pack input selector currently conservatively selects 23 entire suites. New workflow predicates and 2x2 matrix parse correctly; fractional scale 1.001 depth/watchdog tests passed 2/2."
   "2026-11-16T00:33:41.029Z",codex-sol,"Final source typecheck, lint and test typecheck passed after the extended watchdog audit. The touched identity/coverage harness suites passed with zero failures at time scale 3; their real two-worker rendezvous and child cleanup still execute. Fractional scale tests also passed. CI run 43780795033 is running both required checks; no CI completion or coverage certification is claimed yet."
-files[49]{path,scope}:
+  "2026-11-16T00:41:22.849Z",codex-sol,"Quick seeded/property proof passed 8/8 in 320250 ms on the shared host at time scale 3: paired and balanced gates, card alias corpus, proposer model, sequential simulation/model, training-influence model and worst-cohort model. Actual proposer records: 50 sequences, 200 randomized operations, 50 SDK replays, 100 native-read assertions, 2 native mutations, 36 drift refusals, 8 controller sessions. Simulation: 1000 trials, 1000 benefit successes/early stops, zero null errors/false futility. These are local subset timings, not complete quick-gate or hosted measurements. Diagnostics now report generated depth rather than the original full count. Docs-only routing explicitly retains identity/privacy/secret-named suites as well as docs/packed input suites."
+  "2026-11-16T00:41:56.843Z",codex-sol,"Documentation audit confirms the old 20-second LM elapsed assertion described acceptance throughput, while product trainer/resource budgets are separately declared. Current verification prose now states the scaled external-command harness watchdog (LM default 25 seconds, process default 20 seconds) and diagnostic elapsed measurements. Historical measured receipts remain intact. Product allowance/deadline assertions remain unchanged."
+  "2026-11-16T00:43:03.223Z",codex-sol,"Final local evidence: 96/96 touched identity/coverage-harness tests passed in 8.95 seconds at scale 3; final generated-count diagnostics passed 2/2 in 11.06 seconds. Source typecheck, build, test typecheck, lint, changelog, unchanged publish-attestation verifier, clean-HOME strict health and strict YAML/matrix checks passed. One optional quick coverage attempt was stopped after 983 seconds in the gate (16m23s), still in early controller fault matrices, because it could not plausibly complete inside the 20-minute shared-host budget. No failure had been reported before termination; this is incomplete coverage evidence, not a pass. Full depth was not run locally. Current code CI run 43781112285 has both required checks still running, so completed PR wall times are unavailable. Full baseline hosted times remain 79m58s / 60m14s / 63m23s. Risks: complete quick coverage, final PR duration under 30 minutes, and post-merge full local/Docker deep routing remain unverified. No reviews were answered, no item closed, and no merge or repository policy changes made."
+files[51]{path,scope}:
   .agents/pm/tasks/pm-rl-local-gate-timing.toon,project
   .github/workflows/ci-deep.yml,project
   .github/workflows/ci.yml,project
   .github/workflows/codeql.yml,project
   docs/ci-tiers.md,project
+  docs/lm-adapter.md,project
+  docs/process-trainer.md,project
   test/audit-git-identities.test.ts,project
   test/bandit.test.ts,project
   test/baseline.test.ts,project
@@ -85,7 +88,7 @@ files[49]{path,scope}:
   test/transfer-review-round6.test.ts,project
   test/transfer-review.test.ts,project
   test/worst-cohort.test.ts,project
-tests[10]{command,scope,timeout_seconds,pm_context_mode,workspace_context_mode,provenance{author,created_at,source_kind,source_ref}}:
+tests[11]{command,scope,timeout_seconds,pm_context_mode,workspace_context_mode,provenance{author,created_at,source_kind,source_ref}}:
   npm run build && nice -n 10 node --test --test-concurrency=1 --test-reporter=spec '--test-name-pattern=packed CLI trains two external generations' test/process-cli.test.ts,project,420,none,snapshot,codex-agent,"2026-11-05T17:57:00.565Z",local_mutation,feat/proposer-program-evolution
   "npm run build && nice -n 10 node --test --test-concurrency=1 --test-reporter=spec '--test-name-pattern=canonical card property: 512 seeded' test/policy-card.test.ts",project,870,none,snapshot,codex-agent,"2026-11-05T17:57:08.621Z",local_mutation,feat/proposer-program-evolution
   npm run build && nice -n 10 node --test --test-concurrency=1 --test-reporter=spec '--test-name-pattern=recoverable card transactions finish every EIO' test/policy-card.test.ts,project,870,none,snapshot,codex-agent,"2026-11-05T17:57:15.645Z",local_mutation,feat/proposer-program-evolution
@@ -96,8 +99,11 @@ tests[10]{command,scope,timeout_seconds,pm_context_mode,workspace_context_mode,p
   PM_TEST_DEPTH=quick PM_TEST_DOCKER=off PM_TEST_TIME_SCALE=3 timeout --kill-after=30s 1200s npm run coverage,project,1260,none,snapshot,codex-sol,"2026-11-16T00:32:58.831Z",local_mutation,ci/quick-pr-tier-deep-local-tier
   "npm run typecheck && npm run lint && npm run build:test",project,300,none,snapshot,codex-sol,"2026-11-16T00:33:02.260Z",local_mutation,ci/quick-pr-tier-deep-local-tier
   PM_TEST_DEPTH=quick PM_TEST_DOCKER=off PM_TEST_TIME_SCALE=3 node --test --test-concurrency=2 test/audit-git-identities.test.ts test/coverage-gate.test.ts,project,180,none,snapshot,codex-sol,"2026-11-16T00:33:38.658Z",local_mutation,ci/quick-pr-tier-deep-local-tier
-docs[5]{path,scope}:
+  "PM_TEST_DEPTH=quick PM_TEST_DOCKER=off PM_TEST_TIME_SCALE=3 timeout --kill-after=15s 600s node --test --test-concurrency=2 '--test-name-pattern=^500 seeded|^canonical card property|^null, benefit|^balanced gate property|^paired gate property' test/training-influence.test.ts test/proposer-program.test.ts test/sequential-evaluation.test.ts test/policy-card.test.ts test/worst-cohort.test.ts test/objective.test.ts test/baseline.test.ts",project,660,none,snapshot,codex-sol,"2026-11-16T00:41:20.427Z",local_mutation,ci/quick-pr-tier-deep-local-tier
+docs[7]{path,scope}:
   docs/ci-tiers.md,project
+  docs/lm-adapter.md,project
+  docs/process-trainer.md,project
   docs/proposer-replay-evidence.json,project
   docs/proposer-revert-evidence.json,project
   docs/proposer-review-round-4-evidence.json,project

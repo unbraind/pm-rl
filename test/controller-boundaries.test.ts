@@ -71,7 +71,7 @@ test("canonical identity property: 500 SDK variant pairs share exactly one lease
   assert.deepEqual(await reserveProcessJob(client, coordinates, `#rl-${jobId.toUpperCase()}`, input, approval, allowance), reserved);
   assert.equal((await readProcessJob(client, `rl-${jobId.toUpperCase()}`))!.id, jobId);
   assert.equal(JSON.parse(String((await client.get(jobId, { full: true })).item.body)).id, jobId);
-  console.log(JSON.stringify({ canonical_sequences: 500, sdk_unicode_equivalence: normalizeRawItemId("É") === normalizeRawItemId("E\u0301"), whitespace: "strict-refusal" }));
+  console.log(JSON.stringify({ canonical_sequences: testDepth(500), sdk_unicode_equivalence: normalizeRawItemId("É") === normalizeRawItemId("E\u0301"), whitespace: "strict-refusal" }));
 });
 
 test("Race/race controllers cannot force-claim the same seed concurrently", { timeout: testTime(120000) }, async () => {
