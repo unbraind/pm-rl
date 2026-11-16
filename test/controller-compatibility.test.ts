@@ -1,3 +1,4 @@
+import { testDepth, testTime } from "./support/depth.ts";
 /** Baseline-written identities and terminal evidence recover through real SDK trackers. */
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
@@ -25,14 +26,14 @@ function fixtureEnvironment(home: string): NodeJS.ProcessEnv {
 }
 /** Preserve native artifact timestamps exactly; their historical wall accounting is part of the baseline fixture. */
 function copyNativeTracker(source: string, destination: string, env: NodeJS.ProcessEnv): void {
-  execFileSync("cp", ["-a", source, destination], { env, stdio: "pipe", timeout: 900_000 });
+  execFileSync("cp", ["-a", source, destination], { env, stdio: "pipe", timeout: testTime(900_000) });
 }
 /** Run baseline/current code with identical inputs; actual SDK results form the compatibility oracle. */
 function drive(code: string, mode: string, corpus: string, env: NodeJS.ProcessEnv, runtime = process.execPath): void {
-  execFileSync(runtime, ["test/fixtures/main-controller-compatibility.ts", mode, corpus], { cwd: code, env, stdio: "pipe", timeout: 900_000, maxBuffer: 4_194_304 });
+  execFileSync(runtime, ["test/fixtures/main-controller-compatibility.ts", mode, corpus], { cwd: code, env, stdio: "pipe", timeout: testTime(900_000), maxBuffer: 4_194_304 });
 }
 
-test("origin main corpus: completed and interrupted controllers, loops, receipts and cards retain their identities", { timeout: 1_800_000 }, (t) => {
+test("origin main corpus: completed and interrupted controllers, loops, receipts and cards retain their identities", { timeout: testTime(1_800_000) }, (t) => {
   const repo = fileURLToPath(new URL("../", import.meta.url));
   const root = mkdtempSync(join(tmpdir(), "rl-main-controller-corpus-")); const writer = join(root, "writer");
   const corpus = join(root, "corpus"); const env = fixtureEnvironment(join(root, "home"));
@@ -102,7 +103,7 @@ async function sealedTransition(client: PmClient, pmRoot: string, fixture: Await
   } else assert.fail("Unknown lifecycle transition");
 }
 
-test("terminal recovery ignores superseded candidate Run digests at every crash boundary but rejects final seal corruption", { timeout: 600_000 }, async () => {
+test("terminal recovery ignores superseded candidate Run digests at every crash boundary but rejects final seal corruption", { timeout: testTime(600_000) }, async () => {
   const fixture = await decisionFixture(false, false, false);
   const root = mkdtempSync(join(tmpdir(), "rl-terminal-crashes-"));
   try {
@@ -143,7 +144,7 @@ test("terminal recovery ignores superseded candidate Run digests at every crash 
 test("500 stored step-name variants preserve birth identities and refuse ambiguous or damaged native receipts", async () => {
   assert.equal(loopProcessIdentityIO.exec(process.execPath, ["-p", "1 + 1"]).trim(), "2");
   let seed = 0x107c0de;
-  for (let index = 0; index < 500; index += 1) {
+  for (let index = 0; index < testDepth(500); index += 1) {
     seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
     const root = ["rl-prefixed", "Mixed", "outer-step-inner", "Évaluation", "e\u0301valuation"][seed % 5]!;
     const phase = index % 2 === 0 ? "Evaluate" : "record-step-Result";

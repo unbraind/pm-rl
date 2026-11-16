@@ -28,9 +28,9 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { type GateResult, isMainInvocation, runIfMain } from "./script-launcher.ts";
 
@@ -618,6 +618,7 @@ export function computeStatementCoverage(
  * @param repoRoot - Absolute repository root.
  * @param spawn - Injectable spawn function; defaults to the real `spawnSync`.
  * @param showConfig - Injectable `tsc --showConfig` runner; defaults to the real `spawnSync`.
+ * @param mode - Optional shard collection or raw-report merge inputs; normal runs enforce every threshold.
  * @returns The exit code and stdout/stderr the gate would emit.
  */
 export function runGate(
@@ -625,6 +626,7 @@ export function runGate(
   repoRoot: string,
   spawn: SpawnFn = defaultSpawn,
   showConfig: ShowConfigFn = defaultShowConfig,
+  mode: { shard?: string; merge?: readonly string[] } = {},
 ): GateResult {
   if (!config) {
     return { exitCode: 1, stdout: "", stderr: "coverage-gate: package.json has no `coverageGate` block." };
@@ -651,7 +653,8 @@ export function runGate(
   // set, but deleting it first prevents a leftover from a previous, broader
   // run from satisfying the statement check on stale data — the same stale-
   // report hazard the lcov deletion guards against for the presence check.
-  const v8CoverageDir = join(repoRoot, "coverage", "v8");
+  const output = join(repoRoot, "coverage", mode.shard ? `shard-${mode.shard.replace("/", "-of-")}` : "merged");
+  const v8CoverageDir = mode.shard ? join(output, "v8") : join(repoRoot, "coverage", "v8");
   mkdirSync(join(repoRoot, "coverage"), { recursive: true });
   // Delete any previous report first. If this run writes none, a leftover file
   // from an earlier, broader run would satisfy the presence check on stale data —
@@ -660,32 +663,47 @@ export function runGate(
   rmSync(v8CoverageDir, { recursive: true, force: true });
   mkdirSync(v8CoverageDir, { recursive: true });
 
+  // Replay the raw worker reports through Node's own coverage merger/reporter.
+  // Copying into the nested runner's active coverage directory avoids unstable
+  // LCOV branch indices and uses exactly the unsharded Node calculation.
+  let tests = config.tests;
+  if (mode.merge) {
+    const reports: V8CoverageReport[] = [];
+    for (const directory of mode.merge) {
+      const root = JSON.parse(readFileSync(join(directory, "root.json"), "utf8")) as { url: string };
+      for (const file of readdirSync(join(directory, "v8"))) {
+        if (!file.endsWith(".json")) continue;
+        const raw = readFileSync(join(directory, "v8", file), "utf8");
+        reports.push(JSON.parse(raw.replaceAll(root.url, pathToFileURL(repoRoot).href)) as V8CoverageReport);
+      }
+    }
+    const replay = join(repoRoot, "coverage", "replay.test.mjs");
+    writeFileSync(replay, `import { writeFileSync } from 'node:fs';\nimport { join } from 'node:path';\nconst reports = ${JSON.stringify(reports)};\nfor (const [i, report] of reports.entries()) writeFileSync(join(process.env.NODE_V8_COVERAGE, 'coverage-1-0000000000000-' + i + '.json'), JSON.stringify(report));\n`);
+    tests = [replay];
+  }
+
   const result = spawn(
     process.execPath,
     [
       "--test",
-      // One test process at a time. The runner otherwise runs test FILES
-      // concurrently and merges each worker's V8 coverage, and that merge is not
-      // reliable: repeated runs of an unchanged, fully passing suite reported a
-      // module anywhere between 38% and 100% of its lines, purely by which worker
-      // happened to flush. Under a hard 100% threshold that is not slow-and-correct
-      // versus fast-and-correct — it is a gate that fails releases at random, which
-      // is worse than no gate because the failure teaches people to re-run it.
+      // Merge isolated-worker V8 reports while bounding instrumentation CPU and
+      // memory. Four coverage workers slowed the hosted quick run; keep two.
       "--test-concurrency=2",
+      ...(mode.shard ? [`--test-shard=${mode.shard}`] : []),
       "--experimental-test-coverage",
       // Scope the report to exactly the files the presence check requires. Passing
       // the enumerated paths rather than a directory glob keeps the two in step by
       // construction, and keeps test files and tooling out of the percentages even
       // when the source root is the repository root.
       ...required.map((file) => `--test-coverage-include=${file}`),
-      `--test-coverage-lines=${config.thresholds.lines}`,
-      `--test-coverage-branches=${config.thresholds.branches}`,
-      `--test-coverage-functions=${config.thresholds.functions}`,
+      `--test-coverage-lines=${mode.shard ? 0 : config.thresholds.lines}`,
+      `--test-coverage-branches=${mode.shard ? 0 : config.thresholds.branches}`,
+      `--test-coverage-functions=${mode.shard ? 0 : config.thresholds.functions}`,
       "--test-reporter=spec",
       "--test-reporter-destination=stdout",
       "--test-reporter=lcov",
       `--test-reporter-destination=${lcovPath}`,
-      ...config.tests,
+      ...tests,
     ],
     {
       cwd: repoRoot,
@@ -714,6 +732,21 @@ export function runGate(
   // failure they need to act on.
   if (result.status !== 0) {
     return { exitCode: result.status ?? 1, stdout: "", stderr: "" };
+  }
+
+  if (mode.shard) {
+    // Keep the original per-worker ranges, but omit unrelated runtime/modules
+    // from the artifact. Source discovery and all thresholds remain unchanged.
+    const urls = new Set(required.map((file) => pathToFileURL(join(repoRoot, file)).href));
+    for (const file of readdirSync(v8CoverageDir)) {
+      if (!file.endsWith(".json")) continue;
+      const path = join(v8CoverageDir, file);
+      const report = JSON.parse(readFileSync(path, "utf8")) as V8CoverageReport;
+      writeFileSync(path, JSON.stringify({ ...report, result: report.result.filter((script) => urls.has(script.url)) }));
+    }
+    copyFileSync(lcovPath, join(output, "lcov.info"));
+    writeFileSync(join(output, "root.json"), JSON.stringify({ url: pathToFileURL(repoRoot).href }));
+    return { exitCode: 0, stdout: `coverage-gate: shard ${mode.shard} raw hits saved; thresholds deferred to merge.`, stderr: "" };
   }
 
   let reported: Set<string>;
@@ -810,7 +843,9 @@ export function runGate(
  */
 export function main(repoRoot: string, spawn: SpawnFn = defaultSpawn, showConfig: ShowConfigFn = defaultShowConfig): void {
   const manifest = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8")) as PackageManifest;
-  const result = runGate(manifest.coverageGate ?? null, repoRoot, spawn, showConfig);
+  const args = process.argv.slice(2);
+  const mode = args[0] === "--shard" ? { shard: args[1] } : args[0] === "--merge" ? { merge: args.slice(1).map((directory) => resolve(repoRoot, directory)) } : {};
+  const result = runGate(manifest.coverageGate ?? null, repoRoot, spawn, showConfig, mode);
   process.stdout.write(result.stdout);
   process.stderr.write(result.stderr);
   process.exitCode = result.exitCode;

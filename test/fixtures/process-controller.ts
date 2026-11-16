@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 /** Real controller with barriers after staged completion and at each durable external-job transition. */
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
@@ -20,7 +21,7 @@ try {
     if (!held && context.transactionId.includes(`-${state}-v`) && context.transition === boundary) { held = true; await barrier(); }
   } };
   const report = await runRlLoop(client, coordinates, { id: "process-drill", approval, config: JSON.parse(encoded) as JsonValue, signal: abort.signal,
-    ...(mode === "cancel" ? { processTrainerArgv: [process.execPath, new URL("./process-trainer.ts", import.meta.url).pathname, "hang"] } : {}),
+    ...(mode === "cancel" ? { processTrainerArgv: [process.execPath, fileURLToPath(new URL("./process-trainer.ts", import.meta.url)), "hang"] } : {}),
   });
   process.send!({ report });
 } catch (error) { if (!isPmCliExpectedError(error)) throw error; process.send!({ refusal: error.context.code, message: error.message }); process.exitCode = 1; }

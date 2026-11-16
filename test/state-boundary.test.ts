@@ -1,3 +1,4 @@
+import { testDepth } from "./support/depth.ts";
 /** Seeded identifier and path properties against a real standalone SDK tracker. */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -121,7 +122,7 @@ test("identifier property: 500 seeded sequences preserve external tripwires acro
     });
   }
   let seed = 0x1072026;
-  for (let sequence = 0; sequence < 500; sequence += 1) {
+  for (let sequence = 0; sequence < testDepth(500); sequence += 1) {
     seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
     const id = invalid[sequence < invalid.length ? sequence : seed % invalid.length];
     assert.throws(() => identifier(id), refusal);

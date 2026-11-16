@@ -1,3 +1,4 @@
+import { testDepth } from "./support/depth.ts";
 /** Decision tracing must preserve controller verdicts, bounded cards and native SDK history. */
 import assert from "node:assert/strict";
 import { cpSync, mkdtempSync, rmSync, readFileSync } from "node:fs";
@@ -157,7 +158,7 @@ test("committed promotion recovery refuses each missing scored field before any 
 
 test("compact manifest schema has 500 seeded must-allow and must-refuse transports", () => {
   let seed = 0x10728;
-  for (let index = 0; index < 500; index += 1) {
+  for (let index = 0; index < testDepth(500); index += 1) {
     seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
     const value = { format: "pm-rl/evaluation-evidence-ref/1" as const, comparison: hashJson(index), digest: hashJson(seed) };
     assert.deepEqual(parsePolicyCardDecisionEvidence(JSON.parse(JSON.stringify(value, null, index % 2 ? 2 : 0).replaceAll("\n", "\r\n"))), value);

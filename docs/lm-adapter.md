@@ -142,7 +142,10 @@ integration, lineage, budgets, replay, cancellation and corrupted evidence.
 `test/lm-cli.test.ts` installs a packed artifact, launches the real CLI for three
 generations, verifies disk hashes and successor use, preserves every checkpoint
 through a real package uninstall/reinstall, checks regression and
-contamination refusals, and enforces a 20-second command budget.
+contamination refusals, and reports CLI throughput as a diagnostic. Its external
+command watchdog defaults to 25 seconds and scales with `PM_TEST_TIME_SCALE` on
+slow runners; declared product trainer/resource deadlines remain unscaled.
+See [CI tiers](ci-tiers.md) for the quick/full harness policy.
 
 The performance child runs without V8 coverage instrumentation, which materially
 slows the numerical kernels; the same authored TypeScript implementation remains

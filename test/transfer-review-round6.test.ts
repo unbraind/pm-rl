@@ -1,3 +1,4 @@
+import { testTime } from "./support/depth.ts";
 /** Executable examples, path aliases and fresh replay destinations remain safe in real trackers. */
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
@@ -25,7 +26,7 @@ test("runnable documentation and shipped examples declare the same feasible pros
   }
 });
 
-test("shipped examples and every source path alias share SDK and CLI preflight", { timeout: 240_000 }, async () => {
+test("shipped examples and every source path alias share SDK and CLI preflight", { timeout: testTime(240_000) }, async () => {
   await withTransferScratch("transfer-boundaries-", async (scratch) => {
     assert.deepEqual(await checkTransferBoundaries(scratch, resolve(import.meta.dirname, "../examples")), { examples: 1, paths: 48, native_replay: true });
   });
@@ -70,11 +71,11 @@ test("diagnostic replay rejects every occupied scratch project before copying or
   });
 });
 
-test("packed npm and Bun preserve runnable examples and all private path refusals", { timeout: 300_000 }, async (t) => {
+test("packed npm and Bun preserve runnable examples and all private path refusals", { timeout: testTime(300_000) }, async (t) => {
   await withTransferScratch("transfer-boundary-pack-", async (scratch) => {
     const root = resolve(import.meta.dirname, "..");
     const environment = { PATH: process.env.PATH, HOME: scratch, NPM_CONFIG_USERCONFIG: "/dev/null", npm_config_userconfig: "/dev/null", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
-    const packed = JSON.parse(execFileSync("npm", ["pack", "--ignore-scripts", "--json", "--pack-destination", scratch], { cwd: root, env: environment, encoding: "utf8", timeout: 60_000 })) as { filename: string }[];
+    const packed = JSON.parse(execFileSync("npm", ["pack", "--ignore-scripts", "--json", "--pack-destination", scratch], { cwd: root, env: environment, encoding: "utf8", timeout: testTime(60_000) })) as { filename: string }[];
     execFileSync("tar", ["-xf", join(scratch, packed[0].filename), "-C", scratch]);
     symlinkSync(join(root, "node_modules"), join(scratch, "node_modules"), "dir");
     for (const file of ["transfer-boundary-consumer", "transfer-corpus"]) {
@@ -84,7 +85,7 @@ test("packed npm and Bun preserve runnable examples and all private path refusal
     }
     for (const runtime of [process.execPath, "bun"]) {
       const project = join(scratch, runtime === "bun" ? "bun" : "node"); mkdirSync(project);
-      const result = spawnSync(runtime, [join(scratch, "transfer-boundary-consumer.ts"), join(scratch, "package/examples")], { cwd: project, env: environment, encoding: "utf8", timeout: 120_000 });
+      const result = spawnSync(runtime, [join(scratch, "transfer-boundary-consumer.ts"), join(scratch, "package/examples")], { cwd: project, env: environment, encoding: "utf8", timeout: testTime(120_000) });
       if (runtime === "bun" && (result.error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") { t.diagnostic("Bun unavailable (ENOENT); packed Node remains mandatory."); continue; }
       assert.ifError(result.error); assert.equal(result.status, 0, result.stdout + result.stderr);
       assert.deepEqual(JSON.parse(result.stdout), { examples: 1, paths: 48, native_replay: true });

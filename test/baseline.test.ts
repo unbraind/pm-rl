@@ -1,3 +1,4 @@
+import { testDepth, testKindCases, testTime } from "./support/depth.ts";
 /** Capacity, item-paired promotion and sealed replay regressions use real numerical fitting and SDK jobs. */
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
@@ -39,7 +40,7 @@ test("paired gate property: random vectors pass iff every paired lower bound cle
   let state = 0x25791;
   const random = () => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state / 0x1_0000_0000; };
   let passed = 0; let refused = 0;
-  for (let trial = 0; trial < 96; trial += 1) {
+  for (let trial = 0; trial < testDepth(96); trial += 1) {
     const size = 10 + Math.floor(random() * 11);
     const candidate = Array.from({ length: size }, random);
     const baselines = Array.from({ length: 3 }, () => candidate.map((value) => trial % 4 === 0 ? value * random() * 0.4
@@ -131,12 +132,12 @@ test("vector checkpoint validation is enforced by the real external trainer rece
 });
 
 
-test("item-gated fitting preserves incumbent, budget and replay without a Git executable", { timeout: 300_000 }, () => {
+test("item-gated fitting preserves incumbent, budget and replay without a Git executable", { timeout: testTime(300_000) }, () => {
   const root = mkdtempSync(join(tmpdir(), "rl-vector-no-git-"));
   try {
     const bin = join(root, "tools"); mkdirSync(bin); symlinkSync(process.execPath, join(bin, "node"));
     for (const tool of ["ps", "getconf"]) symlinkSync(execFileSync("sh", ["-c", `command -v ${tool}`], { encoding: "utf8" }).trim(), join(bin, tool));
-    const output = execFileSync(process.execPath, [new URL("./fixtures/baseline-no-git.ts", import.meta.url).pathname, root, "1"], { encoding: "utf8", timeout: 280_000,
+    const output = execFileSync(process.execPath, [fileURLToPath(new URL("./fixtures/baseline-no-git.ts", import.meta.url)), root, "1"], { encoding: "utf8", timeout: testTime(280_000),
       env: { ...process.env, NODE_V8_COVERAGE: undefined, PATH: bin, GIT_CEILING_DIRECTORIES: dirname(root) } });
     assert.match(output, /1 refused vector proposals; sealed replay; incumbent retained/);
   } finally { rmSync(root, { recursive: true, force: true }); }
@@ -155,7 +156,7 @@ test("exploration requires a sealed vector corpus and defaults to stop-on-refusa
 });
 
 
-test("bounded refused generations replay through the actual controller and status walker", { timeout: 300_000 }, async () => {
+test("bounded refused generations replay through the actual controller and status walker", { timeout: testTime(300_000) }, async () => {
   const root = mkdtempSync(join(tmpdir(), "rl-vector-controller-"));
   try { await vectorNoGit(root); }
   finally { rmSync(root, { recursive: true, force: true }); }
@@ -180,7 +181,7 @@ test("vector promotion refuses an improving checkpoint that still loses to a con
 });
 
 
-test("sealed exploration stops on the original gap and sampled-evidence refusals", { timeout: 300_000 }, async () => {
+test("sealed exploration stops on the original gap and sampled-evidence refusals", { timeout: testTime(300_000) }, async () => {
   const workspace = await processWorkspace();
   const common = { ...bounds, adapter: undefined, fit_steps: 8, samples_per_generation: 32, budget: 96 };
   const weak = sealTrackerLoopCorpus(items.map((item) => ({ ...item, status: "closed" })), { ...common, evaluation_samples: 1 } as unknown as JsonValue);
@@ -196,8 +197,11 @@ test("sealed exploration stops on the original gap and sampled-evidence refusals
 });
 
 
-test("refused vector retries converge at every collect train evaluate refusal and terminal boundary on one plain tracker", { timeout: 600_000 }, async (context) => {
-  for (const boundary of ["collect", "train", "evaluate", "refuse-before", "refuse-after", "record-before", "record-after"] as const) await context.test(boundary, async () => {
+test("refused vector retries converge at every collect train evaluate refusal and terminal boundary on one plain tracker", { timeout: testTime(600_000) }, async (context) => {
+  // Quick depth keeps one phase crash (the durable-loop phase sweep covers the remaining
+  // crash points at quick depth) plus every refusal/report comment boundary in both arms;
+  // full depth stays exhaustive.
+  for (const boundary of testKindCases(["collect", "train", "evaluate", "refuse-before", "refuse-after", "record-before", "record-after"] as const, (row) => [row.endsWith("-before") || row.endsWith("-after") ? row : "phase-crash"])) await context.test(boundary, async () => {
     const w = await processWorkspace({ training_steps: 16, wall_ms: 60000, storage_bytes: 524288, compute_units: 20000, tokens: 0 });
     const lengths = [false, true].flatMap((held) => Array.from({ length: 200 }, (_, i) => i + 40).filter((length) => corpusHeldOut(length) === held).slice(0, 10));
     const config = sealTrackerLoopCorpus(lengths.map((length) => ({ id: `source-${length}`, title: "t".repeat(length), status: "closed" })), {
@@ -248,7 +252,7 @@ test("refused vector retries converge at every collect train evaluate refusal an
 });
 
 
-test("vector winners survive competing controllers and crashes at every successful cycle boundary", { timeout: 600_000 }, async (context) => {
+test("vector winners survive competing controllers and crashes at every successful cycle boundary", { timeout: testTime(600_000) }, async (context) => {
   for (const boundary of ["collect", "train", "evaluate", "promote"] as const) await context.test(boundary, async () => {
     const w = await processWorkspace();
     const examples = (prefix: string) => Array.from({ length: 40 }, (_, index) => ({ id: `${prefix}-${index}`, feature: prefix === "train" ? 0.1 : 0.2,
