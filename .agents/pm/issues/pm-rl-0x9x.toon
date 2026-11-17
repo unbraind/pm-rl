@@ -3,12 +3,17 @@ title: Bound concurrent checkpoint fixture contention without losing promotions
 description: "Investigate release CI checkpoint promotion lock conflict from GitHub issue #152; characterize loaded contention, preserve declared bounds and checkpoint roots, and prove any correction by behavioral revert."
 type: Issue
 pm_format_version: 2
-status: in_progress
+status: closed
 priority: 2
 tags[1]: "gh:unbraind/pm-rl#152"
 created_at: "2026-11-07T15:24:16.420Z"
-updated_at: "2026-11-07T21:53:39.377Z"
+updated_at: "2026-11-16T20:35:23.131Z"
+closed_at: "2026-11-16T20:35:23.021Z"
+completed_at: "2026-11-16T20:35:23.021Z"
 author: codex-agent
+resolution: Implemented and merged in #158 (b076931).
+expected_result: The change described by this item is on main.
+actual_result: "Merged in #158 as b076931; checks successful at head c952a38: Bun release (26), CodeQL, codeql, test (22), test (26)."
 comments[19]{created_at,author,text}:
   "2026-11-07T15:25:02.608Z",codex-agent,"Read issue #152 and SDK issue #1516 including all comments. No synced match exists, so this item owns gh:unbraind/pm-rl#152. Baseline focused real-process checkpoint fixture passed 1/1 under existing host load. The shipped bounded-contention contract explicitly permits lock_conflict; the installed SDK exposes CommitWorkspaceTransactionOptions.lockWaitMs, so this is not a missing wait API. Next: 30 instrumented repetitions under one low-priority CPU burner, then deterministic live-holder timing and a behavioral revert proof. Full multi-hour npm/Bun release gates are delegated to CI by the task instruction."
   "2026-11-07T15:31:16.871Z",codex-agent,"Controlled live-holder reproduction failed 1/1 with the original 30000 ms fixture wait: a healthy parent holds sdk-workspace-transaction for 35000 ms; a waiting promoter reports lock_conflict/lock_owner_alive after 30007 ms (another waiter is serialized behind the approval preflight lock). This demonstrates an insufficient positive-fixture bound, not lock corruption or lost committed writes. Testing a fixture-only 120000 ms wait, aligned with its existing 120000 ms fit signal and inside its unchanged 900000 ms outer deadline. Production lock defaults, retry contracts, trainer budgets and pinned SDK remain unchanged. The unforced instrumented baseline remains at its original 30000 ms wait until all 30 repetitions finish."
@@ -36,4 +41,5 @@ tests[1]{command,scope,timeout_seconds,pm_context_mode,workspace_context_mode,pr
   "node --test --test-concurrency=2 --test-name-pattern=\"two processes promote|outwait a healthy\" test/checkpoint-artifacts.test.ts",project,900,none,snapshot,codex-agent,"2026-11-07T15:31:21.184Z",local_mutation,checkpoint-promotion-lock-contention,codex-agent,"2026-11-07T15:37:56.592Z"
 docs[1]{path,scope,note}:
   docs/checkpoint-contention.md,project,Reproduction methodology and bounded fixture design
+close_reason: "Delivered by #158 \"test: bound checkpoint promotion waits under CI load\" (merged as b076931). Checks successful at the PR head c952a38: Bun release (26), CodeQL, codeql, test (22), test (26)."
 body: ""
