@@ -6,17 +6,19 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-11-18T10:52:43.628Z"
-updated_at: "2026-11-18T11:22:28.840Z"
+updated_at: "2026-11-18T11:27:04.464Z"
 author: codex-sol
 acceptance_criteria: "A retry or resume under a different Decision refuses before any fit or successor collection. The same canonical Decision resumes exactly once, including through an SDK alias. Existing seed records remain replayable under their historical checks. Exercise the bounded public tracker fixture with the real process adapter."
 parent: pm-rl-apvf
-comments[6]{created_at,author,text}:
+comments[8]{created_at,author,text}:
   "2026-11-18T10:52:48.208Z",codex-sol,"The bounded driver, held-out gate, process and Compose trainers, and transaction-backed reservations already exist. Bind the canonical approval in new seed provenance under the controller lease. Preserve historical seed identity and verify cancellation after collect, wrong-budget refusal, same-budget recovery, charge counts and successor lineage."
   "2026-11-18T10:57:08.673Z",codex-sol,"The real process regression fails against unchanged main: an interrupted first generation accepted an unrelated Decision and ran to completion. Compare the stored authority with the SDK creation revision and resolve request aliases to the same canonical Decision before new phase work."
   "2026-11-18T11:03:23.703Z",codex-sol,"The focused real regression and historical-seed replay pass (2/2). Two isolated executions on the pinned 105/41 public pm-ops fixture rejected the alternate Decision with zero jobs. Each promoted generation one at held-out 0.59765, collected generation two from the promoted digest, and refused its fit with process_limit_exceeded. Each second job settled its reserved eight updates and 5000 ms; the source content hash remained unchanged."
   "2026-11-18T11:04:10.270Z",codex-sol,"Implementation commit 574f40a binds the seed to its original Decision under the controller lease, validates its creation revision, and keeps legacy receipt identities. Typecheck, both builds, lint, docstrings, duplication and changelog check pass. The two real regression cases pass; repository-wide coverage and the full process test file are running. Default changelog generation publishes completed items. The in-progress preview uses the same generator and the selected item."
   "2026-11-18T11:18:04.942Z",codex-sol,CI on 8b624a7 exposed a compatibility regression in the existing real history-compaction drill. Reading a pruned creation revision refused safely but exposed a raw SDK error instead of the controller generation-drift contract. Preserve operational retries and classify absent or damaged birth evidence as generation drift.
   "2026-11-18T11:22:24.567Z",codex-sol,"Commit 7e31ddd restores the established refusal for an unavailable seed creation revision and propagates operational read failures. The entire real training-influence maintenance file passed 2/2, including the compaction drill; typecheck, both builds, lint and changelog check passed after the correction. No gates or resource bounds were changed."
+  "2026-11-18T11:26:02.497Z",codex-sol,"A third independent run on the corrected controller completed the same pinned corpus without changing limits. After first collection the alternate Decision was refused with zero jobs. The original Decision promoted both generations, using 512 samples and exactly eight updates each. Held-out means were 0.59765 and 0.685825. Generation two collected from the first checkpoint, and another resume preserved both settled jobs and the final checkpoint. The source digest matched. Both earlier resource refusals remain documented."
+  "2026-11-18T11:26:58.293Z",codex-sol,The complete local process-loop file passed 11 of 15 while full gate processes shared the host. Two readiness barriers and two trainer watchdogs failed. All four drills passed in the hosted Node 26 coverage shard on 8b624a7. Existing timing items track this class of failure; the fix preserves all deadlines and still requires the full hosted gate on the pushed head.
 files[3]{path,scope}:
   index.ts,project
   test/process-loop.test.ts,project

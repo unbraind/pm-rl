@@ -22,18 +22,27 @@ retain their original identity and historical reservation and promotion checks.
 | Reserve resource limits once and recover interrupted work | `process.ts` (`reserveProcessJob`), `index.ts` (`durableLoopStep`) | `test/process-loop.test.ts` exercises contention, SIGKILL and cancellation |
 | Evaluate held-out outcomes and decide promotion | `loop.ts` (`loopPromotionScores`), `promotion.ts` (`decidePromotion`), `index.ts` (transactional promotion) | `test/promotion.test.ts`, `test/process-loop.test.ts` cover statistical, gap and budget refusals |
 
-Two bounded runs used the pinned public `unbraind/pm-ops` corpus at
+Three independent bounded runs used the public `unbraind/pm-ops` tracker at
 `eba7d5262fd75e67afce0caad29dae7dc7dfbaeb` and `examples/loop-corpus.json`.
-Each stopped after the first collection, refused a second approval with zero
-reservations, and resumed with the original Decision. The 105 training and 41
-held-out items produced a first-generation sampled held-out mean of 0.59765.
-The next collection used the promoted checkpoint
-`sha256:2df645949b852625c2acdc20bf5232620cac8c87d1ab1f8f85c4221da14ac605`.
-In both runs the second fit hit `process_limit_exceeded`, retained its failed
-job, and charged the reserved eight updates and 5,000 ms. Only generation one
-promoted. The source tracker’s durable files had the same digest before and
-after both runs. The separate real-process regression completes two generations
-and verifies that replay preserves both charges.
+Each stopped after its first collection, refused a second Decision with zero
+reservations, and resumed with the original Decision. Each promoted generation
+one and collected generation two using that exact checkpoint. In the first
+two runs the second fit hit `process_limit_exceeded`, retained its failed job,
+and charged the reserved eight updates and 5,000 ms.
+
+The third run completed both generations with the same bounds. It stopped at
+the generation limit after 512 collection samples. A further resume verified
+both jobs and checkpoint identities without spending again.
+
+| Generation | Promoted checkpoint SHA-256 | Sampled held-out mean | Updates charged | Wall time charged |
+| --- | --- | ---: | ---: | ---: |
+| 1 | `2df645949b852625c2acdc20bf5232620cac8c87d1ab1f8f85c4221da14ac605` | 0.597650 | 8 | 2,421 ms |
+| 2 | `3e31b06286e99d6b3d73486216f98f0c6d519228cac4bcbefc56f4945c292863` | 0.685825 | 8 | 1,576 ms |
+
+The durable source digest matched before and after all three runs. The fixture
+has 105 training and 41 held-out items, including 36 closed held-out items.
+The always-closed baseline scores 36/41. These scores measure progress over the
+seed on this finite corpus. [Corpus and evaluation details](docs/tracker-loop.md).
 
 ## Durable local continuation
 
