@@ -32,21 +32,28 @@ async function seedCorpusSource(client: Awaited<ReturnType<typeof processWorkspa
   for (const length of lengths) await client.create({ id: `source-${length}`, type: "Task", title: "z".repeat(length) });
 }
 
-test("corpus declared SDK and CLI spellings retain output refusals and reject spelling conflicts", async () => {
+test("corpus reads the declared SDK and CLI source spellings and rejects conflicts", async () => {
   const w = await processWorkspace();
   const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
   const output = join(w.root, "existing.json"); writeFileSync(output, "preserve bytes");
+  const freshOutput = join(w.root, "fresh.json");
+  const source = join(w.root, "missing-source");
+  const file = join(w.root, "missing-bounds");
   const before = sourceBytes(w.pmRoot);
   try {
     for (const key of ["fromTracker", "from-tracker"]) {
       await assert.rejects(harness.runCommand({ command: "rl corpus build", pmRoot: w.pmRoot, options: {
-        [key]: join(w.root, "missing-source"), file: join(w.root, "missing-bounds"), output,
-      } }), (error: unknown) => {
-        assert.ok(refuses("corpus_output_exists")(error));
-        assert.ok(isPmCliExpectedError(error)); assert.equal(error.exitCode, EXIT_CODE.CONFLICT);
-        return true;
-      });
+        [key]: source, file, output: freshOutput,
+      } }), refuses("corpus_source_missing"));
+      assert.equal(existsSync(freshOutput), false);
     }
+    await assert.rejects(harness.runCommand({ command: "rl corpus build", pmRoot: w.pmRoot, options: {
+      fromTracker: source, file, output,
+    } }), (error: unknown) => {
+      assert.ok(refuses("corpus_output_exists")(error));
+      assert.ok(isPmCliExpectedError(error)); assert.equal(error.exitCode, EXIT_CODE.CONFLICT);
+      return true;
+    });
     await assert.rejects(harness.runCommand({ command: "rl corpus build", pmRoot: w.pmRoot, options: {
       fromTracker: w.pmRoot, "from-tracker": join(w.root, "other-source"), file: join(w.root, "missing-bounds"), output,
     } }), (error: unknown) => {

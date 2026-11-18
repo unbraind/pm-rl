@@ -566,7 +566,8 @@ source commits. Release changelogs and GitHub provenance also require Git.
 ## Requirements
 
 - Node.js ≥ 22.18, tested on 22 and 26
-- `@unbrained/pm-cli` ≥ 2026.11.2 (tested SDK host; fenced leases and unsafe-lock refusals)
+- `@unbrained/pm-cli` ≥ 2026.11.8. That release maps declared extension options to SDK keys
+  for tracker selection and audited takeover ([pm-cli#1665](https://github.com/unbraind/pm-cli/issues/1665)).
 - Works under `npm`/`npx` and `bun`/`bunx`
 - No runtime dependencies beyond the Node standard library
 
@@ -1033,8 +1034,8 @@ directory between the root and the leaf, and symlinked leaves (including
 dangling links). Links above the explicit root are permitted. Git metadata discovery
 and explicit filesystem locations establish roots; they are never identifier
 components. pm-rl's own reads and writes use these confined state boundaries;
-delayed effects and cleanup recheck their paths. SDK **2026.11.2**, providing
-[pm-cli#1647](https://github.com/unbraind/pm-cli/issues/1647), confines lock
+delayed effects and cleanup recheck their paths. The SDK lock checks tested
+with **2026.11.2** ([pm-cli#1647](https://github.com/unbraind/pm-cli/issues/1647)) confine lock
 acquisition at its directory validation boundaries: a pre-existing symlinked
 `locks` directory refuses with `lock_path_unsafe` and leaves no outside lock.
 pm-rl maps that SDK refusal to `rl_state_path_invalid` with exit code **2**.

@@ -117,8 +117,9 @@ can still return its current result. Fixed protected-cohort guards retain their
 original admission contract. Combining them with a sequential stopping protocol
 requires a separately specified design and currently refuses before registration.
 pm-rl confines its own reads and writes through its state-path boundaries.
-The minimum and tested SDK host is **2026.11.2**, which provides
-[pm-cli#1647](https://github.com/unbraind/pm-cli/issues/1647). SDK lock acquisition
+The extension requires SDK host **2026.11.8** or newer for declared option mapping.
+The SDK lock checks were tested with **2026.11.2**
+([pm-cli#1647](https://github.com/unbraind/pm-cli/issues/1647)). SDK lock acquisition
 checks every component below the tracker root, refuses a symlinked `locks`
 directory with `lock_path_unsafe`, and detects a directory replacement during
 creation. pm-rl translates that refusal to `rl_state_path_invalid`, exit **2**,
