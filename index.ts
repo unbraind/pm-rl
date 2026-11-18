@@ -3757,7 +3757,10 @@ async function prepareLoopController(client: PmClient, coordinates: WorkspaceCoo
       if (previousSeed === null) {
         seedConfig = { ...jsonObject(seedConfig, "Loop seed configuration"), governing_approval: approvalId };
       } else {
-        const birth = await readCompleteLoopItem(client, previousSeed.item.id, "1", "body");
+        const birth = await readCompleteLoopItem(client, previousSeed.item.id, "1", "body").catch((error: unknown) => {
+          rethrowOperationalRead(error);
+          fail("The loop seed creation revision is unavailable. Restore the certified history before resuming.", "loop_generation_drift", EXIT_CODE.CONFLICT);
+        });
         const original = extractGenerationSpec(String(birth.item.body), "Loop seed at creation");
         const binding = jsonObject(original.training_config, "Original loop seed configuration")["governing_approval"];
         const spec = extractGenerationSpec(String(previousSeed.item.body), "Loop seed");
