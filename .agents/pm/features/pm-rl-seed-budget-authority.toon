@@ -6,16 +6,15 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-11-18T10:52:43.628Z"
-updated_at: "2026-11-18T11:03:23.703Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-11-18T11:04:17.093Z"
 author: codex-sol
 acceptance_criteria: "A retry or resume under a different Decision refuses before any fit or successor collection. The same canonical Decision resumes exactly once, including through an SDK alias. Existing seed records remain replayable under their historical checks. Exercise the bounded public tracker fixture with the real process adapter."
 parent: pm-rl-apvf
-comments[3]{created_at,author,text}:
+comments[4]{created_at,author,text}:
   "2026-11-18T10:52:48.208Z",codex-sol,"The bounded driver, held-out gate, process and Compose trainers, and transaction-backed reservations already exist. Bind the canonical approval in new seed provenance under the controller lease. Preserve historical seed identity and verify cancellation after collect, wrong-budget refusal, same-budget recovery, charge counts and successor lineage."
   "2026-11-18T10:57:08.673Z",codex-sol,"The real process regression fails against unchanged main: an interrupted first generation accepted an unrelated Decision and ran to completion. Compare the stored authority with the SDK creation revision and resolve request aliases to the same canonical Decision before new phase work."
   "2026-11-18T11:03:23.703Z",codex-sol,"The focused real regression and historical-seed replay pass (2/2). Two isolated executions on the pinned 105/41 public pm-ops fixture rejected the alternate Decision with zero jobs. Each promoted generation one at held-out 0.59765, collected generation two from the promoted digest, and refused its fit with process_limit_exceeded. Each second job settled its reserved eight updates and 5000 ms; the source content hash remained unchanged."
+  "2026-11-18T11:04:10.270Z",codex-sol,"Implementation commit 574f40a binds the seed to its original Decision under the controller lease, validates its creation revision, and keeps legacy receipt identities. Typecheck, both builds, lint, docstrings, duplication and changelog check pass. The two real regression cases pass; repository-wide coverage and the full process test file are running. Default changelog generation publishes completed items. The in-progress preview uses the same generator and the selected item."
 files[2]{path,scope}:
   index.ts,project
   test/process-loop.test.ts,project
