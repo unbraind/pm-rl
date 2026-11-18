@@ -1,0 +1,11 @@
+id: pm-rl-picomatch-audit-feed
+title: Recheck npm audit output for withdrawn picomatch advisory
+description: "Two full npm audit reads on November 18, 2026 reported four high entries rooted in GHSA-fc5q-39xc-vjpf on the development tool chain. GitHub marked the advisory withdrawn the same day. The separate production audit reported zero vulnerabilities. Recheck the full audit feed after withdrawal propagation and investigate only if the report persists. Advisory: https://github.com/advisories/GHSA-fc5q-39xc-vjpf"
+type: Task
+status: open
+priority: 4
+tags[3]: audit,dependencies,follow-up
+created_at: "2026-11-18T16:02:37.650Z"
+updated_at: "2026-11-18T16:02:37.650Z"
+author: codex-sol
+body: ""
