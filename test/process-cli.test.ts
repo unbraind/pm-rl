@@ -17,7 +17,8 @@ test("packed CLI trains two external generations, resumes and reports compact/de
   execFileSync(process.execPath, [cli, "package", "install", join(root, filename), "--project", "--json"], { cwd: root, env, stdio: "pipe", timeout: testTime(60000) });
   const file = join(root, "programme.json"); writeFileSync(file, JSON.stringify(configuration));
   const start = performance.now();
-  const { details: report } = JSON.parse(execFileSync(process.execPath, [cli, "rl", "loop", "run", "process-demo", "--file", file, "--approval", approval, "--json"], { cwd: root, env, encoding: "utf8", timeout: testTime(20000) })) as { details: RlLoopReport };
+  // Allow the two-generation subprocess to finish on slower runners.
+  const { details: report } = JSON.parse(execFileSync(process.execPath, [cli, "rl", "loop", "run", "process-demo", "--file", file, "--approval", approval, "--json"], { cwd: root, env, encoding: "utf8", timeout: testTime(60000) })) as { details: RlLoopReport };
   const elapsed = performance.now() - start;
   // Elapsed time is reported, not asserted: host load must not fail an otherwise correct run within the subprocess timeout.
   console.log(`process CLI loop: ${Math.round(elapsed)} ms`);
