@@ -61,7 +61,7 @@ if (requested === undefined) {
 } else {
   const shard = shards[Number(requested) - 1];
   if (!shard?.files.length) throw new Error(`No test files assigned to quick shard ${requested}`);
-  execFileSync(process.execPath, ["--test", `--test-concurrency=${workers}`, ...shard.files.map(file => file.path)], {
+  execFileSync(process.execPath, ["--test", "--test-reporter=tap", `--test-concurrency=${workers}`, ...shard.files.map(file => file.path)], {
     stdio: "inherit",
   });
 }

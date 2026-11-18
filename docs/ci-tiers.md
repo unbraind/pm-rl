@@ -95,7 +95,8 @@ In run 44335527685, shard 1 had logged 762 seconds in
 in run 44298187804, 101.3 seconds in run 44294960939 and 140.0 seconds in
 run 44335527685. Several unchanged files slowed on the two timeout runs.
 
-To update [the timing data](../scripts/quick-shard-timings.json), sum each file's
+The launcher emits TAP so subsequent runs use the same timing format. To update
+[the timing data](../scripts/quick-shard-timings.json), sum each file's
 top-level TAP `duration_ms` values from recent quick logs, including the time
 of nested cases through their parent tests. Use the largest complete per-file
 sum across the sample. The current data adds 10% to shard 1 files that were
