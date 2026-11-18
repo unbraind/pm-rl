@@ -1732,6 +1732,9 @@ async function registerBenchmark(context: CommandHandlerContext): Promise<RlComm
   return { action: "rl-benchmark-register", id: result.item.id, created: true, details: { spec_hash: specHash, contaminated_environments: spec.contaminated_environments } };
 }
 
+/** Current hosts normalize string-valued flags; older supported hosts can pass SDK booleans through. */
+const verdictOptions = new Map<unknown, boolean>([[true, true], [false, false], ["true", true], ["false", false]]);
+
 /** Record one immutable checkpoint evaluation with complete run and benchmark provenance. */
 async function recordEvalResult(context: CommandHandlerContext): Promise<RlCommandResult> {
   const runId = stringOption(context, "run")!;
@@ -1740,8 +1743,7 @@ async function recordEvalResult(context: CommandHandlerContext): Promise<RlComma
   const checkpoint = rawCheckpoint.trim();
   const score = Number(stringOption(context, "score")!);
   if (!Number.isFinite(score)) fail("pm rl eval record requires a finite --score.", "invalid_eval_result_score");
-  const passedRaw = context.options.passed;
-  const passed = typeof passedRaw === "boolean" ? passedRaw : passedRaw === "true" ? true : passedRaw === "false" ? false : undefined;
+  const passed = verdictOptions.get(context.options.passed);
   if (passed === undefined) fail("pm rl eval record requires --passed true or --passed false.", "invalid_eval_result_passed");
   const client = clientFor(context);
   const run = await getTypedItem(client, runId, "Run");
@@ -2136,8 +2138,7 @@ async function replayEpisode(context: CommandHandlerContext): Promise<RlCommandR
 /** Record one real-side merge outcome for a pull request. */
 async function recordOutcome(context: CommandHandlerContext): Promise<RlCommandResult> {
   const pullRequest = stringOption(context, "pull_request")!;
-  const mergedRaw = context.options.merged;
-  const merged = typeof mergedRaw === "boolean" ? mergedRaw : mergedRaw === "true" ? true : mergedRaw === "false" ? false : undefined;
+  const merged = verdictOptions.get(context.options.merged);
   if (merged === undefined) fail("pm rl outcome record requires --merged true or --merged false.", "invalid_outcome_merged");
   assertNoCredentials("The pull request link", pullRequest);
   const spec = { pull_request: pullRequest, merged };

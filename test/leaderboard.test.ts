@@ -402,6 +402,9 @@ test("evaluation recording refuses unattributable runs and detects an existing i
     options: { run: source.run, benchmark: benchmarkId, checkpoint: "sha-false", score: "0", passed: "false" },
   }));
   assert.equal(falseString.details?.passed, false);
+  const replay = await evaluation(pmRoot, harness, source.run, benchmarkId, "sha-false", 0, false);
+  assert.equal(replay.id, falseString.id);
+  assert.equal(replay.created, false);
   await client.update(result.id!, { affectedVersion: "different", message: "simulate eval identity collision" });
   await assert.rejects(
     harness.runCommand({ command: "rl eval record", pmRoot, options: { run: source.run, benchmark: benchmarkId, checkpoint: "sha", score: "1", passed: "true" } }),
