@@ -72,10 +72,24 @@ test("unbound historical seed retains its original identity on resume", async ()
   const seed = await registerGenerationCore(client, { id: `${id}-seed`, baseCheckpoint: checkpoint.digest, parent: null,
     policy: checkpoint.digest, collectionRuns: [], environment: undefined, config: seedTrainingConfig(config) });
   const before = await client.get(seed.id!);
-  assert.equal((await resumeRlLoop(client, coordinates, { id, approval })).promoted, 1);
+  assert.notEqual(approval, "approval");
+  const first = await resumeRlLoop(client, coordinates, { id, approval: "approval" });
+  assert.equal(first.promoted, 1);
+  const promotion = await client.get(`${id}-g1-step-promote`);
+  assert.equal(JSON.parse(String(promotion.item.body)).input, hashJson({
+    input: {
+      programme: config.digest, generation: 1, source: checkpoint.digest,
+      step: { learningRate: config.learningRate, evaluationSamples: config.evaluationSamples },
+    },
+    approval: "approval",
+  }));
+  const reservations = await jobs(client);
+  const replay = await resumeRlLoop(client, coordinates, { id, approval: "approval" });
+  assert.equal(replay.resumed_generations, 1);
+  assert.equal(replay.final_checkpoint, first.final_checkpoint);
+  assert.deepEqual(await jobs(client), reservations);
   const originalDecision = await client.get(approval);
   const { item: alternate } = await client.create({ id: "other-budget", type: "Decision", title: "Separate allowance", body: String(originalDecision.item.body) });
-  const reservations = await jobs(client);
   await assert.rejects(resumeRlLoop(client, coordinates, { id, approval: alternate.id }), {
     context: { code: "loop_approval_mismatch" }, message: /generation 1 was promoted under approval/,
   });
