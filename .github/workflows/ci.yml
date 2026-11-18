@@ -13,9 +13,8 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Node 22 is the engines floor and runs the quick suite in two file shards so a
-  # hosted runner never carries the whole quick serial budget. It is not required;
-  # the required `test (22)` check aggregates these shards.
+  # Node 22 is the engines floor. The required `test (22)` check aggregates
+  # three quick shards balanced using measured file durations.
   quick-shard:
     # Required checks stay on fast GitHub-hosted hardware.
     runs-on: ubuntu-latest
@@ -31,7 +30,7 @@ jobs:
         # 22 is the floor declared in `engines` and the first line that strips
         # TypeScript without a flag; the quick release gate leg below covers 26.
         node-version: [22]
-        shard: [1, 2]
+        shard: [1, 2, 3]
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -82,7 +81,7 @@ jobs:
           set -euo pipefail
           gate_home=$(mktemp -d)
           npm run build && npm run build:test
-          env PATH="$PWD/node_modules/.bin:$PATH" HOME="$gate_home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 node --test --test-concurrency=4 --test-shard=${{ matrix.shard }}/2 test/*.test.ts
+          env PATH="$PWD/node_modules/.bin:$PATH" HOME="$gate_home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 node scripts/quick-shards.ts ${{ matrix.shard }}
 
   # The required `test (22)` check aggregates the quick Node 22 shards and carries the
   # documentation/tracker contract leg for non-code PRs, matching the old single-leg shape.
