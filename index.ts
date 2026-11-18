@@ -3641,11 +3641,11 @@ export async function runRlLoop(client: PmClient, coordinates: WorkspaceCoordina
   // Fail fast on the approval before any collection is charged: a loop that
   // cannot promote must refuse before it spends budget, not after.
   await verifyLoopInfluence(client, programme, request);
-  await readApprovalSpec(client, request.approval);
-  const controller = await prepareLoopController(client, coordinates, programme, request);
+  const approval = await readApprovalSpec(client, request.approval);
+  const controller = await prepareLoopController(client, coordinates, programme, request, approval.id);
   let report: RlLoopReport;
   try {
-    const active = { ...request, id: await preservedProgrammeId(client, request.id) };
+    const active = { ...request, id: await preservedProgrammeId(client, request.id), approval: controller.approval };
     report = await executeLoopProgramme(client, coordinates, programme, active, controller);
   } catch (error) {
     if (isPmCliExpectedError(error) && /^(?:already_promoted|already_refused|lost_claim|stale_revision|loop_write_conflict|loop_lease_lost|compare_and_set_refused|generation_terminal|superseded)$/.test(String(error.context.code))) {
@@ -3732,7 +3732,7 @@ function failLoopCancelled(id: string, auditWriteFailure: string | undefined, ca
 }
 
 /** Take the controller lease before registering the environment and seed for execution. */
-async function prepareLoopController(client: PmClient, coordinates: WorkspaceCoordinates, programme: LoopProgramme, request: RlLoopRequest): Promise<LoopPrepared> {
+async function prepareLoopController(client: PmClient, coordinates: WorkspaceCoordinates, programme: LoopProgramme, request: RlLoopRequest, approvalId: string): Promise<LoopPrepared> {
   const lease = await acquireControllerLease(client, coordinates, request, `${request.id}-seed`);
   try {
     return await lease.guard(async () => {
@@ -3753,9 +3753,22 @@ async function prepareLoopController(client: PmClient, coordinates: WorkspaceCoo
           : programme.config.initial;
       const previousSeed = await readCompleteLoopItem(client, `${request.id}-seed`)
         .catch((error: unknown) => isItemNotFound(error) ? null : Promise.reject(error));
-      if (previousSeed !== null) {
+      let approval = approvalId;
+      if (previousSeed === null) {
+        seedConfig = { ...jsonObject(seedConfig, "Loop seed configuration"), governing_approval: approvalId };
+      } else {
+        const birth = await readCompleteLoopItem(client, previousSeed.item.id, "1", "body");
+        const original = extractGenerationSpec(String(birth.item.body), "Loop seed at creation");
+        const binding = jsonObject(original.training_config, "Original loop seed configuration")["governing_approval"];
         const spec = extractGenerationSpec(String(previousSeed.item.body), "Loop seed");
         const stored = jsonObject(spec.training_config, "Loop seed configuration");
+        if (stored["governing_approval"] !== binding) fail("Loop seed budget authority changed since creation.", "loop_seed_drift", EXIT_CODE.CONFLICT);
+        if (binding === undefined) {
+          // Historical promotion step digests include the caller's original approval spelling.
+          approval = request.approval;
+        } else if (binding !== approvalId) {
+          fail("Resume requires the budget Decision bound at loop creation.", "loop_approval_mismatch", EXIT_CODE.CONFLICT);
+        }
         if (stored["programme"] === programme.config.digest) seedConfig = spec.training_config as JsonValue;
       }
       const seedRequest: GenerationRegistrationRequest = {
@@ -3790,6 +3803,7 @@ async function prepareLoopController(client: PmClient, coordinates: WorkspaceCoo
         seedId,
         environmentId,
         seedCheckpoint,
+        approval,
         lease: { ...lease, seedId },
       };
     });
@@ -3807,6 +3821,8 @@ async function releaseControllerLease(client: PmClient, prepared: LoopPrepared):
 
 /** Everything the execution walk needs that the request alone does not carry. */
 interface LoopPrepared {
+  /** Approval identity used by all phases, preserving historical receipt spellings. */
+  readonly approval: string;
   /** The validated trainer programme. */
   readonly programme: LoopProgramme;
   /** The seed generation item id every candidate is parented to. */

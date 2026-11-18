@@ -1,0 +1,28 @@
+id: pm-rl-seed-budget-authority
+title: Bind the recursive programme budget Decision before collection
+description: Pin the independently approved Decision in the seed so interrupted first-generation work cannot change budget authority before promotion.
+type: Feature
+status: in_progress
+priority: 2
+tags: []
+created_at: "2026-11-18T10:52:43.628Z"
+updated_at: "2026-11-18T11:03:23.703Z"
+assignee: codex-sol
+claim_principal: codex-sol
+author: codex-sol
+acceptance_criteria: "A retry or resume under a different Decision refuses before any fit or successor collection. The same canonical Decision resumes exactly once, including through an SDK alias. Existing seed records remain replayable under their historical checks. Exercise the bounded public tracker fixture with the real process adapter."
+parent: pm-rl-apvf
+comments[3]{created_at,author,text}:
+  "2026-11-18T10:52:48.208Z",codex-sol,"The bounded driver, held-out gate, process and Compose trainers, and transaction-backed reservations already exist. Bind the canonical approval in new seed provenance under the controller lease. Preserve historical seed identity and verify cancellation after collect, wrong-budget refusal, same-budget recovery, charge counts and successor lineage."
+  "2026-11-18T10:57:08.673Z",codex-sol,"The real process regression fails against unchanged main: an interrupted first generation accepted an unrelated Decision and ran to completion. Compare the stored authority with the SDK creation revision and resolve request aliases to the same canonical Decision before new phase work."
+  "2026-11-18T11:03:23.703Z",codex-sol,"The focused real regression and historical-seed replay pass (2/2). Two isolated executions on the pinned 105/41 public pm-ops fixture rejected the alternate Decision with zero jobs. Each promoted generation one at held-out 0.59765, collected generation two from the promoted digest, and refused its fit with process_limit_exceeded. Each second job settled its reserved eight updates and 5000 ms; the source content hash remained unchanged."
+files[2]{path,scope}:
+  index.ts,project
+  test/process-loop.test.ts,project
+tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test test/process-loop.test.ts,project,codex-sol,"2026-11-18T10:57:02.362Z",local_mutation,feat/ca-recursive-lineage
+  npm run coverage,project,codex-sol,"2026-11-18T11:03:15.578Z",local_mutation,feat/ca-recursive-lineage
+docs[2]{path,scope}:
+  README.md,project
+  RECURSIVE_TRAINING.md,project
+body: ""

@@ -32,6 +32,12 @@ pm rl loop status demo-loop --json
 pm rl loop resume demo-loop --approval demo-approval --json
 ```
 
+A new loop records its approval Decision in the seed before it collects the
+first sample. If collection is interrupted, pass that same Decision to
+`run` or `resume`. Its short and fully qualified SDK IDs are interchangeable.
+A different Decision returns `loop_approval_mismatch` before a trainer starts.
+To use a separate budget, start a new loop ID.
+
 For a local build, run `npm run build` and `npm pack` in this repository, then
 install the resulting tarball with `npm install ../artifacts/pm-rl-2026.7.31.tgz`
 in the consumer project before `pm package install ./node_modules/pm-rl --project`. Initialize a fresh consumer
