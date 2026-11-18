@@ -73,6 +73,13 @@ test("unbound historical seed retains its original identity on resume", async ()
     policy: checkpoint.digest, collectionRuns: [], environment: undefined, config: seedTrainingConfig(config) });
   const before = await client.get(seed.id!);
   assert.equal((await resumeRlLoop(client, coordinates, { id, approval })).promoted, 1);
+  const originalDecision = await client.get(approval);
+  const { item: alternate } = await client.create({ id: "other-budget", type: "Decision", title: "Separate allowance", body: String(originalDecision.item.body) });
+  const reservations = await jobs(client);
+  await assert.rejects(resumeRlLoop(client, coordinates, { id, approval: alternate.id }), {
+    context: { code: "loop_approval_mismatch" }, message: /generation 1 was promoted under approval/,
+  });
+  assert.deepEqual(await jobs(client), reservations);
   const after = await client.get(seed.id!);
   assert.equal(after.item.affected_version, before.item.affected_version);
   assert.equal(after.item.body, before.item.body);
