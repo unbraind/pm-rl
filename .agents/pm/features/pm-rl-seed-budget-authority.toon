@@ -6,11 +6,11 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-11-18T10:52:43.628Z"
-updated_at: "2026-11-18T15:25:33.880Z"
+updated_at: "2026-11-18T22:02:08.293Z"
 author: codex-sol
 acceptance_criteria: "A retry or resume under a different Decision refuses before any fit or successor collection. The same canonical Decision resumes exactly once, including through an SDK alias. Existing seed records remain replayable under their historical checks. Exercise the bounded public tracker fixture with the real process adapter."
 parent: pm-rl-apvf
-comments[18]{created_at,author,text}:
+comments[22]{created_at,author,text}:
   "2026-11-18T10:52:48.208Z",codex-sol,"The bounded driver, held-out gate, process and Compose trainers, and transaction-backed reservations already exist. Bind the canonical approval in new seed provenance under the controller lease. Preserve historical seed identity and verify cancellation after collect, wrong-budget refusal, same-budget recovery, charge counts and successor lineage."
   "2026-11-18T10:57:08.673Z",codex-sol,"The real process regression fails against unchanged main: an interrupted first generation accepted an unrelated Decision and ran to completion. Compare the stored authority with the SDK creation revision and resolve request aliases to the same canonical Decision before new phase work."
   "2026-11-18T11:03:23.703Z",codex-sol,"The focused real regression and historical-seed replay pass (2/2). Two isolated executions on the pinned 105/41 public pm-ops fixture rejected the alternate Decision with zero jobs. Each promoted generation one at held-out 0.59765, collected generation two from the promoted digest, and refused its fit with process_limit_exceeded. Each second job settled its reserved eight updates and 5000 ms; the source content hash remained unchanged."
@@ -29,11 +29,18 @@ comments[18]{created_at,author,text}:
   "2026-11-18T14:50:51.431Z",codex-sol,"A disposable mutation replacing the historical request spelling with the canonical Decision ID fails the new assertion at the promotion-input digest. Node 26 production and test typechecks, lint and changelog:check all passed. Authority and full serialized process/durable loop file gates run on Node 22."
   "2026-11-18T15:19:38.828Z",codex-sol,"The complete Node 22.23.4 durable-loop file passes 33/33. The unchanged SIGTERM drill failed its partial-artifact assertion in the combined file run. Isolated runs on both the published c0f0d3b tree and the candidate then failed earlier at the same expected-one-reservation polling barrier, with zero observed reservations. The short-ID authority regressions passed. Scope the independent native startup and partial-artifact timing issue to existing follow-up pm-rl-processcancel. No signal logic or drill assertions were changed."
   "2026-11-18T15:25:32.875Z",codex-sol,"Round CG fix, Exercise historical short-ID approval replay, preserves CF evidence commit adc1076. The short-ID replay retains the checkpoint, reservations, seed body and seed version. The canonicalization mutation fails the promotion-input digest assertion. Node 22.23.4 focused authority tests passed 2/2. The combined file run passed 47/48 (durable-loop 33/33, process-loop 14/15 with the unchanged SIGTERM timing failure). The focused rerun of the complete process-loop file passed 15/15 with zero skips or cancellations, including SIGTERM. Node 26.13.0 typecheck, build:test, lint and changelog:check passed."
-files[3]{path,scope}:
+  "2026-11-18T21:34:08.327Z",codex-sol,"Round CQ: merged the main branch through ea1dcd8 without conflicts and retained the branch evidence commits. Verify quick shard coverage, run the focused gates on Node 22, and publish the branch update through its normal PR checks."
+  "2026-11-18T21:34:43.027Z",codex-sol,"The branch edits test/process-loop.test.ts, which already has a measured 225-second file weight in the merged timing manifest. It adds no quick test files."
+  "2026-11-18T21:52:52.208Z",codex-sol,The first Node 22 combined run encountered the existing process-cancellation startup flake tracked by pm-rl-processcancel. The SIGTERM drill observed zero reservations at its one-reservation polling barrier. Rerun that case directly in isolation.
+  "2026-11-18T22:02:06.304Z",codex-sol,"Round CQ Node 22.23.4 gates: typecheck, production and test builds, lint, and regenerated changelog check passed. The launcher assigned all 91 quick test files once across 14, 42 and 35 files, with process-loop in shard 2. The workflow and shard contract passed 6/6. The direct process-loop, durable-loop and training-influence suites passed 49/50, including both new authority tests, with no skips. The unchanged SIGTERM drill failed at the reservation startup barrier. The isolated Node 22 control at main ea1dcd8 and the isolated merged run both failed waiting for partial.json; Node 26.13.0 also failed that artifact assertion. The existing pm-rl-processcancel item tracks this timing risk. The branch keeps the merged shard assignment and the test assertions."
+files[6]{path,scope}:
   index.ts,project
+  scripts/quick-shard-timings.json,project
+  scripts/quick-shards.ts,project
+  test/ci-workflow.test.ts,project
   test/process-loop.test.ts,project
   test/training-influence-maintenance.test.ts,project
-tests[8]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[12]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test test/process-loop.test.ts,project,codex-sol,"2026-11-18T10:57:02.362Z",local_mutation,feat/ca-recursive-lineage
   npm run coverage,project,codex-sol,"2026-11-18T11:03:15.578Z",local_mutation,feat/ca-recursive-lineage
   node --test test/training-influence-maintenance.test.ts,project,codex-sol,"2026-11-18T11:20:22.302Z",local_mutation,feat/ca-recursive-lineage
@@ -42,7 +49,13 @@ tests[8]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   "npm run typecheck && npm run build:test && npm run lint && npm run changelog:check",project,codex-sol,"2026-11-18T14:50:55.628Z",local_mutation,feat/ca-recursive-lineage
   "PM_TEST_DEPTH=quick PM_TEST_DOCKER=off node --test --test-name-pattern=\"SIGTERM mid-training\" test/process-loop.test.ts",project,codex-sol,"2026-11-18T15:19:41.217Z",local_mutation,feat/ca-recursive-lineage
   PM_TEST_DEPTH=quick PM_TEST_DOCKER=off node --test test/process-loop.test.ts,project,codex-sol,"2026-11-18T15:24:03.953Z",local_mutation,feat/ca-recursive-lineage
-docs[3]{path,scope}:
+  node scripts/quick-shards.ts,project,codex-sol,"2026-11-18T21:34:46.590Z",local_mutation,feat/ca-recursive-lineage
+  PM_TEST_DEPTH=quick PM_TEST_DOCKER=off node --test --test-concurrency=2 test/ci-workflow.test.ts,project,codex-sol,"2026-11-18T21:34:46.590Z",local_mutation,feat/ca-recursive-lineage
+  PM_TEST_DEPTH=quick PM_TEST_DOCKER=off node --test --test-concurrency=1 test/process-loop.test.ts test/durable-loop.test.ts test/training-influence-maintenance.test.ts,project,codex-sol,"2026-11-18T21:34:46.590Z",local_mutation,feat/ca-recursive-lineage
+  "npm run changelog:check",project,codex-sol,"2026-11-18T21:34:46.590Z",local_mutation,feat/ca-recursive-lineage
+docs[5]{path,scope}:
+  CHANGELOG.md,project
+  docs/ci-tiers.md,project
   docs/process-trainer.md,project
   README.md,project
   RECURSIVE_TRAINING.md,project
