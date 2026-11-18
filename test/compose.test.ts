@@ -1,3 +1,5 @@
+import { dockerSkip as skip } from "./support/docker.ts";
+import { testTime } from "./support/depth.ts";
 /** Real Docker Compose contract, container death, cancellation, controller races and successor collection. */
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -13,8 +15,6 @@ import { configuration, processWorkspace, trainingInput } from "./fixtures/proce
 
 // SIGKILL-able controllers and trainers must not leave truncated V8 reports.
 delete process.env["NODE_V8_COVERAGE"];
-const version = spawnSync("docker", ["compose", "version"], { encoding: "utf8" });
-const skip = version.status === 0 ? false : `SKIPPED: docker compose version failed: ${version.error?.message ?? version.stderr.trim()}`;
 const allowance = { training_steps: 1, wall_ms: 30_000, storage_bytes: 65_536, compute_units: 1000, tokens: 0 };
 const budget = { ...allowance, training_steps: 2, wall_ms: 60_000, storage_bytes: 131_072, compute_units: 2000 };
 const images = new Map<string, string>();
@@ -26,7 +26,7 @@ after(() => { for (const image of new Set(images.values())) execFileSync("docker
 function adapter(mode = "fit"): ProcessAdapter {
   let image = images.get(mode);
   if (image === undefined) {
-    image = execFileSync("docker", ["build", "--quiet", "--tag", `pm-rl-bandit-${mode}-${imageRun}`, "--label", `pm-rl-validation-run=pm-rl-${imageRun}`, "--label", `pm-rl-validation-owner=${imageOwner}`, "--file", "test/fixtures/compose.Dockerfile", "--build-arg", `MODE=${mode}`, "."], { encoding: "utf8", timeout: 120_000 }).trim();
+    image = execFileSync("docker", ["build", "--quiet", "--tag", `pm-rl-bandit-${mode}-${imageRun}`, "--label", `pm-rl-validation-run=pm-rl-${imageRun}`, "--label", `pm-rl-validation-owner=${imageOwner}`, "--file", "test/fixtures/compose.Dockerfile", "--build-arg", `MODE=${mode}`, "."], { encoding: "utf8", timeout: testTime(120_000) }).trim();
     assert.match(image, /^sha256:[a-f0-9]{64}$/u); images.set(mode, image);
   }
   return { kind: "compose-bandit", image, allowance };

@@ -1,3 +1,5 @@
+import { fileURLToPath } from "node:url";
+import { testTime } from "./support/depth.ts";
 /** Real tracker snapshots and inherited durable jobs work without Git or source mutation. */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -170,7 +172,7 @@ test("corpus output inside the source refuses before inventory reads through rel
 test("corpus exclusive publication handles a real concurrent creator and preserves other IO errors", async (t) => {
   const w = await processWorkspace(); await seedCorpusSource(w.client);
   const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
-  const options = { fromTracker: w.pmRoot, file: new URL("../examples/loop-corpus.json", import.meta.url).pathname, output: join(dirname(w.pmRoot), "sealed.json") };
+  const options = { fromTracker: w.pmRoot, file: fileURLToPath(new URL("../examples/loop-corpus.json", import.meta.url)), output: join(dirname(w.pmRoot), "sealed.json") };
   const sibling = `${w.pmRoot}-copy`; mkdirSync(sibling);
   for (const output of [options.output, join(sibling, "sealed.json")]) {
     await harness.runCommand({ command: "rl corpus build", pmRoot: w.pmRoot, args: [], options: { ...options, output } });
@@ -246,7 +248,7 @@ test("corpus missing or invalid directories refuse with stable path-free errors 
 test("corpus publication pins canonical targets and rechecks alias and canonical containment after collection", async (t) => {
   const w = await processWorkspace(); await seedCorpusSource(w.client);
   const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
-  const file = new URL("../examples/loop-corpus.json", import.meta.url).pathname;
+  const file = fileURLToPath(new URL("../examples/loop-corpus.json", import.meta.url));
   const before = sourceBytes(w.pmRoot);
   for (const mode of ["inside", "outside", "removed"]) {
     const parent = join(w.root, `publication-${mode}`); mkdirSync(parent);
@@ -392,14 +394,14 @@ test("fit steps are bounded, persisted and matched to a reservation before any j
   await assert.rejects(buildTrackerLoopCorpus(w.client, bounds), refuses("corpus_insufficient_split"));
   await seedCorpusSource(w.client);
   const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
-  const built = await harness.runCommand({ command: "rl corpus build", pmRoot: w.pmRoot, args: [], options: { fromTracker: w.pmRoot, file: new URL("../examples/loop-corpus.json", import.meta.url).pathname, output: join(w.root, "sealed.json") } });
+  const built = await harness.runCommand({ command: "rl corpus build", pmRoot: w.pmRoot, args: [], options: { fromTracker: w.pmRoot, file: fileURLToPath(new URL("../examples/loop-corpus.json", import.meta.url)), output: join(w.root, "sealed.json") } });
   assert.equal(built.handled, true); assert.equal((JSON.parse(readFileSync(join(w.root, "sealed.json"), "utf8")) as Record<string, JsonValue>).fit_steps, 8);
   const rejectedConfig = parseLoopConfig({ ...bounds, environment: { name: "Regression", version: "1" }, training: [{ id: "train", feature: 1, rewards: [0, 1] }], evaluation: [{ id: "opposite", feature: 0.8, rewards: [1, 0] }] });
   const rejected = runLoopGeneration(rejectedConfig, step, 1, banditCheckpoint(0));
   assert.notEqual(rejected.candidate.digest, rejected.source.digest); assert.equal(rejected.promoted, false); assert.ok(rejected.refusalReason); assert.ok(rejected.evaluationScore < rejected.baselineScore);
 });
 
-test("real non-git corpus command trains two successors, resumes sealed inputs and preserves source bytes", { timeout: 300_000 }, () => {
+test("real non-git corpus command trains two successors, resumes sealed inputs and preserves source bytes", { timeout: testTime(300_000) }, () => {
   const root = mkdtempSync(join(tmpdir(), "rl-corpus-no-git-"));
   try {
     const bin = join(root, "tools"); mkdirSync(bin);
@@ -408,8 +410,8 @@ test("real non-git corpus command trains two successors, resumes sealed inputs a
       const path = execFileSync("sh", ["-c", `command -v ${tool}`], { encoding: "utf8" }).trim();
       symlinkSync(path, join(bin, tool));
     }
-    const output = execFileSync(process.execPath, [new URL("./fixtures/corpus-no-git.ts", import.meta.url).pathname, root], {
-      encoding: "utf8", timeout: 280_000, env: { ...process.env, NODE_V8_COVERAGE: undefined, PATH: bin, GIT_CEILING_DIRECTORIES: dirname(root) },
+    const output = execFileSync(process.execPath, [fileURLToPath(new URL("./fixtures/corpus-no-git.ts", import.meta.url)), root], {
+      encoding: "utf8", timeout: testTime(280_000), env: { ...process.env, NODE_V8_COVERAGE: undefined, PATH: bin, GIT_CEILING_DIRECTORIES: dirname(root) },
     });
     assert.match(output, /two promoted successors; sealed replay/);
   } finally { rmSync(root, { recursive: true, force: true }); }

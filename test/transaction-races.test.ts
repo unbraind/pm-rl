@@ -1,3 +1,4 @@
+import { testTime } from "./support/depth.ts";
 /** Real ordinary SDK writers interleave every transaction boundary without workspace-lock assumptions. */
 import assert from "node:assert/strict";
 import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync } from "node:fs";
@@ -45,7 +46,7 @@ function nativeBytes(pmRoot: string, id: string): readonly string[] {
   return [readFileSync(join(pmRoot, "tasks", `${id}.toon`), "utf8"), readFileSync(join(pmRoot, "history", `${id}.jsonl`), "utf8")];
 }
 
-test("reservation boundary property: every immutable request field conflicts at every forward hook", { timeout: 600_000 }, async () => {
+test("reservation boundary property: every immutable request field conflicts at every forward hook", { timeout: testTime(600_000) }, async () => {
   const budget = Object.fromEntries(Object.entries(allowance).map(([key, value]) => [key, Math.max(value * 100, 100)])) as typeof allowance;
   const w = await processWorkspace(budget); const peer = peerFor(w); const input = trainingInput();
   const template = await reserveProcessJob(w.client, w.coordinates, processJobId(input), input, w.approval, allowance);
@@ -76,7 +77,7 @@ test("reservation boundary property: every immutable request field conflicts at 
   console.log(JSON.stringify({ reservation_hook_cases: cases, ordinary_writers: true, non_git: true }));
 });
 
-test("transition boundary property: peer edits and ABA writes never become pending overwrite or success", { timeout: 600_000 }, async () => {
+test("transition boundary property: peer edits and ABA writes never become pending overwrite or success", { timeout: testTime(600_000) }, async () => {
   const w = await processWorkspace({ ...allowance, training_steps: 100 }); const peer = peerFor(w); const input = trainingInput();
   let cases = 0;
   for (const hook of forward) for (const aba of [false, true]) {
@@ -256,7 +257,7 @@ test("a temporary approval read while verifying a retained meta reservation stay
   await reserveMeta(w.client, w.coordinates, request, "binding", true);
 });
 
-test("meta reservation boundary property compares every retained request field including committed replay", { timeout: 600_000 }, async () => {
+test("meta reservation boundary property compares every retained request field including committed replay", { timeout: testTime(600_000) }, async () => {
   const w = await processWorkspace(); const peer = peerFor(w);
   await peer.update(w.approval, { body: '```json\n' + JSON.stringify({ ...metaSpec, permitted_promotions: 10_000, meta_budget: { training_samples: 100_000_000, proposal_calls: 10_000, recipe_promotions: 10_000 } }) + '\n```' });
   const config = { ...metaConfig, meta_generations: 1, candidates: 1 };
@@ -288,7 +289,7 @@ test("meta reservation boundary property compares every retained request field i
   console.log(JSON.stringify({ meta_hook_cases: cases, committed_missing_refused: true }));
 });
 
-test("compensation boundary property preserves peer state and history at every reverse hook", { timeout: 600_000 }, async () => {
+test("compensation boundary property preserves peer state and history at every reverse hook", { timeout: testTime(600_000) }, async () => {
   const w = await processWorkspace({ ...allowance, training_steps: 100 }); const peer = peerFor(w); const input = trainingInput();
   let cases = 0;
   for (const hook of reverse) {
@@ -355,7 +356,7 @@ test("a peer creating inside apply is never compensated as an owned reservation"
   assert.deepEqual(nativeBytes(w.pmRoot, id), expected);
 });
 
-test("compensation preserves peer metadata and transition history at reverse boundaries", { timeout: 600_000 }, async () => {
+test("compensation preserves peer metadata and transition history at reverse boundaries", { timeout: testTime(600_000) }, async () => {
   const w = await processWorkspace({ ...allowance, training_steps: 100 }); const peer = peerFor(w); const input = trainingInput();
   let cases = 0;
   for (const hook of reverse) {
@@ -401,7 +402,7 @@ test("malformed retained resource vectors and owned states refuse as typed confl
 });
 
 
-test("independent process peer conflicts at every forward reservation hook", { timeout: 600_000 }, async () => {
+test("independent process peer conflicts at every forward reservation hook", { timeout: testTime(600_000) }, async () => {
   const budget = Object.fromEntries(Object.entries(allowance).map(([key, value]) => [key, Math.max(value * 100, 100)])) as typeof allowance;
   const w = await processWorkspace(budget); const peer = peerFor(w); const input = trainingInput();
   const template = await reserveProcessJob(w.client, w.coordinates, processJobId(input), input, w.approval, allowance);
@@ -416,7 +417,7 @@ test("independent process peer conflicts at every forward reservation hook", { t
       const changed = { ...(current ?? { ...template, id: raw, binding: request.identity }), input: processDigest({ independentPeer: cases }) };
       execFileSync(process.execPath, [fileURLToPath(new URL("./fixtures/transaction-peer.ts", import.meta.url)), w.root, w.pmRoot, id, JSON.stringify(changed), current === null ? "create" : "update"], {
         env: { PATH: process.env.PATH, HOME: w.root, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", NPM_CONFIG_USERCONFIG: "/dev/null", GIT_CEILING_DIRECTORIES: dirname(w.root) },
-        timeout: 60_000, stdio: "pipe",
+        timeout: testTime(60_000), stdio: "pipe",
       });
       expected = nativeBytes(w.pmRoot, id);
     } }, raw, request, w.approval, allowance), conflict, hook);

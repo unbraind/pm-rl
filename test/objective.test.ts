@@ -1,3 +1,5 @@
+import { fileURLToPath } from "node:url";
+import { testDepth, testTime } from "./support/depth.ts";
 /** Intake objectives use creation inputs, balanced item evidence and mandatory fixed-router comparisons. */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -41,7 +43,7 @@ test("balanced gate property: random paired vectors beat every baseline iff all 
   let state = 0x81726;
   const random = () => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state / 0x1_0000_0000; };
   let passed = 0; let refused = 0;
-  for (let trial = 0; trial < 96; trial += 1) {
+  for (let trial = 0; trial < testDepth(96); trial += 1) {
     const negative = 10 + Math.floor(random() * 8); const positive = 10 + Math.floor(random() * 15);
     const labels = Array.from({ length: negative + positive }, (_, index) => index >= negative);
     const candidate = labels.map(random);
@@ -142,17 +144,17 @@ test("intake generations retain the mandatory heuristic refusal and replay the s
   assert.equal(constantReceipt.itemEvidence!.reason, "item_incumbent_not_beaten");
 });
 
-test("intake external fits and status replay work on a plain SDK tracker", { timeout: 300_000 }, async () => {
+test("intake external fits and status replay work on a plain SDK tracker", { timeout: testTime(300_000) }, async () => {
   const root = mkdtempSync(join(tmpdir(), "rl-intake-controller-"));
   try { await intakeNoGit(root); } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("intake fit and replay need no git executable or enclosing repository", { timeout: 300_000 }, () => {
+test("intake fit and replay need no git executable or enclosing repository", { timeout: testTime(300_000) }, () => {
   const root = mkdtempSync(join(tmpdir(), "rl-intake-no-git-"));
   try {
     const bin = join(root, "tools"); mkdirSync(bin); symlinkSync(process.execPath, join(bin, "node"));
     for (const tool of ["ps", "getconf"]) symlinkSync(execFileSync("sh", ["-c", `command -v ${tool}`], { encoding: "utf8" }).trim(), join(bin, tool));
-    const output = execFileSync(process.execPath, [new URL("./fixtures/intake-no-git.ts", import.meta.url).pathname, root], { encoding: "utf8", timeout: 280_000, env: { ...process.env, NODE_V8_COVERAGE: undefined, PATH: bin, GIT_CEILING_DIRECTORIES: dirname(root) } });
+    const output = execFileSync(process.execPath, [fileURLToPath(new URL("./fixtures/intake-no-git.ts", import.meta.url)), root], { encoding: "utf8", timeout: testTime(280_000), env: { ...process.env, NODE_V8_COVERAGE: undefined, PATH: bin, GIT_CEILING_DIRECTORIES: dirname(root) } });
     assert.match(output, /balanced intake fit and sealed replay/);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

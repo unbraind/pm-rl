@@ -1,3 +1,4 @@
+import { testDepth } from "./support/depth.ts";
 /** Previously published writers are the oracle for persisted version-1 records and hashes. */
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -48,7 +49,7 @@ function legacyScore(): ScoreRecord {
 
 test("published schema oracle: 500 generated cases retain every legacy label domain without rewriting hashes", () => {
   assert.equal(fixture.producer.version, "2026.7.31"); assert.equal(fixture.cases.length, 500);
-  for (const expected of fixture.cases) {
+  for (const expected of fixture.cases.slice(0, testDepth(fixture.cases.length))) {
     const input = compatibilityInputs(expected.index);
     const actual = [parseEvaluationPlan(input.plan), evaluationComparison(input.plan), evaluatePlan(input.plan, input.rows), parseGenerationSpec(JSON.stringify(input.generation), "Legacy generation"), parseScoreRecord(input.score, "Legacy score"), parseSweepSpec(JSON.stringify(input.sweep)), parseEvalResultSpec(JSON.stringify(input.evaluation)), parseBenchmarkSpec(JSON.stringify(input.benchmark)), requiredTrimmedString(input.example, "id", "Example", "example_"), canonicalizeGenerationSpec(parseGenerationSpec(JSON.stringify(input.generation), "Legacy generation"), "rl"), canonicalizeScoreRecord(parseScoreRecord(input.score, "Legacy score"), "rl"), canonicalizeIdentifier(input.example.id, "rl"), parseTransferSpec(JSON.stringify(input.transfer))];
     assert.deepEqual(actual.map((value) => hashJson(value as unknown as JsonValue)), expected.hashes, `published case ${expected.index}`);

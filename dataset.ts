@@ -4,7 +4,9 @@ import { parseBoundedJson, encodeBoundedJson } from "./tracker-record.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, posix } from "node:path";
+import { resolveRuntimeStatusRegistry, type PmSettings } from "@unbrained/pm-cli/sdk";
+import { normalizeStatusInput } from "@unbrained/pm-cli/sdk/runtime";
 import { hashJson, type JsonValue } from "./index.ts";
 import { calibratePrefixTarget, prefixInnerExample, projectHistoryPrefix, validateHistoryPrefix, validateLifecyclePrefix, type HistoryPrefix, type PrefixProjection, type TargetDistribution } from "./prefix-data.ts";
 
@@ -38,9 +40,16 @@ function sourceCommand(command: string, args: string[], cwd: string): string {
   return execFileSync(command, args, { cwd, encoding: "utf8", timeout: 30_000, maxBuffer: 8 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
 
+/** Read exact committed pathnames without Git quoting or whitespace normalization, within the source listing bound. */
+export function trackerTreePaths(root: string, commit: string, path: string): string[] {
+  return execFileSync("git", ["ls-tree", "-r", "--name-only", "-z", commit, "--", path], {
+    cwd: root, encoding: "utf8", timeout: 30_000, maxBuffer: 8 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"],
+  }).split("\0").filter(Boolean);
+}
+
 /** Read selected committed blobs in one bounded Git process, preserving byte lengths for Unicode history. */
 export function historyBlobs(root: string, commit: string, paths: readonly string[]): string[] {
-  const bytes = execFileSync("git", ["cat-file", "--batch"], { cwd: root, input: paths.map((path) => `${commit}:${path}\n`).join(""),
+  const bytes = execFileSync("git", ["cat-file", "--batch", "-z"], { cwd: root, input: paths.map((path) => `${commit}:${path}\0`).join(""),
     timeout: 30_000, maxBuffer: 64 * 1024 * 1024, stdio: ["pipe", "pipe", "pipe"] });
   let offset = 0;
   return paths.map(() => {
@@ -55,23 +64,49 @@ export function historyBlobs(root: string, commit: string, paths: readonly strin
 }
 
 /** Extract the first terminal outcome from append-only history, excluding that outcome from its prefix. */
-export function trackerHistoryExample(history: string, repo: string, commit: string, item: string): TrackerExample | null {
+export function trackerHistoryExample(history: string, repo: string, commit: string, item: string, registry = resolveRuntimeStatusRegistry({} as PmSettings["schema"])): TrackerExample | null {
   const prefix: string[] = [];
   for (const line of history.split("\n").filter(Boolean)) {
     const event = parseBoundedJson(line) as { patch?: readonly { path: string; value?: unknown; op?: string }[] };
     for (const patch of event.patch ?? []) {
       if (patch.path !== "/metadata/status" || patch.op === "remove") continue;
-      const status = String(patch.value);
-      if (["closed", "canceled", "cancelled"].includes(status)) {
+      const status = normalizeStatusInput(patch.value, registry) ?? String(patch.value);
+      if (registry.terminal_statuses.has(status)) {
         if (prefix.length === 0) return null; // Imported terminal snapshots carry no predictive prefix.
         return { id: hashJson({ repo, item }), repo, commit, prefix,
-          label: status === "closed" ? "completed" : "cancelled" };
+          label: registry.terminal_done_statuses.has(status) ? "completed" : "cancelled" };
       }
-      validateLifecyclePrefix([status]);
-      prefix.push(status);
+      const lifecycle = status === registry.open_status || registry.draft_statuses.has(status) ? "open"
+        : registry.blocked_statuses.has(status) ? "blocked" : status === registry.in_progress_status || registry.active_statuses.has(status) ? "in_progress" : status;
+      validateLifecyclePrefix([lifecycle]);
+      prefix.push(lifecycle);
     }
   }
   return null;
+}
+
+/** Resolve status roles from the same immutable Git tree as its histories, never the working schema. */
+export function committedTrackerStatusRegistry(root: string, commit: string): ReturnType<typeof resolveRuntimeStatusRegistry> {
+  const paths = new Set(trackerTreePaths(root, commit, ".agents/pm"));
+  const settingsPath = ".agents/pm/settings.json";
+  const settings = paths.has(settingsPath) ? parseBoundedJson(historyBlobs(root, commit, [settingsPath])[0]) as { schema?: PmSettings["schema"] } : {};
+  const schema = settings.schema;
+  /** Apply identical path, blob and JSON bounds to both committed schema sections. */
+  const readSchemaFile = (section: "statuses" | "workflows"): unknown => {
+    const file = schema?.files?.[section]?.trim() || `schema/${section}.json`;
+    assert.ok(typeof file === "string" && !file.startsWith("/") && !file.includes("\\") && file.split("/").every((part) => part !== ".."), section === "statuses" ? "dataset_status_schema_path" : "dataset_workflow_schema_path");
+    const path = posix.normalize(`.agents/pm/${file}`);
+    return paths.has(path) ? parseBoundedJson(historyBlobs(root, commit, [path])[0]) : null;
+  };
+  const value = readSchemaFile("statuses");
+  const container = value !== null && typeof value === "object" ? value as Record<string, unknown> : {};
+  const definitions = Array.isArray(value) ? value : Array.isArray(container["statuses"]) ? container["statuses"] : Array.isArray(container["definitions"]) ? container["definitions"] : [];
+  const workflowValue = readSchemaFile("workflows");
+  const workflowContainer = workflowValue !== null && typeof workflowValue === "object" && !Array.isArray(workflowValue) ? workflowValue as Record<string, unknown> : {};
+  const workflow = [workflowContainer["workflow"], workflowContainer["workflows"]].find((entry) => entry !== null && typeof entry === "object" && !Array.isArray(entry)) ?? workflowContainer;
+  // SDK hydration appends optional file definitions to the normalized inline/default registry.
+  const inline = resolveRuntimeStatusRegistry(schema as PmSettings["schema"]);
+  return resolveRuntimeStatusRegistry({ ...schema, workflow: { ...schema?.workflow, ...workflow as PmSettings["schema"]["workflow"] }, statuses: [...inline.definitions, ...definitions as PmSettings["schema"]["statuses"]] } as PmSettings["schema"]);
 }
 
 /** Explicit task and sealed public commit pins; default builds preserve the original environment. */
@@ -130,7 +165,8 @@ export function buildTrackerDataset(directories: readonly string[], output: stri
     assert.ok(options.pins === undefined || pin !== undefined, "dataset_pin_missing");
     const commit = pin?.commit ?? sourceCommand("git", ["rev-parse", "HEAD"], root);
     verifyPublicTrackerSource(repo, commit, root);
-    const paths = sourceCommand("git", ["ls-tree", "-r", "--name-only", commit, "--", ".agents/pm/history"], root).split("\n");
+    const registry = committedTrackerStatusRegistry(root, commit);
+    const paths = trackerTreePaths(root, commit, ".agents/pm/history");
     assert.ok(paths.length <= 10_000, "dataset_history_limit");
     const examples: TrackerExample[] = [];
     const projections: PrefixProjection[] = [];
@@ -139,7 +175,7 @@ export function buildTrackerDataset(directories: readonly string[], output: stri
     for (const [index, file] of selected.entries()) {
       const projection = options.task === "history-prefix" ? projectHistoryPrefix(histories[index], repo, commit, file, seed) : null;
       if (projection !== null) projections.push(projection);
-      const example = options.task === "history-prefix" ? projection?.example ?? null : trackerHistoryExample(histories[index], repo, commit, file);
+      const example = options.task === "history-prefix" ? projection?.example ?? null : trackerHistoryExample(histories[index], repo, commit, file, registry);
       if (example !== null) examples.push(example);
     }
     return { repo, commit, examples, projections, role: pin?.role };

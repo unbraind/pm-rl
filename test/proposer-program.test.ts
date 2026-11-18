@@ -1,3 +1,4 @@
+import { testDepth, testTime } from "./support/depth.ts";
 /** Behavioral controls use real SDK trackers, child processes and independent exact-count oracles. */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -112,8 +113,8 @@ async function replaySeededModel(w: Awaited<ReturnType<typeof seededModelWorkspa
     sessions++; onSession();
     await withRlController(tracker.client, tracker.coordinates, { id: identity, approval: tracker.approval, recoveryCommand: "resume" }, signal, async (step) => {
       const replay = (artifact: ProposerProgram) => step("programme", artifact as unknown as JsonValue, async () => artifact as unknown as JsonValue);
-      for (let sequence = group; sequence < 500; sequence += 8) await visit(tracker, sequence, identity, replay);
-      console.log(JSON.stringify({ model_group: group, sequences: group < 4 ? 63 : 62 }));
+      for (let sequence = group; sequence < testDepth(500); sequence += 8) await visit(tracker, sequence, identity, replay);
+      console.log(JSON.stringify({ model_group: group, sequences: Math.ceil((testDepth(500) - group) / 8) }));
     });
   };
   for (let group = 0; group < 8; group += 2) {
@@ -123,12 +124,12 @@ async function replaySeededModel(w: Awaited<ReturnType<typeof seededModelWorkspa
   return sessions;
 }
 
-test("500 seeded sequences round-trip programs, replay old inputs and compare native SDK read-back against the reference model", { timeout: 600_000 }, async (t) => {
+test("500 seeded sequences round-trip programs, replay old inputs and compare native SDK read-back against the reference model", { timeout: testTime(600_000) }, async (t) => {
   const w = await seededModelWorkspace(); let seed = 0x41c0ffee;
   const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed; };
   const model = new Map<string, { program: ProposerProgram; native: Awaited<ReturnType<typeof readCompleteLoopItem>>["item"] }>();
   const sequences: { selected: ProposerProgram; update?: Parameters<PmClient["update"]>[1] }[] = []; let operations = 0;
-  for (let sequence = 0; sequence < 500; sequence++) {
+  for (let sequence = 0; sequence < testDepth(500); sequence++) {
     const initial = initialProposer(); const snapshots: ProposerProgram[] = [initial];
     for (let operation = 0; operation < 4; operation++) {
       operations++;
@@ -173,13 +174,13 @@ test("500 seeded sequences round-trip programs, replay old inputs and compare na
     assert.deepEqual((await readCompleteLoopItem(tracker.client, reference.native.id)).item, reference.native); nativeReads++;
     if (sequence < 8 || sequence % 50 === 0) console.log(JSON.stringify({ model_sequence: sequence }));
   });
-  assert.equal(operations, 2000); assert.equal(visited.size, 500); assert.equal(replays, 500); assert.equal(nativeReads, 1000); assert.equal(mutations, 20);
+  assert.equal(operations, sequences.length * 4); assert.equal(visited.size, sequences.length); assert.equal(replays, sequences.length); assert.equal(nativeReads, sequences.length * 2); assert.equal(mutations, sequences.filter((row) => row.update !== undefined).length);
   assert.equal(trackers.size, 8);
   assert.equal(sessions, 8, "SDK replay must reuse one real controller session per identity group");
   console.log(JSON.stringify({ sequences: visited.size, randomized_operations: operations, sdk_state_replays: replays, native_read_assertions: nativeReads, native_mutations: mutations, drift_refusals: driftRefusals, controller_sessions: sessions, native_trackers: trackers.size, ambient_focus: true }));
 });
 
-test("isolated positive control promotes changed executable strategies through two recursive generations", { timeout: 180_000 }, async () => {
+test("isolated positive control promotes changed executable strategies through two recursive generations", { timeout: testTime(180_000) }, async () => {
   const w = await workspace(); let retained = initialProposer(); const receipts = [];
   const utility = (arm: number) => arm === 4 ? 1 : arm === 2 ? 0.5 : 0;
   for (let generation = 1; generation <= 2; generation++) {
@@ -208,7 +209,7 @@ test("isolated positive control promotes changed executable strategies through t
   console.log(JSON.stringify({ recursive_positive_control: receipts, proposal_processes: jobs.length, independent_units_per_generation: 256, optimizer_updates_per_contender: 0, inference_tokens: 0 }));
 });
 
-test("cohort limits, cross-role contamination, approval and dataset drift refuse before dependent effects", { timeout: 180_000 }, async () => {
+test("cohort limits, cross-role contamination, approval and dataset drift refuse before dependent effects", { timeout: testTime(180_000) }, async () => {
   const w = await workspace(); const directory = dataset(w.root); const config = { ...proposerEvolutionConfiguration(), generations: 1, candidates: 1, updates: 1 };
   const request = { id: "guards", approval: w.approval, dataset: directory, config };
   await assert.rejects(reserveSearchCapacity(w.client, w.coordinates, request, "binding", { training_samples: Infinity, proposal_calls: 1, recipe_promotions: 1 }, 1), /nonnegative safe integer/);
@@ -230,7 +231,7 @@ test("cohort limits, cross-role contamination, approval and dataset drift refuse
   assert.equal((await listProcessJobs(w.client)).length, 0);
 });
 
-test("worst-case process budget refuses every underfunded dimension before the controller lease", { timeout: 180_000 }, async () => {
+test("worst-case process budget refuses every underfunded dimension before the controller lease", { timeout: testTime(180_000) }, async () => {
   const w = await workspace(); const directory = dataset(w.root);
   const config = { ...proposerEvolutionConfiguration(), generations: 1, candidates: 1, updates: 64 };
   // Independent oracle: five fits, each with two attempts, plus five interpreters.
@@ -255,7 +256,7 @@ test("worst-case process budget refuses every underfunded dimension before the c
   }
 });
 
-test("pre-charged resumed proposer budgets accept the exact limit and refuse one unit over before the lease", { timeout: 180_000 }, async () => {
+test("pre-charged resumed proposer budgets accept the exact limit and refuse one unit over before the lease", { timeout: testTime(180_000) }, async () => {
   const w = await workspace(); const directory = dataset(w.root);
   const config = { ...proposerEvolutionConfiguration(), generations: 1, candidates: 1, updates: 1 };
   // Independent oracle: ten fit attempts plus five interpreters, and one unrelated unit per dimension.
@@ -288,7 +289,7 @@ test("pre-charged resumed proposer budgets accept the exact limit and refuse one
   }
 });
 
-test("resumed process budget credits each fit attempt once and keeps mismatched or duplicate slots charged", { timeout: 180_000 }, async () => {
+test("resumed process budget credits each fit attempt once and keeps mismatched or duplicate slots charged", { timeout: testTime(180_000) }, async () => {
   const w = await workspace(); const directory = dataset(w.root);
   const manifest = JSON.parse(readFileSync(join(directory, "improver-dataset.json"), "utf8")) as ImproverDataset;
   const config = { ...proposerEvolutionConfiguration(), generations: 1, candidates: 1, updates: 1 };
@@ -341,7 +342,7 @@ test("approval documentation declares the shared headroom formula and retained l
   assert.match(documentation, /reservation remains held after completion,\nrefusal, interruption and replay; the search never refunds it/);
 });
 
-test("retained proposal checkpoint and receipt failures are actionable typed process refusals", { timeout: 180_000 }, async () => {
+test("retained proposal checkpoint and receipt failures are actionable typed process refusals", { timeout: testTime(180_000) }, async () => {
   const w = await workspace(); const request = invocation(); const input = proposerProcessInput("receipt-replay", request);
   await executeProposer(w.client, w.coordinates, w.approval, "receipt-replay", request);
   const job = (await listProcessJobs(w.client))[0]; const directory = processStaging(w.pmRoot, job.id, true);
@@ -386,7 +387,7 @@ test("proposal staging setup IO failures retain settled evidence and give a type
   assert.equal(readFileSync(directory, "utf8"), "blocked staging");
 });
 
-test("proposer dataset verification and IO failures give typed recovery instructions before dependent work", { timeout: 180_000 }, async () => {
+test("proposer dataset verification and IO failures give typed recovery instructions before dependent work", { timeout: testTime(180_000) }, async () => {
   const w = await workspace(); const directory = dataset(w.root); const manifest = join(directory, "improver-dataset.json"); const tasks = join(directory, "meta.json");
   const originalManifest = readFileSync(manifest); const originalTasks = readFileSync(tasks);
   const request = { id: "dataset-io", approval: w.approval, dataset: directory, config: { ...proposerEvolutionConfiguration(), generations: 1, candidates: 1, updates: 1 } };
@@ -412,7 +413,7 @@ test("proposer dataset verification and IO failures give typed recovery instruct
   assert.equal((await listProcessJobs(w.client)).length, 0);
 });
 
-test("proposer approval verification failures are typed before reservation or process effects", { timeout: 180_000 }, async () => {
+test("proposer approval verification failures are typed before reservation or process effects", { timeout: testTime(180_000) }, async () => {
   const w = await workspace(); const directory = dataset(w.root);
   const original = String((await w.client.get(w.approval)).item.body);
   const spec = JSON.parse(/```json\n([\s\S]+?)\n```/u.exec(original)![1]) as Record<string, unknown>;
@@ -432,7 +433,7 @@ test("proposer approval verification failures are typed before reservation or pr
   assert.equal((await listProcessJobs(w.client)).length, 0);
 });
 
-test("worker IO, feature transforms and curricula use the shipped schema and process protocol", { timeout: 180_000 }, async () => {
+test("worker IO, feature transforms and curricula use the shipped schema and process protocol", { timeout: testTime(180_000) }, async () => {
   const w = await workspace(); const request = invocation(); let output = "";
   const input: ProcessInput = { identity: {}, source: { digest: request.program.digest, weight: 0 }, training: [], observations: [], training_config: { learning_rate: 0, steps: 0 }, lineage: {}, proposal: request };
   const directory = join(w.root, "worker"); mkdirSync(directory);
@@ -461,7 +462,7 @@ test("worker IO, feature transforms and curricula use the shipped schema and pro
   }
 });
 
-test("full non-git controller refuses unsupported evidence, retains programs, resumes and exposes compact CLI output", { timeout: 300_000 }, async () => {
+test("full non-git controller refuses unsupported evidence, retains programs, resumes and exposes compact CLI output", { timeout: testTime(300_000) }, async () => {
   const w = await workspace(); const directory = dataset(w.root); const config = { ...proposerEvolutionConfiguration(), generations: 1, candidates: 1, updates: 1 };
   const approval = String((await w.client.get(w.approval)).item.body);
   const spec = JSON.parse(/```json\n([\s\S]+?)\n```/u.exec(approval)![1]);
@@ -500,7 +501,7 @@ test("CLI recovery guards reject unusable identities for both flag spellings bef
   assert.equal((await listProcessJobs(w.client)).length, 0);
 });
 
-test("proposal reservation and publication interleave ordinary peers at every transaction step boundary", { timeout: 180_000 }, async () => {
+test("proposal reservation and publication interleave ordinary peers at every transaction step boundary", { timeout: testTime(180_000) }, async () => {
   const w = await workspace(); const peer = new PmClient({ pmRoot: w.pmRoot, cwd: w.root, author: "competing-agent", noExtensions: true }); let cases = 0;
   for (const phase of ["reserve", "advance"] as const) for (const boundary of ["prepared", "step_applied", "step_recorded", "committing", "committed"] as const) {
     const input = proposerProcessInput(`race-${cases++}`, invocation()); const adapter = { kind: "process-bandit" as const, allowance: PROPOSER_ALLOWANCE };
@@ -535,7 +536,7 @@ test("proposal reservation and publication interleave ordinary peers at every tr
 });
 
 
-test("controller crash/resume revalidates every retained proposal evidence field before dependent work", { timeout: 600_000 }, async (t) => {
+test("controller crash/resume revalidates every retained proposal evidence field before dependent work", { timeout: testTime(600_000) }, async (t) => {
   for (const field of ["checkpoint", "checkpoint-digest", "receipt-json", "receipt-policy", "receipt-lineage", "receipt-usage", "runner", "durable-digest", "durable-charge"] as const) await t.test(field, async () => {
     const w = await workspace(); const directory = dataset(w.root);
     const request = { id: "replay", approval: w.approval, dataset: directory, config: { ...proposerEvolutionConfiguration(), generations: 1, candidates: 1, updates: 1 } };
@@ -566,7 +567,7 @@ test("controller crash/resume revalidates every retained proposal evidence field
   });
 });
 
-test("both RSI controllers revalidate learner checkpoints on crash/resume and allow unchanged evidence", { timeout: 600_000 }, async (t) => {
+test("both RSI controllers revalidate learner checkpoints on crash/resume and allow unchanged evidence", { timeout: testTime(600_000) }, async (t) => {
   for (const controller of ["proposer", "improver"] as const) for (const damaged of [true, false]) await t.test(`${controller}-${damaged ? "damaged" : "unchanged"}`, async () => {
     const w = await workspace(); const directory = dataset(w.root); const id = "resume";
     const run = (onStep?: (key: string) => void) => controller === "proposer"
@@ -586,7 +587,7 @@ test("both RSI controllers revalidate learner checkpoints on crash/resume and al
   });
 });
 
-test("read-only process replay refuses missing or incomplete jobs without launching replacements", { timeout: 180_000 }, async () => {
+test("read-only process replay refuses missing or incomplete jobs without launching replacements", { timeout: testTime(180_000) }, async () => {
   const w = await workspace(); const input = proposerProcessInput("read-only", invocation()); const argv = proposerWorkerArgv("."); const adapter = { kind: "process-bandit" as const, allowance: PROPOSER_ALLOWANCE };
   const verify = () => verifyCompletedProcessJob(w.client, w.pmRoot, input, w.approval, adapter, argv);
   await assert.rejects(verify(), (error) => isPmCliExpectedError(error) && error.context.code === "process_job_drift");
@@ -606,7 +607,7 @@ test("read-only process replay refuses missing or incomplete jobs without launch
 });
 
 
-test("controller refuses a sealed cached proposal that disagrees with the verified execution", { timeout: 180_000 }, async () => {
+test("controller refuses a sealed cached proposal that disagrees with the verified execution", { timeout: testTime(180_000) }, async () => {
   const w = await workspace(); const directory = dataset(w.root); const config = { ...proposerEvolutionConfiguration(), generations: 1, candidates: 1, updates: 1 };
   const request = { id: "cached", approval: w.approval, dataset: directory, config };
   await assert.rejects(runProposerEvolution(w.client, w.coordinates, { ...request, onStep(key) { if (key === "programme") throw new Error("simulated interruption"); } }), /simulated interruption/);

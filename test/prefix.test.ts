@@ -1,3 +1,5 @@
+import { fileURLToPath } from "node:url";
+import { testDepth, testTime } from "./support/depth.ts";
 /** Behavioural acceptance for sealed projections, real fits, feature sensitivity and statistical refusals. */
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -64,7 +66,7 @@ function history(extra: readonly Record<string, unknown>[] = []): string {
 
 test("prefix projection stops at the seeded cut, retains normalized features and omits future text and identities", () => {
   let sawFirst = false; let sawSecond = false;
-  for (let seed = 0; seed < 30; seed += 1) {
+  for (let seed = 0; seed < testDepth(30); seed += 1) {
     const row = projectHistoryPrefix(history(), "public-fixture/pm-alpha", "a".repeat(40), "item", seed)!;
     const changed = projectHistoryPrefix(history([{ op: "update", patch: [{ path: "/metadata/status", value: "open" }] }]), "public-fixture/pm-alpha", "a".repeat(40), "item", seed)!;
     assert.deepEqual(row.example.history, changed.example.history); assert.equal(changed.reopened, "true");
@@ -81,14 +83,14 @@ test("prefix projection stops at the seeded cut, retains normalized features and
   const weird = history().replace('"claim"', '"unrecognized_operation"').replace('"First description"', '"!!!"');
   for (let seed = 0; seed < 8; seed += 1) assert.ok(projectHistoryPrefix(weird, "r", "c", "i", seed));
   const removed = history().replace('"Future title"', '"Future title","op":"remove"');
-  for (let seed = 0; seed < 30; seed += 1) assert.ok(projectHistoryPrefix(removed, "r", "c", "i", seed));
+  for (let seed = 0; seed < testDepth(30); seed += 1) assert.ok(projectHistoryPrefix(removed, "r", "c", "i", seed));
   const missing = history().replace('"author":"one",', '').replace('"op":"claim",', '');
-  for (let seed = 0; seed < 30; seed += 1) assert.ok(projectHistoryPrefix(missing, "r", "c", "i", seed));
+  for (let seed = 0; seed < testDepth(30); seed += 1) assert.ok(projectHistoryPrefix(missing, "r", "c", "i", seed));
   assert.equal(projectHistoryPrefix(history().replace('"ts":"2026-01-01T00:00:00Z",', ''), "r", "c", "i", 42), null);
   assert.ok(projectHistoryPrefix(history().replace('"/metadata/type"', '"/metadata/priority"'), "r", "c", "i", 42));
   const noPatch = history().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
   noPatch.splice(1, 0, { ts: "2026-01-01T00:00:30Z" });
-  for (let seed = 0; seed < 30; seed += 1) assert.ok(projectHistoryPrefix(noPatch.map((event) => JSON.stringify(event)).join("\n"), "r", "c", "i", seed));
+  for (let seed = 0; seed < testDepth(30); seed += 1) assert.ok(projectHistoryPrefix(noPatch.map((event) => JSON.stringify(event)).join("\n"), "r", "c", "i", seed));
 });
 
 test("all four target distributions and calibration use only supplied fit rows and reject degenerate medians", () => {
@@ -112,7 +114,7 @@ for (const invalid of ["empty", "unknown"] as const) test(`lifecycle prefix cont
     if (invalid === "unknown") {
       assert.throws(() => buildTrackerDataset(directories, directory, 42, { task: "history-prefix" }), /dataset_unknown_status: unknown/);
       assert.equal(existsSync(join(directory, "dataset.json")), false);
-      for (let seed = 0; seed < 30; seed += 1) assert.throws(() => projectHistoryPrefix(malformed, "r", "c", "i", seed), /dataset_unknown_status: unknown/);
+      for (let seed = 0; seed < testDepth(30); seed += 1) assert.throws(() => projectHistoryPrefix(malformed, "r", "c", "i", seed), /dataset_unknown_status: unknown/);
       assert.throws(() => trackerHistoryExample(malformed, "r", "c", "i"), /dataset_unknown_status: unknown/);
       for (const patches of [["unknown"], ["unknown", "closed"]]) {
         const imported = JSON.stringify({ patch: patches.map((value) => ({ path: "/metadata/status", value })) });
@@ -189,9 +191,9 @@ test("trainer IO publishes exact measured checkpoint evidence and validation ref
   assert.throws(() => validatePrefixCompletion(bytes, { ...completion, policy: source as unknown as ProcessCompletion["policy"] }, input as unknown as ProcessInput), /policy/);
   assert.throws(() => validatePrefixCompletion(bytes, verified, { ...input, prefix: { rows: [], knobs: { ...knobs, regularisation: 0.01 } } } as unknown as ProcessInput), /knobs/);
   assert.ok(prefixTrainerArgv()[1].endsWith(".ts")); assert.ok(prefixTrainerArgv(new URL("../dist/prefix-trainer.js", import.meta.url).href)[1].endsWith(".js"));
-  await prefixTrainerMain(["node", new URL("./prefix.test.ts", import.meta.url).pathname], new URL("../prefix-trainer.ts", import.meta.url).href);
+  await prefixTrainerMain(["node", fileURLToPath(new URL("./prefix.test.ts", import.meta.url))], new URL("../prefix-trainer.ts", import.meta.url).href);
   const other = mkdtempSync(join(tmpdir(), "rl-prefix-main-"));
-  await prefixTrainerMain(["node", new URL("../prefix-trainer.ts", import.meta.url).pathname], new URL("../prefix-trainer.ts", import.meta.url).href, Readable.from([JSON.stringify({ job: "synthetic", input, artifactRoot })]), sink, other);
+  await prefixTrainerMain(["node", fileURLToPath(new URL("../prefix-trainer.ts", import.meta.url))], new URL("../prefix-trainer.ts", import.meta.url).href, Readable.from([JSON.stringify({ job: "synthetic", input, artifactRoot })]), sink, other);
 });
 
 test("public snapshot builder pins the task, calibrates only fit items and preserves repository compartments", async () => {
@@ -230,7 +232,7 @@ test("majority comparison computes a one-sided exact tail and refuses insufficie
   assert.ok(majorityBinomial(100, 100, 0.5).p_value < 1e-20);
 });
 
-test("real reserved process fits are explicit even when the unchanged inner gate refuses and replay preserves evidence", { timeout: 600_000 }, async () => {
+test("real reserved process fits are explicit even when the unchanged inner gate refuses and replay preserves evidence", { timeout: testTime(600_000) }, async () => {
   const w = await metaWorkspace();
   const directory = join(w.root, "prefix-dataset");
   const previousPath = process.env.PATH; process.env.PATH = `${w.bin}:${previousPath}`;
@@ -320,7 +322,7 @@ test("one fitted classifier distinguishes prefixes with both labels instead of l
   assert.equal(identical.p_value, 1); assert.equal(identical.wins + identical.losses, 0);
 });
 
-test("live prefix acceptance installs the packed command and retains public per-example provenance", { timeout: 600_000 }, async () => {
+test("live prefix acceptance installs the packed command and retains public per-example provenance", { timeout: testTime(600_000) }, async () => {
   await withTrackerSources(async ({ root, directories }) => {
     const snapshot = buildTrackerDataset(directories, join(root, "pins"));
     const pinsFile = join(root, "original-evidence.json"); writeFileSync(pinsFile, JSON.stringify({ dataset: snapshot }));
@@ -328,7 +330,7 @@ test("live prefix acceptance installs the packed command and retains public per-
     await liveMetaMain({ PM_RL_TRACKER_ROOT: root }, (value) => { evidence = value; }, pinsFile);
     assert.equal(evidence!.report.generations.length, 2);
     assert.ok(evidence!.report.initial.fit!.changed);
-    const summary = JSON.parse(readFileSync(join(new URL("..", import.meta.url).pathname, evidence!.artifacts, "summary.json"), "utf8")) as { examples: { repo: string; commit: string; prefix_digest: string }[] };
+    const summary = JSON.parse(readFileSync(join(fileURLToPath(new URL("..", import.meta.url)), evidence!.artifacts, "summary.json"), "utf8")) as { examples: { repo: string; commit: string; prefix_digest: string }[] };
     assert.equal(summary.examples.length, 160);
     assert.ok(summary.examples.every((row) => row.repo.startsWith("public-fixture/") && /^[a-f0-9]{40}$/.test(row.commit) && /^[a-f0-9]{64}$/.test(row.prefix_digest)));
   });

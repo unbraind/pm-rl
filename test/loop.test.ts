@@ -1,3 +1,4 @@
+import { testDepth } from "./support/depth.ts";
 /** The persisted recursive loop: pure bounds, derived successor configs, and end-to-end tracker runs. */
 
 import assert from "node:assert/strict";
@@ -276,7 +277,7 @@ test("collection and held-out action streams differ and replay deterministically
     const replays: BanditGeneration[][] = [];
     for (let replay = 0; replay < 2; replay += 1) {
       const receipts: BanditGeneration[] = [];
-      for (let index = 0; index < 64; index += 1) {
+      for (let index = 0; index < testDepth(64); index += 1) {
         const seed = Math.imul(index, 0x9e3779b1) >>> 0;
         // Feature zero keeps both policies at weight zero; reward exposes the
         // sampled action, so all three streams have the same decision boundary.

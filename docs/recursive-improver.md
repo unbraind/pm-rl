@@ -269,3 +269,193 @@ The receipt is an explicit null. The capacity and statistical-power follow-ups
 remain necessary before claiming recursive self-improvement on public trackers.
 The three new behavior-only revert proofs and supported-entrypoint limitation
 are recorded on `pm-rl-prefix`; old schema-2 receipts refuse before fitting.
+
+## Configured terminal roles: acceptance remeasurement (2026-11-14)
+
+The fresh audit below is against main `b2c1cfbd950d674183d5713b2f90d165efcb5f7b`,
+including the write-once evaluation lifecycle from PR #153. The three suggested
+controller slices already have real behavioral tests. Eight selected main
+process/LM tests passed locally with no failures, skips or cancellations, and
+[exact-main CI](https://github.com/unbraind/pm-rl/actions/runs/43541726149) passed
+its npm Node 22/26 and Bun Node 26 jobs.
+
+| Epic acceptance criterion | Current main proof: implementation; exact test | Missing / boundary |
+| --- | --- | --- |
+| Two real training generations change checkpoints and collect with the promoted successor | index.ts, loop.ts, process.ts; test/process-loop.test.ts: two process generations collect with the externally trained promoted successor; test/corpus.test.ts: real non-git corpus command trains two successors, resumes sealed inputs and preserves source bytes; docs/tracker-loop-evidence.json records a public pinned corpus run | Delivered for the bounded reference learner. Collection is incomplete for configured terminal registries: improver-data.ts projectImproverHistory recognizes only literal closed/canceled/cancelled. Existing child pm-rl-history-status-roles tracks this missing generalization. |
+| Bounded LLM adapter demonstrates parameter updates | lm.ts, index.ts; test/lm-loop.test.ts: pm rl loop run performs real recursive self-improvement on the language model (two promotions then a sealed refusal) | Delivered for the bounded tiny LM; does not establish large-model improvement. |
+| Two controllers launch a job once | index.ts controller lease and process.ts job fence/reservation; test/process-loop.test.ts: two real controllers race for one job: one launch, one reservation and one checkpoint | Delivered, including real processes against the same tracker. |
+| Crash and cancellation preserve artifacts and budget integrity | process.ts and index.ts; test/process-loop.test.ts: SIGKILL with a complete checkpoint before receipt commit recovers without retraining or double charge; SIGTERM mid-training cancels the child, retains artifacts and settles its reservation; real controller crashes after planning, evaluation and promotion resume the same job identity | Delivered for documented phase boundaries; cancellation may deliberately leave a terminal cancelled job. |
+| Contamination and invalid checkpoints stop promotion | lm.ts, process.ts, promotion.ts, evaluation-lifecycle.ts; test/lm-loop.test.ts: a contaminated programme is refused before any completion is collected; a tampered candidate checkpoint is refused as invalid before the chain advances; test/evaluation-lifecycle-verdict.test.ts write-once verdict regressions | Delivered at the declared data/checkpoint boundaries. No statistical threshold will be tuned for this work. |
+| Every authored source passes exact four-metric coverage and documented-surface gates | package.json coverageGate and scripts/coverage-gate.ts/docstring-gate.ts; successful exact-main CI run https://github.com/unbraind/pm-rl/actions/runs/43541726149 | Main has recorded passing CI; the new branch still requires its own touched-source measurement and exact-head CI. |
+
+
+The selected gap is the first row's custom-schema collection boundary, tracked
+by `pm-rl-history-status-roles`. Chronological improver projection previously
+recognized only literal `closed`, `canceled` and `cancelled`. It now receives
+the pinned source registry and uses the SDK's terminal-role and alias semantics.
+Terminal-disposition verification projects configured lifecycle roles to its
+existing vocabulary. The synchronous builder reads settings and the optional
+status file from the same immutable Git tree as histories. SDK normalization
+merges inline/default definitions with array, `statuses` or `definitions` file
+containers. A source-relative schema reference must stay inside that tracker.
+Working-copy edits cannot change the pinned labels. Historical sealed datasets
+and the legacy three-argument projection retain their existing read contract.
+
+The new tests compare terminal sets with real SDK settings reads, exercise 128
+seeded registries and aliases, preserve released histories, and read sealed
+datasets in a plain directory. This changes input collection only: existing SDK
+controller leases, workspace transactions, sealed verdict history and approved
+resource budgets still govern execution. There is no new launcher or budget
+store and no SDK gap. The separate literal-vocabulary history-prefix builder is
+tracked by follow-up `pm-rl-prefix-status-roles`.
+
+### Fresh public CLI run
+
+[The aggregate receipt](history-status-roles-evidence.json) records a fresh packed
+CLI run against the public MIT `unbraind/pm-ops` tracker at
+`eba7d5262fd75e67afce0caad29dae7dc7dfbaeb`. Public visibility and exact commit
+were checked before copying. Both source and controller were plain directories.
+All 300 durable source files remained unchanged; SDK runtime/cache files are
+excluded. The corpus has 105 training and 41 held-out items.
+
+The existing `examples/loop-corpus.json` supplies the two-generation schedule and
+unchanged statistical thresholds. A separate scratch Decision approved two
+promotions and 16 optimizer updates, 10,000 wall milliseconds, 524,288 staging
+bytes, 2,000 CPU milliseconds and zero tokens. These resource dimensions bound
+the two external trainer jobs; controller bookkeeping and source sealing are
+separate. The receipt reports whole CLI elapsed time independently.
+The real installed CLI executed:
+
+```sh
+node node_modules/@unbrained/pm-cli/dist/cli.js --author codex-rl-apvf-1114 rl corpus build --from-tracker source/.agents/pm --file examples/loop-corpus.json --output programme.json --json
+node node_modules/@unbrained/pm-cli/dist/cli.js --author codex-rl-apvf-1114 rl loop run public-recursion --file programme.json --approval public-approval --json
+node node_modules/@unbrained/pm-cli/dist/cli.js --author codex-rl-apvf-1114 rl loop resume public-recursion --approval public-approval --json
+```
+
+Paths above are relative reproduction coordinates; initialize a separate scratch
+tracker and install the packed extension there first. The receipt records the
+executed artifact and implementation hashes.
+
+| Generation | Source checkpoint SHA-256 | Candidate checkpoint SHA-256 | Exact held-out expectation | Sampled incumbent → candidate | Decision |
+| --- | --- | --- | ---: | --- | --- |
+| 1 | `17493680209cdf2fc86126ff2ad0b7bb6063ae24ce00f28f931224bb5ab2fd11` | `2df645949b852625c2acdc20bf5232620cac8c87d1ab1f8f85c4221da14ac605` | 0.5979768546 | 0.499825 → 0.597650 | promote |
+| 2 | `2df645949b852625c2acdc20bf5232620cac8c87d1ab1f8f85c4221da14ac605` | `3e31b06286e99d6b3d73486216f98f0c6d519228cac4bcbefc56f4945c292863` | 0.6810112913 | 0.595100 → 0.685825 | promote |
+
+Generation two's collection component equals generation one's promoted
+checkpoint. The two settled jobs charge eight updates each; terminal replay
+retains their checkpoint bytes and consumes no extra reservation. Collection
+uses 512 samples total; evaluation uses 40,000 policy episodes per side per
+generation. Repeated episodes over 41 items are adaptive finite-corpus
+validation, not independent tracker samples or evidence of proposer transfer.
+This run verifies the existing unattended loop on real data; the new
+custom-status behavior is established by SDK-backed pinned-source regressions.
+
+### Behavioral revert evidence
+
+Each isolated variant keeps the new tests, typechecks, and exits 1 on a retained
+assertion. The fixed checkout is never reverted.
+
+| Variant | Changed function behavior | Regression selection in `test/history-status-roles.test.ts` |
+| --- | --- | --- |
+| `projection-literal-terminals` | `projectImproverHistory` recognizes only the old three literal terminal strings | `SDK roles` |
+| `dataset-literal-statuses` | `trackerHistoryExample` ignores SDK status normalization and terminal sets | `SDK roles` |
+| `builder-ignores-registry` | `buildImproverDataset` omits its pinned registry when projecting histories | `improver builder pins` |
+| `registry-working-tree` | `committedTrackerStatusRegistry` reads working settings instead of the pinned tree | `improver builder pins` |
+| `registry-ignores-file` | `committedTrackerStatusRegistry` ignores optional SDK status-file definitions | `committed registry` |
+| `registry-allows-escape` | `committedTrackerStatusRegistry` omits the source-relative reference guard | `committed registry` |
+| `dataset-ignores-registry` | `buildTrackerDataset` omits registry forwarding during terminal-disposition verification | `improver builder pins` |
+
+Exact commands are `npm run typecheck` and
+`node --test --test-concurrency=2 --test-name-pattern="<selection>" test/history-status-roles.test.ts`.
+All seven variants typecheck and fail the retained behavioral assertions. After
+restoration, the complete new regression file passes 3/3.
+
+### Targeted gates
+
+The final focused coverage command passed 18/18 tests with 462/462 lines,
+305/305 branches and 79/79 functions across `dataset.ts` and `improver-data.ts`.
+One additional existing source-path regression passed 1/1 and completed the
+repo gate's V8 statement measurement at 303/303 blocks. Every threshold stays
+at 100%. New linked regressions passed 3/3 through `pm test --run --progress`;
+typecheck, test declarations, lint, documented surface (572 declarations) and
+duplication (zero clones) pass. Full npm/Bun release certification belongs to
+the PR's exact-head CI; local focused evidence is not a full-suite claim.
+
+The coverage selection runs `test/history-status-roles.test.ts`,
+`test/dataset.test.ts`, `test/improver.test.ts`,
+`test/transfer-review-native.test.ts`, `test/transfer-review-capacity.test.ts`
+and `test/prefix.test.ts` with `--test-concurrency=2`, the two touched-file
+`--test-coverage-include` flags, and line/branch/function thresholds 100.
+The selection is:
+
+```text
+SDK roles|improver builder pins|committed registry|history extraction|builder reads|builder fails|mixed-case|dataset readers|source limits|empty public|cubic: every dataset|repository identity|leakage sentinel|chronological splits|frozen public task|malformed role|powered role projections|public snapshot builder
+```
+
+The supplementary selection is `pm-cli position controls` in
+`test/transfer-review-round2.test.ts`. Both runs share a fresh scratch V8 output
+directory; `computeStatementCoverage` from `scripts/coverage-gate.ts` enforces
+100% over their combined exact-source reports. Run-artifact records stay outside
+this package's planning tracker; only minimized receipts are committed here.
+
+### Round 2: exact committed pathnames
+
+CodeRabbit comment `4573711129` identified C-quoted `git ls-tree` output silently
+omitting configured Unicode status files. All three pathname readers in
+`dataset.ts` and `improver-data.ts` now use one `trackerTreePaths` helper with
+`ls-tree -z`, NUL parsing and no whitespace trimming. A repository-wide source
+audit found no other Git pathname enumeration in the affected implementation.
+Scalar Git output and whole-status assertions are not pathname parsers.
+
+The adjacent `cat-file --batch` input is also NUL framed with `-z`; otherwise an
+accepted newline filename would still split a blob request after enumeration.
+Its output retains the original byte-length framing and checks. Immutable
+commit reads, the 8 MiB / 30-second listing bound, the 64 MiB batch output bound,
+the 8 MiB per-blob bound and existing history-count limits remain intact.
+
+The new regression reads ASCII, Unicode, space and newline schema filenames
+with Git quoting enabled, verifies exact listing membership and blob bytes,
+changes the working files and still reads the pinned terminal role. The
+improver fixture also includes Unicode, space and newline history filenames
+and requires all 40 rows to participate in each balanced task. Sealed dataset
+readers still run in a plain directory.
+
+The touched regression file passes 4/4 directly and through pinned `pm test`.
+Focused coverage passes 20/20 with 469/469 lines, 306/306 branches, 80/80
+functions and 304/304 statement blocks: unchanged 100% in all four dimensions.
+Typecheck, test declarations, lint and docstrings pass. Four disposable
+behavioral reverts each typecheck and fail retained assertions: removing
+listing `-z`; restoring the old newline listing protocol; restoring newline
+batch requests; and restoring the improver's old quoted listing. After
+restoration the file passes 4/4. The machine-readable receipt records exact
+commands and counts. Original real-run evidence above remains historical; no
+finished generation run was repeated for this pathname transport correction.
+
+Thread `PRRT_kwDOTqJmqs63eU9w` remains untouched for the orchestrator. The
+previously local cancellation audit `1b2764b` remains accurate historical
+evidence and is retained in the branch for publication with this fix.
+
+
+## Review Q: committed workflow lifecycle configuration (2026-11-16)
+
+Two additional consumer cases are covered by `test/history-status-roles.test.ts`.
+`trackerHistoryExample` now maps the registry's configured `in_progress_status`
+to `in_progress` even when that registered status has no `active` role. Alias
+normalization still happens through the SDK before lifecycle projection.
+
+`committedTrackerStatusRegistry` now loads `schema/workflows.json` (or its
+configured override) from the same immutable commit as the statuses and histories.
+It accepts the SDK's flat object, `workflow` and `workflows` containers and merges
+file configuration over inline workflow settings. Both schema sections use the
+same relative-path guard, bounded Git blob reader and bounded JSON parser.
+Tests retain Unicode and newline path handling, ignore uncommitted edits, compare
+optional malformed containers with the SDK loader, and reject escaping paths
+and workflow blobs over eight MiB. A role-less configured `triage` open status
+therefore reaches lifecycle validation as `open`.
+
+The branch first merged current main without conflicts. These regressions failed
+against the prior implementation with `dataset_unknown_status: doing` and the
+pinned registry retaining `open` instead of `triage`. The separate history-prefix
+projection follow-up remains separate. Historical measurement receipts above
+remain tied to their recorded implementation; this round does not renew their
+full coverage or end-to-end acceptance claims.

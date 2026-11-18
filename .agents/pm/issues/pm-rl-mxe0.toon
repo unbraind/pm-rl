@@ -2,16 +2,21 @@ id: pm-rl-mxe0
 title: "changelog:full and changelog:check use different projections"
 description: "The regeneration command uses mode replace with all release tags, while the mandatory check uses mode prepend from the previous tag. After closing any new PM item, npm run changelog:full succeeds but npm run changelog:check immediately rejects the generated file and proposes an incompatible projection. Align the check with the package-owned full regeneration contract."
 type: Issue
-status: in_progress
+status: closed
 priority: 1
 tags[1]: "gh:unbraind/pm-rl#130"
 created_at: "2026-08-06T22:57:42.945Z"
-updated_at: "2026-11-09T19:52:58.945Z"
+updated_at: "2026-11-16T20:35:39.327Z"
+closed_at: "2026-11-16T20:35:39.239Z"
+completed_at: "2026-11-16T20:35:39.239Z"
 author: codex
 acceptance_criteria: "changelog:full and changelog:check use identical mode, release-tag, version, date, URL, and release-respect inputs except for --check; regeneration followed by check passes; the full release gate passes; The configured reusable sync script generates exactly what the package changelog checker verifies"
 severity: high
 environment: pm-changelog 2026.8.6
 repro_steps: "Run npm run changelog:full followed by npm run changelog:check on the current tracker."
+resolution: Implemented and merged in #159 (ee52202).
+expected_result: The change described by this item is on main.
+actual_result: "Merged in #159 as ee52202; checks successful at head fb126ab: Bun release (26), CodeQL, codeql, test (22), test (26)."
 affected_version: 2026.7.31
 comments[10]{created_at,author,text}:
   "2026-11-08T03:18:03.017Z",pi-agent,Reopened for the current sync generation regression. The reusable workflow supplies --no-pending-release only to its default script while the package checker retains the ordinary full generation policy. A caller-owned alias preserves the canonical generator without touching dependencies or thresholds. Clear the old release assignment for this new regression while retaining all historical evidence.
@@ -55,4 +60,5 @@ tests[3]:
       source_ref: fix/sync-changelog-1108
 docs[1]{path,scope}:
   README.md,project
+close_reason: "Delivered by #159 \"Keep issue-sync changelog generation consistent with CI\" (merged as ee52202). Checks successful at the PR head fb126ab: Bun release (26), CodeQL, codeql, test (22), test (26)."
 body: ""

@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 /** Real process controller contention, crash windows, signal cancellation and recursive successor use. */
 import assert from "node:assert/strict";
 import { fork, execFileSync } from "node:child_process";
@@ -89,7 +90,7 @@ test("SIGTERM mid-training cancels the child, retains artifacts and settles its 
 test("failed process candidates never become a successor collection policy", async () => {
   for (const mode of ["empty", "checkpoint-only", "corrupt", "oversize"]) {
     const { client, coordinates, approval } = await processWorkspace();
-    await assert.rejects(runRlLoop(client, coordinates, { id: "process-failure", config: configuration, approval, processTrainerArgv: [process.execPath, new URL("./fixtures/process-trainer.ts", import.meta.url).pathname, mode] }));
+    await assert.rejects(runRlLoop(client, coordinates, { id: "process-failure", config: configuration, approval, processTrainerArgv: [process.execPath, fileURLToPath(new URL("./fixtures/process-trainer.ts", import.meta.url)), mode] }));
     const listed = await client.listAllComplete({}); assert.equal(listed.items.filter((item) => item.type === "Run").length, 1); assert.equal(listed.items.filter((item) => item.type === "Generation").length, 1);
     const [job] = await jobs(client); assert.equal(job.state, "failed"); assert.equal(job.settled, true);
   }
@@ -211,7 +212,7 @@ test("a self-consistent forged train step disagrees with the actual external rec
 
 test("parent AbortSignal during an external fit records terminal cancellation and preserves staged evidence", async () => {
   const { client, coordinates, approval, pmRoot } = await processWorkspace(); const abort = new AbortController(); const id = "parent-cancel";
-  const argv = [process.execPath, new URL("./fixtures/process-trainer.ts", import.meta.url).pathname, "hang"];
+  const argv = [process.execPath, fileURLToPath(new URL("./fixtures/process-trainer.ts", import.meta.url)), "hang"];
   const outcome = runRlLoop(client, coordinates, { id, config: configuration, approval, signal: abort.signal, processTrainerArgv: argv }).then(() => null, (error: unknown) => error);
   let jobId = "";
   for (let attempt = 0; attempt < 300; attempt += 1) { const retained = await jobs(client); if (retained.length > 0) jobId = retained[0].id; if (jobId.length > 0 && existsSync(join(processStaging(pmRoot, jobId), "partial.json"))) break; await new Promise<void>((resolve) => { setTimeout(resolve, 20); }); }

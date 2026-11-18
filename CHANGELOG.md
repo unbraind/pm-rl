@@ -1,9 +1,14 @@
 # Changelog
 
-## 2026.11.13 - 2026-11-13
+## Unreleased
+
+No changes.
+
+## 2026.11.14 - 2026-11-17
 
 ### Added
 
+- Evolve bounded proposal strategies across recursive generations ([pm-rl-proposer-program](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-proposer-program.toon))
 - Migrate evaluation lifecycle APIs to a clock-independent ordering contract ([pm-rl-lifecycle](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-lifecycle.toon))
 - Stop predeclared evaluations safely at sequential boundaries ([pm-rl-sequential](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-sequential.toon))
 - Measure evaluation sensitivity to declared training slices ([pm-rl-measured-influence](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/features/pm-rl-measured-influence.toon))
@@ -49,6 +54,8 @@
 
 ### Fixed
 
+- changelog:full and changelog:check use different projections ([pm-rl-mxe0](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-mxe0.toon))
+- Bound concurrent checkpoint fixture contention without losing promotions ([pm-rl-0x9x](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-0x9x.toon))
 - Daily release fails lint on installed extension builds that the live suites write under .agents/pm/runtime ([pm-rl-d3be](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-d3be.toon))
 - Recover external decision receipts across the HTTP-to-PM commit window for idempotency-v1 endpoints ([pm-rl-9nlg](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-9nlg.toon))
 - Enforce the configured statement coverage threshold in the package gate ([pm-rl-xiks](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-xiks.toon))
@@ -84,6 +91,7 @@
 
 ### Other
 
+- Adapt generation spec reads to pm toolchain 2026.11.6 ([pm-rl-toolchain-1110](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/chores/pm-rl-toolchain-1110.toon))
 - Evaluate proposer transfer on a statistically powered tracker corpus ([pm-rl-rsipower](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-rsipower.toon))
 - Keep the HTTP receipt crash drill within its unchanged timeout ([pm-rl-bi4v](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-bi4v.toon))
 - Reconcile inherited release-test expectations with native refusal contracts ([pm-rl-meta-gate](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/tasks/pm-rl-meta-gate.toon))
@@ -116,6 +124,9 @@
 
 ### Closed
 
+- Closed: Native transfer manifest cannot fit the minimum powered corpus ([pm-rl-github-eecd7460423f-149](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-github-eecd7460423f-149.toon))
+- Closed: Concurrent checkpoint promotion test hit a 30s lock conflict in release CI ([pm-rl-github-eecd7460423f-152](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-github-eecd7460423f-152.toon))
+- Closed: Approval ID aliases bypass retained meta promotion headroom ([pm-rl-github-eecd7460423f-85](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-github-eecd7460423f-85.toon))
 - Closed: Resolve CodeRabbit round-2 findings on PR 16 ([pm-rl-weum](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-weum.toon))
 - Closed: Converge changelog generation and verification on replace mode ([pm-rl-yjqx](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-yjqx.toon))
 - Closed: Release bot identity was absent from the allowlist, so the first release would break the audit permanently ([pm-rl-rgt4](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-rgt4.toon))

@@ -1,3 +1,4 @@
+import { testTime } from "./support/depth.ts";
 /** Native SDK lock races and unreadable durable receipts in disposable real trackers. */
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -15,7 +16,7 @@ import { lmConfigurationJson, parseLmLoopConfig } from "../lm.ts";
 const author = "native-fault-test";
 const id = "native-fault";
 const config: Record<string, JsonValue> = { ...JSON.parse(readFileSync(new URL("../examples/loop-bandit.json", import.meta.url), "utf8")) as Record<string, JsonValue>, max_generations: 1 };
-const bounded = { timeout: 120_000 };
+const bounded = { timeout: testTime(120_000) };
 const completeRead = { depth: "standard", outputLimit: "unbounded", outputBudget: "unbounded" } as const;
 
 /** Read a complete real SDK item and reject an omitted-output envelope. */
@@ -305,7 +306,7 @@ for (const phase of ["collect", "train"] as const) {
   });
 }
 
-test("parent controller heartbeat skips an active step, renews idle ownership and fences a successor", { timeout: 180_000 }, async () => {
+test("parent controller heartbeat skips an active step, renews idle ownership and fences a successor", { timeout: testTime(180_000) }, async () => {
   await inWorkspace(async ({ root, pmRoot, client, approval }) => {
     const path = join(pmRoot, "locks", `${loopLeaseLockId(id)}.lock`);
     const interval = LOOP_LEASE_TTL_SECONDS / 3 * 1000 + 1500;

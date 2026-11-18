@@ -1,3 +1,4 @@
+import { testTime } from "./support/depth.ts";
 /**
  * Behavioral tests for the physical Git identity audit.
  *
@@ -411,7 +412,7 @@ test("stream transport kills a ready SIGTERM-ignoring child after consumer rejec
     throw new Error("ready child refusal");
   }), /ready child refusal/);
   assert.ok(pid > 0);
-  const deadline = performance.now() + 5_000;
+  const deadline = performance.now() + testTime(5_000);
   let alive = true;
   while (alive && performance.now() < deadline) {
     await delay(25);

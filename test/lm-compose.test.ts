@@ -1,9 +1,13 @@
+import { fileURLToPath } from "node:url";
+import { dockerSkip as skip } from "./support/docker.ts";
+import { testTime } from "./support/depth.ts";
 /** Shared-contract LM unit, real-process and real-container recursive execution drills. */
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { execFileSync, fork, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { delimiter, join } from "node:path";
 import { Readable, Writable } from "node:stream";
 import { setTimeout } from "node:timers/promises";
 import { after, test } from "node:test";
@@ -39,7 +43,7 @@ async function staged() {
   const input = inputFor(); const id = processJobId(input, undefined, config().process);
   let output = "";
   const sink = new Writable({ write(chunk, _encoding, callback) { output += String(chunk); callback(); } });
-  await lmTrainerMain([process.execPath, new URL("../process-lm-trainer.ts", import.meta.url).pathname], new URL("../process-lm-trainer.ts", import.meta.url).href,
+  await lmTrainerMain([process.execPath, fileURLToPath(new URL("../process-lm-trainer.ts", import.meta.url))], new URL("../process-lm-trainer.ts", import.meta.url).href,
     Readable.from([JSON.stringify({ job: id.toUpperCase(), input })]), sink, directory);
   assert.equal((JSON.parse(readFileSync(join(directory, "completion.json"), "utf8")) as ProcessCompletion).job, id);
   writeFileSync(join(directory, "runner.json"), JSON.stringify({ started_at: Date.now() - 5000 }));
@@ -87,14 +91,12 @@ test("LM real fit publishes canonical tensors and rejects corrupt bytes, memory 
 test("LM real child process uses the shared stream and refuses mismatched adapter limits before reserving", async () => {
   const { root, client, coordinates, approval } = await processWorkspace(budget); const input = inputFor(); const directory = join(root, "process"); mkdirSync(directory);
   const id = processJobId(input, undefined, config().process);
-  await launchTrainer(directory, id, input, allowance, [process.execPath, new URL("../process-lm-trainer.ts", import.meta.url).pathname]);
+  await launchTrainer(directory, id, input, allowance, [process.execPath, fileURLToPath(new URL("../process-lm-trainer.ts", import.meta.url))]);
   assert.notEqual(validateProcessCompletion(directory, id, input, allowance).policy.digest, input.source.digest);
   for (const selected of [{ kind: "process-bandit", allowance: { ...allowance, training_steps: 1 } }, { ...config().process!, memory_bytes: 134_217_728 }, { ...config().process!, allowance: { ...allowance, training_steps: 1 } }]) await assert.rejects(executeProcessTrainer(client, coordinates, input, approval, selected as ProcessAdapter));
   assert.equal((await listProcessJobs(client)).length, 0);
 });
 
-const version = spawnSync("docker", ["compose", "version"], { encoding: "utf8" });
-const skip = version.status === 0 ? false : `SKIPPED: docker compose version failed: ${version.error?.message ?? version.stderr.trim()}`;
 const images = new Map<string, string>();
 const imageRun = randomUUID();
 const imageOwner = process.env["PM_RL_VALIDATION_OWNER"] ?? `pm-rl-${imageRun}`;
@@ -103,7 +105,7 @@ after(() => { for (const [mode, image] of images) if (mode !== "production") exe
 function adapter(mode = "fit"): Extract<ProcessAdapter, { kind: "compose-lm" }> {
   let image = images.get(mode);
   if (image === undefined) {
-    image = execFileSync("docker", ["build", "--quiet", "--tag", `pm-rl-lm-${mode}-${imageRun}`, "--label", `pm-rl-validation-run=pm-rl-${imageRun}`, "--label", `pm-rl-validation-owner=${imageOwner}`, "--file", mode === "production" ? "lm-trainer.Dockerfile" : "test/fixtures/lm-compose.Dockerfile", "--build-arg", `MODE=${mode}`, "."], { encoding: "utf8", timeout: 180_000 }).trim();
+    image = execFileSync("docker", ["build", "--quiet", "--tag", `pm-rl-lm-${mode}-${imageRun}`, "--label", `pm-rl-validation-run=pm-rl-${imageRun}`, "--label", `pm-rl-validation-owner=${imageOwner}`, "--file", mode === "production" ? "lm-trainer.Dockerfile" : "test/fixtures/lm-compose.Dockerfile", "--build-arg", `MODE=${mode}`, "."], { encoding: "utf8", timeout: testTime(180_000) }).trim();
     assert.match(image, /^sha256:[a-f0-9]{64}$/u); images.set(mode, image);
   }
   return { kind: "compose-lm", image, memory_bytes: 268_435_456, cpus: 1, allowance };
@@ -115,10 +117,10 @@ async function until(predicate: () => boolean): Promise<void> {
 }
 /** Observe the daemon's actual kernel-OOM flag before allowing the idle fixture supervisor to exit. */
 async function nativeOomRecorded(id: string, directory: string): Promise<void> {
-  const deadline = performance.now() + 30_000;
+  const deadline = performance.now() + testTime(30_000);
   for (;;) {
     const remaining = deadline - performance.now();
-    assert.ok(remaining > 0, "Docker did not record the native OOM within the existing barrier bound");
+    assert.ok(remaining > 0, "Docker did not record the native OOM within the scaled harness barrier bound");
     const result = spawnSync("docker", ["container", "inspect", `${composeProject(id, directory)}-trainer`, "--format", "{{.State.OOMKilled}}"],
       { encoding: "utf8", timeout: Math.max(1, Math.floor(Math.min(1000, remaining))) });
     assert.equal(result.status, 0, "memory fixture supervisor must remain inspectable until native OOM acknowledgement");
@@ -141,6 +143,36 @@ function removed(id: string, directory: string): void {
   const result = spawnSync("docker", ["container", "inspect", `${composeProject(id, directory)}-trainer`], { encoding: "utf8" });
   assert.notEqual(result.status, 0); assert.match(result.stderr, /No such (object|container)/u);
 }
+
+test("LM Compose controller trains, verifies and promotes through the packaged compose entrypoint without a daemon", async () => {
+  const { client, coordinates, approval, pmRoot, root } = await processWorkspace(budget); const selected = config().process as Extract<ProcessAdapter, { kind: "compose-lm" }>;
+  // The controller owns the real Compose lifecycle: only the container runtime is replaced by a
+  // PATH-injected stand-in whose `compose run` executes the packaged trainer entrypoint directly,
+  // so this drill needs no Docker daemon and stays deterministic at every depth.
+  const bin = join(root, "bin"); mkdirSync(bin, { recursive: true });
+  const trainer = fileURLToPath(new URL("../process-lm-trainer.ts", import.meta.url));
+  writeFileSync(join(bin, "docker"), `#!${process.execPath}\nconst a=process.argv.slice(2);\nif(a.includes("run")){const c=require("node:child_process").spawnSync(process.execPath,[${JSON.stringify(trainer)}],{stdio:"inherit"});process.exit(c.status===null?1:c.status);}\nelse if(a[0]==="container"&&a[1]==="ls")console.log("owned-container");\nelse if(a[1]==="inspect")console.log(JSON.stringify({memory_bytes:268435456,nano_cpus:1000000000,oom_killed:false,exit_code:0,network:"none",user:"65534:65534"}));\n`, { mode: 0o755 });
+  const previous = process.env.PATH; process.env.PATH = `${bin}${delimiter}${previous}`;
+  try {
+    const report = await runRlLoop(client, coordinates, { id: "process-drill", approval, config: { ...(rawConfig() as Record<string, JsonValue>), max_generations: 1 } });
+    assert.equal(report.promoted, 1); assert.equal(report.process_jobs!.length, 1);
+    const job = report.process_jobs![0];
+    assert.equal(job.state, "promoted"); assert.equal(job.charge.training_steps, 6); assert.ok(job.charge.tokens > 0);
+    assert.equal(job.completion!.digest, job.completion!.policy.digest); assert.notEqual(job.completion!.source_policy, job.completion!.digest);
+    const cfg = config(); const directory = processStaging(pmRoot, job.id);
+    const stagedInput = JSON.parse(readFileSync(join(directory, "input.json"), "utf8")).input;
+    for (const example of cfg.evaluation) assert.ok(!JSON.stringify(stagedInput).includes(`"string":"${example.string}"`));
+    verifiedProcessPolicy(job, pmRoot, stagedInput);
+    verifyLmProcessJob(job, pmRoot, stagedInput, { digest: job.completion!.digest, training: job.completion!.training });
+    for (const missing of [null, { ...job, completion: null }]) assert.throws(() => verifyLmProcessJob(missing, pmRoot, stagedInput, { digest: job.completion!.digest }));
+    assert.throws(() => verifyLmProcessJob(job, pmRoot, stagedInput, { digest: job.completion!.source_policy }));
+    assert.throws(() => verifyLmProcessJob(job, pmRoot, stagedInput, { digest: job.completion!.digest, training: null }));
+    const stop = JSON.parse(readFileSync(join(directory, "compose-stop.json"), "utf8").trim());
+    assert.equal(stop.resources.memory_bytes, selected.memory_bytes); assert.equal(stop.resources.nano_cpus, 1_000_000_000);
+    assert.equal(stop.resources.network, "none"); assert.equal(stop.resources.oom_killed, false);
+    assert.equal((await resumeRlLoop(client, coordinates, { id: "process-drill", approval })).resumed_generations, 1);
+  } finally { if (previous === undefined) delete process.env.PATH; else process.env.PATH = previous; }
+});
 
 test("real Compose LM promotes two generations and collects with the promoted checkpoint", { skip }, async (t) => {
   const { client, coordinates, approval, pmRoot } = await processWorkspace(budget); const selected = adapter("production");
@@ -251,4 +283,26 @@ test("two real Compose LM controllers launch once and reserve once", { skip }, a
   const jobs = await listProcessJobs(client); assert.equal(jobs.length, 1); assert.equal(jobs[0].charge.training_steps, 6);
   const directory = processStaging(pmRoot, jobs[0].id); assert.equal(readFileSync(join(directory, "launches.ndjson"), "utf8").trim().split("\n").length, 1);
   assert.equal((await resumeRlLoop(client, coordinates, { id: "process-drill", approval })).resumed_generations, 1); removed(jobs[0].id, directory);
+});
+
+/** Exercise the real daemon-free controller from a checkout URL containing escaped spaces. */
+test("LM Compose trainer paths survive checkout spaces", () => {
+  const scratch = mkdtempSync(join(tmpdir(), "lm-path-"));
+  const checkout = join(scratch, "checkout with spaces");
+  try {
+    const source = fileURLToPath(new URL("../", import.meta.url));
+    mkdirSync(checkout);
+    for (const entry of readdirSync(source)) {
+      if (entry.endsWith(".ts") || ["package.json", "examples", "scripts", "test"].includes(entry)) cpSync(join(source, entry), join(checkout, entry), { recursive: true });
+    }
+    symlinkSync(join(source, "node_modules"), join(checkout, "node_modules"), "junction");
+    const result = spawnSync(process.execPath, ["--test",
+      "--test-name-pattern=^LM Compose controller trains, verifies and promotes through the packaged compose entrypoint without a daemon$",
+      join(checkout, "test/lm-compose.test.ts")], {
+      encoding: "utf8", timeout: testTime(120_000),
+      env: { ...process.env, PM_TEST_DOCKER: "off", NODE_V8_COVERAGE: undefined, NODE_TEST_CONTEXT: undefined },
+    });
+    assert.equal(result.status, 0, `${result.error?.message ?? ""}\n${result.stdout}\n${result.stderr}`);
+    assert.match(result.stdout, /(?:pass 1|# pass 1)\b/u);
+  } finally { rmSync(scratch, { recursive: true, force: true }); }
 });

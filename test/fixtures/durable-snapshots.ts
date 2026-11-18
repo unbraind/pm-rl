@@ -4,6 +4,7 @@ import { cpSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
+import { testCases, testKindCases } from "../support/depth.ts";
 import { concurrentCases } from "./concurrent-cases.ts";
 import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { captureDecisionInputs, extractGenerationSpec, DECISION_INPUT_FIELDS, firstDecisionSnapshot, hashJson, generationProvenance, readCompleteLoopItem, withRlController, promoteGenerationCore, verifyDecisionEvidence, verifyDecisionSnapshots, type JsonValue } from "../../index.ts";
@@ -13,7 +14,7 @@ import { recordSequentialEvaluation } from "../../sequential-evaluation.ts";
 import { decisionFixture } from "./decision-evidence.ts";
 import type { EvaluationEvidence, GenerationSpec } from "../../lineage.ts";
 
-/** Generate successive valid promotions and replays; default all runs every corruption pair, while none isolates the chain regression. */
+/** Generate promotions and replays; all sweeps depth-selected corruption pairs, while none isolates the chain regression. */
 export async function durableSnapshotProperty(cycles = 3, corruption: "all" | "none" = "all") {
   const w = await decisionFixture(false, false);
   const coordinates = { pmRoot: w.pmRoot, author: "decision-test" };
@@ -79,8 +80,11 @@ export async function durableSnapshotProperty(cycles = 3, corruption: "all" | "n
       await recordSequentialEvaluation(w.client, candidate, w.rows.slice(0, 16));
       await recordSequentialEvaluation(w.client, candidate, w.rows);
     }
-    // Every immutable input, including pairs, remains integrity checked independently of live state.
-    for (const receipt of corruption === "all" ? receipts : []) {
+    // Every immutable input remains checked; quick samples pairs while full sweeps all of them.
+    // Quick depth also keeps a representative receipt subset (legacy, first and latest cycle
+    // graph sizes) instead of sweeping every receipt; full depth stays exhaustive.
+    const swept = testKindCases(receipts, (_receipt, index) => index === 0 ? ["legacy-receipt"] : index === receipts.length - 1 ? ["latest-cycle-receipt"] : ["intermediate-cycle-receipt"]);
+    for (const receipt of corruption === "all" ? swept : []) {
       const original = String((await readCompleteLoopItem(w.client, receipt.id)).item.body);
       const body = JSON.parse(original) as { decision_evidence: EvaluationEvidence };
       const refs = body.decision_evidence.inputs;
@@ -88,7 +92,8 @@ export async function durableSnapshotProperty(cycles = 3, corruption: "all" | "n
       // The prepared tracker is immutable throughout the sweep. A private native
       // clone per pair keeps every original pair while preventing append-only
       // corruption/repair events from making later history reads quadratic.
-      await concurrentCases(pairs, async ([i, j]) => {
+      const selected = testCases(pairs, ([i, j]) => [i === j ? `single:${i}` : "pair"]);
+      await concurrentCases(selected, async ([i, j]) => {
         const root = mkdtempSync(join(tmpdir(), "rl-snapshot-corruption-"));
         try {
           cpSync(w.root, root, { recursive: true });

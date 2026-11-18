@@ -1,3 +1,4 @@
+import { testTime } from "./support/depth.ts";
 /** Packed CLI acceptance for process selection, compact output, complete JSON and two-generation lineage. */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -13,10 +14,10 @@ test("packed CLI trains two external generations, resumes and reports compact/de
   const env = { ...process.env, PM_PATH: pmRoot, PM_AUTHOR: "process-test", NODE_V8_COVERAGE: undefined, PM_TELEMETRY_SOURCE_CONTEXT: "test", PM_TELEMETRY_INLINE_FLUSH: "1" };
   const { PM_PATH: _fixtureRoot, ...packEnv } = env;
   const [{ filename }] = JSON.parse(execFileSync("npm", ["pack", "--ignore-scripts", "--foreground-scripts=false", "--json", "--pack-destination", root], { encoding: "utf8", env: { ...packEnv, npm_config_ignore_scripts: "true" } })) as Array<{ filename: string }>;
-  execFileSync(process.execPath, [cli, "package", "install", join(root, filename), "--project", "--json"], { cwd: root, env, stdio: "pipe", timeout: 60000 });
+  execFileSync(process.execPath, [cli, "package", "install", join(root, filename), "--project", "--json"], { cwd: root, env, stdio: "pipe", timeout: testTime(60000) });
   const file = join(root, "programme.json"); writeFileSync(file, JSON.stringify(configuration));
   const start = performance.now();
-  const { details: report } = JSON.parse(execFileSync(process.execPath, [cli, "rl", "loop", "run", "process-demo", "--file", file, "--approval", approval, "--json"], { cwd: root, env, encoding: "utf8", timeout: 20000 })) as { details: RlLoopReport };
+  const { details: report } = JSON.parse(execFileSync(process.execPath, [cli, "rl", "loop", "run", "process-demo", "--file", file, "--approval", approval, "--json"], { cwd: root, env, encoding: "utf8", timeout: testTime(20000) })) as { details: RlLoopReport };
   const elapsed = performance.now() - start;
   // Elapsed time is reported, not asserted: host load must not fail an otherwise correct run within the subprocess timeout.
   console.log(`process CLI loop: ${Math.round(elapsed)} ms`);
