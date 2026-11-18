@@ -6,11 +6,11 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-11-18T10:52:43.628Z"
-updated_at: "2026-11-18T11:49:01.137Z"
+updated_at: "2026-11-18T14:41:17.668Z"
 author: codex-sol
 acceptance_criteria: "A retry or resume under a different Decision refuses before any fit or successor collection. The same canonical Decision resumes exactly once, including through an SDK alias. Existing seed records remain replayable under their historical checks. Exercise the bounded public tracker fixture with the real process adapter."
 parent: pm-rl-apvf
-comments[10]{created_at,author,text}:
+comments[13]{created_at,author,text}:
   "2026-11-18T10:52:48.208Z",codex-sol,"The bounded driver, held-out gate, process and Compose trainers, and transaction-backed reservations already exist. Bind the canonical approval in new seed provenance under the controller lease. Preserve historical seed identity and verify cancellation after collect, wrong-budget refusal, same-budget recovery, charge counts and successor lineage."
   "2026-11-18T10:57:08.673Z",codex-sol,"The real process regression fails against unchanged main: an interrupted first generation accepted an unrelated Decision and ran to completion. Compare the stored authority with the SDK creation revision and resolve request aliases to the same canonical Decision before new phase work."
   "2026-11-18T11:03:23.703Z",codex-sol,"The focused real regression and historical-seed replay pass (2/2). Two isolated executions on the pinned 105/41 public pm-ops fixture rejected the alternate Decision with zero jobs. Each promoted generation one at held-out 0.59765, collected generation two from the promoted digest, and refused its fit with process_limit_exceeded. Each second job settled its reserved eight updates and 5000 ms; the source content hash remained unchanged."
@@ -21,14 +21,18 @@ comments[10]{created_at,author,text}:
   "2026-11-18T11:26:58.293Z",codex-sol,The complete local process-loop file passed 11 of 15 while full gate processes shared the host. Two readiness barriers and two trainer watchdogs failed. All four drills passed in the hosted Node 26 coverage shard on 8b624a7. Existing timing items track this class of failure; the fix preserves all deadlines and still requires the full hosted gate on the pushed head.
   "2026-11-18T11:46:24.948Z",codex-sol,"Coverage aggregation on f36bd92 identified the historical post-promotion budget mismatch in index.ts. New seeds correctly refuse earlier. Extend the unbound historical seed test through a completed promotion and retry it under a distinct, equally sized Decision to exercise the original refusal."
   "2026-11-18T11:48:57.792Z",codex-sol,The real historical-seed regression passes with a distinct equally funded Decision after promotion. It asserts the specific generation-one mismatch and unchanged reservations. A focused V8 LCOV report measured one hit on each of the two lines missed by the prior aggregate. Production and test typechecks and lint pass. The final change is test-only.
+  "2026-11-18T13:57:00.362Z",codex-sol,"Round CF: run 44298187804 completed with Node 22 quick shard 1 canceled at the 22-minute job limit during its test step. The other Node 22 shard and Node 26 coverage passed. Compare shard composition and slice timing before attributing the timeout."
+  "2026-11-18T14:01:33.791Z",codex-sol,"Node 22 quick-mode reproduction passed both changed seed-budget tests. Node assigns test/process-loop.test.ts to shard 2, which passed in 10m58s. The preceding PR run 44294960939 passed shard 1 in 16m58s using the same runtime code and shard-1 inputs. The only executable delta at c0f0d3b is seven lines of assertions in the shard-2 test file. The shard-1 timeout therefore points to runner variance. GitHub's authenticated log endpoint is rate-limited, so per-test timing inside the canceled job is pending."
+  "2026-11-18T14:41:15.283Z",codex-sol,"Read the canceled shard-1 log and the successful preceding shard-1 log. The canceled log shows continued progress and zero failing assertions before cancellation. Unchanged tests slowed across the shard, including controller corpus replay from 101.3s to 141.0s, HTTP crash replay from 76.9s to 103.8s, and the phase crash test from 68.7s to 95.3s. Neither new seed-budget test appears in shard 1. Verdict: runner-side throughput variance, with the slice tests passing in shard 2 and directly 2/2. Keep the test allocation and code."
 files[3]{path,scope}:
   index.ts,project
   test/process-loop.test.ts,project
   test/training-influence-maintenance.test.ts,project
-tests[3]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[4]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test test/process-loop.test.ts,project,codex-sol,"2026-11-18T10:57:02.362Z",local_mutation,feat/ca-recursive-lineage
   npm run coverage,project,codex-sol,"2026-11-18T11:03:15.578Z",local_mutation,feat/ca-recursive-lineage
   node --test test/training-influence-maintenance.test.ts,project,codex-sol,"2026-11-18T11:20:22.302Z",local_mutation,feat/ca-recursive-lineage
+  "PM_TEST_DEPTH=quick PM_TEST_DOCKER=off node --test --test-name-pattern=\"seed budget authority survives|unbound historical seed\" test/process-loop.test.ts",project,codex-sol,"2026-11-18T14:01:32.414Z",local_mutation,feat/ca-recursive-lineage
 docs[2]{path,scope}:
   README.md,project
   RECURSIVE_TRAINING.md,project
