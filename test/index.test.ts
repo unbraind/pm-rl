@@ -1,6 +1,7 @@
 /** Host-level tests for pm-rl's schema and first environment/run lifecycle. */
 
 import assert from "node:assert/strict";
+import { assertMissingHostOption } from "./fixtures/extension-option-refusal.ts";
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -192,9 +193,17 @@ test("the shipped extension activates all commands, item types, fields, and leas
   assert.equal(extension.version, manifest.version);
   assert.equal(pkg.version, manifest.version);
   assert.equal(manifest.entry, "./dist/index.js");
-  assert.equal(manifest.pm_min_version, "2026.11.2");
-  assert.equal(pkg.peerDependencies["@unbrained/pm-cli"], ">=2026.11.2");
-  assert.deepEqual(checkExtensionManifestCompatibility(rawManifest, { pmVersion: "2026.11.2" }).findings, []);
+  assert.equal(manifest.pm_min_version, "2026.11.8");
+  assert.equal(pkg.peerDependencies["@unbrained/pm-cli"], ">=2026.11.8");
+  assert.deepEqual(checkExtensionManifestCompatibility(rawManifest, { pmVersion: "2026.11.8" }).findings, []);
+  for (const pmVersion of ["2026.11.2", "2026.11.7"]) {
+    const compatibility = checkExtensionManifestCompatibility(rawManifest, { pmVersion });
+    assert.equal(compatibility.compatible, false);
+    assert.deepEqual(compatibility.findings.map(({ code, message }) => ({ code, message })), [{
+      code: "pm_min_version_unmet",
+      message: `Requires pm >= 2026.11.8 but the target is pm ${pmVersion}; the loader skips the extension.`,
+    }]);
+  }
   await harness.deactivate();
 });
 
@@ -742,7 +751,7 @@ test("repeated realistic metric batches retain every event with measured bounded
 test("domain commands reject missing arguments, options, wrong item types, and absent SDK injection", async (testContext) => {
   const { pmRoot, harness } = await workspace();
   await assert.rejects(harness.runCommand({ command: "rl env show", pmRoot }), /requires an environment id/);
-  await assert.rejects(harness.runCommand({ command: "rl run finish", pmRoot, args: ["unknown"] }), /requires --reason/);
+  await assertMissingHostOption(harness, { command: "rl run finish", pmRoot, args: ["unknown"] }, "--reason");
   const wrong = await new PmClient({ pmRoot, author: "pm-rl-test" }).create({
     id: "wrong-type",
     title: "Not an environment",

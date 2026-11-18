@@ -34,7 +34,7 @@ test("ambiguous outer meta leases expose working CLI takeover and preserve live-
   const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
   const command = RL_COMMANDS.find((command) => command.name === "rl meta run")!;
   assert.ok("flags" in command && command.flags.some((flag) => flag.long === "--force-takeover"));
-  for (const option of ["force_takeover", "forceTakeover"] as const) {
+  for (const option of ["force-takeover", "forceTakeover"] as const) {
     const release = await acquireLock(w.coordinates.pmRoot, loopLeaseLockId(id), LOOP_LEASE_TTL_SECONDS, "synthetic-foreign-holder");
     try {
       const original = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;

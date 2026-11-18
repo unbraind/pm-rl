@@ -835,20 +835,26 @@ test("episodes and outcomes refuse identity collisions, and outcomes are idempot
 test("the merged option accepts host-native booleans and string forms, and refuses anything else", async () => {
   const { root, pmRoot, harness } = await workspace();
   await gatesEnv(root, pmRoot, harness);
-  // A host may deliver the flag already parsed as a boolean.
+  // SDK callers can supply booleans even when the host normalizes them to strings.
   const native = resultOf(await harness.runCommand({
     command: "rl outcome record",
     pmRoot,
     options: { pullRequest: "https://github.com/unbraind/pm-rl/pull/1", merged: true },
   }));
   assert.equal(native.details?.merged, true);
-  // The false direction of the host-native boolean is its own branch.
+  // Both SDK spellings must retain the same durable outcome identity.
   const nativeFalse = resultOf(await harness.runCommand({
     command: "rl outcome record",
     pmRoot,
     options: { pullRequest: "https://github.com/unbraind/pm-rl/pull/1b", merged: false },
   }));
   assert.equal(nativeFalse.details?.merged, false);
+  const replay = resultOf(await harness.runCommand({
+    command: "rl outcome record", pmRoot,
+    options: { pullRequest: "https://github.com/unbraind/pm-rl/pull/1b", merged: "false" },
+  }));
+  assert.equal(replay.id, nativeFalse.id);
+  assert.equal(replay.created, false);
   const asString = resultOf(await harness.runCommand({
     command: "rl outcome record",
     pmRoot,

@@ -25,7 +25,7 @@ const declared = JSON.parse(readFileSync(new URL("../../examples/loop-corpus.jso
 const adapter = declared.adapter as unknown as ProcessAdapter;
 writeFileSync(boundsFile, JSON.stringify({ ...declared, samples_per_generation: 32, budget: 64,
   adapter: { ...adapter, allowance: { ...adapter.allowance, wall_ms: 30_000 } } }));
-const options = { from_tracker: pmRoot, file: boundsFile, output };
+const options = { fromTracker: pmRoot, file: boundsFile, output };
 const built = await harness.runCommand({ command: "rl corpus build", pmRoot, args: [], options });
 assert.equal(built.handled, true); assert.equal((built.result as RlCommandResult).action, "rl-corpus-build");
 assert.equal(sourceBytes(pmRoot), before, "building must leave every durable source filename and byte untouched");
