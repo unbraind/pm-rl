@@ -5,10 +5,10 @@ The PR tier runs on pull requests and dispatch, cancels superseded PR runs,
 and bounds each job to 22 minutes (target: at most 15 minutes). Main pushes no longer duplicate that tier.
 CodeQL is not required by main branch protection.
 
-Node 22 quick tests run in the non-required `quick-shard (22, 1)` and
-`quick-shard (22, 2)` jobs, which split the quick test files with
-`node --test --test-shard`. The required `test (22)` check is their aggregate:
-it needs the shards, runs with `always()`, and fails unless every shard
+Node 22 quick tests run in three non-required `quick-shard (22, 1..3)` jobs.
+The launcher assigns every `test/*.test.ts` file to one shard using measured
+file durations. The required `test (22)` check is their aggregate.
+It needs the shards, runs with `always()`, and fails unless every shard
 concluded successfully. For docs/tracker PRs the shards idle and `test (22)`
 runs changelog, identity, pack-manifest and workflow contracts. Node 26 uses four
 non-required `coverage-shard (26, 1..4)` jobs at quick depth with
@@ -21,7 +21,7 @@ acceptance in parallel. Required `test (26)` needs all three job groups, uses
 `always()`, and fails unless every dependency succeeded. CI Deep and the single
 local `npm run release:check` command are unchanged.
 
-Four shards project to roughly eight minutes each from the previous run's
+The initial four Node 26 coverage shards projected to roughly eight minutes each from the previous run's
 29-plus-minute instrumented test lower bound. Actual file imbalance and setup
 cost must be measured on CI. Docs/tracker shards and merge skip build/test work;
 the release job runs strict health and the lightweight contracts. Pack inspection
@@ -65,6 +65,59 @@ Bun project/global package-manager installs or bunx ephemeral installation. The
 additional smoke checks Bun's graph install, local bunx host-CLI resolution and
 loading the built extension under Bun. It does not claim global/ephemeral install
 certification absent from the old gate.
+
+## Node 22 shard timing
+
+The November 18 sample includes ten code PR runs with both Node 22 quick
+shards active. Times are job start to completion and include setup and cleanup.
+The two cancelled legs reached the 22-minute timeout with no failed TAP assertion.
+The older runs used an earlier file inventory, so the alternating filename split
+placed some heavy files on different shards.
+
+| Run | Previous shard 1 | Previous shard 2 |
+| --- | ---: | ---: |
+| [44335527685](https://github.com/unbraind/pm-rl/actions/runs/44335527685) | 22m16s, timed out | 15m03s |
+| [44330266829](https://github.com/unbraind/pm-rl/actions/runs/44330266829) | 22m15s, timed out | 13m16s |
+| [44298187804](https://github.com/unbraind/pm-rl/actions/runs/44298187804) | 12m43s | 11m10s |
+| [44294960939](https://github.com/unbraind/pm-rl/actions/runs/44294960939) | 17m15s | 12m14s |
+| [44291568242](https://github.com/unbraind/pm-rl/actions/runs/44291568242) | 13m04s | 9m57s |
+| [44185993763](https://github.com/unbraind/pm-rl/actions/runs/44185993763) | 21m48s | 11m04s |
+| [44078429489](https://github.com/unbraind/pm-rl/actions/runs/44078429489) | 14m34s | 8m57s |
+| [43941285752](https://github.com/unbraind/pm-rl/actions/runs/43941285752) | 10m41s | 15m44s |
+| [43834307071](https://github.com/unbraind/pm-rl/actions/runs/43834307071) | 9m47s | 11m43s |
+| [43824664162](https://github.com/unbraind/pm-rl/actions/runs/43824664162) | 11m56s | 11m11s |
+
+In run 44335527685, shard 1 had logged 762 seconds in
+`policy-card.test.ts` by cancellation. The same file took 765 seconds in the
+21m48s green run. Shard 1 also spent 626 seconds in `durable-loop.test.ts`,
+263 seconds in `evaluation-lifecycle-verdict.test.ts` and 243 seconds in
+`lm-loop.test.ts`. The origin-main controller corpus replay took 70.9 seconds
+in run 44298187804, 101.3 seconds in run 44294960939 and 140.0 seconds in
+run 44335527685. Several unchanged files slowed on the two timeout runs.
+
+The launcher emits TAP so subsequent runs use the same timing format. To update
+[the timing data](../scripts/quick-shard-timings.json), sum each file's
+top-level TAP `duration_ms` values from recent quick logs, including the time
+of nested cases through their parent tests. Use the largest complete per-file
+sum across the sample. The current data adds 10% to shard 1 files that were
+unfinished or absent from the latest timeout log. For shared complete files
+taking over three seconds, the 90th-percentile slowdown against the 21m48s
+green run was about 5.5%. The model rounds file weights up, allows 45 seconds
+for setup, build, worker startup and cleanup, and assigns new files a provisional
+60-second weight until they have CI measurements. The workflow contract file
+includes a 10-second allowance for its new launcher tests.
+
+The launcher assigns heavier files first by choosing the shard with the
+earliest projected finish after adding each file. The estimate models Node's
+filename-sorted queue across four workers. Under the same weights, the old
+alternating split projects to 23m52s and 15m28s. The new assignment projects
+to 15m03s in each shard, about 32% below the 22-minute cap. The estimates
+depend on observed runner speed and must be checked against hosted wall times.
+
+Run `node scripts/quick-shards.ts` to list each shard's estimated seconds and
+assigned files. The workflow contract verifies that the partition covers the
+quick files exactly once, that new files run, and that a failing test produces
+a nonzero exit status.
 
 ## Deep routing and schedules
 

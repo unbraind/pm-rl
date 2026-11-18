@@ -38,6 +38,69 @@ test("quick CI shards coverage with exact replay and unchanged required names", 
   for (const job of Object.values(jobs)) assert.ok(job["timeout-minutes"] <= 22);
 });
 
+/** The engines-floor launcher's dry-run output for a single matrix leg. */
+interface QuickShard {
+  shard: number;
+  estimatedSeconds: number;
+  files: string[];
+}
+
+test("Node 22 quick shards launch every quick test file exactly once", () => {
+  const job = jobs["quick-shard"];
+  assert.deepEqual(job.strategy?.matrix, { "node-version": [22], shard: [1, 2, 3] });
+  assert.equal(job["timeout-minutes"], 22);
+  const step = job.steps.find(candidate => candidate.name === "Engines floor shard");
+  assert.match(step?.run ?? "", /node scripts\/quick-shards\.ts \$\{\{ matrix\.shard \}\}/);
+  const requireShards = jobs["test-22"].steps.find(candidate => candidate.name === "Fail unless every quick Node 22 shard succeeded");
+  assert.match(requireShards?.if ?? "", /needs\.quick-shard\.result != 'success'/);
+  assert.match(requireShards?.run ?? "", /exit 1/);
+
+  const dryRun = execFileSync(process.execPath, ["scripts/quick-shards.ts"], { encoding: "utf8" });
+  const shards = JSON.parse(dryRun) as QuickShard[];
+  assert.deepEqual(shards.map(shard => shard.shard), job.strategy?.matrix.shard);
+  const expected = readdirSync("test").filter(name => !name.startsWith(".") && name.endsWith(".test.ts"))
+    .map(name => `test/${name}`).sort();
+  assert.deepEqual(shards.flatMap(shard => shard.files).sort(), expected);
+  for (const shard of shards) {
+    assert.ok(shard.files.length > 0);
+    assert.ok(Number.isFinite(shard.estimatedSeconds) && shard.estimatedSeconds > 0);
+  }
+});
+
+test("Node 22 quick launcher runs new files and propagates failures", t => {
+  const root = mkdtempSync(join(tmpdir(), "rl-quick-shards-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, "test"));
+  const launcher = resolve("scripts/quick-shards.ts");
+  const env = { ...process.env };
+  delete env.NODE_TEST_CONTEXT;
+  const run = (...args: string[]) => spawnSync(process.execPath, [launcher, ...args], {
+    cwd: root, env, encoding: "utf8", timeout: 30_000,
+  });
+
+  for (const name of ["alpha", "bravo", "charlie"]) {
+    writeFileSync(join(root, "test", `${name}.test.ts`), `import { test } from "node:test"; test("${name}", () => {});\n`);
+  }
+  const dryRun = run();
+  assert.equal(dryRun.status, 0, dryRun.stderr);
+  const shards = JSON.parse(dryRun.stdout) as QuickShard[];
+  for (const shard of shards) {
+    const result = run(String(shard.shard));
+    assert.equal(result.status, 0, result.stderr);
+    const reported = [...result.stdout.matchAll(/^ok \d+ - (\w+)$/gm)].map(match => `test/${match[1]}.test.ts`);
+    assert.deepEqual(reported, shard.files);
+  }
+  assert.deepEqual(shards.flatMap(shard => shard.files).sort(), ["test/alpha.test.ts", "test/bravo.test.ts", "test/charlie.test.ts"]);
+  const failingShard = shards[0];
+  writeFileSync(join(root, failingShard.files[0]), 'throw new Error("fixture failure");\n');
+  const failed = run(String(failingShard.shard));
+  assert.equal(failed.status, 1, failed.stderr);
+  assert.match(failed.stderr + failed.stdout, /fixture failure/);
+  const unknown = run("4");
+  assert.equal(unknown.status, 1, unknown.stderr);
+  assert.match(unknown.stderr, /No test files assigned to quick shard 4/);
+});
+
 test("parallel release checks retain every non-coverage release component", () => {
   const script = jobs["release-checks"].steps.find(step => step.name === "Quick non-coverage release checks")?.run ?? "";
   const manifest = JSON.parse(readFileSync("package.json", "utf8")) as { scripts: Record<string, string> };
