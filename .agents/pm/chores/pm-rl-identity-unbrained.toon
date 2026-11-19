@@ -1,0 +1,29 @@
+id: pm-rl-identity-unbrained
+title: Use the unbrained commit identity
+description: "Apply the 2026-11-19 owner decision to tracked fixtures, documentation, and PM history. Verify identity mapping and package gates."
+type: Chore
+status: open
+priority: 2
+tags: []
+created_at: "2026-11-19T11:34:17.174Z"
+updated_at: "2026-11-19T12:17:25.536Z"
+author: codex-sol
+comments[5]{created_at,author,text}:
+  "2026-11-19T11:34:28.506Z",codex-sol,The owner selected unbrained as the fleet commit name and retained the existing noreply address. Verify package checks and reseal affected PM histories.
+  "2026-11-19T12:07:53.352Z",codex-sol,The grouped run timed out during the integration suites. One cancellation fixture also missed its partial checkpoint before the assertion. Repeat the unfinished cases and that fixture with a longer process allowance.
+  "2026-11-19T12:10:47.328Z",codex-sol,"Reproduced the SIGTERM readiness failure on the unmodified base. Use a bounded wall-time wait for the partial checkpoint before sending the signal. Keep the cancellation, artifact retention, and settled reservation assertions."
+  "2026-11-19T12:17:21.790Z",codex-sol,The split loop run passed all sixteen remaining cases. The split process run passed eight cases and repeated the checkpoint readiness failure on its original fixture. The same cancellation assertions passed with the updated readiness wait.
+  "2026-11-19T12:17:23.740Z",codex-sol,"Local tests, typecheck, tracker health, and changelog checks completed. History redaction verified for 3 items with zero hash mismatches. Historical Git attribution matched per commit after mapping 28 approved-address records to the fleet name."
+files[4]{path,scope}:
+  .mailmap,project
+  test/automation-changelog.test.ts,project
+  test/loop.test.ts,project
+  test/process-loop.test.ts,project
+tests[6]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  npm run typecheck,project,600,codex-sol,"2026-11-19T11:54:57.343Z",local_mutation,chore/commit-identity-unbrained
+  node --test --test-concurrency=2 test/automation-changelog.test.ts test/loop.test.ts test/process-loop.test.ts,project,600,codex-sol,"2026-11-19T11:55:34.083Z",local_mutation,chore/commit-identity-unbrained
+  "npm run audit:identities",project,600,codex-sol,"2026-11-19T12:05:36.564Z",local_mutation,chore/commit-identity-unbrained
+  "node --test --test-name-pattern '^(?:a changed candidate with tied held-out reward is never promoted|two simultaneous loops share a newly registered environment without losing history|loop creation accepts identical concurrent run and candidate winners|seed registration is idempotent while simultaneous execution of one loop id has one owner|loop creation refuses concurrent winners with different content using typed conflicts|loop creation checks every recorded run and generation identity field|loop creation propagates real SDK failures unrelated to duplicate identities|loop creation propagates unrelated conflicts and duplicates for a different resolved id|loop creation propagates real filesystem failures|an exhausted approval budget refuses the persisted promotion and records the refusal|a regressing held-out evaluation rejects the candidate and records the refusal as history|an unchanged checkpoint and a widening proxy gap each stop the loop with their own reason|the loop fails closed on missing arguments, unreadable or invalid configuration, and missing approval|rerunning one loop id resumes idempotently instead of extending the lineage|an invalid transaction identity propagates rather than being recorded as a gate refusal|two simultaneous Git worktree loops preserve every item, metric and history in both merge directions)$' test/loop.test.ts",project,1500,codex-sol,"2026-11-19T12:07:55.663Z",local_mutation,chore/commit-identity-unbrained
+  "node --test --test-name-pattern '^(?:SIGTERM mid-training cancels the child, retains artifacts and settles its reservation|real controller crashes after planning, evaluation and promotion resume the same job identity|process evaluation and promotion refusals retain the incumbent policy|the process command surface returns compact defaults and full JSON from the same durable loop|unrelated process jobs preserve reservations, metric notes and lineage in both real worktree merge directions|a manually failed materialized or registered candidate cannot progress even with valid checkpoint bytes|a lost controller receipt or multiple job bindings cannot authorize continuation|a self-consistent forged train step disagrees with the actual external receipt and blocks promotion|parent AbortSignal during an external fit records terminal cancellation and preserves staged evidence)$' test/process-loop.test.ts",project,1500,codex-sol,"2026-11-19T12:07:57.735Z",local_mutation,chore/commit-identity-unbrained
+  node --test --test-name-pattern='^SIGTERM mid-training' test/process-loop.test.ts,project,300,codex-sol,"2026-11-19T12:10:51.413Z",local_mutation,chore/commit-identity-unbrained
+body: ""

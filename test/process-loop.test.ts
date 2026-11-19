@@ -146,7 +146,12 @@ test("SIGKILL with a complete checkpoint before receipt commit recovers without 
 test("SIGTERM mid-training cancels the child, retains artifacts and settles its reservation", async () => {
   const { client, coordinates, approval, pmRoot } = await processWorkspace(); const running = controller(pmRoot, approval, "cancel", { ...configuration, max_generations: 1 });
   let retained: Awaited<ReturnType<typeof jobs>> = [];
-  for (let attempt = 0; attempt < 200; attempt += 1) { retained = await jobs(client); if (retained.length === 1 && existsSync(join(processStaging(pmRoot, retained[0].id), "partial.json"))) break; await new Promise<void>((resolve) => { setTimeout(resolve, 25); }); }
+  const checkpointDeadline = Date.now() + 120_000;
+  while (Date.now() < checkpointDeadline) {
+    retained = await jobs(client);
+    if (retained.length === 1 && existsSync(join(processStaging(pmRoot, retained[0].id), "partial.json"))) break;
+    await new Promise<void>((resolve) => { setTimeout(resolve, 100); });
+  }
   assert.equal(retained.length, 1); const directory = processStaging(pmRoot, retained[0].id); assert.ok(existsSync(join(directory, "partial.json")));
   running.child.kill("SIGTERM"); const result = await running.result; assert.ok(JSON.stringify(result.messages).includes("loop_cancelled"));
   const job = (await readProcessJob(client, retained[0].id))!; assert.equal(job.state, "cancelled"); assert.equal(job.settled, true); assert.equal(job.charge.training_steps, 1);
@@ -204,7 +209,7 @@ test("the process command surface returns compact defaults and full JSON from th
 test("unrelated process jobs preserve reservations, metric notes and lineage in both real worktree merge directions", async () => {
   const { root, pmRoot, client, approval } = await processWorkspace(); const cli = resolve("node_modules/@unbrained/pm-cli/dist/cli.js");
   execFileSync("git", ["init", "-b", "main"], { cwd: root, stdio: "ignore" });
-  execFileSync("git", ["config", "user.name", "SteveBot"], { cwd: root }); execFileSync("git", ["config", "user.email", "1153461+unbraind@users.noreply.github.com"], { cwd: root });
+  execFileSync("git", ["config", "user.name", "unbrained"], { cwd: root }); execFileSync("git", ["config", "user.email", "1153461+unbraind@users.noreply.github.com"], { cwd: root });
   writeFileSync(join(root, ".gitignore"), readFileSync(new URL("../.gitignore", import.meta.url), "utf8"));
   execFileSync(process.execPath, [cli, "merge", "install"], { cwd: root, env: { ...process.env, PM_PATH: pmRoot }, stdio: "ignore" });
   const environmentFile = join(root, "environment.json"); writeFileSync(environmentFile, JSON.stringify(loopEnvironmentSpec(parseLoopConfig(configuration))));

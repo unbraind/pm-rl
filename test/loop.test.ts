@@ -865,7 +865,7 @@ test("an invalid transaction identity propagates rather than being recorded as a
 test("two simultaneous Git worktree loops preserve every item, metric and history in both merge directions", async () => {
   const { root, pmRoot, client, harness } = await workspace();
   execFileSync("git", ["init", "-b", "main"], { cwd: root });
-  execFileSync("git", ["config", "user.name", "SteveBot"], { cwd: root });
+  execFileSync("git", ["config", "user.name", "unbrained"], { cwd: root });
   execFileSync("git", ["config", "user.email", "1153461+unbraind@users.noreply.github.com"], { cwd: root });
   writeFileSync(join(root, ".gitignore"), readFileSync(join(process.cwd(), ".gitignore"), "utf8"));
   execFileSync("pm", ["merge", "install"], { cwd: root });
