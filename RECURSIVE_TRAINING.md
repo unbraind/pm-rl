@@ -2,6 +2,48 @@
 
 Status: the persisted bounded loop is implemented as `pm rl loop run` ([`pm-rl-hjg1`](.agents/pm/features/pm-rl-hjg1.toon)): one command executes collect → train → evaluate → compare against the promoted baseline → promote or reject over the built-in deterministic contextual bandit, records every generation as real tracker items (a collection Run with per-sample metric notes, a Generation item with the derived configuration and full provenance, refusal reasons as item history), promotes only through the existing transactional contamination- and budget-checked gate, derives the next generation's learning rate and evaluation episode count deterministically from the previous evaluation results, and terminates on its own hard bounds — generation limit, total sample budget, unchanged checkpoint, training-to-evaluation gap above `maximum_gap`, statistical gate refusal, or an exhausted approved promotion budget. Durable continuation is implemented in [pm-rl-od32](.agents/pm/features/pm-rl-od32.toon): SDK controller leases, shared worktree launch authority, persisted replay, status/resume commands and signal recovery. [pm-rl-qhz2](.agents/pm/features/pm-rl-qhz2.toon) adds real per-question temperature/bias gradient updates over a frozen System One model; [pm-rl-ip21](.agents/pm/features/pm-rl-ip21.toon) records CPU-only live tev1 generations with retained canonical checkpoints, per-query PM receipts and a 15-minute whole-run deadline. See [the measured adapter contract](docs/durable-systemone-validation.md). [pm-rl-upe0](.agents/pm/features/pm-rl-upe0.toon) adds a real bounded TypeScript causal LM with frozen copy-pretrained weights, REINFORCE LoRA updates, canonical disk checkpoints and verified successor collection. [LM validation](docs/lm-adapter.md) records three real CLI generations and held-out improvement; criterion 2 is met for this CPU adapter. Opted-in remote endpoint receipts recover the HTTP-to-PM commit window in [pm-rl-9nlg](.agents/pm/issues/pm-rl-9nlg.toon). [pm-rl-shgm](.agents/pm/features/pm-rl-shgm.toon) implements the durable local process bandit adapter, staged crash-safe completion receipts and atomic approved resource reservations. [Process validation](docs/process-trainer.md) records two external generations. [pm-rl-mjo5](.agents/pm/tasks/pm-rl-mjo5.toon) adds Docker Compose execution of the same process contract, with real container death, cancellation, contention and two-generation successor drills.
 
+## Budget authority at the first collection
+
+The controller writes the canonical SDK Decision ID to
+`training_config.governing_approval` when it registers a new seed, under the
+programme lease. An interrupted first collection can therefore resume against
+its original allowance even before there is a trainer reservation or promotion.
+Run and resume compare the current binding with the seed’s creation revision.
+Editing or removing the binding returns `loop_seed_drift`. Presenting another
+Decision returns `loop_approval_mismatch`, even when both Decisions declare
+identical limits. A short ID and its canonical form spend the same allowance
+and produce the same durable promotion receipt. Seeds created before this field
+retain their original identity and historical reservation and promotion checks.
+
+| Existing execution step | Implementation | Real test |
+| --- | --- | --- |
+| Collect from the accepted parent and carry its checkpoint into the next generation | `index.ts` (`executeLoopProgramme`, `verifyLoopRun`), `loop.ts` | `test/process-loop.test.ts` checks the successor Run against the promoted checkpoint |
+| Train outside the controller and validate staged checkpoint bytes | `process.ts` (`executeProcessTrainer`, `validateProcessCompletion`), `compose.ts` | `test/compose.test.ts`, `test/lm-compose.test.ts` |
+| Reserve resource limits once and recover interrupted work | `process.ts` (`reserveProcessJob`), `index.ts` (`durableLoopStep`) | `test/process-loop.test.ts` exercises contention, SIGKILL and cancellation |
+| Evaluate held-out outcomes and decide promotion | `loop.ts` (`loopPromotionScores`), `promotion.ts` (`decidePromotion`), `index.ts` (transactional promotion) | `test/promotion.test.ts`, `test/process-loop.test.ts` cover statistical, gap and budget refusals |
+
+Three independent bounded runs used the public `unbraind/pm-ops` tracker at
+`eba7d5262fd75e67afce0caad29dae7dc7dfbaeb` and `examples/loop-corpus.json`.
+Each stopped after its first collection, refused a second Decision with zero
+reservations, and resumed with the original Decision. Each promoted generation
+one and collected generation two using that exact checkpoint. In the first
+two runs the second fit hit `process_limit_exceeded`, retained its failed job,
+and charged the reserved eight updates and 5,000 ms.
+
+The third run completed both generations with the same bounds. It stopped at
+the generation limit after 512 collection samples. A further resume verified
+both jobs and checkpoint identities without spending again.
+
+| Generation | Promoted checkpoint SHA-256 | Sampled held-out mean | Updates charged | Wall time charged |
+| --- | --- | ---: | ---: | ---: |
+| 1 | `2df645949b852625c2acdc20bf5232620cac8c87d1ab1f8f85c4221da14ac605` | 0.597650 | 8 | 2,421 ms |
+| 2 | `3e31b06286e99d6b3d73486216f98f0c6d519228cac4bcbefc56f4945c292863` | 0.685825 | 8 | 1,576 ms |
+
+The durable source digest matched before and after all three runs. The fixture
+has 105 training and 41 held-out items, including 36 closed held-out items.
+The always-closed baseline scores 36/41. These scores measure progress over the
+seed on this finite corpus. [Corpus and evaluation details](docs/tracker-loop.md).
+
 ## Durable local continuation
 
 Real tracker snapshots can now enter the same controller through

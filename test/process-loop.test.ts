@@ -7,9 +7,9 @@ import { join, resolve } from "node:path";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { test } from "node:test";
-import extension, { resumeRlLoop, rlLoopStatus, runRlLoop, hashJson, type JsonValue } from "../index.ts";
+import extension, { resumeRlLoop, rlLoopStatus, runRlLoop, hashJson, extractGenerationSpec, registerGenerationCore, type JsonValue } from "../index.ts";
 import { readProcessJob, processStaging, executeProcessTrainer } from "../process.ts";
-import { loopEnvironmentSpec, parseLoopConfig, banditProcessInput, runLoopGeneration } from "../loop.ts";
+import { loopEnvironmentSpec, parseLoopConfig, seedTrainingConfig, banditProcessInput, runLoopGeneration } from "../loop.ts";
 import { banditCheckpoint } from "../bandit.ts";
 import { configuration, processWorkspace } from "./fixtures/process-workspace.ts";
 // Node's parent coverage hooks remain active; SIGKILL-able children must not inherit its raw-report directory.
@@ -29,6 +29,75 @@ async function jobs(client: Awaited<ReturnType<typeof processWorkspace>>["client
   const listed = await client.listAllComplete({ includeBody: true });
   return listed.items.filter((item) => String(item.body).includes('"format":"pm-rl/process-job/1"')).map((item) => JSON.parse(String(item.body)) as { id: string; state: string; charge: { training_steps: number }; settled: boolean });
 }
+
+test("seed budget authority survives cancellation before the first reservation", async () => {
+  const { client, coordinates, approval, pmRoot } = await processWorkspace();
+  const id = "bound-budget";
+  const original = await client.get(approval);
+  const { item: alternate } = await client.create({ id: "alternate", type: "Decision", title: "Separate allowance", body: String(original.item.body) });
+  const cancellation = new AbortController();
+  await assert.rejects(runRlLoop(client, coordinates, {
+    id, config: configuration, approval: "approval", signal: cancellation.signal,
+    onPhase(phase) { if (phase === "collect") cancellation.abort(); },
+  }), { context: { code: "loop_cancelled" } });
+  const seed = await client.get(`${id}-seed`);
+  const collected = await client.notes(`${id}-g1-collect`, { outputLimit: "unbounded", outputBudget: "unbounded" });
+  for (const attempt of [
+    () => resumeRlLoop(client, coordinates, { id, approval: alternate.id }),
+    () => runRlLoop(client, coordinates, { id, config: configuration, approval: alternate.id }),
+  ]) await assert.rejects(attempt(), { context: { code: "loop_approval_mismatch" } });
+  assert.equal((extractGenerationSpec(String(seed.item.body), "Seed").training_config as Record<string, JsonValue>).governing_approval, approval);
+  const seedBody = String(seed.item.body);
+  await client.update(seed.item.id, { body: seedBody.replace('"governing_approval"', '"removed_binding"') });
+  await assert.rejects(resumeRlLoop(client, coordinates, { id, approval: alternate.id }), { context: { code: "loop_seed_drift" } });
+  await client.update(seed.item.id, { body: seedBody });
+  assert.deepEqual(await jobs(client), []);
+  assert.deepEqual(await client.notes(`${id}-g1-collect`, { outputLimit: "unbounded", outputBudget: "unbounded" }), collected);
+  assert.equal((await rlLoopStatus(client, id, pmRoot)).promoted, 0);
+  const resumed = await resumeRlLoop(client, coordinates, { id, approval });
+  assert.equal(resumed.promoted, 2);
+  assert.equal((await client.get(resumed.generations[1].run)).item.component, resumed.generations[0].candidate_checkpoint);
+  const retained = await jobs(client);
+  assert.equal(retained.length, 2);
+  assert.ok(retained.every(job => job.settled && job.charge.training_steps === 1));
+  assert.equal((await resumeRlLoop(client, coordinates, { id, approval: "approval" })).final_checkpoint, resumed.final_checkpoint);
+  assert.deepEqual(await jobs(client), retained);
+});
+
+test("unbound historical seed retains its original identity on resume", async () => {
+  const { client, coordinates, approval } = await processWorkspace();
+  const id = "historical-budget";
+  const config = parseLoopConfig({ ...configuration, max_generations: 1 });
+  const checkpoint = banditCheckpoint(config.initialWeight);
+  const seed = await registerGenerationCore(client, { id: `${id}-seed`, baseCheckpoint: checkpoint.digest, parent: null,
+    policy: checkpoint.digest, collectionRuns: [], environment: undefined, config: seedTrainingConfig(config) });
+  const before = await client.get(seed.id!);
+  assert.notEqual(approval, "approval");
+  const first = await resumeRlLoop(client, coordinates, { id, approval: "approval" });
+  assert.equal(first.promoted, 1);
+  const promotion = await client.get(`${id}-g1-step-promote`);
+  assert.equal(JSON.parse(String(promotion.item.body)).input, hashJson({
+    input: {
+      programme: config.digest, generation: 1, source: checkpoint.digest,
+      step: { learningRate: config.learningRate, evaluationSamples: config.evaluationSamples },
+    },
+    approval: "approval",
+  }));
+  const reservations = await jobs(client);
+  const replay = await resumeRlLoop(client, coordinates, { id, approval: "approval" });
+  assert.equal(replay.resumed_generations, 1);
+  assert.equal(replay.final_checkpoint, first.final_checkpoint);
+  assert.deepEqual(await jobs(client), reservations);
+  const originalDecision = await client.get(approval);
+  const { item: alternate } = await client.create({ id: "other-budget", type: "Decision", title: "Separate allowance", body: String(originalDecision.item.body) });
+  await assert.rejects(resumeRlLoop(client, coordinates, { id, approval: alternate.id }), {
+    context: { code: "loop_approval_mismatch" }, message: /generation 1 was promoted under approval/,
+  });
+  assert.deepEqual(await jobs(client), reservations);
+  const after = await client.get(seed.id!);
+  assert.equal(after.item.affected_version, before.item.affected_version);
+  assert.equal(after.item.body, before.item.body);
+});
 
 test("two process generations collect with the externally trained promoted successor", async () => {
   const { client, coordinates, approval, pmRoot } = await processWorkspace();
