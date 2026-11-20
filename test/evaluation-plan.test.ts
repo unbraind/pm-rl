@@ -190,6 +190,66 @@ test("reward magnitude and offset preserve tie refusals, powered controls and ef
   }
 });
 
+test("raw aggregate means round only after equal-unit averaging", () => {
+  const minimum = Number.MIN_VALUE;
+  const cases = [
+    { bounds: [-1e16, 0], units: ["a"], candidate: [-1], incumbent: [0], expected: [-1, 0] },
+    { bounds: [0, 1e16], units: ["a"], candidate: [1], incumbent: [0], expected: [1, 0] },
+    { bounds: [-1e16, 1e16], units: ["a", "a", "a"], candidate: [1e16, 3, -1e16], incumbent: [0, 0, 0], expected: [1, 0] },
+    { bounds: [-1e16, 0], units: ["a", "b", "b", "b"], candidate: [-1, -1, -2, -3], incumbent: [0, 0, 0, 0], expected: [-1.5, 0] },
+    { bounds: [0, Number.MAX_VALUE], units: ["a", "a"], candidate: [Number.MAX_VALUE, Number.MAX_VALUE], incumbent: [1, 1 + Number.EPSILON], expected: [Number.MAX_VALUE, 1] },
+    { bounds: [-8 * minimum, 8 * minimum], units: ["a", "a"], candidate: [minimum, 2 * minimum], incumbent: [-minimum, -2 * minimum], expected: [2 * minimum, -2 * minimum] },
+    { bounds: [0, 8 * minimum], units: ["a", "a", "a"], candidate: [minimum, minimum, 0], incumbent: [minimum, 0, 0], expected: [minimum, 0] },
+  ];
+  for (const { bounds, units, candidate, incumbent, expected } of cases) {
+    const members = units.map((unit, index) => ({ id: `m-${index}`, unit }));
+    const p = plan({ mean_method: "raw-float64/1", reward_bounds: [bounds[0], bounds[1]], members,
+      stopping: { kind: "fixed", observations: members.length, independent_units: new Set(units).size } });
+    const rows = members.map(({ id }, index) => ({ id, candidate: candidate[index], incumbent: incumbent[index] }));
+    const report = evaluatePlan(p, rows);
+    assert.deepEqual([report.candidate_mean, report.incumbent_mean], expected);
+    assert.deepEqual(evaluatePlan(p, [...rows].reverse()), report);
+  }
+  assert.throws(() => parseEvaluationPlan({ ...plan(), mean_method: "raw-float64/2" }), refusal("eval_plan_invalid"));
+});
+
+test("legacy fixed seals and exact held-out score verification preserve the released mean", async () => {
+  const w = await workspace();
+  const legacy = plan({ reward_bounds: [-1e16, 0] });
+  const registered = await registerEvaluationPlan(w.client, legacy);
+  const rows = legacy.members.map(({ id }) => ({ id, candidate: -1, incumbent: -1e16 }));
+  rows.sort((a, b) => a.id < b.id ? -1 : 1);
+  await generation(w.client, legacy.candidate, { ...spec("rl-seed"), evaluation_plan: registered.comparison });
+  const result = { comparison: registered.comparison, observations: rows };
+  const id = `${registered.id}-result`;
+  await w.client.create({ id, type: "Decision", title: "Historical evaluation", body: JSON.stringify(result), affectedVersion: hashJson(result) });
+  const before = (await readCompleteLoopItem(w.client, id)).item;
+  const legacyReport = (await readEvaluationDecision(w.client, legacy.candidate)).report!;
+  assert.equal(legacyReport.candidate_mean, 0);
+  assert.equal(legacyReport.verdict.decision, "promote");
+  const held = score({ seed_set: registered.comparison, scale: 1e16, value: 0 });
+  await enforceEvaluationPlan(w.client, legacy.candidate, held);
+  await assert.rejects(enforceEvaluationPlan(w.client, legacy.candidate, { ...held, value: -1 }), refusal("eval_plan_evidence"));
+  assert.deepEqual(await recordPlanEvaluation(w.client, legacy.candidate, rows), legacyReport);
+  assert.deepEqual((await readCompleteLoopItem(w.client, id)).item, before);
+});
+
+test("a raw aggregate plan binds the corrected held-out score at registration", async () => {
+  const w = await workspace();
+  const legacy = plan({ reward_bounds: [-1e16, 0] });
+  const p = { ...legacy, mean_method: "raw-float64/1" } as const;
+  const registered = await registerEvaluationPlan(w.client, p);
+  assert.notEqual(registered.comparison, evaluationComparison(legacy));
+  await generation(w.client, p.candidate, { ...spec("rl-seed"), evaluation_plan: registered.comparison });
+  const rows = p.members.map(({ id }) => ({ id, candidate: -1, incumbent: -1e16 }));
+  const report = await recordPlanEvaluation(w.client, p.candidate, rows);
+  assert.equal(report.candidate_mean, -1);
+  assert.deepEqual((await readEvaluationDecision(w.client, p.candidate)).report, report);
+  const held = score({ seed_set: registered.comparison, scale: 1e16, value: -1 });
+  await enforceEvaluationPlan(w.client, p.candidate, held);
+  await assert.rejects(enforceEvaluationPlan(w.client, p.candidate, { ...held, value: 0 }), refusal("eval_plan_evidence"));
+});
+
 test("real SDK plan reservation, single evaluation and promotion checks work without git", async () => {
   const w = await workspace(); const p = plan();
   const registered = await registerEvaluationPlan(w.client, p);

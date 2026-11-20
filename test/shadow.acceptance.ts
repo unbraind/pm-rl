@@ -1,8 +1,9 @@
 /** Public-tracker acceptance with aggregate-only receipts and an independently read-only source. */
 import assert from "node:assert/strict";
+import { identityPath } from "./fixtures/identity-path.ts";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync, mkdirSync, symlinkSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
@@ -24,19 +25,18 @@ function fingerprint(root: string): { digest: string; files: number } {
   }
   walk(""); return { digest: digest.digest("hex"), files };
 }
-const [source, output, commit, archive] = process.argv.slice(2).map((value) => value);
+const [source, output, commit, archive, repository = "unbraind/pm-context"] = process.argv.slice(2);
 assert.match(commit, /^[a-f0-9]{40}$/); const before = fingerprint(source);
-const sourceClient = new PmClient({ pmRoot: source, noExtensions: true });
+const sourceClient = new PmClient({ cwd: dirname(resolve(source)), pmRoot: resolve(source), author: "shadow-acceptance", noExtensions: true });
 const corpus = (await sourceClient.listAllComplete({ includeBody: false })).items;
 const selected = [...corpus].sort((a, b) => String(a.id).localeCompare(String(b.id))).slice(0, 20);
 assert.equal(selected.length, 20);
 const root = mkdtempSync(join(tmpdir(), "shadow-acceptance-")); const cli = resolve("node_modules/@unbrained/pm-cli/dist/cli.js");
-const initialized = await init("rl", { defaults: true, author: "shadow-acceptance", agentGuidance: "skip" }, { cwd: root });
-const commandEnv: NodeJS.ProcessEnv = { ...process.env, PM_PATH: initialized.path, PM_AUTHOR: "shadow-acceptance", GIT_CEILING_DIRECTORIES: dirname(root) };
-const bin = join(root, "bin"); mkdirSync(bin); symlinkSync(process.execPath, join(bin, "node")); commandEnv.PATH = bin;
-process.env.GIT_CEILING_DIRECTORIES = dirname(root); process.env.PATH = bin;
+const initialized = await init("rl", { defaults: true, author: "shadow-acceptance", agentGuidance: "skip" }, { cwd: root, pmRoot: join(root, ".agents/pm") });
+const commandEnv: NodeJS.ProcessEnv = { ...process.env, PM_PATH: initialized.path, PM_AUTHOR: "shadow-acceptance", GIT_CEILING_DIRECTORIES: dirname(root), NODE_V8_COVERAGE: undefined };
+commandEnv.PATH = identityPath(root);
 execFileSync(process.execPath, [cli, "package", "install", resolve(archive), "--project", "--json"], { cwd: root, env: commandEnv, stdio: "pipe" });
-const client = new PmClient({ pmRoot: initialized.path, author: "shadow-acceptance", noExtensions: true });
+const client = new PmClient({ cwd: root, pmRoot: initialized.path, author: "shadow-acceptance", noExtensions: true });
 for (const name of ["Generation", "Run"]) await client.schemaAddType(name, { folder: `${name.toLowerCase()}s`, defaultStatus: "open" });
 const active = { event: "open" }; const candidate = { event: "closed" };
 const seed: GenerationSpec = { base_checkpoint: "active-policy", policy: "", collection_runs: [], training_config: { shadow_policy: hashJson(active) }, environment_version: "", reward_spec_version: "", parent: null, seed: true, promoted: false, approval: null, proxy_score: null, held_out_score: null, gap: null, promotion_evidence: null };
@@ -44,7 +44,7 @@ await client.create({ id: "rl-seed", type: "Generation", title: "Active routing 
 const inputs = Object.fromEntries(selected.map((item) => [hashJson(String(item.id)), shadowInputDigest("event")]));
 const deployment: ShadowDeployment = { format: "pm-rl/shadow/1", consent: "rl-consent", generation: "rl-candidate", incumbent: "rl-seed", active, candidate, inputs, budget: { active_calls: selected.length, candidate_calls: selected.length } };
 await client.create({ id: "rl-consent", type: "Decision", title: "Public input shadow consent", body: JSON.stringify({ format: "pm-rl/shadow-consent/1", deployment: hashJson(deployment as unknown as JsonValue) }) });
-const plan: EvaluationPlan = { format: "pm-rl/evaluation-plan/1", candidate: "rl-candidate", incumbent: "rl-seed", incumbent_version: hashJson(generationProvenance(seed)), population: `Public unbraind/pm-context tracker at ${commit}`, selection: "First 20 item ids in sorted complete snapshot; no outcome filtering", correlation_unit: "public repository", members: Object.keys(inputs).map((id) => ({ id, unit: "public-repository" })), objective: "closed_status_accuracy", objective_version: "constant-classifiers/1", evaluation_context: hashJson(selected.map((item) => ({ id: item.id, status: item.status })) as JsonValue), direction: "maximize", reward_bounds: [0, 1], criterion: { confidence: 0.95, minSamples: 10, effectThreshold: 0.01 }, stopping: { kind: "fixed", observations: selected.length, independent_units: 1 } };
+const plan: EvaluationPlan = { format: "pm-rl/evaluation-plan/1", mean_method: "raw-float64/1", candidate: "rl-candidate", incumbent: "rl-seed", incumbent_version: hashJson(generationProvenance(seed)), population: `Public ${repository} tracker at ${commit}`, selection: "First 20 item ids in sorted complete snapshot; no outcome filtering", correlation_unit: "public repository", members: Object.keys(inputs).map((id) => ({ id, unit: "public-repository" })), objective: "closed_status_accuracy", objective_version: "constant-classifiers/1", evaluation_context: hashJson(selected.map((item) => ({ id: item.id, status: item.status })) as JsonValue), direction: "maximize", reward_bounds: [0, 1], criterion: { confidence: 0.95, minSamples: 10, effectThreshold: 0.01 }, stopping: { kind: "fixed", observations: selected.length, independent_units: 1 } };
 const config = join(root, "deployment.json"); writeFileSync(config, JSON.stringify({ deployment, plan }));
 /** Invoke the packed command surface in a plain tracker with no Git executable. */
 function command(args: string[]): string { return execFileSync(process.execPath, [cli, "rl", "shadow", ...args], { cwd: root, env: commandEnv, encoding: "utf8" }); }
@@ -64,10 +64,13 @@ for (const [i, item] of selected.entries()) {
     const serialized = command(["observe", "rl-candidate", "--file", inputFile, "--json"]); jsonBytes = Buffer.byteLength(serialized); assert.match(serialized, /active_action/);
   }
 }
-const report = await compareShadow(client, "rl-candidate"); const cliJson = command(["compare", "rl-candidate", "--json"]); const toon = command(["compare", "rl-candidate"]);
+const cliJson = command(["compare", "rl-candidate", "--json"]);
+const report = await compareShadow(client, "rl-candidate");
+const toon = command(["compare", "rl-candidate"]);
+assert.deepEqual(JSON.parse(cliJson).details, report);
 assert.equal(report.candidate_failures, 0); assert.equal(report.observations, 20); assert.equal(report.outcome?.independent_units, 1); assert.equal(report.outcome?.verdict.decision, "refuse");
 const score: ScoreRecord = { objective: plan.objective, objective_version: plan.objective_version, evaluation_context: plan.evaluation_context, seed_set: reservation.comparison, direction: "maximize", scale: 1, value: report.outcome!.candidate_mean };
 let code = "";
 try { await enforceEvaluationPlan(client, "rl-candidate", score); assert.fail("Single tracker must not authorize deployment"); } catch (error) { assert.ok(isPmCliExpectedError(error)); code = String(error.context.code); assert.equal(code, "eval_plan_refused"); }
 assert.deepEqual(fingerprint(source), before); assert.equal(unchangedActive, 20);
-writeFileSync(output, `${JSON.stringify({ format: "pm-rl/shadow-evidence/1", source: { repository: "unbraind/pm-context", commit, license: "MIT", tracker_files: before.files, digest_before: before.digest, digest_after: before.digest }, complete_items: corpus.length, selected_items: selected.length, closed_items: closed, open_or_other_items: selected.length - closed, active_actions_preserved: unchangedActive, observations: report.observations, disagreements: report.disagreements, candidate_failures: report.candidate_failures, reserved_calls: registered.details.reserved_calls, charged: report.charged, independent_units: report.outcome?.independent_units, active_mean: report.outcome?.incumbent_mean, candidate_mean: report.outcome?.candidate_mean, promotion_refusal: code, promotion_performed: false, non_git: true, git_absent_from_path: true, output_bytes: { observation_json: jsonBytes, comparison_json: Buffer.byteLength(cliJson), comparison_toon: Buffer.byteLength(toon) } }, null, 2)}\n`);
+writeFileSync(output, `${JSON.stringify({ format: "pm-rl/shadow-evidence/1", source: { repository, commit, license: "MIT", tracker_files: before.files, digest_before: before.digest, digest_after: before.digest }, complete_items: corpus.length, selected_items: selected.length, closed_items: closed, open_or_other_items: selected.length - closed, active_actions_preserved: unchangedActive, observations: report.observations, disagreements: report.disagreements, candidate_failures: report.candidate_failures, reserved_calls: registered.details.reserved_calls, charged: report.charged, independent_units: report.outcome?.independent_units, active_mean: report.outcome?.incumbent_mean, candidate_mean: report.outcome?.candidate_mean, promotion_refusal: code, promotion_performed: false, non_git: true, git_absent_from_path: true, output_bytes: { observation_json: jsonBytes, comparison_json: Buffer.byteLength(cliJson), comparison_toon: Buffer.byteLength(toon) } }, null, 2)}\n`);

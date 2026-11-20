@@ -6,12 +6,24 @@ status: open
 priority: 3
 tags: []
 created_at: "2026-11-20T05:22:12.394Z"
-updated_at: "2026-11-20T06:26:55.874Z"
+updated_at: "2026-11-20T16:01:43.441Z"
 author: codex-sol
 acceptance_criteria: "All three standalone fixtures (evaluation-plan.acceptance.ts, worst-cohort.acceptance.ts and shadow.acceptance.ts) pass when run against a packed extension and an immutable public tracker snapshot, with Git absent from the CLI PATH."
 parent: pm-rl-apvf
-files[3]{path,scope}:
+comments[3]{created_at,author,text}:
+  "2026-11-20T15:46:34.705Z",codex-sol,Round FB is replaying the three standalone fixtures against a packed extension and an immutable public tracker. The CLI PATH will contain Node only.
+  "2026-11-20T15:50:52.156Z",codex-sol,"Root cause: the evaluation fixture used a repository unit with a colon and slash, and the cohort and shadow fixtures omitted the native process-birth tool (getconf on Linux) from PATH. Reused the platform identity helper. First packed Node 26 run passed all three against the archived read-only public commit 4e83f2c26e93558ca8f43e6b5e39c7d3c22e9581. The Node 26 release-checks job now invokes the same replay on code changes."
+  "2026-11-20T16:01:31.003Z",codex-sol,"Node 26.13.0 passed the fixed-plan, protected-cohort and shadow packed commands with Git absent throughout the CLI PATH, including package install. The source snapshot at 4e83f2c26e93558ca8f43e6b5e39c7d3c22e9581 contained 149 items, remained read-only and kept the same digest. The workflow contract tests passed 6 of 6."
+files[6]{path,scope}:
+  .github/workflows/ci.yml,project
+  test/ci-workflow.test.ts,project
   test/evaluation-plan.acceptance.ts,project
+  test/public-evaluation-acceptance.sh,project
   test/shadow.acceptance.ts,project
   test/worst-cohort.acceptance.ts,project
+tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  bash test/public-evaluation-acceptance.sh,project,codex-sol,"2026-11-20T15:52:53.972Z",local_mutation,fix/acceptance-fixtures-and-aggregate-precision
+  node --test test/ci-workflow.test.ts,project,codex-sol,"2026-11-20T15:53:02.797Z",local_mutation,fix/acceptance-fixtures-and-aggregate-precision
+docs[1]{path,scope}:
+  README.md,project
 body: ""

@@ -6,11 +6,23 @@ status: open
 priority: 3
 tags: []
 created_at: "2026-11-20T05:15:17.782Z"
-updated_at: "2026-11-20T05:15:17.782Z"
+updated_at: "2026-11-20T16:01:53.285Z"
 author: codex-sol
 acceptance_criteria: Retain representable aggregate means on extreme bounds and demonstrate compatibility for sealed scores and sequential evidence.
 parent: pm-rl-apvf
-files[2]{path,scope}:
+comments[3]{created_at,author,text}:
+  "2026-11-20T15:46:36.976Z",codex-sol,Round FB is tracing aggregate mean reconstruction and the sealed-score and sequential verification paths before changing reward arithmetic.
+  "2026-11-20T15:51:01.974Z",codex-sol,"Root cause: converting each arm to a normalized float can round away an observation near the far endpoint, then reconstruction cannot recover it. The declared raw-float64/1 method computes equal-weight unit means directly from binary64 rewards and rounds once. The comparison hash binds the method. Omitted methods retain the released arithmetic for exact score binding, shadow and sequential replay."
+  "2026-11-20T16:01:35.189Z",codex-sol,"Five focused regressions passed, including -1 versus 0 at bounds [-1e16, 0], cancellation, unequal units, binary64 rounding and exact score enforcement on fixed and sequential plans. Packed replay of a checkpoint created at 4e83f2c26e93558ca8f43e6b5e39c7d3c22e9581 reproduced the receipt byte for byte. The packed released fixture preserved the fixed report and declaration and accepted the original score for promotion. Full local coverage and the complete touched suites are running."
+files[5]{path,scope}:
   evaluation-plan.ts,project
   sequential-evaluation.ts,project
+  test/evaluation-plan.test.ts,project
+  test/sequential-evaluation.test.ts,project
+  test/worst-cohort.test.ts,project
+tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test --test-concurrency=2 test/evaluation-plan.test.ts test/worst-cohort.test.ts test/sequential-evaluation.test.ts test/ci-workflow.test.ts,project,codex-sol,"2026-11-20T15:53:29.415Z",local_mutation,fix/acceptance-fixtures-and-aggregate-precision
+  npm run coverage,project,codex-sol,"2026-11-20T15:53:37.941Z",local_mutation,fix/acceptance-fixtures-and-aggregate-precision
+docs[1]{path,scope}:
+  README.md,project
 body: ""

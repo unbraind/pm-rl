@@ -3,7 +3,7 @@ import { identityPath } from "./fixtures/identity-path.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync, mkdirSync, symlinkSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { PmClient } from "@unbrained/pm-cli/sdk/core";
@@ -37,8 +37,8 @@ const root = mkdtempSync(join(tmpdir(), "rl-plan-acceptance-"));
 process.env.GIT_CEILING_DIRECTORIES = dirname(root);
 const initialized = await init("rl", { defaults: true, author: "evaluation-acceptance", agentGuidance: "skip" }, { cwd: root, pmRoot: join(root, ".agents/pm") });
 const commandEnv: NodeJS.ProcessEnv = { ...process.env, NODE_V8_COVERAGE: undefined, PM_PATH: initialized.path, PM_AUTHOR: "evaluation-acceptance" };
-execFileSync(process.execPath, [cli, "package", "install", archive, "--project", "--json"], { cwd: root, env: commandEnv, stdio: "pipe" });
 commandEnv.PATH = identityPath(root);
+execFileSync(process.execPath, [cli, "package", "install", archive, "--project", "--json"], { cwd: root, env: commandEnv, stdio: "pipe" });
 /** Exercise the installed CLI with no Git executable, capturing bounded machine output. */
 function command(args: string[]): string { return execFileSync(process.execPath, [cli, "rl", "eval", "plan", ...args], { cwd: root, env: commandEnv, encoding: "utf8" }); }
 const client = new PmClient({ pmRoot: initialized.path, cwd: root, author: "evaluation-acceptance", noExtensions: true });
@@ -46,8 +46,8 @@ for (const name of ["Generation", "Run"]) await client.schemaAddType(name, { fol
 const seed: GenerationSpec = { base_checkpoint: "constant-open-policy", policy: "", collection_runs: [], training_config: {}, environment_version: "", reward_spec_version: "", parent: null, seed: true, promoted: false, approval: null, proxy_score: null, held_out_score: null, gap: null, promotion_evidence: null };
 await client.create({ id: "rl-seed", type: "Generation", title: "Frozen baseline", body: `\`\`\`json\n${JSON.stringify(seed)}\n\`\`\``, affectedVersion: hashJson(generationProvenance(seed)) });
 const snapshot = hashJson(items.map((item) => ({ id: item.id!, status: item.status! })));
-const plan: EvaluationPlan = { format: "pm-rl/evaluation-plan/1", candidate: "rl-candidate", incumbent: "rl-seed", incumbent_version: hashJson(generationProvenance(seed)), population: `Public unbraind/pm-rl tracker at ${commit}`, selection: `Complete snapshot ${snapshot}; no outcome-based filtering`, correlation_unit: "repository (one fleet tracker; no cross-project independence assumed)",
-  members: items.map((item) => ({ id: hashJson(String(item.id)), unit: "repository:unbraind/pm-rl" })), objective: "closed_status_accuracy", objective_version: "constant-closed-vs-constant-open/1", evaluation_context: snapshot, direction: "maximize", reward_bounds: [0, 1], criterion: { confidence: 0.95, minSamples: 10, effectThreshold: 0 }, stopping: { kind: "fixed", observations: items.length, independent_units: 1 } };
+const plan: EvaluationPlan = { format: "pm-rl/evaluation-plan/1", mean_method: "raw-float64/1", candidate: "rl-candidate", incumbent: "rl-seed", incumbent_version: hashJson(generationProvenance(seed)), population: `Public unbraind/pm-rl tracker at ${commit}`, selection: `Complete snapshot ${snapshot}; no outcome-based filtering`, correlation_unit: "repository (one fleet tracker; no cross-project independence assumed)",
+  members: items.map((item) => ({ id: hashJson(String(item.id)), unit: "repository-unbraind-pm-rl" })), objective: "closed_status_accuracy", objective_version: "constant-closed-vs-constant-open/1", evaluation_context: snapshot, direction: "maximize", reward_bounds: [0, 1], criterion: { confidence: 0.95, minSamples: 10, effectThreshold: 0 }, stopping: { kind: "fixed", observations: items.length, independent_units: 1 } };
 const planFile = join(root, "plan.json"); writeFileSync(planFile, JSON.stringify(plan));
 const registration = JSON.parse(command(["register", "--file", planFile, "--json"])) as { id: string };
 const declared = (await readEvaluationPlan(client, plan.candidate))!; assert.equal(registration.id, declared.id);

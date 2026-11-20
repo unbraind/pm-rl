@@ -457,6 +457,38 @@ function finite(value: unknown): void {
   if (value !== null && typeof value === "object") for (const field of Object.values(value)) finite(field);
 }
 
+test("sequential checkpoints replay their sealed aggregate method and identical stopping bounds", async () => {
+  const w = await workspace();
+  const legacy = { ...plan(), reward_bounds: [-1e16, 0] } as const;
+  const raw = { ...plan("rl-raw-candidate"), reward_bounds: legacy.reward_bounds, mean_method: "raw-float64/1" } as const;
+  const reports = [];
+  for (const p of [legacy, raw]) {
+    await prepared(w.client, p);
+    const rows = p.members.slice(0, 16).map(({ id }) => ({ id, candidate: -1, incumbent: 0 }));
+    const initial = report(await recordSequentialEvaluation(w.client, p.candidate, rows));
+    assert.equal(initial.sequential?.state, "continue");
+    assert.equal(initial.candidate_mean, "mean_method" in p ? -1 : 0);
+    const checkpoint = (await readCompleteLoopItem(w.client, `${p.candidate}-evaluation-plan-look-1`)).item;
+    const resumed = (await readSequentialEvaluation(w.client, p.candidate))!;
+    assert.deepEqual(resumed, initial);
+    assert.deepEqual(await recordSequentialEvaluation(w.client, p.candidate, [...rows].reverse()), initial);
+    assert.deepEqual((await readCompleteLoopItem(w.client, checkpoint.id)).item, checkpoint);
+
+    const cumulative = [...rows, ...p.members.slice(16).map(({ id }) => ({ id, candidate: -1, incumbent: -1e16 }))];
+    const final = report(await recordSequentialEvaluation(w.client, p.candidate, cumulative));
+    assert.equal(final.sequential?.state, "sufficient");
+    assert.equal(final.candidate_mean, initial.candidate_mean);
+    assert.deepEqual(await readSequentialEvaluation(w.client, p.candidate), final);
+    const score: ScoreRecord = { objective: p.objective, objective_version: p.objective_version,
+      evaluation_context: p.evaluation_context, direction: p.direction, seed_set: final.comparison, scale: 1e16, value: final.candidate_mean };
+    await enforceEvaluationPlan(w.client, p.candidate, score);
+    await assert.rejects(enforceEvaluationPlan(w.client, p.candidate, { ...score, value: "mean_method" in p ? 0 : -1 }), refusal("eval_plan_evidence"));
+    reports.push(final);
+  }
+  assert.deepEqual(reports[0].sequential, reports[1].sequential);
+  assert.deepEqual(reports[0].verdict, reports[1].verdict);
+});
+
 test("strict sequential schemas reject sparse arrays, unknown choices, nonfinite values and changed order", () => {
   const p = plan(); assert.equal(p.stopping.kind, "sequential"); if (p.stopping.kind !== "sequential") return;
   const rule = p.stopping; const identity = evaluationComparison(p);

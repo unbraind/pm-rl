@@ -41,6 +41,8 @@ export interface EvaluationMember { readonly id: string; readonly unit: string }
 /** All statistical and cohort choices are frozen before the candidate and its collection runs exist. */
 export interface EvaluationPlan {
   readonly format: "pm-rl/evaluation-plan/1";
+  /** Version of the original-unit means bound to scores and shadow reports. */
+  readonly mean_method?: "raw-float64/1";
   /** Opt-in birth-witness ordering for new sequential designs; omitted plans retain legacy ordering. */
   readonly ordering?: "causal/1";
   /** Content identity of the consented online observation manifest, when deployed in shadow. */
@@ -165,9 +167,11 @@ function protectedCohorts(value: unknown, members: readonly EvaluationMember[], 
 }
 /** Validate the complete design once, including dense bounded cohorts and a declared stopping protocol. */
 export function parseEvaluationPlan(value: unknown, mode: ValidationMode = "read"): EvaluationPlan {
-  const optional = ["ordering", "shadow", "protected_cohorts", "max_unit_regression"].filter((key) => value !== null && typeof value === "object" && Object.hasOwn(value, key));
+  const optional = ["ordering", "shadow", "protected_cohorts", "max_unit_regression", "mean_method"].filter((key) => value !== null && typeof value === "object" && Object.hasOwn(value, key));
   const p = object(value, [...optional, "format", "candidate", "incumbent", "incumbent_version", "population", "selection", "correlation_unit", "members", "objective", "objective_version", "evaluation_context", "direction", "reward_bounds", "criterion", "stopping"]);
   if (p.format !== "pm-rl/evaluation-plan/1" || (p.direction !== "maximize" && p.direction !== "minimize")) refuse("eval_plan_invalid");
+  const hasMeanMethod = optional.includes("mean_method");
+  if (hasMeanMethod && p.mean_method !== "raw-float64/1") refuse("eval_plan_invalid");
   const candidate = label(p.candidate, "item", mode); const incumbent = label(p.incumbent, "item", mode);
   if (candidate === incumbent) refuse("eval_plan_invalid");
   if (!dense(p.members, 1, 10_000)) refuse("eval_plan_invalid");
@@ -186,7 +190,7 @@ export function parseEvaluationPlan(value: unknown, mode: ValidationMode = "read
   const b = p.reward_bounds;
   if (!Array.isArray(b) || b.length !== 2 || Array.from(b).some((v) => typeof v !== "number" || !Number.isFinite(v)) || b[0] >= b[1] || !Number.isFinite(b[1] - b[0])) refuse("eval_plan_invalid");
   if (optional.includes("max_unit_regression") && !validRegression(p.max_unit_regression, b as [number, number])) refuse("eval_plan_invalid");
-  const normalized: EvaluationPlan = { ...(optional.includes("max_unit_regression") ? { max_unit_regression: p.max_unit_regression as number } : {}), ...(!optional.includes("ordering") ? {} : { ordering: "causal/1" as const }), ...(!optional.includes("shadow") ? {} : { shadow: label(p.shadow) }), ...(!optional.includes("protected_cohorts") ? {} : { protected_cohorts: protectedCohorts(p.protected_cohorts, members, b as [number, number]) }), format: "pm-rl/evaluation-plan/1", candidate, incumbent, incumbent_version: label(p.incumbent_version), population: label(p.population), selection: label(p.selection), correlation_unit: label(p.correlation_unit), members,
+  const normalized: EvaluationPlan = { ...(hasMeanMethod ? { mean_method: "raw-float64/1" as const } : {}), ...(optional.includes("max_unit_regression") ? { max_unit_regression: p.max_unit_regression as number } : {}), ...(!optional.includes("ordering") ? {} : { ordering: "causal/1" as const }), ...(!optional.includes("shadow") ? {} : { shadow: label(p.shadow) }), ...(!optional.includes("protected_cohorts") ? {} : { protected_cohorts: protectedCohorts(p.protected_cohorts, members, b as [number, number]) }), format: "pm-rl/evaluation-plan/1", candidate, incumbent, incumbent_version: label(p.incumbent_version), population: label(p.population), selection: label(p.selection), correlation_unit: label(p.correlation_unit), members,
     objective: label(p.objective), objective_version: label(p.objective_version), evaluation_context: label(p.evaluation_context, "context", mode), direction: p.direction as EvaluationPlan["direction"],
     reward_bounds: [b[0] as number, b[1] as number], criterion: { confidence: c.confidence, minSamples: c.minSamples, effectThreshold: c.effectThreshold },
     stopping: sequential ? stopping as SequentialStopping : { kind: "fixed", observations: members.length, independent_units: units.size } };
@@ -376,6 +380,29 @@ function exact(value: number): Rational {
 }
 /** Add signed fractions without rounding before an inclusive threshold comparison. */
 function add(a: Rational, b: Rational): Rational { return rational(a.n * b.d + b.n * a.d, a.d * b.d); }
+const floatBits = new DataView(new ArrayBuffer(8));
+/** Express a finite binary64 reward as an exact signed count of smallest subnormals. */
+function floatUnits(value: number): bigint {
+  floatBits.setFloat64(0, value);
+  const bits = floatBits.getBigUint64(0);
+  const exponent = (bits >> 52n) & 0x7ffn;
+  const fraction = bits & ((1n << 52n) - 1n);
+  const magnitude = exponent === 0n ? fraction : (fraction | (1n << 52n)) << (exponent - 1n);
+  return value < 0 ? -magnitude : magnitude;
+}
+/** Round an exact mean to the nearest binary64 value, choosing the even significand at a tie. */
+function roundFloatMean(total: Rational, units: number): number {
+  const negative = total.n < 0n;
+  const magnitude = negative ? -total.n : total.n;
+  const denominator = total.d * BigInt(units);
+  const shift = Math.max(0, (magnitude / denominator).toString(2).length - 53);
+  const step = denominator << BigInt(shift);
+  const significand = magnitude / step;
+  const remainder = 2n * (magnitude % step);
+  const rounded = remainder > step || (remainder === step && significand % 2n === 1n) ? significand + 1n : significand;
+  const value = Number(rounded) * (2 ** (shift - 1074));
+  return negative ? -value : value;
+}
 /** One exact domain rule serves declaration validation and emitted cohort reports. */
 function validRegression(value: unknown, bounds: readonly [number, number]): value is number {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return false;
@@ -442,15 +469,23 @@ export function evaluatePlan(value: unknown, input: unknown): EvaluationPlanRepo
   if (!dense(input, 1, plan.stopping.observations) || (plan.stopping.kind === "fixed" && input.length !== plan.stopping.observations)) refuse("eval_plan_stopping");
   const [lo, hi] = plan.reward_bounds; const range = hi - lo;
   const declared = new Map(plan.members.map((member) => [member.id, member.unit])); const seen = new Set<string>();
-  const groups = new Map<string, { candidate: number; incumbent: number; n: number }>();
+  const groups = new Map<string, { candidate: number; incumbent: number; candidateRaw: bigint; incumbentRaw: bigint; n: number }>();
+  const rawMeans = plan.mean_method === "raw-float64/1";
   const rows = normalizedObservations(input); const comparison = evaluationComparison(plan);
   evaluationResultBody(comparison, rows);
   for (const row of rows) {
     const id = row.id; const unit = declared.get(id);
     if (unit === undefined || seen.has(id) || [row.candidate, row.incumbent].some((score) => score < plan.reward_bounds[0] || score > plan.reward_bounds[1])) refuse("eval_plan_evidence");
-    seen.add(id); const group = groups.get(unit) ?? { candidate: 0, incumbent: 0, n: 0 };
-    // Remove the common offset before averaging; narrow ranges near huge rewards lose raw increments.
-    group.n += 1; group.candidate += (((row.candidate - lo) / range) - group.candidate) / group.n; group.incumbent += (((row.incumbent - lo) / range) - group.incumbent) / group.n; groups.set(unit, group);
+    seen.add(id); const group = groups.get(unit) ?? { candidate: 0, incumbent: 0, candidateRaw: 0n, incumbentRaw: 0n, n: 0 };
+    // Statistical bounds continue to use the released normalized means.
+    group.n += 1;
+    group.candidate += (((row.candidate - lo) / range) - group.candidate) / group.n;
+    group.incumbent += (((row.incumbent - lo) / range) - group.incumbent) / group.n;
+    if (rawMeans) {
+      group.candidateRaw += floatUnits(row.candidate);
+      group.incumbentRaw += floatUnits(row.incumbent);
+    }
+    groups.set(unit, group);
   }
   if (plan.stopping.kind === "sequential") {
     const n = groups.size;
@@ -463,9 +498,14 @@ export function evaluatePlan(value: unknown, input: unknown): EvaluationPlanRepo
   const shared = { objective: plan.objective, objective_version: plan.objective_version, evaluation_context: plan.evaluation_context, direction: plan.direction, rewardBounds: [0, 1] as const, samples: groups.size };
   const criterion = { ...plan.criterion, effectThreshold: plan.criterion.effectThreshold / range };
   const aggregate = decidePromotion({ candidate: { ...shared, generation: plan.candidate, mean: candidateMean }, incumbent: { ...shared, generation: plan.incumbent, mean: incumbentMean }, criterion, expectedGeneration: plan.candidate, contaminationPath: null });
-  // Reconstruct from the nearer endpoint so rounding the range cannot overflow a finite upper bound.
-  const candidateReward = candidateMean <= 0.5 ? lo + candidateMean * range : hi - (1 - candidateMean) * range;
-  const incumbentReward = incumbentMean <= 0.5 ? lo + incumbentMean * range : hi - (1 - incumbentMean) * range;
+  /** Average each unit in reward units, then weight the units equally. Legacy plans retain their sealed reconstruction. */
+  function rewardMean(field: "candidateRaw" | "incumbentRaw", normalized: number): number {
+    if (!rawMeans) return normalized <= 0.5 ? lo + normalized * range : hi - (1 - normalized) * range;
+    const total = means.reduce((sum, group) => add(sum, { n: group[field], d: BigInt(group.n) }), { n: 0n, d: 1n });
+    return roundFloatMean(total, means.length);
+  }
+  const candidateReward = rewardMean("candidateRaw", candidateMean);
+  const incumbentReward = rewardMean("incumbentRaw", incumbentMean);
   const observations = new Map(rows.map((row) => [row.id, row]));
   const cohorts = plan.protected_cohorts === undefined ? undefined : evaluateCohorts(plan, observations, declared);
   const guard = plan.max_unit_regression === undefined ? undefined : evaluateUnitGuard(plan, plan.max_unit_regression, observations, declared);
