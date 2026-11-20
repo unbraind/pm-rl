@@ -1,0 +1,16 @@
+id: pm-rl-aggregate-mean-precision
+title: Preserve aggregate evaluation mean precision near extreme reward endpoints
+description: "In evaluation-plan.ts, a fixed plan with one observation, bounds [-1e16, 0], candidate -1 and incumbent 0 reports both aggregate means as 0 after normalizing the two arms. The guard reports the loss of 1 with the PR #190 fix. Review aggregate reward reconstruction and the separately normalized inputs to the sequential boundary."
+type: Task
+status: open
+priority: 3
+tags: []
+created_at: "2026-11-20T05:15:17.782Z"
+updated_at: "2026-11-20T05:15:17.782Z"
+author: codex-sol
+acceptance_criteria: Retain representable aggregate means on extreme bounds and demonstrate compatibility for sealed scores and sequential evidence.
+parent: pm-rl-apvf
+files[2]{path,scope}:
+  evaluation-plan.ts,project
+  sequential-evaluation.ts,project
+body: ""

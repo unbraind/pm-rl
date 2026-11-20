@@ -1,0 +1,17 @@
+id: pm-rl-eval-acceptance-fixtures
+title: Repair the standalone evaluation acceptance fixtures
+description: Packed Node 26 replay of the public main tracker reproduces failures before and after the PR #190 report fix. evaluation-plan.acceptance.ts registration returns rl_identifier_invalid. worst-cohort.acceptance.ts and shadow.acceptance.ts return process_identity_unavailable with their Git-free PATH. Match the standalone fixtures to the current identifier and process-identity contracts.
+type: Task
+status: open
+priority: 3
+tags: []
+created_at: "2026-11-20T05:22:12.394Z"
+updated_at: "2026-11-20T06:26:55.874Z"
+author: codex-sol
+acceptance_criteria: "All three standalone fixtures (evaluation-plan.acceptance.ts, worst-cohort.acceptance.ts and shadow.acceptance.ts) pass when run against a packed extension and an immutable public tracker snapshot, with Git absent from the CLI PATH."
+parent: pm-rl-apvf
+files[3]{path,scope}:
+  test/evaluation-plan.acceptance.ts,project
+  test/shadow.acceptance.ts,project
+  test/worst-cohort.acceptance.ts,project
+body: ""

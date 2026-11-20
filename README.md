@@ -853,6 +853,58 @@ and removing the candidate's pin cannot discard a reservation retained in histor
 This relies on the SDK's append-only history: privileged rewriting of the original
 history itself is outside this enforcement boundary.
 
+### Prevent a regression in any downstream workflow
+
+Set `"max_unit_regression": 0` on a fixed evaluation plan before registering it.
+Use a workflow as the correlation unit and assign each benchmark observation to
+its workflow in `members`. This lets an agent try a change to its PM workflow
+while keeping a single failing downstream workflow visible at promotion time.
+
+For each complete unit, the evaluator averages the paired candidate and
+incumbent differences and signs the result so that improvement is positive.
+Every unit must stay within the declared loss in original reward units.
+Equality passes. The decision uses exact decimal arithmetic even when the
+displayed mean rounds to the limit. The `unit_guard` report identifies the
+worst unit (ties use the smallest unit label), its displayed improvement, the
+limit and the number of violations. A breach produces `eval_unit_regression`.
+If an explicit protected cohort also fails, its existing refusal takes
+precedence and both diagnostics are available.
+
+Each candidate needs its own predeclared plan. The comparison digest binds
+its unit assignments and regression limit. The normal promotion transaction replays the complete evidence and requires the
+existing independent approval Decision, lineage and budget checks. Missing
+observations refuse evaluation. Sequential plans refuse this option. The
+fixed-plan limit remains 10,000 members. This empirical guard tests the
+declared units. Individual losses can still average out *within* a unit.
+
+**Measured example.** Seed 42 selected one regressing workflow among 32, with
+two synthetic observations per workflow. The candidate scored 0.96875 overall
+and the incumbent scored 0.03125. On `workflow-1`, the incumbent scored 1 and
+the candidate scored 0.
+
+| Fixed plan | Evaluation verdict | Plan tokens | Report tokens |
+| --- | --- | ---: | ---: |
+| Aggregate only | Promote | 1,055 | 214 |
+| One protected cohort per workflow (32 cohorts) | Refuse | 2,086 | 1,461 |
+| `max_unit_regression: 0` | Refuse, 1 violation | 1,062 | 293 |
+
+The two equivalent protections differ by 1,024 input tokens and 1,168 report
+tokens, saving 2,192 of 3,547 tokens (61.8%). Counts use tiktoken 0.14.0
+`o200k_base` on each complete, minified JSON plan and SDK report. These are
+serialized context sizes. The replay makes zero inference calls.
+
+Reproduce the three comparisons from a source checkout with
+`node test/fixtures/unit-guard-study.ts`. The script emits a JSON array in
+table order. Count `JSON.stringify(entry.plan)` and `JSON.stringify(entry.report)`
+separately. To use the guard in the CLI, add the field to the JSON supplied to
+`pm rl eval plan register --file plan.json`, collect the predeclared
+observations, then run `pm rl eval plan evaluate <candidate> --file observations.json`.
+The normal `pm rl generation promote` command enforces the recorded verdict.
+Supply a held-out score bound to the plan comparison and exact measured mean.
+Built-in trainers emit their own seed-set and score receipts. An agent using
+a separate downstream panel submits its measured score through this promotion
+command.
+
 ### Protected task cohorts
 
 Add `protected_cohorts` to the plan **before registration** to require minimum
