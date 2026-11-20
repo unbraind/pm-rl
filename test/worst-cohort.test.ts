@@ -205,12 +205,15 @@ test("guard reports preserve a paired loss near the upper reward bound", () => {
   const { guarded } = unitGuardStudy(design().incumbent_version);
   const plan = {
     ...guarded,
+    mean_method: "raw-float64/1" as const,
     reward_bounds: [-1e16, 0] as const,
     members: [{ id: "task", unit: "workflow" }],
     stopping: { kind: "fixed" as const, observations: 1, independent_units: 1 },
   };
   const input = [{ id: "task", candidate: -1, incumbent: 0 }];
   const report = evaluatePlan(plan, input);
+  assert.equal(report.candidate_mean, -1);
+  assert.equal(report.incumbent_mean, 0);
   assert.equal(report.unit_guard?.violations, 1);
   assert.ok(Math.abs(report.unit_guard!.improvement - (-1)) <= Number.EPSILON);
 

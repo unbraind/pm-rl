@@ -409,6 +409,10 @@ jobs:
           done
           env HOME="$gate_home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 node --test --test-concurrency=2 test/transfer-review-round6.test.ts
 
+      - name: Replay packed evaluation commands against a public tracker without Git
+        if: steps.changes.outputs.code == 'true' && matrix.node-version == 26
+        run: bash test/public-evaluation-acceptance.sh
+
       # Packed tests cover Node/Bun SDK and CLI consumers, but do not certify
       # Bun package-manager/global installs or bunx resolution. Smoke both tools.
       - name: Verify Bun can install the package graph

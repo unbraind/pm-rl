@@ -983,6 +983,16 @@ accept a real `PmClient`; `evaluatePlan` is pure. Plans and results use core Pla
 and Decision records; this does not replace pm-jev's decision-model calibration
 or the separate powered-corpus dataset work.
 
+For new plans, set `"mean_method": "raw-float64/1"` to report
+`candidate_mean` and `incumbent_mean` in original reward units. The method
+averages the raw binary64 observations within each unit, weights the units
+equally, and rounds each final mean once to binary64. Use the reported
+`candidate_mean` as the held-out score. The declared method enters the
+comparison hash, including the hash reviewed before sequential registration.
+Plans that omit it replay their original mean formula and continue to verify
+their sealed scores and shadow reports. Fixed promotion bounds and sequential
+stopping bounds still use the existing normalized statistics.
+
 Independence between declared units, truthful cohort membership, outcome
 measurement and appropriate target-population selection remain experiment-design
 assumptions. Paired policy replay alone does not establish a randomized causal
@@ -995,7 +1005,10 @@ The acceptance runner takes a read-only public tracker copy, an output report,
 the public source commit and a packed package archive:
 `node test/evaluation-plan.acceptance.ts <tracker-copy> <report.json> <commit> <package.tgz>`.
 It installs the archive into a plain scratch tracker and runs the real JSON/TOON
-CLI with Git absent from `PATH`.
+CLI with Git absent from `PATH`. Run all three packed public replays with
+`bash test/public-evaluation-acceptance.sh`, the same command used by the Node 26
+CI release checks. It archives a pinned public commit and checks that the source
+tracker remains read-only and byte-identical through the replays.
 
 ## Without git
 

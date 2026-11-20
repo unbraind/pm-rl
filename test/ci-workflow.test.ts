@@ -109,6 +109,8 @@ test("parallel release checks retain every non-coverage release component", () =
   }
   assert.doesNotMatch(script, /npm run (?:coverage|release:check)/);
   assert.match(script, /transfer-review-round6.test.ts/);
+  const publicReplay = jobs["release-checks"].steps.find(step => step.run === "bash test/public-evaluation-acceptance.sh");
+  assert.equal(publicReplay?.if, "steps.changes.outputs.code == 'true' && matrix.node-version == 26");
   for (const job of Object.values(jobs)) for (const step of job.steps.filter(step => step.name === "Check documentation and tracker changes")) {
     assert.match(step.run ?? "", /pack:dry-run -- --ignore-scripts/);
     assert.doesNotMatch(step.run ?? "", /npm run build|docs-inputs.ts/);
