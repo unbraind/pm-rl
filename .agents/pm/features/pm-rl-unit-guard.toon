@@ -2,17 +2,15 @@ id: pm-rl-unit-guard
 title: Refuse a recursive promotion when any declared workflow unit regresses
 description: Let a fixed evaluation plan bound the empirical regression of every correlation unit with one sealed declaration.
 type: Feature
-status: in_progress
+status: open
 priority: 2
 tags: []
 created_at: "2026-11-20T03:13:56.111Z"
-updated_at: "2026-11-20T05:15:24.254Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-11-20T05:35:00.027Z"
 author: codex-sol
 acceptance_criteria: "Check all complete paired units exactly in either objective direction before promotion and preserve independent approval and resource bounds.; Preserve legacy comparisons and fail closed on incomplete, changed or sequential guarded plans.; Measure masking and equivalent-plan token savings on seeded synthetic workflows through the SDK and CLI."
 parent: pm-rl-apvf
-comments[11]{created_at,author,text}:
+comments[15]{created_at,author,text}:
   "2026-11-20T03:14:15.851Z",codex-sol,"Ranked by value / (risk x effort), each dimension 1 to 5. Per-unit regression guard 5/(1x2)=2.50: current plan caps protected cohorts at 32 and a mean masks a single workflow loss. Learned context routing 5/(3x4)=0.42: existing public history-prefix task has 943 fit and 385 final items, but completion after choosing a projection lacks a counterfactual. Further meta-loop search 3/(3x4)=0.25: bounded recipe and proposer search already exist, with zero promotions in the published transfer replay. All three retain sealed limits, independent human approval and fail-closed lineage."
   "2026-11-20T03:14:20.756Z",codex-sol,"Implement optional max_unit_regression on fixed plans. Reuse exact decimal arithmetic on paired members within each declared correlation unit. Report one worst unit and the count in breach, keep earlier cohorts and aggregate gates effective, and retest persisted evidence and the authoritative promotion command."
   "2026-11-20T03:19:28.916Z",codex-sol,"Seed 42, 32 synthetic workflow units, 64 paired observations. Aggregate candidate 0.96875 vs incumbent 0.03125 passes. Both equivalent protections refuse the one loss of 1 on workflow-1. tiktoken 0.14.0 o200k_base over minified complete plan/report: 2086/1461 tokens using explicit cohorts, 1062/293 with the unit guard. Saving 2192 of 3547 context tokens (61.8%); inference calls zero."
@@ -24,6 +22,10 @@ comments[11]{created_at,author,text}:
   "2026-11-20T05:12:33.899Z",codex-sol,Investigate CodeRabbit thread PRRT_kwDOTqJmqs651fgQ on PR #190. Reproduce the displayed loss at large negative bounds and compute the paired difference before normalizing. Check other guard and report paths for the same cancellation.
   "2026-11-20T05:14:37.294Z",codex-sol,The new extreme-bounds regression test failed on the old arithmetic after the exact guard counted one violation. The shared unitDifferences helper now divides the raw paired difference by the finite reward span. The same test covers the protected-cohort display. Exact mean comparisons and violation counts are preserved.
   "2026-11-20T05:15:24.244Z",codex-sol,The same one-row input still reconstructs both aggregate means as 0. Follow-up pm-rl-aggregate-mean-precision tracks aggregate reconstruction and review of sequential inputs because they feed the score and inference contracts.
+  "2026-11-20T05:16:43.022Z",codex-sol,CodeRabbit thread PRRT_kwDOTqJmqs651fgQ maps to commit 535394115bed90f6205b138691c7924bf64d0ecd. The paired-difference fix and regression test cover unit and protected-cohort report precision.
+  "2026-11-20T05:22:16.583Z",codex-sol,The standalone evaluation-plan and worst-cohort acceptance runners reproduced the same registration and process-identity refusals on 1e518b7 and on the fix. Follow-up pm-rl-eval-acceptance-fixtures tracks their replay fixtures.
+  "2026-11-20T05:27:33.801Z",codex-sol,"The whole quick worst-cohort suite passed 12 of 12. Typecheck, test build, lint and changelog checks passed. The broader direct suite and full coverage run are in progress. The controller-boundaries cleanup case passed an isolated retry using the documented local harness time scale."
+  "2026-11-20T05:34:47.492Z",codex-sol,"Local gates passed: npm run typecheck, npm run build:test, npm run lint, and PM_TEST_DEPTH=quick node --test test/worst-cohort.test.ts (12 passed). npm run coverage on Node 26.13.0 hit the known 600-second test/baseline.test.ts vector-retry watchdog, so the four 100 percent thresholds need exact-head CI. The broader quick suite is still running. The standalone lifecycle, sequential, compatibility and decision-evidence replays passed. The evaluation-plan, worst-cohort and shadow scripts reproduced the same errors on 1e518b7 and are tracked in pm-rl-eval-acceptance-fixtures."
 files[4]{path,scope}:
   evaluation-plan.ts,project
   index.ts,project
