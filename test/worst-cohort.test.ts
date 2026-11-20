@@ -201,6 +201,27 @@ test("per-unit guard seals exact paired means, stable ties and inclusive toleran
   }
 });
 
+test("guard reports preserve a paired loss near the upper reward bound", () => {
+  const { guarded } = unitGuardStudy(design().incumbent_version);
+  const plan = {
+    ...guarded,
+    reward_bounds: [-1e16, 0] as const,
+    members: [{ id: "task", unit: "workflow" }],
+    stopping: { kind: "fixed" as const, observations: 1, independent_units: 1 },
+  };
+  const input = [{ id: "task", candidate: -1, incumbent: 0 }];
+  const report = evaluatePlan(plan, input);
+  assert.equal(report.unit_guard?.violations, 1);
+  assert.ok(Math.abs(report.unit_guard!.improvement - (-1)) <= Number.EPSILON);
+
+  const withCohort = evaluatePlan({
+    ...plan,
+    protected_cohorts: [{ id: "protected", members: ["task"], min_units: 1, max_regression: 0 }],
+  }, input);
+  assert.equal(withCohort.cohorts?.[0].code, "eval_cohort_regression");
+  assert.ok(Math.abs(withCohort.cohorts![0].improvement - (-1)) <= Number.EPSILON);
+});
+
 test("per-unit guard refuses a masked workflow loss through promotion and preserves the single approval for a passing candidate", async () => {
   const w = await workspace();
   const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });

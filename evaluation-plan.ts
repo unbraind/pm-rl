@@ -388,6 +388,7 @@ function validCount(value: number, maximum = 10_000): boolean { return Number.is
 /** Accumulate the exact paired difference and a finite normalized display mean per unit. */
 function unitDifferences(ids: Iterable<string>, observations: ReadonlyMap<string, EvaluationObservation>, members: ReadonlyMap<string, string>, bounds: readonly [number, number]) {
   const [lo, hi] = bounds;
+  const range = hi - lo;
   const units = new Map<string, { sum: Rational; count: number; display: number }>();
   for (const id of ids) {
     const row = observations.get(id)!;
@@ -397,7 +398,7 @@ function unitDifferences(ids: Iterable<string>, observations: ReadonlyMap<string
     const incumbent = exact(row.incumbent);
     group.sum = add(group.sum, add(candidate, { n: -incumbent.n, d: incumbent.d }));
     group.count += 1;
-    const display = (row.candidate - lo) / (hi - lo) - (row.incumbent - lo) / (hi - lo);
+    const display = (row.candidate - row.incumbent) / range;
     group.display += (display - group.display) / group.count;
     units.set(unit, group);
   }

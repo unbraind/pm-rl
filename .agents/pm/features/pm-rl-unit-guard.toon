@@ -2,15 +2,17 @@ id: pm-rl-unit-guard
 title: Refuse a recursive promotion when any declared workflow unit regresses
 description: Let a fixed evaluation plan bound the empirical regression of every correlation unit with one sealed declaration.
 type: Feature
-status: open
+status: in_progress
 priority: 2
 tags: []
 created_at: "2026-11-20T03:13:56.111Z"
-updated_at: "2026-11-20T04:18:12.324Z"
+updated_at: "2026-11-20T05:15:24.254Z"
+assignee: codex-sol
+claim_principal: codex-sol
 author: codex-sol
 acceptance_criteria: "Check all complete paired units exactly in either objective direction before promotion and preserve independent approval and resource bounds.; Preserve legacy comparisons and fail closed on incomplete, changed or sequential guarded plans.; Measure masking and equivalent-plan token savings on seeded synthetic workflows through the SDK and CLI."
 parent: pm-rl-apvf
-comments[8]{created_at,author,text}:
+comments[11]{created_at,author,text}:
   "2026-11-20T03:14:15.851Z",codex-sol,"Ranked by value / (risk x effort), each dimension 1 to 5. Per-unit regression guard 5/(1x2)=2.50: current plan caps protected cohorts at 32 and a mean masks a single workflow loss. Learned context routing 5/(3x4)=0.42: existing public history-prefix task has 943 fit and 385 final items, but completion after choosing a projection lacks a counterfactual. Further meta-loop search 3/(3x4)=0.25: bounded recipe and proposer search already exist, with zero promotions in the published transfer replay. All three retain sealed limits, independent human approval and fail-closed lineage."
   "2026-11-20T03:14:20.756Z",codex-sol,"Implement optional max_unit_regression on fixed plans. Reuse exact decimal arithmetic on paired members within each declared correlation unit. Report one worst unit and the count in breach, keep earlier cohorts and aggregate gates effective, and retest persisted evidence and the authoritative promotion command."
   "2026-11-20T03:19:28.916Z",codex-sol,"Seed 42, 32 synthetic workflow units, 64 paired observations. Aggregate candidate 0.96875 vs incumbent 0.03125 passes. Both equivalent protections refuse the one loss of 1 on workflow-1. tiktoken 0.14.0 o200k_base over minified complete plan/report: 2086/1461 tokens using explicit cohorts, 1062/293 with the unit guard. Saving 2192 of 3547 context tokens (61.8%); inference calls zero."
@@ -19,13 +21,17 @@ comments[8]{created_at,author,text}:
   "2026-11-20T03:24:53.014Z",codex-sol,The linked test command passed through pm test using snapshot workspace and no inherited pm context (exit 0). The default source workspace cannot be paired with pm-context none. The built package dry-run contains both evaluator JS and declarations and the README.
   "2026-11-20T03:27:19.354Z",codex-sol,"Commits 49453a9 and a92af33 contain the guard, tests, measured example and trainer follow-up. Exact package test inventory is 91 files. The Node 26 package coverage command is running at PR depth with all files and the original four thresholds of 100 percent. The aggregate result is pending."
   "2026-11-20T03:46:33.997Z",codex-sol,"On implementation and tracking head 90f91c9a8b84f236da460957ec1397d659700768, both required CI jobs passed. Node 22 ran all 91 files at PR depth: 1497 passed, 21 skipped, zero failed. Node 26 merged all four coverage shards across 65 authored source files: statements, branches, functions and lines each 100.00%. Release checks and CodeQL passed. The whole touched file passed locally (11/11). The separate local Node 26 coverage attempt exceeded the pre-existing 600-second vector-retry watchdog; the same test passed on hosted Node 26 in 36.46 seconds. Coverage evidence: https://github.com/unbraind/pm-rl/actions/runs/44667912800/job/136067701193 . PR: https://github.com/unbraind/pm-rl/pull/190 . Claim released in 90f91c9; tracking stays open."
+  "2026-11-20T05:12:33.899Z",codex-sol,Investigate CodeRabbit thread PRRT_kwDOTqJmqs651fgQ on PR #190. Reproduce the displayed loss at large negative bounds and compute the paired difference before normalizing. Check other guard and report paths for the same cancellation.
+  "2026-11-20T05:14:37.294Z",codex-sol,The new extreme-bounds regression test failed on the old arithmetic after the exact guard counted one violation. The shared unitDifferences helper now divides the raw paired difference by the finite reward span. The same test covers the protected-cohort display. Exact mean comparisons and violation counts are preserved.
+  "2026-11-20T05:15:24.244Z",codex-sol,The same one-row input still reconstructs both aggregate means as 0. Follow-up pm-rl-aggregate-mean-precision tracks aggregate reconstruction and review of sequential inputs because they feed the score and inference contracts.
 files[4]{path,scope}:
   evaluation-plan.ts,project
   index.ts,project
   test/fixtures/unit-guard-study.ts,project
   test/worst-cohort.test.ts,project
-tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-name-pattern=per-unit test/worst-cohort.test.ts,project,codex-sol,"2026-11-20T03:19:38.653Z",local_mutation,feat/per-unit-regression-guard
+  PM_TEST_DEPTH=quick node --test test/worst-cohort.test.ts,project,codex-sol,"2026-11-20T05:14:28.879Z",local_mutation,feat/per-unit-regression-guard
 docs[1]{path,scope}:
   README.md,project
 body: ""
