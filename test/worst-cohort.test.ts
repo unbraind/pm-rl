@@ -1,3 +1,4 @@
+import { unitGuardStudy } from "./fixtures/unit-guard-study.ts";
 import { testDepth, testTime } from "./support/depth.ts";
 /** Protected cohort decisions and immutable state are exercised through real non-git SDK trackers. */
 import assert from "node:assert/strict";
@@ -160,6 +161,85 @@ test("real CLI and promotion refuse protected regressions and insufficient sampl
   const report = await recordPlanEvaluation(w.client, p.candidate, rows(p)); assert.equal(report.verdict.decision, "promote");
   const scoreFile = join(w.root, "scores.json"); writeFileSync(scoreFile, JSON.stringify({ held_out_score: score(p, report.candidate_mean), proxy_score: { ...score(p, report.candidate_mean), evaluation_context: "proxy" } }));
   await assert.rejects(command("rl generation promote", [p.candidate], { approval: approval.item.id, scores: scoreFile, evidence: "Protected slices passed; training leakage still refuses" }), (error: unknown) => isPmCliExpectedError(error) && error.context.code === "contamination_refused");
+});
+
+test("per-unit guard seals exact paired means, stable ties and inclusive tolerances in both directions", () => {
+  const { aggregate, guarded, expanded, observations, regressed } = unitGuardStudy(design().incumbent_version);
+  assert.equal(evaluatePlan(aggregate, observations).verdict.decision, "promote");
+  const report = evaluatePlan(guarded, observations);
+  assert.deepEqual(report.unit_guard, { worst_unit: regressed, improvement: -1, max_regression: 0, violations: 1 });
+  assert.equal(report.verdict.decision, "refuse");
+  assert.equal(evaluatePlan(expanded, observations).verdict.decision, "refuse");
+  assert.equal(evaluatePlan({ ...guarded, ...expanded }, observations).cohorts?.find(c => c.code)?.id, regressed);
+  assert.deepEqual(evaluatePlan(guarded, [...observations].reverse()), report);
+  for (const max_unit_regression of [undefined, null, -1, 1.01, Infinity, "0"]) {
+    assert.throws(() => parseEvaluationPlan({ ...aggregate, max_unit_regression }), refused("eval_plan_invalid"));
+  }
+  assert.throws(() => parseEvaluationPlan({ ...guarded, stopping: { kind: "sequential" } }), refused("eval_plan_stopping"));
+  assert.throws(() => evaluatePlan(guarded, observations.slice(1)), refused("eval_plan_stopping"));
+
+  const largeMembers = Array.from({ length: 10_000 }, (_, i) => ({ id: `sample-${i}`, unit: `workflow-${i}` }));
+  const large = { ...guarded, members: largeMembers, stopping: { kind: "fixed", observations: 10_000, independent_units: 10_000 } };
+  const largeRows = largeMembers.map(({ id }, i) => ({ id, candidate: i === 9999 ? 0 : 1, incumbent: i === 9999 ? 1 : 0 }));
+  assert.deepEqual(evaluatePlan(large, largeRows).unit_guard, { worst_unit: "workflow-9999", improvement: -1, max_regression: 0, violations: 1 });
+
+  // Sort member labels in the opposite order to tied unit labels. An individual
+  // member loses 0.3, but the paired unit average is precisely -0.1.
+  const members = [{ id: "first", unit: "z" }, { id: "second", unit: "a" }, { id: "third", unit: "a" }];
+  const input = [{ id: "first", candidate: 0.2, incumbent: 0.3 }, { id: "second", candidate: 0, incumbent: 0.3 }, { id: "third", candidate: 0.3, incumbent: 0.2 }];
+  for (const direction of ["maximize", "minimize"]) {
+    const plan = { ...guarded, direction, members, stopping: { kind: "fixed", observations: 3, independent_units: 2 }, max_unit_regression: 0.1 };
+    const scores = direction === "maximize" ? input : input.map(row => ({ id: row.id, candidate: row.incumbent, incumbent: row.candidate }));
+    const equal = evaluatePlan(plan, scores);
+    assert.equal(equal.unit_guard?.violations, 0);
+    assert.equal(equal.unit_guard?.worst_unit, "a");
+    assert.equal(equal.verdict.decision, "refuse"); // Independent aggregate evidence minimum.
+    assert.equal(evaluatePlan({ ...plan, max_unit_regression: 0.09999999999999999 }, scores).unit_guard?.violations, 2);
+  }
+  for (const invalid of [{ improvement: 2 }, { max_regression: -1 }, { violations: 1.5 }, { violations: -1 }, { violations: 33 }]) {
+    assert.throws(() => validateEvaluationReport({ ...report, unit_guard: { ...report.unit_guard!, ...invalid } }, guarded.reward_bounds), refused("eval_plan_evidence"));
+  }
+});
+
+test("per-unit guard refuses a masked workflow loss through promotion and preserves the single approval for a passing candidate", async () => {
+  const w = await workspace();
+  const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
+  async function command(name: string, args: string[], options: Record<string, string> = {}) {
+    return (await harness.runCommand({ command: name, pmRoot: w.pmRoot, args, options })).result as RlCommandResult;
+  }
+  function file(name: string, value: unknown): string {
+    const path = join(w.root, name);
+    writeFileSync(path, JSON.stringify(value));
+    return path;
+  }
+  const { guarded, observations, regressed } = unitGuardStudy(design().incumbent_version);
+  const environment = (await command("rl env register", [], { file: file("env.json", { name: "Synthetic training", version: "1", task_suite: ["train"], reward_specification: { reward: 1 } }) })).id!;
+  const approval = await w.client.create({ id: "rl-approval", type: "Decision", title: "One synthetic promotion", body: '```json\n{"permitted_promotions":1}\n```' });
+  for (const failing of [true, false]) {
+    const candidateId = failing ? "rl-regressing" : "rl-passing";
+    const plan = { ...guarded, candidate: candidateId };
+    const input = failing ? observations : observations.map(row => ({ ...row, candidate: 1 }));
+    const registered = await command("rl eval plan register", [], { file: file("plan.json", plan) });
+    assert.equal(registered.details?.max_unit_regression, 0);
+    assert.equal((await command("rl eval plan show", [candidateId])).details?.max_unit_regression, 0);
+    await assert.rejects(registerEvaluationPlan(w.client, { ...plan, max_unit_regression: 1 }), refused("eval_plan_drift"));
+    const run = candidateId + "-collection";
+    await command("rl run start", [run], { environment, algorithm: "bandit" });
+    await command("rl generation register", [candidateId], { baseCheckpoint: "candidate", parent: "rl-seed", policy: "candidate", collectionRuns: run, environment });
+    const evaluated = await command("rl eval plan evaluate", [candidateId], { file: file("observations.json", input) });
+    const report = await recordPlanEvaluation(w.client, candidateId, [...input].reverse());
+    assert.deepEqual(evaluated.details, report);
+    assert.equal(report.unit_guard?.worst_unit, regressed);
+    assert.equal(report.aggregate_verdict?.decision, "promote");
+    const held = score(plan, report.candidate_mean);
+    const options = { approval: approval.item.id, evidence: "Sealed downstream workflow comparison", scores: file("scores.json", { held_out_score: held, proxy_score: { ...held, evaluation_context: "proxy" } }) };
+    if (failing) {
+      await assert.rejects(command("rl generation promote", [candidateId], options), refused("eval_unit_regression"));
+      assert.equal((await command("rl generation show", [candidateId])).details?.promoted, false);
+    } else {
+      assert.equal((await command("rl generation promote", [candidateId], options)).details?.budget_consumed, 1);
+    }
+  }
 });
 
 test("500 seeded operation sequences replay normalized declarations and evidence against an SDK-read reference model", { timeout: testTime(600_000) }, async () => {

@@ -4387,7 +4387,7 @@ function sealedRefusalReason(spec: GenerationSpec, fallback: string | null): str
 /** Only established policy/permission verdicts may permanently stop promotion; IO and coordinator errors propagate. */
 function terminalPromotionRefusal(error: PmCliExpectedError): boolean {
   const code = String(error.context.code);
-  return ["contamination_refused", "lineage_cycle", "provenance_unreadable", "budget_exceeded", "budget_undecidable", "wrong_item_type", "approval_missing_spec", "card_missing_provenance", "card_invalid", "card_drift", "eval_plan_invalid", "eval_plan_drift", "eval_plan_late", "eval_plan_missing", "eval_plan_evidence", "eval_plan_stopping", "eval_plan_refused", "shadow_invalid", "shadow_consent", "shadow_budget", "shadow_drift", "shadow_missing", "shadow_incomplete", "shadow_failed"].includes(code);
+  return ["contamination_refused", "lineage_cycle", "provenance_unreadable", "budget_exceeded", "budget_undecidable", "wrong_item_type", "approval_missing_spec", "card_missing_provenance", "card_invalid", "card_drift", "eval_plan_invalid", "eval_plan_drift", "eval_plan_late", "eval_plan_missing", "eval_plan_evidence", "eval_plan_stopping", "eval_plan_refused", "eval_unit_regression", "shadow_invalid", "shadow_consent", "shadow_budget", "shadow_drift", "shadow_missing", "shadow_incomplete", "shadow_failed"].includes(code);
 }
 
 /** Read the author of the first certified promoted version, independent of later annotations. */
@@ -5858,14 +5858,14 @@ export const RL_COMMANDS = [
     { long: "--file", value_name: "path", value_type: "string", required: true, description: "Evaluation plan JSON." },
   ], run: async (context) => {
     const registered = await registerEvaluationPlan(clientFor(context), readJsonFile(stringOption(context, "file")!, "Evaluation plan"));
-    return { action: "rl-eval-plan-register", id: registered.id, details: { comparison: registered.comparison, observations: registered.plan.stopping.observations, independent_units: registered.plan.stopping.independent_units, protected_cohorts: registered.plan.protected_cohorts?.length ?? 0 } };
+    return { action: "rl-eval-plan-register", id: registered.id, details: { comparison: registered.comparison, observations: registered.plan.stopping.observations, independent_units: registered.plan.stopping.independent_units, protected_cohorts: registered.plan.protected_cohorts?.length ?? 0, ...(registered.plan.max_unit_regression === undefined ? {} : { max_unit_regression: registered.plan.max_unit_regression }) } };
   } }),
   defineCommand({ name: "rl eval plan show", description: "Show compact predeclared comparison identity and declared stopping sizes.", arguments: [{ name: "candidate", required: true, description: "Reserved candidate generation id." }], run: async (context) => {
     const client = clientFor(context);
     const prefix = String((await identifierClient(client).config("project", "get", "id_prefix")).nested_setting!.value);
     const registered = await readEvaluationPlan(client, canonicalizeIdentifier(requiredArgument(context, "a candidate id"), prefix));
     if (registered === null) fail("No predeclared plan. Register one before creating a fresh candidate.", "eval_plan_missing", EXIT_CODE.CONFLICT);
-    return { action: "rl-eval-plan-show", id: registered.id, details: { ...(registered.plan.ordering === undefined ? {} : { ordering: registered.plan.ordering }), comparison: registered.comparison, candidate: registered.plan.candidate, incumbent: registered.plan.incumbent, stopping: registered.plan.stopping, protected_cohorts: registered.plan.protected_cohorts?.length ?? 0 } };
+    return { action: "rl-eval-plan-show", id: registered.id, details: { ...(registered.plan.ordering === undefined ? {} : { ordering: registered.plan.ordering }), comparison: registered.comparison, candidate: registered.plan.candidate, incumbent: registered.plan.incumbent, stopping: registered.plan.stopping, protected_cohorts: registered.plan.protected_cohorts?.length ?? 0, ...(registered.plan.max_unit_regression === undefined ? {} : { max_unit_regression: registered.plan.max_unit_regression }) } };
   } }),
   defineCommand({ name: "rl eval plan advance", description: "Seal or resume the next reviewed sequential boundary from cumulative paired observations.", arguments: [{ name: "candidate", required: true, description: "Reserved candidate generation id." }], flags: [
     { long: "--file", value_name: "path", value_type: "string", required: true, description: "Cumulative paired observation array JSON." },

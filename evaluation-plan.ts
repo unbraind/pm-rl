@@ -15,7 +15,7 @@ import { canonicalizeEvaluationContext, canonicalizeGenerationSpec, canonicalize
 import { readSeries } from "./series.ts";
 
 /** Stable refusals available to SDK consumers and CLI agents. */
-export type EvaluationPlanRefusal = "eval_plan_invalid" | "eval_plan_drift" | "eval_plan_late" | "eval_plan_missing" | "eval_plan_evidence" | "eval_plan_stopping" | "eval_plan_refused" | CohortRefusal | JsonEncodingRefusal;
+export type EvaluationPlanRefusal = "eval_plan_invalid" | "eval_plan_drift" | "eval_plan_late" | "eval_plan_missing" | "eval_plan_evidence" | "eval_plan_stopping" | "eval_plan_refused" | "eval_unit_regression" | CohortRefusal | JsonEncodingRefusal;
 /** A protected slice uses only predeclared member identities, never outcome-derived labels. */
 export interface ProtectedCohort {
   readonly id: string;
@@ -47,6 +47,8 @@ export interface EvaluationPlan {
   readonly shadow?: string;
   /** Optional predeclared empirical protections; available on fixed-sample plans. */
   readonly protected_cohorts?: readonly ProtectedCohort[];
+  /** Fixed-sample inclusive loss budget for each complete correlation unit, in reward units. */
+  readonly max_unit_regression?: number;
   readonly candidate: string;
   readonly incumbent: string;
   readonly incumbent_version: string;
@@ -79,6 +81,8 @@ export interface EvaluationPlanReport {
   /** Aggregate result before any protected cohort refusal. */
   readonly aggregate_verdict?: PromotionDecision;
   readonly cohorts?: readonly CohortReport[];
+  /** One deterministic witness and a count across all declared units. */
+  readonly unit_guard?: { readonly worst_unit: string; readonly improvement: number; readonly max_regression: number; readonly violations: number };
   readonly remedy: string | null;
   /** Present only for a predeclared sequential protocol; bounds use normalized paired improvement. */
   readonly sequential?: SequentialBoundary;
@@ -161,10 +165,8 @@ function protectedCohorts(value: unknown, members: readonly EvaluationMember[], 
 }
 /** Validate the complete design once, including dense bounded cohorts and a declared stopping protocol. */
 export function parseEvaluationPlan(value: unknown, mode: ValidationMode = "read"): EvaluationPlan {
-  const orderingKeys = value !== null && typeof value === "object" && Object.hasOwn(value, "ordering") ? ["ordering"] : [];
-  const shadowKeys = value !== null && typeof value === "object" && Object.hasOwn(value, "shadow") ? ["shadow"] : [];
-  const cohortKeys = value !== null && typeof value === "object" && Object.hasOwn(value, "protected_cohorts") ? ["protected_cohorts"] : [];
-  const p = object(value, [...orderingKeys, ...shadowKeys, ...cohortKeys, "format", "candidate", "incumbent", "incumbent_version", "population", "selection", "correlation_unit", "members", "objective", "objective_version", "evaluation_context", "direction", "reward_bounds", "criterion", "stopping"]);
+  const optional = ["ordering", "shadow", "protected_cohorts", "max_unit_regression"].filter((key) => value !== null && typeof value === "object" && Object.hasOwn(value, key));
+  const p = object(value, [...optional, "format", "candidate", "incumbent", "incumbent_version", "population", "selection", "correlation_unit", "members", "objective", "objective_version", "evaluation_context", "direction", "reward_bounds", "criterion", "stopping"]);
   if (p.format !== "pm-rl/evaluation-plan/1" || (p.direction !== "maximize" && p.direction !== "minimize")) refuse("eval_plan_invalid");
   const candidate = label(p.candidate, "item", mode); const incumbent = label(p.incumbent, "item", mode);
   if (candidate === incumbent) refuse("eval_plan_invalid");
@@ -173,16 +175,18 @@ export function parseEvaluationPlan(value: unknown, mode: ValidationMode = "read
   const units = new Set(members.map((m) => m.unit));
   if (new Set(members.map((m) => m.id)).size !== members.length) refuse("eval_plan_invalid");
   const sequential = p.stopping !== null && typeof p.stopping === "object" && "kind" in p.stopping && p.stopping.kind === "sequential";
-  if (orderingKeys.length > 0 && (p.ordering !== "causal/1" || !sequential)) refuse("eval_plan_invalid");
-  if (sequential && shadowKeys.length > 0) refuse("eval_plan_invalid");
-  if (sequential && cohortKeys.length > 0) throw createPmCliExpectedError("Protected cohort guards require a fixed-sample plan. Register a fresh fixed plan for these cohorts, or a separate reviewed sequential plan without protected cohorts.", { exitCode: EXIT_CODE.CONFLICT, context: { code: "eval_plan_stopping", required: "Use fixed-sample protected cohorts or a separately reviewed sequential protocol with a fresh candidate." } });
+  if (optional.includes("ordering") && (p.ordering !== "causal/1" || !sequential)) refuse("eval_plan_invalid");
+  if (sequential && optional.includes("shadow")) refuse("eval_plan_invalid");
+  if (sequential && optional.includes("protected_cohorts")) throw createPmCliExpectedError("Protected cohort guards require a fixed-sample plan. Register a fresh fixed plan for these cohorts, or a separate reviewed sequential plan without protected cohorts.", { exitCode: EXIT_CODE.CONFLICT, context: { code: "eval_plan_stopping", required: "Use fixed-sample protected cohorts or a separately reviewed sequential protocol with a fresh candidate." } });
+  if (sequential && optional.includes("max_unit_regression")) refuse("eval_plan_stopping");
   const stopping = sequential ? parseSequentialStopping(p.stopping, members) : object(p.stopping, ["kind", "observations", "independent_units"]);
   if ((!sequential && stopping.kind !== "fixed") || stopping.observations !== members.length || stopping.independent_units !== units.size) refuse("eval_plan_invalid");
   const c = object(p.criterion, ["confidence", "minSamples", "effectThreshold"]);
   if (typeof c.confidence !== "number" || !Number.isFinite(c.confidence) || c.confidence <= 0 || c.confidence >= 1 || typeof c.minSamples !== "number" || !Number.isSafeInteger(c.minSamples) || c.minSamples < 1 || typeof c.effectThreshold !== "number" || !Number.isFinite(c.effectThreshold) || c.effectThreshold < 0) refuse("eval_plan_invalid");
   const b = p.reward_bounds;
   if (!Array.isArray(b) || b.length !== 2 || Array.from(b).some((v) => typeof v !== "number" || !Number.isFinite(v)) || b[0] >= b[1] || !Number.isFinite(b[1] - b[0])) refuse("eval_plan_invalid");
-  const normalized: EvaluationPlan = { ...(orderingKeys.length === 0 ? {} : { ordering: "causal/1" as const }), ...(shadowKeys.length === 0 ? {} : { shadow: label(p.shadow) }), ...(cohortKeys.length === 0 ? {} : { protected_cohorts: protectedCohorts(p.protected_cohorts, members, b as [number, number]) }), format: "pm-rl/evaluation-plan/1", candidate, incumbent, incumbent_version: label(p.incumbent_version), population: label(p.population), selection: label(p.selection), correlation_unit: label(p.correlation_unit), members,
+  if (optional.includes("max_unit_regression") && !validRegression(p.max_unit_regression, b as [number, number])) refuse("eval_plan_invalid");
+  const normalized: EvaluationPlan = { ...(optional.includes("max_unit_regression") ? { max_unit_regression: p.max_unit_regression as number } : {}), ...(!optional.includes("ordering") ? {} : { ordering: "causal/1" as const }), ...(!optional.includes("shadow") ? {} : { shadow: label(p.shadow) }), ...(!optional.includes("protected_cohorts") ? {} : { protected_cohorts: protectedCohorts(p.protected_cohorts, members, b as [number, number]) }), format: "pm-rl/evaluation-plan/1", candidate, incumbent, incumbent_version: label(p.incumbent_version), population: label(p.population), selection: label(p.selection), correlation_unit: label(p.correlation_unit), members,
     objective: label(p.objective), objective_version: label(p.objective_version), evaluation_context: label(p.evaluation_context, "context", mode), direction: p.direction as EvaluationPlan["direction"],
     reward_bounds: [b[0] as number, b[1] as number], criterion: { confidence: c.confidence, minSamples: c.minSamples, effectThreshold: c.effectThreshold },
     stopping: sequential ? stopping as SequentialStopping : { kind: "fixed", observations: members.length, independent_units: units.size } };
@@ -381,21 +385,45 @@ function validRegression(value: unknown, bounds: readonly [number, number]): val
 }
 /** Count fields share the input schema's positive bounded integer domain. */
 function validCount(value: number, maximum = 10_000): boolean { return Number.isSafeInteger(value) && value >= 1 && value <= maximum; }
+/** Accumulate the exact paired difference and a finite normalized display mean per unit. */
+function unitDifferences(ids: Iterable<string>, observations: ReadonlyMap<string, EvaluationObservation>, members: ReadonlyMap<string, string>, bounds: readonly [number, number]) {
+  const [lo, hi] = bounds;
+  const units = new Map<string, { sum: Rational; count: number; display: number }>();
+  for (const id of ids) {
+    const row = observations.get(id)!;
+    const unit = members.get(id)!;
+    const group = units.get(unit) ?? { sum: { n: 0n, d: 1n }, count: 0, display: 0 };
+    const candidate = exact(row.candidate);
+    const incumbent = exact(row.incumbent);
+    group.sum = add(group.sum, add(candidate, { n: -incumbent.n, d: incumbent.d }));
+    group.count += 1;
+    const display = (row.candidate - lo) / (hi - lo) - (row.incumbent - lo) / (hi - lo);
+    group.display += (display - group.display) / group.count;
+    units.set(unit, group);
+  }
+  return units;
+}
+/** Check every unit against the sealed limit. Equal exact means use the smallest unit label. */
+function evaluateUnitGuard(plan: EvaluationPlan, limit: number, observations: ReadonlyMap<string, EvaluationObservation>, members: ReadonlyMap<string, string>): NonNullable<EvaluationPlanReport["unit_guard"]> {
+  const maximum = exact(limit);
+  const direction = plan.direction === "maximize" ? 1 : -1;
+  let worst: { unit: string; mean: Rational; display: number } | undefined;
+  let violations = 0;
+  for (const [unit, group] of unitDifferences(members.keys(), observations, members, plan.reward_bounds)) {
+    const mean = { n: group.sum.n * BigInt(direction), d: group.sum.d * BigInt(group.count) };
+    if (mean.n * maximum.d < -maximum.n * mean.d) violations++;
+    const order = worst === undefined ? -1n : mean.n * worst.mean.d - worst.mean.n * mean.d;
+    if (order < 0n || (order === 0n && unit < worst!.unit)) worst = { unit, mean, display: group.display };
+  }
+  // Fixed plans require at least one member and one complete observation per member.
+  const improvement = Math.max(-1, Math.min(1, worst!.display * direction)) * (plan.reward_bounds[1] - plan.reward_bounds[0]);
+  return { worst_unit: worst!.unit, improvement, max_regression: limit, violations };
+}
 /** Compute equal-unit empirical guards; repeated members never inflate evidence minimums. */
-function evaluateCohorts(plan: EvaluationPlan, rows: readonly EvaluationObservation[]): CohortReport[] {
-  const observations = new Map(rows.map((row) => [row.id, row])); const members = new Map(plan.members.map((member) => [member.id, member.unit]));
+function evaluateCohorts(plan: EvaluationPlan, observations: ReadonlyMap<string, EvaluationObservation>, members: ReadonlyMap<string, string>): CohortReport[] {
   const [lo, hi] = plan.reward_bounds; const range = hi - lo; const direction = plan.direction === "maximize" ? 1 : -1;
   return plan.protected_cohorts!.map((cohort) => {
-    const units = new Map<string, { sum: Rational; count: number; display: number }>();
-    for (const id of cohort.members) {
-      const row = observations.get(id)!; const unit = members.get(id)!;
-      const group = units.get(unit) ?? { sum: { n: 0n, d: 1n }, count: 0, display: 0 };
-      const candidate = exact(row.candidate); const incumbent = exact(row.incumbent);
-      const difference = add(candidate, { n: -incumbent.n, d: incumbent.d });
-      group.sum = add(group.sum, difference); group.count += 1;
-      const display = (row.candidate - lo) / range - (row.incumbent - lo) / range;
-      group.display += (display - group.display) / group.count; units.set(unit, group);
-    }
+    const units = unitDifferences(cohort.members, observations, members, plan.reward_bounds);
     let sum: Rational = { n: 0n, d: 1n }; let display = 0; let count = 0;
     for (const unit of units.values()) {
       sum = add(sum, rational(unit.sum.n, unit.sum.d * BigInt(unit.count)));
@@ -437,11 +465,15 @@ export function evaluatePlan(value: unknown, input: unknown): EvaluationPlanRepo
   // Reconstruct from the nearer endpoint so rounding the range cannot overflow a finite upper bound.
   const candidateReward = candidateMean <= 0.5 ? lo + candidateMean * range : hi - (1 - candidateMean) * range;
   const incumbentReward = incumbentMean <= 0.5 ? lo + incumbentMean * range : hi - (1 - incumbentMean) * range;
-  const cohorts = plan.protected_cohorts === undefined ? undefined : evaluateCohorts(plan, rows);
+  const observations = new Map(rows.map((row) => [row.id, row]));
+  const cohorts = plan.protected_cohorts === undefined ? undefined : evaluateCohorts(plan, observations, declared);
+  const guard = plan.max_unit_regression === undefined ? undefined : evaluateUnitGuard(plan, plan.max_unit_regression, observations, declared);
   const failure = cohorts?.find((cohort) => cohort.code !== null);
-  const verdict: PromotionDecision = failure === undefined ? aggregate : { decision: "refuse", code: failure.code!, reason: "A protected cohort failed its predeclared evidence minimum or nonregression limit." };
+  let verdict = aggregate;
+  if (guard !== undefined && guard.violations > 0) verdict = { decision: "refuse", code: "eval_unit_regression", reason: "At least one declared correlation unit exceeded its regression limit." };
+  if (failure !== undefined) verdict = { decision: "refuse", code: failure.code!, reason: "A protected cohort failed its predeclared evidence minimum or nonregression limit." };
   const boundary = plan.stopping.kind === "sequential" ? evaluateSequentialBoundary(plan, groups.size, candidateMean, incumbentMean) : null;
-  return validateEvaluationReport(plan, { ...(boundary === null ? {} : { sequential: boundary.sequential }), plan: evaluationPlanId(plan.candidate), comparison: evaluationComparison(plan), observations: input.length, independent_units: groups.size, candidate_mean: candidateReward, incumbent_mean: incumbentReward, verdict: boundary?.verdict ?? verdict, ...(cohorts === undefined ? {} : { aggregate_verdict: aggregate, cohorts }), remedy: boundary?.sequential.state === "continue" ? "Collect only the next declared complete unit prefix, then advance this sealed plan." : (boundary?.verdict ?? verdict).decision === "promote" ? null : "Register a new plan and fresh candidate before collecting a different cohort or making another evaluation look." });
+  return validateEvaluationReport(plan, { ...(boundary === null ? {} : { sequential: boundary.sequential }), plan: evaluationPlanId(plan.candidate), comparison: evaluationComparison(plan), observations: input.length, independent_units: groups.size, candidate_mean: candidateReward, incumbent_mean: incumbentReward, verdict: boundary?.verdict ?? verdict, ...(cohorts === undefined ? {} : { aggregate_verdict: aggregate, cohorts }), ...(guard === undefined ? {} : { aggregate_verdict: aggregate, unit_guard: guard }), remedy: boundary?.sequential.state === "continue" ? "Collect only the next declared complete unit prefix, then advance this sealed plan." : (boundary?.verdict ?? verdict).decision === "promote" ? null : "Register a new plan and fresh candidate before collecting a different cohort or making another evaluation look." });
 }
 /** Refuse nonfinite or out-of-domain emitted numbers before returning a successful report. @internal */
 export function validateEvaluationReport(...args: [plan: EvaluationPlan, report: EvaluationPlanReport] | [report: EvaluationPlanReport, bounds: readonly [number, number]]): EvaluationPlanReport {
@@ -464,6 +496,8 @@ export function validateEvaluationReport(...args: [plan: EvaluationPlan, report:
     if (b.lower < -1 || b.upper > 1 || b.lower > b.upper || b.error_bound <= 0 || b.error_bound > 1 || !Number.isSafeInteger(b.look) || b.look < 1 || b.look > 64) refuse("eval_plan_evidence");
   }
   if ((report.cohorts !== undefined && !dense(report.cohorts, 1, 32)) || report.cohorts?.some((cohort) => Math.abs(cohort.improvement) > hi - lo || !validRegression(cohort.max_regression, bounds) || !validCount(cohort.observations) || !validCount(cohort.min_units) || !validCount(cohort.independent_units, cohort.observations))) refuse("eval_plan_evidence");
+  const guard = report.unit_guard;
+  if (guard !== undefined && (Math.abs(guard.improvement) > hi - lo || !validRegression(guard.max_regression, bounds) || !Number.isSafeInteger(guard.violations) || guard.violations < 0 || guard.violations > report.independent_units)) refuse("eval_plan_evidence");
   return report;
 }
 /** Require predeclaration before all collection runs and unchanged incumbent provenance. */
@@ -611,5 +645,5 @@ export async function enforceEvaluationDecision(client: PmClient, candidate: str
 /** Keep promotion score bindings identical for fixed and sequential evidence. */
 function verifyEvaluationScore(registered: RegisteredEvaluationPlan, report: EvaluationPlanReport, score: ScoreRecord, prefix: string): void {
   if (score.objective !== registered.plan.objective || score.objective_version !== registered.plan.objective_version || canonicalizeEvaluationContext(score.evaluation_context, prefix) !== canonicalizeEvaluationContext(registered.plan.evaluation_context, prefix) || score.direction !== registered.plan.direction || score.seed_set !== registered.comparison || score.scale !== registered.plan.reward_bounds[1] - registered.plan.reward_bounds[0] || score.value !== report.candidate_mean) refuse("eval_plan_evidence");
-  if (report.verdict.decision !== "promote") refuse(report.verdict.code === "eval_cohort_samples" || report.verdict.code === "eval_cohort_regression" ? report.verdict.code : "eval_plan_refused");
+  if (report.verdict.decision !== "promote") refuse(report.verdict.code === "eval_unit_regression" || report.verdict.code === "eval_cohort_samples" || report.verdict.code === "eval_cohort_regression" ? report.verdict.code : "eval_plan_refused");
 }
