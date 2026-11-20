@@ -7,10 +7,10 @@ status: in_progress
 priority: 3
 tags[7]: acceptance,ci,follow-up,"gh:unbraind/pm-rl#145","gh:unbraind/pm-rl#180",performance,timing
 created_at: "2026-11-05T09:52:10.732Z"
-updated_at: "2026-11-18T16:07:51.439Z"
+updated_at: "2026-11-20T03:46:39.188Z"
 author: codex-agent
 parent: pm-rl-apvf
-comments[82]:
+comments[83]:
   - created_at: "2026-11-05T10:11:24.980Z"
     author: codex-agent
     text: "Final standalone results are recorded in docs/proposer-revert-evidence.json: packed process CLI reproduces ETIMEDOUT at its unchanged 20000 ms command limit; the canonical 512-card property and recoverable card transaction matrix each reproduce their unchanged 600000 ms parent limit. The transaction retry reports 133 tests: 124 pass, 7 failed-to-start after the parent finished, 2 cancellations, zero skip/todo. The packed LM command also reproduces ETIMEDOUT at 25000 ms and remains owned by pm-rl-7c7m. HTTP retry passed 1/1; callback log recovered 123/123 passes with recorder exit status unavailable after the provider interruption. Linked the already-executed process/card reproduction commands without rerunning them. Complete source-fix CI remains green across npm Node 22/26 and Bun Node 26 at original scope and thresholds."
@@ -258,6 +258,9 @@ comments[82]:
   - created_at: "2026-11-18T16:07:50.173Z"
     author: codex-sol
     text: "Pinned the shard test runner to TAP. The Node 26.13.0 workflow contract passed 6/6 and showed 100% launcher lines, branches and functions. The minimum Node 22.18.0 workflow, depth and release contracts passed 16/16. The complete linked gates also passed on Node 22.23.4, and the dry-run projections remain 903s for all three shards. PR #186 carries the fix for #174 and #185."
+  - created_at: "2026-11-20T03:46:39.099Z"
+    author: codex-sol
+    text: "Additional local observation on pm-rl-unit-guard at 90f91c9: Node 26 coverage at PR depth timed out in test/baseline.test.ts, refused vector retries converge, at its 600-second parent deadline during record-before. The same test passed in 36.46 seconds on the hosted Node 26 shard. The touched workflow-guard suite passed all 11 cases locally. Root cause of the timing difference is unverified. https://github.com/unbraind/pm-rl/actions/runs/44667912800/job/136061643354"
 files[62]{path,scope}:
   .agents/pm/tasks/pm-rl-local-gate-timing.toon,project
   .github/workflows/ci-deep.yml,project
