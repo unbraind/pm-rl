@@ -1,0 +1,13 @@
+id: pm-rl-loop-panel
+title: Bind a separate downstream evaluation panel to built-in trainer receipts
+description: The bandit loop submits a trainer-seed digest and sampled held-out score. Fixed-plan promotion requires its comparison digest and exact candidate mean. Agents using generation promote can submit the sealed score today. A built-in trainer needs a separate binding to use an additional workflow panel while preserving its primary evidence.
+type: Task
+status: open
+priority: 3
+tags[1]: follow-up
+created_at: "2026-11-20T03:24:12.589Z"
+updated_at: "2026-11-20T03:24:12.589Z"
+author: codex-sol
+acceptance_criteria: "Exercise passing and failing paired downstream evidence through an actual loop run and resume, retaining both primary and downstream identities, contamination checks, resource limits and approval."
+parent: pm-rl-apvf
+body: ""

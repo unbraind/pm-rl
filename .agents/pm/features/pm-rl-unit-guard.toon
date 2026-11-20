@@ -6,17 +6,19 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-11-20T03:13:56.111Z"
-updated_at: "2026-11-20T03:23:01.929Z"
+updated_at: "2026-11-20T03:24:53.015Z"
 assignee: codex-sol
 claim_principal: codex-sol
 author: codex-sol
 acceptance_criteria: "Check all complete paired units exactly in either objective direction before promotion and preserve independent approval and resource bounds.; Preserve legacy comparisons and fail closed on incomplete, changed or sequential guarded plans.; Measure masking and equivalent-plan token savings on seeded synthetic workflows through the SDK and CLI."
 parent: pm-rl-apvf
-comments[4]{created_at,author,text}:
+comments[6]{created_at,author,text}:
   "2026-11-20T03:14:15.851Z",codex-sol,"Ranked by value / (risk x effort), each dimension 1 to 5. Per-unit regression guard 5/(1x2)=2.50: current plan caps protected cohorts at 32 and a mean masks a single workflow loss. Learned context routing 5/(3x4)=0.42: existing public history-prefix task has 943 fit and 385 final items, but completion after choosing a projection lacks a counterfactual. Further meta-loop search 3/(3x4)=0.25: bounded recipe and proposer search already exist, with zero promotions in the published transfer replay. All three retain sealed limits, independent human approval and fail-closed lineage."
   "2026-11-20T03:14:20.756Z",codex-sol,"Implement optional max_unit_regression on fixed plans. Reuse exact decimal arithmetic on paired members within each declared correlation unit. Report one worst unit and the count in breach, keep earlier cohorts and aggregate gates effective, and retest persisted evidence and the authoritative promotion command."
   "2026-11-20T03:19:28.916Z",codex-sol,"Seed 42, 32 synthetic workflow units, 64 paired observations. Aggregate candidate 0.96875 vs incumbent 0.03125 passes. Both equivalent protections refuse the one loss of 1 on workflow-1. tiktoken 0.14.0 o200k_base over minified complete plan/report: 2086/1461 tokens using explicit cohorts, 1062/293 with the unit guard. Saving 2192 of 3547 context tokens (61.8%); inference calls zero."
   "2026-11-20T03:23:01.925Z",codex-sol,"Both new deterministic tests passed directly. The real SDK-backed CLI rejected the masked regression, kept the candidate unpromoted, and then spent the same single Decision allowance on a passing candidate. The maximum supported 10000-member plan also identified its last regressing unit. Typecheck, build, test typecheck, lint, duplicate and docstring checks passed. Changelog regeneration after fetching tags and changelog:check passed with no tracked diff. Running the package-wide coverage gate on the Node 26 PR profile, including all test files that reference the changed modules."
+  "2026-11-20T03:24:17.307Z",codex-sol,Implementation commit 49453a9. The native fixed-plan promotion path accepts sealed scores. Automatic submission of an independent second benchmark by the built-in trainer is tracked separately in pm-rl-loop-panel; its existing primary score and seed-set verification remain enforced.
+  "2026-11-20T03:24:53.014Z",codex-sol,The linked test command passed through pm test using snapshot workspace and no inherited pm context (exit 0). The default source workspace cannot be paired with pm-context none. The built package dry-run contains both evaluator JS and declarations and the README.
 files[4]{path,scope}:
   evaluation-plan.ts,project
   index.ts,project

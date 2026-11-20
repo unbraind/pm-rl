@@ -900,6 +900,10 @@ separately. To use the guard in the CLI, add the field to the JSON supplied to
 `pm rl eval plan register --file plan.json`, collect the predeclared
 observations, then run `pm rl eval plan evaluate <candidate> --file observations.json`.
 The normal `pm rl generation promote` command enforces the recorded verdict.
+Supply a held-out score bound to the plan comparison and exact measured mean.
+Built-in trainers emit their own seed-set and score receipts. An agent using
+a separate downstream panel submits its measured score through this promotion
+command.
 
 ### Protected task cohorts
 
