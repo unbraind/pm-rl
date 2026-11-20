@@ -2,11 +2,11 @@ id: pm-rl-unit-guard
 title: Refuse a recursive promotion when any declared workflow unit regresses
 description: Let a fixed evaluation plan bound the empirical regression of every correlation unit with one sealed declaration.
 type: Feature
-status: in_progress
+status: open
 priority: 2
 tags: []
 created_at: "2026-11-20T03:13:56.111Z"
-updated_at: "2026-11-20T03:46:33.997Z"
+updated_at: "2026-11-20T04:18:12.324Z"
 author: codex-sol
 acceptance_criteria: "Check all complete paired units exactly in either objective direction before promotion and preserve independent approval and resource bounds.; Preserve legacy comparisons and fail closed on incomplete, changed or sequential guarded plans.; Measure masking and equivalent-plan token savings on seeded synthetic workflows through the SDK and CLI."
 parent: pm-rl-apvf
