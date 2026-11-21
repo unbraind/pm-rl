@@ -295,7 +295,7 @@ jobs:
         run: npm ci
       - name: Download raw coverage hits
         if: steps.changes.outputs.code == 'true'
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           pattern: coverage-26-*
           path: coverage-input
