@@ -63,10 +63,42 @@ test("evolution transfer corrections survive SDK and both CLI commands and outpu
     const value = { ...config, transfer }; writeFileSync(file, JSON.stringify(value));
     assert.throws(() => parseProposerEvolutionConfig(value), (error) => { assert.ok(error instanceof ProposerRefusal); assert.match(error.message, /transfer_design.*Correct.*effect.*alpha.*looks/); assert.match(error.remedy, /transfer_design.*Correct/); return true; });
     await assert.rejects(runProposerEvolution(w.client, w.coordinates, { id: "refused", approval: w.approval, dataset: "unopened", config: value as typeof config }), ProposerRefusal);
-    for (const json of [false, true]) for (const command of ["rl proposer validate", "rl proposer run"]) await assert.rejects(harness.runCommand({ command, pmRoot: w.pmRoot, args: command.endsWith("run") ? ["refused"] : [], options: { file, dataset: "unopened", approval: w.approval }, global: { json } }), (error) => { assert.ok(isPmCliExpectedError(error)); assert.equal(error.context.code, "proposer_invalid"); assert.match(error.message, /transfer_design.*Correct/); assert.doesNotMatch(error.message, /Restore|PAYLOAD_SENTINEL/); return true; });
+    for (const json of [false, true]) {
+      const global = { json };
+      for (const request of [
+        { command: "rl proposer validate", options: { file } },
+        { command: "rl proposer run", args: ["refused"], options: { file, dataset: "unopened", approval: w.approval } },
+      ]) {
+        await assert.rejects(harness.runCommand({ ...request, pmRoot: w.pmRoot, global }), (error) => {
+          assert.ok(isPmCliExpectedError(error));
+          assert.equal(error.context.code, "proposer_invalid");
+          assert.match(error.message, /transfer_design.*Correct/);
+          assert.doesNotMatch(error.message, /Restore|PAYLOAD_SENTINEL/);
+          return true;
+        });
+      }
+    }
   }
   assert.deepEqual((await w.client.listAllComplete({ includeBody: true })).items, before);
   assert.deepEqual(parseProposerEvolutionConfig(config), config);
+});
+
+test("the host refuses run-only options on proposer validate before opening the file", async () => {
+  const w = await processWorkspace();
+  const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });
+  const before = (await w.client.listAllComplete({ includeBody: true })).items;
+  const file = join(w.root, "unopened.json");
+  for (const flag of ["dataset", "approval"]) {
+    await assert.rejects(harness.runCommand({
+      command: "rl proposer validate", pmRoot: w.pmRoot, options: { file, [flag]: "unopened" },
+    }), (error) => {
+      assert.ok(isPmCliExpectedError(error));
+      assert.equal(error.context.code, "unknown_option");
+      assert.equal(error.context.flag, `--${flag}`);
+      return true;
+    });
+  }
+  assert.deepEqual((await w.client.listAllComplete({ includeBody: true })).items, before);
 });
 
 test("native transfer declarations corpus and scores retain restoration advice in every receipt version", async () => {
