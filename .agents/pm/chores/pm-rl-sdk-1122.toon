@@ -6,13 +6,14 @@ status: in_progress
 priority: 2
 tags[1]: "gh:unbraind/pm-rl#191"
 created_at: "2026-11-24T15:34:45.963Z"
-updated_at: "2026-11-24T16:00:17.416Z"
+updated_at: "2026-11-24T16:20:37.437Z"
 author: codex-agent
-comments[4]{created_at,author,text}:
+comments[5]{created_at,author,text}:
   "2026-11-24T15:35:01.111Z",codex-agent,"Toolchain PR #191 fails in build:test before TAP because the guard fixture lacks actor and dry_run. Actions PR #198 fails changelog:check before tests from dependency-note drift. Plan: adopt the installed host contract, preserve the historical writer fixture, and verify the package changes with scoped gates."
   "2026-11-24T15:40:42.645Z",codex-agent,"The new host emits missing_required_option with the declared flag and still refuses before dispatch. Updated the shared regression witness to require the machine code while preserving the usage status, exact message and no-write assertions. The full local run was started at two workers. The committed quick-tier timing file alone totals 7505 measured file-seconds, over 62 minutes at two workers before full-depth cases. Scoped execution covers all intended callers."
   "2026-11-24T15:48:28.586Z",codex-agent,"Build, typecheck, test compilation, lint, identity audit (5 approved identities), tracker health, duplication and docstrings passed. Seven focused files produced 182/183 on the first run. The only failure was the concurrent-loop case waiting 3014 ms for the live registration lock; the isolated retry passed 1/1 at the same timeout, with no source or threshold change. The full-suite attempt was stopped after 58 passing top-level rows under the test-time budget. Linked changelog test passed 1/1 in a tracker-free snapshot. Reverting just the guard fixture reproduces TS2739; the old shared refusal assertion fails on the typed code; each changelog entry point fails the regression test when its flag or forwarding is removed. PR CI runs quick Node 22/26 shards, configured coverage, release checks and Bun smoke. CI Deep owns the full npm and Bun release gates."
   "2026-11-24T16:00:11.511Z",codex-agent,"CI run 45429830071, coverage shard 2, first failure: evolution transfer corrections survive SDK and both CLI commands and output modes. The older harness passed run-only flags through proposer validate. The current host refuses undeclared flags before dispatch. Match the native CLI flag sets for validate and run, retain every exact proposer_invalid correction and unchanged tracker check, and assert unknown_option separately for dataset and approval with an unopened file. The prior CI result is the revert witness. Local build, typecheck, test compilation, lint and all six non-packed cases in the affected file passed. The linked host refusal test passed 1/1. Packed coverage belongs to CI."
+  "2026-11-24T16:20:34.497Z",codex-agent,"CI run 45432110380 passed all test shards. Coverage merge reported index.ts lines 1609-1613 unexecuted, with aggregate lines 99.98% and branches 99.99%. Added a mixed valid/malformed NDJSON fixture asserting the host usage exit, malformed_line code and byte-identical history. Bypassing the translation in a disposable copy makes the assertion fail with Missing expected rejection. The complete index test file passed 27/27, the linked case passed 1/1, and build, typecheck, test compilation and lint passed. CI reruns the existing coverage thresholds for this head."
 files[7]{path,scope}:
   bun.lock,project
   package-lock.json,project
@@ -21,11 +22,12 @@ files[7]{path,scope}:
   test/index.test.ts,project
   test/release-workflow.test.ts,project
   test/transfer-refusal.test.ts,project
-tests[4]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[5]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-concurrency=2 test/index.test.ts test/release-workflow.test.ts test/audit-git-identities.test.ts,project,codex-agent,"2026-11-24T15:35:51.149Z",local_mutation,deps/adopt-pm-cli-host-alignment-1122
   node --test --test-concurrency=2 test/corpus.test.ts test/leaderboard.test.ts test/lineage.test.ts test/loop.test.ts,project,codex-agent,"2026-11-24T15:40:33.996Z",local_mutation,deps/adopt-pm-cli-host-alignment-1122
   node --test --test-concurrency=2 --test-name-pattern=package.changelog.entry.points test/release-workflow.test.ts,project,codex-agent,"2026-11-24T15:42:08.538Z",local_mutation,deps/adopt-pm-cli-host-alignment-1122
   node --test --test-concurrency=2 --test-name-pattern=proposer.validate.before.opening test/transfer-refusal.test.ts,project,codex-agent,"2026-11-24T15:57:26.094Z",local_mutation,deps/adopt-pm-cli-host-alignment-1122
+  node --test --test-concurrency=2 --test-name-pattern=malformed.or.missing.inputs.fail.closed test/index.test.ts,project,codex-agent,"2026-11-24T16:18:11.386Z",local_mutation,deps/adopt-pm-cli-host-alignment-1122
 docs[1]{path,scope}:
   CHANGELOG.md,project
 body: ""
