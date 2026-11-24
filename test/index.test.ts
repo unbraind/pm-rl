@@ -351,6 +351,8 @@ function mutationContext(
     before,
     after: null,
     changed_fields: changedFields,
+    actor: { author: "pm-rl-test", author_source: "asserted", principal: "pm-rl-test" },
+    dry_run: false,
     sdk,
   };
 }
