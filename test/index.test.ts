@@ -15,7 +15,7 @@ import {
   type CommandHandlerContext,
   type ExtensionMutationGuardSdk,
 } from "@unbrained/pm-cli/sdk/authoring";
-import { init, runUpdate, runWithActiveExtensions } from "@unbrained/pm-cli/sdk/runtime";
+import { EXIT_CODE, init, isPmCliExpectedError, runUpdate, runWithActiveExtensions } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 
 import extension, {
@@ -351,6 +351,8 @@ function mutationContext(
     before,
     after: null,
     changed_fields: changedFields,
+    actor: { author: "pm-rl-test", author_source: "asserted", principal: "pm-rl-test" },
+    dry_run: false,
     sdk,
   };
 }
@@ -648,6 +650,22 @@ test("a run can use an empty configuration while malformed or missing inputs fai
     harness.runCommand({ command: "rl run start", pmRoot, args: ["missing-config"], options: { environment: environment.id, algorithm: "DQN", configFile: join(root, "absent.json") } }),
     /could not be read/,
   );
+
+  const malformedMetrics = join(root, "malformed.ndjson");
+  writeFileSync(malformedMetrics, '{"step":0,"metric":"reward","value":1}\nnot-json\n');
+  const historyPath = join(pmRoot, "history", `${started.id}.jsonl`);
+  const historyBefore = readFileSync(historyPath);
+  await assert.rejects(
+    harness.runCommand({ command: "rl run log", pmRoot, args: [started.id!], options: { file: malformedMetrics } }),
+    (error) => {
+      assert.ok(isPmCliExpectedError(error));
+      assert.equal(error.context.code, "malformed_line");
+      assert.equal(error.exitCode, EXIT_CODE.USAGE);
+      assert.match(error.message, /^Line 2 is not valid JSON/);
+      return true;
+    },
+  );
+  assert.deepEqual(readFileSync(historyPath), historyBefore);
 
   const emptyMetrics = join(root, "empty.ndjson");
   writeFileSync(emptyMetrics, "\n");

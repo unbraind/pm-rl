@@ -1,6 +1,6 @@
 # Changelog
 
-## 2026.11.19 - 2026-11-19
+## 2026.11.19 - 2026-11-21
 
 No changes.
 
@@ -130,3 +130,55 @@ No changes.
 - Closed: Resolve CodeRabbit round-2 findings on PR 16 ([pm-rl-weum](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-weum.toon))
 - Closed: Converge changelog generation and verification on replace mode ([pm-rl-yjqx](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-yjqx.toon))
 - Closed: Release bot identity was absent from the allowlist, so the first release would break the audit permanently ([pm-rl-rgt4](https://github.com/unbraind/pm-rl/blob/main/.agents/pm/issues/pm-rl-rgt4.toon))
+
+### Dependencies
+
+- Bump eslint ([#183](https://github.com/unbraind/pm-rl/pull/183))
+- Bump the dependencies group with 2 updates ([#181](https://github.com/unbraind/pm-rl/pull/181))
+- Bump jscpd ([#166](https://github.com/unbraind/pm-rl/pull/166))
+- Bump the pm-toolchain group across 1 directory with 3 updates ([#162](https://github.com/unbraind/pm-rl/pull/162))
+- Bump unbraind/pm-github/.github/workflows/pm-github-closeout.yml ([#156](https://github.com/unbraind/pm-rl/pull/156))
+- Bump unbraind/pm-github/.github/workflows/pm-github-sync.yml ([#157](https://github.com/unbraind/pm-rl/pull/157))
+- Bump the codeql-action group across 1 directory with 2 updates ([#155](https://github.com/unbraind/pm-rl/pull/155))
+- Bump the pm-toolchain group with 2 updates ([#150](https://github.com/unbraind/pm-rl/pull/150))
+- Bump @babel/core ([#146](https://github.com/unbraind/pm-rl/pull/146))
+- Bump pm-changelog ([#143](https://github.com/unbraind/pm-rl/pull/143))
+- Bump pm-ops ([#138](https://github.com/unbraind/pm-rl/pull/138))
+- Bump the dependencies group across 1 directory with 3 updates ([#135](https://github.com/unbraind/pm-rl/pull/135))
+- Bump the pm-toolchain group with 3 updates ([#133](https://github.com/unbraind/pm-rl/pull/133))
+- Bump unbraind/pm-github/.github/workflows/pm-github-sync.yml ([#129](https://github.com/unbraind/pm-rl/pull/129))
+- Bump unbraind/pm-github/.github/workflows/pm-github-closeout.yml ([#128](https://github.com/unbraind/pm-rl/pull/128))
+- Bump the pm-toolchain group across 1 directory with 3 updates ([#125](https://github.com/unbraind/pm-rl/pull/125))
+- Bump @unbrained/pm-cli ([#121](https://github.com/unbraind/pm-rl/pull/121))
+- Bump the pm-toolchain group across 1 directory with 3 updates ([#114](https://github.com/unbraind/pm-rl/pull/114))
+- Bump @babel/core ([#115](https://github.com/unbraind/pm-rl/pull/115))
+- Bump the pm-toolchain group across 1 directory with 3 updates ([#110](https://github.com/unbraind/pm-rl/pull/110))
+- Bump jscpd ([#111](https://github.com/unbraind/pm-rl/pull/111))
+- Bump unbraind/pm-github/.github/workflows/pm-github-closeout.yml ([#102](https://github.com/unbraind/pm-rl/pull/102))
+- Bump unbraind/pm-github/.github/workflows/pm-github-sync.yml ([#103](https://github.com/unbraind/pm-rl/pull/103))
+- Bump the codeql-action group with 2 updates ([#101](https://github.com/unbraind/pm-rl/pull/101))
+- Bump the pm-toolchain group across 1 directory with 3 updates ([#93](https://github.com/unbraind/pm-rl/pull/93))
+- Bump eslint ([#91](https://github.com/unbraind/pm-rl/pull/91))
+- Bump the pm-toolchain group with 2 updates ([#90](https://github.com/unbraind/pm-rl/pull/90))
+- Bump the pm-toolchain group with 3 updates ([#87](https://github.com/unbraind/pm-rl/pull/87))
+- Bump the codeql-action group with 2 updates ([#83](https://github.com/unbraind/pm-rl/pull/83))
+- Bump pm-changelog ([#82](https://github.com/unbraind/pm-rl/pull/82))
+- Bump the pm-toolchain group with 2 updates ([#78](https://github.com/unbraind/pm-rl/pull/78))
+- Bump @unbrained/pm-cli ([#73](https://github.com/unbraind/pm-rl/pull/73))
+- Bump the dependencies group with 4 updates ([#72](https://github.com/unbraind/pm-rl/pull/72))
+- Bump the pm-toolchain group across 1 directory with 3 updates ([#67](https://github.com/unbraind/pm-rl/pull/67))
+- Bump the codeql-action group across 1 directory with 2 updates ([#53](https://github.com/unbraind/pm-rl/pull/53))
+- Bump @babel/eslint-parser from 8.0.1 to 8.0.6 ([#45](https://github.com/unbraind/pm-rl/pull/45))
+- Bump @babel/core from 8.0.1 to 8.0.6 ([#46](https://github.com/unbraind/pm-rl/pull/46))
+- Bump jscpd from 5.2.0 to 5.3.0 ([#47](https://github.com/unbraind/pm-rl/pull/47))
+- Bump @types/node from 26.5.1 to 26.6.1 ([#48](https://github.com/unbraind/pm-rl/pull/48))
+- Bump eslint from 10.9.1 to 10.10.0 ([#37](https://github.com/unbraind/pm-rl/pull/37))
+- Bump jscpd from 5.1.1 to 5.2.0 ([#39](https://github.com/unbraind/pm-rl/pull/39))
+- Bump pm-changelog from 2026.9.6 to 2026.9.9 ([#40](https://github.com/unbraind/pm-rl/pull/40))
+- Bump @types/node from 26.4.1 to 26.5.1 ([#38](https://github.com/unbraind/pm-rl/pull/38))
+- Bump the codeql-action group with 2 updates ([#41](https://github.com/unbraind/pm-rl/pull/41))
+- Bump @types/node from 26.4.0 to 26.4.1 ([#27](https://github.com/unbraind/pm-rl/pull/27))
+- Bump jscpd from 5.0.16 to 5.1.1 ([#28](https://github.com/unbraind/pm-rl/pull/28))
+- Bump @types/node from 26.2.0 to 26.4.0 ([#24](https://github.com/unbraind/pm-rl/pull/24))
+- Bump eslint from 10.8.1 to 10.9.1 ([#23](https://github.com/unbraind/pm-rl/pull/23))
+- Bump pm-changelog from 2026.8.17 to 2026.8.22 ([#22](https://github.com/unbraind/pm-rl/pull/22))

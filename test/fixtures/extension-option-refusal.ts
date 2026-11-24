@@ -4,7 +4,7 @@ import { EXIT_CODE, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import type { ExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import { sourceBytes } from "./corpus-source-snapshot.ts";
 
-/** Preserve the precise untyped host refusal until the SDK supplies a machine code. */
+/** Verify the typed native refusal before dispatch and preserve durable tracker bytes. */
 export async function assertMissingHostOption(
   harness: ExtensionTestHarness,
   request: Parameters<ExtensionTestHarness["runCommand"]>[0] & { pmRoot: string },
@@ -13,7 +13,8 @@ export async function assertMissingHostOption(
   const before = sourceBytes(request.pmRoot);
   await assert.rejects(harness.runCommand(request), (error: unknown) => {
     assert.ok(isPmCliExpectedError(error));
-    assert.equal(error.context.code, undefined);
+    assert.equal(error.context.code, "missing_required_option");
+    assert.equal(error.context.flag, flag);
     assert.equal(error.exitCode, EXIT_CODE.USAGE);
     assert.equal(error.message, `Missing required option '${flag}' for extension command '${request.command}'.`);
     return true;
