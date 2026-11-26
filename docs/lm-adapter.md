@@ -145,8 +145,10 @@ through a real package uninstall/reinstall, checks regression and
 contamination refusals, and reports CLI throughput as a diagnostic. Its
 generation subprocess has a 25-second watchdog in ordinary runs and 50 seconds
 when the test runner collects V8 coverage. An explicit `PM_TEST_TIME_SCALE`
-overrides the default multiplier, so deep CI uses 75 seconds. The watchdog
-still fails if the process overruns after printing a receipt. Declared product
+overrides the default multiplier, so deep CI uses 75 seconds. Outer harness
+watchdogs that wrap nested proof children keep their unscaled budget as a
+floor, so a small explicit scale cannot undercut the nested proof budget. The
+watchdog still fails if the process overruns after printing a receipt. Declared product
 trainer and resource deadlines remain fixed.
 See [CI tiers](ci-tiers.md) for the quick/full harness policy.
 

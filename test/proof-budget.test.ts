@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { test } from "node:test";
-import { testTime } from "./support/depth.ts";
+import { fileURLToPath } from "node:url";
+import { outerProofTime } from "./support/proof-budget.ts";
 
 const helper = new URL("./support/proof-budget.ts", import.meta.url).href;
+const depthHelper = new URL("./support/depth.ts", import.meta.url).href;
 
 test("timed proofs keep ordinary budgets and scale for coverage and deep profiles", () => {
   const script = `
@@ -20,7 +22,7 @@ test("timed proofs keep ordinary budgets and scale for coverage and deep profile
     const output = execFileSync(process.execPath, ["--input-type=module", "-e", script, coverage], {
       encoding: "utf8",
       env: { ...process.env, PM_TEST_DEPTH: depth, NODE_V8_COVERAGE: undefined, PM_TEST_TIME_SCALE: scale },
-      timeout: testTime(10_000),
+      timeout: outerProofTime(10_000),
     });
     assert.deepEqual(JSON.parse(output), expected);
   }
@@ -40,6 +42,41 @@ test("a proof exceeding its scaled watchdog fails even after printing a receipt"
   `;
   execFileSync(process.execPath, ["--input-type=module", "-e", script], {
     env: { ...process.env, NODE_V8_COVERAGE: undefined, PM_TEST_TIME_SCALE: "3" },
-    timeout: testTime(10_000),
+    timeout: outerProofTime(10_000),
   });
+});
+
+test("outer proof watchdogs keep an unscaled floor at small scales and preserve deep budgets", () => {
+  const script = `
+    import { outerProofTime } from ${JSON.stringify(helper)};
+    import { testTime } from ${JSON.stringify(depthHelper)};
+    for (const milliseconds of [1, 7, 333, 2_000, 10_000, 25_000, 250_000]) {
+      const floored = outerProofTime(milliseconds);
+      if (floored < milliseconds || floored < testTime(milliseconds)) throw new Error("outer watchdog dropped below the nested budget");
+    }
+    console.log(JSON.stringify([10_000, 25_000].map(outerProofTime)));
+  `;
+  for (const [scale, expected] of [
+    ["0.4", [10_000, 25_000]],
+    ["1", [10_000, 25_000]],
+    ["3", [30_000, 75_000]],
+  ] as const) {
+    const output = execFileSync(process.execPath, ["--input-type=module", "-e", script], {
+      encoding: "utf8",
+      env: { ...process.env, NODE_V8_COVERAGE: undefined, PM_TEST_TIME_SCALE: scale },
+      timeout: outerProofTime(10_000),
+    });
+    assert.deepEqual(JSON.parse(output), expected);
+  }
+});
+
+test("the proof regressions still finish when the whole file runs at a small explicit scale", { skip: process.env.PM_TEST_PROOF_BUDGET_CHILD === "1" ? "reentrancy guard: the child run exercises every watchdog in this file" : false }, () => {
+  // 0.005 is a valid explicit scale: a reverted outer watchdog (50 ms) then undercuts even the
+  // instrumented child startup behind the sibling watchdog, while the floor keeps every declared budget.
+  const run = spawnSync(process.execPath, ["--test", "--test-concurrency=1", fileURLToPath(import.meta.url)], {
+    encoding: "utf8",
+    env: { ...process.env, NODE_V8_COVERAGE: undefined, NODE_TEST_CONTEXT: undefined, PM_TEST_TIME_SCALE: "0.005", PM_TEST_PROOF_BUDGET_CHILD: "1" },
+    timeout: outerProofTime(60_000),
+  });
+  assert.equal(run.status, 0, run.stdout + run.stderr);
 });

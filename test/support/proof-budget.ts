@@ -7,6 +7,11 @@ export function proofTime(milliseconds: number): number {
   return testTime(milliseconds * coverageScale);
 }
 
+/** An outer watchdog around nested proofs keeps an unscaled floor, so a small explicit scale cannot undercut the nested budget. */
+export function outerProofTime(milliseconds: number): number {
+  return Math.max(milliseconds, testTime(milliseconds));
+}
+
 /** Run a Node proof with a finite watchdog, based on the profile of the test that launches it. */
 export function runTimedProof(
   args: readonly string[],
