@@ -6,7 +6,7 @@ status: open
 priority: 2
 tags[1]: "gh:unbraind/pm-rl#202"
 created_at: "2026-11-26T01:29:59.078Z"
-updated_at: "2026-11-26T03:57:19.481Z"
+updated_at: "2026-11-26T09:55:45.799Z"
 author: codex-agent
 acceptance_criteria: Scale the wall-clock watchdog with the test profile.; Always verify three generations and the persisted contamination refusal.; Prove a subprocess exceeding its scaled watchdog still fails.
 comments[17]{created_at,author,text}:
@@ -40,4 +40,5 @@ tests[5]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,
   bun test test/proof-budget.test.ts,project,90,pi-glm,"2026-11-26T03:26:27.366Z",local_mutation,fix/packed-lm-proof-wall-clock
 docs[1]{path,scope}:
   docs/lm-adapter.md,project
+github_url: "https://github.com/unbraind/pm-rl/issues/202"
 body: ""
