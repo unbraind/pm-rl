@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { outerProofTime } from "./support/proof-budget.ts";
+import { outerProofTime, testFileRunnerArguments } from "./support/proof-budget.ts";
 
 const helper = new URL("./support/proof-budget.ts", import.meta.url).href;
 const depthHelper = new URL("./support/depth.ts", import.meta.url).href;
@@ -28,7 +28,7 @@ test("timed proofs keep ordinary budgets and scale for coverage and deep profile
   }
 });
 
-test("a proof exceeding its scaled watchdog fails even after printing a receipt", () => {
+test("a proof exceeding its scaled watchdog fails even after printing a receipt", { timeout: outerProofTime(30_000) }, () => {
   const script = `
     import assert from "node:assert/strict";
     import { runTimedProof } from ${JSON.stringify(helper)};
@@ -48,12 +48,14 @@ test("a proof exceeding its scaled watchdog fails even after printing a receipt"
 
 test("outer proof watchdogs keep an unscaled floor at small scales and preserve deep budgets", () => {
   const script = `
-    import { outerProofTime } from ${JSON.stringify(helper)};
+    import { outerProofTime, testFileRunnerArguments } from ${JSON.stringify(helper)};
     import { testTime } from ${JSON.stringify(depthHelper)};
     for (const milliseconds of [1, 7, 333, 2_000, 10_000, 25_000, 250_000]) {
       const floored = outerProofTime(milliseconds);
       if (floored < milliseconds || floored < testTime(milliseconds)) throw new Error("outer watchdog dropped below the nested budget");
     }
+    const runner = testFileRunnerArguments("proof-budget.test.ts");
+    if ((process.versions.bun === undefined ? "--test" : "test") !== runner[0]) throw new Error("runner mode is not supported by the active runtime");
     console.log(JSON.stringify([10_000, 25_000].map(outerProofTime)));
   `;
   for (const [scale, expected] of [
@@ -70,10 +72,13 @@ test("outer proof watchdogs keep an unscaled floor at small scales and preserve 
   }
 });
 
-test("the proof regressions still finish when the whole file runs at a small explicit scale", { skip: process.env.PM_TEST_PROOF_BUDGET_CHILD === "1" ? "reentrancy guard: the child run exercises every watchdog in this file" : false }, () => {
+test("the proof regressions still finish when the whole file runs at a small explicit scale", { timeout: outerProofTime(90_000), skip: process.env.PM_TEST_PROOF_BUDGET_CHILD === "1" ? "reentrancy guard: the child run exercises every watchdog in this file" : false }, () => {
+  if (process.env.PM_TEST_PROOF_BUDGET_CHILD === "1") return;
   // 0.005 is a valid explicit scale: a reverted outer watchdog (50 ms) then undercuts even the
   // instrumented child startup behind the sibling watchdog, while the floor keeps every declared budget.
-  const run = spawnSync(process.execPath, ["--test", "--test-concurrency=1", fileURLToPath(import.meta.url)], {
+  // Bun's node:test shim ignores the skip option and defaults to a 5 s test timeout, so the guard
+  // also returns early and the long regressions carry explicit floored timeouts.
+  const run = spawnSync(process.execPath, testFileRunnerArguments(fileURLToPath(import.meta.url)), {
     encoding: "utf8",
     env: { ...process.env, NODE_V8_COVERAGE: undefined, NODE_TEST_CONTEXT: undefined, PM_TEST_TIME_SCALE: "0.005", PM_TEST_PROOF_BUDGET_CHILD: "1" },
     timeout: outerProofTime(60_000),

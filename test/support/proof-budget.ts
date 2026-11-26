@@ -12,6 +12,11 @@ export function outerProofTime(milliseconds: number): number {
   return Math.max(milliseconds, testTime(milliseconds));
 }
 
+/** Child arguments that re-run a whole test file under the runner mode the active runtime supports. */
+export function testFileRunnerArguments(file: string): string[] {
+  return process.versions.bun === undefined ? ["--test", "--test-concurrency=1", file] : ["test", file];
+}
+
 /** Run a Node proof with a finite watchdog, based on the profile of the test that launches it. */
 export function runTimedProof(
   args: readonly string[],
