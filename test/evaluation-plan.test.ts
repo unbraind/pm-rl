@@ -1,7 +1,6 @@
 import { identityPath } from "./fixtures/identity-path.ts";
 /** Real non-git trackers and adversarial cohorts for predeclared policy comparisons. */
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, symlinkSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
@@ -12,6 +11,7 @@ import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import extension, { extractGenerationSpec, generationProvenance, hashJson, readCompleteLoopItem, recordRefusedPolicyCard, verifyDecisionEvidence, verifyCompletedDecisionReceipt, type JsonValue, type RlCommandResult } from "../index.ts";
 import { evaluationEvidence, evaluationComparison, evaluationPlanId, evaluatePlan, parseEvaluationPlan, registerEvaluationPlan, readEvaluationPlan, readEvaluationDecision, recordPlanEvaluation, enforceEvaluationPlan, evaluationInputDigest, decisionSnapshotDigest, parseEvaluationEvidence, type EvaluationPlan, type EvaluationObservation } from "../evaluation-plan.ts";
 import type { GenerationSpec, ScoreRecord } from "../lineage.ts";
+import { runTimedProof } from "./support/proof-budget.ts";
 
 const roots: string[] = [];
 after(() => { for (const root of roots) rmSync(root, { recursive: true, force: true }); });
@@ -647,14 +647,15 @@ test("generation JSON fence scan bounds 100k repeated unclosed openers", () => {
     import assert from "node:assert/strict";
     import { isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
     import { extractGenerationSpec } from "./index.ts";
+    import { proofTime } from "./test/support/proof-budget.ts";
     const input = ${JSON.stringify("```json\nx")}.repeat(100_000);
     const start = performance.now();
     assert.throws(() => extractGenerationSpec(input, "Generation"),
       (error) => isPmCliExpectedError(error) && error.context.code === "generation_missing_spec");
-    assert.ok(performance.now() - start < 2000, "100k openers must scan within two seconds");
+    assert.ok(performance.now() - start < proofTime(2_000), "100k openers must scan within the profile's time budget");
     console.log("100k linear scan passed");
   `;
-  assert.match(execFileSync(process.execPath, ["--input-type=module", "-e", script], { encoding: "utf8", timeout: 20_000 }), /100k linear scan passed/);
+  assert.match(runTimedProof(["--input-type=module", "-e", script], 20_000), /100k linear scan passed/);
 });
 
 

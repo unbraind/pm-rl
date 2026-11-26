@@ -11,8 +11,9 @@ import { PmClient } from "@unbrained/pm-cli/sdk/core";
 import { init } from "@unbrained/pm-cli/sdk/runtime";
 import { readCompleteLoopItem, type RlLoopReport } from "../index.ts";
 import { parseGenerationSpec } from "../lineage.ts";
+import { runTimedProof } from "./support/proof-budget.ts";
 
-test("packed pm CLI performs three real LM generations and records contamination refusal under 20 seconds", async () => {
+test("packed pm CLI performs three real LM generations and records contamination refusal", async () => {
   const root = mkdtempSync(join(tmpdir(), "pm-rl-lm-cli-"));
   try {
     const tracker = await init("rl", { defaults: true, agentGuidance: "skip", author: "rl-acceptance" }, { cwd: root, pmRoot: join(root, ".agents/pm") });
@@ -31,7 +32,7 @@ test("packed pm CLI performs three real LM generations and records contamination
     const file = join(root, "cfg.json");
     writeFileSync(file, JSON.stringify(config));
     const started = performance.now();
-    const output = JSON.parse(execFileSync(process.execPath, [cli, "rl", "loop", "run", "proof", "--file", file, "--approval", String(approval.item.id), "--json"], { cwd: root, env, encoding: "utf8", timeout: testTime(25_000) })) as { details: RlLoopReport };
+    const output = JSON.parse(runTimedProof([cli, "rl", "loop", "run", "proof", "--file", file, "--approval", String(approval.item.id), "--json"], 25_000, { cwd: root, env })) as { details: RlLoopReport };
     const elapsed = performance.now() - started;
     const report = output.details;
     // CLI throughput is diagnostic; receipt, lineage and operation counts prove completion.
@@ -75,7 +76,8 @@ test("packed pm CLI performs three real LM generations and records contamination
     const refused = spawnSync(process.execPath, [cli, "rl", "loop", "run", "dirty", "--file", file, "--approval", String(approval.item.id), "--json"], { cwd: root, env, encoding: "utf8" });
     assert.notEqual(refused.status, 0);
     assert.match(refused.stderr + refused.stdout, /lm_dataset_overlap/);
-    assert.ok(JSON.stringify(await client.comments(String(approval.item.id))).includes("lm_dataset_overlap"));
+    const { comments } = await client.comments(String(approval.item.id));
+    assert.ok(comments.some(({ text }) => text.startsWith("Loop dirty programme refused (lm_dataset_overlap):")));
     console.log(JSON.stringify({ measured_cli_ms: elapsed, total_parameters: rows[0]!.total_parameters, generations: rows }));
   } finally {
     rmSync(root, { recursive: true, force: true });

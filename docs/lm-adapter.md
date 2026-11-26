@@ -142,9 +142,12 @@ integration, lineage, budgets, replay, cancellation and corrupted evidence.
 `test/lm-cli.test.ts` installs a packed artifact, launches the real CLI for three
 generations, verifies disk hashes and successor use, preserves every checkpoint
 through a real package uninstall/reinstall, checks regression and
-contamination refusals, and reports CLI throughput as a diagnostic. Its external
-command watchdog defaults to 25 seconds and scales with `PM_TEST_TIME_SCALE` on
-slow runners; declared product trainer/resource deadlines remain unscaled.
+contamination refusals, and reports CLI throughput as a diagnostic. Its
+generation subprocess has a 25-second watchdog in ordinary runs and 50 seconds
+when the test runner collects V8 coverage. An explicit `PM_TEST_TIME_SCALE`
+overrides the default multiplier, so deep CI uses 75 seconds. The watchdog
+still fails if the process overruns after printing a receipt. Declared product
+trainer and resource deadlines remain fixed.
 See [CI tiers](ci-tiers.md) for the quick/full harness policy.
 
 The performance child runs without V8 coverage instrumentation, which materially
@@ -320,8 +323,9 @@ terminal-refusal acceptance case checks that the shared lifecycle helper creates
 no external job for either in-process adapter.
 
 Earlier failed attempts are retained as diagnostic PM comments and excluded
-from the completed gate results. The unchanged 20-second packed LM CLI bound
-passed at 11.716 seconds in the completed npm run and 9.621 seconds in Bun;
-a separate same-source attempt measured 23.890 seconds and failed. This timing
-variability remains open in [pm-rl-7c7m](../.agents/pm/tasks/pm-rl-7c7m.toon).
+from the completed gate results. Under the former 20-second packed LM CLI
+assertion, the completed npm run measured 11.716 seconds and Bun measured
+9.621 seconds. A separate same-source attempt measured 23.890 seconds and
+failed. The validation record is in
+[pm-rl-7c7m](../.agents/pm/tasks/pm-rl-7c7m.toon).
 Storage retains the shared watchdog rather than a hard filesystem quota.
