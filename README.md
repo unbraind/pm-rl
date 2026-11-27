@@ -898,10 +898,10 @@ the candidate scored 0. The same masking holds under `"direction":
 | --- | --- | ---: | ---: |
 | Aggregate only | Promote | 1,053 | 216 |
 | One protected cohort per workflow (32 cohorts) | Refuse | 2,084 | 1,462 |
-| `max_unit_regression: 0` | Refuse, 1 violation | 1,060 | 323 |
+| `max_unit_regression: 0` | Refuse, 1 violation | 1,061 | 323 |
 
-The two equivalent protections differ by 2,163 tokens (61.0%). The compact
-refusal message itself is 86 tokens (407 bytes), against 2,214 tokens for
+The two equivalent protections differ by 2,162 tokens (61.0%). The compact
+refusal message itself is 86 tokens (407 bytes), against 2,215 tokens for
 reading the sealed plan plus all 64 raw observations to find the masked loss
 by hand (96.1% saved).
 Counts use the pinned `js-tiktoken` `o200k_base` tokenizer on each complete,

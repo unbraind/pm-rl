@@ -138,13 +138,14 @@ try {
   const compactRefusal = /What happened:\n\s+(Evaluation plan refused \(eval_unit_regression\)\.[\s\S]*?reviewed stopping protocol\.)/.exec(guardedRefusal)?.[1];
   assert.ok(compactRefusal !== undefined, "the CLI must render the complete typed refusal in one call");
   const refusalTokens = tokens(compactRefusal);
-  const rawPlanTokens = tokens(JSON.stringify(study.guarded));
+  // Count the plans exactly as sealed for this replay (candidate overrides included), never a lookalike fixture plan.
+  const rawPlanTokens = tokens(JSON.stringify(plans["rl-guarded"]));
   const rawObservationsTokens = tokens(JSON.stringify(observations));
   const rawTokens = rawPlanTokens + rawObservationsTokens;
   const equivalent = (plan: EvaluationPlan, report: EvaluationPlanReport): { plan_tokens: number; report_tokens: number; verdict: string } => ({ plan_tokens: tokens(JSON.stringify(plan)), report_tokens: tokens(JSON.stringify(report)), verdict: report.verdict.decision });
-  const aggregate = equivalent(study.aggregate, reports["rl-aggregate"]);
-  const guarded = equivalent(study.guarded, reports["rl-guarded"]);
-  const cohort = equivalent(study.expanded, reports["rl-cohort"]);
+  const aggregate = equivalent(plans["rl-aggregate"], reports["rl-aggregate"]);
+  const guarded = equivalent(plans["rl-guarded"], reports["rl-guarded"]);
+  const cohort = equivalent(plans["rl-cohort"], reports["rl-cohort"]);
   assert.equal(reports["rl-aggregate"].verdict.decision, "promote");
   assert.ok(Math.abs(reports["rl-aggregate"].candidate_mean - 0.96875) < 1e-9);
   assert.equal(reports["rl-guarded"].aggregate_verdict?.decision, "promote");
