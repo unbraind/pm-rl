@@ -274,6 +274,67 @@ test("protected cohort diagnostics retain a small loss when distinct unit means 
   }
 });
 
+test("accepted endpoint rewards keep finite guard and cohort diagnostics at the binary64 ceiling", () => {
+  const { protected_cohorts: _cohorts, ...base } = design();
+  const members = [{ id: "a", unit: "workflow" }];
+  const stopping = { kind: "fixed" as const, observations: 1, independent_units: 1 };
+  const high = 1.797693134862315e308;
+  for (const [lo, hi, beyondCeiling] of [
+    [-8.98128139290621e292, high, true], [-8.9812813929062e292, high, true], [-8.5e292, high, true],
+    [-high, 8.98128139290621e292, true], [-7e292, high, false], [0, Number.MAX_VALUE, false],
+  ] as const) {
+    assert.equal(hi - lo, Number.MAX_VALUE);
+    const plan = { ...base, reward_bounds: [lo, hi] as const, members, stopping };
+    for (const direction of ["maximize", "minimize"] as const) {
+      const [candidate, incumbent] = direction === "maximize" ? [lo, hi] : [hi, lo];
+      const input = [{ id: "a", candidate, incumbent }];
+      const report = evaluatePlan({ ...plan, direction, max_unit_regression: 0 }, input);
+      assert.equal("code" in report.verdict && report.verdict.code, "eval_unit_regression");
+      assert.equal(report.unit_guard?.worst_unit, "workflow");
+      assert.equal(report.unit_guard?.candidate_mean, candidate);
+      assert.equal(report.unit_guard?.incumbent_mean, incumbent);
+      assert.equal(report.unit_guard?.improvement, -Number.MAX_VALUE);
+      assert.deepEqual(JSON.parse(JSON.stringify(report)), report);
+      const protectedReport = evaluatePlan({ ...plan, direction, protected_cohorts: [{ id: "protected", members: ["a"], min_units: 1, max_regression: 0 }] }, input);
+      assert.equal(protectedReport.cohorts?.[0].code, "eval_cohort_regression");
+      assert.equal(protectedReport.cohorts?.[0].improvement, -Number.MAX_VALUE);
+      const boundary = evaluatePlan({ ...plan, direction, max_unit_regression: Number.MAX_VALUE }, input);
+      if (!beyondCeiling) {
+        assert.equal(boundary.unit_guard?.violations, 0);
+        assert.equal(boundary.unit_guard?.exact_improvement, undefined);
+        continue;
+      }
+      assert.equal(boundary.unit_guard?.violations, 1);
+      assert.match(boundary.unit_guard!.exact_improvement!, /^-\d+\/1$/);
+      assert.ok(BigInt(boundary.unit_guard!.exact_improvement!.split("/")[0]) < -(17976931348623157n * 10n ** 292n));
+      assert.ok(boundary.verdict.reason.includes(boundary.unit_guard!.exact_improvement!));
+    }
+  }
+});
+
+test("paired improvement explains tied displayed means and a loss below numeric precision", async () => {
+  const w = await workspace();
+  const { protected_cohorts: _cohorts, ...base } = design();
+  for (const [candidateId, bounds, scores, expected] of [
+    ["rl-tied", [1e16, 1e16 + 2], [[1e16, 1e16], [1e16, 1e16 + 2]], "-1"],
+    ["rl-subnormal", [0, Number.MIN_VALUE], [[0, 0], [0, 0], [0, Number.MIN_VALUE]], `-1/${6n * 10n ** 323n}`],
+  ] as const) {
+    const members = scores.map((_, index) => ({ id: `row-${index}`, unit: "workflow" }));
+    const plan = { ...base, candidate: candidateId, reward_bounds: bounds, members, max_unit_regression: 0,
+      stopping: { kind: "fixed" as const, observations: scores.length, independent_units: 1 } };
+    const input = scores.map(([candidate, incumbent], index) => ({ id: members[index].id, candidate, incumbent }));
+    await registerEvaluationPlan(w.client, plan);
+    await candidate(w.client, plan);
+    const report = await recordPlanEvaluation(w.client, candidateId, input);
+    assert.equal(report.unit_guard?.candidate_mean, report.unit_guard?.incumbent_mean);
+    const witness = `Paired improvement ${expected}.`;
+    assert.ok(report.verdict.reason.includes(witness));
+    assert.deepEqual(JSON.parse(JSON.stringify(report)), report);
+    await assert.rejects(enforceEvaluationPlan(w.client, candidateId, score(plan, report.candidate_mean)), (error: unknown) =>
+      isPmCliExpectedError(error) && error.context.code === "eval_unit_regression" && error.message.includes(witness) && String(error.context.why).includes(witness));
+  }
+});
+
 test("seeded extreme-magnitude rows report correctly rounded exact guard and cohort diagnostics", () => {
   const next = random(0x9c4c0a07);
   const { protected_cohorts: _cohorts, ...base } = design();

@@ -13,7 +13,7 @@ import { initialImprover, type LearnerConfig } from "./improver.ts";
 import { recipeArtifact, INITIAL_RECIPE } from "./recipe.ts";
 import { readImproverDataset, readImproverTasks, IMPROVER_ROLES, type ImproverDataset } from "./improver-data.ts";
 import { openImproverEnvironment, IMPROVER_CRITERION, IMPROVER_ADAPTER, IMPROVER_MAX_ATTEMPTS } from "./improver-environment.ts";
-import { parseEvaluationPlan, evaluatePlan, type EvaluationPlan, type EvaluationPlanReport } from "./evaluation-plan.ts";
+import { parseEvaluationPlan, evaluatePlan, releasedEvaluationOutcome, type EvaluationPlan, type EvaluationPlanReport } from "./evaluation-plan.ts";
 import { requireCheckpointStorage } from "./checkpoint-artifacts.ts";
 import { reserveSearchCapacity } from "./meta.ts";
 import { TRANSFER_DECLARATION_REMEDY, TRANSFER_DESIGN, TRANSFER_MAX_TASKS, loadTransferCorpus, verifyTransferCorpus, transferMembers, transferPower, planTransferArchive, publishTransferArchive, replayTransferCorpus, recordTransferEvaluation, replayTransferEvaluation, parseTransferDesign, recordTransferPlan, readTransferPlan, type TransferReport, type TransferCorpus } from "./proposer-transfer.ts";
@@ -109,9 +109,11 @@ export function auditProposer(lineage: readonly [ProposerProgram, ProposerProgra
   const rollback = lineage[1].digest !== lineage[0].digest && audit.verdict.decision !== "promote";
   return { retained: rollback ? lineage[0] : lineage[1], rollback };
 }
-/** Recoverable lost fits count against the contender; unequal actual optimizer work cannot win a comparison. */
+/** Compare equal work, preserving the released fixed cohort projection for durable proposer phases. */
 export function compareProposerSearch(plan: EvaluationPlan, before: ProposerSearch, after: ProposerSearch): EvaluationPlanReport {
-  const report = evaluatePlan(plan, after.scores.map((score, index) => ({ id: score.id, candidate: score.mean, incumbent: before.scores[index].mean })));
+  const pairs = after.scores.map((score, index) => ({ id: score.id, candidate: score.mean, incumbent: before.scores[index].mean }));
+  // Generated proposer plans declare protected cohorts and use the released receipt schema.
+  const { unit_guard: _guard, ...report } = releasedEvaluationOutcome(plan, pairs, evaluatePlan(plan, pairs));
   return before.optimizer_updates === after.optimizer_updates ? report : { ...report, verdict: { decision: "refuse", code: "proposer_budget", reason: "Contenders consumed unequal optimizer updates including recovery attempts." }, remedy: "Retain the prior program; use a fresh predeclared equal-budget comparison." };
 }
 /** Count recovered work only from a currently readable, supported process identity. */

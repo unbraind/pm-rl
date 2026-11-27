@@ -209,6 +209,30 @@ test("isolated positive control promotes changed executable strategies through t
   console.log(JSON.stringify({ recursive_positive_control: receipts, proposal_processes: jobs.length, independent_units_per_generation: 256, optimizer_updates_per_contender: 0, inference_tokens: 0 }));
 });
 
+test("released proposer selection and audit inputs survive exact cohort display changes", async () => {
+  const w = await workspace();
+  const parent = initialProposer();
+  const members = Array.from({ length: 10 }, (_, index) => ({ id: `task-${index}`, repo: `tracker-${index}`, target: "protected" }));
+  const plan = proposerEvaluationPlan("released", parent, members, "sealed-context", 2);
+  const search = { execution: executeProposal(invocation()), scores: members.map(({ id }) => ({ id, mean: 0.1 })), counts: invocation().counts, jobs: [], optimizer_updates: 1 };
+  const after = { ...search, scores: members.map(({ id }) => ({ id, mean: 0.3 })) };
+  const current = evaluatePlan(plan, members.map(({ id }) => ({ id, candidate: 0.3, incumbent: 0.1 })));
+  assert.equal(current.cohorts?.[0].improvement, 0.2);
+  const released = { ...current, cohorts: [{ ...current.cohorts![0], improvement: 0.19999999999999998 }] };
+  const request = { id: "released-comparison", approval: w.approval, recoveryCommand: "resume proposer" };
+  const signal = new AbortController().signal;
+  const receipt = { retained: parent.digest } as const;
+  await withRlController(w.client, w.coordinates, request, signal, async (step) => {
+    await step("g1-selection", { comparison: released } as unknown as JsonValue, async () => receipt);
+    await step("complete", { audit: released } as unknown as JsonValue, async () => receipt);
+  });
+  const replayed = compareProposerSearch(plan, search, after);
+  await withRlController(w.client, w.coordinates, request, signal, async (step) => {
+    assert.deepEqual(await step("g1-selection", { comparison: replayed } as unknown as JsonValue, async () => assert.fail("must retain the historical selection")), receipt);
+    assert.deepEqual(await step("complete", { audit: replayed } as unknown as JsonValue, async () => assert.fail("must retain the historical audit")), receipt);
+  });
+});
+
 test("cohort limits, cross-role contamination, approval and dataset drift refuse before dependent effects", { timeout: testTime(180_000) }, async () => {
   const w = await workspace(); const directory = dataset(w.root); const config = { ...proposerEvolutionConfiguration(), generations: 1, candidates: 1, updates: 1 };
   const request = { id: "guards", approval: w.approval, dataset: directory, config };

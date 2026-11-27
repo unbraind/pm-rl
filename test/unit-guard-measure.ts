@@ -120,7 +120,7 @@ try {
     const json = command([...evaluate, "--json"]);
     const toon = command([...evaluate]);
     const report = (JSON.parse(json) as { details: EvaluationPlanReport }).details;
-    const toonReport = (decode(toon) as { details?: { comparison?: string; unit_guard?: unknown; cohorts?: unknown } }).details;
+    const toonReport = (decode(toon) as { details?: { comparison?: string; unit_guard?: unknown; cohorts?: unknown; verdict?: { reason?: string } } }).details;
     assert.ok(toonReport);
     const declaration = readFileSync(declarationPath, "utf8");
     const rawRows = readFileSync(observationsPath, "utf8");
@@ -130,6 +130,7 @@ try {
     assert.equal(toonReport.comparison, comparison);
     assert.deepEqual(toonReport.unit_guard, report.unit_guard);
     assert.deepEqual(toonReport.cohorts, report.cohorts);
+    assert.equal(toonReport.verdict?.reason, report.verdict.reason);
     assert.equal((await registerEvaluationPlan(client, JSON.parse(declaration))).comparison, comparison);
     assert.deepEqual(report, await recordPlanEvaluation(client, candidate, rows));
     assert.deepEqual(report, evaluatePlan(JSON.parse(declaration), JSON.parse(rawRows)));
@@ -169,28 +170,42 @@ try {
   await enforceEvaluationPlan(client, "rl-unplanned", unplanned);
   const legacyPromotion = JSON.parse(command([...promote("rl-unplanned", unplanned, "rl-unplanned-approval"), "--json"])) as RlCommandResult;
   assert.equal(legacyPromotion.details?.budget_consumed, 1);
-  // Probe cancellation through the same installed JSON, TOON and promotion surfaces.
-  const extreme: EvaluationPlan = {
-    ...study.guarded, candidate: "rl-cancellation", reward_bounds: [-1e16, 1e16], mean_method: "raw-float64/1",
-    members: ["a", "b", "c"].map((id) => ({ id, unit: "workflow" })),
-    stopping: { kind: "fixed", observations: 3, independent_units: 1 },
-  };
-  const cancelled = await replay(extreme, [
-    { id: "a", candidate: 1e16, incumbent: 1e16 },
-    { id: "b", candidate: 0, incumbent: 1 },
-    { id: "c", candidate: -1e16, incumbent: -1e16 },
-  ]);
-  assert.deepEqual(cancelled.unit_guard, { worst_unit: "workflow", candidate_mean: 0, incumbent_mean: 1 / 3, improvement: -1 / 3, max_regression: 0, violations: 1 });
-  const extremeScore = score(extreme, cancelled);
-  const witness = /candidate mean 0, incumbent mean 0\.3333333333333333, bound 0/;
-  await assert.rejects(enforceEvaluationPlan(client, extreme.candidate, extremeScore), (error: unknown) =>
-    isPmCliExpectedError(error) && error.context.code === "eval_unit_regression" && witness.test(error.message) && witness.test(String(error.context.why)));
-  await client.create({ id: "rl-cancellation-approval", type: "Decision", title: "One cancellation probe promotion", body: '```json\n{"permitted_promotions":1}\n```', unset: ["parent"] });
-  const extremePromotion = promote(extreme.candidate, extremeScore, "rl-cancellation-approval");
-  for (const args of [extremePromotion, [...extremePromotion, "--json"]]) {
-    const output = refusal(args);
-    assert.match(output, /eval_unit_regression/);
-    assert.match(output, witness);
+  // Each independent diagnostic probe uses the same installed SDK, JSON and TOON paths.
+  const lo = -8.98128139290621e292;
+  const hi = 1.797693134862315e308;
+  const exactOverflow = `-${1797693134862315n * 10n ** 293n + 898128139290621n * 10n ** 278n}/1`;
+  for (const [candidate, bounds, pairs, expected] of [
+    ["rl-cancellation", [-1e16, 1e16], [[1e16, 1e16], [0, 1], [-1e16, -1e16]],
+      { candidate_mean: 0, incumbent_mean: 1 / 3, improvement: -1 / 3 }],
+    ["rl-rounded-tie", [1e16, 1e16 + 2], [[1e16, 1e16], [1e16, 1e16 + 2]],
+      { candidate_mean: 1e16, incumbent_mean: 1e16, improvement: -1 }],
+    ["rl-finite-ceiling", [lo, hi], [[lo, hi]],
+      { candidate_mean: lo, incumbent_mean: hi, improvement: -Number.MAX_VALUE, exact_improvement: exactOverflow }],
+  ] as const) {
+    const rows = pairs.map(([candidate, incumbent], index) => ({ id: `obs-${index}`, candidate, incumbent }));
+    const plan: EvaluationPlan = {
+      ...study.guarded, candidate, reward_bounds: bounds, mean_method: "raw-float64/1",
+      members: rows.map(({ id }) => ({ id, unit: "workflow" })),
+      stopping: { kind: "fixed", observations: rows.length, independent_units: 1 },
+    };
+    const report = await replay(plan, rows);
+    assert.deepEqual(report.unit_guard, { worst_unit: "workflow", max_regression: 0, violations: 1, ...expected });
+    const witness = `Paired improvement ${"exact_improvement" in expected ? expected.exact_improvement : expected.improvement}.`;
+    const scores = `candidate mean ${expected.candidate_mean}, incumbent mean ${expected.incumbent_mean}, bound 0`;
+    assert.ok(report.verdict.reason.includes(witness));
+    const held = score(plan, report);
+    await assert.rejects(enforceEvaluationPlan(client, candidate, held), (error: unknown) =>
+      isPmCliExpectedError(error) && error.context.code === "eval_unit_regression" && error.message.includes(scores)
+      && String(error.context.why).includes(witness));
+    const approval = `${candidate}-approval`;
+    await client.create({ id: approval, type: "Decision", title: "One diagnostic probe promotion", body: '```json\n{"permitted_promotions":1}\n```', unset: ["parent"] });
+    const args = promote(candidate, held, approval);
+    for (const mode of [args, [...args, "--json"]]) {
+      const output = refusal(mode);
+      assert.match(output, /eval_unit_regression/);
+      assert.ok(output.includes(scores));
+      assert.ok(output.includes(witness));
+    }
   }
   const guard = reports["rl-guarded"].unit_guard!;
   // The render's recovery bundle echoes the command line (scratch paths), so the

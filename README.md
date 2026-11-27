@@ -866,15 +866,18 @@ Every unit must stay within the declared loss in original reward units.
 Equality passes. The decision uses exact decimal arithmetic even when the
 displayed mean rounds to the limit. The `unit_guard` report identifies the
 worst unit (ties use the smallest unit label), that unit's displayed candidate
-and incumbent means, its displayed improvement, the limit and the number of
-violations. A breach produces `eval_unit_regression`, and the typed promotion
-refusal names the unit, both scores, the bound and the remedy in one call:
+and incumbent means, its paired improvement, the limit and the number of
+violations. The numeric improvement stays finite. If its rounding would hide
+a breach or overflow, `exact_improvement` gives the signed fraction in reward
+units. A breach produces `eval_unit_regression`, and the promotion refusal
+includes the unit, both scores, the paired improvement, the bound and the remedy.
 
 ```
 Evaluation plan refused (eval_unit_regression). Record rl-guarded-evaluation-plan.
 Correlation unit workflow-1 regressed beyond its declared bound: candidate mean 0,
-incumbent mean 1, bound 0, 1 unit(s) in breach. Seal the design and any required
-review before registering a new plan, then create a fresh candidate and collection;
+incumbent mean 1, bound 0, 1 unit(s) in breach. Paired improvement -1.
+Seal the design and any required review before registering a new plan,
+then create a fresh candidate and collection;
 retain the exact declared cohort, provenance and reviewed stopping protocol.
 ```
 
@@ -899,12 +902,12 @@ the candidate scored 0. The same masking holds under `"direction":
 | --- | --- | ---: | ---: |
 | Aggregate only | Promote | 1,053 | 216 |
 | One protected cohort per workflow (32 cohorts) | Refuse | 2,084 | 1,462 |
-| `max_unit_regression: 0` | Refuse, 1 violation | 1,061 | 323 |
+| `max_unit_regression: 0` | Refuse, 1 violation | 1,061 | 329 |
 
-The two equivalent protections differ by 2,162 tokens (61.0%). The compact
-refusal message itself is 86 tokens (407 bytes), against 2,215 tokens for
+The two equivalent protections differ by 2,156 tokens (60.8%). The compact
+refusal message itself is 92 tokens (430 bytes), against 2,215 tokens for
 reading the sealed plan plus all 64 raw observations to find the masked loss
-by hand (96.1% saved).
+by hand (95.85% saved).
 Counts use the pinned `js-tiktoken` `o200k_base` tokenizer on each complete,
 minified JSON plan and SDK report. These are serialized context sizes. The
 replay makes zero inference calls, and the three guard refusals leave the
