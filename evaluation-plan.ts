@@ -83,8 +83,10 @@ export interface EvaluationPlanReport {
   /** Aggregate result before any protected cohort refusal. */
   readonly aggregate_verdict?: PromotionDecision;
   readonly cohorts?: readonly CohortReport[];
-  /** One deterministic witness and a count across all declared units. */
-  readonly unit_guard?: { readonly worst_unit: string; readonly improvement: number; readonly max_regression: number; readonly violations: number };
+  /** One deterministic witness with both displayed paired means, and a count across all declared units. */
+  readonly unit_guard?: { readonly worst_unit: string; readonly candidate_mean: number; readonly incumbent_mean: number; readonly improvement: number; readonly max_regression: number; readonly violations: number;
+    /** Exact signed fraction when a finite display would conceal the size or existence of the breach. */
+    readonly exact_improvement?: string };
   readonly remedy: string | null;
   /** Present only for a predeclared sequential protocol; bounds use normalized paired improvement. */
   readonly sequential?: SequentialBoundary;
@@ -98,10 +100,23 @@ export interface RegisteredEvaluationPlan {
   readonly created_at: string;
 }
 
+/** Shared remedy for designs that must be resealed before a fresh candidate. */
+const SEALED_DESIGN_REMEDY = "Seal the design and any required review before registering a new plan, then create a fresh candidate and collection; retain the exact declared cohort, provenance and reviewed stopping protocol.";
 /** Throw an actionable typed refusal without copying tracker content into diagnostics. */
 export function refuse(code: EvaluationPlanRefusal, itemId?: string): never {
-  const remedy = code === "eval_plan_late" ? "Seal required reviews and a new plan before collection; for sequential plans create all collection Runs, then a fresh candidate, then ordered looks. Do not reuse evidence created before its source." : code === "eval_plan_stopping" ? "Use advance/resume for a sequential plan, evaluate for a fixed plan, and supply only the next declared complete unit prefix. A changed protocol requires a new plan and fresh candidate." : code === "eval_plan_evidence" ? "Check bounded paired rewards and the Decision reviewing the exact comparison hash. Changed sealed evidence requires a new plan and fresh candidate." : "Seal the design and any required review before registering a new plan, then create a fresh candidate and collection; retain the exact declared cohort, provenance and reviewed stopping protocol.";
+  const remedy = code === "eval_plan_late" ? "Seal required reviews and a new plan before collection; for sequential plans create all collection Runs, then a fresh candidate, then ordered looks. Do not reuse evidence created before its source." : code === "eval_plan_stopping" ? "Use advance/resume for a sequential plan, evaluate for a fixed plan, and supply only the next declared complete unit prefix. A changed protocol requires a new plan and fresh candidate." : code === "eval_plan_evidence" ? "Check bounded paired rewards and the Decision reviewing the exact comparison hash. Changed sealed evidence requires a new plan and fresh candidate." : SEALED_DESIGN_REMEDY;
   throw createPmCliExpectedError(`Evaluation plan refused (${code}).${itemId === undefined ? "" : ` Record ${itemId}.`} ${remedy}`, { exitCode: EXIT_CODE.CONFLICT, context: { code, required: remedy, ...(itemId === undefined ? {} : { item_id: itemId }) } });
+}
+/** Describe the paired loss directly, since independently rounded means can coincide. */
+function unitRegressionReason(guard: NonNullable<EvaluationPlanReport["unit_guard"]>, promotion: boolean): string {
+  const limit = promotion ? "bound" : "limit";
+  const count = promotion ? `, ${guard.violations} unit(s) in breach` : "";
+  return `Correlation unit ${guard.worst_unit} regressed beyond its declared ${limit}: candidate mean ${guard.candidate_mean}, incumbent mean ${guard.incumbent_mean}, bound ${guard.max_regression}${count}. Paired improvement ${guard.exact_improvement ?? guard.improvement}.`;
+}
+/** Refuse a guarded promotion naming the worst unit, both scores, the paired loss, the bound and the remedy. */
+function refuseUnitRegression(record: string, guard: NonNullable<EvaluationPlanReport["unit_guard"]>): never {
+  const witness = unitRegressionReason(guard, true);
+  throw createPmCliExpectedError(`Evaluation plan refused (eval_unit_regression). Record ${record}. ${witness} ${SEALED_DESIGN_REMEDY}`, { exitCode: EXIT_CODE.CONFLICT, context: { code: "eval_unit_regression", required: SEALED_DESIGN_REMEDY, item_id: record, why: witness } });
 }
 
 /** Strict bounded schema shared by stored promotion receipts and evaluator-produced graphs. */
@@ -403,6 +418,14 @@ function roundFloatMean(total: Rational, units: number): number {
   const value = Number(rounded) * (2 ** (shift - 1074));
   return negative ? -value : value;
 }
+/** Correctly round one exact decimal-rational mean to the nearest binary64, ties to even. */
+function roundRationalMean(total: Rational, units: number): number {
+  return roundFloatMean({ n: total.n << 1074n, d: total.d }, units);
+}
+/** Keep signed numeric diagnostics in JSON range when an accepted binary64 width rounds past the exact decimal ceiling. */
+function finiteDiagnostic(value: number): number {
+  return Object.is(value, -0) ? 0 : Math.max(-Number.MAX_VALUE, Math.min(Number.MAX_VALUE, value));
+}
 /** One exact domain rule serves declaration validation and emitted cohort reports. */
 function validRegression(value: unknown, bounds: readonly [number, number]): value is number {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return false;
@@ -412,56 +435,110 @@ function validRegression(value: unknown, bounds: readonly [number, number]): val
 }
 /** Count fields share the input schema's positive bounded integer domain. */
 function validCount(value: number, maximum = 10_000): boolean { return Number.isSafeInteger(value) && value >= 1 && value <= maximum; }
-/** Accumulate the exact paired difference and a finite normalized display mean per unit. */
-function unitDifferences(ids: Iterable<string>, observations: ReadonlyMap<string, EvaluationObservation>, members: ReadonlyMap<string, string>, bounds: readonly [number, number]) {
-  const [lo, hi] = bounds;
-  const range = hi - lo;
-  const units = new Map<string, { sum: Rational; count: number; display: number }>();
+/** Accumulate exact rational sums per unit so displayed diagnostics round correctly and never cancel. */
+function unitDifferences(ids: Iterable<string>, observations: ReadonlyMap<string, EvaluationObservation>, members: ReadonlyMap<string, string>) {
+  const units = new Map<string, { candidate: Rational; incumbent: Rational; difference: Rational; count: number }>();
   for (const id of ids) {
     const row = observations.get(id)!;
     const unit = members.get(id)!;
-    const group = units.get(unit) ?? { sum: { n: 0n, d: 1n }, count: 0, display: 0 };
+    const group = units.get(unit) ?? { candidate: { n: 0n, d: 1n }, incumbent: { n: 0n, d: 1n }, difference: { n: 0n, d: 1n }, count: 0 };
     const candidate = exact(row.candidate);
     const incumbent = exact(row.incumbent);
-    group.sum = add(group.sum, add(candidate, { n: -incumbent.n, d: incumbent.d }));
+    group.candidate = add(group.candidate, candidate);
+    group.incumbent = add(group.incumbent, incumbent);
+    group.difference = add(group.difference, add(candidate, { n: -incumbent.n, d: incumbent.d }));
     group.count += 1;
-    const display = (row.candidate - row.incumbent) / range;
-    group.display += (display - group.display) / group.count;
     units.set(unit, group);
   }
   return units;
 }
-/** Check every unit against the sealed limit. Equal exact means use the smallest unit label. */
+/** Check every unit against the sealed limit; displayed means are correctly rounded exact sums. Equal exact means use the smallest unit label. */
 function evaluateUnitGuard(plan: EvaluationPlan, limit: number, observations: ReadonlyMap<string, EvaluationObservation>, members: ReadonlyMap<string, string>): NonNullable<EvaluationPlanReport["unit_guard"]> {
   const maximum = exact(limit);
   const direction = plan.direction === "maximize" ? 1 : -1;
-  let worst: { unit: string; mean: Rational; display: number } | undefined;
+  let worst: { unit: string; mean: Rational; group: { candidate: Rational; incumbent: Rational; difference: Rational; count: number } } | undefined;
   let violations = 0;
-  for (const [unit, group] of unitDifferences(members.keys(), observations, members, plan.reward_bounds)) {
-    const mean = { n: group.sum.n * BigInt(direction), d: group.sum.d * BigInt(group.count) };
+  for (const [unit, group] of unitDifferences(members.keys(), observations, members)) {
+    const mean = { n: group.difference.n * BigInt(direction), d: group.difference.d * BigInt(group.count) };
     if (mean.n * maximum.d < -maximum.n * mean.d) violations++;
     const order = worst === undefined ? -1n : mean.n * worst.mean.d - worst.mean.n * mean.d;
-    if (order < 0n || (order === 0n && unit < worst!.unit)) worst = { unit, mean, display: group.display };
+    if (order < 0n || (order === 0n && unit < worst!.unit)) worst = { unit, mean, group };
   }
   // Fixed plans require at least one member and one complete observation per member.
-  const improvement = Math.max(-1, Math.min(1, worst!.display * direction)) * (plan.reward_bounds[1] - plan.reward_bounds[0]);
-  return { worst_unit: worst!.unit, improvement, max_regression: limit, violations };
+  const paired = worst!.mean;
+  const rounded = roundRationalMean(paired, 1);
+  const improvement = finiteDiagnostic(rounded);
+  const guard = { worst_unit: worst!.unit, candidate_mean: roundRationalMean(worst!.group.candidate, worst!.group.count), incumbent_mean: roundRationalMean(worst!.group.incumbent, worst!.group.count), improvement, max_regression: limit, violations };
+  if (violations === 0 || (Number.isFinite(rounded) && improvement < -limit)) return guard;
+  const fraction = rational(paired.n, paired.d);
+  return { ...guard, exact_improvement: `${fraction.n}/${fraction.d}` };
 }
 /** Compute equal-unit empirical guards; repeated members never inflate evidence minimums. */
 function evaluateCohorts(plan: EvaluationPlan, observations: ReadonlyMap<string, EvaluationObservation>, members: ReadonlyMap<string, string>): CohortReport[] {
-  const [lo, hi] = plan.reward_bounds; const range = hi - lo; const direction = plan.direction === "maximize" ? 1 : -1;
+  const direction = plan.direction === "maximize" ? 1 : -1;
   return plan.protected_cohorts!.map((cohort) => {
-    const units = unitDifferences(cohort.members, observations, members, plan.reward_bounds);
-    let sum: Rational = { n: 0n, d: 1n }; let display = 0; let count = 0;
+    const units = unitDifferences(cohort.members, observations, members);
+    let sum: Rational = { n: 0n, d: 1n }; let count = 0;
     for (const unit of units.values()) {
-      sum = add(sum, rational(unit.sum.n, unit.sum.d * BigInt(unit.count)));
-      count += 1; display += (unit.display - display) / count;
+      sum = add(sum, rational(unit.difference.n, unit.difference.d * BigInt(unit.count)));
+      count += 1;
     }
     const mean = rational(sum.n * BigInt(direction), sum.d * BigInt(count)); const limit = exact(cohort.max_regression);
     const code = count < cohort.min_units ? "eval_cohort_samples" : mean.n * limit.d < -limit.n * mean.d ? "eval_cohort_regression" : null;
-    const improvement = Math.max(-1, Math.min(1, display * direction)) * range;
+    const improvement = finiteDiagnostic(roundRationalMean(mean, 1));
     return { id: cohort.id, observations: cohort.members.length, independent_units: count, min_units: cohort.min_units, improvement, max_regression: cohort.max_regression, code };
   });
+}
+/** Reproduce the released receipt's normalized display calculation in declared member order. */
+function releasedUnitDisplays(ids: Iterable<string>, pairs: ReadonlyMap<string, EvaluationObservation>, units: ReadonlyMap<string, string>, range: number) {
+  const displays = new Map<string, { mean: number; count: number }>();
+  for (const id of ids) {
+    const unit = units.get(id)!;
+    const pair = pairs.get(id)!;
+    const display = displays.get(unit) ?? { mean: 0, count: 0 };
+    display.count += 1;
+    display.mean += ((pair.candidate - pair.incumbent) / range - display.mean) / display.count;
+    displays.set(unit, display);
+  }
+  return displays;
+}
+/** Keep the released verdict fields and its historical unit refusal text in the receipt. */
+function releasedVerdict(verdict: PromotionDecision): PromotionDecision {
+  const { decision } = verdict;
+  if (decision === "promote") {
+    const { reason, margin, candidateBound, incumbentBound, candidateEpsilon, incumbentEpsilon } = verdict;
+    return { decision, reason, margin, candidateBound, incumbentBound, candidateEpsilon, incumbentEpsilon };
+  }
+  const { code, reason } = verdict;
+  return { decision, code, reason: code === "eval_unit_regression" ? "At least one declared correlation unit exceeded its regression limit." : reason };
+}
+/** Project a verified fixed outcome into its released receipt format, including historical rounding. @internal */
+export function releasedEvaluationOutcome(plan: EvaluationPlan, pairs: readonly EvaluationObservation[], outcome: EvaluationPlanReport) {
+  const { candidate_mean, incumbent_mean, comparison, observations, independent_units, remedy, aggregate_verdict, unit_guard } = outcome;
+  const rows = new Map(pairs.map((pair) => [pair.id, pair]));
+  const units = new Map(plan.members.map(({ id, unit }) => [id, unit]));
+  const range = plan.reward_bounds[1] - plan.reward_bounds[0];
+  const direction = plan.direction === "maximize" ? 1 : -1;
+  /** Restore the released display scale after clamping normalized differences to the reward width. */
+  const improvement = (display: number): number => Math.max(-1, Math.min(1, display * direction)) * range;
+  const cohorts = outcome.cohorts?.map(({ id, observations, independent_units, min_units, max_regression, code }, index) => {
+    let display = 0; let count = 0;
+    for (const unit of releasedUnitDisplays(plan.protected_cohorts![index].members, rows, units, range).values()) {
+      count += 1;
+      display += (unit.mean - display) / count;
+    }
+    return { id, observations, independent_units, min_units, max_regression, code, improvement: improvement(display) };
+  });
+  const guard = unit_guard === undefined ? undefined : {
+    worst_unit: unit_guard.worst_unit, max_regression: unit_guard.max_regression, violations: unit_guard.violations,
+    improvement: improvement(releasedUnitDisplays(units.keys(), rows, units, range).get(unit_guard.worst_unit)!.mean),
+  };
+  return {
+    plan: outcome.plan, comparison, observations, independent_units, candidate_mean, incumbent_mean, verdict: releasedVerdict(outcome.verdict), remedy,
+    ...(aggregate_verdict === undefined ? {} : { aggregate_verdict: releasedVerdict(aggregate_verdict) }),
+    ...(cohorts === undefined ? {} : { cohorts }),
+    ...(guard === undefined ? {} : { unit_guard: guard }),
+  };
 }
 /** Recompute paired equal-unit means, counting a correlated cohort once in the bound. */
 export function evaluatePlan(value: unknown, input: unknown): EvaluationPlanReport {
@@ -511,7 +588,7 @@ export function evaluatePlan(value: unknown, input: unknown): EvaluationPlanRepo
   const guard = plan.max_unit_regression === undefined ? undefined : evaluateUnitGuard(plan, plan.max_unit_regression, observations, declared);
   const failure = cohorts?.find((cohort) => cohort.code !== null);
   let verdict = aggregate;
-  if (guard !== undefined && guard.violations > 0) verdict = { decision: "refuse", code: "eval_unit_regression", reason: "At least one declared correlation unit exceeded its regression limit." };
+  if (guard !== undefined && guard.violations > 0) verdict = { decision: "refuse", code: "eval_unit_regression", reason: unitRegressionReason(guard, false) };
   if (failure !== undefined) verdict = { decision: "refuse", code: failure.code!, reason: "A protected cohort failed its predeclared evidence minimum or nonregression limit." };
   const boundary = plan.stopping.kind === "sequential" ? evaluateSequentialBoundary(plan, groups.size, candidateMean, incumbentMean) : null;
   return validateEvaluationReport(plan, { ...(boundary === null ? {} : { sequential: boundary.sequential }), plan: evaluationPlanId(plan.candidate), comparison: evaluationComparison(plan), observations: input.length, independent_units: groups.size, candidate_mean: candidateReward, incumbent_mean: incumbentReward, verdict: boundary?.verdict ?? verdict, ...(cohorts === undefined ? {} : { aggregate_verdict: aggregate, cohorts }), ...(guard === undefined ? {} : { aggregate_verdict: aggregate, unit_guard: guard }), remedy: boundary?.sequential.state === "continue" ? "Collect only the next declared complete unit prefix, then advance this sealed plan." : (boundary?.verdict ?? verdict).decision === "promote" ? null : "Register a new plan and fresh candidate before collecting a different cohort or making another evaluation look." });
@@ -528,6 +605,9 @@ export function validateEvaluationReport(...args: [plan: EvaluationPlan, report:
   const report = (projected ? args[0] : args[1]) as EvaluationPlanReport;
   const bounds = projected ? args[1] as readonly [number, number] : plan!.reward_bounds;
   const [lo, hi] = bounds;
+  // Correctly rounded exact reward width: a displayed mean may round one ulp past the
+  // float subtraction hi - lo (for example 0.3 - 0.1), so the domain bound is the exact width.
+  const width = finiteDiagnostic(roundRationalMean(add(exact(hi), { n: -exact(lo).n, d: exact(lo).d }), 1));
   numeric(report);
   if (report.evidence_digest !== undefined && (typeof report.evidence_digest !== "string" || !/^[a-f0-9]{64}$/.test(report.evidence_digest))) refuse("eval_plan_evidence");
   for (const value of [report.candidate_mean, report.incumbent_mean]) if (value < lo || value > hi) refuse("eval_plan_evidence");
@@ -536,9 +616,9 @@ export function validateEvaluationReport(...args: [plan: EvaluationPlan, report:
     const b = report.sequential;
     if (b.lower < -1 || b.upper > 1 || b.lower > b.upper || b.error_bound <= 0 || b.error_bound > 1 || !Number.isSafeInteger(b.look) || b.look < 1 || b.look > 64) refuse("eval_plan_evidence");
   }
-  if ((report.cohorts !== undefined && !dense(report.cohorts, 1, 32)) || report.cohorts?.some((cohort) => Math.abs(cohort.improvement) > hi - lo || !validRegression(cohort.max_regression, bounds) || !validCount(cohort.observations) || !validCount(cohort.min_units) || !validCount(cohort.independent_units, cohort.observations))) refuse("eval_plan_evidence");
+  if ((report.cohorts !== undefined && !dense(report.cohorts, 1, 32)) || report.cohorts?.some((cohort) => Math.abs(cohort.improvement) > width || !validRegression(cohort.max_regression, bounds) || !validCount(cohort.observations) || !validCount(cohort.min_units) || !validCount(cohort.independent_units, cohort.observations))) refuse("eval_plan_evidence");
   const guard = report.unit_guard;
-  if (guard !== undefined && (Math.abs(guard.improvement) > hi - lo || !validRegression(guard.max_regression, bounds) || !Number.isSafeInteger(guard.violations) || guard.violations < 0 || guard.violations > report.independent_units)) refuse("eval_plan_evidence");
+  if (guard !== undefined && (Math.abs(guard.improvement) > width || guard.candidate_mean < lo || guard.candidate_mean > hi || guard.incumbent_mean < lo || guard.incumbent_mean > hi || !validRegression(guard.max_regression, bounds) || !Number.isSafeInteger(guard.violations) || guard.violations < 0 || guard.violations > report.independent_units)) refuse("eval_plan_evidence");
   return report;
 }
 /** Require predeclaration before all collection runs and unchanged incumbent provenance. */
@@ -686,5 +766,8 @@ export async function enforceEvaluationDecision(client: PmClient, candidate: str
 /** Keep promotion score bindings identical for fixed and sequential evidence. */
 function verifyEvaluationScore(registered: RegisteredEvaluationPlan, report: EvaluationPlanReport, score: ScoreRecord, prefix: string): void {
   if (score.objective !== registered.plan.objective || score.objective_version !== registered.plan.objective_version || canonicalizeEvaluationContext(score.evaluation_context, prefix) !== canonicalizeEvaluationContext(registered.plan.evaluation_context, prefix) || score.direction !== registered.plan.direction || score.seed_set !== registered.comparison || score.scale !== registered.plan.reward_bounds[1] - registered.plan.reward_bounds[0] || score.value !== report.candidate_mean) refuse("eval_plan_evidence");
-  if (report.verdict.decision !== "promote") refuse(report.verdict.code === "eval_unit_regression" || report.verdict.code === "eval_cohort_samples" || report.verdict.code === "eval_cohort_regression" ? report.verdict.code : "eval_plan_refused");
+  if (report.verdict.decision !== "promote") {
+    if (report.verdict.code === "eval_unit_regression") refuseUnitRegression(registered.id, report.unit_guard!);
+    refuse(report.verdict.code === "eval_cohort_samples" || report.verdict.code === "eval_cohort_regression" ? report.verdict.code : "eval_plan_refused");
+  }
 }

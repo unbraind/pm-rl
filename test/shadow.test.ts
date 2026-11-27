@@ -258,6 +258,58 @@ async function originalCohort(w: Awaited<ReturnType<typeof workspace>>, p: Evalu
   return rows;
 }
 
+test("released shadow receipts retain their bytes while guarded and cohort diagnostics evolve", async () => {
+  for (const [guarded, regressed, direction, preexisting] of [
+    [true, false, "maximize", true],
+    [true, true, "minimize", true],
+    [false, false, "minimize", true],
+    [true, false, "maximize", false],
+  ] as const) {
+    const w = await workspace();
+    const protectedCohort = { id: "protected", members: preexisting ? ["event-1", "event-2"] : ["event-1", "event-2", "event-3"], min_units: 2, max_regression: 0 };
+    const members = w.p.members.map((member) => preexisting || member.id !== "event-2" ? member : { ...member, unit: "event-1" });
+    const independent = new Set(members.map(({ unit }) => unit)).size;
+    const design = { ...w.p, direction, reward_bounds: [0, 0.3] as const, members, protected_cohorts: [protectedCohort], ...(guarded ? { max_unit_regression: 0 } : {}),
+      criterion: { ...w.p.criterion, minSamples: independent }, stopping: { ...w.p.stopping, independent_units: independent } };
+    const registered = await registerShadowDeployment(w.client, w.d, design);
+    await collect(w);
+    const p = (await readEvaluationPlan(w.client, "rl-candidate"))!.plan;
+    const pairs = p.members.map(({ id }) => {
+      const better = (direction === "maximize") !== (regressed && id === "event-0");
+      return { id, candidate: better ? 0.3 : 0.1, incumbent: better ? 0.1 : 0.3 };
+    });
+    for (const row of pairs) await observeShadow(w.client, p.candidate, { ...input(row.id), rewards: { accept: row.candidate, hold: row.incumbent } });
+    const { unit_guard: _guard, cohorts: _cohorts, ...current } = evaluatePlan(p, pairs);
+    // The released normalized display of the paired 0.3 and 0.1 rewards was one ulp below 0.2.
+    const legacyImprovement = 0.19999999999999998;
+    const legacyOutcome = {
+      ...current,
+      verdict: regressed ? { decision: "refuse", code: "eval_unit_regression", reason: "At least one declared correlation unit exceeded its regression limit." } : current.verdict,
+      cohorts: [{ id: protectedCohort.id, observations: protectedCohort.members.length, independent_units: 2, min_units: 2, max_regression: 0, code: null, improvement: legacyImprovement }],
+      ...(guarded ? { unit_guard: { worst_unit: "event-0", improvement: regressed ? -legacyImprovement : legacyImprovement, max_regression: 0, violations: Number(regressed) } } : {}),
+    };
+    const receipt = `${registered.id}-comparison`;
+    const legacy = { receipt, comparison: hashJson(w.d as unknown as JsonValue), observations: pairs.length, disagreements: pairs.length, candidate_failures: 0,
+      charged: { active_calls: pairs.length, candidate_calls: pairs.length }, outcome: legacyOutcome, remedy: current.remedy } as unknown as JsonValue;
+    if (preexisting) {
+      await recordPlanEvaluation(w.client, p.candidate, pairs);
+      await originalDecision(w.client, receipt, legacy);
+    }
+    const first = preexisting ? (await readCompleteLoopItem(w.client, receipt)).item : null;
+    const report = await compareShadow(w.client, p.candidate);
+    assert.equal(report.outcome?.cohorts?.[0].improvement, 0.2);
+    assert.equal(report.outcome?.unit_guard?.improvement, guarded ? (regressed ? -0.2 : 0.2) : undefined);
+    assert.deepEqual(await compareShadow(w.client, p.candidate), report);
+    const item = (await readCompleteLoopItem(w.client, receipt)).item;
+    assert.equal(item.body, canonicalJson(legacy));
+    assert.equal(item.affected_version, hashJson(legacy));
+    if (first !== null) assert.deepEqual(item, first);
+    const held = { ...score(p), direction, scale: 0.3, value: report.outcome!.candidate_mean };
+    if (regressed) await assert.rejects(enforceEvaluationPlan(w.client, p.candidate, held), refusal("eval_unit_regression"));
+    else await enforceEvaluationPlan(w.client, p.candidate, held);
+  }
+});
+
 test("review regression: identical actions with original rewards zero and one never promote", async () => {
   const w = await workspace(deployment({ event: "hold" })); const registered = await registerShadowDeployment(w.client, w.d, w.p); await collect(w);
   const p = (await readEvaluationPlan(w.client, "rl-candidate"))!.plan;

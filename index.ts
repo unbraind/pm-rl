@@ -2781,7 +2781,7 @@ export async function readApprovalSpec(client: PmClient, approvalId: string): Pr
   return { ...parseApprovalSpec(approvalFenced, `Approval ${approvalId}`), id, snapshot: approval };
 }
 
-/** Promote a candidate generation after contamination and budget checks pass. */
+/** Promote after checking the scores, lineage and budget, enforcing any registered evaluation plan and its declared guards. */
 async function promoteGeneration(context: CommandHandlerContext): Promise<RlCommandResult> {
   const requestedId = requiredArgument(context, "a generation id");
   // Already trimmed: `stringOption` returns `value.trim()`. The normalization
@@ -5843,7 +5843,7 @@ export const RL_COMMANDS = [
     const report = await observeShadow(client, String(item.item.id), readJsonFile(stringOption(context, "file")!, "Shadow input"));
     return { action: "rl-shadow-observe", id: report.id, details: { ...report } };
   } }),
-  defineCommand({ name: "rl shadow compare", description: "Seal the validated shadow outcome comparison required by existing generation promotion.", arguments: [{ name: "candidate", required: true, description: "Candidate generation id." }], run: async (context) => {
+  defineCommand({ name: "rl shadow compare", description: "Seal the validated shadow comparison required when promoting an online-bound generation.", arguments: [{ name: "candidate", required: true, description: "Candidate generation id." }], run: async (context) => {
     const client = clientFor(context); const item = await getTypedItem(client, requiredArgument(context, "a candidate id"), "Generation");
     const report = await compareShadow(client, String(item.item.id));
     return { action: "rl-shadow-compare", id: report.receipt, details: { ...report } };
@@ -5854,7 +5854,7 @@ export const RL_COMMANDS = [
     const approved = await approveEvaluationPlan(clientFor(context), readJsonFile(stringOption(context, "file")!, "Evaluation design"));
     return { action: "rl-eval-plan-approve", id: approved.id, details: { comparison: approved.comparison } };
   } }),
-  defineCommand({ name: "rl eval plan register", description: "Predeclare a fixed cohort and correlation units before candidate collection.", flags: [
+  defineCommand({ name: "rl eval plan register", description: "Predeclare paired evaluation before candidate collection. Fixed plans can declare a per-unit regression limit.", flags: [
     { long: "--file", value_name: "path", value_type: "string", required: true, description: "Evaluation plan JSON." },
   ], run: async (context) => {
     const registered = await registerEvaluationPlan(clientFor(context), readJsonFile(stringOption(context, "file")!, "Evaluation plan"));
@@ -5880,7 +5880,7 @@ export const RL_COMMANDS = [
     if (report === null) fail("No owned sequential checkpoint. Advance the first declared look or use a fresh candidate if a foreign checkpoint was skipped.", "eval_plan_missing", EXIT_CODE.CONFLICT);
     return { action: "rl-eval-plan-resume", id: report.plan, details: { ...report } };
   } }),
-  defineCommand({ name: "rl eval plan evaluate", description: "Seal one paired evaluation and enforce aggregate improvement plus protected cohort guardrails.", arguments: [{ name: "candidate", required: true, description: "Reserved candidate generation id." }], flags: [
+  defineCommand({ name: "rl eval plan evaluate", description: "Seal a fixed paired evaluation and report the aggregate verdict and results for any declared protected cohort or per-unit regression guardrails.", arguments: [{ name: "candidate", required: true, description: "Reserved candidate generation id." }], flags: [
     { long: "--file", value_name: "path", value_type: "string", required: true, description: "Paired observation array JSON." },
   ], run: async (context) => {
     const client = clientFor(context); const id = requiredArgument(context, "a candidate id");
@@ -5917,7 +5917,7 @@ export const RL_COMMANDS = [
     { long: "--environment", value_name: "id", value_type: "string", description: "Environment item id used by the collection runs (required for non-seed)." },
     { long: "--config-file", value_name: "path", value_type: "string", description: "Optional JSON training configuration." },
   ], run: registerGeneration }),
-  defineCommand({ name: "rl generation promote", description: "Promote a candidate generation after contamination and budget checks pass.", arguments: [{ name: "id", required: true, description: "Generation item id." }], flags: [
+  defineCommand({ name: "rl generation promote", description: "Promote a candidate after contamination and budget checks pass. Enforce any registered evaluation plan, including any per-unit regression guard it declares.", arguments: [{ name: "id", required: true, description: "Generation item id." }], flags: [
     { long: "--approval", value_name: "id", value_type: "string", required: true, description: "Approval Decision item id stating the permitted promotion count." },
     { long: "--scores", value_name: "path", value_type: "string", required: true, description: "JSON file with proxy_score and held_out_score records." },
     { long: "--evidence", value_name: "text", value_type: "string", required: true, description: "Human-readable promotion evidence." },

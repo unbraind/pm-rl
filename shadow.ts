@@ -4,7 +4,7 @@ import { parseBoundedJson, assertJsonEncoding, type JsonEncodingRefusal } from "
 import type { GetResult, PmClient } from "@unbrained/pm-cli/sdk/core";
 import { createPmCliExpectedError, EXIT_CODE, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { createVerifiedItem, canonicalJson, hashJson, extractGenerationSpec, readCompleteLoopItem, type JsonValue } from "./index.ts";
-import { optionalItem as optional, parseEvaluationPlan, readEvaluationPlan, registerEvaluationPlan, recordPlanEvaluation, evaluatePlan, type EvaluationObservation, type EvaluationPlan, type EvaluationPlanReport } from "./evaluation-plan.ts";
+import { optionalItem as optional, parseEvaluationPlan, readEvaluationPlan, registerEvaluationPlan, recordPlanEvaluation, evaluatePlan, releasedEvaluationOutcome, type EvaluationObservation, type EvaluationPlan, type EvaluationPlanReport } from "./evaluation-plan.ts";
 
 /** A total active decision table; an absent candidate entry is an isolated candidate failure. */
 export type ShadowPolicy = Readonly<Record<string, string>>;
@@ -33,7 +33,7 @@ export interface ShadowObservation {
   readonly disagreement: boolean;
   readonly failure: "candidate_missing_action" | "candidate_missing_outcome" | null;
 }
-/** Compact receipt; raw outcomes stay in independently verified per-input tracker records. */
+/** Public comparison with current diagnostics; each input remains independently verified. */
 export interface ShadowReport {
   readonly receipt: string;
   readonly comparison: string;
@@ -242,8 +242,8 @@ export async function observeShadow(client: PmClient, candidate: string, value: 
   await seal(client, receipt, observation as unknown as JsonValue);
   return observation;
 }
-/** Recompute all observations from pinned artifacts; never trust mutable aggregate counts or verdicts. */
-async function shadowComparison(client: PmClient, candidate: string): Promise<{ report: ShadowReport; pairs: EvaluationObservation[] }> {
+/** Recompute observations and independently project the receipt bytes and current diagnostic report. */
+async function shadowComparison(client: PmClient, candidate: string): Promise<{ report: ShadowReport; receipt: JsonValue; pairs: EvaluationObservation[] }> {
   const { deployment, plan, id, policyInputs } = await deploymentFor(client, candidate);
   await policyBinding(client, plan.incumbent, deployment.active, id); await policyBinding(client, candidate, deployment.candidate, id);
   const observations: ShadowObservation[] = [];
@@ -256,18 +256,19 @@ async function shadowComparison(client: PmClient, candidate: string): Promise<{ 
   const failures = observations.filter((row) => row.failure !== null).length;
   const pairs = observations.map((row) => ({ id: row.id, candidate: row.candidate_reward!, incumbent: row.active_reward }));
   const outcome = failures === 0 ? evaluatePlan(plan, pairs) : null;
-  const report: ShadowReport = { receipt: `${id}-comparison`, comparison: hashJson(deployment as unknown as JsonValue), observations: observations.length,
+  const coordinates = { receipt: `${id}-comparison`, comparison: hashJson(deployment as unknown as JsonValue), observations: observations.length,
     disagreements: observations.filter((row) => row.disagreement).length, candidate_failures: failures,
-    charged: { active_calls: observations.length, candidate_calls: observations.length }, outcome,
+    charged: { active_calls: observations.length, candidate_calls: observations.length },
     remedy: failures === 0 ? outcome!.remedy : "Keep the active policy; fix the candidate and register a fresh consented plan." };
-  return { report, pairs };
+  const receipt = { ...coordinates, outcome: outcome === null ? null : releasedEvaluationOutcome(plan, pairs, outcome) } as unknown as JsonValue;
+  return { report: { ...coordinates, outcome }, receipt, pairs };
 }
 /** Seal one online comparison using the existing immutable paired-outcome recorder. */
 export async function compareShadow(client: PmClient, candidate: string): Promise<ShadowReport> {
-  const { report, pairs } = await shadowComparison(client, candidate);
-  await validateSeal(client, report.receipt, report as unknown as JsonValue);
+  const { report, receipt, pairs } = await shadowComparison(client, candidate);
+  await validateSeal(client, report.receipt, receipt);
   if (report.outcome !== null) await recordPlanEvaluation(client, candidate, pairs);
-  await seal(client, report.receipt, report as unknown as JsonValue);
+  await seal(client, report.receipt, receipt);
   return report;
 }
 /** Recognize the explicit online-policy provenance marker without restricting offline trainer config formats. */
@@ -289,11 +290,11 @@ export async function enforceShadowComparison(client: PmClient, candidate: strin
   }
   const receipt = await sealed(client, `${candidate}-evaluation-plan-shadow-comparison`);
   if (receipt === null) refuse("shadow_missing", `${candidate}-evaluation-plan-shadow-comparison`, "comparison");
-  const { report } = await shadowComparison(client, candidate);
+  const { report, receipt: expected } = await shadowComparison(client, candidate);
   const recorded = located(report.receipt, "fields", () => record(json(receipt.body, report.receipt)));
   const charged = located(report.receipt, "charged", () => record(recorded.charged));
   for (const field of ["active_calls", "candidate_calls"] as const) if (charged[field] !== report.charged[field]) refuse("shadow_budget", report.receipt, `charged.${field}`);
-  if (receipt.body !== canonicalJson(report as unknown as JsonValue)) refuse("shadow_drift", report.receipt, "comparison");
-  if (receipt.affected_version !== hashJson(report as unknown as JsonValue)) refuse("shadow_drift", report.receipt, "affected_version");
+  if (receipt.body !== canonicalJson(expected)) refuse("shadow_drift", report.receipt, "comparison");
+  if (receipt.affected_version !== hashJson(expected)) refuse("shadow_drift", report.receipt, "affected_version");
   if (report.candidate_failures !== 0) refuse("shadow_failed", report.receipt, "candidate_failures");
 }

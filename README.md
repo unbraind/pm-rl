@@ -865,13 +865,28 @@ incumbent differences and signs the result so that improvement is positive.
 Every unit must stay within the declared loss in original reward units.
 Equality passes. The decision uses exact decimal arithmetic even when the
 displayed mean rounds to the limit. The `unit_guard` report identifies the
-worst unit (ties use the smallest unit label), its displayed improvement, the
-limit and the number of violations. A breach produces `eval_unit_regression`.
+worst unit (ties use the smallest unit label), that unit's displayed candidate
+and incumbent means, its paired improvement, the limit and the number of
+violations. The numeric improvement stays finite. If its rounding would hide
+a breach or overflow, `exact_improvement` gives the signed fraction in reward
+units. A breach produces `eval_unit_regression`, and the promotion refusal
+includes the unit, both scores, the paired improvement, the bound and the remedy.
+
+```
+Evaluation plan refused (eval_unit_regression). Record rl-guarded-evaluation-plan.
+Correlation unit workflow-1 regressed beyond its declared bound: candidate mean 0,
+incumbent mean 1, bound 0, 1 unit(s) in breach. Paired improvement -1.
+Seal the design and any required review before registering a new plan,
+then create a fresh candidate and collection;
+retain the exact declared cohort, provenance and reviewed stopping protocol.
+```
+
 If an explicit protected cohort also fails, its existing refusal takes
 precedence and both diagnostics are available.
 
-Each candidate needs its own predeclared plan. The comparison digest binds
-its unit assignments and regression limit. The normal promotion transaction replays the complete evidence and requires the
+To use the guard, predeclare a plan for each candidate. The comparison digest
+binds its unit assignments and regression limit. The promotion transaction
+replays the evidence for any registered plan. All promotions require the
 existing independent approval Decision, lineage and budget checks. Missing
 observations refuse evaluation. Sequential plans refuse this option. The
 fixed-plan limit remains 10,000 members. This empirical guard tests the
@@ -880,23 +895,33 @@ declared units. Individual losses can still average out *within* a unit.
 **Measured example.** Seed 42 selected one regressing workflow among 32, with
 two synthetic observations per workflow. The candidate scored 0.96875 overall
 and the incumbent scored 0.03125. On `workflow-1`, the incumbent scored 1 and
-the candidate scored 0.
+the candidate scored 0. The same masking holds under `"direction":
+"minimize"` with both scores mirrored.
 
 | Fixed plan | Evaluation verdict | Plan tokens | Report tokens |
 | --- | --- | ---: | ---: |
-| Aggregate only | Promote | 1,055 | 214 |
-| One protected cohort per workflow (32 cohorts) | Refuse | 2,086 | 1,461 |
-| `max_unit_regression: 0` | Refuse, 1 violation | 1,062 | 293 |
+| Aggregate only | Promote | 1,053 | 216 |
+| One protected cohort per workflow (32 cohorts) | Refuse | 2,084 | 1,462 |
+| `max_unit_regression: 0` | Refuse, 1 violation | 1,061 | 329 |
 
-The two equivalent protections differ by 1,024 input tokens and 1,168 report
-tokens, saving 2,192 of 3,547 tokens (61.8%). Counts use tiktoken 0.14.0
-`o200k_base` on each complete, minified JSON plan and SDK report. These are
-serialized context sizes. The replay makes zero inference calls.
+The two equivalent protections differ by 2,156 tokens (60.8%). The compact
+refusal message itself is 92 tokens (430 bytes), against 2,215 tokens for
+reading the sealed plan plus all 64 raw observations to find the masked loss
+by hand (95.85% saved).
+Counts use the pinned `js-tiktoken` `o200k_base` tokenizer on each complete,
+minified JSON plan and SDK report. These are serialized context sizes. The
+replay makes zero inference calls, and the three guard refusals leave the
+single approved promotion allowance for the one passing candidate.
 
-Reproduce the three comparisons from a source checkout with
-`node test/fixtures/unit-guard-study.ts`. The script emits a JSON array in
-table order. Count `JSON.stringify(entry.plan)` and `JSON.stringify(entry.report)`
-separately. To use the guard in the CLI, add the field to the JSON supplied to
+Reproduce the whole measurement with one command:
+`node test/unit-guard-measure.ts`. It builds and packs this package,
+installs that exact archive into a fresh non-git scratch tracker, replays the
+seeded study through the SDK (`registerEvaluationPlan`,
+`recordPlanEvaluation`, `enforceEvaluationPlan`) and through the real
+`pm rl eval plan register/evaluate` and `pm rl generation promote` commands
+(JSON and TOON), then prints the masking evidence and every token count as
+one JSON object. The raw three-plan comparison also stays available with
+`node test/fixtures/unit-guard-study.ts`. To use the guard in the CLI, add the field to the JSON supplied to
 `pm rl eval plan register --file plan.json`, collect the predeclared
 observations, then run `pm rl eval plan evaluate <candidate> --file observations.json`.
 The normal `pm rl generation promote` command enforces the recorded verdict.
