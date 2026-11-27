@@ -226,6 +226,67 @@ test("guard reports preserve a paired loss near the upper reward bound", () => {
   assert.ok(Math.abs(withCohort.cohorts![0].improvement - (-1)) <= Number.EPSILON);
 });
 
+test("cancellation cannot erase a regressed unit's diagnostic scores at extreme magnitudes", () => {
+  const { protected_cohorts: _cohorts, ...base } = design();
+  const members = [{ id: "huge-win", unit: "workflow" }, { id: "tiny-loss", unit: "workflow" }, { id: "huge-loss", unit: "workflow" }];
+  const stopping = { kind: "fixed" as const, observations: 3, independent_units: 1 };
+  const input = [
+    { id: "huge-win", candidate: 1e16, incumbent: 1e16 },
+    { id: "tiny-loss", candidate: 0, incumbent: 1 },
+    { id: "huge-loss", candidate: -1e16, incumbent: -1e16 },
+  ];
+  const guarded = { ...base, reward_bounds: [-1e16, 1e16] as const, members, stopping, max_unit_regression: 0 };
+  const report = evaluatePlan(guarded, input);
+  assert.equal(report.verdict.decision, "refuse");
+  assert.equal(report.unit_guard!.worst_unit, "workflow");
+  assert.equal(report.unit_guard!.violations, 1);
+  // Correctly rounded exact sums: candidate 1e16 + 0 - 1e16 = 0, incumbent 1e16 + 1 - 1e16 = 1.
+  assert.equal(report.unit_guard!.candidate_mean, 0);
+  assert.equal(report.unit_guard!.incumbent_mean, 1 / 3);
+  assert.equal(report.unit_guard!.improvement, -1 / 3);
+  assert.match(report.verdict.reason!, /candidate mean 0, incumbent mean 0\.3333333333333333, bound 0\./);
+  const protectedReport = evaluatePlan({ ...base, reward_bounds: [-1e16, 1e16] as const, members, stopping, protected_cohorts: [{ id: "protected", members: members.map((member) => member.id), min_units: 1, max_regression: 0 }] }, input);
+  assert.equal(protectedReport.cohorts![0].code, "eval_cohort_regression");
+  assert.equal(protectedReport.cohorts![0].improvement, -1 / 3);
+  // Minimize mirrors the same refusal with both displayed scores swapped.
+  const mirrored = input.map((row) => ({ ...row, candidate: row.incumbent, incumbent: row.candidate }));
+  const minimize = evaluatePlan({ ...guarded, direction: "minimize" }, mirrored);
+  assert.equal(minimize.unit_guard!.violations, 1);
+  assert.equal(minimize.unit_guard!.candidate_mean, 1 / 3);
+  assert.equal(minimize.unit_guard!.incumbent_mean, 0);
+  assert.equal(minimize.unit_guard!.improvement, -1 / 3);
+});
+
+test("seeded extreme-magnitude rows report correctly rounded exact guard and cohort diagnostics", () => {
+  const next = random(0x9c4c0a07);
+  const { protected_cohorts: _cohorts, ...base } = design();
+  for (let trial = 0; trial < testDepth(300); trial += 1) {
+    const members = Array.from({ length: 4 }, (_, index) => ({ id: `row-${index}`, unit: "workflow" }));
+    const scale = BigInt((next() % 500 + 500) * 2) * 10n ** 12n;
+    const signs = Array.from({ length: 4 }, () => (next() & 1) === 0 ? 1n : -1n);
+    const loss = next() % 4;
+    const lossDelta = BigInt((next() % 8 + 1) * 2);
+    let candidateSum = 0n; let incumbentSum = 0n;
+    const input = members.map((member, index) => {
+      const value = signs[index] * scale;
+      const incumbent = index === loss ? value + lossDelta : value;
+      candidateSum += value; incumbentSum += incumbent;
+      return { id: member.id, candidate: Number(value), incumbent: Number(incumbent) };
+    });
+    // Even-integer rows below 2^53 keep the BigInt oracle exact after Number conversion, and /4 stays dyadic.
+    const stopping = { kind: "fixed" as const, observations: 4, independent_units: 1 };
+    const guarded = { ...base, reward_bounds: [-1e16, 1e16] as const, members, stopping, max_unit_regression: 0 };
+    const report = evaluatePlan(guarded, input);
+    assert.equal(report.unit_guard!.candidate_mean, Number(candidateSum) / 4, `candidate mean trial ${trial}`);
+    assert.equal(report.unit_guard!.incumbent_mean, Number(incumbentSum) / 4, `incumbent mean trial ${trial}`);
+    assert.equal(report.unit_guard!.improvement, Number(candidateSum - incumbentSum) / 4, `improvement trial ${trial}`);
+    assert.equal(report.unit_guard!.violations, 1, `violations trial ${trial}`);
+    const protectedReport = evaluatePlan({ ...base, reward_bounds: [-1e16, 1e16] as const, members, stopping, protected_cohorts: [{ id: "protected", members: members.map((member) => member.id), min_units: 1, max_regression: 0 }] }, input);
+    assert.equal(protectedReport.cohorts![0].improvement, Number(candidateSum - incumbentSum) / 4, `cohort improvement trial ${trial}`);
+    assert.equal(protectedReport.cohorts![0].code, "eval_cohort_regression", `cohort verdict trial ${trial}`);
+  }
+});
+
 test("per-unit guard refuses a masked workflow loss through promotion and preserves the single approval for a passing candidate", async () => {
   const w = await workspace();
   const harness = await createExtensionTestHarness(extension, { name: "pm-rl", capabilities: ["commands", "hooks", "schema"] });

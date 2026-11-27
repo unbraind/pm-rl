@@ -410,6 +410,10 @@ function roundFloatMean(total: Rational, units: number): number {
   const value = Number(rounded) * (2 ** (shift - 1074));
   return negative ? -value : value;
 }
+/** Correctly round one exact decimal-rational mean to the nearest binary64, ties to even. */
+function roundRationalMean(total: Rational, units: number): number {
+  return roundFloatMean({ n: total.n << 1074n, d: total.d }, units);
+}
 /** One exact domain rule serves declaration validation and emitted cohort reports. */
 function validRegression(value: unknown, bounds: readonly [number, number]): value is number {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return false;
@@ -419,56 +423,52 @@ function validRegression(value: unknown, bounds: readonly [number, number]): val
 }
 /** Count fields share the input schema's positive bounded integer domain. */
 function validCount(value: number, maximum = 10_000): boolean { return Number.isSafeInteger(value) && value >= 1 && value <= maximum; }
-/** Accumulate the exact paired difference and finite displayed means for both sides per unit. */
-function unitDifferences(ids: Iterable<string>, observations: ReadonlyMap<string, EvaluationObservation>, members: ReadonlyMap<string, string>, bounds: readonly [number, number]) {
-  const [lo, hi] = bounds;
-  const range = hi - lo;
-  const units = new Map<string, { sum: Rational; count: number; display: number; candidateMean: number; incumbentMean: number }>();
+/** Accumulate exact rational sums per unit so displayed diagnostics round correctly and never cancel. */
+function unitDifferences(ids: Iterable<string>, observations: ReadonlyMap<string, EvaluationObservation>, members: ReadonlyMap<string, string>) {
+  const units = new Map<string, { candidate: Rational; incumbent: Rational; difference: Rational; count: number }>();
   for (const id of ids) {
     const row = observations.get(id)!;
     const unit = members.get(id)!;
-    const group = units.get(unit) ?? { sum: { n: 0n, d: 1n }, count: 0, display: 0, candidateMean: 0, incumbentMean: 0 };
+    const group = units.get(unit) ?? { candidate: { n: 0n, d: 1n }, incumbent: { n: 0n, d: 1n }, difference: { n: 0n, d: 1n }, count: 0 };
     const candidate = exact(row.candidate);
     const incumbent = exact(row.incumbent);
-    group.sum = add(group.sum, add(candidate, { n: -incumbent.n, d: incumbent.d }));
+    group.candidate = add(group.candidate, candidate);
+    group.incumbent = add(group.incumbent, incumbent);
+    group.difference = add(group.difference, add(candidate, { n: -incumbent.n, d: incumbent.d }));
     group.count += 1;
-    const display = (row.candidate - row.incumbent) / range;
-    group.display += (display - group.display) / group.count;
-    group.candidateMean += (row.candidate - group.candidateMean) / group.count;
-    group.incumbentMean += (row.incumbent - group.incumbentMean) / group.count;
     units.set(unit, group);
   }
   return units;
 }
-/** Check every unit against the sealed limit. Equal exact means use the smallest unit label. */
+/** Check every unit against the sealed limit; displayed means are correctly rounded exact sums. Equal exact means use the smallest unit label. */
 function evaluateUnitGuard(plan: EvaluationPlan, limit: number, observations: ReadonlyMap<string, EvaluationObservation>, members: ReadonlyMap<string, string>): NonNullable<EvaluationPlanReport["unit_guard"]> {
   const maximum = exact(limit);
   const direction = plan.direction === "maximize" ? 1 : -1;
-  let worst: { unit: string; mean: Rational; display: number; candidateMean: number; incumbentMean: number } | undefined;
+  let worst: { unit: string; mean: Rational; group: { candidate: Rational; incumbent: Rational; difference: Rational; count: number } } | undefined;
   let violations = 0;
-  for (const [unit, group] of unitDifferences(members.keys(), observations, members, plan.reward_bounds)) {
-    const mean = { n: group.sum.n * BigInt(direction), d: group.sum.d * BigInt(group.count) };
+  for (const [unit, group] of unitDifferences(members.keys(), observations, members)) {
+    const mean = { n: group.difference.n * BigInt(direction), d: group.difference.d * BigInt(group.count) };
     if (mean.n * maximum.d < -maximum.n * mean.d) violations++;
     const order = worst === undefined ? -1n : mean.n * worst.mean.d - worst.mean.n * mean.d;
-    if (order < 0n || (order === 0n && unit < worst!.unit)) worst = { unit, mean, display: group.display, candidateMean: group.candidateMean, incumbentMean: group.incumbentMean };
+    if (order < 0n || (order === 0n && unit < worst!.unit)) worst = { unit, mean, group };
   }
   // Fixed plans require at least one member and one complete observation per member.
-  const improvement = Math.max(-1, Math.min(1, worst!.display * direction)) * (plan.reward_bounds[1] - plan.reward_bounds[0]);
-  return { worst_unit: worst!.unit, candidate_mean: worst!.candidateMean, incumbent_mean: worst!.incumbentMean, improvement, max_regression: limit, violations };
+  const improvement = roundRationalMean({ n: worst!.group.difference.n * BigInt(direction), d: worst!.group.difference.d }, worst!.group.count);
+  return { worst_unit: worst!.unit, candidate_mean: roundRationalMean(worst!.group.candidate, worst!.group.count), incumbent_mean: roundRationalMean(worst!.group.incumbent, worst!.group.count), improvement, max_regression: limit, violations };
 }
 /** Compute equal-unit empirical guards; repeated members never inflate evidence minimums. */
 function evaluateCohorts(plan: EvaluationPlan, observations: ReadonlyMap<string, EvaluationObservation>, members: ReadonlyMap<string, string>): CohortReport[] {
-  const [lo, hi] = plan.reward_bounds; const range = hi - lo; const direction = plan.direction === "maximize" ? 1 : -1;
+  const direction = plan.direction === "maximize" ? 1 : -1;
   return plan.protected_cohorts!.map((cohort) => {
-    const units = unitDifferences(cohort.members, observations, members, plan.reward_bounds);
-    let sum: Rational = { n: 0n, d: 1n }; let display = 0; let count = 0;
+    const units = unitDifferences(cohort.members, observations, members);
+    let sum: Rational = { n: 0n, d: 1n }; let count = 0;
     for (const unit of units.values()) {
-      sum = add(sum, rational(unit.sum.n, unit.sum.d * BigInt(unit.count)));
-      count += 1; display += (unit.display - display) / count;
+      sum = add(sum, rational(unit.difference.n, unit.difference.d * BigInt(unit.count)));
+      count += 1;
     }
     const mean = rational(sum.n * BigInt(direction), sum.d * BigInt(count)); const limit = exact(cohort.max_regression);
     const code = count < cohort.min_units ? "eval_cohort_samples" : mean.n * limit.d < -limit.n * mean.d ? "eval_cohort_regression" : null;
-    const improvement = Math.max(-1, Math.min(1, display * direction)) * range;
+    const improvement = roundRationalMean({ n: sum.n * BigInt(direction), d: sum.d }, count);
     return { id: cohort.id, observations: cohort.members.length, independent_units: count, min_units: cohort.min_units, improvement, max_regression: cohort.max_regression, code };
   });
 }
@@ -537,6 +537,9 @@ export function validateEvaluationReport(...args: [plan: EvaluationPlan, report:
   const report = (projected ? args[0] : args[1]) as EvaluationPlanReport;
   const bounds = projected ? args[1] as readonly [number, number] : plan!.reward_bounds;
   const [lo, hi] = bounds;
+  // Correctly rounded exact reward width: a displayed mean may round one ulp past the
+  // float subtraction hi - lo (for example 0.3 - 0.1), so the domain bound is the exact width.
+  const width = roundRationalMean(add(exact(hi), { n: -exact(lo).n, d: exact(lo).d }), 1);
   numeric(report);
   if (report.evidence_digest !== undefined && (typeof report.evidence_digest !== "string" || !/^[a-f0-9]{64}$/.test(report.evidence_digest))) refuse("eval_plan_evidence");
   for (const value of [report.candidate_mean, report.incumbent_mean]) if (value < lo || value > hi) refuse("eval_plan_evidence");
@@ -545,9 +548,9 @@ export function validateEvaluationReport(...args: [plan: EvaluationPlan, report:
     const b = report.sequential;
     if (b.lower < -1 || b.upper > 1 || b.lower > b.upper || b.error_bound <= 0 || b.error_bound > 1 || !Number.isSafeInteger(b.look) || b.look < 1 || b.look > 64) refuse("eval_plan_evidence");
   }
-  if ((report.cohorts !== undefined && !dense(report.cohorts, 1, 32)) || report.cohorts?.some((cohort) => Math.abs(cohort.improvement) > hi - lo || !validRegression(cohort.max_regression, bounds) || !validCount(cohort.observations) || !validCount(cohort.min_units) || !validCount(cohort.independent_units, cohort.observations))) refuse("eval_plan_evidence");
+  if ((report.cohorts !== undefined && !dense(report.cohorts, 1, 32)) || report.cohorts?.some((cohort) => Math.abs(cohort.improvement) > width || !validRegression(cohort.max_regression, bounds) || !validCount(cohort.observations) || !validCount(cohort.min_units) || !validCount(cohort.independent_units, cohort.observations))) refuse("eval_plan_evidence");
   const guard = report.unit_guard;
-  if (guard !== undefined && (Math.abs(guard.improvement) > hi - lo || guard.candidate_mean < lo || guard.candidate_mean > hi || guard.incumbent_mean < lo || guard.incumbent_mean > hi || !validRegression(guard.max_regression, bounds) || !Number.isSafeInteger(guard.violations) || guard.violations < 0 || guard.violations > report.independent_units)) refuse("eval_plan_evidence");
+  if (guard !== undefined && (Math.abs(guard.improvement) > width || guard.candidate_mean < lo || guard.candidate_mean > hi || guard.incumbent_mean < lo || guard.incumbent_mean > hi || !validRegression(guard.max_regression, bounds) || !Number.isSafeInteger(guard.violations) || guard.violations < 0 || guard.violations > report.independent_units)) refuse("eval_plan_evidence");
   return report;
 }
 /** Require predeclaration before all collection runs and unchanged incumbent provenance. */
