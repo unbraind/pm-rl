@@ -881,8 +881,9 @@ retain the exact declared cohort, provenance and reviewed stopping protocol.
 If an explicit protected cohort also fails, its existing refusal takes
 precedence and both diagnostics are available.
 
-Each candidate needs its own predeclared plan. The comparison digest binds
-its unit assignments and regression limit. The normal promotion transaction replays the complete evidence and requires the
+To use the guard, predeclare a plan for each candidate. The comparison digest
+binds its unit assignments and regression limit. The promotion transaction
+replays the evidence for any registered plan. All promotions require the
 existing independent approval Decision, lineage and budget checks. Missing
 observations refuse evaluation. Sequential plans refuse this option. The
 fixed-plan limit remains 10,000 members. This empirical guard tests the

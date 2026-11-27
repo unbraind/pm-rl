@@ -257,13 +257,30 @@ test("cancellation cannot erase a regressed unit's diagnostic scores at extreme 
   assert.equal(minimize.unit_guard!.improvement, -1 / 3);
 });
 
+test("protected cohort diagnostics retain a small loss when distinct unit means cancel", () => {
+  const { protected_cohorts: _cohorts, ...base } = design();
+  const members = ["a", "b", "c", "d"].map((id) => ({ id, unit: id === "c" ? "b" : id }));
+  const plan = {
+    ...base, reward_bounds: [-1e16, 1e16] as const, members,
+    stopping: { kind: "fixed" as const, observations: members.length, independent_units: 3 },
+    protected_cohorts: [{ id: "protected", members: members.map(({ id }) => id), min_units: 3, max_regression: 0 }],
+  };
+  // The middle unit's mean is -1. Equal unit weighting gives (1e16 - 1 - 1e16) / 3.
+  const input = [1e16, -2, 0, -1e16].map((candidate, index) => ({ id: members[index].id, candidate, incumbent: 0 }));
+  for (const direction of ["maximize", "minimize"] as const) {
+    const observations = direction === "maximize" ? input : input.map(({ id, candidate, incumbent }) => ({ id, candidate: incumbent, incumbent: candidate }));
+    const report = evaluatePlan({ ...plan, direction }, observations);
+    assert.deepEqual(report.cohorts?.[0], { id: "protected", observations: 4, independent_units: 3, min_units: 3, max_regression: 0, improvement: -1 / 3, code: "eval_cohort_regression" });
+  }
+});
+
 test("seeded extreme-magnitude rows report correctly rounded exact guard and cohort diagnostics", () => {
   const next = random(0x9c4c0a07);
   const { protected_cohorts: _cohorts, ...base } = design();
   for (let trial = 0; trial < testDepth(300); trial += 1) {
     const members = Array.from({ length: 4 }, (_, index) => ({ id: `row-${index}`, unit: "workflow" }));
     const scale = BigInt((next() % 500 + 500) * 2) * 10n ** 12n;
-    const signs = Array.from({ length: 4 }, () => (next() & 1) === 0 ? 1n : -1n);
+    const signs = Array.from({ length: 4 }, () => (next() >>> 31) === 0 ? 1n : -1n);
     const loss = next() % 4;
     const lossDelta = BigInt((next() % 8 + 1) * 2);
     let candidateSum = 0n; let incumbentSum = 0n;
@@ -392,10 +409,13 @@ test("decision table: guard presence, completeness, outcome, direction and plan 
 
 test("the CLI help surface names the per-unit regression guard at registration, evaluation and promotion", () => {
   const description = (name: string): string => RL_COMMANDS.find((command) => command.name === name)!.description;
+  assert.match(description("rl eval plan register"), /fixed plans can declare/i);
   assert.match(description("rl eval plan register"), /per-unit regression limit/);
+  assert.match(description("rl eval plan evaluate"), /any declared protected cohort/);
   assert.match(description("rl eval plan evaluate"), /per-unit regression guardrails/);
-  assert.match(description("rl generation promote"), /sealed evaluation plan, when registered, is enforced/);
+  assert.match(description("rl generation promote"), /enforce any registered evaluation plan, including any per-unit regression guard it declares/i);
   assert.doesNotMatch(description("rl generation promote"), /sealed evaluation verdict/);
+  assert.match(description("rl shadow compare"), /required when promoting an online-bound generation/);
 });
 
 test("500 seeded operation sequences replay normalized declarations and evidence against an SDK-read reference model", { timeout: testTime(600_000) }, async () => {

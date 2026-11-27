@@ -2,17 +2,15 @@ id: pm-rl-unit-guard
 title: Refuse a recursive promotion when any declared workflow unit regresses
 description: Let a fixed evaluation plan bound the empirical regression of every correlation unit with one sealed declaration.
 type: Feature
-status: in_progress
+status: open
 priority: 2
 tags: []
 created_at: "2026-11-20T03:13:56.111Z"
-updated_at: "2026-11-27T15:33:56.931Z"
-assignee: pi-glm
-claim_principal: pi-glm
+updated_at: "2026-11-27T18:43:09.169Z"
 author: codex-sol
 acceptance_criteria: "Check all complete paired units exactly in either objective direction before promotion and preserve independent approval and resource bounds.; Preserve legacy comparisons and fail closed on incomplete, changed or sequential guarded plans.; Measure masking and equivalent-plan token savings on seeded synthetic workflows through the SDK and CLI."
 parent: pm-rl-apvf
-comments[23]{created_at,author,text}:
+comments[30]{created_at,author,text}:
   "2026-11-20T03:14:15.851Z",codex-sol,"Ranked by value / (risk x effort), each dimension 1 to 5. Per-unit regression guard 5/(1x2)=2.50: current plan caps protected cohorts at 32 and a mean masks a single workflow loss. Learned context routing 5/(3x4)=0.42: existing public history-prefix task has 943 fit and 385 final items, but completion after choosing a projection lacks a counterfactual. Further meta-loop search 3/(3x4)=0.25: bounded recipe and proposer search already exist, with zero promotions in the published transfer replay. All three retain sealed limits, independent human approval and fail-closed lineage."
   "2026-11-20T03:14:20.756Z",codex-sol,"Implement optional max_unit_regression on fixed plans. Reuse exact decimal arithmetic on paired members within each declared correlation unit. Report one worst unit and the count in breach, keep earlier cohorts and aggregate gates effective, and retest persisted evidence and the authoritative promotion command."
   "2026-11-20T03:19:28.916Z",codex-sol,"Seed 42, 32 synthetic workflow units, 64 paired observations. Aggregate candidate 0.96875 vs incumbent 0.03125 passes. Both equivalent protections refuse the one loss of 1 on workflow-1. tiktoken 0.14.0 o200k_base over minified complete plan/report: 2086/1461 tokens using explicit cohorts, 1062/293 with the unit guard. Saving 2192 of 3547 context tokens (61.8%); inference calls zero."
@@ -36,17 +34,68 @@ comments[23]{created_at,author,text}:
   "2026-11-27T15:29:13.248Z",pi-glm,"Re-review non-blocking finding 1 fixed: the token benchmark now counts the plans exactly as sealed for the replay (the candidate-overridden declarations registered with the CLI), not the lookalike fixture plans. The sealed rl-guarded plan counts 1,061 tokens as the reviewer measured; the recorded output and README table are updated (aggregate-only 1,053/216, per-unit-guard 1,061/323, 32-protected-cohorts 2,084/1,462; equivalent-plan savings 2,162 of 3,546, 61.0 percent; the 86-token compact refusal replaces reading the 2,215-token sealed plan plus observations, 96.1 percent saved). Rule: measure the artifact actually sealed and replayed; every token count in the script (equivalent plans and the raw refusal comparison) now reads the sealed objects."
   "2026-11-27T15:29:22.312Z",pi-glm,"Re-review non-blocking finding 2 fixed: the rl generation promote help no longer implies a sealed evaluation verdict is always required. The description now reads 'Promote a candidate generation after contamination and budget checks pass; a sealed evaluation plan, when registered, is enforced with its per-unit regression guard.' and the promoteGeneration docstring matches. Rule: help text must state optional enforcement as conditional; searched all command descriptions and docstrings touched by this slice, the register and evaluate descriptions already state the optional guard accurately. The help-surface test now asserts the conditional wording and rejects the old overstatement."
   "2026-11-27T15:33:56.931Z",pi-glm,"Revert proofs for the two non-blocking fixes. Sealed-artifact binding (finding 1): the measurement now tokenizes only through a sealedTokens helper that asserts the counted declaration's comparison digest equals the comparison the CLI returned at registration and that the counted bytes are the registered file; simulating the reverted class instance (counting the fixture study plan instead of the sealed candidate plan) makes the script exit 1 with 'measured plan must be the sealed plan for rl-guarded', restored it reproduces the recorded numbers (per-unit-guard 1,061 plan tokens). Conditional help wording (finding 2): reverting the rl generation promote description to the old 'sealed evaluation verdict' overstatement makes the CLI help-surface test fail 0/1; restored it passes 1/1 and additionally asserts the overstatement stays absent."
-files[5]{path,scope}:
-  evaluation-plan.ts,project
-  index.ts,project
-  test/fixtures/unit-guard-study.ts,project
-  test/unit-guard-measure.ts,project
-  test/worst-cohort.test.ts,project
-tests[4]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
-  node --test --test-name-pattern=per-unit test/worst-cohort.test.ts,project,codex-sol,"2026-11-20T03:19:38.653Z",local_mutation,feat/per-unit-regression-guard
-  PM_TEST_DEPTH=quick node --test test/worst-cohort.test.ts,project,codex-sol,"2026-11-20T05:14:28.879Z",local_mutation,feat/per-unit-regression-guard
-  "PM_TEST_DEPTH=quick node --test --test-name-pattern=\"decision table|CLI help surface|per-unit guard\" test/worst-cohort.test.ts",project,pi-glm,"2026-11-27T14:03:51.876Z",local_mutation,feat/unit-regression-promotion-guard
-  node test/unit-guard-measure.ts,project,pi-glm,"2026-11-27T14:03:53.251Z",local_mutation,feat/unit-regression-promotion-guard
-docs[1]{path,scope}:
-  README.md,project
+  "2026-11-27T16:22:41.160Z",codex-sol,"Continuation inventory: main supplies the fixed-plan unit gate, protected cohorts, and approval and budget enforcement. The existing PR head already contains arithmetic, sealed token counting, and conditional help fixes. Verify all three, trace producer and consumer paths, and reconcile published measurement evidence with the actual replay."
+  "2026-11-27T16:30:16.164Z",codex-sol,"Class audit: round displayed guard and cohort values once from their exact sums. Fixed reports, SDK enforcement, CLI JSON and TOON, shadow outcome, and promotion receipt replay use the same evaluator. Sequential designs reject this guard; raw-float64 aggregate reports already preserve residuals and legacy normalized aggregate scores remain part of the sealed comparison contract. The alternate cohort accumulation test cancels across unequal units in both directions."
+  "2026-11-27T16:30:59.864Z",codex-sol,"Behavioral reverts in disposable copies: restoring the old running diagnostic arithmetic failed all 3 precision tests (per-unit cancellation, cancellation across distinct protected units, and the seeded exact integer oracle). Changing only promote help back to a mandatory verdict failed the help test 0/1. The working copy retained the corrected behavior."
+  "2026-11-27T18:32:45.989Z",codex-sol,"Ran 68 affected test files plus 2 release contract files at quick depth with Node 26 and two workers. Initial result: 1366 passed, 2 profile skips, 1 watchdog cancellation at 300 seconds in decision-recovery.test.ts, and 1 packed LM watchdog failure in lm-cli.test.ts after the CLI produced its expected terminal JSON. Every worst-cohort.test.ts case passed. Retry the two watchdog cases through the supported harness time scale with unchanged assertions and product limits."
+  "2026-11-27T18:35:40.101Z",codex-sol,"The standalone packed CLI and SDK measurement passed on a non-Git tracker. The count reads the exact registration and evaluation input files, and the counted declaration digest must match the sealed report. Seed 42 masks one workflow loss in both directions; three study refusals preserve the allowance for one passing promotion. The sealed guarded plan has 1061 tokens, its report 323. Equivalent protection saves 2162 tokens (60.97 percent); the 86-token refusal saves 2129 of 2215 raw-plan-plus-observation tokens (96.12 percent). The separate cancellation and no-plan probes do not affect the measured approval allowance."
+  "2026-11-27T18:40:26.989Z",codex-sol,"Packed npm and Bun consumers ran the same archive bytes through their installed SDK and CLI on separate non-Git trackers. Both reproduced the exact token counts, the cancellation witness in JSON and TOON, and no-plan promotion with independent approval. Revert proof: replacing the counted declaration with the pre-override fixture exits 1 on the sealed report digest check. Reinstating unconditional wording separately in register, evaluate, promote, or shadow compare each fails the help test. The linked snapshot test passed 5 of 5 with pm test --run --progress --only-last."
+  "2026-11-27T18:43:06.230Z",codex-sol,"Both isolated retry cases passed 1 of 1 with PM_TEST_DEPTH=quick and PM_TEST_TIME_SCALE=3. The receipt crash matrix completed in 186 seconds, and the packed LM proof completed in 59 seconds. Their assertions and product limits are unchanged. Final source and test builds, typecheck, lint, duplicate scan, docstring inventory, attestation, production audit, and pack passed. Identity and workflow contracts passed 48 of 48. The fresh Git branch audit passed with five approved addresses; the shared object store retains one historical rejected identity. Full coverage belongs to CI at unchanged thresholds: https://github.com/unbraind/pm-rl/actions/workflows/ci.yml?query=branch%3Afeat%2Funit-regression-promotion-guard"
+files[5]:
+  - path: evaluation-plan.ts
+    scope: project
+    note: Exact decimal accumulation for guard means and protected cohort differences
+  - path: index.ts
+    scope: project
+    note: Conditional promotion and evaluation help for fixed and online-bound plans
+  - path: test/fixtures/unit-guard-study.ts
+    scope: project
+  - path: test/unit-guard-measure.ts
+    scope: project
+    note: Bind measured file bytes to sealed CLI and SDK comparison and replay JSON and TOON
+  - path: test/worst-cohort.test.ts
+    scope: project
+    note: Check cancellation across unequal protected units and conditional CLI help
+tests[5]:
+  - command: node --test --test-name-pattern=per-unit test/worst-cohort.test.ts
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-20T03:19:38.653Z"
+      source_kind: local_mutation
+      source_ref: feat/per-unit-regression-guard
+  - command: PM_TEST_DEPTH=quick node --test test/worst-cohort.test.ts
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-20T05:14:28.879Z"
+      source_kind: local_mutation
+      source_ref: feat/per-unit-regression-guard
+  - command: "PM_TEST_DEPTH=quick node --test --test-name-pattern=\"decision table|CLI help surface|per-unit guard\" test/worst-cohort.test.ts"
+    scope: project
+    provenance:
+      author: pi-glm
+      created_at: "2026-11-27T14:03:51.876Z"
+      source_kind: local_mutation
+      source_ref: feat/unit-regression-promotion-guard
+  - command: node test/unit-guard-measure.ts
+    scope: project
+    provenance:
+      author: pi-glm
+      created_at: "2026-11-27T14:03:53.251Z"
+      source_kind: local_mutation
+      source_ref: feat/unit-regression-promotion-guard
+  - command: "PM_TEST_DEPTH=quick node --test --test-concurrency=2 --test-name-pattern=\"cancellation|extreme-magnitude|distinct unit means|CLI help surface|decision table\" test/worst-cohort.test.ts"
+    scope: project
+    timeout_seconds: 180
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-27T16:30:55.769Z"
+      source_kind: local_mutation
+      source_ref: feat/unit-regression-promotion-guard
+    note: "Precision oracles, compatibility matrix and optional-plan help"
+docs[1]{path,scope,note}:
+  README.md,project,Sealed declaration token counts and optional plan wording
 body: ""
