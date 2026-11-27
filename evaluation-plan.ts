@@ -83,8 +83,8 @@ export interface EvaluationPlanReport {
   /** Aggregate result before any protected cohort refusal. */
   readonly aggregate_verdict?: PromotionDecision;
   readonly cohorts?: readonly CohortReport[];
-  /** One deterministic witness and a count across all declared units. */
-  readonly unit_guard?: { readonly worst_unit: string; readonly improvement: number; readonly max_regression: number; readonly violations: number };
+  /** One deterministic witness with both displayed paired means, and a count across all declared units. */
+  readonly unit_guard?: { readonly worst_unit: string; readonly candidate_mean: number; readonly incumbent_mean: number; readonly improvement: number; readonly max_regression: number; readonly violations: number };
   readonly remedy: string | null;
   /** Present only for a predeclared sequential protocol; bounds use normalized paired improvement. */
   readonly sequential?: SequentialBoundary;
@@ -98,10 +98,17 @@ export interface RegisteredEvaluationPlan {
   readonly created_at: string;
 }
 
+/** Shared remedy for designs that must be resealed before a fresh candidate. */
+const SEALED_DESIGN_REMEDY = "Seal the design and any required review before registering a new plan, then create a fresh candidate and collection; retain the exact declared cohort, provenance and reviewed stopping protocol.";
 /** Throw an actionable typed refusal without copying tracker content into diagnostics. */
 export function refuse(code: EvaluationPlanRefusal, itemId?: string): never {
-  const remedy = code === "eval_plan_late" ? "Seal required reviews and a new plan before collection; for sequential plans create all collection Runs, then a fresh candidate, then ordered looks. Do not reuse evidence created before its source." : code === "eval_plan_stopping" ? "Use advance/resume for a sequential plan, evaluate for a fixed plan, and supply only the next declared complete unit prefix. A changed protocol requires a new plan and fresh candidate." : code === "eval_plan_evidence" ? "Check bounded paired rewards and the Decision reviewing the exact comparison hash. Changed sealed evidence requires a new plan and fresh candidate." : "Seal the design and any required review before registering a new plan, then create a fresh candidate and collection; retain the exact declared cohort, provenance and reviewed stopping protocol.";
+  const remedy = code === "eval_plan_late" ? "Seal required reviews and a new plan before collection; for sequential plans create all collection Runs, then a fresh candidate, then ordered looks. Do not reuse evidence created before its source." : code === "eval_plan_stopping" ? "Use advance/resume for a sequential plan, evaluate for a fixed plan, and supply only the next declared complete unit prefix. A changed protocol requires a new plan and fresh candidate." : code === "eval_plan_evidence" ? "Check bounded paired rewards and the Decision reviewing the exact comparison hash. Changed sealed evidence requires a new plan and fresh candidate." : SEALED_DESIGN_REMEDY;
   throw createPmCliExpectedError(`Evaluation plan refused (${code}).${itemId === undefined ? "" : ` Record ${itemId}.`} ${remedy}`, { exitCode: EXIT_CODE.CONFLICT, context: { code, required: remedy, ...(itemId === undefined ? {} : { item_id: itemId }) } });
+}
+/** Refuse a guarded promotion naming the worst unit, both scores, the bound and the remedy. */
+function refuseUnitRegression(record: string, guard: NonNullable<EvaluationPlanReport["unit_guard"]>): never {
+  const witness = `Correlation unit ${guard.worst_unit} regressed beyond its declared bound: candidate mean ${guard.candidate_mean}, incumbent mean ${guard.incumbent_mean}, bound ${guard.max_regression}, ${guard.violations} unit(s) in breach.`;
+  throw createPmCliExpectedError(`Evaluation plan refused (eval_unit_regression). Record ${record}. ${witness} ${SEALED_DESIGN_REMEDY}`, { exitCode: EXIT_CODE.CONFLICT, context: { code: "eval_unit_regression", required: SEALED_DESIGN_REMEDY, item_id: record, why: witness } });
 }
 
 /** Strict bounded schema shared by stored promotion receipts and evaluator-produced graphs. */
@@ -412,21 +419,23 @@ function validRegression(value: unknown, bounds: readonly [number, number]): val
 }
 /** Count fields share the input schema's positive bounded integer domain. */
 function validCount(value: number, maximum = 10_000): boolean { return Number.isSafeInteger(value) && value >= 1 && value <= maximum; }
-/** Accumulate the exact paired difference and a finite normalized display mean per unit. */
+/** Accumulate the exact paired difference and finite displayed means for both sides per unit. */
 function unitDifferences(ids: Iterable<string>, observations: ReadonlyMap<string, EvaluationObservation>, members: ReadonlyMap<string, string>, bounds: readonly [number, number]) {
   const [lo, hi] = bounds;
   const range = hi - lo;
-  const units = new Map<string, { sum: Rational; count: number; display: number }>();
+  const units = new Map<string, { sum: Rational; count: number; display: number; candidateMean: number; incumbentMean: number }>();
   for (const id of ids) {
     const row = observations.get(id)!;
     const unit = members.get(id)!;
-    const group = units.get(unit) ?? { sum: { n: 0n, d: 1n }, count: 0, display: 0 };
+    const group = units.get(unit) ?? { sum: { n: 0n, d: 1n }, count: 0, display: 0, candidateMean: 0, incumbentMean: 0 };
     const candidate = exact(row.candidate);
     const incumbent = exact(row.incumbent);
     group.sum = add(group.sum, add(candidate, { n: -incumbent.n, d: incumbent.d }));
     group.count += 1;
     const display = (row.candidate - row.incumbent) / range;
     group.display += (display - group.display) / group.count;
+    group.candidateMean += (row.candidate - group.candidateMean) / group.count;
+    group.incumbentMean += (row.incumbent - group.incumbentMean) / group.count;
     units.set(unit, group);
   }
   return units;
@@ -435,17 +444,17 @@ function unitDifferences(ids: Iterable<string>, observations: ReadonlyMap<string
 function evaluateUnitGuard(plan: EvaluationPlan, limit: number, observations: ReadonlyMap<string, EvaluationObservation>, members: ReadonlyMap<string, string>): NonNullable<EvaluationPlanReport["unit_guard"]> {
   const maximum = exact(limit);
   const direction = plan.direction === "maximize" ? 1 : -1;
-  let worst: { unit: string; mean: Rational; display: number } | undefined;
+  let worst: { unit: string; mean: Rational; display: number; candidateMean: number; incumbentMean: number } | undefined;
   let violations = 0;
   for (const [unit, group] of unitDifferences(members.keys(), observations, members, plan.reward_bounds)) {
     const mean = { n: group.sum.n * BigInt(direction), d: group.sum.d * BigInt(group.count) };
     if (mean.n * maximum.d < -maximum.n * mean.d) violations++;
     const order = worst === undefined ? -1n : mean.n * worst.mean.d - worst.mean.n * mean.d;
-    if (order < 0n || (order === 0n && unit < worst!.unit)) worst = { unit, mean, display: group.display };
+    if (order < 0n || (order === 0n && unit < worst!.unit)) worst = { unit, mean, display: group.display, candidateMean: group.candidateMean, incumbentMean: group.incumbentMean };
   }
   // Fixed plans require at least one member and one complete observation per member.
   const improvement = Math.max(-1, Math.min(1, worst!.display * direction)) * (plan.reward_bounds[1] - plan.reward_bounds[0]);
-  return { worst_unit: worst!.unit, improvement, max_regression: limit, violations };
+  return { worst_unit: worst!.unit, candidate_mean: worst!.candidateMean, incumbent_mean: worst!.incumbentMean, improvement, max_regression: limit, violations };
 }
 /** Compute equal-unit empirical guards; repeated members never inflate evidence minimums. */
 function evaluateCohorts(plan: EvaluationPlan, observations: ReadonlyMap<string, EvaluationObservation>, members: ReadonlyMap<string, string>): CohortReport[] {
@@ -511,7 +520,7 @@ export function evaluatePlan(value: unknown, input: unknown): EvaluationPlanRepo
   const guard = plan.max_unit_regression === undefined ? undefined : evaluateUnitGuard(plan, plan.max_unit_regression, observations, declared);
   const failure = cohorts?.find((cohort) => cohort.code !== null);
   let verdict = aggregate;
-  if (guard !== undefined && guard.violations > 0) verdict = { decision: "refuse", code: "eval_unit_regression", reason: "At least one declared correlation unit exceeded its regression limit." };
+  if (guard !== undefined && guard.violations > 0) verdict = { decision: "refuse", code: "eval_unit_regression", reason: `Correlation unit ${guard.worst_unit} regressed beyond its declared limit: candidate mean ${guard.candidate_mean}, incumbent mean ${guard.incumbent_mean}, bound ${guard.max_regression}.` };
   if (failure !== undefined) verdict = { decision: "refuse", code: failure.code!, reason: "A protected cohort failed its predeclared evidence minimum or nonregression limit." };
   const boundary = plan.stopping.kind === "sequential" ? evaluateSequentialBoundary(plan, groups.size, candidateMean, incumbentMean) : null;
   return validateEvaluationReport(plan, { ...(boundary === null ? {} : { sequential: boundary.sequential }), plan: evaluationPlanId(plan.candidate), comparison: evaluationComparison(plan), observations: input.length, independent_units: groups.size, candidate_mean: candidateReward, incumbent_mean: incumbentReward, verdict: boundary?.verdict ?? verdict, ...(cohorts === undefined ? {} : { aggregate_verdict: aggregate, cohorts }), ...(guard === undefined ? {} : { aggregate_verdict: aggregate, unit_guard: guard }), remedy: boundary?.sequential.state === "continue" ? "Collect only the next declared complete unit prefix, then advance this sealed plan." : (boundary?.verdict ?? verdict).decision === "promote" ? null : "Register a new plan and fresh candidate before collecting a different cohort or making another evaluation look." });
@@ -538,7 +547,7 @@ export function validateEvaluationReport(...args: [plan: EvaluationPlan, report:
   }
   if ((report.cohorts !== undefined && !dense(report.cohorts, 1, 32)) || report.cohorts?.some((cohort) => Math.abs(cohort.improvement) > hi - lo || !validRegression(cohort.max_regression, bounds) || !validCount(cohort.observations) || !validCount(cohort.min_units) || !validCount(cohort.independent_units, cohort.observations))) refuse("eval_plan_evidence");
   const guard = report.unit_guard;
-  if (guard !== undefined && (Math.abs(guard.improvement) > hi - lo || !validRegression(guard.max_regression, bounds) || !Number.isSafeInteger(guard.violations) || guard.violations < 0 || guard.violations > report.independent_units)) refuse("eval_plan_evidence");
+  if (guard !== undefined && (Math.abs(guard.improvement) > hi - lo || guard.candidate_mean < lo || guard.candidate_mean > hi || guard.incumbent_mean < lo || guard.incumbent_mean > hi || !validRegression(guard.max_regression, bounds) || !Number.isSafeInteger(guard.violations) || guard.violations < 0 || guard.violations > report.independent_units)) refuse("eval_plan_evidence");
   return report;
 }
 /** Require predeclaration before all collection runs and unchanged incumbent provenance. */
@@ -686,5 +695,8 @@ export async function enforceEvaluationDecision(client: PmClient, candidate: str
 /** Keep promotion score bindings identical for fixed and sequential evidence. */
 function verifyEvaluationScore(registered: RegisteredEvaluationPlan, report: EvaluationPlanReport, score: ScoreRecord, prefix: string): void {
   if (score.objective !== registered.plan.objective || score.objective_version !== registered.plan.objective_version || canonicalizeEvaluationContext(score.evaluation_context, prefix) !== canonicalizeEvaluationContext(registered.plan.evaluation_context, prefix) || score.direction !== registered.plan.direction || score.seed_set !== registered.comparison || score.scale !== registered.plan.reward_bounds[1] - registered.plan.reward_bounds[0] || score.value !== report.candidate_mean) refuse("eval_plan_evidence");
-  if (report.verdict.decision !== "promote") refuse(report.verdict.code === "eval_unit_regression" || report.verdict.code === "eval_cohort_samples" || report.verdict.code === "eval_cohort_regression" ? report.verdict.code : "eval_plan_refused");
+  if (report.verdict.decision !== "promote") {
+    if (report.verdict.code === "eval_unit_regression") refuseUnitRegression(registered.id, report.unit_guard!);
+    refuse(report.verdict.code === "eval_cohort_samples" || report.verdict.code === "eval_cohort_regression" ? report.verdict.code : "eval_plan_refused");
+  }
 }

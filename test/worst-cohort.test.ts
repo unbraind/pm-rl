@@ -9,7 +9,7 @@ import { after, test } from "node:test";
 import { PmClient, type GetResult } from "@unbrained/pm-cli/sdk/core";
 import { init, isPmCliExpectedError } from "@unbrained/pm-cli/sdk/runtime";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import extension, { generationProvenance, hashJson, readCompleteLoopItem, type RlCommandResult } from "../index.ts";
+import extension, { RL_COMMANDS, generationProvenance, hashJson, readCompleteLoopItem, type RlCommandResult } from "../index.ts";
 import { validateEvaluationReport, parseEvaluationPlan, evaluationComparison, evaluatePlan, registerEvaluationPlan, readEvaluationPlan, recordPlanEvaluation, enforceEvaluationPlan, type EvaluationPlan, type EvaluationObservation } from "../evaluation-plan.ts";
 import type { GenerationSpec, ScoreRecord } from "../lineage.ts";
 
@@ -167,7 +167,8 @@ test("per-unit guard seals exact paired means, stable ties and inclusive toleran
   const { aggregate, guarded, expanded, observations, regressed } = unitGuardStudy(design().incumbent_version);
   assert.equal(evaluatePlan(aggregate, observations).verdict.decision, "promote");
   const report = evaluatePlan(guarded, observations);
-  assert.deepEqual(report.unit_guard, { worst_unit: regressed, improvement: -1, max_regression: 0, violations: 1 });
+  assert.deepEqual(report.unit_guard, { worst_unit: regressed, candidate_mean: 0, incumbent_mean: 1, improvement: -1, max_regression: 0, violations: 1 });
+  assert.match(report.verdict.reason!, new RegExp(`Correlation unit ${regressed} regressed beyond its declared limit: candidate mean 0, incumbent mean 1, bound 0\\.`));
   assert.equal(report.verdict.decision, "refuse");
   assert.equal(evaluatePlan(expanded, observations).verdict.decision, "refuse");
   assert.equal(evaluatePlan({ ...guarded, ...expanded }, observations).cohorts?.find(c => c.code)?.id, regressed);
@@ -181,7 +182,7 @@ test("per-unit guard seals exact paired means, stable ties and inclusive toleran
   const largeMembers = Array.from({ length: 10_000 }, (_, i) => ({ id: `sample-${i}`, unit: `workflow-${i}` }));
   const large = { ...guarded, members: largeMembers, stopping: { kind: "fixed", observations: 10_000, independent_units: 10_000 } };
   const largeRows = largeMembers.map(({ id }, i) => ({ id, candidate: i === 9999 ? 0 : 1, incumbent: i === 9999 ? 1 : 0 }));
-  assert.deepEqual(evaluatePlan(large, largeRows).unit_guard, { worst_unit: "workflow-9999", improvement: -1, max_regression: 0, violations: 1 });
+  assert.deepEqual(evaluatePlan(large, largeRows).unit_guard, { worst_unit: "workflow-9999", candidate_mean: 0, incumbent_mean: 1, improvement: -1, max_regression: 0, violations: 1 });
 
   // Sort member labels in the opposite order to tied unit labels. An individual
   // member loses 0.3, but the paired unit average is precisely -0.1.
@@ -196,7 +197,7 @@ test("per-unit guard seals exact paired means, stable ties and inclusive toleran
     assert.equal(equal.verdict.decision, "refuse"); // Independent aggregate evidence minimum.
     assert.equal(evaluatePlan({ ...plan, max_unit_regression: 0.09999999999999999 }, scores).unit_guard?.violations, 2);
   }
-  for (const invalid of [{ improvement: 2 }, { max_regression: -1 }, { violations: 1.5 }, { violations: -1 }, { violations: 33 }]) {
+  for (const invalid of [{ improvement: 2 }, { candidate_mean: 2 }, { candidate_mean: -1 }, { candidate_mean: NaN }, { incumbent_mean: 2 }, { incumbent_mean: -1 }, { incumbent_mean: Infinity }, { max_regression: -1 }, { violations: 1.5 }, { violations: -1 }, { violations: 33 }]) {
     assert.throws(() => validateEvaluationReport({ ...report, unit_guard: { ...report.unit_guard!, ...invalid } }, guarded.reward_bounds), refused("eval_plan_evidence"));
   }
 });
@@ -258,12 +259,81 @@ test("per-unit guard refuses a masked workflow loss through promotion and preser
     const held = score(plan, report.candidate_mean);
     const options = { approval: approval.item.id, evidence: "Sealed downstream workflow comparison", scores: file("scores.json", { held_out_score: held, proxy_score: { ...held, evaluation_context: "proxy" } }) };
     if (failing) {
-      await assert.rejects(command("rl generation promote", [candidateId], options), refused("eval_unit_regression"));
+      await assert.rejects(command("rl generation promote", [candidateId], options), (error: unknown): boolean => isPmCliExpectedError(error)
+        && error.context.code === "eval_unit_regression"
+        && error.context.item_id === plan.candidate.concat("-evaluation-plan")
+        && error.message.includes(`Correlation unit ${regressed} regressed beyond its declared bound: candidate mean 0, incumbent mean 1, bound 0, 1 unit(s) in breach.`)
+        && /fresh candidate/.test(error.message));
       assert.equal((await command("rl generation show", [candidateId])).details?.promoted, false);
     } else {
       assert.equal((await command("rl generation promote", [candidateId], options)).details?.budget_consumed, 1);
     }
   }
+});
+
+test("decision table: guard presence, completeness, outcome, direction and plan state decide exactly", async () => {
+  const { protected_cohorts: _cohorts, ...legacy } = design("rl-table");
+  assert.equal(Object.hasOwn(legacy, "protected_cohorts"), false);
+  /** Scores whose signed improvement matches the outcome in the given objective direction. */
+  function evidence(outcome: "improved" | "equal" | "regressed", direction: "maximize" | "minimize"): EvaluationObservation[] {
+    const better = direction === "maximize" ? 1 : 0; const worse = direction === "maximize" ? 0 : 1;
+    return legacy.members.map((member, index) => outcome === "equal" ? { id: member.id, candidate: 0.5, incumbent: 0.5 }
+      : outcome === "improved" ? { id: member.id, candidate: better, incumbent: worse }
+        : { id: member.id, candidate: index === 0 ? worse : better, incumbent: index === 0 ? better : worse });
+  }
+  const guard = { ...legacy, max_unit_regression: 0 };
+  const stopped = { kind: "sequential", method: "hoeffding-alpha-spending/1", observations: 100, independent_units: 100, unit_order: legacy.members.map((member) => member.unit), looks: [50, 100], review: "rl-table-review" } as const;
+  const sequential = parseEvaluationPlan({ ...legacy, stopping: stopped });
+  assert.equal(sequential.stopping.kind, "sequential");
+  // A changed guard bound is a changed design: new comparison digest, drift at the sealed reservation.
+  assert.notEqual(evaluationComparison({ ...guard, max_unit_regression: 0.5 }), evaluationComparison(guard));
+  const w = await workspace();
+  await registerEvaluationPlan(w.client, guard);
+  await assert.rejects(registerEvaluationPlan(w.client, { ...guard, max_unit_regression: 0.5 }), refused("eval_plan_drift"));
+  assert.throws(() => parseEvaluationPlan({ ...guard, stopping: stopped }), refused("eval_plan_stopping"));
+  for (const direction of ["maximize", "minimize"] as const) for (const guarded of [false, true]) for (const complete of [true, false]) for (const outcome of ["improved", "equal", "regressed"] as const) {
+    const plan = guarded ? { ...guard, direction } : { ...legacy, direction };
+    const rows = evidence(outcome, direction);
+    const input = complete ? rows : rows.slice(0, -1);
+    const kind = `${guarded ? "guard" : "legacy"} ${complete ? "complete" : "incomplete"} ${outcome} ${direction}`;
+    if (!complete) { assert.throws(() => evaluatePlan(plan, input), refused("eval_plan_stopping")); continue; }
+    const report = evaluatePlan(plan, input);
+    const aggregateCode = "code" in report.verdict ? report.verdict.code : undefined;
+    assert.equal(report.independent_units, 100, kind);
+    if (!guarded) {
+      assert.equal(Object.hasOwn(report, "unit_guard"), false, kind);
+      // Masking: the legacy comparison promotes a candidate whose unit-0 regressed.
+      assert.equal(report.verdict.decision, outcome === "equal" ? "refuse" : "promote", kind);
+      assert.equal(aggregateCode === "no_statistical_improvement", outcome === "equal", kind);
+      continue;
+    }
+    assert.deepEqual(Object.keys(report.unit_guard!).sort(), ["candidate_mean", "improvement", "incumbent_mean", "max_regression", "violations", "worst_unit"]);
+    assert.equal(report.unit_guard!.worst_unit, "unit-0", kind);
+    const better = direction === "maximize" ? 1 : 0;
+    if (outcome === "improved") {
+      assert.deepEqual(report.unit_guard!.candidate_mean === better && report.unit_guard!.incumbent_mean === 1 - better && report.unit_guard!.violations === 0, true, kind);
+      assert.equal(report.verdict.decision, "promote", kind);
+    } else if (outcome === "equal") {
+      assert.deepEqual([report.unit_guard!.candidate_mean, report.unit_guard!.incumbent_mean], [0.5, 0.5], kind);
+      assert.equal(report.unit_guard!.violations, 0, kind);
+      assert.equal(report.verdict.decision, "refuse", kind);
+      assert.equal(aggregateCode, "no_statistical_improvement", kind);
+    } else {
+      assert.deepEqual([report.unit_guard!.candidate_mean, report.unit_guard!.incumbent_mean], [1 - better, better], kind);
+      assert.equal(report.unit_guard!.violations, 1, kind);
+      assert.equal(report.verdict.decision, "refuse", kind);
+      assert.equal(aggregateCode, "eval_unit_regression", kind);
+      assert.match(report.verdict.reason!, new RegExp(`Correlation unit unit-0 regressed beyond its declared limit: candidate mean ${1 - better}, incumbent mean ${better}, bound 0\\.`), kind);
+      assert.equal(report.aggregate_verdict?.decision, "promote", kind);
+    }
+  }
+});
+
+test("the CLI help surface names the per-unit regression guard at registration, evaluation and promotion", () => {
+  const description = (name: string): string => RL_COMMANDS.find((command) => command.name === name)!.description;
+  assert.match(description("rl eval plan register"), /per-unit regression limit/);
+  assert.match(description("rl eval plan evaluate"), /per-unit regression guardrails/);
+  assert.match(description("rl generation promote"), /sealed evaluation verdict/);
 });
 
 test("500 seeded operation sequences replay normalized declarations and evidence against an SDK-read reference model", { timeout: testTime(600_000) }, async () => {
