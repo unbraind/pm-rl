@@ -96,11 +96,15 @@ try {
   const environment = (JSON.parse(command(["rl", "env", "register", "--file", file("env.json", { name: "Synthetic training", version: "1", task_suite: ["train"], reward_specification: { reward: 1 } }), "--json"])) as RlCommandResult).id!;
   await client.create({ id: "rl-approval", type: "Decision", title: "One synthetic promotion", body: '```json\n{"permitted_promotions":1}\n```', unset: ["parent"] });
   const reports: Record<string, EvaluationPlanReport> = {};
+  const comparisons: Record<string, unknown> = {};
+  const declarations: Record<string, string> = {};
   const cliBytes: Record<string, number> = {};
   for (const [candidate, plan] of Object.entries(plans)) {
     const rows = candidate === "rl-guarded-min" ? mirrored : observations;
+    declarations[candidate] = JSON.stringify(plan);
     const registered = JSON.parse(command(["rl", "eval", "plan", "register", "--file", file(`${candidate}-plan.json`, plan), "--json"])) as RlCommandResult;
     assert.equal(registered.details?.max_unit_regression, plan.max_unit_regression ?? undefined);
+    comparisons[candidate] = registered.details?.comparison;
     assert.equal((JSON.parse(command(["rl", "eval", "plan", "show", candidate, "--json"])) as RlCommandResult).details?.max_unit_regression, plan.max_unit_regression ?? undefined);
     const run = `${candidate}-collection`;
     command(["rl", "run", "start", run, "--environment", environment, "--algorithm", "bandit", "--json"]);
@@ -138,14 +142,20 @@ try {
   const compactRefusal = /What happened:\n\s+(Evaluation plan refused \(eval_unit_regression\)\.[\s\S]*?reviewed stopping protocol\.)/.exec(guardedRefusal)?.[1];
   assert.ok(compactRefusal !== undefined, "the CLI must render the complete typed refusal in one call");
   const refusalTokens = tokens(compactRefusal);
-  // Count the plans exactly as sealed for this replay (candidate overrides included), never a lookalike fixture plan.
-  const rawPlanTokens = tokens(JSON.stringify(plans["rl-guarded"]));
+  // Count only plans exactly as sealed for this replay, refusing any lookalike fixture plan.
+  function sealedTokens(candidate: string): number {
+    const plan = plans[candidate];
+    assert.equal(evaluatePlan(plan, candidate === "rl-guarded-min" ? mirrored : observations).comparison, comparisons[candidate], `measured plan must be the sealed plan for ${candidate}`);
+    assert.equal(declarations[candidate], JSON.stringify(plan), `measured declaration must be the registered file for ${candidate}`);
+    return tokens(declarations[candidate]);
+  }
+  const rawPlanTokens = sealedTokens("rl-guarded");
   const rawObservationsTokens = tokens(JSON.stringify(observations));
   const rawTokens = rawPlanTokens + rawObservationsTokens;
-  const equivalent = (plan: EvaluationPlan, report: EvaluationPlanReport): { plan_tokens: number; report_tokens: number; verdict: string } => ({ plan_tokens: tokens(JSON.stringify(plan)), report_tokens: tokens(JSON.stringify(report)), verdict: report.verdict.decision });
-  const aggregate = equivalent(plans["rl-aggregate"], reports["rl-aggregate"]);
-  const guarded = equivalent(plans["rl-guarded"], reports["rl-guarded"]);
-  const cohort = equivalent(plans["rl-cohort"], reports["rl-cohort"]);
+  const equivalent = (candidate: string, report: EvaluationPlanReport): { plan_tokens: number; report_tokens: number; verdict: string } => ({ plan_tokens: sealedTokens(candidate), report_tokens: tokens(JSON.stringify(report)), verdict: report.verdict.decision });
+  const aggregate = equivalent("rl-aggregate", reports["rl-aggregate"]);
+  const guarded = equivalent("rl-guarded", reports["rl-guarded"]);
+  const cohort = equivalent("rl-cohort", reports["rl-cohort"]);
   assert.equal(reports["rl-aggregate"].verdict.decision, "promote");
   assert.ok(Math.abs(reports["rl-aggregate"].candidate_mean - 0.96875) < 1e-9);
   assert.equal(reports["rl-guarded"].aggregate_verdict?.decision, "promote");
