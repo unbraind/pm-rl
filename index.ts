@@ -2781,7 +2781,7 @@ export async function readApprovalSpec(client: PmClient, approvalId: string): Pr
   return { ...parseApprovalSpec(approvalFenced, `Approval ${approvalId}`), id, snapshot: approval };
 }
 
-/** Promote a candidate generation after its sealed evaluation verdict, contamination and budget checks pass; a per-unit regression breach is refused with both scores, the bound and the remedy. */
+/** Promote a candidate generation after contamination and budget checks pass; a sealed evaluation plan, when registered, is enforced with its aggregate, cohort and per-unit regression verdicts. */
 async function promoteGeneration(context: CommandHandlerContext): Promise<RlCommandResult> {
   const requestedId = requiredArgument(context, "a generation id");
   // Already trimmed: `stringOption` returns `value.trim()`. The normalization
@@ -5917,7 +5917,7 @@ export const RL_COMMANDS = [
     { long: "--environment", value_name: "id", value_type: "string", description: "Environment item id used by the collection runs (required for non-seed)." },
     { long: "--config-file", value_name: "path", value_type: "string", description: "Optional JSON training configuration." },
   ], run: registerGeneration }),
-  defineCommand({ name: "rl generation promote", description: "Promote a candidate generation after its sealed evaluation verdict, contamination and budget checks pass.", arguments: [{ name: "id", required: true, description: "Generation item id." }], flags: [
+  defineCommand({ name: "rl generation promote", description: "Promote a candidate generation after contamination and budget checks pass; a sealed evaluation plan, when registered, is enforced with its per-unit regression guard.", arguments: [{ name: "id", required: true, description: "Generation item id." }], flags: [
     { long: "--approval", value_name: "id", value_type: "string", required: true, description: "Approval Decision item id stating the permitted promotion count." },
     { long: "--scores", value_name: "path", value_type: "string", required: true, description: "JSON file with proxy_score and held_out_score records." },
     { long: "--evidence", value_name: "text", value_type: "string", required: true, description: "Human-readable promotion evidence." },

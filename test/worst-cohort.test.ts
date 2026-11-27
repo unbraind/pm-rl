@@ -394,7 +394,8 @@ test("the CLI help surface names the per-unit regression guard at registration, 
   const description = (name: string): string => RL_COMMANDS.find((command) => command.name === name)!.description;
   assert.match(description("rl eval plan register"), /per-unit regression limit/);
   assert.match(description("rl eval plan evaluate"), /per-unit regression guardrails/);
-  assert.match(description("rl generation promote"), /sealed evaluation verdict/);
+  assert.match(description("rl generation promote"), /sealed evaluation plan, when registered, is enforced/);
+  assert.doesNotMatch(description("rl generation promote"), /sealed evaluation verdict/);
 });
 
 test("500 seeded operation sequences replay normalized declarations and evidence against an SDK-read reference model", { timeout: testTime(600_000) }, async () => {
