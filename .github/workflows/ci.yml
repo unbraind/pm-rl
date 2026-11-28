@@ -230,7 +230,7 @@ jobs:
           env PATH="$PWD/node_modules/.bin:$PATH" HOME="$gate_home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 node scripts/coverage-gate.ts --shard ${{ matrix.shard }}/4
       - name: Upload raw coverage hits
         if: steps.changes.outputs.code == 'true'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-26-${{ matrix.shard }}
           path: coverage/shard-${{ matrix.shard }}-of-4
